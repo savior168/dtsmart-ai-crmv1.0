@@ -12,9 +12,11 @@ import {
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
+  Settings,
   ShieldCheck,
   Sparkles,
   UserCheck,
+  UserCircle,
   UsersRound,
   X,
 } from "lucide-react";
@@ -48,7 +50,11 @@ const menu: MenuItem[] = [
   {
     label: "系统管理",
     icon: Database,
-    children: [{ label: "Supabase检测", href: "/supabase-test", icon: Database }],
+    children: [
+      { label: "我的", href: "/profile", icon: UserCircle },
+      { label: "设置", href: "/settings", icon: Settings },
+      { label: "Supabase检测", href: "/supabase-test", icon: Database },
+    ],
   },
 ];
 
@@ -58,6 +64,8 @@ const routeTitles: Record<string, string> = {
   "/import": "导入客户",
   "/ai-screening": "AI客户筛选",
   "/reports": "销售报表",
+  "/profile": "我的",
+  "/settings": "设置",
   "/supabase-test": "Supabase检测",
 };
 
@@ -124,6 +132,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     : findBreadcrumb(menu, pathname);
   const title = pathname.startsWith("/customers/") ? "客户详情CRM" : routeTitles[pathname] || "业务页面";
 
+  function logout() {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch {}
+    router.push("/login");
+  }
+
   return (
     <div className="min-h-screen bg-[#080b13] text-slate-100 lg:flex">
       <aside className="z-40 border-b border-white/10 bg-[#070b12] p-4 lg:fixed lg:inset-y-0 lg:left-0 lg:block lg:w-72 lg:border-b-0 lg:border-r lg:p-5">
@@ -156,7 +172,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
               <h1 className="mt-1 truncate text-lg font-semibold text-white">{title}</h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => router.back()} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/[.06] hover:text-white">
                 <PanelLeftClose size={16} />
                 返回上一页
@@ -169,10 +185,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <X size={16} />
                 关闭
               </button>
-              <Link href="/login" className="inline-flex items-center gap-2 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-200 hover:bg-rose-400/15">
+              <Link href="/profile" className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/[.06] hover:text-white">
+                <UserCircle size={16} />
+                我的
+              </Link>
+              <Link href="/settings" className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/[.06] hover:text-white">
+                <Settings size={16} />
+                设置
+              </Link>
+              <button onClick={logout} className="inline-flex items-center gap-2 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-200 hover:bg-rose-400/15">
                 <LogOut size={16} />
                 退出
-              </Link>
+              </button>
             </div>
           </div>
         </header>
