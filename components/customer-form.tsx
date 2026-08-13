@@ -1,0 +1,15 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+import type { Customer } from "@/lib/types";
+import { CUSTOMER_STATUSES } from "@/lib/types";
+
+export function CustomerForm({ customer, onDone, onCancel }: { customer?: Customer | null; onDone: () => void; onCancel: () => void }) {
+  const [form, setForm] = useState<Record<string, string>>({
+    company_name: customer?.company_name || "", contact_name: customer?.contact_name || "", country: customer?.country || "", phone: customer?.phone || "", whatsapp: customer?.whatsapp || "", email: customer?.email || "", website: customer?.website || "", google_url: customer?.google_url || "", address: customer?.address || "", industry: customer?.industry || "", category: customer?.category || "", source: customer?.source || "", tags: customer?.tags?.join(",") || "", ai_score: String(customer?.ai_score ?? ""), ai_level: customer?.ai_level || "", status: customer?.status || "UNCLAIMED",
+  });
+  const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
+  const fields = [["company_name","公司名称*"],["contact_name","联系人"],["country","国家"],["phone","电话"],["whatsapp","WhatsApp"],["email","邮箱"],["website","官网"],["google_url","Google网址"],["address","地址"],["industry","行业"],["category","分类"],["source","来源"],["tags","标签（逗号分隔）"],["ai_score","AI评分"],["ai_level","AI等级"]];
+  async function submit(e: FormEvent) { e.preventDefault(); setSaving(true); setError(""); const payload = { ...form, tags: form.tags.split(/[,，]/).map(x=>x.trim()).filter(Boolean), ai_score: form.ai_score ? Number(form.ai_score) : null }; const response = await fetch(customer ? `/api/customers/${customer.id}` : "/api/customers", { method: customer ? "PATCH" : "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify(payload) }); const result = await response.json(); setSaving(false); if(!response.ok) return setError(result.error || "保存失败"); onDone(); }
+  return <form onSubmit={submit} className="space-y-5"><div className="grid gap-4 sm:grid-cols-2">{fields.map(([key,label])=><label key={key} className={key==="address"?"sm:col-span-2":""}><span className="mb-1.5 block text-xs text-slate-400">{label}</span><input required={key==="company_name"} type={key==="email"?"email":key==="ai_score"?"number":"text"} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})} className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 outline-none focus:border-indigo-400"/></label>)}</div><label><span className="mb-1.5 block text-xs text-slate-400">状态</span><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})} className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5">{CUSTOMER_STATUSES.map(s=><option key={s}>{s}</option>)}</select></label>{error&&<p className="text-sm text-rose-300">{error}</p>}<div className="flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-xl border border-white/10 px-4 py-2">取消</button><button disabled={saving} className="rounded-xl bg-indigo-500 px-5 py-2 font-medium disabled:opacity-50">{saving?"保存中…":"保存客户"}</button></div></form>
+}

@@ -1,0 +1,13 @@
+/node_modules
+/.next
+/out
+.env*
+!.env.example
+!.env.local.example
+!.env.production.example
+*.log
+.DS_Store
+/.vercel
+/.pnpm-store
+/outputs
+/work

@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: #eff4ff;
+  background:
+    radial-gradient(circle at 14% -10%, rgba(84, 105, 255, .22), transparent 32rem),
+    radial-gradient(circle at 90% 18%, rgba(31, 218, 163, .10), transparent 28rem),
+    #080b13;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+::selection { background: #6d73ff; color: white; }
