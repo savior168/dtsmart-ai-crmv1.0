@@ -16,3 +16,81 @@ button { cursor:pointer; }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid var(--crm-primary); outline-offset:2px; }
 ::selection { background:var(--crm-primary); color:white; }
 * { scrollbar-color:#cbd5e1 transparent; scrollbar-width:thin; }
+
+@keyframes tradeos-auth-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(28px, -34px, 0) scale(1.08); }
+}
+
+@keyframes tradeos-auth-grid-drift {
+  from { transform: perspective(700px) rotateX(61deg) translateY(0); }
+  to { transform: perspective(700px) rotateX(61deg) translateY(48px); }
+}
+
+.tradeos-auth-shell {
+  isolation: isolate;
+  position: relative;
+  background:
+    radial-gradient(circle at 24% 24%, rgba(37, 99, 235, .42), transparent 32%),
+    radial-gradient(circle at 62% 74%, rgba(109, 40, 217, .3), transparent 36%),
+    linear-gradient(145deg, #061225 0%, #0a2450 48%, #101a3a 100%);
+}
+
+.tradeos-auth-shell::before {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  content: "";
+  background:
+    linear-gradient(115deg, transparent 0 42%, rgba(255,255,255,.035) 42.2% 42.5%, transparent 42.7%),
+    linear-gradient(25deg, transparent 0 70%, rgba(96,165,250,.06) 70.2% 70.5%, transparent 70.7%);
+}
+
+.tradeos-auth-orb {
+  position: absolute;
+  z-index: -1;
+  border-radius: 999px;
+  filter: blur(10px);
+  opacity: .7;
+  animation: tradeos-auth-float 13s ease-in-out infinite;
+}
+
+.tradeos-auth-orb-one {
+  left: 8%;
+  top: 14%;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle at 30% 30%, rgba(56,189,248,.5), rgba(37,99,235,.08) 65%, transparent 70%);
+}
+
+.tradeos-auth-orb-two {
+  bottom: 1%;
+  left: 38%;
+  width: 430px;
+  height: 430px;
+  background: radial-gradient(circle at 35% 35%, rgba(139,92,246,.38), rgba(30,64,175,.06) 65%, transparent 70%);
+  animation-delay: -6s;
+  animation-direction: reverse;
+}
+
+.tradeos-auth-grid {
+  position: absolute;
+  z-index: -1;
+  right: 32%;
+  bottom: -54%;
+  width: 95%;
+  height: 100%;
+  opacity: .18;
+  background-image:
+    linear-gradient(rgba(147,197,253,.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(147,197,253,.35) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: tradeos-auth-grid-drift 10s linear infinite;
+  transform-origin: bottom center;
+  mask-image: linear-gradient(to top, black, transparent 78%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tradeos-auth-orb,
+  .tradeos-auth-grid { animation: none; }
+}
