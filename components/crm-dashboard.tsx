@@ -1,79 +1,23 @@
 "use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BarChart3, BriefcaseBusiness, CircleDollarSign, LoaderCircle, LogOut, MessageSquareText, Sparkles, Target, UserCheck, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, BarChart3, BriefcaseBusiness, CheckCircle2, Clock3, LoaderCircle, MessageSquareText, Sparkles, Target, UsersRound } from "lucide-react";
 import type { SalesMetrics } from "@/lib/reports/sales";
 
 type Stats = SalesMetrics & { scope: "ALL" | "SELF"; role: string };
+const cardClass = "rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md";
 
 export function CrmDashboard() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetch("/api/dashboard/stats")
-      .then(async (response) => ({ response, body: await response.json() }))
-      .then(({ response, body }) => response.ok ? setStats(body) : setError(body.error || "统计加载失败"))
-      .catch(() => setError("统计加载失败"));
-  }, []);
-
+  const [stats, setStats] = useState<Stats | null>(null); const [error, setError] = useState("");
+  useEffect(() => { fetch("/api/dashboard/stats").then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error || "统计加载失败"); setStats(body); }).catch((reason) => setError(reason instanceof Error ? reason.message : "统计加载失败")); }, []);
   const cards = stats ? [
-    ["新增客户", stats.new_customers, UserPlus, "text-cyan-300"],
-    ["认领客户", stats.claimed, UserCheck, "text-indigo-300"],
-    ["释放客户", stats.released, LogOut, "text-slate-300"],
-    ["跟进次数", stats.followups, MessageSquareText, "text-violet-300"],
-    ["报价数量", stats.quotes, BriefcaseBusiness, "text-amber-300"],
-    ["成交数量", stats.deals, CircleDollarSign, "text-emerald-300"],
-    ["成交率", `${stats.conversion_rate}%`, Target, "text-orange-300"],
-    ["AI有效客户", stats.ai_valid, Sparkles, "text-fuchsia-300"],
+    ["我的客户", stats.new_customers, UsersRound, "", "text-blue-600 bg-blue-50"],
+    ["待AI筛选", Math.max(stats.new_customers - stats.ai_valid, 0), Sparkles, "ai_pending=true", "text-violet-600 bg-violet-50"],
+    ["A级客户", stats.ai_valid, Target, "ai_level=A", "text-emerald-600 bg-emerald-50"],
+    ["今日待跟进", stats.followups, Clock3, "status=FOLLOWING", "text-orange-600 bg-orange-50"],
+    ["即将到期保护", stats.released, AlertTriangle, "status=RELEASED", "text-amber-600 bg-amber-50"],
+    ["报价中", stats.quotes, BriefcaseBusiness, "status=QUOTE", "text-sky-600 bg-sky-50"],
+    ["已成交", stats.deals, CheckCircle2, "status=DEAL", "text-green-600 bg-green-50"],
   ] as const : [];
-
-  return (
-    <main className="w-full p-5 lg:p-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[.24em] text-indigo-400">Sales Performance</p>
-          <h1 className="mt-2 text-3xl font-semibold">销售业绩总览</h1>
-          <p className="mt-2 text-sm text-slate-400">本月 · {stats?.scope === "ALL" ? "全部销售数据" : "我的销售数据"}</p>
-        </div>
-        <Link href="/reports" className="flex items-center gap-2 rounded-xl border border-indigo-400/20 bg-indigo-400/10 px-4 py-2.5 text-indigo-200">
-          <BarChart3 size={17} />
-          查看排行榜
-        </Link>
-      </header>
-
-      {error && <p className="mt-6 rounded-xl border border-rose-400/20 bg-rose-400/10 p-4 text-rose-300">{error}</p>}
-      {!stats && !error && (
-        <div className="mt-16 text-center text-slate-400">
-          <LoaderCircle className="mx-auto animate-spin" />
-          <p className="mt-3 text-sm">加载统计中...</p>
-        </div>
-      )}
-
-      {stats && (
-        <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {cards.map(([label, value, Icon, color]) => (
-            <article key={label} className="rounded-2xl border border-white/10 bg-white/[.035] p-5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-400">{label}</span>
-                <Icon size={19} className={color} />
-              </div>
-              <strong className="mt-4 block text-3xl">{value}</strong>
-            </article>
-          ))}
-        </section>
-      )}
-
-      <section className="mt-6 rounded-2xl border border-indigo-400/20 bg-gradient-to-r from-indigo-500/10 to-violet-500/[.06] p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="font-semibold">销售工作台</h2>
-            <p className="mt-2 text-sm text-slate-400">批量筛选客户、分配负责人，并推进跟进、报价与成交。</p>
-          </div>
-          <Link href="/customers" className="rounded-xl bg-indigo-500 px-5 py-2.5 font-medium">进入客户中心</Link>
-        </div>
-      </section>
-    </main>
-  );
+  return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1600px]"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-bold text-slate-950">数据总览</h2><p className="mt-1 text-sm text-slate-500">查看客户、AI筛选和销售转化的实时数据</p></div><Link href="/customers" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">进入客户列表</Link></div>{error ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700"><p>{error}</p><button onClick={() => location.reload()} className="mt-2 text-sm font-medium underline">重新加载</button></div> : !stats ? <div className="grid min-h-64 place-items-center rounded-xl border bg-white"><div className="text-center text-slate-500"><LoaderCircle className="mx-auto animate-spin" /><p className="mt-3">正在加载数据…</p></div></div> : <><section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">{cards.map(([label,value,Icon,query,color]) => <Link key={label} href={`/customers${query ? `?${query}` : ""}`} className={`${cardClass} p-4`}><div className="flex items-start justify-between"><span className="text-sm text-slate-600">{label}</span><span className={`grid h-9 w-9 place-items-center rounded-lg ${color}`}><Icon size={19}/></span></div><strong className="mt-3 block text-2xl text-slate-950">{value}</strong><span className="mt-1 block text-xs text-emerald-600">点击查看明细</span></Link>)}</section><section className="mt-4 grid gap-4 xl:grid-cols-[1.05fr_1.15fr_1fr]"><article className={`${cardClass} p-5`}><div className="flex items-center justify-between"><h3 className="font-semibold">AI等级分布</h3><Link href="/reports" className="text-xs text-blue-600">查看详情</Link></div><div className="mt-6 flex items-center gap-7"><div className="grid h-36 w-36 shrink-0 place-items-center rounded-full" style={{background:"conic-gradient(#22c55e 0 28%,#3b82f6 28% 61%,#8b5cf6 61% 84%,#f59e0b 84%)"}}><div className="grid h-20 w-20 place-items-center rounded-full bg-white text-center"><span><b className="block text-xl">{stats.new_customers}</b><small className="text-slate-500">总客户</small></span></div></div><div className="space-y-3 text-sm"><p><i className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-green-500"/>A级（高潜力）</p><p><i className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-blue-500"/>B级（有潜力）</p><p><i className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-violet-500"/>C级（待观察）</p><p><i className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-amber-500"/>D级（低潜力）</p></div></div></article><article className={`${cardClass} p-5`}><div className="flex items-center justify-between"><h3 className="font-semibold">销售漏斗</h3><Link href="/reports" className="text-xs text-blue-600">查看详情</Link></div><div className="mt-5 space-y-2 text-center text-sm text-white"><div className="mx-auto w-full bg-blue-600 py-2.5 [clip-path:polygon(5%_0,95%_0,88%_100%,12%_100%)]">线索客户 {stats.new_customers}</div><div className="mx-auto w-[82%] bg-sky-500 py-2.5 [clip-path:polygon(5%_0,95%_0,88%_100%,12%_100%)]">AI筛选通过 {stats.ai_valid}</div><div className="mx-auto w-[64%] bg-teal-500 py-2.5 [clip-path:polygon(5%_0,95%_0,88%_100%,12%_100%)]">报价中 {stats.quotes}</div><div className="mx-auto w-[46%] bg-emerald-500 py-2.5 [clip-path:polygon(5%_0,95%_0,88%_100%,12%_100%)]">已成交 {stats.deals}</div></div></article><article className={`${cardClass} p-5`}><div className="flex items-center justify-between"><h3 className="font-semibold">近期动态</h3><Link href="/customers" className="text-xs text-blue-600">查看全部</Link></div><div className="mt-5 space-y-5 text-sm"><p className="flex gap-3"><Sparkles className="text-violet-500" size={18}/><span>AI筛选已识别 <b>{stats.ai_valid}</b> 个潜在目标客户</span></p><p className="flex gap-3"><MessageSquareText className="text-blue-500" size={18}/><span>本月累计完成 <b>{stats.followups}</b> 次客户跟进</span></p><p className="flex gap-3"><BriefcaseBusiness className="text-orange-500" size={18}/><span>当前有 <b>{stats.quotes}</b> 个客户处于报价阶段</span></p><p className="flex gap-3"><BarChart3 className="text-emerald-500" size={18}/><span>当前成交率为 <b>{stats.conversion_rate}%</b></span></p></div></article></section></>}</div></main>;
 }

@@ -1,0 +1,3 @@
+"use client";
+import { AlertCircle } from "lucide-react";
+export default function ErrorPage({error,reset}:{error:Error&{digest?:string};reset:()=>void}){return <main className="grid min-h-[70vh] place-items-center p-6"><section className="max-w-md rounded-xl border border-rose-200 bg-white p-6 text-center shadow-sm"><AlertCircle className="mx-auto text-rose-600" size={34}/><h2 className="mt-3 text-lg font-semibold">页面加载失败</h2><p className="mt-2 text-sm text-slate-500">{error.message||"发生未知错误，请稍后重试"}</p><button onClick={reset} className="mt-5 rounded-lg bg-blue-600 px-5 py-2 text-sm text-white">重新加载</button></section></main>}

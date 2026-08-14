@@ -7,6 +7,8 @@ export type WebsiteEvidence = {
   text_excerpt?: string;
   image_alts: string[];
   image_urls: string[];
+  emails: string[];
+  phones: string[];
   error?: string;
 };
 
@@ -21,6 +23,7 @@ export type GooglePlaceEvidence = {
   types: string[];
   website?: string;
   phone?: string;
+  emails?: string[];
   reviews: string[];
   error?: string;
 };
@@ -58,6 +61,18 @@ function firstMatch(html: string, pattern: RegExp) {
   return match ? compactText(match[1] || "") : undefined;
 }
 
+function unique(values: string[]) {
+  return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+}
+
+function extractEmails(text: string) {
+  return unique((text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map((email) => email.toLowerCase()));
+}
+
+function extractPhones(text: string) {
+  return unique((text.match(/(?:\+?\d[\d\s\-().]{6,}\d)/g) || []).map((phone) => phone.replace(/\s+/g, " ").trim())).slice(0, 12);
+}
+
 export async function collectWebsiteEvidence(url?: string | null): Promise<WebsiteEvidence | undefined> {
   const normalized = normalizeUrl(url);
   if (!normalized) return undefined;
@@ -74,7 +89,7 @@ export async function collectWebsiteEvidence(url?: string | null): Promise<Websi
     });
     const contentType = response.headers.get("content-type") || "";
     if (!response.ok || !contentType.includes("text/html")) {
-      return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], error: `HTTP ${response.status}` };
+      return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: `HTTP ${response.status}` };
     }
     const html = (await response.text()).slice(0, 350_000);
     const imageUrls = [...html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)]
@@ -91,9 +106,11 @@ export async function collectWebsiteEvidence(url?: string | null): Promise<Websi
       text_excerpt: compactText(html).slice(0, 5000),
       image_alts: matches(html, /<img[^>]+alt=["']([^"']+)["'][^>]*>/gi, 16),
       image_urls: imageUrls,
+      emails: extractEmails(html),
+      phones: extractPhones(compactText(html)),
     };
   } catch (error) {
-    return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], error: error instanceof Error ? error.message : "website fetch failed" };
+    return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: error instanceof Error ? error.message : "website fetch failed" };
   } finally {
     clearTimeout(timeout);
   }
@@ -108,7 +125,7 @@ export async function collectGooglePlaceEvidence(input: {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
-  if (!apiKey) return { configured: false, query, types: [], reviews: [], error: "GOOGLE_MAPS_API_KEY_NOT_CONFIGURED" };
+  if (!apiKey) return { configured: false, query, types: [], reviews: [], emails: [], error: "GOOGLE_MAPS_API_KEY_NOT_CONFIGURED" };
 
   try {
     const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
@@ -122,7 +139,7 @@ export async function collectGooglePlaceEvidence(input: {
     };
     const placeId = searchPayload.results?.[0]?.place_id;
     if (!searchResponse.ok || !placeId) {
-      return { configured: true, query, types: [], reviews: [], error: searchPayload.error_message || searchPayload.status || "PLACE_NOT_FOUND" };
+      return { configured: true, query, types: [], reviews: [], emails: [], error: searchPayload.error_message || searchPayload.status || "PLACE_NOT_FOUND" };
     }
 
     const detailsUrl = new URL("https://maps.googleapis.com/maps/api/place/details/json");
@@ -147,7 +164,7 @@ export async function collectGooglePlaceEvidence(input: {
     };
     const result = detailsPayload.result;
     if (!detailsResponse.ok || !result) {
-      return { configured: true, query, types: [], reviews: [], error: detailsPayload.error_message || detailsPayload.status || "PLACE_DETAILS_NOT_FOUND" };
+      return { configured: true, query, types: [], reviews: [], emails: [], error: detailsPayload.error_message || detailsPayload.status || "PLACE_DETAILS_NOT_FOUND" };
     }
     return {
       configured: true,
@@ -160,10 +177,11 @@ export async function collectGooglePlaceEvidence(input: {
       types: result.types || [],
       website: result.website,
       phone: result.formatted_phone_number,
+      emails: extractEmails([result.website, result.formatted_address, ...(result.reviews || []).map((review) => review.text || "")].join(" ")),
       reviews: (result.reviews || []).map((review) => review.text || "").filter(Boolean).slice(0, 5),
     };
   } catch (error) {
-    return { configured: true, query, types: [], reviews: [], error: error instanceof Error ? error.message : "google place fetch failed" };
+    return { configured: true, query, types: [], reviews: [], emails: [], error: error instanceof Error ? error.message : "google place fetch failed" };
   }
 }
 

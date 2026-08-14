@@ -6,7 +6,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const { supabase, user } = await requireUser();
     const { id } = await context.params;
     const [customerResult, profileResult, followupsResult, claimsResult, protectionResult] = await Promise.all([
-      supabase.from("customers").select("*").eq("id", id).single(),
+      supabase.from("customers").select("*").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single(),
       supabase.from("users").select("id,name,email,role,department_id").eq("id", user.id).single(),
       supabase.from("followups").select("*,creator:users(name,email)").eq("customer_id", id).order("created_at", { ascending: false }),
       supabase.from("customer_claims").select("*").eq("customer_id", id).order("created_at", { ascending: false }),

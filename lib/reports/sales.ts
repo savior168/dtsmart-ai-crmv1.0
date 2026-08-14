@@ -19,7 +19,7 @@ export async function loadSalesReport(supabase: Client, authUserId: string, from
     new_customers: Number(row.new_customers || 0), claimed: Number(row.claimed || 0), released: Number(row.released || 0),
     followups: Number(row.followups || 0), quotes: Number(row.quotes || 0), deals: Number(row.deals || 0),
     conversion_rate: Number(row.conversion_rate || 0), ai_valid: Number(row.ai_valid || 0), customer_count: Number(row.customer_count || 0),
-  })) as SalesRankingRow[];
+  })).filter((row) => row.user_id === authUserId) as SalesRankingRow[];
   const totals = ranking.reduce<SalesMetrics>((sum, row) => ({ new_customers: sum.new_customers + row.new_customers, claimed: sum.claimed + row.claimed, released: sum.released + row.released, followups: sum.followups + row.followups, quotes: sum.quotes + row.quotes, deals: sum.deals + row.deals, conversion_rate: 0, ai_valid: sum.ai_valid + row.ai_valid }), { new_customers: 0, claimed: 0, released: 0, followups: 0, quotes: 0, deals: 0, conversion_rate: 0, ai_valid: 0 });
   const totalCustomers = ranking.reduce((sum, row) => sum + row.customer_count, 0);
   totals.conversion_rate = totalCustomers ? Number(((totals.deals / totalCustomers) * 100).toFixed(1)) : 0;

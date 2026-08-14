@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
 
-type BatchBody = { ids?: string[]; action?: "STAGE" | "ASSIGN"; status?: string; user_id?: string };
+type BatchBody = { ids?: string[]; action?: "STAGE" | "DELETE"; status?: string };
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,17 +10,17 @@ export async function POST(request: NextRequest) {
     const ids = [...new Set(body.ids || [])].slice(0, 100);
     if (!ids.length) return NextResponse.json({ error: "请选择客户" }, { status: 400 });
     if (body.action === "STAGE" && !["CLAIMED", "FOLLOWING", "QUOTE", "DEAL"].includes(body.status || "")) return NextResponse.json({ error: "无效客户状态" }, { status: 400 });
-    if (body.action === "ASSIGN" && !body.user_id) return NextResponse.json({ error: "请选择负责人" }, { status: 400 });
     if (!body.action) return NextResponse.json({ error: "无效批量操作" }, { status: 400 });
     const results: { id: string; ok: boolean; error?: string }[] = [];
     for (const id of ids) {
-      const rpc = body.action === "ASSIGN" ? "assign_customer" : "set_customer_stage";
-      const args = body.action === "ASSIGN" ? { p_customer_id: id, p_user_id: body.user_id! } : { p_customer_id: id, p_status: body.status! };
-      const { error } = await supabase.rpc(rpc, args);
+      const result = body.action === "DELETE"
+        ? await supabase.from("customers").update({ deleted_at: new Date().toISOString() }).eq("id", id).is("deleted_at", null).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`)
+        : await supabase.from("customers").update({ status: body.status }).eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`);
+      const { error } = result;
       if (error) results.push({ id, ok: false, error: error.message });
       else {
         results.push({ id, ok: true });
-        await writeAudit(supabase, user.id, `CUSTOMER_${body.action}`, "customer", id, { status: body.status, assignee: body.user_id, batch: true });
+        await writeAudit(supabase, user.id, `CUSTOMER_${body.action}`, "customer", id, { status: body.status, batch: true });
       }
     }
     const success_count = results.filter((item) => item.ok).length;

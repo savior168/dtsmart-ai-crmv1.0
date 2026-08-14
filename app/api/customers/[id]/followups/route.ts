@@ -9,12 +9,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });
     if (!String(body.content || "").trim()) return NextResponse.json({ error: "请填写跟进内容" }, { status: 400 });
-    const { data: customer, error: customerError } = await supabase.from("customers").select("id,status,owner_id").eq("id", id).single();
+    const { data: customer, error: customerError } = await supabase.from("customers").select("id,status,owner_id").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single();
     if (customerError) throw customerError;
-    if (customer.owner_id !== user.id) {
-      const { data: profile } = await supabase.from("users").select("role").eq("id", user.id).single();
-      if (profile?.role !== "ADMIN") throw new Error("只有负责人或管理员可以添加跟进");
-    }
     const { data, error } = await supabase.from("followups").insert({
       customer_id: id,
       user_id: user.id,

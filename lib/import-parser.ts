@@ -4,12 +4,18 @@ type SheetRows = { name: string; rows: string[][] };
 
 function csvRows(text: string) {
   const rows: string[][] = [];
-  let row: string[] = [], cell = "", quoted = false;
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === "\"") {
-      if (quoted && text[i + 1] === "\"") { cell += "\""; i++; }
-      else quoted = !quoted;
+      if (quoted && text[i + 1] === "\"") {
+        cell += "\"";
+        i++;
+      } else {
+        quoted = !quoted;
+      }
     } else if (ch === "," && !quoted) {
       row.push(cell);
       cell = "";
@@ -32,23 +38,31 @@ function u16(view: DataView, offset: number) { return view.getUint16(offset, tru
 function u32(view: DataView, offset: number) { return view.getUint32(offset, true); }
 
 async function unzip(buffer: ArrayBuffer) {
-  const bytes = new Uint8Array(buffer), view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
   let eocd = -1;
   for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
-    if (u32(view, i) === 0x06054b50) { eocd = i; break; }
+    if (u32(view, i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
   }
   if (eocd < 0) throw new Error("无效的 XLSX 文件");
-
-  const count = u16(view, eocd + 10), central = u32(view, eocd + 16);
+  const count = u16(view, eocd + 10);
+  const central = u32(view, eocd + 16);
   let pos = central;
   const files = new Map<string, string>();
   for (let n = 0; n < count; n++) {
     if (u32(view, pos) !== 0x02014b50) break;
-    const method = u16(view, pos + 10), size = u32(view, pos + 20);
-    const nameLen = u16(view, pos + 28), extraLen = u16(view, pos + 30), commentLen = u16(view, pos + 32);
+    const method = u16(view, pos + 10);
+    const size = u32(view, pos + 20);
+    const nameLen = u16(view, pos + 28);
+    const extraLen = u16(view, pos + 30);
+    const commentLen = u16(view, pos + 32);
     const local = u32(view, pos + 42);
     const name = new TextDecoder().decode(bytes.slice(pos + 46, pos + 46 + nameLen));
-    const localName = u16(view, local + 26), localExtra = u16(view, local + 28);
+    const localName = u16(view, local + 26);
+    const localExtra = u16(view, local + 28);
     const start = local + 30 + localName + localExtra;
     let raw = bytes.slice(start, start + size);
     if (method === 8) {
@@ -97,7 +111,6 @@ function workbookSheets(files: Map<string, string>) {
     if (!id || !target) return;
     relMap.set(id, target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\.\//, "")}`);
   });
-
   const result: Array<{ name: string; path: string }> = [];
   workbook.querySelectorAll("sheet").forEach((sheet) => {
     const name = sheet.getAttribute("name") || "Sheet";
@@ -105,12 +118,8 @@ function workbookSheets(files: Map<string, string>) {
     const path = rid ? relMap.get(rid) : undefined;
     if (path && files.has(path)) result.push({ name, path });
   });
-
   if (!result.length) {
-    [...files.keys()]
-      .filter((key) => /^xl\/worksheets\/sheet\d+\.xml$/.test(key))
-      .sort()
-      .forEach((path, index) => result.push({ name: `Sheet${index + 1}`, path }));
+    [...files.keys()].filter((key) => /^xl\/worksheets\/sheet\d+\.xml$/.test(key)).sort().forEach((path, index) => result.push({ name: `Sheet${index + 1}`, path }));
   }
   return result;
 }
@@ -141,12 +150,18 @@ function rowsToObjects(rows: string[][]) {
   const headers = rows[0].map((header) => String(header || "").trim());
   if (!headers.some(Boolean)) return [];
   return rows.slice(1)
-    .filter((row) => row.some((value) => String(value || "").trim()))
+    .filter((row) => row.some((cell) => String(cell || "").trim()))
     .map((row) => Object.fromEntries(headers.map((header, index) => [header || `列${index + 1}`, row[index] ?? ""])));
 }
 
 function value(row: ImportRow, ...keys: string[]) {
-  for (const key of keys) if (row[key] !== undefined && row[key] !== null && row[key] !== "") return String(row[key]).trim();
+  const normalized = new Map(Object.entries(row).map(([key, item]) => [key.trim().toLowerCase(), item]));
+  for (const key of keys) {
+    const direct = row[key];
+    const loose = normalized.get(key.trim().toLowerCase());
+    const found = direct ?? loose;
+    if (found !== undefined && found !== null && String(found).trim() !== "") return String(found).trim();
+  }
   return "";
 }
 
@@ -155,16 +170,16 @@ function normalizeText(value: string) {
 }
 
 function normalizePhone(value: string) {
-  return value.replace(/[^\d+]/g, "");
+  return value.replace(/[\s\-()]/g, "");
 }
 
 function dedupeRows(rows: ImportRow[]) {
   const seen = new Set<string>();
   const unique: ImportRow[] = [];
   for (const row of rows) {
-    const name = normalizeText(value(row, "名称", "公司名称", "商店名称"));
-    const phone = normalizePhone([value(row, "区号"), value(row, "完整号码", "电话")].filter(Boolean).join(" "));
-    const email = normalizeText(value(row, "邮箱"));
+    const name = normalizeText(value(row, "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"));
+    const phone = normalizePhone([value(row, "区号", "country code"), value(row, "完整号码", "电话", "phone", "full phone")].filter(Boolean).join(" "));
+    const email = normalizeText(value(row, "邮箱", "email", "e-mail"));
     const keys = [phone ? `name-phone:${name}|${phone}` : "", email ? `name-email:${name}|${email}` : ""].filter(Boolean);
     if (name && keys.some((key) => seen.has(key))) continue;
     keys.forEach((key) => seen.add(key));
@@ -182,32 +197,39 @@ export async function parseImportFile(file: File): Promise<ImportRow[]> {
 }
 
 export function mapImportRow(row: ImportRow) {
+  const productImage = value(row, "商品图片", "图片网址", "image", "product image");
   const tags = [
-    value(row, "标签"),
-    value(row, "搜索关键词"),
-    value(row, "商店类型"),
-    value(row, "商店状态"),
-  ].flatMap((item) => item.split(/[,，/]/)).map((item) => item.trim()).filter(Boolean);
+    value(row, "标签", "tags"),
+    value(row, "搜索关键词", "keyword", "keywords"),
+    value(row, "商店类型", "store type"),
+    value(row, "商店状态", "store status"),
+  ].flatMap((item) => item.split(/[,，]/)).map((item) => item.trim()).filter(Boolean);
 
   return {
-    company_name: value(row, "名称", "公司名称", "商店名称") || value(row, "商店名称"),
-    contact_name: value(row, "联系人"),
-    country: value(row, "国家"),
-    phone: [value(row, "区号"), value(row, "完整号码", "电话")].filter(Boolean).join(" "),
-    email: value(row, "邮箱"),
-    website: value(row, "商家官网网址", "官网"),
-    google_url: value(row, "谷歌网址", "Google网址"),
-    address: value(row, "商店地址", "地址"),
-    category: value(row, "分类", "商店类型"),
+    company_name: value(row, "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"),
+    contact_name: value(row, "联系人", "contact", "contact name"),
+    country: value(row, "国家", "country"),
+    phone: [value(row, "区号", "country code"), value(row, "完整号码", "电话", "phone", "full phone")].filter(Boolean).join(" "),
+    whatsapp: value(row, "WhatsApp", "whatsapp"),
+    email: value(row, "邮箱", "email", "e-mail"),
+    website: value(row, "商家官网网址", "官网网址", "官网", "website", "site"),
+    google_url: value(row, "谷歌网址", "Google网址", "Google地图网址", "google url", "google maps url"),
+    address: value(row, "商店地址", "地址", "address", "store address"),
+    category: value(row, "分类", "商店类型", "category", "store type"),
+    industry: value(row, "行业", "industry"),
     source: "EXCEL_IMPORT",
     tags,
-    ai_score: Number(value(row, "商店分数", "AI评分")) || null,
+    rating: Number(value(row, "商店分数", "评分", "rating")) || null,
+    ai_score: Number(value(row, "AI评分", "ai_score")) || null,
     ai_level: "",
-    status: "UNCLAIMED",
+    status: "UNCLAIMED" as const,
+    ai_screening_done: false,
+    website_email: "",
+    website_phone: "",
     import_meta: {
-      store_name: value(row, "商店名称"),
-      product_image: value(row, "商品图片"),
-      created_at: value(row, "创建时间"),
+      store_name: value(row, "商店名称", "店铺名称", "store name"),
+      product_image: productImage,
+      created_at: value(row, "创建时间", "created at", "created_time"),
     },
   };
 }

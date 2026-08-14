@@ -1,53 +1,53 @@
+import { Bell, Bot, Database, Palette, ShieldCheck } from "lucide-react";
+import { ProfileSettingsForm } from "@/components/profile-settings-form";
 import { requireUser } from "@/lib/auth/current-user";
-import { Bot, Database, Globe2, ShieldCheck } from "lucide-react";
-
-const runtimeItems = [
-  ["前端框架", "Next.js App Router + TypeScript + Tailwind CSS"],
-  ["部署方式", "Vercel Production"],
-  ["数据库", "Supabase PostgreSQL"],
-  ["AI服务", "OpenAI API"],
-];
 
 export default async function SettingsPage() {
   const { supabase, user } = await requireUser();
-  const { data: profile } = await supabase.from("users").select("role").eq("id", user.id).maybeSingle();
-
-  return (
-    <main className="min-h-screen p-5 lg:p-8">
-      <div className="mx-auto max-w-6xl">
-        <p className="text-xs uppercase tracking-[.22em] text-indigo-400">Settings</p>
-        <h1 className="mt-2 text-3xl font-semibold">设置</h1>
-        <p className="mt-2 text-sm text-slate-400">查看生产环境、权限、安全和系统运行状态。</p>
-
-        <section className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-white/10 bg-white/[.035] p-5"><Database className="text-cyan-300" /><p className="mt-4 text-sm text-slate-400">Supabase</p><p className="mt-1 font-semibold">已配置</p></div>
-          <div className="rounded-2xl border border-white/10 bg-white/[.035] p-5"><Bot className="text-indigo-300" /><p className="mt-4 text-sm text-slate-400">OpenAI</p><p className="mt-1 font-semibold">生产环境变量控制</p></div>
-          <div className="rounded-2xl border border-white/10 bg-white/[.035] p-5"><ShieldCheck className="text-emerald-300" /><p className="mt-4 text-sm text-slate-400">当前角色</p><p className="mt-1 font-semibold">{profile?.role || "未设置角色"}</p></div>
-          <div className="rounded-2xl border border-white/10 bg-white/[.035] p-5"><Globe2 className="text-amber-300" /><p className="mt-4 text-sm text-slate-400">公网部署</p><p className="mt-1 font-semibold">Vercel</p></div>
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[.035] p-6">
-          <h2 className="text-lg font-semibold">系统运行状态</h2>
-          <div className="mt-5 divide-y divide-white/10 rounded-xl border border-white/10">
-            {runtimeItems.map(([label, value]) => (
-              <div key={label} className="grid gap-2 p-4 text-sm md:grid-cols-[180px_1fr]">
-                <span className="text-slate-500">{label}</span>
-                <span>{value}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[.035] p-6">
-          <h2 className="text-lg font-semibold">生产环境变量</h2>
-          <div className="mt-4 grid gap-3 text-sm text-slate-300">
-            {["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "OPENAI_API_KEY", "SUPABASE_SERVICE_ROLE_KEY"].map((item) => (
-              <div key={item} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">{item}</div>
-            ))}
-          </div>
-          <p className="mt-4 text-xs text-slate-500">SUPABASE_SERVICE_ROLE_KEY 仅允许服务端使用，禁止添加 NEXT_PUBLIC_ 前缀。</p>
-        </section>
+  const { data: profile } = await supabase.from("users").select("name,email,avatar_url,role").eq("id", user.id).maybeSingle();
+  return <main className="p-4 lg:p-6">
+    <div className="mx-auto max-w-[1500px]">
+      <h2 className="text-2xl font-bold">系统设置与个人资料</h2>
+      <div className="mt-4 flex gap-6 overflow-x-auto border-b text-sm">
+        <span className="whitespace-nowrap border-b-2 border-blue-600 pb-3 font-medium text-blue-600">个人资料</span>
+        <span className="whitespace-nowrap pb-3 text-slate-500">账户安全</span>
+        <span className="whitespace-nowrap pb-3 text-slate-500">通知设置</span>
+        <span className="whitespace-nowrap pb-3 text-slate-500">主题外观</span>
+        <span className="whitespace-nowrap pb-3 text-slate-500">AI筛选设置</span>
+        {profile?.role === "ADMIN" && <span className="whitespace-nowrap pb-3 text-slate-500">权限管理</span>}
       </div>
-    </main>
-  );
+
+      <div className="mt-5">
+        <ProfileSettingsForm initialName={profile?.name || user.email || ""} initialEmail={profile?.email || user.email || ""} initialAvatar={profile?.avatar_url || ""}/>
+      </div>
+
+      <section className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          [Database, "数据库", "Supabase PostgreSQL", "text-cyan-600 bg-cyan-50"],
+          [Bot, "AI服务", "OpenAI 服务端接口", "text-violet-600 bg-violet-50"],
+          [ShieldCheck, "当前角色", profile?.role || "SALES", "text-emerald-600 bg-emerald-50"],
+          [Bell, "通知设置", "跟进、到期与AI任务提醒", "text-orange-600 bg-orange-50"],
+        ].map(([Icon, label, value, color]) => <article key={String(label)} className="rounded-xl border bg-white p-5 shadow-sm">
+          <span className={`grid h-10 w-10 place-items-center rounded-lg ${color}`}><Icon/></span>
+          <small className="mt-4 block text-slate-500">{label as string}</small>
+          <b className="mt-1 block">{value as string}</b>
+        </article>)}
+      </section>
+
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
+        <article className="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 className="flex items-center gap-2 font-semibold"><ShieldCheck className="text-blue-600"/>账户安全</h3>
+          <div className="mt-4 space-y-3 text-sm">
+            <p className="rounded-lg bg-slate-50 p-3">登录方式：邮箱 + 密码</p>
+            <p className="rounded-lg bg-slate-50 p-3">修改密码需要验证当前密码并确认新密码</p>
+            <p className="rounded-lg bg-emerald-50 p-3 text-emerald-700">Supabase Auth 会话保护已启用</p>
+          </div>
+        </article>
+        <article className="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 className="flex items-center gap-2 font-semibold"><Palette className="text-violet-600"/>主题外观</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-600">使用顶部主题按钮切换晴空蓝、薄荷青、薰衣草紫、樱花粉和柔和米白。选择保存在当前浏览器中。</p>
+        </article>
+      </section>
+    </div>
+  </main>;
 }

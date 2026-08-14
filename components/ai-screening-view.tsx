@@ -1,162 +1,24 @@
 "use client";
-
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Home, LoaderCircle, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bot, ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import type { Customer } from "@/lib/types";
 
-type Result = {
-  customer_id: string;
-  industry_type?: string;
-  is_target_customer?: boolean;
-  ai_score?: number;
-  ai_level?: string;
-  ai_reason?: string;
-  error?: string;
-};
-
-export function AiScreeningView() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [results, setResults] = useState<Result[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [completed, setCompleted] = useState(0);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const response = await fetch("/api/customers?page=1&pageSize=100");
-    const body = await response.json();
-    setLoading(false);
-    if (!response.ok) return setError(body.error || "客户加载失败");
-    setCustomers(body.data);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  async function analyze() {
-    const ids = [...selected];
-    if (!ids.length || running) return;
-    setRunning(true);
-    setCompleted(0);
-    setResults([]);
-    setError("");
-    for (const id of ids) {
-      try {
-        const response = await fetch("/api/ai/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customer_id: id }),
-        });
-        const body = await response.json();
-        setResults((current) => [...current, response.ok ? body : { customer_id: id, error: body.error || "分析失败" }]);
-        if (!response.ok && body.error === "OPENAI_NOT_CONFIGURED") {
-          setError("尚未配置 OPENAI_API_KEY，请在环境变量中配置后重试。");
-          break;
-        }
-      } catch {
-        setResults((current) => [...current, { customer_id: id, error: "网络请求失败" }]);
-      }
-      setCompleted((value) => value + 1);
-    }
-    setRunning(false);
-    await load();
-  }
-
-  const total = selected.size;
-  const progress = total ? Math.round((completed / total) * 100) : 0;
-
-  return (
-    <main className="min-h-screen p-5 lg:p-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-5 flex flex-wrap gap-2">
-          <Link href="/" className="inline-flex items-center gap-2 rounded-xl border border-indigo-400/20 bg-indigo-400/10 px-4 py-2.5 text-sm text-indigo-200 hover:bg-indigo-400/15">
-            <Home size={16} />
-            返回数据总览
-          </Link>
-          <Link href="/customers" className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/[.06]">
-            <ArrowLeft size={16} />
-            返回客户列表
-          </Link>
-        </div>
-
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[.22em] text-violet-400">AI Screening</p>
-            <h1 className="mt-2 text-3xl font-semibold">AI 客户筛选</h1>
-            <p className="mt-2 text-sm text-slate-400">批量识别行业、目标客户价值与跟进优先级。</p>
-          </div>
-          <button onClick={analyze} disabled={!total || running} className="flex items-center gap-2 rounded-xl bg-violet-500 px-5 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-40">
-            {running ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}
-            分析已选 {total} 个客户
-          </button>
-        </header>
-
-        {(running || completed > 0) && (
-          <section className="mt-7 rounded-2xl border border-violet-400/20 bg-violet-400/[.06] p-5">
-            <div className="flex justify-between text-sm"><span>{running ? "正在分析" : "本次分析完成"}</span><span>{completed} / {total}</span></div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-violet-400 transition-all" style={{ width: `${progress}%` }} /></div>
-          </section>
-        )}
-        {error && <p className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-200">{error}</p>}
-
-        <section className="mt-7 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035]">
-          <div className="flex items-center justify-between border-b border-white/10 p-5">
-            <div>
-              <h2 className="font-semibold">选择待分析客户</h2>
-              <p className="mt-1 text-xs text-slate-500">当前最多加载最近 100 个可访问客户</p>
-            </div>
-            <button onClick={() => setSelected(selected.size === customers.length ? new Set() : new Set(customers.map((item) => item.id)))} className="rounded-lg border border-white/10 px-3 py-2 text-sm">
-              {selected.size === customers.length && customers.length ? "取消全选" : "全选"}
-            </button>
-          </div>
-          <div className="divide-y divide-white/[.06]">
-            {customers.map((customer) => {
-              const result = results.find((item) => item.customer_id === customer.id);
-              return (
-                <label key={customer.id} className="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-4 p-4 hover:bg-white/[.03]">
-                  <input type="checkbox" checked={selected.has(customer.id)} onChange={() => toggle(customer.id)} disabled={running} className="h-4 w-4 accent-violet-500" />
-                  <div>
-                    <p className="font-medium">{customer.company_name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{customer.country || "国家未知"} · {customer.website || customer.google_url || "无网站信息"}</p>
-                  </div>
-                  <div className="text-right">
-                    {result?.error ? <span className="text-sm text-rose-300">{result.error}</span> : result ? (
-                      <>
-                        <p className="font-semibold text-emerald-300">{result.ai_level} · {result.ai_score}</p>
-                        <p className="text-xs text-slate-500">{result.industry_type}</p>
-                      </>
-                    ) : customer.ai_level ? (
-                      <>
-                        <p className="text-sm text-slate-300">现有 {customer.ai_level} · {customer.ai_score}</p>
-                        <p className="text-xs text-slate-500">{customer.industry}</p>
-                      </>
-                    ) : <span className="text-xs text-slate-600">待分析</span>}
-                  </div>
-                </label>
-              );
-            })}
-            {loading && <p className="p-10 text-center text-slate-500">加载客户中...</p>}
-            {!loading && !customers.length && <p className="p-10 text-center text-slate-500">暂无可分析客户</p>}
-          </div>
-        </section>
-
-        {results.some((item) => !item.error) && (
-          <section className="mt-7 rounded-2xl border border-emerald-400/20 bg-emerald-400/[.05] p-5">
-            <p className="flex items-center gap-2 font-medium text-emerald-300"><CheckCircle2 size={18} />分析结果已写入客户资料和操作日志</p>
-          </section>
-        )}
-      </div>
-    </main>
-  );
+type Tab="pending"|"running"|"completed"|"failed"|"rules";
+const tabs:{key:Tab;label:string}[]=[{key:"pending",label:"待筛选"},{key:"running",label:"分析中"},{key:"completed",label:"已完成"},{key:"failed",label:"失败任务"},{key:"rules",label:"筛选规则"}];
+function safeUrl(value?:string|null){if(!value)return "";return /^https?:\/\//i.test(value)?value:`https://${value}`}
+function Url({value,label}:{value?:string|null;label?:string}){const href=safeUrl(value);return href?<a href={href} target="_blank" rel="noreferrer" onClick={(e)=>e.stopPropagation()} className="inline-flex max-w-44 items-center gap-1 break-all text-blue-600 hover:underline" title={value||""}>{label||value}<ExternalLink size={12}/></a>:<span className="text-slate-400">-</span>}
+export function AiScreeningView(){
+  const [tab,setTab]=useState<Tab>("pending");const [customers,setCustomers]=useState<Customer[]>([]);const [count,setCount]=useState(0);const [page,setPage]=useState(1);const [pageSize,setPageSize]=useState(20);const [selected,setSelected]=useState<Set<string>>(new Set());const [loading,setLoading]=useState(false);const [running,setRunning]=useState(false);const [done,setDone]=useState(0);const [success,setSuccess]=useState(0);const [failures,setFailures]=useState<string[]>([]);const [message,setMessage]=useState("");const [search,setSearch]=useState("");const [detail,setDetail]=useState<Customer|null>(null);
+  const mode=tab==="completed"?"&ai_done=true":tab==="failed"?"&ai_failed=true":"&ai_pending=true";
+  const load=useCallback(async()=>{if(tab==="rules"){setCustomers([]);setCount(0);return}setLoading(true);setMessage("");const response=await fetch(`/api/customers?page=${page}&pageSize=${pageSize}${mode}&deleted=false&search=${encodeURIComponent(search)}`);const body=await response.json().catch(()=>({}));setLoading(false);if(!response.ok){setMessage(body.error||"客户查询失败");return}setCustomers(body.data||[]);setCount(body.count||0)},[mode,page,pageSize,search,tab]);
+  useEffect(()=>{void load()},[load]);const totalPages=Math.max(1,Math.ceil(count/pageSize));const allPage=customers.length>0&&customers.every((customer)=>selected.has(customer.id));
+  function toggle(id:string){setSelected((current)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next})}function togglePage(){setSelected((current)=>{const next=new Set(current);if(allPage)customers.forEach((customer)=>next.delete(customer.id));else customers.forEach((customer)=>next.add(customer.id));return next})}
+  async function selectAll(){const pages=Math.ceil(count/100);const ids:string[]=[];for(let current=1;current<=pages;current++){const response=await fetch(`/api/customers?page=${current}&pageSize=100${mode}&deleted=false&search=${encodeURIComponent(search)}`);const body=await response.json().catch(()=>({}));if(!response.ok){setMessage(body.error||"全选失败");return}ids.push(...(body.data||[]).map((item:Customer)=>item.id))}setSelected(new Set(ids))}
+  async function analyze(){const ids=[...selected];if(!ids.length)return;setRunning(true);setDone(0);setSuccess(0);setFailures([]);setMessage("");for(const id of ids){try{const response=await fetch("/api/ai/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({customer_id:id})});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||"未知错误");setSuccess((value)=>value+1)}catch(error){const customer=customers.find((item)=>item.id===id);setFailures((items)=>[...items,`${customer?.company_name||id}：${error instanceof Error?error.message:"分析失败"}`])}finally{setDone((value)=>value+1)}}setRunning(false);setSelected(new Set());await load()}
+  const pageNumbers=useMemo(()=>{const start=Math.max(1,Math.min(page-2,totalPages-4));return Array.from({length:Math.min(5,totalPages)},(_,index)=>start+index)},[page,totalPages]);
+  if(tab==="rules")return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1600px]"><Header tab={tab} setTab={setTab}/><section className="mt-5 rounded-xl border bg-white p-6 shadow-sm"><h3 className="font-semibold">AI筛选规则</h3><div className="mt-4 grid gap-4 md:grid-cols-2"><Rule title="目标客户判断" text="根据官网业务描述、产品、服务、图片、视频和Google Maps公开信息综合判断。"/><Rule title="评级规则" text="A级85-100分，B级70-84分，C级50-69分，D级0-49分；60分以上且存在明确业务证据才判定为目标客户。"/><Rule title="证据原则" text="不编造信息；保存来源网址、抓取时间和关键证据。数据不足时必须明确标记待确认。"/><Rule title="联系方式" text="官网提取的邮箱和电话作为新增联系方式保存，不覆盖原始联系方式。"/></div></section></div></main>;
+  return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1600px]"><Header tab={tab} setTab={(next)=>{setTab(next);setPage(1);setSelected(new Set())}}/><section className="mt-5 rounded-xl border bg-white shadow-sm"><div className="flex flex-wrap items-center gap-3 border-b p-4"><label className="relative min-w-64 flex-1"><Search className="absolute left-3 top-2.5 text-slate-400" size={17}/><input value={search} onChange={(event)=>{setSearch(event.target.value);setPage(1)}} placeholder="搜索客户名称、网站、邮箱或电话" className="w-full rounded-lg border border-slate-300 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500"/></label><button onClick={()=>void load()} className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm"><RefreshCw size={16}/>刷新</button></div><div className="flex flex-wrap items-center gap-2 border-b p-4"><button onClick={togglePage} className="rounded-lg border px-3 py-2 text-sm">{allPage?"取消当前页":"全选当前页"}</button><button onClick={()=>void selectAll()} className="rounded-lg border px-3 py-2 text-sm">全选所有筛选结果（{count}）</button><button disabled={!selected.size||running||tab!=="pending"} onClick={()=>void analyze()} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">{running?<LoaderCircle size={16} className="animate-spin"/>:<Sparkles size={16}/>}深度AI分析（已选 {selected.size} 条）</button>{selected.size>0&&<button onClick={()=>setSelected(new Set())} className="text-sm text-blue-600">清空选择</button>}</div>{running&&<div className="border-b bg-blue-50 p-4"><div className="flex justify-between text-sm text-blue-800"><span>正在分析 {done}/{selected.size}</span><span>成功 {success} · 失败 {failures.length}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-blue-100"><div className="h-full bg-blue-600 transition-all" style={{width:`${selected.size?done/selected.size*100:0}%`}}/></div></div>}{message&&<div className="m-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><p>{message}</p><button onClick={()=>void load()} className="mt-2 font-medium underline">重新加载</button></div>}{failures.length>0&&<div className="m-4 max-h-36 overflow-auto rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><b>失败原因</b>{failures.map((item)=><p key={item} className="mt-1">{item}</p>)}</div>}<div className="overflow-x-auto"><table className="w-full min-w-[1200px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-600"><tr><th className="px-4 py-3"><input type="checkbox" checked={allPage} onChange={togglePage}/></th><th>客户名称</th><th>国家/地区</th><th>网站</th><th>Google Maps</th><th>数据完整度</th><th>AI状态</th><th>AI等级</th><th>AI分值</th><th>创建日期</th><th>操作</th></tr></thead><tbody>{customers.map((customer)=><tr key={customer.id} className="border-t hover:bg-blue-50/30"><td className="px-4 py-3"><input type="checkbox" checked={selected.has(customer.id)} onChange={()=>toggle(customer.id)}/></td><td className="max-w-52 px-2 py-3 font-medium">{customer.company_name}</td><td className="px-2 py-3">{customer.country||"-"}</td><td className="px-2 py-3"><Url value={customer.website}/></td><td className="px-2 py-3"><Url value={customer.google_url} label={customer.google_url?"查看地图":undefined}/></td><td className="px-2 py-3">{[customer.phone,customer.email,customer.website,customer.google_url].filter(Boolean).length*25}%</td><td className="px-2 py-3"><span className={`rounded px-2 py-1 text-xs ${tab==="failed"?"bg-rose-50 text-rose-600":tab==="completed"?"bg-emerald-50 text-emerald-600":"bg-blue-50 text-blue-600"}`}>{tab==="failed"?"失败":tab==="completed"?"已完成":"待筛选"}</span></td><td className="px-2 py-3">{customer.ai_level||"-"}</td><td className="px-2 py-3 font-semibold text-blue-600">{customer.ai_score??"-"}</td><td className="px-2 py-3">{new Date(customer.created_at).toLocaleDateString("zh-CN")}</td><td className="px-2 py-3"><button onClick={()=>setDetail(customer)} className="text-blue-600 hover:underline">查看</button></td></tr>)}</tbody></table>{loading&&<div className="grid min-h-48 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div>}{!loading&&!customers.length&&<div className="grid min-h-48 place-items-center text-slate-400"><div className="text-center"><Bot className="mx-auto mb-2"/><p>暂无{tabs.find((item)=>item.key===tab)?.label}客户</p></div></div>}</div><footer className="flex flex-wrap items-center justify-center gap-2 border-t p-4 text-sm"><span className="mr-2 text-slate-500">共 {count} 条</span><button disabled={page<=1} onClick={()=>setPage(1)} className="rounded border px-2 py-1.5 disabled:opacity-40">首页</button><button disabled={page<=1} onClick={()=>setPage((value)=>value-1)} className="rounded border p-1.5 disabled:opacity-40"><ChevronLeft size={17}/></button>{pageNumbers.map((number)=><button key={number} onClick={()=>setPage(number)} className={`h-8 min-w-8 rounded border ${number===page?"border-blue-600 bg-blue-600 text-white":"bg-white"}`}>{number}</button>)}<button disabled={page>=totalPages} onClick={()=>setPage((value)=>value+1)} className="rounded border p-1.5 disabled:opacity-40"><ChevronRight size={17}/></button><button disabled={page>=totalPages} onClick={()=>setPage(totalPages)} className="rounded border px-2 py-1.5 disabled:opacity-40">末页</button><select value={pageSize} onChange={(event)=>{setPageSize(Number(event.target.value));setPage(1)}} className="ml-2 rounded border px-2 py-1.5">{[10,20,50,100].map((size)=><option key={size} value={size}>{size}条/页</option>)}</select></footer></section></div>{detail&&<aside className="fixed inset-y-0 right-0 z-50 w-full max-w-lg overflow-y-auto border-l bg-white p-6 shadow-2xl"><div className="flex items-center justify-between"><h3 className="text-xl font-semibold">AI分析详情</h3><button title="关闭" onClick={()=>setDetail(null)}><X/></button></div><div className="mt-6 grid grid-cols-3 gap-3">{[["综合得分",detail.ai_score??"-"],["评级",detail.ai_level||"-"],["目标客户",detail.is_target_customer===true?"是":detail.is_target_customer===false?"否":"待确认"]].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-4 text-center"><small className="text-slate-500">{label}</small><b className="mt-2 block text-2xl text-blue-600">{value}</b></div>)}</div><Info title="关键证据与摘要" text={detail.ai_reason}/><Info title="业务相关性" text={detail.business_relevance}/><Info title="客户价值" text={detail.customer_value}/><Info title="跟进建议" text={detail.followup_suggestion}/><div className="mt-5"><Url value={detail.website} label="访问客户官网"/></div></aside>}</main>;
 }
+function Header({tab,setTab}:{tab:Tab;setTab:(tab:Tab)=>void}){return <><h2 className="text-2xl font-bold">AI筛选中心</h2><div className="mt-4 flex gap-6 border-b text-sm">{tabs.map((item)=><button key={item.key} onClick={()=>setTab(item.key)} className={`pb-3 ${tab===item.key?"border-b-2 border-blue-600 font-medium text-blue-600":"text-slate-500"}`}>{item.label}</button>)}</div></>}
+function Rule({title,text}:{title:string;text:string}){return <div className="rounded-xl border bg-slate-50 p-4"><b>{title}</b><p className="mt-2 text-sm leading-6 text-slate-600">{text}</p></div>}
+function Info({title,text}:{title:string;text?:string|null}){return <section className="mt-5 border-t pt-5"><h4 className="font-semibold">{title}</h4><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{text||"暂无数据"}</p></section>}
