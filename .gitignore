@@ -6,6 +6,7 @@
 !.env.local.example
 !.env.production.example
 *.log
+*.tsbuildinfo
 .DS_Store
 /.vercel
 /.pnpm-store
