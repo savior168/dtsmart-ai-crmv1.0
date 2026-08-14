@@ -94,3 +94,44 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .tradeos-auth-orb,
   .tradeos-auth-grid { animation: none; }
 }
+
+@keyframes dashboard-chart-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.065); }
+  72% { transform: scale(1.025); }
+  100% { transform: scale(1.045); }
+}
+
+.dashboard-donut-segment {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: stroke-width .18s ease, filter .18s ease;
+}
+
+.dashboard-donut-segment:hover,
+.dashboard-donut-segment:focus-visible {
+  stroke-width: 39px;
+  filter: drop-shadow(0 4px 5px rgba(37, 99, 235, .25));
+  animation: dashboard-chart-pop .34s ease-out both;
+}
+
+.dashboard-funnel-layer {
+  position: relative;
+  margin-top: -1px;
+  transition: transform .18s ease, filter .18s ease, z-index .18s ease;
+  transform-origin: center;
+}
+
+.dashboard-funnel-layer:hover,
+.dashboard-funnel-layer:focus-visible {
+  z-index: 2;
+  transform: translateY(-3px) scale(1.035);
+  filter: brightness(1.05) drop-shadow(0 5px 5px rgba(37, 99, 235, .25));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-donut-segment:hover,
+  .dashboard-donut-segment:focus-visible { animation: none; }
+  .dashboard-funnel-layer { transition: none; }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BellRing,
@@ -46,6 +47,23 @@ const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3p
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623" };
 const statusLabels: Record<string, string> = { UNCLAIMED: "待跟进", CLAIMED: "待开发", FOLLOWING: "跟进中", QUOTE: "报价中", DEAL: "已成交", RELEASED: "已释放" };
 const typeLabels: Record<string, string> = { EMAIL: "邮件", WHATSAPP: "WhatsApp", PHONE: "电话", LINKEDIN: "LinkedIn", OTHER: "其他" };
+const regionNames = new Intl.DisplayNames(["zh-CN"], { type: "region" });
+const countryAliases: Record<string, string> = {
+  美国: "US", "UNITED STATES": "US", USA: "US",
+  印度: "IN", INDIA: "IN",
+  巴西: "BR", BRAZIL: "BR",
+  英国: "GB", "UNITED KINGDOM": "GB", UK: "GB",
+  墨西哥: "MX", MEXICO: "MX",
+  俄罗斯: "RU", RUSSIA: "RU",
+  西班牙: "ES", SPAIN: "ES",
+  阿联酋: "AE", UAE: "AE", "UNITED ARAB EMIRATES": "AE",
+  德国: "DE", GERMANY: "DE",
+  法国: "FR", FRANCE: "FR",
+  意大利: "IT", ITALY: "IT",
+  爱尔兰: "IE", IRELAND: "IE",
+  挪威: "NO", NORWAY: "NO",
+  厄瓜多尔: "EC", ECUADOR: "EC",
+};
 
 function localDate(value: Date) {
   const offset = value.getTimezoneOffset() * 60000;
@@ -54,12 +72,21 @@ function localDate(value: Date) {
 
 function number(value: number) { return new Intl.NumberFormat("zh-CN").format(value); }
 
-function countryFlag(country?: string | null) {
-  if (!country) return "🌐";
-  const code = country.trim().toUpperCase();
-  if (/^[A-Z]{2}$/.test(code)) return String.fromCodePoint(...Array.from(code).map((letter) => 127397 + letter.charCodeAt(0)));
-  const aliases: Record<string, string> = { 美国: "🇺🇸", 印度: "🇮🇳", 巴西: "🇧🇷", 英国: "🇬🇧", 墨西哥: "🇲🇽", 俄罗斯: "🇷🇺", 西班牙: "🇪🇸", 阿联酋: "🇦🇪", 德国: "🇩🇪", 法国: "🇫🇷" };
-  return aliases[country] || "🌐";
+function countryInfo(country?: string | null) {
+  const raw = country?.trim() || "";
+  const upper = raw.toUpperCase();
+  const code = /^[A-Z]{2}$/.test(upper) ? upper : countryAliases[upper] || countryAliases[raw] || "";
+  return { code, name: code ? regionNames.of(code) || raw : raw || "未知地区" };
+}
+
+function CountryFlag({ code, name }: { code: string; name: string }) {
+  if (!code) return <span aria-hidden="true" className="grid h-[15px] w-5 place-items-center text-xs">🌐</span>;
+  return <span role="img" aria-label={`${name}国旗`} className="inline-block h-[15px] w-5 shrink-0 rounded-[2px] bg-slate-100 bg-cover bg-center shadow-[0_0_0_1px_rgba(15,23,42,.08)]" style={{ backgroundImage: `url(https://flagcdn.com/w40/${code.toLowerCase()}.png)` }} />;
+}
+
+function CountryLabel({ country }: { country?: string | null }) {
+  const details = countryInfo(country);
+  return <span className="inline-flex items-center gap-1.5"><CountryFlag code={details.code} name={details.name} /><span>{details.name}</span></span>;
 }
 
 function relativeTime(value: string) {
@@ -71,11 +98,36 @@ function relativeTime(value: string) {
   return new Date(value).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
-function donutGradient(rows: GradeRow[]) {
-  const total = rows.reduce((sum, item) => sum + item.count, 0);
-  if (!total) return "conic-gradient(#e2e8f0 0 100%)";
+function DonutChart({ rows, total }: { rows: GradeRow[]; total: number }) {
+  const router = useRouter();
   let cursor = 0;
-  return `conic-gradient(${rows.map((item) => { const start = cursor; cursor += (item.count / total) * 100; return `${gradeColors[item.grade] || "#94a3b8"} ${start}% ${cursor}%`; }).join(",")})`;
+  const hasData = rows.some((item) => item.count > 0);
+  function openGrade(grade: string) { router.push(`/customers?ai_level=${encodeURIComponent(grade)}`); }
+  return <div className="relative h-[182px] w-[182px] shrink-0" aria-label="AI等级分布图">
+    <svg viewBox="0 0 200 200" className="h-full w-full overflow-visible">
+      <circle cx="100" cy="100" r="70" fill="none" stroke="#e2e8f0" strokeWidth="34" />
+      {hasData ? rows.map((item) => { const start = cursor; cursor += item.percentage; return <circle key={item.grade} cx="100" cy="100" r="70" pathLength="100" fill="none" stroke={gradeColors[item.grade] || "#94a3b8"} strokeWidth="34" strokeDasharray={`${item.percentage} ${100 - item.percentage}`} strokeDashoffset={-start} transform="rotate(-90 100 100)" role="link" tabIndex={0} aria-label={`${item.grade}级客户 ${item.count} 条，占比 ${item.percentage}%`} onClick={() => openGrade(item.grade)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openGrade(item.grade); }} className="dashboard-donut-segment outline-none" ><title>点击查看 {item.grade} 级客户：{number(item.count)} 条（{item.percentage}%）</title></circle>; }) : null}
+    </svg>
+    <span className="pointer-events-none absolute inset-0 grid place-items-center text-center"><span><small className="block text-xs text-slate-500">总客户数</small><b className="mt-1 block text-xl">{number(total)}</b></span></span>
+  </div>;
+}
+
+function funnelHref(label: string) {
+  if (label.includes("AI筛选")) return "/customers?target=valid";
+  if (label === "报价中") return "/customers?status=QUOTE";
+  if (label === "谈判中") return "/customers?status=FOLLOWING";
+  if (label === "已成交") return "/customers?status=DEAL";
+  return "/customers";
+}
+
+function FunnelChart({ rows }: { rows: FunnelRow[] }) {
+  const colors = ["#2563eb", "#2498e9", "#21b8c5", "#45c994", "#f4b51f"];
+  return <div className="grid grid-cols-[minmax(180px,1fr)_88px] items-center gap-3 px-5 pb-5 pt-1">
+    <div className="flex min-h-[210px] flex-col items-center justify-center" aria-label="销售漏斗图">
+      {rows.map((item, index) => <Link key={item.label} href={funnelHref(item.label)} aria-label={`查看${item.label}客户，共${item.value}条`} title={`点击查看${item.label}：${number(item.value)} 条`} className="dashboard-funnel-layer grid h-[42px] place-items-center text-center text-xs font-medium text-white outline-none" style={{ width: `${100 - index * 14}%`, backgroundColor: colors[index], clipPath: "polygon(0 0,100% 0,90% 100%,10% 100%)" }}>{item.label}</Link>)}
+    </div>
+    <div className="flex min-h-[210px] flex-col justify-center">{rows.map((item) => <div key={item.label} className="flex h-[42px] items-center justify-end whitespace-nowrap text-[11px] text-slate-600"><b className="font-medium text-slate-900">{number(item.value)}</b>（{item.percentage}%）</div>)}</div>
+  </div>;
 }
 
 function DashboardHeader({ title, href }: { title: string; href: string }) {
@@ -148,14 +200,14 @@ export function CrmDashboard() {
           </section>
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1.05fr_.88fr_1fr]">
-            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="AI等级分布" href="/reports" /><div className="flex items-center justify-center gap-7 px-4 pb-5 pt-2"><div className="grid h-[168px] w-[168px] shrink-0 place-items-center rounded-full" style={{ background: donutGradient(data.distribution) }}><div className="grid h-[90px] w-[90px] place-items-center rounded-full bg-white text-center"><span><small className="block text-xs text-slate-500">总客户数</small><b className="mt-1 block text-xl">{number(data.totals.my_customers)}</b></span></div></div><div className="min-w-[170px] space-y-3">{data.distribution.map((item) => <div key={item.grade} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 text-xs"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{item.grade}级（{item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></div>)}</div></div></article>
-            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="销售漏斗" href="/reports" /><div className="space-y-1 px-5 pb-4 pt-1">{data.funnel.map((item, index) => <div key={item.label} className="flex items-center gap-3"><div className="h-[38px] text-center text-xs font-medium leading-[38px] text-white" style={{ width: `${100 - index * 12}%`, marginInline: "auto", background: ["#2563eb", "#2498e9", "#21b8c5", "#45c994", "#f4b51f"][index], clipPath: "polygon(5% 0,95% 0,88% 100%,12% 100%)" }}>{item.label}</div><span className="w-[92px] shrink-0 text-right text-[11px] text-slate-600"><b className="font-medium text-slate-900">{number(item.value)}</b>（{item.percentage}%）</span></div>)}</div></article>
-            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="国家分布TOP10" href="/reports" /><div className="space-y-2 px-4 pb-4">{data.country_top.length ? data.country_top.map((item) => <div key={item.name} className="grid grid-cols-[78px_1fr_78px] items-center gap-2 text-xs"><span className="truncate text-slate-700"><i className="mr-1 not-italic">{countryFlag(item.name)}</i>{item.name}</span><span className="h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-blue-600" style={{ width: `${Math.max(3, item.percentage)}%` }} /></span><span className="text-right text-slate-500">{number(item.count)}（{item.percentage}%）</span></div>) : <div className="grid h-48 place-items-center text-sm text-slate-400">暂无国家分布数据</div>}</div></article>
-            <article className={`${panelClass} min-h-[290px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/followups" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="divide-y divide-slate-100 px-4">{data.protections.length ? data.protections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex items-center justify-between gap-3 py-2 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-1 block text-slate-500">{countryFlag(item.country)} {item.country || "未知地区"}</span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-1 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-48 place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div></article>
+            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="AI等级分布" href="/reports" /><div className="flex items-center justify-center gap-6 px-4 pb-5 pt-2"><DonutChart rows={data.distribution} total={data.totals.my_customers} /><div className="min-w-[180px] space-y-1.5">{data.distribution.map((item) => <Link href={`/customers?ai_level=${item.grade}`} key={item.grade} title={`查看${item.grade}级客户`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-2 py-2 text-xs transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{item.grade}级（{item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></Link>)}</div></div></article>
+            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="销售漏斗" href="/reports" /><FunnelChart rows={data.funnel} /></article>
+            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="国家分布TOP10" href="/reports" /><div className="space-y-2 px-4 pb-4">{data.country_top.length ? data.country_top.map((item) => { const countryDetails = countryInfo(item.name); return <div key={item.name} title={`${countryDetails.name}：${number(item.count)} 条客户`} className="grid grid-cols-[92px_1fr_78px] items-center gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 text-slate-700"><CountryFlag code={countryDetails.code} name={countryDetails.name} /><span className="truncate">{countryDetails.name}</span></span><span className="h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-blue-600" style={{ width: `${Math.max(3, item.percentage)}%` }} /></span><span className="text-right text-slate-500">{number(item.count)}（{item.percentage}%）</span></div>; }) : <div className="grid h-48 place-items-center text-sm text-slate-400">暂无国家分布数据</div>}</div></article>
+            <article className={`${panelClass} min-h-[290px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/followups" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="divide-y divide-slate-100 px-4">{data.protections.length ? data.protections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex items-center justify-between gap-3 py-2 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-1 block text-slate-500"><CountryLabel country={item.country} /></span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-1 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-48 place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div></article>
           </section>
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1fr]">
-            <article className={`${panelClass} min-h-[310px] overflow-hidden`}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">今日待跟进（{data.totals.today_followups}）</h3><Link href="/followups" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="overflow-x-auto"><table className="w-full min-w-[690px] text-left text-xs"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-4 py-2.5 font-medium">客户名称</th><th className="px-2 py-2.5 font-medium">国家</th><th className="px-2 py-2.5 font-medium">AI等级</th><th className="px-2 py-2.5 font-medium">上次跟进</th><th className="px-2 py-2.5 font-medium">跟进时间</th><th className="px-2 py-2.5 font-medium">跟进方式</th><th className="px-2 py-2.5 font-medium">状态</th><th className="px-3 py-2.5 font-medium">操作</th></tr></thead><tbody>{data.followups.length ? data.followups.map((item) => <tr key={item.id} className="border-t border-slate-100 hover:bg-blue-50/40"><td className="max-w-40 truncate px-4 py-2.5 font-medium">{item.customer_name}</td><td className="px-2 py-2.5">{countryFlag(item.country)} {item.country || "-"}</td><td className="px-2 py-2.5"><span className="rounded bg-emerald-50 px-1.5 py-1 font-semibold text-emerald-600">{item.ai_level || "-"}</span></td><td className="px-2 py-2.5 text-slate-500">{item.last_followup ? new Date(item.last_followup).toLocaleDateString("zh-CN") : "未跟进"}</td><td className="px-2 py-2.5 font-medium text-orange-600">{item.followup_time ? new Date(item.followup_time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "-"}</td><td className="px-2 py-2.5">{typeLabels[item.type] || item.type}</td><td className="px-2 py-2.5"><span className="rounded bg-orange-50 px-2 py-1 text-orange-600">{statusLabels[item.status] || item.status}</span></td><td className="px-3 py-2.5"><div className="flex gap-2 text-blue-600"><a href={`tel:${item.customer_name}`} aria-label="电话跟进"><Phone size={15} /></a><Link href={`/customers/${item.customer_id}`} aria-label="邮件跟进"><Mail size={15} /></Link><Link href={`/customers/${item.customer_id}`} aria-label="编辑跟进"><MessageSquareText size={15} /></Link></div></td></tr>) : <tr><td colSpan={8} className="h-[175px] text-center text-slate-400">今天没有待跟进任务</td></tr>}</tbody></table></div><footer className="flex h-12 items-center justify-between border-t border-slate-100 px-4 text-xs text-slate-500"><span>共 {data.totals.today_followups} 条</span><div className="flex items-center gap-1"><button type="button" disabled className="grid h-8 w-8 place-items-center rounded border border-slate-200 disabled:opacity-40"><ChevronLeft size={15} /></button><button type="button" className="h-8 min-w-8 rounded bg-blue-600 px-2 text-white">1</button><button type="button" disabled className="grid h-8 w-8 place-items-center rounded border border-slate-200 disabled:opacity-40"><ChevronRight size={15} /></button><select aria-label="每页条数" className="ml-2 h-8 rounded border border-slate-200 px-2"><option>5条/页</option></select></div></footer></article>
+            <article className={`${panelClass} min-h-[310px] overflow-hidden`}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">今日待跟进（{data.totals.today_followups}）</h3><Link href="/followups" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="overflow-x-auto"><table className="w-full min-w-[690px] text-left text-xs"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-4 py-2.5 font-medium">客户名称</th><th className="px-2 py-2.5 font-medium">国家</th><th className="px-2 py-2.5 font-medium">AI等级</th><th className="px-2 py-2.5 font-medium">上次跟进</th><th className="px-2 py-2.5 font-medium">跟进时间</th><th className="px-2 py-2.5 font-medium">跟进方式</th><th className="px-2 py-2.5 font-medium">状态</th><th className="px-3 py-2.5 font-medium">操作</th></tr></thead><tbody>{data.followups.length ? data.followups.map((item) => <tr key={item.id} className="border-t border-slate-100 hover:bg-blue-50/40"><td className="max-w-40 truncate px-4 py-2.5 font-medium">{item.customer_name}</td><td className="px-2 py-2.5"><CountryLabel country={item.country} /></td><td className="px-2 py-2.5"><span className="rounded bg-emerald-50 px-1.5 py-1 font-semibold text-emerald-600">{item.ai_level || "-"}</span></td><td className="px-2 py-2.5 text-slate-500">{item.last_followup ? new Date(item.last_followup).toLocaleDateString("zh-CN") : "未跟进"}</td><td className="px-2 py-2.5 font-medium text-orange-600">{item.followup_time ? new Date(item.followup_time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "-"}</td><td className="px-2 py-2.5">{typeLabels[item.type] || item.type}</td><td className="px-2 py-2.5"><span className="rounded bg-orange-50 px-2 py-1 text-orange-600">{statusLabels[item.status] || item.status}</span></td><td className="px-3 py-2.5"><div className="flex gap-2 text-blue-600"><a href={`tel:${item.customer_name}`} aria-label="电话跟进"><Phone size={15} /></a><Link href={`/customers/${item.customer_id}`} aria-label="邮件跟进"><Mail size={15} /></Link><Link href={`/customers/${item.customer_id}`} aria-label="编辑跟进"><MessageSquareText size={15} /></Link></div></td></tr>) : <tr><td colSpan={8} className="h-[175px] text-center text-slate-400">今天没有待跟进任务</td></tr>}</tbody></table></div><footer className="flex h-12 items-center justify-between border-t border-slate-100 px-4 text-xs text-slate-500"><span>共 {data.totals.today_followups} 条</span><div className="flex items-center gap-1"><button type="button" disabled className="grid h-8 w-8 place-items-center rounded border border-slate-200 disabled:opacity-40"><ChevronLeft size={15} /></button><button type="button" className="h-8 min-w-8 rounded bg-blue-600 px-2 text-white">1</button><button type="button" disabled className="grid h-8 w-8 place-items-center rounded border border-slate-200 disabled:opacity-40"><ChevronRight size={15} /></button><select aria-label="每页条数" className="ml-2 h-8 rounded border border-slate-200 px-2"><option>5条/页</option></select></div></footer></article>
             <article className={`${panelClass} min-h-[310px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">最近动态</h3><Link href="/customers" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="space-y-0 px-4">{data.activities.length ? data.activities.map((item, index) => { const Icon = item.action.includes("AI") ? Sparkles : item.action.includes("FOLLOWUP") ? UsersRound : item.action.includes("STAGE") ? FileText : index % 2 ? CalendarDays : UserRoundPlus; const colors = item.action.includes("AI") ? "bg-violet-500" : item.action.includes("FOLLOWUP") ? "bg-emerald-500" : item.action.includes("STAGE") ? "bg-orange-500" : "bg-blue-500"; return <div key={item.id} className="flex items-center gap-3 py-3 text-xs"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-white ${colors}`}><Icon size={15} /></span><p className="min-w-0 flex-1 text-slate-700">{item.text}</p><time className="shrink-0 text-slate-400">{relativeTime(item.created_at)}</time></div>; }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>暂无最近动态</p></div></div>}</div></article>
           </section>
         </> : null}
