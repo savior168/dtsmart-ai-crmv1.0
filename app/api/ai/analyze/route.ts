@@ -3,6 +3,9 @@ import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { analyzeCustomer } from "@/lib/ai/customer-analysis";
 import { collectCustomerEvidence } from "@/lib/ai/web-enrichment";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 function normalizeEmail(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
@@ -31,16 +34,17 @@ function joinNewPhones(original?: string | null, values: string[] = []) {
 }
 
 export async function POST(request: NextRequest) {
+  let requestedCustomerId: string | undefined;
   try {
     const { supabase, user } = await requireUser();
     const { customer_id, product_image_information } = (await request.json()) as { customer_id?: string; product_image_information?: string };
+    requestedCustomerId = customer_id;
     if (!customer_id) return NextResponse.json({ error: "缺少 customer_id" }, { status: 400 });
 
     const { data: customer, error: readError } = await supabase
       .from("customers")
       .select("id,company_name,country,phone,email,website,google_url,address,industry,category,tags,source")
       .eq("id", customer_id)
-      .or(`owner_id.eq.${user.id},created_by.eq.${user.id}`)
       .is("deleted_at", null)
       .single();
     if (readError || !customer) throw readError || new Error("客户不存在或无权访问");
@@ -94,7 +98,7 @@ export async function POST(request: NextRequest) {
     };
     const message = labels[raw] || (raw.startsWith("OPENAI_API_ERROR:") ? `OpenAI 接口错误：${raw.slice(17)}` : raw.startsWith("OPENAI_NETWORK_ERROR:") ? `无法连接 OpenAI：${raw.slice(21)}` : `AI分析失败：${raw}`);
     const status = raw === "UNAUTHORIZED" ? 401 : raw === "OPENAI_NOT_CONFIGURED" ? 503 : 400;
-    console.error("AI_ANALYZE_ERROR", { raw, customer_id: "request_failed" });
+    console.error("AI_ANALYZE_ERROR", { code: raw.split(":", 1)[0], message: raw, customer_id: requestedCustomerId || "missing" });
     return NextResponse.json({ error: message, code: raw.split(":", 1)[0], configured: raw !== "OPENAI_NOT_CONFIGURED" }, { status });
   }
 }

@@ -21,7 +21,7 @@ for (const route of requiredRoutes) {
 }
 
 const customerApi = read("app/api/customers/route.ts");
-assert.match(customerApi, /owner_id.*user\.id|created_by.*user\.id/s, "客户查询必须限制为当前用户");
+assert.doesNotMatch(customerApi, /query\s*=\s*query\.or\(`owner_id\.eq\.\$\{user\.id\},created_by\.eq\.\$\{user\.id\}`\)/, "客户查询必须由 Supabase RLS 统一控制，不能按创建人再次收窄");
 assert.match(customerApi, /ai_score.*null/i, "AI待筛选查询必须包含未评分条件");
 
 const aiApi = read("app/api/ai/analyze/route.ts");

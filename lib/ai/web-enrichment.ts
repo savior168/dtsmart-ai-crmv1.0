@@ -9,6 +9,8 @@ export type WebsiteEvidence = {
   image_urls: string[];
   emails: string[];
   phones: string[];
+  video_urls?: string[];
+  pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; emails: string[]; phones: string[] }>;
   error?: string;
 };
 
@@ -108,12 +110,64 @@ export async function collectWebsiteEvidence(url?: string | null): Promise<Websi
       image_urls: imageUrls,
       emails: extractEmails(html),
       phones: extractPhones(compactText(html)),
+      video_urls: unique([...html.matchAll(/<(?:video|source|iframe)[^>]+(?:src)=['\"]([^'\"]+)['\"]/gi)].map((match) => match[1])).slice(0, 12),
     };
   } catch (error) {
     return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: error instanceof Error ? error.message : "website fetch failed" };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function sameWebsiteUrl(base: string, candidate: string) {
+  try {
+    const resolved = new URL(candidate, base);
+    const origin = new URL(base);
+    return ["http:", "https:"].includes(resolved.protocol) && resolved.hostname === origin.hostname ? resolved.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function discoverImportantWebsitePages(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation", Accept: "text/html,application/xhtml+xml" },
+    });
+    if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
+    const html = (await response.text()).slice(0, 350_000);
+    const keywords = /about|company|service|product|contact|support|team|portfolio|solution|业务|关于|服务|产品|联系/i;
+    const links = [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
+      .map((match) => ({ url: sameWebsiteUrl(url, match[1]), text: compactText(match[2]) }))
+      .filter((item): item is { url: string; text: string } => Boolean(item.url) && keywords.test(`${item.url} ${item.text}`));
+    return [...new Set(links.map((item) => item.url).filter((item) => item !== url))].slice(0, 4);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function collectDeepWebsiteEvidence(url?: string | null): Promise<WebsiteEvidence | undefined> {
+  const homepage = await collectWebsiteEvidence(url);
+  if (!homepage?.reachable) return homepage;
+  const importantPages = await discoverImportantWebsitePages(homepage.url);
+  if (!importantPages.length) return homepage;
+  const pages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl)))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  return {
+    ...homepage,
+    headings: unique([...homepage.headings, ...pages.flatMap((page) => page.headings)]).slice(0, 40),
+    image_alts: unique([...homepage.image_alts, ...pages.flatMap((page) => page.image_alts)]).slice(0, 40),
+    image_urls: unique([...homepage.image_urls, ...pages.flatMap((page) => page.image_urls)]).slice(0, 30),
+    video_urls: unique([...(homepage.video_urls || []), ...pages.flatMap((page) => page.video_urls || [])]).slice(0, 20),
+    emails: unique([...homepage.emails, ...pages.flatMap((page) => page.emails)]),
+    phones: unique([...homepage.phones, ...pages.flatMap((page) => page.phones)]),
+    text_excerpt: [homepage.text_excerpt, ...pages.map((page) => page.text_excerpt)].filter(Boolean).join("\n\n").slice(0, 16_000),
+    pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, emails, phones }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, emails, phones })),
+  };
 }
 
 export async function collectGooglePlaceEvidence(input: {
@@ -193,7 +247,7 @@ export async function collectCustomerEvidence(input: {
   address?: string | null;
 }): Promise<CustomerEvidence> {
   const [website, google_place] = await Promise.all([
-    collectWebsiteEvidence(input.website),
+    collectDeepWebsiteEvidence(input.website),
     collectGooglePlaceEvidence({
       company_name: input.customer_name,
       country: input.country,

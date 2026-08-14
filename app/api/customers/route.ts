@@ -37,7 +37,7 @@ function clean(body: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase } = await requireUser();
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 10)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
@@ -53,14 +53,16 @@ export async function GET(request: NextRequest) {
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
     let query = supabase.from("customers").select("*", { count: "exact" });
-    query = query.or(`owner_id.eq.${user.id},created_by.eq.${user.id}`);
+    // Authorization is enforced by Supabase RLS. Do not narrow the result
+    // again by creator/owner: doing so hides records that an administrator,
+    // manager, or sales user is already permitted to see.
     query = deleted ? query.not("deleted_at", "is", null) : query.is("deleted_at", null);
     if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%,website_email.ilike.%${search}%,website_phone.ilike.%${search}%`);
     if (status) query = query.eq("status", status);
     if (aiLevel) query = query.eq("ai_level", aiLevel);
     if (industry) query = query.ilike("industry", `%${industry}%`);
-    if (aiPending) query = query.is("ai_score", null).or("ai_screening_done.is.null,ai_screening_done.eq.false");
-    if (aiDone) query = query.not("ai_score", "is", null);
+    if (aiPending) query = query.or("ai_screening_done.is.null,ai_screening_done.eq.false,ai_score.is.null");
+    if (aiDone) query = query.eq("ai_screening_done", true);
     if (aiFailed) query = query.ilike("ai_reason", "%失败%");
     if (target === "valid") query = query.eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("is_target_customer", false);

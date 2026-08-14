@@ -32,9 +32,9 @@ const writable = [
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase } = await requireUser();
     const { id } = await context.params;
-    const { data, error } = await supabase.from("customers").select("*").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single();
+    const { data, error } = await supabase.from("customers").select("*").eq("id", id).single();
     if (error) throw error;
     return NextResponse.json(data);
   } catch (error) {
@@ -48,7 +48,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
-    const { data, error } = await supabase.from("customers").update(payload).eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).select().single();
+    const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select().single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_UPDATE", "customer", id, { fields: Object.keys(payload) });
     return NextResponse.json(data);
@@ -61,7 +61,15 @@ export async function DELETE(_: NextRequest, context: { params: Promise<{ id: st
   try {
     const { supabase, user } = await requireUser();
     const { id } = await context.params;
-    const result = await supabase.from("customers").update({ deleted_at: new Date().toISOString() }).eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`);
+    const { data: accessibleCustomer, error: accessError } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (accessError) throw accessError;
+    if (!accessibleCustomer) return NextResponse.json({ error: "客户不存在、已删除或您没有删除权限" }, { status: 404 });
+    const result = await supabase.from("customers").update({ deleted_at: new Date().toISOString() }).eq("id", id).is("deleted_at", null);
     if (result.error) throw result.error;
     await writeAudit(supabase, user.id, "CUSTOMER_DELETE", "customer", id, {});
     return NextResponse.json({ ok: true });
