@@ -70,11 +70,14 @@ export async function POST(request: NextRequest) {
     const websiteEmail = joinNewEmails(customer.email, [...(evidence.website?.emails || []), ...(evidence.google_place?.emails || [])]);
     const websitePhone = joinNewPhones(customer.phone, [...(evidence.website?.phones || []), evidence.google_place?.phone || ""]);
     const shouldRecycle = false;
-    const updatePayload = {
+    const coreUpdatePayload = {
       industry: analysis.industry_type,
       ai_score: analysis.ai_score,
       ai_level: analysis.ai_level,
       ai_reason: analysis.ai_reason,
+    };
+    const extendedUpdatePayload = {
+      ...coreUpdatePayload,
       is_target_customer: analysis.is_target_customer,
       ai_screening_done: true,
       business_relevance: analysis.business_relevance,
@@ -83,7 +86,12 @@ export async function POST(request: NextRequest) {
       website_email: websiteEmail || null,
       website_phone: websitePhone || null,
     };
-    const { error: updateError } = await supabase.from("customers").update(updatePayload).eq("id", customer.id);
+    let { error: updateError } = await supabase.from("customers").update(extendedUpdatePayload).eq("id", customer.id);
+    // Production may still be on the initial migration. Save core analysis in
+    // that case so the customer immediately leaves the pending-screening list.
+    if (updateError?.code === "42703") {
+      ({ error: updateError } = await supabase.from("customers").update(coreUpdatePayload).eq("id", customer.id));
+    }
     if (updateError) throw updateError;
     await writeAudit(supabase, user.id, "CUSTOMER_AI_ANALYZE", "customer", customer.id, { ...analysis, websiteEmail, websitePhone, recycled: shouldRecycle });
     return NextResponse.json({ customer_id: customer.id, ...analysis, website_email: websiteEmail, website_phone: websitePhone, recycled: shouldRecycle, evidence });

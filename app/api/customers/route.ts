@@ -57,12 +57,15 @@ export async function GET(request: NextRequest) {
     // again by creator/owner: doing so hides records that an administrator,
     // manager, or sales user is already permitted to see.
     query = deleted ? query.not("deleted_at", "is", null) : query.is("deleted_at", null);
-    if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%,website_email.ilike.%${search}%,website_phone.ilike.%${search}%`);
+    // Website contact fields are optional extensions. Keep the list usable on
+    // the original production schema while migration catches up.
+    if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
     if (status) query = query.eq("status", status);
     if (aiLevel) query = query.eq("ai_level", aiLevel);
     if (industry) query = query.ilike("industry", `%${industry}%`);
-    if (aiPending) query = query.or("ai_screening_done.is.null,ai_screening_done.eq.false,ai_score.is.null");
-    if (aiDone) query = query.eq("ai_screening_done", true);
+    // ai_score exists in every supported schema and is the stable completion flag.
+    if (aiPending) query = query.is("ai_score", null);
+    if (aiDone) query = query.not("ai_score", "is", null);
     if (aiFailed) query = query.ilike("ai_reason", "%失败%");
     if (target === "valid") query = query.eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("is_target_customer", false);
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
-    const payload = { ...clean(body), created_by: user.id, owner_id: user.id, ai_screening_done: body.ai_screening_done ?? false };
+    const payload = { ...clean(body), created_by: user.id, owner_id: user.id };
     const { data, error } = await supabase.from("customers").insert(payload).select().single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name });

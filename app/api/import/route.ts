@@ -104,7 +104,8 @@ export async function POST(request: NextRequest) {
         }
 
         const { import_meta, ...row } = raw;
-        const { data, error } = await supabase.from("customers").insert({ ...row, created_by: user.id, owner_id: user.id, ai_screening_done: false }).select("id").single();
+        // ai_score=null is the schema-compatible marker for 未完成 AI 筛选.
+        const { data, error } = await supabase.from("customers").insert({ ...row, created_by: user.id, owner_id: user.id }).select("id").single();
         if (error) throw error;
 
         success++;
