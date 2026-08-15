@@ -89,8 +89,17 @@ export async function POST(request: NextRequest) {
       ai_level: analysis.ai_level,
       ai_reason: analysis.ai_reason,
     };
-    const extendedUpdatePayload = {
-      ...coreUpdatePayload,
+    // Core fields are present in the original production schema. Write these
+    // first so AI screening always completes even when optional columns have
+    // not yet been added to Supabase's schema cache.
+    const { error: coreUpdateError } = await supabase.from("customers").update(coreUpdatePayload).eq("id", customer.id);
+    if (coreUpdateError) throw coreUpdateError;
+
+    // Optional enrichment is best-effort and isolated from the core write. On
+    // older databases PostgREST returns PGRST204/42703 for missing columns;
+    // those fields are reported in logs and never turn a successful analysis
+    // into a failed task.
+    const optionalUpdatePayload = {
       is_target_customer: analysis.is_target_customer,
       ai_screening_done: true,
       business_relevance: analysis.business_relevance,
@@ -99,13 +108,14 @@ export async function POST(request: NextRequest) {
       website_email: websiteEmail || null,
       website_phone: websitePhone || null,
     };
-    let { error: updateError } = await supabase.from("customers").update(extendedUpdatePayload).eq("id", customer.id);
-    // Production may still be on the initial migration. Save core analysis in
-    // that case so the customer immediately leaves the pending-screening list.
-    if (updateError?.code === "42703") {
-      ({ error: updateError } = await supabase.from("customers").update(coreUpdatePayload).eq("id", customer.id));
+    const { error: optionalUpdateError } = await supabase.from("customers").update(optionalUpdatePayload).eq("id", customer.id);
+    if (optionalUpdateError) {
+      console.warn("AI_ANALYZE_OPTIONAL_FIELDS_SKIPPED", {
+        customer_id: customer.id,
+        code: optionalUpdateError.code,
+        message: optionalUpdateError.message,
+      });
     }
-    if (updateError) throw updateError;
     // Audit logging must not turn a completed analysis into a user-visible failure.
     try {
       await writeAudit(supabase, user.id, "CUSTOMER_AI_ANALYZE", "customer", customer.id, { ...analysis, websiteEmail, websitePhone, recycled: shouldRecycle });
