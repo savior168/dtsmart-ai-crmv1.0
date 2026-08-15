@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
         if (current.keys.some((key) => seen.has(key))) { duplicate += 1; return; }
         current.keys.forEach((key) => seen.add(key));
         delete item.import_meta;
+        // 兼容旧版 customers 表：AI 筛选状态列由筛选接口按 schema 兼容处理，导入不应因缺少该可选列而整批失败。
+        delete item.ai_screening_done;
         accepted.push({ ...item, created_by: user.id, owner_id: user.id });
       } catch (reason) { failed += 1; errors.push(`第 ${index + 2} 行：${reason instanceof Error ? reason.message : "数据格式错误"}`); }
     });
