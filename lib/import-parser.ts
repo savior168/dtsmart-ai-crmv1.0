@@ -227,6 +227,12 @@ export async function parseImportFile(file: File): Promise<ImportRow[]> {
 }
 
 export function mapImportRow(row: ImportRow) {
+  const boundedNumber = (raw: string, min: number, max: number) => {
+    const match = String(raw || "").replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : null;
+  };
   const productImage = value(row, "商品图片", "图片网址", "image", "product image");
   const tags = [
     value(row, "标签", "tags"),
@@ -249,8 +255,8 @@ export function mapImportRow(row: ImportRow) {
     industry: value(row, "行业", "industry"),
     source: "EXCEL_IMPORT",
     tags,
-    rating: Number(value(row, "商店分数", "评分", "rating")) || null,
-    ai_score: Number(value(row, "AI评分", "ai_score")) || null,
+    rating: boundedNumber(value(row, "商店分数", "评分", "rating"), 0, 5),
+    ai_score: boundedNumber(value(row, "AI评分", "ai_score"), 0, 100),
     ai_level: "",
     status: "UNCLAIMED" as const,
     ai_screening_done: false,

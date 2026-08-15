@@ -6,6 +6,12 @@ const text = (value: unknown) => String(value || "").trim();
 const nameKey = (value: unknown) => text(value).replace(/\s+/g, " ").toLowerCase();
 const phoneKey = (value: unknown) => text(value).replace(/[\s()\-]/g, "");
 const emailKey = (value: unknown) => text(value).toLowerCase();
+const bounded = (value: unknown, min: number, max: number) => {
+  const match = text(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : null;
+};
 function identity(row: Row) { const name = nameKey(row.company_name); const phone = phoneKey(row.phone); const email = emailKey(row.email); return { name, keys: [phone ? `p:${name}|${phone}` : "", email ? `e:${name}|${email}` : ""].filter(Boolean) }; }
 
 export async function POST(request: NextRequest) {
@@ -23,6 +29,8 @@ export async function POST(request: NextRequest) {
     const accepted: Row[] = []; let duplicate = 0; let failed = 0; const errors: string[] = [];
     rows.forEach((raw, index) => {
       const item = { ...raw };
+      if ("rating" in item) item.rating = bounded(item.rating, 0, 5);
+      if ("ai_score" in item) item.ai_score = bounded(item.ai_score, 0, 100);
       const current = identity(item);
       try {
         if (!current.name) throw new Error("客户名称为空");

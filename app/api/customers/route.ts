@@ -45,6 +45,8 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const deleted = request.nextUrl.searchParams.get("deleted") === "true" || target === "invalid";
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
+    const country = request.nextUrl.searchParams.get("country")?.trim();
+    const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
     const industry = request.nextUrl.searchParams.get("industry");
     const aiPending = request.nextUrl.searchParams.get("ai_pending") === "true";
     const aiDone = request.nextUrl.searchParams.get("ai_done") === "true";
@@ -62,13 +64,20 @@ export async function GET(request: NextRequest) {
     if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
     if (status) query = query.eq("status", status);
     if (aiLevel) query = query.eq("ai_level", aiLevel);
+    if (country) query = query.ilike("country", `%${country}%`);
+    if (ownerId === "unclaimed") query = query.is("owner_id", null);
+    else if (ownerId) query = query.eq("owner_id", ownerId);
     if (industry) query = query.ilike("industry", `%${industry}%`);
     // ai_score exists in every supported schema and is the stable completion flag.
     if (aiPending) query = query.is("ai_score", null);
     if (aiDone) query = query.not("ai_score", "is", null);
     if (aiFailed) query = query.ilike("ai_reason", "%失败%");
-    if (target === "valid") query = query.eq("is_target_customer", true);
-    if (target === "invalid") query = query.eq("is_target_customer", false);
+    // Keep target filtering compatible with both the migrated schema and the
+    // original production schema. `ai_score` is always present and is the
+    // canonical fallback when the optional boolean has not reached PostgREST's
+    // schema cache yet.
+    if (target === "valid") query = query.gte("ai_score", 60);
+    if (target === "invalid") query = query.lt("ai_score", 60);
 
     const allowedSort = new Set(["company_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "owner_id", "created_at", "last_contact_time"]);
     const sortField = allowedSort.has(sort) ? sort : "created_at";

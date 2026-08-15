@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
+import { TaskRuntime } from "@/components/task-runtime";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body><AppShell>{children}</AppShell></body>
+      <body><TaskRuntime /><AppShell>{children}</AppShell></body>
     </html>
   );
 }

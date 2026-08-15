@@ -2,20 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; --crm-primary:#2563eb; --crm-bg:#f6f8fc; }
+:root {
+  color-scheme: light;
+  --crm-primary: #2563eb;
+  --crm-primary-hover: #1d4ed8;
+  --crm-bg: #f5f8fc;
+  --crm-text: #172033;
+  --crm-muted: #64748b;
+  --crm-border: #dce5ef;
+  --crm-header: #eef5fb;
+}
 * { box-sizing: border-box; }
 html { background: var(--crm-bg); }
-body { margin:0; color:#0f172a; background:var(--crm-bg); font-family:Arial,"Microsoft YaHei",sans-serif; }
-[data-crm-theme="mint"] { --crm-primary:#059669; --crm-bg:#f0fdf9; }
-[data-crm-theme="lavender"] { --crm-primary:#7c3aed; --crm-bg:#faf8ff; }
-[data-crm-theme="sakura"] { --crm-primary:#db2777; --crm-bg:#fff7f8; }
-[data-crm-theme="cream"] { --crm-primary:#b45309; --crm-bg:#fffcf2; }
+body { margin:0; color:var(--crm-text); background:var(--crm-bg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif; font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+/* The CRM design system uses one stable blue/white visual language across
+   every page. Theme buttons may remain available for compatibility, but they
+   must not change the production UI palette shown in the approved design. */
+[data-crm-theme="mint"], [data-crm-theme="lavender"], [data-crm-theme="sakura"], [data-crm-theme="cream"] { --crm-primary:#2563eb; --crm-primary-hover:#1d4ed8; --crm-bg:#f5f8fc; --crm-text:#172033; --crm-muted:#64748b; --crm-border:#dce5ef; --crm-header:#eef5fb; }
 [data-crm-theme] body, [data-crm-theme] .bg-slate-50 { background-color:var(--crm-bg); }
 button,input,select,textarea { font:inherit; }
 button { cursor:pointer; }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid var(--crm-primary); outline-offset:2px; }
 ::selection { background:var(--crm-primary); color:white; }
 * { scrollbar-color:#cbd5e1 transparent; scrollbar-width:thin; }
+
+/* Shared sizing from the reference CRM: compact controls, light borders and
+   restrained radius/shadows rather than dark or oversized cards. */
+button, input, select, textarea { border-radius:6px; }
+button:not([aria-label]), select { min-height:36px; }
+table th { font-weight:600; }
+
+/* App-shell active navigation in the reference is a pale blue selection,
+   not a dark gradient. Keep the selector scoped to the existing utility
+   combination so primary action buttons remain solid blue. */
+[class*="from-blue-600"] { background-image:none !important; background-color:#eaf2ff !important; color:#2563eb !important; box-shadow:none !important; }
 
 @keyframes tradeos-auth-float {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }

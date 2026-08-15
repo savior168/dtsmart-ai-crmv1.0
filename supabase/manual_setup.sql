@@ -46,7 +46,7 @@ create table if not exists public.customers (
   category text,
   source text,
   tags text[] not null default '{}',
-  rating numeric(3, 2) check (rating is null or (rating >= 0 and rating <= 5)),
+  rating numeric(5, 2) check (rating is null or (rating >= 0 and rating <= 100)),
   ai_score integer check (ai_score is null or (ai_score >= 0 and ai_score <= 100)),
   ai_level text,
   ai_reason text,
