@@ -33,6 +33,19 @@ function joinNewPhones(original?: string | null, values: string[] = []) {
   return result.join(", ");
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const value = error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+    if (typeof value.message === "string" && value.message) {
+      const extra = [value.details, value.hint].filter((item): item is string => typeof item === "string" && item.length > 0);
+      return extra.length ? `${value.message}（${extra.join("；")}）` : value.message;
+    }
+    if (typeof value.code === "string" && value.code) return `数据库错误 ${value.code}`;
+  }
+  return String(error || "未知错误");
+}
+
 export async function POST(request: NextRequest) {
   let requestedCustomerId: string | undefined;
   try {
@@ -93,10 +106,15 @@ export async function POST(request: NextRequest) {
       ({ error: updateError } = await supabase.from("customers").update(coreUpdatePayload).eq("id", customer.id));
     }
     if (updateError) throw updateError;
-    await writeAudit(supabase, user.id, "CUSTOMER_AI_ANALYZE", "customer", customer.id, { ...analysis, websiteEmail, websitePhone, recycled: shouldRecycle });
+    // Audit logging must not turn a completed analysis into a user-visible failure.
+    try {
+      await writeAudit(supabase, user.id, "CUSTOMER_AI_ANALYZE", "customer", customer.id, { ...analysis, websiteEmail, websitePhone, recycled: shouldRecycle });
+    } catch (auditError) {
+      console.error("AI_ANALYZE_AUDIT_ERROR", { customer_id: customer.id, error: errorMessage(auditError) });
+    }
     return NextResponse.json({ customer_id: customer.id, ...analysis, website_email: websiteEmail, website_phone: websitePhone, recycled: shouldRecycle, evidence });
   } catch (error) {
-    const raw = error instanceof Error ? error.message : "UNKNOWN_ERROR";
+    const raw = errorMessage(error);
     const labels: Record<string, string> = {
       OPENAI_NOT_CONFIGURED: "生产环境未配置 OPENAI_API_KEY",
       OPENAI_TIMEOUT: "OpenAI 分析超时（超过45秒）",
