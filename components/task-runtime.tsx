@@ -13,6 +13,7 @@ function toast(message: string, type: "success" | "error" = "success") { window.
 
 export function TaskRuntime() {
   const [tasks, setTasks] = useState<{ import: Task | null; ai: Task | null }>({ import: null, ai: null });
+  const [notices, setNotices] = useState<Array<{ id: number; message: string; type: "success" | "error" }>>([]);
   useEffect(() => {
     const refresh = () => setTasks({ import: read(IMPORT_KEY), ai: read(AI_KEY) });
     refresh();
@@ -41,10 +42,19 @@ export function TaskRuntime() {
       } else if (trackMutation) toast(response.ok ? "操作成功" : (typeof body.error === "string" ? body.error : "操作失败，请重试"), response.ok ? "success" : "error");
       return response;
     };
+    const receiveToast = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string; type?: "success" | "error"; duration?: number }>).detail;
+      if (!detail?.message) return;
+      const message = detail.message;
+      const id = Date.now() + Math.random();
+      setNotices((current) => [...current.slice(-3), { id, message, type: detail.type || "success" }]);
+      window.setTimeout(() => setNotices((current) => current.filter((item) => item.id !== id)), detail.duration || 3600);
+    };
     window.addEventListener(EVENT_NAME, refresh);
-    return () => { window.fetch = originalFetch; window.clearTimeout(aiFinishTimer); window.removeEventListener(EVENT_NAME, refresh); };
+    window.addEventListener("dtsmart-toast", receiveToast);
+    return () => { window.fetch = originalFetch; window.clearTimeout(aiFinishTimer); window.removeEventListener(EVENT_NAME, refresh); window.removeEventListener("dtsmart-toast", receiveToast); };
   }, []);
   const visible = [tasks.import, tasks.ai].filter((task): task is Task => Boolean(task && (task.status === "running" || Date.now() - task.updatedAt < 9000)));
-  if (!visible.length) return null;
-  return <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-[min(92vw,390px)] flex-col gap-3" aria-live="polite">{visible.map((task) => { const running = task.status === "running"; const failed = task.failed > 0 || task.status === "failed"; const progress = task.total ? Math.min(100, Math.round(task.done / task.total * 100)) : null; return <div key={task.kind} className={`pointer-events-auto relative rounded-xl border bg-white p-4 shadow-2xl ${failed ? "border-amber-200" : "border-blue-200"}`}><div className="flex items-center gap-2 text-sm font-semibold text-slate-800">{running ? <LoaderCircle size={18} className="animate-spin text-blue-600" /> : failed ? <XCircle size={18} className="text-amber-600" /> : <CheckCircle2 size={18} className="text-emerald-600" />}<span>{task.kind === "import" ? "数据导入任务" : "AI筛选任务"}</span><span className="ml-auto text-xs font-normal text-slate-500">{running ? "后台执行中" : "已完成"}</span></div><div className="mt-2 text-sm text-slate-600">{task.total ? `${task.done}/${task.total}` : `已完成 ${task.done} 条`} · 成功 {task.success} 条 · 失败 {task.failed} 条</div>{progress !== null && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} /></div>}{task.failures.length > 0 && <details className="mt-2 text-xs text-amber-700"><summary className="cursor-pointer">查看失败原因（{task.failures.length} 条）</summary><div className="mt-1 max-h-20 space-y-1 overflow-auto">{task.failures.slice(-10).map((reason, index) => <p key={`${task.kind}-${index}`}>{reason}</p>)}</div></details>}<button type="button" aria-label="关闭任务提示" onClick={() => { localStorage.removeItem(task.kind === "import" ? IMPORT_KEY : AI_KEY); window.dispatchEvent(new Event(EVENT_NAME)); }} className="absolute right-2 top-2 text-slate-400 hover:text-slate-700"><X size={14} /></button></div>; })}</div>;
+  if (!visible.length && !notices.length) return null;
+  return <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-[min(92vw,390px)] flex-col gap-3" aria-live="polite">{visible.map((task) => { const running = task.status === "running"; const failed = task.failed > 0 || task.status === "failed"; const progress = task.total ? Math.min(100, Math.round(task.done / task.total * 100)) : null; return <div key={task.kind} className={`pointer-events-auto relative rounded-xl border bg-white p-4 shadow-2xl ${failed ? "border-amber-200" : "border-blue-200"}`}><div className="flex items-center gap-2 text-sm font-semibold text-slate-800">{running ? <LoaderCircle size={18} className="animate-spin text-blue-600" /> : failed ? <XCircle size={18} className="text-amber-600" /> : <CheckCircle2 size={18} className="text-emerald-600" />}<span>{task.kind === "import" ? "数据导入任务" : "AI筛选任务"}</span><span className="ml-auto text-xs font-normal text-slate-500">{running ? "后台执行中" : "已完成"}</span></div><div className="mt-2 text-sm text-slate-600">{task.total ? `${task.done}/${task.total}` : `已完成 ${task.done} 条`} · 成功 {task.success} 条 · 失败 {task.failed} 条</div>{progress !== null && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} /></div>}{task.failures.length > 0 && <details className="mt-2 text-xs text-amber-700"><summary className="cursor-pointer">查看失败原因（{task.failures.length} 条）</summary><div className="mt-1 max-h-20 space-y-1 overflow-auto">{task.failures.slice(-10).map((reason, index) => <p key={`${task.kind}-${index}`}>{reason}</p>)}</div></details>}<button type="button" aria-label="关闭任务提示" onClick={() => { localStorage.removeItem(task.kind === "import" ? IMPORT_KEY : AI_KEY); window.dispatchEvent(new Event(EVENT_NAME)); }} className="absolute right-2 top-2 text-slate-400 hover:text-slate-700"><X size={14} /></button></div>; })}{notices.map((notice) => <div key={notice.id} className={`pointer-events-auto rounded-xl border bg-white px-4 py-3 text-sm shadow-xl ${notice.type === "error" ? "border-rose-200 text-rose-700" : "border-emerald-200 text-emerald-700"}`}>{notice.message}</div>)}</div>;
 }

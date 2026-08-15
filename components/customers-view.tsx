@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   ExternalLink,
-  MoreHorizontal,
+  FileSpreadsheet,
+  Pencil,
   Plus,
   Search,
   Settings2,
@@ -17,10 +18,10 @@ import type { Customer, CustomerStatus } from "@/lib/types";
 
 const stageLabels: Record<CustomerStatus, string> = {
   UNCLAIMED: "新客户",
-  CLAIMED: "潜在客户",
-  FOLLOWING: "跟进中",
+  CLAIMED: "意向客户",
+  FOLLOWING: "意向客户",
   QUOTE: "报价中",
-  DEAL: "已成交",
+  DEAL: "成交客户",
   RELEASED: "无效客户",
 };
 const stageClass: Record<CustomerStatus, string> = {
@@ -160,6 +161,8 @@ export function CustomersView() {
   const [fieldOpen, setFieldOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const [selectingAll, setSelectingAll] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const newRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -310,12 +313,11 @@ export function CustomersView() {
     setPage(1);
     setSelected(new Set());
   }
+  function notify(message: string, type: "success" | "error" = "success") {
+    window.dispatchEvent(new CustomEvent("dtsmart-toast", { detail: { message, type } }));
+  }
   async function remove(ids: string[]) {
-    if (
-      !ids.length ||
-      !window.confirm(`确认删除选中的 ${ids.length} 条客户？客户将进入回收站。`)
-    )
-      return;
+    if (!ids.length) return;
     const response =
       ids.length === 1
         ? await fetch(`/api/customers/${ids[0]}`, { method: "DELETE" })
@@ -327,10 +329,19 @@ export function CustomersView() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(body.error || "删除失败");
+      notify(body.error || "删除失败，请稍后重试", "error");
       return;
+    }
+    if (Number(body.failed_count || 0) > 0 || Number(body.success_count || (body.ok ? 1 : 0)) === 0) {
+      const message = body.results?.find?.((item: { error?: string }) => item.error)?.error || "部分客户未能移入回收站";
+      setError(message);
+      notify(message, "error");
+    } else {
+      notify(`已将 ${ids.length} 条客户移入回收站`);
     }
     setSelected(new Set());
     setDetail(null);
+    setDeleteIds(null);
     await load();
   }
   async function updateStage(nextStatus: string) {
@@ -347,11 +358,39 @@ export function CustomersView() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       setError(body.error || "批量更新阶段失败");
+      notify(body.error || "批量更新阶段失败", "error");
       return;
     }
+    if (Number(body.failed_count || 0) > 0) {
+      const message = body.results?.find?.((item: { error?: string }) => item.error)?.error || "部分客户阶段没有更新";
+      setError(message);
+      notify(message, "error");
+    } else notify(`已更新 ${body.success_count || selected.size} 条客户阶段`);
     setBulkOpen(false);
     setSelected(new Set());
     await load();
+  }
+  async function selectAllResults() {
+    setSelectingAll(true);
+    setError("");
+    const params = new URLSearchParams({
+      page: "1", pageSize: "5000", ids_only: "true", search, country, status,
+      ai_level: level, target, owner_id: owner, ai_pending: String(aiPending),
+      deleted: "false", sort: "updated_at", direction: "desc",
+    });
+    try {
+      const response = await fetch(`/api/customers?${params}`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "全选当前筛选结果失败");
+      setSelected(new Set((body.data || []).map((item: Customer) => item.id)));
+      notify(`已选择当前筛选结果的 ${Number(body.count || 0)} 条客户`);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "全选当前筛选结果失败";
+      setError(message);
+      notify(message, "error");
+    } finally {
+      setSelectingAll(false);
+    }
   }
   function exportData() {
     const header = fields.map(
@@ -476,9 +515,9 @@ export function CustomersView() {
               className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
             >
               <option value="">全部客户阶段</option>
-              {Object.entries(stageLabels).map(([key, label]) => (
+              {(["UNCLAIMED", "CLAIMED", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
                 <option key={key} value={key}>
-                  {label}
+                  {stageLabels[key]}
                 </option>
               ))}
             </select>
@@ -576,28 +615,28 @@ export function CustomersView() {
                 <div className="absolute left-0 top-11 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                   <Link
                     href="/customers/new"
-                    className="block rounded-lg px-3 py-3 hover:bg-blue-50"
+                    className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
-                    <b className="block">手动新增</b>
-                    <small className="text-slate-500">逐条录入客户资料</small>
+                    <UserPlus size={20} className="mt-0.5 shrink-0 text-blue-600" />
+                    <span><span className="block text-sm font-medium">手动新增</span><small className="text-slate-500">逐条录入客户资料</small></span>
                   </Link>
                   <Link
                     href="/import"
-                    className="block rounded-lg px-3 py-3 hover:bg-blue-50"
+                    className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
-                    <b className="block">Excel批量导入</b>
-                    <small className="text-slate-500">
+                    <FileSpreadsheet size={20} className="mt-0.5 shrink-0 text-emerald-600" />
+                    <span><span className="block text-sm font-medium">Excel批量导入</span><small className="text-slate-500">
                       前往 数据导入 &gt; 上传文件
-                    </small>
+                    </small></span>
                   </Link>
                   <a
                     href="/api/import/template"
-                    className="block rounded-lg px-3 py-3 hover:bg-blue-50"
+                    className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
-                    <b className="block">下载Excel导入模板</b>
-                    <small className="text-slate-500">
-                      .xlsx · 含字段说明和示例数据
-                    </small>
+                    <Download size={20} className="mt-0.5 shrink-0 text-blue-600" />
+                    <span><span className="block text-sm font-medium">下载Excel导入模板</span><small className="text-slate-500">
+                      .csv · 含字段说明和示例数据
+                    </small></span>
                   </a>
                   <div className="border-t px-3 py-2 text-xs text-slate-400">
                     请使用系统最新模板，勿修改第一行字段名称
@@ -683,27 +722,31 @@ export function CustomersView() {
                 </div>
               )}
             </div>
-            {selected.size > 0 && (
-              <>
-                <span className="ml-auto text-sm text-slate-600">
-                  已选择 {selected.size} 项
-                </span>
-                <button
-                  onClick={() => setBulkOpen((value) => !value)}
-                  className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm"
-                >
-                  <UserPlus size={16} />
-                  批量更新阶段
-                </button>
-                <button
-                  onClick={() => void remove([...selected])}
-                  className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2.5 text-sm text-rose-600"
-                >
-                  <Trash2 size={16} />
-                  删除
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              onClick={() => void selectAllResults()}
+              disabled={selectingAll || !count}
+              className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {selectingAll ? "正在全选..." : "全选筛选结果"}
+            </button>
+            <span className="ml-auto text-sm text-slate-600">已选择 {selected.size} 项</span>
+            <button
+              disabled={!selected.size}
+              onClick={() => setBulkOpen((value) => !value)}
+              className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <UserPlus size={16} />
+              批量更新阶段
+            </button>
+            <button
+              disabled={!selected.size}
+              onClick={() => setDeleteIds([...selected])}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2.5 text-sm text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Trash2 size={16} />
+              批量删除
+            </button>
             {bulkOpen && (
               <select
                 autoFocus
@@ -711,10 +754,11 @@ export function CustomersView() {
                 className="rounded-lg border border-blue-300 px-3 py-2.5 text-sm"
               >
                 <option value="">选择客户阶段</option>
-                <option value="CLAIMED">潜在客户</option>
-                <option value="FOLLOWING">跟进中</option>
+                <option value="UNCLAIMED">新客户</option>
+                <option value="CLAIMED">意向客户</option>
                 <option value="QUOTE">报价中</option>
-                <option value="DEAL">已成交</option>
+                <option value="DEAL">成交客户</option>
+                <option value="RELEASED">无效客户</option>
               </select>
             )}
           </div>
@@ -775,9 +819,8 @@ export function CustomersView() {
                         onChange={() =>
                           setSelected((current) => {
                             const next = new Set(current);
-                            next.has(row.id)
-                              ? next.delete(row.id)
-                              : next.add(row.id);
+                            if (next.has(row.id)) next.delete(row.id);
+                            else next.add(row.id);
                             return next;
                           })
                         }
@@ -821,19 +864,22 @@ export function CustomersView() {
                       <Link
                         href={`/customers/${row.id}`}
                         onClick={(event) => event.stopPropagation()}
-                        className="mr-2 text-blue-600 hover:underline"
+                        className="mr-2 inline-grid h-8 w-8 place-items-center rounded text-blue-600 hover:bg-blue-50"
+                        title="编辑客户"
+                        aria-label={`编辑${row.company_name}`}
                       >
-                        查看
+                        <Pencil size={17} />
                       </Link>
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
-                          void remove([row.id]);
+                          setDeleteIds([row.id]);
                         }}
-                        className="rounded p-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                        title="更多操作"
+                        className="inline-grid h-8 w-8 place-items-center rounded text-rose-500 hover:bg-rose-50"
+                        title="移入回收站"
+                        aria-label={`删除${row.company_name}`}
                       >
-                        <MoreHorizontal size={18} />
+                        <Trash2 size={17} />
                       </button>
                     </td>
                   </tr>
@@ -858,7 +904,7 @@ export function CustomersView() {
             )}
           </div>
           <footer className="flex flex-wrap items-center justify-between gap-4 border-t px-5 py-4 text-sm">
-            <span className="text-slate-600">共 {count} 家</span>
+            <span className="text-slate-600">共 <b className="text-slate-900">{count}</b> 家{selected.size ? <span className="ml-2 text-blue-600">，已勾选 {selected.size} 条</span> : null}</span>
             <div className="flex items-center gap-2">
               <button
                 disabled={page <= 1}
@@ -884,22 +930,22 @@ export function CustomersView() {
                 下一页
               </button>
             </div>
-            <select
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value));
-                setPage(1);
-              }}
-              className="rounded-lg border px-3 py-2"
-            >
-              {[20, 50, 100].map((size) => (
-                <option key={size} value={size}>
-                  {size} 条/页
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2"><label className="hidden text-slate-500 lg:block">跳转</label><input type="number" min={1} max={pages} defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const next = Number(event.currentTarget.value); if (Number.isFinite(next)) setPage(Math.min(pages, Math.max(1, next))); } }} className="h-9 w-16 rounded-lg border px-2 text-center" aria-label="跳转到指定页"/><span className="hidden text-slate-500 lg:block">/ {pages} 页</span><select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="rounded-lg border px-3 py-2" aria-label="每页显示数量">{[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size} 条/页</option>)}</select></div>
           </footer>
         </section>
+        {deleteIds && (
+          <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/25 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-customer-title">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-rose-600"><Trash2 size={21} /></div>
+              <h2 id="delete-customer-title" className="mt-4 text-lg font-semibold text-slate-900">确认移入回收站？</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">将把选中的 {deleteIds.length} 条客户移入回收站，客户资料和操作记录会被保留，可由有权限的用户恢复。</p>
+              <div className="mt-6 flex justify-end gap-3">
+                <button type="button" onClick={() => setDeleteIds(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50">取消</button>
+                <button type="button" onClick={() => void remove(deleteIds)} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">确认删除</button>
+              </div>
+            </div>
+          </div>
+        )}
         {detail && (
           <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-lg overflow-y-auto border-l bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">

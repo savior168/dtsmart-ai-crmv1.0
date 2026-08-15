@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (body.action !== "STAGE" || !["CLAIMED", "FOLLOWING", "QUOTE", "DEAL"].includes(body.status || "")) {
+    if (body.action !== "STAGE" || !["UNCLAIMED", "CLAIMED", "QUOTE", "DEAL", "RELEASED"].includes(body.status || "")) {
       return NextResponse.json({ error: "无效的批量操作或客户状态" }, { status: 400 });
     }
     const { data: updated, error } = await supabase

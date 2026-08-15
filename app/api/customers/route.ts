@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
   try {
     const { supabase } = await requireUser();
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 10)));
+    const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
+    const pageSize = Math.min(idsOnly ? 5000 : 100, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 10)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
     const target = request.nextUrl.searchParams.get("target");
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     const sort = request.nextUrl.searchParams.get("sort") || "created_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
-    let query = supabase.from("customers").select("*", { count: "exact" });
+    let query = supabase.from("customers").select(idsOnly ? "id" : "*", { count: "exact" });
     // Authorization is enforced by Supabase RLS. Do not narrow the result
     // again by creator/owner: doing so hides records that an administrator,
     // manager, or sales user is already permitted to see.
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
-    const payload: Record<string, unknown> = { ...clean(body), created_by: user.id, owner_id: user.id };
+    const payload: Record<string, unknown> = { ...clean(body), status: "UNCLAIMED", created_by: user.id, owner_id: user.id };
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
     delete payload.website_email;
