@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
     const target = request.nextUrl.searchParams.get("target");
-    const deleted = request.nextUrl.searchParams.get("deleted") === "true" || target === "invalid";
+    const deleted = request.nextUrl.searchParams.get("deleted") === "true";
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
     const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
