@@ -156,7 +156,37 @@ function rowsToObjects(rows: string[][]) {
 
 function value(row: ImportRow, ...keys: string[]) {
   const normalized = new Map(Object.entries(row).map(([key, item]) => [key.trim().toLowerCase(), item]));
-  for (const key of keys) {
+  const semanticAliases: Record<string, string[]> = {
+    name: ["名称", "公司名称", "客户名称", "商店名称", "店铺名称"],
+    "company name": ["名称", "公司名称", "客户名称"],
+    "store name": ["商店名称", "店铺名称"],
+    country: ["国家", "国家/地区", "国家地区"],
+    "country code": ["区号", "区号代码"],
+    phone: ["完整号码", "完整电话", "电话"],
+    "full phone": ["完整号码", "完整电话"],
+    email: ["邮箱", "电子邮箱"],
+    "e-mail": ["邮箱", "电子邮箱"],
+    website: ["商家官网网址", "官网网址", "官网"],
+    site: ["商家官网网址", "官网网址", "官网"],
+    "google url": ["谷歌网址", "Google网址", "Google地图网址", "谷歌地图网址"],
+    "google maps url": ["谷歌网址", "Google网址", "Google地图网址", "谷歌地图网址"],
+    address: ["商店地址", "地址"],
+    "store address": ["商店地址", "地址"],
+    category: ["分类", "商店类型", "行业"],
+    "store type": ["商店类型", "分类"],
+    industry: ["行业", "行业关键词"],
+    rating: ["商店分数", "商店评分", "评分"],
+    "product image": ["商品图片", "图片网址", "商品图片网址"],
+    image: ["商品图片", "图片网址", "商品图片网址"],
+    tags: ["标签"],
+    keyword: ["搜索关键词"],
+    keywords: ["搜索关键词"],
+    "store status": ["商店状态"],
+    "created at": ["创建时间"],
+    created_time: ["创建时间"],
+  };
+  const candidates = keys.flatMap((key) => [key, ...(semanticAliases[key.trim().toLowerCase()] || [])]);
+  for (const key of candidates) {
     const direct = row[key];
     const loose = normalized.get(key.trim().toLowerCase());
     const found = direct ?? loose;
