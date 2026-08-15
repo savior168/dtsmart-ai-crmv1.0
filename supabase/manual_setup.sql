@@ -115,6 +115,16 @@ create table if not exists public.audit_logs (
 create index if not exists customers_owner_id_idx on public.customers(owner_id);
 create index if not exists customers_department_id_idx on public.customers(department_id);
 create index if not exists customers_status_idx on public.customers(status) where deleted_at is null;
+
+-- AI 筛选与官网联系方式扩展字段（可重复执行）
+alter table if exists public.customers add column if not exists website_email text;
+alter table if exists public.customers add column if not exists website_phone text;
+alter table if exists public.customers add column if not exists ai_screening_done boolean not null default false;
+alter table if exists public.customers add column if not exists is_target_customer boolean;
+alter table if exists public.customers add column if not exists business_relevance text;
+alter table if exists public.customers add column if not exists customer_value text;
+alter table if exists public.customers add column if not exists followup_suggestion text;
+alter table if exists public.customers add column if not exists notes text;
 create index if not exists customer_claims_customer_id_idx on public.customer_claims(customer_id);
 create index if not exists customer_protection_customer_id_idx on public.customer_protection(customer_id);
 create index if not exists followups_customer_id_idx on public.followups(customer_id);

@@ -28,6 +28,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
+    delete payload.ai_screening_done;
+    delete payload.website_email;
+    delete payload.website_phone;
     const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select().single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_UPDATE", "customer", id, { fields: Object.keys(payload) });

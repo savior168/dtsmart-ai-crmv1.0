@@ -89,7 +89,11 @@ export async function POST(request: NextRequest) {
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
-    const payload = { ...clean(body), created_by: user.id, owner_id: user.id };
+    const payload: Record<string, unknown> = { ...clean(body), created_by: user.id, owner_id: user.id };
+    // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
+    delete payload.ai_screening_done;
+    delete payload.website_email;
+    delete payload.website_phone;
     const { data, error } = await supabase.from("customers").insert(payload).select().single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name });
