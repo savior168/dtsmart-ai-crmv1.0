@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         delete item.ai_screening_done;
         delete item.website_email;
         delete item.website_phone;
-        accepted.push({ ...item, status: "UNCLAIMED", created_by: user.id, owner_id: user.id });
+        accepted.push({ ...item, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id });
       } catch (reason) { failed += 1; errors.push(`第 ${index + 2} 行：${reason instanceof Error ? reason.message : "数据格式错误"}`); }
     });
 

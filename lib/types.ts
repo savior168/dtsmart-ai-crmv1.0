@@ -52,9 +52,9 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
   UNCLAIMED: "新客户", CLAIMED: "意向客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户",
 };
 
-export type FollowupStage = "WAITING_CONTACT" | "CONTACTED" | "WAITING_REPLY" | "FOLLOWING" | "WAITING_CONFIRMATION" | "WAITING_PAYMENT" | "PAUSED" | "COMPLETED";
-export const FOLLOWUP_STAGES: FollowupStage[] = ["WAITING_CONTACT", "CONTACTED", "WAITING_REPLY", "FOLLOWING", "WAITING_CONFIRMATION", "WAITING_PAYMENT", "PAUSED", "COMPLETED"];
-export const FOLLOWUP_STAGE_LABELS: Record<FollowupStage, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", WAITING_REPLY: "等待回复", FOLLOWING: "跟进中", WAITING_CONFIRMATION: "等待确认", WAITING_PAYMENT: "等待付款", PAUSED: "暂缓跟进", COMPLETED: "已完成" };
+export type FollowupStage = "WAITING_CONTACT" | "FOLLOWUP_REQUIRED" | "WAITING_REPLY" | "PAUSED" | "NO_FOLLOWUP" | "CONTACTED" | "FOLLOWING" | "WAITING_CONFIRMATION" | "WAITING_PAYMENT" | "COMPLETED";
+export const FOLLOWUP_STAGES: FollowupStage[] = ["WAITING_CONTACT", "FOLLOWUP_REQUIRED", "WAITING_REPLY", "PAUSED", "NO_FOLLOWUP"];
+export const FOLLOWUP_STAGE_LABELS: Record<FollowupStage, string> = { WAITING_CONTACT: "待首次联系", FOLLOWUP_REQUIRED: "待我跟进", WAITING_REPLY: "待客户回复", PAUSED: "暂缓跟进", NO_FOLLOWUP: "无需跟进", CONTACTED: "待我跟进", FOLLOWING: "待我跟进", WAITING_CONFIRMATION: "待我跟进", WAITING_PAYMENT: "无需跟进", COMPLETED: "无需跟进" };
 export const AI_LEVELS = ["A", "B", "C", "D"] as const;
 export const AI_INDUSTRIES = ["手机维修店", "手机配件批发商", "手机配件零售商", "手机进口商", "电脑维修店", "电脑配件批发商", "其他"] as const;
 

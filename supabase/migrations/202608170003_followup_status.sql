@@ -7,5 +7,8 @@ update public.customers
 set followup_status = 'WAITING_CONTACT'
 where followup_status is null or followup_status = '';
 
+update public.customers set followup_status = 'FOLLOWUP_REQUIRED' where followup_status in ('CONTACTED','FOLLOWING','WAITING_CONFIRMATION');
+update public.customers set followup_status = 'NO_FOLLOWUP' where followup_status in ('WAITING_PAYMENT','COMPLETED');
+
 create index if not exists idx_customers_followup_status
   on public.customers(followup_status);

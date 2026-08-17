@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { Customer, CustomerStatus } from "@/lib/types";
 import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/lib/types";
+import { countryInfo } from "@/lib/countries";
 
 const stageLabels: Record<CustomerStatus, string> = {
   UNCLAIMED: "新客户",
@@ -53,15 +54,15 @@ type ColumnKey =
   | "source"
   | "updated_at";
 const columns: { key: ColumnKey; label: string; locked?: boolean }[] = [
-  { key: "company_name", label: "客户名称", locked: true },
+  { key: "company_name", label: "客户名称" },
   { key: "contact_name", label: "联系人" },
-  { key: "country", label: "国家/地区", locked: true },
+  { key: "country", label: "国家/地区" },
   { key: "ai_score", label: "AI评分" },
-  { key: "status", label: "客户阶段", locked: true },
-  { key: "followup_status", label: "跟进状态", locked: true },
+  { key: "status", label: "客户阶段" },
+  { key: "followup_status", label: "跟进状态" },
   { key: "protection", label: "保护状态" },
   { key: "last_contact_time", label: "最近跟进" },
-  { key: "owner", label: "负责人", locked: true },
+  { key: "owner", label: "负责人" },
   { key: "phone", label: "联系电话" },
   { key: "email", label: "邮箱" },
   { key: "website_email", label: "官网邮箱" },
@@ -78,7 +79,6 @@ const defaults: ColumnKey[] = [
   "status",
   "followup_status",
   "last_contact_time",
-  "owner",
   "phone",
   "email",
   "website",
@@ -106,6 +106,11 @@ function Website({ value }: { value?: string | null }) {
       <ExternalLink size={12} />
     </a>
   );
+}
+function CountryLabel({ value }: { value?: string | null }) {
+  const info = countryInfo(value);
+  const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐";
+  return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span role="img" aria-label={`${info.name}国旗`}>{flag}</span><span>{info.name}</span></span>;
 }
 function Score({ customer }: { customer: Customer }) {
   return customer.ai_score == null ? (
@@ -502,7 +507,7 @@ export function CustomersView() {
                   setCountry(event.target.value);
                   setPage(1);
                 }}
-                placeholder="国家/地区"
+                placeholder="国家/地区（代码或中文，多个用逗号）"
                 className="w-full rounded-lg border border-slate-200 py-2.5 pl-3 pr-8 text-sm outline-none focus:border-blue-500"
               />
               <Search
@@ -534,7 +539,7 @@ export function CustomersView() {
               className="min-w-36 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
             >
               <option value="">全部AI等级</option>
-              {["S", "A", "B", "C", "D"].map((item) => (
+              {["A", "B", "C", "D"].map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
@@ -875,6 +880,8 @@ export function CustomersView() {
                               {row.industry || row.category || "-"}
                             </small>
                           </Link>
+                        ) : key === "country" ? (
+                          <CountryLabel value={row.country} />
                         ) : key === "ai_score" ? (
                           <Score customer={row} />
                         ) : key === "status" ? (

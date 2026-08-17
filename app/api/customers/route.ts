@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { countrySearchTokens } from "@/lib/countries";
 
 const writableFields = [
   "company_name",
@@ -67,10 +68,14 @@ export async function GET(request: NextRequest) {
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
-    if (status) query = query.eq("status", status);
+    if (status === "CLAIMED") query = query.in("status", ["CLAIMED", "FOLLOWING"]);
+    else if (status) query = query.eq("status", status);
     if (followupStatus) query = query.eq("followup_status", followupStatus);
-    if (aiLevel) query = query.eq("ai_level", aiLevel);
-    if (country) query = query.ilike("country", `%${country}%`);
+    if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
+    if (country) {
+      const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
+      if (filters.length) query = query.or(Array.from(new Set(filters)).map((item) => `country.ilike.%${item}%`).join(","));
+    }
     if (ownerId === "unclaimed") query = query.is("owner_id", null);
     else if (ownerId) query = query.eq("owner_id", ownerId);
     if (industry) query = query.ilike("industry", `%${industry}%`);
