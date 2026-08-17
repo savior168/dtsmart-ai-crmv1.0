@@ -1,3 +1,4 @@
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { requireUser } from "@/lib/auth/current-user";
 
 type UserSupabase = Awaited<ReturnType<typeof requireUser>>["supabase"];
@@ -34,11 +35,11 @@ export async function softDeleteCustomers({
     .map((id) => ({ id, ok: false, error: "客户不存在、已删除或您没有删除权限" }));
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
-  // Keep deletion inside the caller's authenticated Supabase session.  The
-  // customers_update RLS policy already grants this exact operation to the
-  // owner, manager and admin.  Requiring the service-role key here made a
-  // normal UI action fail whenever that optional production secret was absent.
-  const { data: deleted, error: deleteError } = await supabase
+  // Permission is checked above with the caller session. Use the server-only
+  // client for the final soft-delete so an RLS edge case cannot block setting
+  // deleted_at. This never performs a physical DELETE.
+  const admin = createAdminClient();
+  const { data: deleted, error: deleteError } = await admin
     .from("customers")
     .update({ deleted_at: new Date().toISOString() })
     .in("id", allowedIds)
@@ -53,7 +54,7 @@ export async function softDeleteCustomers({
     .forEach((id) => failures.push({ id, ok: false, error: "删除未生效，请刷新后重试" }));
 
   if (successIds.length) {
-    const { error: auditError } = await supabase.from("audit_logs").insert(successIds.map((id) => ({
+    const { error: auditError } = await admin.from("audit_logs").insert(successIds.map((id) => ({
       user_id: userId,
       action: "CUSTOMER_DELETE",
       target_type: "customer",

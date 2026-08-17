@@ -466,12 +466,12 @@ export function CustomersView() {
               —
             </b>
           </span>
-          <span className="pb-3 text-slate-500">
+          <Link href="/customers/conflicts" className="pb-3 text-slate-700 hover:text-blue-600">
             冲突客户{" "}
             <b className="ml-1 rounded-full bg-rose-500 px-2 py-0.5 text-xs text-white">
               —
             </b>
-          </span>
+          </Link>
         </nav>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-3">

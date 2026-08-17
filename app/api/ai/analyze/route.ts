@@ -46,6 +46,29 @@ function errorMessage(error: unknown) {
   return String(error || "未知错误");
 }
 
+/** Persist only reviewable factual inputs, not raw pages or provider secrets. */
+function evidenceSummary(evidence: Awaited<ReturnType<typeof collectCustomerEvidence>>) {
+  const website = evidence.website;
+  const google = evidence.google_place;
+  return {
+    website: website ? {
+      url: website.url, reachable: website.reachable, title: website.title || null,
+      description: website.description || null, headings: website.headings.slice(0, 20),
+      important_pages: (website.pages || []).map((page) => ({ url: page.url, title: page.title || null, headings: page.headings.slice(0, 8) })),
+      image_alts: website.image_alts.slice(0, 20), image_urls: website.image_urls.slice(0, 12),
+      video_urls: (website.video_urls || []).slice(0, 8), emails: website.emails, phones: website.phones,
+      fetch_error: website.error || null,
+    } : null,
+    google_maps: google ? {
+      configured: google.configured, query: google.query || null, name: google.name || null,
+      address: google.formatted_address || null, business_status: google.business_status || null,
+      rating: google.rating ?? null, review_count: google.user_ratings_total ?? null,
+      categories: google.types, website: google.website || null, phone: google.phone || null,
+      reviews: google.reviews, fetch_error: google.error || null,
+    } : null,
+  };
+}
+
 export async function POST(request: NextRequest) {
   let requestedCustomerId: string | undefined;
   try {
@@ -118,7 +141,13 @@ export async function POST(request: NextRequest) {
     }
     // Audit logging must not turn a completed analysis into a user-visible failure.
     try {
-      await writeAudit(supabase, user.id, "CUSTOMER_AI_ANALYZE", "customer", customer.id, { ...analysis, websiteEmail, websitePhone, recycled: shouldRecycle });
+      await writeAudit(supabase, user.id, "CUSTOMER_AI_ANALYZE", "customer", customer.id, {
+        analysis,
+        evidence: evidenceSummary(evidence),
+        website_email_added: websiteEmail || null,
+        website_phone_added: websitePhone || null,
+        recycled: shouldRecycle,
+      });
     } catch (auditError) {
       console.error("AI_ANALYZE_AUDIT_ERROR", { customer_id: customer.id, error: errorMessage(auditError) });
     }
