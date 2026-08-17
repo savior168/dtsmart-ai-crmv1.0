@@ -632,7 +632,7 @@ export function CustomersView() {
                     className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
                     <FileSpreadsheet size={20} className="mt-0.5 shrink-0 text-emerald-600" />
-                    <span><span className="block text-sm font-medium">Excel批量导入</span><small className="text-slate-500">
+                    <span><span className="block text-sm font-medium">批量导入</span><small className="text-slate-500">
                       前往 数据导入 &gt; 上传文件
                     </small></span>
                   </Link>
@@ -641,7 +641,7 @@ export function CustomersView() {
                     className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
                     <Download size={20} className="mt-0.5 shrink-0 text-blue-600" />
-                    <span><span className="block text-sm font-medium">下载Excel导入模板</span><small className="text-slate-500">
+                    <span><span className="block text-sm font-medium">下载导入模板</span><small className="text-slate-500">
                       .csv · 含字段说明和示例数据
                     </small></span>
                   </a>
@@ -843,8 +843,8 @@ export function CustomersView() {
                 {rows.map((row) => (
                   <tr
                     key={row.id}
-                    onClick={() => router.push(`/customers/${row.id}`)}
-                    className="h-[72px] cursor-pointer border-t border-slate-100 hover:bg-blue-50/50"
+                    onDoubleClick={() => router.push(`/customers/${row.id}`)}
+                    className="h-[72px] select-text border-t border-slate-100 hover:bg-blue-50/50"
                   >
                     <td className="sticky left-0 z-10 bg-white px-4 py-3">
                       <input
@@ -870,16 +870,12 @@ export function CustomersView() {
                         }
                       >
                         {key === "company_name" ? (
-                          <Link
-                            href={`/customers/${row.id}`}
-                            onClick={(event) => event.stopPropagation()}
-                            className="block truncate font-medium text-blue-600 hover:underline"
-                          >
+                          <span className="block truncate font-medium text-blue-600">
                             {row.company_name}
                             <small className="block truncate text-xs font-normal text-slate-500">
                               {row.industry || row.category || "-"}
                             </small>
-                          </Link>
+                          </span>
                         ) : key === "country" ? (
                           <CountryLabel value={row.country} />
                         ) : key === "ai_score" ? (

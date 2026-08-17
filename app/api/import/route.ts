@@ -23,6 +23,11 @@ export async function POST(request: NextRequest) {
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: "没有可导入的数据" }, { status: 400 });
 
+    // 先创建任务记录，页面离开后仍可通过任务列表恢复进度。
+    const taskPayload = { filename: payload.filename || "批量导入", total_count: rows.length, success_count: 0, duplicate_count: 0, failed_count: 0, created_by: user.id };
+    const { data: startedTask } = await supabase.from("import_tasks").insert(taskPayload).select("id").single();
+    const taskId = startedTask?.id as string | undefined;
+
     // 一次预取现有客户，避免逐条请求导致导入卡顿或超时。
     const { data: existing, error: existingError } = await admin.from("customers").select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id").is("deleted_at", null).limit(10000);
     if (existingError) throw existingError;
@@ -87,12 +92,23 @@ export async function POST(request: NextRequest) {
       if (error) { failed += chunk.length; errors.push(`第 ${offset + 2}-${offset + chunk.length + 1} 行：${error.message}`); continue; }
       success += data?.length || chunk.length;
       (data || []).forEach((item) => auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: item.id, content: { filename: payload.filename || "批量导入" }, created_at: new Date().toISOString() }));
+      if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed }).eq("id", taskId);
     }
     if (auditRows.length) await supabase.from("audit_logs").insert(auditRows);
     const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, failed_count: failed };
-    const { data: task, error: taskError } = await supabase.from("import_tasks").insert({ filename: payload.filename || "批量导入", ...stats, created_by: user.id }).select("id").single();
-    if (taskError) throw taskError;
-    await supabase.from("audit_logs").insert({ user_id: user.id, action: "IMPORT_COMPLETE", target_type: "import_task", target_id: task.id, content: stats, created_at: new Date().toISOString() });
-    return NextResponse.json({ ...stats, errors });
+    if (taskId) await supabase.from("import_tasks").update(stats).eq("id", taskId);
+    if (taskId) await supabase.from("audit_logs").insert({ user_id: user.id, action: "IMPORT_COMPLETE", target_type: "import_task", target_id: taskId, content: stats, created_at: new Date().toISOString() });
+    return NextResponse.json({ ...stats, errors, task_id: taskId });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "导入失败，请稍后重试" }, { status: 400 }); }
+}
+
+export async function GET() {
+  try {
+    const { supabase, user } = await requireUser();
+    const { data, error } = await supabase.from("import_tasks").select("id,filename,total_count,success_count,duplicate_count,failed_count,created_at").eq("created_by", user.id).order("created_at", { ascending: false }).limit(20);
+    if (error) throw error;
+    return NextResponse.json({ tasks: data || [] });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "导入任务读取失败" }, { status: 400 });
+  }
 }
