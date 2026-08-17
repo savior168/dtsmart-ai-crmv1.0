@@ -34,6 +34,7 @@ export type Customer = {
   followup_suggestion?: string | null;
   notes?: string | null;
   status: CustomerStatus;
+  followup_status?: FollowupStage | null;
   owner_id: string | null;
   owner_user_id?: string | null;
   department_id?: string | null;

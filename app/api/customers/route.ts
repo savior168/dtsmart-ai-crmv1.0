@@ -27,7 +27,7 @@ const writableFields = [
   "customer_value",
   "followup_suggestion",
   "notes",
-  "status",
+  "status", "followup_status",
   "owner_id",
 ] as const;
 
@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(idsOnly ? 5000 : 100, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 10)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
+    const followupStatus = request.nextUrl.searchParams.get("followup_status");
     const target = request.nextUrl.searchParams.get("target");
     const deleted = request.nextUrl.searchParams.get("deleted") === "true";
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
     // the original production schema while migration catches up.
     if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
     if (status) query = query.eq("status", status);
+    if (followupStatus) query = query.eq("followup_status", followupStatus);
     if (aiLevel) query = query.eq("ai_level", aiLevel);
     if (country) query = query.ilike("country", `%${country}%`);
     if (ownerId === "unclaimed") query = query.is("owner_id", null);
@@ -83,7 +85,7 @@ export async function GET(request: NextRequest) {
     if (target === "valid") query = query.gte("ai_score", 60);
     if (target === "invalid") query = query.lt("ai_score", 60);
 
-    const allowedSort = new Set(["company_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "owner_id", "created_at", "last_contact_time"]);
+    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "followup_status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
     const sortField = allowedSort.has(sort) ? sort : "created_at";
     const from = (page - 1) * pageSize;
     const rangeEnd = from + pageSize - 1;
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest) {
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
-    const payload: Record<string, unknown> = { ...clean(body), status: "UNCLAIMED", created_by: user.id, owner_id: user.id };
+    const payload: Record<string, unknown> = { ...clean(body), status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id };
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
     delete payload.website_email;

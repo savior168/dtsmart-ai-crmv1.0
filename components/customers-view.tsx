@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Download,
   ExternalLink,
@@ -15,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import type { Customer, CustomerStatus } from "@/lib/types";
+import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/lib/types";
 
 const stageLabels: Record<CustomerStatus, string> = {
   UNCLAIMED: "新客户",
@@ -38,6 +40,7 @@ type ColumnKey =
   | "country"
   | "ai_score"
   | "status"
+  | "followup_status"
   | "protection"
   | "last_contact_time"
   | "owner"
@@ -55,6 +58,7 @@ const columns: { key: ColumnKey; label: string; locked?: boolean }[] = [
   { key: "country", label: "国家/地区", locked: true },
   { key: "ai_score", label: "AI评分" },
   { key: "status", label: "客户阶段", locked: true },
+  { key: "followup_status", label: "跟进状态", locked: true },
   { key: "protection", label: "保护状态" },
   { key: "last_contact_time", label: "最近跟进" },
   { key: "owner", label: "负责人", locked: true },
@@ -72,6 +76,7 @@ const defaults: ColumnKey[] = [
   "country",
   "ai_score",
   "status",
+  "followup_status",
   "last_contact_time",
   "owner",
   "phone",
@@ -117,6 +122,7 @@ function value(customer: Customer, key: ColumnKey) {
   if (key === "company_name") return customer.company_name || "-";
   if (key === "country") return customer.country || "-";
   if (key === "status") return stageLabels[customer.status] || customer.status;
+  if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[customer.followup_status as FollowupStage] || "待联系";
   if (key === "protection") return "-";
   if (key === "owner") return customer.owner?.name || customer.owner_id || "-";
   if (key === "contact_name") return customer.contact_name || "-";
@@ -138,6 +144,7 @@ function value(customer: Customer, key: ColumnKey) {
 }
 
 export function CustomersView() {
+  const router = useRouter();
   const [rows, setRows] = useState<Customer[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -145,21 +152,21 @@ export function CustomersView() {
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
   const [status, setStatus] = useState("");
+  const [followupStatus, setFollowupStatus] = useState("");
   const [level, setLevel] = useState("");
   const [target, setTarget] = useState("");
-  const [owner, setOwner] = useState("");
-  const [owners, setOwners] = useState<
-    Array<{ id: string; name: string | null; email: string }>
-  >([]);
   // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
   // 个明确筛选项切换，避免过去用 boolean=false 表示“全部”造成歧义。
   const [aiFilter, setAiFilter] = useState<"done" | "pending" | "all">("done");
+  const [sort, setSort] = useState("updated_at");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Customer | null>(null);
   const [fields, setFields] = useState<ColumnKey[]>(defaults);
   const [draft, setDraft] = useState<ColumnKey[]>(defaults);
+  const [draggedField, setDraggedField] = useState<ColumnKey | null>(null);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -179,22 +186,16 @@ export function CustomersView() {
     } catch {}
   }, []);
   useEffect(() => {
-    fetch("/api/users/options")
-      .then((response) => response.json())
-      .then((body) => {
-        if (Array.isArray(body.users)) setOwners(body.users);
-      })
-      .catch(() => undefined);
-  }, []);
-  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSearch(params.get("search") || "");
     setCountry(params.get("country") || "");
     setStatus(params.get("status") || "");
+    setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
     setTarget(params.get("target") || "");
-    setOwner(params.get("owner_id") || "");
     setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "all" ? "all" : "done");
+    setSort(params.get("sort") || "updated_at");
+    setDirection(params.get("direction") === "asc" ? "asc" : "desc");
   }, []);
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -218,11 +219,11 @@ export function CustomersView() {
       status,
       ai_level: level,
       target,
-      owner_id: owner,
+      followup_status: followupStatus,
       ai_status: aiFilter,
       deleted: "false",
-      sort: "updated_at",
-      direction: "desc",
+      sort,
+      direction,
     });
     try {
       const response = await fetch(`/api/customers?${params}`);
@@ -246,8 +247,10 @@ export function CustomersView() {
     status,
     level,
     target,
-    owner,
+    followupStatus,
     aiFilter,
+    sort,
+    direction,
   ]);
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -263,6 +266,13 @@ export function CustomersView() {
     [page, pages],
   );
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
+  const sortableField = (key: ColumnKey) => key === "owner" ? "owner_id" : key === "protection" ? "updated_at" : key;
+  function changeSort(key: ColumnKey) {
+    const next = sortableField(key);
+    if (sort === next) setDirection((current) => current === "asc" ? "desc" : "asc");
+    else { setSort(next); setDirection("asc"); }
+    setPage(1);
+  }
   const activeFilters = useMemo(
     () =>
       [
@@ -281,18 +291,10 @@ export function CustomersView() {
               label: `目标客户：${target === "valid" ? "有效" : "无效"}`,
             }
           : null,
-        owner
-          ? {
-              key: "owner",
-              label:
-                owner === "unclaimed"
-                  ? "负责人：未分配"
-                  : `负责人：${owners.find((item) => item.id === owner)?.name || owners.find((item) => item.id === owner)?.email || "已分配"}`,
-            }
-          : null,
+        followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, country, level, status, target, owner, aiFilter, owners],
+    [search, country, level, status, target, followupStatus, aiFilter],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
@@ -300,7 +302,7 @@ export function CustomersView() {
     if (key === "level") setLevel("");
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
-    if (key === "owner") setOwner("");
+    if (key === "followupStatus") setFollowupStatus("");
     if (key === "aiFilter") setAiFilter("done");
     setPage(1);
   }
@@ -310,7 +312,7 @@ export function CustomersView() {
     setStatus("");
     setLevel("");
     setTarget("");
-    setOwner("");
+    setFollowupStatus("");
     setAiFilter("done");
     setPage(1);
     setSelected(new Set());
@@ -377,8 +379,8 @@ export function CustomersView() {
     setError("");
     const params = new URLSearchParams({
       page: "1", pageSize: "5000", ids_only: "true", search, country, status,
-      ai_level: level, target, owner_id: owner, ai_status: aiFilter,
-      deleted: "false", sort: "updated_at", direction: "desc",
+      followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
+      deleted: "false", sort, direction,
     });
     try {
       const response = await fetch(`/api/customers?${params}`);
@@ -546,23 +548,20 @@ export function CustomersView() {
             >
               <option value="">全部目标客户</option>
               <option value="valid">有效目标</option>
-              <option value="invalid">无效客户</option>
+              <option value="invalid">无效目标</option>
             </select>
             <select
-              value={owner}
+              value={followupStatus}
               onChange={(event) => {
-                setOwner(event.target.value);
+                setFollowupStatus(event.target.value);
                 setPage(1);
+                setSelected(new Set());
               }}
-              className="min-w-36 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+              className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              aria-label="跟进状态"
             >
-              <option value="">全部负责人</option>
-              <option value="unclaimed">未分配</option>
-              {owners.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name || item.email}
-                </option>
-              ))}
+              <option value="">全部跟进状态</option>
+              {FOLLOWUP_STAGES.map((key) => <option key={key} value={key}>{FOLLOWUP_STAGE_LABELS[key]}</option>)}
             </select>
             <select
               value={aiFilter}
@@ -581,6 +580,7 @@ export function CustomersView() {
               重置
             </button>
           </div>
+          <p className="mt-3 text-xs text-slate-500">有效目标：AI评分 ≥ 60；无效目标：AI评分 &lt; 60。AI未筛选客户不会被误归入有效或无效，需切换“AI未筛选”查看。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               <span className="text-xs text-slate-500">已应用筛选：</span>
@@ -673,7 +673,24 @@ export function CustomersView() {
                         key={column.key}
                         className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"
                       >
-                        <input
+                        <span
+                          draggable
+                          onDragStart={() => setDraggedField(column.key)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => {
+                            if (!draggedField || draggedField === column.key) return;
+                            setDraft((current) => {
+                              const next = current.filter((item) => item !== draggedField);
+                              const targetIndex = next.indexOf(column.key);
+                              next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedField);
+                              return next;
+                            });
+                            setDraggedField(null);
+                          }}
+                          className="flex flex-1 cursor-grab items-center gap-2"
+                        >
+                          <span className="text-slate-400">⋮⋮</span>
+                          <input
                           type="checkbox"
                           checked={draft.includes(column.key)}
                           disabled={column.locked}
@@ -684,8 +701,9 @@ export function CustomersView() {
                                 : [...current, column.key],
                             )
                           }
-                        />
-                        {column.label}
+                          />
+                          {column.label}
+                        </span>
                         {column.locked && (
                           <span className="ml-auto text-xs text-slate-400">
                             固定
@@ -798,7 +816,17 @@ export function CustomersView() {
                       key={key}
                       className={`${key === "company_name" ? "sticky left-12 z-30 w-52 bg-[#eef5fb]" : "w-36"} px-3 py-3`}
                     >
-                      {columns.find((column) => column.key === key)?.label}
+                      <button
+                        type="button"
+                        onClick={() => changeSort(key)}
+                        className="inline-flex items-center gap-1 font-medium hover:text-blue-700"
+                        title="点击切换升序/降序"
+                      >
+                        {columns.find((column) => column.key === key)?.label}
+                        <span className={`text-[10px] ${sort === sortableField(key) ? "text-blue-600" : "text-slate-300"}`}>
+                          {sort === sortableField(key) ? (direction === "asc" ? "▲" : "▼") : "↕"}
+                        </span>
+                      </button>
                     </th>
                   ))}
                   <th className="sticky right-0 z-30 w-32 bg-[#eef5fb] px-4 py-3">
@@ -810,7 +838,7 @@ export function CustomersView() {
                 {rows.map((row) => (
                   <tr
                     key={row.id}
-                    onClick={() => setDetail(row)}
+                    onClick={() => router.push(`/customers/${row.id}`)}
                     className="h-[72px] cursor-pointer border-t border-slate-100 hover:bg-blue-50/50"
                   >
                     <td className="sticky left-0 z-10 bg-white px-4 py-3">

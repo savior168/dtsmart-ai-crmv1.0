@@ -7,7 +7,7 @@ const writable = [
   "website", "google_url", "address", "industry", "category", "source", "tags",
   "rating", "ai_score", "ai_level", "ai_reason", "is_target_customer",
   "ai_screening_done", "website_email", "website_phone", "business_relevance",
-  "customer_value", "followup_suggestion", "notes", "status",
+  "customer_value", "followup_suggestion", "notes", "status", "followup_status",
 ];
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
