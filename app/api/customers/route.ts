@@ -51,6 +51,9 @@ export async function GET(request: NextRequest) {
     const industry = request.nextUrl.searchParams.get("industry");
     const aiPending = request.nextUrl.searchParams.get("ai_pending") === "true";
     const aiDone = request.nextUrl.searchParams.get("ai_done") === "true";
+    // The customer workbench defaults to scored records; callers can opt into
+    // pending or all explicitly so an omitted parameter is never ambiguous.
+    const aiStatus = request.nextUrl.searchParams.get("ai_status") || "done";
     const aiFailed = request.nextUrl.searchParams.get("ai_failed") === "true";
     const sort = request.nextUrl.searchParams.get("sort") || "created_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
@@ -70,8 +73,8 @@ export async function GET(request: NextRequest) {
     else if (ownerId) query = query.eq("owner_id", ownerId);
     if (industry) query = query.ilike("industry", `%${industry}%`);
     // ai_score exists in every supported schema and is the stable completion flag.
-    if (aiPending) query = query.is("ai_score", null);
-    if (aiDone) query = query.not("ai_score", "is", null);
+    if (aiStatus === "pending" || aiPending) query = query.is("ai_score", null);
+    else if (aiStatus === "done" || aiDone) query = query.not("ai_score", "is", null);
     if (aiFailed) query = query.ilike("ai_reason", "%失败%");
     // Keep target filtering compatible with both the migrated schema and the
     // original production schema. `ai_score` is always present and is the

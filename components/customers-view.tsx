@@ -151,7 +151,9 @@ export function CustomersView() {
   const [owners, setOwners] = useState<
     Array<{ id: string; name: string | null; email: string }>
   >([]);
-  const [aiPending, setAiPending] = useState(false);
+  // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
+  // 个明确筛选项切换，避免过去用 boolean=false 表示“全部”造成歧义。
+  const [aiFilter, setAiFilter] = useState<"done" | "pending" | "all">("done");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -192,7 +194,7 @@ export function CustomersView() {
     setLevel(params.get("ai_level") || "");
     setTarget(params.get("target") || "");
     setOwner(params.get("owner_id") || "");
-    setAiPending(params.get("ai_pending") === "true");
+    setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "all" ? "all" : "done");
   }, []);
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -217,7 +219,7 @@ export function CustomersView() {
       ai_level: level,
       target,
       owner_id: owner,
-      ai_pending: String(aiPending),
+      ai_status: aiFilter,
       deleted: "false",
       sort: "updated_at",
       direction: "desc",
@@ -245,7 +247,7 @@ export function CustomersView() {
     level,
     target,
     owner,
-    aiPending,
+    aiFilter,
   ]);
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -288,9 +290,9 @@ export function CustomersView() {
                   : `负责人：${owners.find((item) => item.id === owner)?.name || owners.find((item) => item.id === owner)?.email || "已分配"}`,
             }
           : null,
-        aiPending ? { key: "aiPending", label: "待AI筛选" } : null,
+        aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, country, level, status, target, owner, aiPending, owners],
+    [search, country, level, status, target, owner, aiFilter, owners],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
@@ -299,7 +301,7 @@ export function CustomersView() {
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
     if (key === "owner") setOwner("");
-    if (key === "aiPending") setAiPending(false);
+    if (key === "aiFilter") setAiFilter("done");
     setPage(1);
   }
   function reset() {
@@ -309,7 +311,7 @@ export function CustomersView() {
     setLevel("");
     setTarget("");
     setOwner("");
-    setAiPending(false);
+    setAiFilter("done");
     setPage(1);
     setSelected(new Set());
   }
@@ -375,7 +377,7 @@ export function CustomersView() {
     setError("");
     const params = new URLSearchParams({
       page: "1", pageSize: "5000", ids_only: "true", search, country, status,
-      ai_level: level, target, owner_id: owner, ai_pending: String(aiPending),
+      ai_level: level, target, owner_id: owner, ai_status: aiFilter,
       deleted: "false", sort: "updated_at", direction: "desc",
     });
     try {
@@ -460,12 +462,12 @@ export function CustomersView() {
               —
             </b>
           </Link>
-          <span className="pb-3 text-slate-500">
+          <Link href="/customers/protection" className="pb-3 text-slate-700 hover:text-blue-600">
             保护到期{" "}
             <b className="ml-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs text-white">
               —
             </b>
-          </span>
+          </Link>
           <Link href="/customers/conflicts" className="pb-3 text-slate-700 hover:text-blue-600">
             冲突客户{" "}
             <b className="ml-1 rounded-full bg-rose-500 px-2 py-0.5 text-xs text-white">
@@ -562,16 +564,16 @@ export function CustomersView() {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={() => {
-                setAiPending((value) => !value);
-                setPage(1);
-              }}
-              className={`rounded-lg border px-3 py-2.5 text-sm transition ${aiPending ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}
+            <select
+              value={aiFilter}
+              onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "all"); setPage(1); setSelected(new Set()); }}
+              className="min-w-36 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-700"
+              aria-label="AI筛选状态"
             >
-              待AI筛选
-            </button>
+              <option value="done">AI已筛选</option>
+              <option value="pending">AI未筛选</option>
+              <option value="all">全部AI状态</option>
+            </select>
             <button
               onClick={reset}
               className="min-w-36 rounded-lg border border-slate-200 px-4 py-2.5 text-sm hover:bg-slate-50"
