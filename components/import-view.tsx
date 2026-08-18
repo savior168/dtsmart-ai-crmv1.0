@@ -71,6 +71,26 @@ function fileKey(file: File) {
   return `${file.name.toLowerCase()}|${file.size}|${file.lastModified}`;
 }
 
+function fileSelectionKey(file: File) {
+  // File/folder selection may expose the same file through two browser entries
+  // with different virtual paths. The selected-file list is intentionally
+  // unique by filename, matching what the user sees in the UI.
+  return file.name.trim().toLowerCase();
+}
+
+function dedupeSelectedFiles(selected: File[]) {
+  const unique = new Map<string, File>();
+  for (const file of selected) {
+    if (file.size <= 0 || !/\.(xlsx|xls|csv)$/i.test(file.name)) continue;
+    const key = fileSelectionKey(file);
+    const existing = unique.get(key);
+    // Some Windows folder pickers return a tiny/empty shadow entry beside the
+    // real file. Keep the real (larger) file for the same logical path.
+    if (!existing || file.size > existing.size) unique.set(key, file);
+  }
+  return Array.from(unique.values());
+}
+
 function normalizeUrl(value?: string | null) {
   const text = String(value || "").trim();
   if (
@@ -217,7 +237,8 @@ export function ImportView() {
   const duplicateCount = failed.filter((item) => item.kind === "duplicate").length;
   const invalidCount = failed.filter((item) => item.kind === "error").length;
   const displayTotal = stats?.total_count ?? rows.length + failed.length;
-  const displaySuccess = stats?.success_count ?? previewStats.success_count;
+  // A parsed/validated preview is not a successful database import.
+  const displaySuccess = stats?.success_count ?? 0;
   const displayDuplicate = stats?.duplicate_count ?? duplicateCount;
   const displayFailure = stats
     ? stats.error_count + stats.failed_count
@@ -388,18 +409,12 @@ export function ImportView() {
   }
 
   async function chooseFileList(list?: FileList | null) {
-    const incoming = Array.from(list || []).filter(
-      (file) => file.size > 0 && /\.(xlsx|xls|csv)$/i.test(file.name),
-    );
+    const incoming = dedupeSelectedFiles(Array.from(list || []));
     if (!incoming.length) {
       setError("请选择 .xlsx、.xls 或 .csv 文件");
       return;
     }
-    const merged = Array.from(
-      new Map(
-        [...files, ...incoming].map((file) => [fileKey(file), file]),
-      ).values(),
-    );
+    const merged = dedupeSelectedFiles([...files, ...incoming]);
     setFiles(merged);
     await parseSelectedFiles(merged);
   }
@@ -825,7 +840,7 @@ export function ImportView() {
               <p className="mt-1 text-sm text-slate-500">
                 {stats
                   ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，错误 ${stats.error_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
-                  : `共 ${rows.length} 条可导入数据，重复与缺失数据可在筛选中查看`}
+                  : `共 ${rows.length} 条可导入数据；当前仅完成解析预览，点击“确认导入”后才会写入系统`}
               </p>
             </div>
             <div className="flex gap-2">
@@ -913,7 +928,18 @@ export function ImportView() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1740px] table-fixed text-left text-sm">
+            <table className="w-full min-w-[1640px] table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[190px]" />
+                <col className="w-[120px]" />
+                <col className="w-[160px]" />
+                <col className="w-[200px]" />
+                <col className="w-[210px]" />
+                <col className="w-[210px]" />
+                <col className="w-[180px]" />
+                <col className="w-[150px]" />
+                <col className="w-[210px]" />
+              </colgroup>
               <thead className="bg-slate-50 text-xs text-slate-600">
                 <tr>
                   {[
@@ -925,7 +951,6 @@ export function ImportView() {
                     "谷歌网址",
                     "商店名称",
                     "商店类型",
-                    "商店网址",
                     "商品图片",
                   ].map((head) => (
                     <th
@@ -953,10 +978,10 @@ export function ImportView() {
                     <td className="w-[200px] px-4 py-3">
                       <span className="block truncate" title={row.email || ""}>{row.email || "-"}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="overflow-hidden px-4 py-3">
                       <LinkCell value={row.website} />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="overflow-hidden px-4 py-3">
                       <LinkCell value={row.google_url} />
                     </td>
                     <td className="w-[180px] px-4 py-3">
@@ -965,10 +990,7 @@ export function ImportView() {
                     <td className="w-[150px] px-4 py-3">
                       <span className="block truncate" title={String(row.import_meta?.store_type || "")}>{String(row.import_meta?.store_type || "-")}</span>
                     </td>
-                    <td className="w-[210px] px-4 py-3">
-                      <LinkCell value={String(row.import_meta?.store_url || "")} />
-                    </td>
-                    <td className="w-[210px] px-4 py-3">
+                    <td className="w-[210px] overflow-hidden px-4 py-3">
                       <LinkCell
                         value={String(row.import_meta?.product_image || "")}
                       />

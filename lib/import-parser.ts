@@ -208,7 +208,7 @@ function dedupeRows(rows: ImportRow[]) {
   const unique: ImportRow[] = [];
   for (const row of rows) {
     const name = normalizeText(value(row, "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"));
-    const phone = normalizePhone([value(row, "区号", "country code"), value(row, "完整号码", "电话", "phone", "full phone")].filter(Boolean).join(" "));
+    const phone = normalizePhone(value(row, "完整号码", "完整电话", "电话", "phone", "full phone"));
     const email = normalizeText(value(row, "邮箱", "email", "e-mail"));
     const keys = [phone ? `name-phone:${name}|${phone}` : "", email ? `name-email:${name}|${email}` : ""].filter(Boolean);
     if (name && keys.some((key) => seen.has(key))) continue;
@@ -245,7 +245,7 @@ export function mapImportRow(row: ImportRow) {
     company_name: value(row, "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"),
     contact_name: value(row, "联系人", "contact", "contact name"),
     country: value(row, "国家", "country"),
-    phone: [value(row, "区号", "country code"), value(row, "完整号码", "电话", "phone", "full phone")].filter(Boolean).join(" "),
+    phone: value(row, "完整号码", "完整电话", "电话", "phone", "full phone"),
     whatsapp: value(row, "WhatsApp", "whatsapp"),
     email: value(row, "邮箱", "email", "e-mail"),
     website: value(row, "商家官网网址", "官网网址", "官网", "website", "site"),

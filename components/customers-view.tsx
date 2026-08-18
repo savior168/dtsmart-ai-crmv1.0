@@ -127,6 +127,14 @@ function CountryLabel({ value }: { value?: string | null }) {
   const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐";
   return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span role="img" aria-label={`${info.name}国旗`}>{flag}</span><span>{info.name}</span></span>;
 }
+function completePhone(value?: string | null) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\+?\d{1,4})\s+(.+)$/);
+  if (!match) return raw || "-";
+  const prefix = match[1].replace(/\D/g, "");
+  const remainder = match[2].replace(/\D/g, "");
+  return remainder.startsWith(prefix) ? match[2].trim() : raw;
+}
 function Score({ customer }: { customer: Customer }) {
   return customer.ai_score == null ? (
     <span className="text-slate-400">未筛选</span>
@@ -154,7 +162,7 @@ function value(customer: Customer, key: ColumnKey) {
   if (key === "protection") return <ProtectionRemaining customer={customer} />;
   if (key === "owner") return customer.owner?.name || customer.owner_id || "-";
   if (key === "contact_name") return customer.contact_name || "-";
-  if (key === "phone") return customer.phone || "-";
+  if (key === "phone") return completePhone(customer.phone);
   if (key === "email") return customer.email || "-";
   if (key === "website_email") return customer.website_email || "-";
   if (key === "website_phone") return customer.website_phone || "-";
@@ -647,8 +655,12 @@ export function CustomersView() {
                 onClick={() => setNewOpen((value) => !value)}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
               >
-                <Plus size={16} />
-                新增客户⌄
+                <Plus size={16} className="shrink-0" />
+                <span className="leading-none">新增客户</span>
+                <ChevronDown
+                  size={15}
+                  className={`ml-0.5 shrink-0 transition-transform ${newOpen ? "rotate-180" : ""}`}
+                />
               </button>
               {newOpen && (
                 <div className="absolute left-0 top-11 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">

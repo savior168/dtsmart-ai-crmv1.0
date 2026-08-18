@@ -22,9 +22,13 @@ export function TaskRuntime() {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
-      const isImport = requestUrl.includes("/api/import") && method === "POST";
-      const isAi = requestUrl.includes("/api/ai/analyze") && method === "POST";
-      const trackMutation = method !== "GET" && requestUrl.includes("/api/");
+      let requestPath = "";
+      try { requestPath = new URL(requestUrl, window.location.origin).pathname; } catch { requestPath = requestUrl.split("?")[0]; }
+      // Import preview only reads and validates selected files. A background import
+      // task must be created exclusively for the explicit confirm-import request.
+      const isImport = requestPath === "/api/import" && method === "POST";
+      const isAi = requestPath === "/api/ai/analyze" && method === "POST";
+      const trackMutation = method !== "GET" && requestUrl.includes("/api/") && requestPath !== "/api/import/preview";
       let importTotal = 0;
       if (isImport) { try { importTotal = JSON.parse(String(init?.body || "{}")).rows?.length || 0; } catch { importTotal = 0; } save(IMPORT_KEY, { kind: "import", status: "running", total: importTotal, done: 0, success: 0, failed: 0, failures: [], updatedAt: Date.now() }); }
       if (isAi) { aiActive += 1; const current = read(AI_KEY); save(AI_KEY, { kind: "ai", status: "running", total: current?.total || null, done: current?.done || 0, success: current?.success || 0, failed: current?.failed || 0, failures: current?.failures || [], updatedAt: Date.now() }); }
