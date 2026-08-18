@@ -70,7 +70,11 @@ export async function GET(request: NextRequest) {
     if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
     if (status === "CLAIMED") query = query.in("status", ["CLAIMED", "FOLLOWING"]);
     else if (status) query = query.eq("status", status);
-    if (followupStatus) query = query.eq("followup_status", followupStatus);
+    // Treat legacy null/empty values as the default first-contact state so
+    // older records remain discoverable by the new filter without overwriting
+    // statuses that a salesperson has already updated manually.
+    if (followupStatus === "WAITING_CONTACT") query = query.or("followup_status.eq.WAITING_CONTACT,followup_status.is.null,followup_status.eq.");
+    else if (followupStatus) query = query.eq("followup_status", followupStatus);
     if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
     if (country) {
       const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);

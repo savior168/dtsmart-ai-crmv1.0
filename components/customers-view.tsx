@@ -179,6 +179,12 @@ export function CustomersView() {
   const [selectingAll, setSelectingAll] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const newRef = useRef<HTMLDivElement>(null);
+  const orderedColumns = useMemo(() => {
+    const byKey = new Map(columns.map((column) => [column.key, column]));
+    const ordered = draft.map((key) => byKey.get(key)).filter((column): column is (typeof columns)[number] => Boolean(column));
+    columns.forEach((column) => { if (!draft.includes(column.key)) ordered.push(column); });
+    return ordered;
+  }, [draft]);
   useEffect(() => {
     try {
       const saved = JSON.parse(
@@ -673,32 +679,28 @@ export function CustomersView() {
                 <div className="absolute left-0 top-11 z-40 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
                   <b>字段显示设置</b>
                   <div className="mt-3 max-h-80 space-y-1 overflow-auto">
-                    {columns.map((column) => (
+                    {orderedColumns.map((column) => (
                       <label
                         key={column.key}
-                        className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"
+                        draggable
+                        onDragStart={() => setDraggedField(column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => {
+                          if (!draggedField || draggedField === column.key) return;
+                          setDraft((current) => {
+                            const next = current.filter((item) => item !== draggedField);
+                            const targetIndex = next.indexOf(column.key);
+                            next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedField);
+                            return next;
+                          });
+                          setDraggedField(null);
+                        }}
+                        className="flex cursor-grab items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50 active:cursor-grabbing"
                       >
-                        <span
-                          draggable
-                          onDragStart={() => setDraggedField(column.key)}
-                          onDragOver={(event) => event.preventDefault()}
-                          onDrop={() => {
-                            if (!draggedField || draggedField === column.key) return;
-                            setDraft((current) => {
-                              const next = current.filter((item) => item !== draggedField);
-                              const targetIndex = next.indexOf(column.key);
-                              next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedField);
-                              return next;
-                            });
-                            setDraggedField(null);
-                          }}
-                          className="flex flex-1 cursor-grab items-center gap-2"
-                        >
-                          <span className="text-slate-400">⋮⋮</span>
-                          <input
+                        <span className="text-slate-400">⋮⋮</span>
+                        <input
                           type="checkbox"
                           checked={draft.includes(column.key)}
-                          disabled={column.locked}
                           onChange={() =>
                             setDraft((current) =>
                               current.includes(column.key)
@@ -706,14 +708,8 @@ export function CustomersView() {
                                 : [...current, column.key],
                             )
                           }
-                          />
-                          {column.label}
-                        </span>
-                        {column.locked && (
-                          <span className="ml-auto text-xs text-slate-400">
-                            固定
-                          </span>
-                        )}
+                        />
+                        <span>{column.label}</span>
                       </label>
                     ))}
                   </div>
