@@ -9,6 +9,8 @@ import {
   ChevronUp,
   ExternalLink,
   FileSpreadsheet,
+  Globe2,
+  MapPin,
   Pencil,
   Plus,
   Search,
@@ -102,7 +104,7 @@ const href = (value?: string | null) => {
   const text = String(value || "").trim();
   return text ? (/^https?:\/\//i.test(text) ? text : `https://${text}`) : "";
 };
-function Website({ value }: { value?: string | null }) {
+function Website({ value, kind = "website" }: { value?: string | null; kind?: "website" | "map" }) {
   const target = href(value);
   if (!target) return <span className="text-slate-400">-</span>;
   return (
@@ -112,10 +114,11 @@ function Website({ value }: { value?: string | null }) {
       rel="noreferrer"
       onClick={(e) => e.stopPropagation()}
       title={value || ""}
-      className="inline-flex max-w-28 items-center gap-1 truncate text-blue-600 hover:underline"
+      className="inline-flex max-w-36 items-center gap-1.5 truncate text-blue-600 hover:underline"
     >
+      {kind === "map" ? <MapPin size={13} className="shrink-0" /> : <Globe2 size={13} className="shrink-0" />}
       <span className="truncate">{value}</span>
-      <ExternalLink size={12} />
+      <ExternalLink size={12} className="shrink-0" />
     </a>
   );
 }
@@ -909,8 +912,10 @@ export function CustomersView() {
                           >
                             {stageLabels[row.status] || row.status}
                           </span>
-                        ) : key === "website" || key === "google_url" ? (
-                          <Website value={row[key]} />
+                        ) : key === "website" ? (
+                          <Website value={row.website} kind="website" />
+                        ) : key === "google_url" ? (
+                          <Website value={row.google_url} kind="map" />
                         ) : (
                           value(row, key)
                         )}

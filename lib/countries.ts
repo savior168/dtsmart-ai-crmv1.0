@@ -10,7 +10,8 @@ const displayNames = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 export function countryInfo(value?: string | null) {
   const raw = String(value || "").trim();
   const upper = raw.toUpperCase();
-  const code = /^[A-Z]{2}$/.test(upper) ? upper : aliases[upper] || aliases[raw] || "";
+  const prefixCode = upper.match(/^([A-Z]{2})(?:\s|[-/]|$)/)?.[1] || "";
+  const code = /^[A-Z]{2}$/.test(upper) ? upper : prefixCode || aliases[upper] || aliases[raw] || "";
   return { code, name: code ? displayNames.of(code) || raw : raw || "未知地区" };
 }
 export function countrySearchTokens(value?: string | null) {
