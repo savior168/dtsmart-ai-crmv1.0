@@ -78,6 +78,7 @@ const defaults: ColumnKey[] = [
   "ai_score",
   "status",
   "followup_status",
+  "protection",
   "last_contact_time",
   "phone",
   "email",
@@ -86,6 +87,14 @@ const defaults: ColumnKey[] = [
   "source",
   "updated_at",
 ];
+const columnKeys = new Set<ColumnKey>(columns.map((column) => column.key));
+function normalizeSavedColumns(value: unknown): ColumnKey[] {
+  const saved = Array.isArray(value) ? value.filter((key): key is ColumnKey => typeof key === "string" && columnKeys.has(key as ColumnKey)) : [];
+  // 负责人属于冲突客户视图，不是客户列表默认字段；保护期剩余必须可见。
+  const withoutOwner = saved.filter((key) => key !== "owner");
+  if (!withoutOwner.includes("protection")) withoutOwner.splice(Math.min(5, withoutOwner.length), 0, "protection");
+  return withoutOwner.length ? withoutOwner : defaults;
+}
 const href = (value?: string | null) => {
   const text = String(value || "").trim();
   return text ? (/^https?:\/\//i.test(text) ? text : `https://${text}`) : "";
@@ -199,8 +208,10 @@ export function CustomersView() {
         localStorage.getItem("customer-columns-v5") || "null",
       );
       if (Array.isArray(saved) && saved.length) {
-        setFields(saved);
-        setDraft(saved);
+        const normalized = normalizeSavedColumns(saved);
+        setFields(normalized);
+        setDraft(normalized);
+        localStorage.setItem("customer-columns-v5", JSON.stringify(normalized));
       }
     } catch {}
   }, []);
