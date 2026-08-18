@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Download,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   FileSpreadsheet,
   Pencil,
@@ -203,6 +205,16 @@ export function CustomersView() {
     columns.forEach((column) => { if (!draft.includes(column.key)) ordered.push(column); });
     return ordered;
   }, [draft]);
+  function moveDraftField(key: ColumnKey, direction: -1 | 1) {
+    setDraft((current) => {
+      const index = current.indexOf(key);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
   useEffect(() => {
     try {
       const saved = JSON.parse(
@@ -720,7 +732,11 @@ export function CustomersView() {
                             )
                           }
                         />
-                        <span>{column.label}</span>
+                        <span className="min-w-0 flex-1 truncate">{column.label}</span>
+                        <span className="flex shrink-0 items-center gap-0.5">
+                          <button type="button" disabled={!draft.includes(column.key) || draft.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); event.stopPropagation(); moveDraftField(column.key, -1); }} className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30" title="上移"><ChevronUp size={14} /></button>
+                          <button type="button" disabled={!draft.includes(column.key) || draft.indexOf(column.key) === draft.length - 1} onClick={(event) => { event.preventDefault(); event.stopPropagation(); moveDraftField(column.key, 1); }} className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30" title="下移"><ChevronDown size={14} /></button>
+                        </span>
                       </label>
                     ))}
                   </div>
