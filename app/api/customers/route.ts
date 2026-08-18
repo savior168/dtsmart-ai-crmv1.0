@@ -129,7 +129,8 @@ export async function POST(request: NextRequest) {
     delete payload.website_phone;
     let { data, error } = await supabase.from("customers").insert(payload).select().single();
     if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
-      const { followup_status: _followupStatus, ...legacyPayload } = payload;
+      const legacyPayload = { ...payload };
+      delete legacyPayload.followup_status;
       ({ data, error } = await supabase.from("customers").insert(legacyPayload).select().single());
     }
     if (error) throw error;

@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       // list/API treats a missing value as WAITING_CONTACT until the migration
       // is applied, preserving the required default workflow state.
       if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
-        const legacyChunk = chunk.map(({ followup_status: _followupStatus, ...row }) => row);
+        const legacyChunk = chunk.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; return legacyRow; });
         ({ data, error } = await supabase.from("customers").insert(legacyChunk).select("id"));
       }
       if (error) { failed += chunk.length; errors.push(`第 ${offset + 2}-${offset + chunk.length + 1} 行：${error.message}`); continue; }

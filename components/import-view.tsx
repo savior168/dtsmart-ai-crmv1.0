@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download,
-  ExternalLink, FileSpreadsheet, FolderOpen, Info, RefreshCw, UploadCloud, Search, Trash2, Plus, ShieldAlert,
+  AlertTriangle, CheckCircle2, Download,
+  ExternalLink, FileSpreadsheet, Info, RefreshCw, UploadCloud, Search, Trash2, Plus, ShieldAlert,
 } from "lucide-react";
 import { mapImportRow, parseImportFile, type ImportRow } from "@/lib/import-parser";
 
