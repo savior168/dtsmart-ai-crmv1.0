@@ -3,6 +3,12 @@ import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
+type ImportResult = {
+  file_name: string;
+  row_number: number;
+  status: "success" | "duplicate" | "error" | "conflict" | "failed";
+  reason?: string;
+};
 const text = (value: unknown) => String(value || "").trim();
 const nameKey = (value: unknown) => text(value).replace(/\s+/g, " ").toLowerCase();
 const phoneKey = (value: unknown) => text(value).replace(/[\s()\-]/g, "");
@@ -33,7 +39,12 @@ export async function POST(request: NextRequest) {
     if (existingError) throw existingError;
     const seen = new Map<string, Record<string, unknown>>();
     (existing || []).forEach((row) => identity(row as Row).keys.forEach((key) => seen.set(key, row as Record<string, unknown>)));
-    const accepted: Array<{ row: Row; fileName: string; rowNumber: number }> = []; let duplicate = 0; let failed = 0; const errors: string[] = [];
+    const accepted: Array<{ row: Row; fileName: string; rowNumber: number }> = [];
+    let duplicate = 0;
+    let invalid = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    const results: ImportResult[] = [];
     const conflicts: Record<string, unknown>[] = [];
     rows.forEach((raw, index) => {
       const item = { ...raw };
@@ -48,7 +59,6 @@ export async function POST(request: NextRequest) {
         if (![item.phone, item.email, item.website, item.google_url].some((value) => text(value))) throw new Error("缺少电话、邮箱、官网或 Google 地图联系方式");
         const duplicateOf = current.keys.map((key) => seen.get(key)).find(Boolean);
         if (duplicateOf) {
-          duplicate += 1;
           // A duplicate never creates a second customer. When it belongs to
           // another salesperson, retain the importer's original basic fields
           // in the conflict queue for read-only review.
@@ -60,6 +70,10 @@ export async function POST(request: NextRequest) {
               status: "OPEN",
               details: { submitted: { company_name: item.company_name || null, contact_name: item.contact_name || null, country: item.country || null, phone: item.phone || null, email: item.email || null, website: item.website || null, google_url: item.google_url || null, address: item.address || null, industry: item.industry || null, category: item.category || null, source: item.source || null, tags: item.tags || [] }, matched_customer_id: duplicateOf.id },
             });
+            results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他销售员" });
+          } else {
+            duplicate += 1;
+            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: "系统中已存在相同客户" });
           }
           return;
         }
@@ -70,7 +84,12 @@ export async function POST(request: NextRequest) {
         delete item.website_email;
         delete item.website_phone;
         accepted.push({ row: { ...item, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id }, fileName, rowNumber });
-      } catch (reason) { failed += 1; errors.push(`${fileName} 第 ${rowNumber} 行：${reason instanceof Error ? reason.message : "数据格式错误"}`); }
+      } catch (reason) {
+        invalid += 1;
+        const message = reason instanceof Error ? reason.message : "数据格式错误";
+        errors.push(`${fileName} 第 ${rowNumber} 行：${message}`);
+        results.push({ file_name: fileName, row_number: rowNumber, status: "error", reason: message });
+      }
     });
 
     if (conflicts.length) {
@@ -104,18 +123,22 @@ export async function POST(request: NextRequest) {
       }
       if (error) {
         failed += chunk.length;
-        chunk.forEach((item) => errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${error.message}`));
+        chunk.forEach((item) => {
+          errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${error.message}`);
+          results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason: error.message });
+        });
         continue;
       }
       success += data?.length || chunk.length;
+      chunk.forEach((item) => results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "success" }));
       (data || []).forEach((item, index) => auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: item.id, content: { filename: chunk[index]?.fileName || payload.filename || "批量导入", row_number: chunk[index]?.rowNumber || null }, created_at: new Date().toISOString() }));
-      if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed }).eq("id", taskId);
+      if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
     }
     if (auditRows.length) await supabase.from("audit_logs").insert(auditRows);
-    const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length, failed_count: failed };
-    if (taskId) await supabase.from("import_tasks").update(stats).eq("id", taskId);
+    const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length, error_count: invalid, failed_count: failed };
+    if (taskId) await supabase.from("import_tasks").update({ total_count: stats.total_count, success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
     if (taskId) await supabase.from("audit_logs").insert({ user_id: user.id, action: "IMPORT_COMPLETE", target_type: "import_task", target_id: taskId, content: stats, created_at: new Date().toISOString() });
-    return NextResponse.json({ ...stats, errors, task_id: taskId });
+    return NextResponse.json({ ...stats, errors, results, task_id: taskId });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "导入失败，请稍后重试" }, { status: 400 }); }
 }
 

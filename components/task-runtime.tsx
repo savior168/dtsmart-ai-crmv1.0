@@ -18,7 +18,7 @@ export function TaskRuntime() {
     const refresh = () => setTasks({ import: read(IMPORT_KEY), ai: read(AI_KEY) });
     refresh();
     const originalFetch = window.fetch.bind(window);
-    let aiActive = 0; let aiFinishTimer: number | undefined;
+    let aiActive = 0; let aiFinishTimer: number | undefined; let importDismissTimer: number | undefined;
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -33,7 +33,12 @@ export function TaskRuntime() {
       if (isImport) {
         const failures = Array.isArray(body.errors) ? body.errors.map(String) : [];
         const next: Task = { kind: "import", status: response.ok ? "completed" : "failed", total: Number(body.total_count || importTotal), done: Number(body.total_count || importTotal), success: Number(body.success_count || 0), failed: Number(body.failed_count || failures.length), failures, message: typeof body.error === "string" ? body.error : undefined, updatedAt: Date.now() };
-        save(IMPORT_KEY, next); toast(response.ok ? `导入完成：成功 ${next.success} 条，失败 ${next.failed} 条` : `导入失败：${next.message || "请查看失败原因"}`, response.ok ? "success" : "error");
+        save(IMPORT_KEY, next);
+        window.clearTimeout(importDismissTimer);
+        importDismissTimer = window.setTimeout(() => {
+          localStorage.removeItem(IMPORT_KEY);
+          window.dispatchEvent(new Event(EVENT_NAME));
+        }, 2000);
       } else if (isAi) {
         aiActive -= 1; const current = read(AI_KEY) || { kind: "ai", status: "running", total: null, done: 0, success: 0, failed: 0, failures: [], updatedAt: Date.now() } as Task;
         const failed = response.ok ? current.failed : current.failed + 1; const failures = response.ok ? current.failures : [...current.failures, String(body.error || "AI 分析失败")];
@@ -52,7 +57,7 @@ export function TaskRuntime() {
     };
     window.addEventListener(EVENT_NAME, refresh);
     window.addEventListener("dtsmart-toast", receiveToast);
-    return () => { window.fetch = originalFetch; window.clearTimeout(aiFinishTimer); window.removeEventListener(EVENT_NAME, refresh); window.removeEventListener("dtsmart-toast", receiveToast); };
+    return () => { window.fetch = originalFetch; window.clearTimeout(aiFinishTimer); window.clearTimeout(importDismissTimer); window.removeEventListener(EVENT_NAME, refresh); window.removeEventListener("dtsmart-toast", receiveToast); };
   }, []);
   const visible = [tasks.import, tasks.ai].filter((task): task is Task => Boolean(task && (task.status === "running" || Date.now() - task.updatedAt < 9000)));
   if (!visible.length && !notices.length) return null;

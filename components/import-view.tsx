@@ -26,35 +26,43 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   preview_id: number;
   file_name: string;
   row_number: number;
+  import_result?: "success" | "duplicate" | "error" | "conflict" | "failed";
+  result_reason?: string;
 };
 type FailedRow = {
   id: number;
   file_name: string;
   row_number: number;
   reason: string;
+  kind: "duplicate" | "error" | "failure";
+  row?: MappedRow;
 };
 type Stats = {
   total_count: number;
   success_count: number;
   duplicate_count: number;
   conflict_count?: number;
+  error_count: number;
   failed_count: number;
   errors: string[];
 };
-type ImportTask = {
-  id: string;
-  filename: string;
-  total_count: number;
-  success_count: number;
-  duplicate_count: number;
-  failed_count: number;
-  created_at: string;
-};
 const pageSizes = [10, 20, 50, 100];
-const directoryProps = { webkitdirectory: "true", directory: "true" } as Record<
-  string,
-  string
->;
+const directoryProps = { webkitdirectory: "" } as Record<string, string>;
+const LAST_IMPORT_RESULT_KEY = "dtsmart-last-import-result";
+
+type ImportSessionSnapshot = {
+  files: File[];
+  rows: MappedRow[];
+  failed: FailedRow[];
+  stats: Stats | null;
+};
+
+let importSessionSnapshot: ImportSessionSnapshot = {
+  files: [],
+  rows: [],
+  failed: [],
+  stats: null,
+};
 
 function fileKey(file: File) {
   return `${file.name.toLowerCase()}|${file.size}|${file.lastModified}`;
@@ -77,10 +85,10 @@ function LinkCell({ value }: { value?: string | null }) {
       target="_blank"
       rel="noreferrer"
       title={value || ""}
-      className="inline-flex max-w-[220px] items-center gap-1 break-all text-blue-600 hover:text-blue-800 hover:underline"
+      className="inline-flex max-w-[190px] items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
     >
-      {value}
-      <ExternalLink size={13} />
+      <span className="truncate">{value}</span>
+      <ExternalLink size={13} className="shrink-0" />
     </a>
   ) : (
     <span className="text-slate-400">-</span>
@@ -129,92 +137,80 @@ function Metric({
 }
 
 export function ImportView() {
-  const [files, setFiles] = useState<File[]>([]);
-  const [rows, setRows] = useState<MappedRow[]>([]);
-  const [failed, setFailed] = useState<FailedRow[]>([]);
+  const [files, setFiles] = useState<File[]>(() => importSessionSnapshot.files);
+  const [rows, setRows] = useState<MappedRow[]>(() => importSessionSnapshot.rows);
+  const [failed, setFailed] = useState<FailedRow[]>(() => importSessionSnapshot.failed);
   const [busy, setBusy] = useState(false);
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<Stats | null>(() => importSessionSnapshot.stats);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [showFailures, setShowFailures] = useState(false);
-  const [recentTasks, setRecentTasks] = useState<ImportTask[]>([]);
-  const [taskRefreshing, setTaskRefreshing] = useState(false);
+  const [showFieldGuide, setShowFieldGuide] = useState(false);
   const [detailFilter, setDetailFilter] = useState<
     "all" | "success" | "duplicate" | "conflict" | "failed"
   >("all");
   const [detailSearch, setDetailSearch] = useState("");
   const [jumpPage, setJumpPage] = useState("");
-  const [hasImportTask, setHasImportTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  async function refreshTasks() {
-    setTaskRefreshing(true);
-    try {
-      const response = await fetch("/api/import", { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (response.ok && Array.isArray(body.tasks)) setRecentTasks(body.tasks);
-    } finally {
-      setTaskRefreshing(false);
-    }
-  }
   useEffect(() => {
-    setHasImportTask(
-      window.sessionStorage.getItem("dtsmart-import-started") === "1",
-    );
-    void refreshTasks();
-    const timer = window.setInterval(() => void refreshTasks(), 5000);
-    return () => window.clearInterval(timer);
+    if (importSessionSnapshot.stats) return;
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem(LAST_IMPORT_RESULT_KEY) || "null",
+      ) as { stats?: Stats; failed?: FailedRow[] } | null;
+      if (saved?.stats) {
+        setStats({ ...saved.stats, error_count: Number(saved.stats.error_count || 0) });
+        setFailed(
+          Array.isArray(saved.failed)
+            ? saved.failed.map((item) => ({
+                ...item,
+                kind:
+                  item.kind ||
+                  (item.reason.includes("重复") ? "duplicate" : "error"),
+              }))
+            : [],
+        );
+      }
+    } catch {
+      window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
+    }
   }, []);
+
+  useEffect(() => {
+    importSessionSnapshot = { files, rows, failed, stats };
+  }, [files, rows, failed, stats]);
 
   const filteredRows = useMemo(() => {
     const needle = detailSearch.trim().toLowerCase();
-    if (
-      detailFilter === "duplicate" ||
-      detailFilter === "conflict" ||
-      detailFilter === "failed"
-    )
-      return [];
     return rows.filter(
       (row) =>
-        !needle ||
-        [
-          row.company_name,
-          row.contact_name,
-          row.phone,
-          row.email,
-          row.website,
-          row.google_url,
-        ].some((value) =>
-          String(value || "")
-            .toLowerCase()
-            .includes(needle),
-        ),
+        (!stats || detailFilter === "all" || row.import_result === detailFilter) &&
+        (!needle ||
+          [
+            row.company_name,
+            row.contact_name,
+            row.phone,
+            row.email,
+            row.website,
+            row.google_url,
+          ].some((value) =>
+            String(value || "")
+              .toLowerCase()
+              .includes(needle),
+          )),
     );
-  }, [rows, detailSearch, detailFilter]);
+  }, [rows, detailSearch, detailFilter, stats]);
   const pages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const visibleRows = useMemo(
     () => filteredRows.slice((page - 1) * pageSize, page * pageSize),
     [filteredRows, page, pageSize],
   );
-  const duplicateCount = failed.filter((item) =>
-    item.reason.includes("重复"),
-  ).length;
-  const invalidCount = failed.length - duplicateCount;
+  const duplicateCount = failed.filter((item) => item.kind === "duplicate").length;
+  const invalidCount = failed.filter((item) => item.kind === "error").length;
   const step = stats ? 3 : rows.length ? 2 : files.length ? 1 : 1;
-  const latestTask = recentTasks[0];
-  const latestProcessed = latestTask
-    ? latestTask.success_count +
-      latestTask.duplicate_count +
-      latestTask.failed_count
-    : 0;
-  const latestProgress = latestTask?.total_count
-    ? Math.min(
-        100,
-        Math.round((latestProcessed / latestTask.total_count) * 100),
-      )
-    : 0;
 
   function downloadReport() {
     const headers = [
@@ -244,7 +240,11 @@ export function ImportView() {
       "",
     ]);
     const failedLines = failed.map((item) => [
-      "导入失败",
+      item.kind === "duplicate"
+        ? "重复数据"
+        : item.kind === "error"
+          ? "错误数据"
+          : "导入失败",
       item.file_name,
       item.row_number,
       "",
@@ -277,6 +277,7 @@ export function ImportView() {
     setBusy(true);
     setError("");
     setStats(null);
+    window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
     setDetailFilter("all");
     setDetailSearch("");
     setPage(1);
@@ -307,6 +308,8 @@ export function ImportView() {
               file_name: file.name,
               row_number: index + 2,
               reason: "缺少客户名称、国家或有效联系方式，已跳过",
+              kind: "error",
+              row: item,
             });
             return;
           }
@@ -317,6 +320,8 @@ export function ImportView() {
               file_name: file.name,
               row_number: index + 2,
               reason: "名称+电话或名称+邮箱重复，仅保留最先导入的数据",
+              kind: "duplicate",
+              row: item,
             });
             return;
           }
@@ -330,6 +335,7 @@ export function ImportView() {
           file_name: file.name,
           row_number: 0,
           reason: reason instanceof Error ? reason.message : "文件解析失败",
+          kind: "error",
         });
       }
     }
@@ -339,8 +345,8 @@ export function ImportView() {
   }
 
   async function chooseFileList(list?: FileList | null) {
-    const incoming = Array.from(list || []).filter((file) =>
-      /\.(xlsx|xls|csv)$/i.test(file.name),
+    const incoming = Array.from(list || []).filter(
+      (file) => file.size > 0 && /\.(xlsx|xls|csv)$/i.test(file.name),
     );
     if (!incoming.length) {
       setError("请选择 .xlsx、.xls 或 .csv 文件");
@@ -360,6 +366,7 @@ export function ImportView() {
     setRows([]);
     setFailed([]);
     setStats(null);
+    window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
     setPage(1);
     setDetailFilter("all");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -370,8 +377,6 @@ export function ImportView() {
     if (!rows.length) return;
     setBusy(true);
     setError("");
-    setHasImportTask(true);
-    window.sessionStorage.setItem("dtsmart-import-started", "1");
     try {
       const bodyRows = rows.map(
         ({ preview_id, file_name, row_number, ...item }) => {
@@ -395,17 +400,66 @@ export function ImportView() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "导入失败，请稍后重试");
-      setStats(body);
-      setShowFailures(Boolean(body.failed_count || failed.length));
-      await refreshTasks();
-      window.dispatchEvent(
-        new CustomEvent("dtsmart-toast", {
-          detail: {
-            type: "success",
-            message: `导入完成：成功 ${body.success_count} 条，失败 ${body.failed_count} 条`,
-          },
-        }),
+      const results = Array.isArray(body.results) ? body.results : [];
+      const resultByRow = new Map<string, Record<string, unknown>>(
+        results.map((item: Record<string, unknown>) => [
+          `${String(item.file_name || "").toLowerCase()}|${Number(item.row_number || 0)}`,
+          item,
+        ]),
       );
+      const completedRows = rows.map((row) => {
+        const result = resultByRow.get(
+          `${row.file_name.toLowerCase()}|${row.row_number}`,
+        );
+        return {
+          ...row,
+          import_result: String(result?.status || "success") as MappedRow["import_result"],
+          result_reason: String(result?.reason || ""),
+        };
+      });
+      completedRows.push(
+        ...failed
+          .filter((item) => item.kind === "duplicate" && item.row)
+          .map((item) => ({
+            ...item.row!,
+            import_result: "duplicate" as const,
+            result_reason: item.reason,
+          })),
+      );
+      const serverFailures = results
+        .filter((item: Record<string, unknown>) => item.status === "failed")
+        .map((item: Record<string, unknown>, index: number) => ({
+          id: failed.length + index + 1,
+          file_name: String(item.file_name || "导入文件"),
+          row_number: Number(item.row_number || 0),
+          reason: String(item.reason || "导入系统失败"),
+          kind: "failure" as const,
+        }));
+      const completedFailures = [...failed, ...serverFailures];
+      const completedStats: Stats = {
+        total_count: completedRows.length + failed.length,
+        success_count: Number(body.success_count || 0),
+        duplicate_count: duplicateCount + Number(body.duplicate_count || 0),
+        conflict_count: Number(body.conflict_count || 0),
+        error_count: invalidCount + Number(body.error_count || 0),
+        failed_count: Number(body.failed_count || serverFailures.length || 0),
+        errors: Array.isArray(body.errors) ? body.errors.map(String) : [],
+      };
+      setRows(completedRows);
+      setFailed(completedFailures);
+      setStats(completedStats);
+      importSessionSnapshot = {
+        files,
+        rows: completedRows,
+        failed: completedFailures,
+        stats: completedStats,
+      };
+      window.localStorage.setItem(
+        LAST_IMPORT_RESULT_KEY,
+        JSON.stringify({ stats: completedStats, failed: completedFailures }),
+      );
+      setDetailFilter("all");
+      setPage(1);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "导入失败，请稍后重试",
@@ -427,6 +481,7 @@ export function ImportView() {
       "商店名称",
       "商店地址",
       "商店类型",
+      "商店网址",
       "商店状态",
       "商家官网网址",
       "谷歌网址",
@@ -481,6 +536,7 @@ export function ImportView() {
         `${country.name} ${industry} Store`,
         `${index + 1} Commerce Street`,
         industry,
+        `https://shop.${slug}.example.com`,
         "营业中",
         `https://${slug}.example.com`,
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${country.name} ${industry} ${index + 1}`)}`,
@@ -660,11 +716,8 @@ export function ImportView() {
                 <Download size={16} /> 下载导入模板
               </button>
               <button
-                onClick={() =>
-                  setError(
-                    "字段说明：名称、国家及电话/邮箱/官网/Google 地图至少一项联系方式",
-                  )
-                }
+                type="button"
+                onClick={() => setShowFieldGuide(true)}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
               >
                 <Info size={16} /> 查看字段说明
@@ -682,92 +735,48 @@ export function ImportView() {
             </div>
           </div>
         </section>
-        <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <Metric
-            label="已选文件"
-            value={files.length}
-            tone="bg-blue-50 text-blue-600"
-            icon={<FileSpreadsheet size={18} />}
-          />
-          <Metric
-            label="数据总量"
-            value={rows.length + failed.length}
-            tone="bg-sky-50 text-sky-600"
-            icon={<Info size={18} />}
-          />
+        <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex min-h-[84px] items-center gap-6 rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm sm:col-span-2 lg:col-span-1">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
+                <FileSpreadsheet size={18} />
+              </span>
+              <div>
+                <div className="text-xs text-slate-500">已选文件</div>
+                <div className="mt-0.5 text-xl font-bold text-slate-900">{files.length.toLocaleString()}</div>
+              </div>
+            </div>
+            <span className="h-9 w-px bg-slate-200" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs text-slate-500">读取数据总量</div>
+              <div className="mt-0.5 text-xl font-bold text-slate-900">{(stats?.total_count ?? rows.length + failed.length).toLocaleString()}</div>
+            </div>
+          </div>
           <Metric
             label={stats ? "成功导入" : "可导入"}
             value={stats?.success_count ?? rows.length}
             tone="bg-emerald-50 text-emerald-600"
             icon={<CheckCircle2 size={18} />}
           />
-          <Metric
-            label="重复数据"
-            value={duplicateCount + (stats?.duplicate_count || 0)}
-            tone="bg-amber-50 text-amber-600"
-            icon={<RefreshCw size={18} />}
-          />
-          <Metric
-            label="冲突客户"
-            value={stats?.conflict_count || 0}
-            tone="bg-orange-50 text-orange-600"
-            icon={<ShieldAlert size={18} />}
-          />
-          <Metric
-            label="失败数据"
-            value={invalidCount + (stats?.failed_count || 0)}
-            tone="bg-rose-50 text-rose-600"
-            icon={<AlertTriangle size={18} />}
-          />
+          {stats ? (
+            <>
+              <Metric label="重复数据" value={stats.duplicate_count} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
+              <Metric label="错误数据" value={stats.error_count} tone="bg-violet-50 text-violet-600" icon={<AlertTriangle size={18} />} />
+              <Metric label="失败数据" value={stats.failed_count} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
+              <Metric label="冲突客户" value={stats.conflict_count || 0} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} />
+            </>
+          ) : null}
         </section>
         {error && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
             <AlertTriangle size={17} /> {error}
             <button
-              onClick={() => {
-                setError("");
-                void refreshTasks();
-              }}
+              onClick={() => setError("")}
               className="ml-auto font-medium underline"
             >
-              重新加载
+              关闭
             </button>
           </div>
-        )}
-        {hasImportTask && latestTask && latestProgress < 100 && (
-          <section className="mt-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-semibold text-slate-900">导入任务进度</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  切换页面后任务仍会保留，返回本页可继续查看真实统计
-                </p>
-              </div>
-              <button
-                onClick={() => void refreshTasks()}
-                className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs text-blue-700"
-              >
-                {taskRefreshing ? (
-                  <RefreshCw size={13} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={13} />
-                )}
-                刷新
-              </button>
-            </div>
-            <div className="mt-3 rounded-lg border border-blue-100 bg-white p-3">
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="max-w-xl truncate font-medium text-slate-700" title={latestTask.filename}>{latestTask.filename}</span>
-                <span className="font-semibold text-blue-700">{latestProgress}%</span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${latestProgress}%` }} />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-500">
-                <span>成功 {latestTask.success_count}</span><span>重复 {latestTask.duplicate_count}</span><span>失败 {latestTask.failed_count}</span>
-              </div>
-            </div>
-          </section>
         )}
         <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
@@ -777,65 +786,67 @@ export function ImportView() {
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {stats
-                  ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，冲突 ${stats.conflict_count || 0} 条，失败 ${stats.failed_count} 条`
+                  ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，错误 ${stats.error_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
                   : `共 ${rows.length} 条可导入数据，重复与缺失数据可在筛选中查看`}
               </p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={() => setShowFailures(true)}
-                disabled={!failed.length && !stats?.failed_count}
-                className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-600 disabled:opacity-40"
-              >
-                查看失败原因
-              </button>
-              <button
-                disabled={busy || !rows.length}
-                onClick={() => void confirmImport()}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {busy ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" /> 正在处理...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 size={16} /> 确认导入 {rows.length} 条
-                  </>
-                )}
-              </button>
+              {stats ? (
+                <button
+                  onClick={() => setShowFailures(true)}
+                  disabled={!stats.failed_count}
+                  className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-600 disabled:opacity-40"
+                >
+                  查看失败原因
+                </button>
+              ) : null}
+              {!stats ? (
+                <button
+                  disabled={busy || !rows.length}
+                  onClick={() => void confirmImport()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {busy ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" /> 正在处理...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} /> 确认导入 {rows.length} 条
+                    </>
+                  )}
+                </button>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-slate-800">
-                按最终处理结果筛选
-              </span>
-              {[
-                ["all", "全部"],
-                ["success", "成功导入"],
-                ["duplicate", "重复客户"],
-                ["conflict", "冲突客户"],
-                ["failed", "导入失败"],
-              ].map(([key, label]) => (
-                <button
-                  type="button"
-                  key={key}
-                  onClick={() => {
-                    setDetailFilter(key as typeof detailFilter);
-                    setPage(1);
-                    if (
-                      key === "duplicate" ||
-                      key === "conflict" ||
-                      key === "failed"
-                    )
-                      setShowFailures(true);
-                  }}
-                  className={`rounded-md border px-3 py-1.5 text-xs ${detailFilter === key ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}
-                >
-                  {label}
-                </button>
-              ))}
+              {stats ? (
+                <>
+                  <span className="text-sm font-medium text-slate-800">
+                    按最终处理结果筛选
+                  </span>
+                  {[
+                    ["all", "全部"],
+                    ["success", "成功导入"],
+                    ["duplicate", "重复客户"],
+                    ["conflict", "冲突客户"],
+                    ["failed", "导入失败"],
+                  ].map(([key, label]) => (
+                    <button
+                      type="button"
+                      key={key}
+                      onClick={() => {
+                        setDetailFilter(key as typeof detailFilter);
+                        setPage(1);
+                      }}
+                      className={`rounded-md border px-3 py-1.5 text-xs ${detailFilter === key ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <label className="relative">
@@ -864,7 +875,7 @@ export function ImportView() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1550px] text-left text-sm">
+            <table className="w-full min-w-[1740px] table-fixed text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-600">
                 <tr>
                   {[
@@ -873,11 +884,11 @@ export function ImportView() {
                     "完整号码",
                     "邮箱",
                     "官网网址",
-                    "Google 地图网址",
-                    "分类",
+                    "谷歌网址",
                     "商店名称",
+                    "商店类型",
+                    "商店网址",
                     "商品图片",
-                    "来源文件",
                   ].map((head) => (
                     <th
                       key={head}
@@ -894,15 +905,15 @@ export function ImportView() {
                     key={row.preview_id}
                     className="border-t border-slate-100 hover:bg-blue-50/40"
                   >
-                    <td className="max-w-52 px-4 py-3 font-medium text-slate-800">
-                      {row.company_name || "-"}
+                    <td className="w-[190px] px-4 py-3 font-medium text-slate-800">
+                      <span className="block truncate" title={row.company_name || ""}>{row.company_name || "-"}</span>
                     </td>
-                    <td className="px-4 py-3">{row.country || "-"}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.phone || "-"}
+                    <td className="w-[120px] px-4 py-3"><span className="block truncate" title={row.country || ""}>{row.country || "-"}</span></td>
+                    <td className="w-[160px] whitespace-nowrap px-4 py-3">
+                      <span className="block truncate" title={row.phone || ""}>{row.phone || "-"}</span>
                     </td>
-                    <td className="max-w-56 break-all px-4 py-3">
-                      {row.email || "-"}
+                    <td className="w-[200px] px-4 py-3">
+                      <span className="block truncate" title={row.email || ""}>{row.email || "-"}</span>
                     </td>
                     <td className="px-4 py-3">
                       <LinkCell value={row.website} />
@@ -910,22 +921,19 @@ export function ImportView() {
                     <td className="px-4 py-3">
                       <LinkCell value={row.google_url} />
                     </td>
-                    <td className="max-w-48 break-words px-4 py-3">
-                      {row.category || "-"}
+                    <td className="w-[180px] px-4 py-3">
+                      <span className="block truncate" title={String(row.import_meta?.store_name || "")}>{String(row.import_meta?.store_name || "-")}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      {String(row.import_meta?.store_name || "-")}
+                    <td className="w-[150px] px-4 py-3">
+                      <span className="block truncate" title={String(row.import_meta?.store_type || "")}>{String(row.import_meta?.store_type || "-")}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="w-[210px] px-4 py-3">
+                      <LinkCell value={String(row.import_meta?.store_url || "")} />
+                    </td>
+                    <td className="w-[210px] px-4 py-3">
                       <LinkCell
                         value={String(row.import_meta?.product_image || "")}
                       />
-                    </td>
-                    <td
-                      className="max-w-48 truncate px-4 py-3 text-slate-500"
-                      title={row.file_name}
-                    >
-                      {row.file_name}
                     </td>
                   </tr>
                 ))}
@@ -1023,7 +1031,7 @@ export function ImportView() {
             <section className="max-h-[80vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b p-5">
                 <div>
-                  <h3 className="text-lg font-semibold">失败与重复明细</h3>
+                  <h3 className="text-lg font-semibold">导入失败原因</h3>
                   <p className="mt-1 text-sm text-slate-500">
                     失败数据不会写入客户表，可修正后重新导入。
                   </p>
@@ -1036,7 +1044,7 @@ export function ImportView() {
                 </button>
               </div>
               <div className="max-h-[60vh] overflow-auto p-5">
-                {failed.length ? (
+                {failed.some((item) => item.kind === "failure") ? (
                   <table className="w-full text-left text-sm">
                     <thead className="text-slate-500">
                       <tr>
@@ -1046,7 +1054,7 @@ export function ImportView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {failed.map((item) => (
+                      {failed.filter((item) => item.kind === "failure").map((item) => (
                         <tr key={item.id} className="border-t">
                           <td className="py-3">{item.file_name}</td>
                           <td>{item.row_number || "-"}</td>
@@ -1060,6 +1068,34 @@ export function ImportView() {
                     暂无失败数据
                   </div>
                 )}
+              </div>
+            </section>
+          </div>
+        )}
+        {showFieldGuide && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4" onMouseDown={() => setShowFieldGuide(false)}>
+            <section className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">导入字段说明</h3>
+                  <p className="mt-1 text-sm text-slate-500">建议下载并使用系统模板，字段识别更准确。</p>
+                </div>
+                <button type="button" onClick={() => setShowFieldGuide(false)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">关闭</button>
+              </div>
+              <div className="grid gap-4 p-6 text-sm text-slate-600 sm:grid-cols-2">
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                  <div className="font-semibold text-blue-800">必要字段</div>
+                  <p className="mt-2">客户名称、国家/地区必须填写。</p>
+                  <p className="mt-1">电话、邮箱、官网网址、谷歌网址至少填写一项。</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="font-semibold text-slate-900">重复判断</div>
+                  <p className="mt-2">客户名称 + 完整号码，或客户名称 + 邮箱完全相同时，只保留最先出现的一条。</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4 sm:col-span-2">
+                  <div className="font-semibold text-slate-900">支持字段</div>
+                  <p className="mt-2 leading-7">客户名称、国家/地区、区号、完整号码、邮箱、标签、分类、商店名称、商店地址、商店类型、商店网址、商店状态、官网网址、谷歌网址、商店分数、商品图片、搜索关键词、创建时间。</p>
+                </div>
               </div>
             </section>
           </div>
