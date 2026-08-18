@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { Suspense } from "react";
 import { ArrowUpRight, BarChart3, CheckCircle2, Globe2, ShieldCheck, Sparkles } from "lucide-react";
-import { LoginForm } from "@/components/login-form";
+import { PasswordAuthForm } from "@/components/password-auth-form";
 
 export const metadata: Metadata = {
   title: "登录与注册 | DTSmart TradeOS",
@@ -48,7 +48,7 @@ export default function LoginPage() {
               <h2 className="text-3xl font-bold tracking-[-0.03em] text-slate-950 sm:text-4xl">欢迎使用 DTSmart</h2>
               <p className="mt-3 text-[15px] leading-6 text-slate-500">选择适合您的方式登录，或创建一个新的企业账号。</p>
             </div>
-            <Suspense fallback={<div className="h-96 animate-pulse rounded-2xl bg-slate-100" />}><LoginForm /></Suspense>
+            <Suspense fallback={<div className="h-96 animate-pulse rounded-2xl bg-slate-100" />}><PasswordAuthForm /></Suspense>
           </div>
         </section>
       </div>

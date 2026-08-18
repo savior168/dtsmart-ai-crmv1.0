@@ -33,10 +33,13 @@ export async function POST(request: NextRequest) {
     if (existingError) throw existingError;
     const seen = new Map<string, Record<string, unknown>>();
     (existing || []).forEach((row) => identity(row as Row).keys.forEach((key) => seen.set(key, row as Record<string, unknown>)));
-    const accepted: Row[] = []; let duplicate = 0; let failed = 0; const errors: string[] = [];
+    const accepted: Array<{ row: Row; fileName: string; rowNumber: number }> = []; let duplicate = 0; let failed = 0; const errors: string[] = [];
     const conflicts: Record<string, unknown>[] = [];
     rows.forEach((raw, index) => {
       const item = { ...raw };
+      const importMeta = item.import_meta && typeof item.import_meta === "object" ? item.import_meta : {};
+      const fileName = text(importMeta.file_name) || payload.filename || "导入文件";
+      const rowNumber = Number(importMeta.row_number) || index + 2;
       if ("rating" in item) item.rating = bounded(item.rating, 0, 5);
       if ("ai_score" in item) item.ai_score = bounded(item.ai_score, 0, 100);
       const current = identity(item);
@@ -66,8 +69,8 @@ export async function POST(request: NextRequest) {
         delete item.ai_screening_done;
         delete item.website_email;
         delete item.website_phone;
-        accepted.push({ ...item, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id });
-      } catch (reason) { failed += 1; errors.push(`第 ${index + 2} 行：${reason instanceof Error ? reason.message : "数据格式错误"}`); }
+        accepted.push({ row: { ...item, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id }, fileName, rowNumber });
+      } catch (reason) { failed += 1; errors.push(`${fileName} 第 ${rowNumber} 行：${reason instanceof Error ? reason.message : "数据格式错误"}`); }
     });
 
     if (conflicts.length) {
@@ -88,19 +91,24 @@ export async function POST(request: NextRequest) {
     const auditRows: Record<string, unknown>[] = [];
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);
-      let { data, error } = await supabase.from("customers").insert(chunk).select("id");
+      const chunkRows = chunk.map((item) => item.row);
+      let { data, error } = await supabase.from("customers").insert(chunkRows).select("id");
       // Some production projects were initialized before the followup_status
       // migration. Retry the same rows without that additive column so a
       // schema-cache lag cannot reject the entire import batch. The customer
       // list/API treats a missing value as WAITING_CONTACT until the migration
       // is applied, preserving the required default workflow state.
       if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
-        const legacyChunk = chunk.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; return legacyRow; });
+        const legacyChunk = chunkRows.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; return legacyRow; });
         ({ data, error } = await supabase.from("customers").insert(legacyChunk).select("id"));
       }
-      if (error) { failed += chunk.length; errors.push(`第 ${offset + 2}-${offset + chunk.length + 1} 行：${error.message}`); continue; }
+      if (error) {
+        failed += chunk.length;
+        chunk.forEach((item) => errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${error.message}`));
+        continue;
+      }
       success += data?.length || chunk.length;
-      (data || []).forEach((item) => auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: item.id, content: { filename: payload.filename || "批量导入" }, created_at: new Date().toISOString() }));
+      (data || []).forEach((item, index) => auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: item.id, content: { filename: chunk[index]?.fileName || payload.filename || "批量导入", row_number: chunk[index]?.rowNumber || null }, created_at: new Date().toISOString() }));
       if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed }).eq("id", taskId);
     }
     if (auditRows.length) await supabase.from("audit_logs").insert(auditRows);

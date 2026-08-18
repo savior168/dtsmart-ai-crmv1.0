@@ -22,11 +22,12 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const publicPaths = [
     "/login",
+    "/reset-password",
+    "/auth/callback",
     "/supabase-test",
     "/api/auth/password-login",
-    "/api/auth/send-otp",
-    "/api/auth/verify-otp",
     "/api/auth/register",
+    "/api/auth/reset-password",
   ];
   const isPublic = publicPaths.some((path) => request.nextUrl.pathname.startsWith(path));
 

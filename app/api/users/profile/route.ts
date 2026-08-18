@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { isUsername, listAuthUsers } from "@/lib/auth/identifiers";
 
 export async function PATCH(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser();
     const body = await request.json();
     const payload: Record<string, string | null> = {};
-    if ("name" in body) payload.name = String(body.name || "").trim() || null;
+    if ("name" in body) {
+      const username = String(body.name || "").trim();
+      if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 3-30 位中文、字母、数字、下划线或短横线" }, { status: 400 });
+      const normalized = username.toLowerCase();
+      const users = await listAuthUsers();
+      if (users.some((item) => item.id !== user.id && String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalized)) {
+        return NextResponse.json({ error: "该用户名已被使用" }, { status: 409 });
+      }
+      const { error: metadataError } = await supabase.auth.updateUser({ data: { username, name: username } });
+      if (metadataError) throw metadataError;
+      payload.name = username;
+    }
     if ("avatar_url" in body) payload.avatar_url = String(body.avatar_url || "").trim() || null;
     if ("email" in body) {
       const email = String(body.email || "").trim().toLowerCase();

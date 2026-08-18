@@ -8,7 +8,11 @@ export async function GET() {
     return NextResponse.json({
       id: user.id,
       email: user.email,
-      name: data?.name || user.email || "当前用户",
+      name:
+        data?.name ||
+        String(user.user_metadata?.username || user.user_metadata?.name || "").trim() ||
+        user.email ||
+        "当前用户",
       role: data?.role || "SALES",
       avatar_url: data?.avatar_url || "",
     });

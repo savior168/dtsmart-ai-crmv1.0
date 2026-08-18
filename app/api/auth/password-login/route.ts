@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 
 function loginError(message?: string) {
   if (message?.includes("Email not confirmed") || message?.includes("Phone not confirmed")) {
-    return "账号尚未完成验证码确认，请使用验证码登录";
+    return "账号尚未启用，请联系管理员确认账号状态";
   }
   return "账号或密码错误，请检查后重试";
 }

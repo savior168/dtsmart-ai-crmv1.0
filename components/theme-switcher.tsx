@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Sun } from "lucide-react";
+import { Check, Palette } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const themes = {
@@ -43,7 +43,7 @@ export function ThemeSwitcher() {
   return (
     <div ref={ref} className="relative">
       <button type="button" aria-label="切换主题" title="切换主题" onClick={() => setOpen((value) => !value)} className="grid h-10 w-10 place-items-center rounded-full text-slate-700 transition hover:bg-slate-100">
-        <Sun size={22} strokeWidth={1.8} />
+        <Palette size={22} strokeWidth={1.8} />
       </button>
       {open ? (
         <div className="absolute right-0 z-50 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">

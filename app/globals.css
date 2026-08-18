@@ -15,11 +15,17 @@
 * { box-sizing: border-box; }
 html { background: var(--crm-bg); }
 body { margin:0; color:var(--crm-text); background:var(--crm-bg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif; font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
-/* The CRM design system uses one stable blue/white visual language across
-   every page. Theme buttons may remain available for compatibility, but they
-   must not change the production UI palette shown in the approved design. */
-[data-crm-theme="mint"], [data-crm-theme="lavender"], [data-crm-theme="sakura"], [data-crm-theme="cream"] { --crm-primary:#2563eb; --crm-primary-hover:#1d4ed8; --crm-bg:#f5f8fc; --crm-text:#172033; --crm-muted:#64748b; --crm-border:#dce5ef; --crm-header:#eef5fb; }
-[data-crm-theme] body, [data-crm-theme] .bg-slate-50 { background-color:var(--crm-bg); }
+[data-crm-theme="sky"] { --crm-primary:#2563eb; --crm-primary-hover:#1d4ed8; --crm-bg:#f5f8fc; --crm-header:#eef5ff; }
+[data-crm-theme="mint"] { --crm-primary:#059669; --crm-primary-hover:#047857; --crm-bg:#f2fbf7; --crm-header:#ecfdf5; }
+[data-crm-theme="lavender"] { --crm-primary:#7c3aed; --crm-primary-hover:#6d28d9; --crm-bg:#f8f5ff; --crm-header:#f3eefe; }
+[data-crm-theme="sakura"] { --crm-primary:#db2777; --crm-primary-hover:#be185d; --crm-bg:#fff5f8; --crm-header:#fdf2f8; }
+[data-crm-theme="cream"] { --crm-primary:#b45309; --crm-primary-hover:#92400e; --crm-bg:#fcfaf5; --crm-header:#fff7ed; }
+[data-crm-theme] body, [data-crm-theme] .crm-content { background-color:var(--crm-bg); }
+[data-crm-theme] .crm-topbar { background-color:var(--crm-header); }
+[data-crm-theme] .crm-content .bg-blue-600 { background-color:var(--crm-primary) !important; }
+[data-crm-theme] .crm-content .hover\:bg-blue-700:hover { background-color:var(--crm-primary-hover) !important; }
+[data-crm-theme] .crm-content .text-blue-600, [data-crm-theme] .crm-content .text-blue-700 { color:var(--crm-primary) !important; }
+[data-crm-theme] .crm-content .border-blue-600 { border-color:var(--crm-primary) !important; }
 button,input,select,textarea { font:inherit; }
 button { cursor:pointer; }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid var(--crm-primary); outline-offset:2px; }
