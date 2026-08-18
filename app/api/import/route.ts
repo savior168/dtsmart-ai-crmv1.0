@@ -41,11 +41,13 @@ export async function POST(request: NextRequest) {
     (existing || []).forEach((row) => identity(row as Row).keys.forEach((key) => seen.set(key, row as Record<string, unknown>)));
     const accepted: Array<{ row: Row; fileName: string; rowNumber: number }> = [];
     let duplicate = 0;
+    let existingSuccess = 0;
     let invalid = 0;
     let failed = 0;
     const errors: string[] = [];
     const results: ImportResult[] = [];
     const conflicts: Record<string, unknown>[] = [];
+    const claimIds: string[] = [];
     rows.forEach((raw, index) => {
       const item = { ...raw };
       const importMeta = item.import_meta && typeof item.import_meta === "object" ? item.import_meta : {};
@@ -59,6 +61,11 @@ export async function POST(request: NextRequest) {
         if (![item.phone, item.email, item.website, item.google_url].some((value) => text(value))) throw new Error("缺少电话、邮箱、官网或 Google 地图联系方式");
         const duplicateOf = current.keys.map((key) => seen.get(key)).find(Boolean);
         if (duplicateOf) {
+          if (!duplicateOf.id) {
+            duplicate += 1;
+            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: "本次导入文件中存在相同客户" });
+            return;
+          }
           // A duplicate never creates a second customer. When it belongs to
           // another salesperson, retain the importer's original basic fields
           // in the conflict queue for read-only review.
@@ -72,8 +79,9 @@ export async function POST(request: NextRequest) {
             });
             results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他销售员" });
           } else {
-            duplicate += 1;
-            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: "系统中已存在相同客户" });
+            existingSuccess += 1;
+            if (!duplicateOf.owner_id) claimIds.push(String(duplicateOf.id));
+            results.push({ file_name: fileName, row_number: rowNumber, status: "success", reason: duplicateOf.owner_id ? "客户已存在于本人客户库，保留原记录" : "客户已存在且无归属人，已自动认领" });
           }
           return;
         }
@@ -92,6 +100,15 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    if (claimIds.length) {
+      const { error: claimError } = await admin
+        .from("customers")
+        .update({ owner_id: user.id, status: "CLAIMED" })
+        .in("id", Array.from(new Set(claimIds)))
+        .is("owner_id", null);
+      if (claimError) throw new Error(`自动认领客户失败：${claimError.message}`);
+    }
+
     if (conflicts.length) {
       const { error: conflictError } = await supabase.from("customer_conflicts").insert(conflicts);
       // Production databases upgraded from the original schema may not yet
@@ -106,7 +123,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let success = 0;
+    let success = existingSuccess;
     const auditRows: Record<string, unknown>[] = [];
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);

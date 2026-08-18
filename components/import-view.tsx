@@ -46,6 +46,7 @@ type Stats = {
   failed_count: number;
   errors: string[];
 };
+type PreviewStats = { success_count: number; conflict_count: number };
 const pageSizes = [10, 20, 50, 100];
 const directoryProps = { webkitdirectory: "" } as Record<string, string>;
 const LAST_IMPORT_RESULT_KEY = "dtsmart-last-import-result";
@@ -55,6 +56,7 @@ type ImportSessionSnapshot = {
   rows: MappedRow[];
   failed: FailedRow[];
   stats: Stats | null;
+  previewStats: PreviewStats;
 };
 
 let importSessionSnapshot: ImportSessionSnapshot = {
@@ -62,6 +64,7 @@ let importSessionSnapshot: ImportSessionSnapshot = {
   rows: [],
   failed: [],
   stats: null,
+  previewStats: { success_count: 0, conflict_count: 0 },
 };
 
 function fileKey(file: File) {
@@ -142,6 +145,9 @@ export function ImportView() {
   const [failed, setFailed] = useState<FailedRow[]>(() => importSessionSnapshot.failed);
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState<Stats | null>(() => importSessionSnapshot.stats);
+  const [previewStats, setPreviewStats] = useState<PreviewStats>(
+    () => importSessionSnapshot.previewStats,
+  );
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -180,8 +186,8 @@ export function ImportView() {
   }, []);
 
   useEffect(() => {
-    importSessionSnapshot = { files, rows, failed, stats };
-  }, [files, rows, failed, stats]);
+    importSessionSnapshot = { files, rows, failed, stats, previewStats };
+  }, [files, rows, failed, stats, previewStats]);
 
   const filteredRows = useMemo(() => {
     const needle = detailSearch.trim().toLowerCase();
@@ -210,6 +216,13 @@ export function ImportView() {
   );
   const duplicateCount = failed.filter((item) => item.kind === "duplicate").length;
   const invalidCount = failed.filter((item) => item.kind === "error").length;
+  const displayTotal = stats?.total_count ?? rows.length + failed.length;
+  const displaySuccess = stats?.success_count ?? previewStats.success_count;
+  const displayDuplicate = stats?.duplicate_count ?? duplicateCount;
+  const displayFailure = stats
+    ? stats.error_count + stats.failed_count
+    : invalidCount;
+  const displayConflict = stats?.conflict_count ?? previewStats.conflict_count;
   const step = stats ? 3 : rows.length ? 2 : files.length ? 1 : 1;
 
   function downloadReport() {
@@ -277,6 +290,7 @@ export function ImportView() {
     setBusy(true);
     setError("");
     setStats(null);
+    setPreviewStats({ success_count: 0, conflict_count: 0 });
     window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
     setDetailFilter("all");
     setDetailSearch("");
@@ -341,7 +355,36 @@ export function ImportView() {
     }
     setRows(next);
     setFailed(bad);
-    setBusy(false);
+    try {
+      if (!next.length) {
+        setPreviewStats({ success_count: 0, conflict_count: 0 });
+        return;
+      }
+      const response = await fetch("/api/import/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: next.map(({ preview_id, file_name, row_number, ...item }) => {
+            void preview_id;
+            return {
+              ...item,
+              import_meta: { ...(item.import_meta || {}), file_name, row_number },
+            };
+          }),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "导入数据预检失败");
+      setPreviewStats({
+        success_count: Number(body.success_count || 0),
+        conflict_count: Number(body.conflict_count || 0),
+      });
+    } catch (reason) {
+      setPreviewStats({ success_count: next.length, conflict_count: 0 });
+      setError(reason instanceof Error ? reason.message : "导入数据预检失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function chooseFileList(list?: FileList | null) {
@@ -366,6 +409,7 @@ export function ImportView() {
     setRows([]);
     setFailed([]);
     setStats(null);
+    setPreviewStats({ success_count: 0, conflict_count: 0 });
     window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
     setPage(1);
     setDetailFilter("all");
@@ -437,7 +481,7 @@ export function ImportView() {
         }));
       const completedFailures = [...failed, ...serverFailures];
       const completedStats: Stats = {
-        total_count: completedRows.length + failed.length,
+        total_count: rows.length + failed.length,
         success_count: Number(body.success_count || 0),
         duplicate_count: duplicateCount + Number(body.duplicate_count || 0),
         conflict_count: Number(body.conflict_count || 0),
@@ -453,6 +497,7 @@ export function ImportView() {
         rows: completedRows,
         failed: completedFailures,
         stats: completedStats,
+        previewStats,
       };
       window.localStorage.setItem(
         LAST_IMPORT_RESULT_KEY,
@@ -735,37 +780,30 @@ export function ImportView() {
             </div>
           </div>
         </section>
-        <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="flex min-h-[84px] items-center gap-6 rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm sm:col-span-2 lg:col-span-1">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
+        <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="flex min-h-[84px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
                 <FileSpreadsheet size={18} />
               </span>
               <div>
                 <div className="text-xs text-slate-500">已选文件</div>
-                <div className="mt-0.5 text-xl font-bold text-slate-900">{files.length.toLocaleString()}</div>
+                <div className="mt-0.5 whitespace-nowrap text-xl font-bold text-slate-900">
+                  {files.length.toLocaleString()} 个
+                  <span className="ml-1 text-xs font-normal text-slate-500">
+                    （共 {displayTotal.toLocaleString()} 条数据）
+                  </span>
+                </div>
               </div>
-            </div>
-            <span className="h-9 w-px bg-slate-200" />
-            <div className="min-w-0 flex-1">
-              <div className="text-xs text-slate-500">读取数据总量</div>
-              <div className="mt-0.5 text-xl font-bold text-slate-900">{(stats?.total_count ?? rows.length + failed.length).toLocaleString()}</div>
-            </div>
           </div>
           <Metric
-            label={stats ? "成功导入" : "可导入"}
-            value={stats?.success_count ?? rows.length}
+            label="成功"
+            value={displaySuccess}
             tone="bg-emerald-50 text-emerald-600"
             icon={<CheckCircle2 size={18} />}
           />
-          {stats ? (
-            <>
-              <Metric label="重复数据" value={stats.duplicate_count} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
-              <Metric label="错误数据" value={stats.error_count} tone="bg-violet-50 text-violet-600" icon={<AlertTriangle size={18} />} />
-              <Metric label="失败数据" value={stats.failed_count} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
-              <Metric label="冲突客户" value={stats.conflict_count || 0} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} />
-            </>
-          ) : null}
+          <Metric label="重复" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
+          <Metric label="失败" value={displayFailure} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
+          <Metric label="冲突" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} />
         </section>
         {error && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
