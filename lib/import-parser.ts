@@ -195,35 +195,14 @@ function value(row: ImportRow, ...keys: string[]) {
   return "";
 }
 
-function normalizeText(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function normalizePhone(value: string) {
-  return value.replace(/[\s\-()]/g, "");
-}
-
-function dedupeRows(rows: ImportRow[]) {
-  const seen = new Set<string>();
-  const unique: ImportRow[] = [];
-  for (const row of rows) {
-    const name = normalizeText(value(row, "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"));
-    const phone = normalizePhone(value(row, "完整号码", "完整电话", "电话", "phone", "full phone"));
-    const email = normalizeText(value(row, "邮箱", "email", "e-mail"));
-    const keys = [phone ? `name-phone:${name}|${phone}` : "", email ? `name-email:${name}|${email}` : ""].filter(Boolean);
-    if (name && keys.some((key) => seen.has(key))) continue;
-    keys.forEach((key) => seen.add(key));
-    unique.push(row);
-  }
-  return unique;
-}
-
 export async function parseImportFile(file: File): Promise<ImportRow[]> {
   const lower = file.name.toLowerCase();
   const rows = lower.endsWith(".csv")
     ? rowsToObjects(csvRows(await file.text()))
     : (await xlsxSheets(await file.arrayBuffer())).flatMap((sheet) => rowsToObjects(sheet.rows));
-  return dedupeRows(rows);
+  // 跨文件及单文件内的重复行统一在预览层标记，不能在解析阶段静默丢弃，
+  // 否则重复数量和具体文件/行号都会不准确。
+  return rows;
 }
 
 export function mapImportRow(row: ImportRow) {

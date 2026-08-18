@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { customerIdentityKeys, normalizeIdentityText } from "@/lib/import-dedupe";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -10,16 +11,13 @@ type ImportResult = {
   reason?: string;
 };
 const text = (value: unknown) => String(value || "").trim();
-const nameKey = (value: unknown) => text(value).replace(/\s+/g, " ").toLowerCase();
-const phoneKey = (value: unknown) => text(value).replace(/[\s()\-]/g, "");
-const emailKey = (value: unknown) => text(value).toLowerCase();
 const bounded = (value: unknown, min: number, max: number) => {
   const match = text(value).replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/);
   if (!match) return null;
   const number = Number(match[0]);
   return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : null;
 };
-function identity(row: Row) { const name = nameKey(row.company_name); const phone = phoneKey(row.phone); const email = emailKey(row.email); return { name, keys: [phone ? `p:${name}|${phone}` : "", email ? `e:${name}|${email}` : ""].filter(Boolean) }; }
+function identity(row: Row) { return { name: normalizeIdentityText(row.company_name), keys: customerIdentityKeys(row) }; }
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,13 +33,21 @@ export async function POST(request: NextRequest) {
     const taskId = startedTask?.id as string | undefined;
 
     // 一次预取现有客户，避免逐条请求导致导入卡顿或超时。
-    const { data: existing, error: existingError } = await admin.from("customers").select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id").is("deleted_at", null).limit(10000);
-    if (existingError) throw existingError;
+    const existing: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = await admin.from("customers")
+        .select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id,created_at")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: true })
+        .range(from, from + 999);
+      if (page.error) throw page.error;
+      existing.push(...(page.data || []));
+      if ((page.data || []).length < 1000) break;
+    }
     const seen = new Map<string, Record<string, unknown>>();
-    (existing || []).forEach((row) => identity(row as Row).keys.forEach((key) => seen.set(key, row as Record<string, unknown>)));
+    existing.forEach((row) => identity(row as Row).keys.forEach((key) => { if (!seen.has(key)) seen.set(key, row); }));
     const accepted: Array<{ row: Row; fileName: string; rowNumber: number }> = [];
     let duplicate = 0;
-    let existingSuccess = 0;
     let invalid = 0;
     let failed = 0;
     const errors: string[] = [];
@@ -78,10 +84,14 @@ export async function POST(request: NextRequest) {
               details: { submitted: { company_name: item.company_name || null, contact_name: item.contact_name || null, country: item.country || null, phone: item.phone || null, email: item.email || null, website: item.website || null, google_url: item.google_url || null, address: item.address || null, industry: item.industry || null, category: item.category || null, source: item.source || null, tags: item.tags || [] }, matched_customer_id: duplicateOf.id },
             });
             results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他销售员" });
+          } else if (!duplicateOf.owner_id) {
+            claimIds.push(String(duplicateOf.id));
+            results.push({ file_name: fileName, row_number: rowNumber, status: "success", reason: "客户已存在且无归属人，已自动认领" });
           } else {
-            existingSuccess += 1;
-            if (!duplicateOf.owner_id) claimIds.push(String(duplicateOf.id));
-            results.push({ file_name: fileName, row_number: rowNumber, status: "success", reason: duplicateOf.owner_id ? "客户已存在于本人客户库，保留原记录" : "客户已存在且无归属人，已自动认领" });
+            failed += 1;
+            const reason = "客户已存在于我的客户列表，保留最先导入的数据";
+            errors.push(`${fileName} 第 ${rowNumber} 行：${reason}`);
+            results.push({ file_name: fileName, row_number: rowNumber, status: "failed", reason });
           }
           return;
         }
@@ -123,7 +133,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let success = existingSuccess;
+    let success = 0;
     const auditRows: Record<string, unknown>[] = [];
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);
@@ -137,6 +147,33 @@ export async function POST(request: NextRequest) {
       if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
         const legacyChunk = chunkRows.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; return legacyRow; });
         ({ data, error } = await supabase.from("customers").insert(legacyChunk).select("id"));
+      }
+      if (error?.code === "23505") {
+        // 兼容已启用数据库唯一约束的环境：批量冲突时逐条重试，
+        // 准确区分重复行与其他失败行，避免整批误报失败。
+        for (const item of chunk) {
+          let single = await supabase.from("customers").insert(item.row).select("id").single();
+          if (single.error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(single.error.message)) {
+            const legacyRow = { ...item.row };
+            delete legacyRow.followup_status;
+            single = await supabase.from("customers").insert(legacyRow).select("id").single();
+          }
+          if (single.error?.code === "23505") {
+            failed += 1;
+            const reason = "客户已存在于系统，保留最先导入的数据";
+            errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${reason}`);
+            results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason });
+          } else if (single.error) {
+            failed += 1;
+            errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${single.error.message}`);
+            results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason: single.error.message });
+          } else {
+            success += 1;
+            results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "success" });
+            auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: single.data.id, content: { filename: item.fileName, row_number: item.rowNumber }, created_at: new Date().toISOString() });
+          }
+        }
+        continue;
       }
       if (error) {
         failed += chunk.length;

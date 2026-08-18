@@ -45,8 +45,18 @@ assert.match(taskRuntime, /requestPath === "\/api\/import"/, "任务提示只能
 assert.doesNotMatch(taskRuntime, /requestUrl\.includes\("\/api\/import"\).*isImport/, "不能把导入预览误判为正式导入");
 assert.match(importView, /href="\/customers\/conflicts"/, "导入结果的冲突客户卡片必须可跳转冲突列表");
 assert.match(importView, /成功导入[\s\S]*失败导入[\s\S]*重复数据[\s\S]*冲突客户/, "完整导入报告必须包含四类结果页签");
+const importApi = read("app/api/import/route.ts");
+assert.match(importApi, /for \(let from = 0; ; from \+= 1000\)/, "导入去重必须分页读取全部现有客户，不能设置固定上限");
+assert.match(importApi, /error\?\.code === "23505"/, "导入必须处理数据库并发唯一冲突");
+assert.match(importApi, /客户已存在于我的客户列表，保留最先导入的数据/, "本人已有客户必须计入导入失败并保留最早记录");
+assert.match(importApi, /status: "conflict", reason: "客户已归属其他销售员"/, "其他归属人的重复客户必须计入冲突客户");
 const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /withOwner/, "冲突列表必须返回当前归属人信息");
+assert.match(conflictApi, /\.eq\("reported_by", user\.id\)/, "冲突列表必须显式限定为当前用户提交的数据");
+assert.match(conflictApi, /dedupeConflicts/, "冲突客户汇总必须去重");
+const softDelete = read("lib/customers/soft-delete.ts");
+assert.match(softDelete, /offset \+= 200/, "批量软删除必须分批处理，避免大批量ID被截断");
+assert.match(softDelete, /customer\.owner_id === userId/, "销售只能软删除当前归属自己的客户");
 
 const migration = read("supabase/migrations/202608140001_v2_private_crm_compat.sql");
 for (const table of [

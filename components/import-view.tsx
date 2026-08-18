@@ -23,6 +23,7 @@ import {
   type ImportRow,
 } from "@/lib/import-parser";
 import { downloadWorkbook } from "@/lib/xlsx-export";
+import { customerIdentityKeys } from "@/lib/import-dedupe";
 
 type MappedRow = ReturnType<typeof mapImportRow> & {
   preview_id: number;
@@ -145,17 +146,7 @@ function LinkCell({ value }: { value?: string | null }) {
   );
 }
 function identityKeys(row: MappedRow) {
-  const name = String(row.company_name || "")
-    .trim()
-    .toLowerCase();
-  const phone = String(row.phone || "").replace(/[\s\-()]/g, "");
-  const email = String(row.email || "")
-    .trim()
-    .toLowerCase();
-  return [
-    name && phone ? `${name}|phone:${phone}` : "",
-    name && email ? `${name}|email:${email}` : "",
-  ].filter(Boolean);
+  return customerIdentityKeys(row);
 }
 
 function Metric({
@@ -827,7 +818,7 @@ export function ImportView() {
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {stats
-                  ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，错误 ${stats.error_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
+                  ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，失败 ${stats.error_count + stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
                   : `共 ${rows.length} 条可导入数据；当前仅完成解析预览，点击“确认导入”后才会写入系统`}
               </p>
             </div>
@@ -835,7 +826,7 @@ export function ImportView() {
               {stats ? (
                 <button
                   onClick={() => setShowFailures(true)}
-                  disabled={!stats.failed_count}
+                  disabled={!displayFailure}
                   className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-600 disabled:opacity-40"
                 >
                   查看失败原因
@@ -870,7 +861,7 @@ export function ImportView() {
                   {[
                     ["all", "全部"],
                     ["success", "成功导入"],
-                    ["duplicate", "重复客户"],
+                    ["duplicate", "重复数据"],
                     ["conflict", "冲突客户"],
                     ["failed", "导入失败"],
                   ].map(([key, label]) => (

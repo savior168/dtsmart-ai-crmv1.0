@@ -1,8 +1,23 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { customerIdentityKeys } from "@/lib/import-dedupe";
 
 type ConflictRow = { id: string; customer_id: string | null; conflict_type: string; status: string; details: Record<string, unknown>; created_at: string };
+
+function dedupeConflicts(rows: ConflictRow[]) {
+  const seen = new Set<string>();
+  return rows.filter((item) => {
+    const submitted = item.details?.submitted;
+    const identity = submitted && typeof submitted === "object"
+      ? customerIdentityKeys(submitted as { company_name?: unknown; phone?: unknown; email?: unknown })
+      : [];
+    const key = item.customer_id ? `customer:${item.customer_id}` : identity[0] || `conflict:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 async function withOwner(rows: ConflictRow[]) {
   const admin = createAdminClient();
@@ -21,16 +36,21 @@ async function withOwner(rows: ConflictRow[]) {
 /** Returns the importer's own basic-field snapshot from the conflict queue. */
 export async function GET() {
   try {
-    const { supabase } = await requireUser();
+    const { supabase, user } = await requireUser();
     const { data, error } = await supabase
       .from("customer_conflicts")
       .select("id,customer_id,conflict_type,status,details,created_at")
+      .eq("reported_by", user.id)
       .order("created_at", { ascending: false });
-    if (!error) return NextResponse.json({ data: await withOwner((data || []) as ConflictRow[]) });
+    if (!error) {
+      const unique = dedupeConflicts((data || []) as ConflictRow[]);
+      return NextResponse.json({ data: await withOwner(unique), count: unique.length });
+    }
     // Compatibility fallback for production before the optional migration is
     // applied. The snapshot is still scoped by audit_logs RLS to its importer.
     const fallback = await supabase.from("audit_logs")
       .select("target_id,content,created_at")
+      .eq("user_id", user.id)
       .eq("action", "CUSTOMER_CONFLICT_DETECTED")
       .order("created_at", { ascending: false });
     if (fallback.error) throw fallback.error;
@@ -38,7 +58,8 @@ export async function GET() {
       id: `${item.target_id}-${item.created_at}`, customer_id: item.target_id,
       conflict_type: "CROSS_OWNER_DUPLICATE", status: "OPEN", details: ((item.content as Record<string, unknown>)?.details || item.content || {}) as Record<string, unknown>, created_at: item.created_at,
     }));
-    return NextResponse.json({ data: await withOwner(fallbackRows as ConflictRow[]) });
+    const unique = dedupeConflicts(fallbackRows as ConflictRow[]);
+    return NextResponse.json({ data: await withOwner(unique), count: unique.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "冲突客户加载失败" }, { status: 400 });
   }

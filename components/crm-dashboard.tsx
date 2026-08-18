@@ -29,12 +29,12 @@ type GradeRow = { grade: string; count: number; percentage: number };
 type FunnelRow = { label: string; value: number; percentage: number };
 type CountryRow = { name: string; count: number; percentage: number };
 type ProtectionRow = { id: string; customer_id: string; customer_name: string; country: string | null; expires_at: string; days: number };
-type FollowupRow = { id: string; customer_id: string; customer_name: string; country: string | null; ai_level: string | null; last_followup: string | null; followup_time: string | null; type: string; status: string };
+type FollowupRow = { id: string; customer_id: string; customer_name: string; country: string | null; ai_level: string | null; last_followup: string | null; followup_time: string | null; type: string; status: string; protection_days: number | null };
 type ActivityRow = { id: string; action: string; text: string; created_at: string };
 type DashboardData = {
   range: { from: string; to: string };
   filters: { countries: string[] };
-  totals: { my_customers: number; pending_ai: number; grade_a: number; today_followups: number; expiring_protection: number; quotes: number; deals: number; target_customers: number };
+  totals: { my_customers: number; pending_ai: number; valid_customers: number; intentions: number; today_followups: number; expiring_protection: number; quotes: number; deals: number };
   distribution: GradeRow[];
   funnel: FunnelRow[];
   country_top: CountryRow[];
@@ -44,7 +44,7 @@ type DashboardData = {
 };
 
 const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]";
-const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623" };
+const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
 const statusLabels: Record<string, string> = { UNCLAIMED: "待跟进", CLAIMED: "待开发", FOLLOWING: "跟进中", QUOTE: "报价中", DEAL: "已成交", RELEASED: "已释放" };
 const typeLabels: Record<string, string> = { EMAIL: "邮件", WHATSAPP: "WhatsApp", PHONE: "电话", LINKEDIN: "LinkedIn", OTHER: "其他" };
 const regionNames = new Intl.DisplayNames(["zh-CN"], { type: "region" });
@@ -102,8 +102,8 @@ function DonutChart({ rows, total }: { rows: GradeRow[]; total: number }) {
   const router = useRouter();
   let cursor = 0;
   const hasData = rows.some((item) => item.count > 0);
-  function openGrade(grade: string) { router.push(`/customers?ai_level=${encodeURIComponent(grade)}`); }
-  return <div className="relative h-[182px] w-[182px] shrink-0" aria-label="AI等级分布图">
+  function openGrade(grade: string) { router.push(grade === "未筛选" ? "/ai-screening" : `/customers?ai_level=${encodeURIComponent(grade)}`); }
+  return <div className="relative h-[182px] w-[182px] shrink-0" aria-label="AI筛选分布图">
     <svg viewBox="0 0 200 200" className="h-full w-full overflow-visible">
       <circle cx="100" cy="100" r="70" fill="none" stroke="#e2e8f0" strokeWidth="34" />
       {hasData ? rows.map((item) => { const start = cursor; cursor += item.percentage; return <circle key={item.grade} cx="100" cy="100" r="70" pathLength="100" fill="none" stroke={gradeColors[item.grade] || "#94a3b8"} strokeWidth="34" strokeDasharray={`${item.percentage} ${100 - item.percentage}`} strokeDashoffset={-start} transform="rotate(-90 100 100)" role="link" tabIndex={0} aria-label={`${item.grade}级客户 ${item.count} 条，占比 ${item.percentage}%`} onClick={() => openGrade(item.grade)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openGrade(item.grade); }} className="dashboard-donut-segment outline-none" ><title>点击查看 {item.grade} 级客户：{number(item.count)} 条（{item.percentage}%）</title></circle>; }) : null}
@@ -113,10 +113,11 @@ function DonutChart({ rows, total }: { rows: GradeRow[]; total: number }) {
 }
 
 function funnelHref(label: string) {
-  if (label.includes("AI筛选")) return "/customers?target=valid";
+  if (label === "新客户") return "/customers?status=UNCLAIMED";
+  if (label === "意向客户") return "/customers?status=CLAIMED";
   if (label === "报价中") return "/customers?status=QUOTE";
-  if (label === "谈判中") return "/customers?status=FOLLOWING";
-  if (label === "已成交") return "/customers?status=DEAL";
+  if (label === "成交客户") return "/customers?status=DEAL";
+  if (label === "无效客户") return "/customers?status=RELEASED";
   return "/customers";
 }
 
@@ -168,20 +169,21 @@ export function CrmDashboard() {
 
   function exportData() {
     if (!data) return;
-    const rows = [["指标", "数量"], ["我的客户", data.totals.my_customers], ["待AI筛选", data.totals.pending_ai], ["A级客户", data.totals.grade_a], ["今日待跟进", data.totals.today_followups], ["即将到期保护", data.totals.expiring_protection], ["报价中", data.totals.quotes], ["已成交", data.totals.deals]];
+    const rows = [["指标", "数量"], ["我的客户", data.totals.my_customers], ["待AI筛选", data.totals.pending_ai], ["有效客户数", data.totals.valid_customers], ["意向客户", data.totals.intentions], ["报价中", data.totals.quotes], ["已成交", data.totals.deals], ["今日待跟进", data.totals.today_followups], ["即将保护到期", data.totals.expiring_protection]];
     const csv = "\uFEFF" + rows.map((row) => row.join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = `DTSmart工作台_${from}_${to}.csv`; anchor.click(); URL.revokeObjectURL(url);
   }
 
   const cards = data ? [
-    { label: "我的客户", value: data.totals.my_customers, href: "/customers", icon: UsersRound, color: "text-blue-600", background: "bg-blue-50", trend: "+0", trendColor: "text-blue-600" },
-    { label: "待AI筛选", value: data.totals.pending_ai, href: "/ai-screening", icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "0", trendColor: "text-emerald-600" },
-    { label: "A级客户", value: data.totals.grade_a, href: "/customers?ai_level=A", icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "+0", trendColor: "text-blue-600" },
-    { label: "今日待跟进", value: data.totals.today_followups, href: "/followups", icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "+0", trendColor: "text-orange-600" },
-    { label: "即将到期保护", value: data.totals.expiring_protection, href: "/followups", icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "7天内到期", trendColor: "text-amber-600" },
-    { label: "报价中", value: data.totals.quotes, href: "/customers?status=QUOTE", icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "+0", trendColor: "text-blue-600" },
-    { label: "已成交", value: data.totals.deals, href: "/customers?status=DEAL", icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "+0", trendColor: "text-emerald-600" },
+    { label: "我的客户", value: data.totals.my_customers, href: "/customers", icon: UsersRound, color: "text-blue-600", background: "bg-blue-50", trend: "当前归属客户", trendColor: "text-blue-600" },
+    { label: "待AI筛选", value: data.totals.pending_ai, href: "/ai-screening", icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "尚未AI评分", trendColor: "text-violet-600" },
+    { label: "有效客户数", value: data.totals.valid_customers, href: "/customers?target=valid&ai_status=done", icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI评分 ≥ 60", trendColor: "text-emerald-600" },
+    { label: "意向客户", value: data.totals.intentions, href: "/customers?status=CLAIMED", icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已确认潜在需求", trendColor: "text-indigo-600" },
+    { label: "报价中", value: data.totals.quotes, href: "/customers?status=QUOTE", icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "已提供报价", trendColor: "text-sky-600" },
+    { label: "已成交", value: data.totals.deals, href: "/customers?status=DEAL", icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
+    { label: "今日待跟进", value: data.totals.today_followups, href: "/followups", icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
+    { label: "即将保护到期", value: data.totals.expiring_protection, href: "/customers/protection", icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
   ] : [];
 
   return (
@@ -195,15 +197,15 @@ export function CrmDashboard() {
         </section>
 
         {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-            {cards.map((card) => { const Icon = card.icon; return <Link key={card.label} href={card.href} className={`${panelClass} group relative min-h-[110px] overflow-hidden p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}><ChevronRight size={16} className="absolute right-3 top-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /><div className="flex items-center gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${card.background} ${card.color}`}><Icon size={28} strokeWidth={1.9} /></span><div className="min-w-0"><p className="truncate text-[13px] text-slate-600">{card.label}</p><strong className="mt-0.5 block text-[25px] leading-8 tracking-tight text-slate-950">{number(card.value)}</strong></div></div><p className="mt-2 text-center text-xs text-slate-500">{card.label === "即将到期保护" ? "" : "较上周 "}<span className={`font-medium ${card.trendColor}`}>{card.trend}</span></p></Link>; })}
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+            {cards.map((card) => { const Icon = card.icon; return <Link key={card.label} href={card.href} className={`${panelClass} group relative min-h-[110px] overflow-hidden p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}><ChevronRight size={16} className="absolute right-3 top-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /><div className="flex items-center gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${card.background} ${card.color}`}><Icon size={28} strokeWidth={1.9} /></span><div className="min-w-0"><p className="truncate text-[13px] text-slate-600">{card.label}</p><strong className="mt-0.5 block text-[25px] leading-8 tracking-tight text-slate-950">{number(card.value)}</strong></div></div><p className={`mt-2 text-center text-xs font-medium ${card.trendColor}`}>{card.trend}</p></Link>; })}
           </section>
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1.05fr_.88fr_1fr]">
-            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="AI等级分布" href="/reports" /><div className="flex items-center justify-center gap-6 px-4 pb-5 pt-2"><DonutChart rows={data.distribution} total={data.totals.my_customers} /><div className="min-w-[180px] space-y-1.5">{data.distribution.map((item) => <Link href={`/customers?ai_level=${item.grade}`} key={item.grade} title={`查看${item.grade}级客户`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-2 py-2 text-xs transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{item.grade}级（{item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></Link>)}</div></div></article>
+            <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="AI筛选分布" href="/reports" /><div className="flex items-center justify-center gap-6 px-4 pb-5 pt-2"><DonutChart rows={data.distribution} total={data.totals.my_customers} /><div className="min-w-[180px] space-y-1.5">{data.distribution.map((item) => { const pending = item.grade === "未筛选"; return <Link href={pending ? "/ai-screening" : `/customers?ai_level=${item.grade}&ai_status=done`} key={item.grade} title={pending ? "查看待AI筛选客户" : `查看${item.grade}级客户`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-2 py-2 text-xs transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{pending ? "未筛选" : `${item.grade}级（${item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）`}</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></Link>; })}</div></div></article>
             <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="销售漏斗" href="/reports" /><FunnelChart rows={data.funnel} /></article>
             <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="国家分布TOP10" href="/reports" /><div className="space-y-2 px-4 pb-4">{data.country_top.length ? data.country_top.map((item) => { const countryDetails = countryInfo(item.name); return <div key={item.name} title={`${countryDetails.name}：${number(item.count)} 条客户`} className="grid grid-cols-[92px_1fr_78px] items-center gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 text-slate-700"><CountryFlag code={countryDetails.code} name={countryDetails.name} /><span className="truncate">{countryDetails.name}</span></span><span className="h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-blue-600" style={{ width: `${Math.max(3, item.percentage)}%` }} /></span><span className="text-right text-slate-500">{number(item.count)}（{item.percentage}%）</span></div>; }) : <div className="grid h-48 place-items-center text-sm text-slate-400">暂无国家分布数据</div>}</div></article>
-            <article className={`${panelClass} min-h-[290px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/followups" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="divide-y divide-slate-100 px-4">{data.protections.length ? data.protections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex items-center justify-between gap-3 py-2 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-1 block text-slate-500"><CountryLabel country={item.country} /></span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-1 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-48 place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div></article>
+            <article className={`${panelClass} min-h-[290px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/customers/protection" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="divide-y divide-slate-100 px-4">{data.protections.length ? data.protections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex items-center justify-between gap-3 py-2 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-1 block text-slate-500"><CountryLabel country={item.country} /></span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-1 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-48 place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div></article>
           </section>
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1fr]">
