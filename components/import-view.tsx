@@ -204,25 +204,11 @@ export function ImportView() {
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (importSessionSnapshot.stats) return;
-    try {
-      const saved = JSON.parse(
-        window.localStorage.getItem(LAST_IMPORT_RESULT_KEY) || "null",
-      ) as { stats?: Stats; failed?: FailedRow[] } | null;
-      if (saved?.stats) {
-        setStats({ ...saved.stats, error_count: Number(saved.stats.error_count || 0) });
-        setFailed(
-          Array.isArray(saved.failed)
-            ? saved.failed.map((item) => ({
-                ...item,
-                kind:
-                  item.kind ||
-                  (item.reason.includes("重复") ? "duplicate" : "error"),
-              }))
-            : [],
-        );
-      }
-    } catch {
+    // A persisted number-only result has no matching preview rows after a full
+    // reload and therefore produces stale, misleading counters. In-memory
+    // state still survives ordinary menu navigation; a new browser session
+    // starts a clean import and all result counters remain zero.
+    if (!importSessionSnapshot.rows.length) {
       window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
     }
   }, []);
@@ -262,7 +248,11 @@ export function ImportView() {
   // A parsed/validated preview is not a successful database import.
   const displaySuccess = stats?.success_count ?? 0;
   const displayDuplicate = stats?.duplicate_count ?? duplicateCount;
-  const displayFailure = stats ? stats.error_count + stats.failed_count : 0;
+  // “失败导入” means rows that passed preview validation but failed while
+  // writing to the system. Invalid source rows stay in the failure details,
+  // but are not added again here, preventing double counting and ensuring the
+  // failed-import count cannot exceed the importable row count.
+  const displayFailure = stats ? stats.failed_count : 0;
   const displayConflict = stats?.conflict_count ?? 0;
   const step = stats ? 3 : rows.length ? 2 : files.length ? 1 : 1;
 
@@ -818,7 +808,7 @@ export function ImportView() {
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {stats
-                  ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，失败 ${stats.error_count + stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
+                  ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
                   : `共 ${rows.length} 条可导入数据；当前仅完成解析预览，点击“确认导入”后才会写入系统`}
               </p>
             </div>
@@ -826,7 +816,7 @@ export function ImportView() {
               {stats ? (
                 <button
                   onClick={() => setShowFailures(true)}
-                  disabled={!displayFailure}
+                  disabled={!stats.failed_count && !stats.error_count}
                   className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-600 disabled:opacity-40"
                 >
                   查看失败原因

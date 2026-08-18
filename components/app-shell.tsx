@@ -326,7 +326,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </Link>
       </div>
-      <nav className="space-y-2 px-3 py-4">
+      <nav className="h-[calc(100vh-196px)] space-y-2 overflow-y-auto px-3 py-4">
         {menu.map((item) => {
           const Icon = item.icon;
           const selected = isActive(path, item.href);
@@ -373,7 +373,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-[#f7f9fc] text-slate-900 lg:flex">
       <aside
         style={{ width: effectiveWidth }}
-        className={`relative hidden shrink-0 border-r transition-[width] duration-200 lg:block ${sidebarDark ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}
+        className={`sticky top-0 hidden h-screen shrink-0 self-start overflow-hidden border-r transition-[width] duration-200 lg:block ${sidebarDark ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}
       >
         {sidebar}
         {!collapsed ? (

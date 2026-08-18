@@ -38,7 +38,9 @@ const importView = read("components/import-view.tsx");
 assert.match(importView, /async function isReadableImportFile/, "文件夹导入必须验证真实文件内容");
 assert.match(importView, /file\.size <= 0/, "文件夹导入必须过滤空文件");
 assert.match(importView, /const displayFailure = stats \?[^\n]+: 0;/, "确认导入前失败数必须为0");
+assert.match(importView, /const displayFailure = stats \? stats\.failed_count : 0;/, "失败导入不能重复叠加校验错误数");
 assert.match(importView, /const displayConflict = stats\?\.conflict_count \?\? 0;/, "确认导入前冲突数必须为0");
+assert.match(importView, /if \(!importSessionSnapshot\.rows\.length\)[\s\S]*removeItem\(LAST_IMPORT_RESULT_KEY\)/, "没有匹配明细时必须清除陈旧导入统计");
 assert.match(importView, /onClick=\{\(\) => void confirmImport\(\)\}/, "正式导入必须由确认按钮触发");
 const taskRuntime = read("components/task-runtime.tsx");
 assert.match(taskRuntime, /requestPath === "\/api\/import"/, "任务提示只能监听正式导入接口");
@@ -57,6 +59,13 @@ assert.match(conflictApi, /dedupeConflicts/, "冲突客户汇总必须去重");
 const softDelete = read("lib/customers/soft-delete.ts");
 assert.match(softDelete, /offset \+= 200/, "批量软删除必须分批处理，避免大批量ID被截断");
 assert.match(softDelete, /customer\.owner_id === userId/, "销售只能软删除当前归属自己的客户");
+
+const appShell = read("components/app-shell.tsx");
+assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");
+assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
+const dashboard = read("components/crm-dashboard.tsx");
+assert.match(dashboard, /const protectionPageSize = 4/, "保护到期提醒必须限制单页数量");
+assert.match(dashboard, /visibleProtections\.map/, "保护到期提醒必须只渲染当前页数据");
 
 const migration = read("supabase/migrations/202608140001_v2_private_crm_compat.sql");
 for (const table of [

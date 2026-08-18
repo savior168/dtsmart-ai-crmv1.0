@@ -144,6 +144,8 @@ export function CrmDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [protectionPage, setProtectionPage] = useState(1);
+  const protectionPageSize = 4;
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -153,6 +155,7 @@ export function CrmDashboard() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "工作台数据加载失败");
       setData(body);
+      setProtectionPage(1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
     } finally {
@@ -185,6 +188,14 @@ export function CrmDashboard() {
     { label: "今日待跟进", value: data.totals.today_followups, href: "/followups", icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
     { label: "即将保护到期", value: data.totals.expiring_protection, href: "/customers/protection", icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
   ] : [];
+  const protectionPages = Math.max(
+    1,
+    Math.ceil((data?.protections.length || 0) / protectionPageSize),
+  );
+  const visibleProtections = data?.protections.slice(
+    (protectionPage - 1) * protectionPageSize,
+    protectionPage * protectionPageSize,
+  ) || [];
 
   return (
     <main className="dashboard-page min-h-[calc(100vh-64px)] bg-[#f8fafc] px-4 py-4 xl:px-5">
@@ -205,7 +216,7 @@ export function CrmDashboard() {
             <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="AI筛选分布" href="/reports" /><div className="flex items-center justify-center gap-6 px-4 pb-5 pt-2"><DonutChart rows={data.distribution} total={data.totals.my_customers} /><div className="min-w-[180px] space-y-1.5">{data.distribution.map((item) => { const pending = item.grade === "未筛选"; return <Link href={pending ? "/ai-screening" : `/customers?ai_level=${item.grade}&ai_status=done`} key={item.grade} title={pending ? "查看待AI筛选客户" : `查看${item.grade}级客户`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-2 py-2 text-xs transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{pending ? "未筛选" : `${item.grade}级（${item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）`}</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></Link>; })}</div></div></article>
             <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="销售漏斗" href="/reports" /><FunnelChart rows={data.funnel} /></article>
             <article className={`${panelClass} min-h-[290px]`}><DashboardHeader title="国家分布TOP10" href="/reports" /><div className="space-y-2 px-4 pb-4">{data.country_top.length ? data.country_top.map((item) => { const countryDetails = countryInfo(item.name); return <div key={item.name} title={`${countryDetails.name}：${number(item.count)} 条客户`} className="grid grid-cols-[92px_1fr_78px] items-center gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 text-slate-700"><CountryFlag code={countryDetails.code} name={countryDetails.name} /><span className="truncate">{countryDetails.name}</span></span><span className="h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-blue-600" style={{ width: `${Math.max(3, item.percentage)}%` }} /></span><span className="text-right text-slate-500">{number(item.count)}（{item.percentage}%）</span></div>; }) : <div className="grid h-48 place-items-center text-sm text-slate-400">暂无国家分布数据</div>}</div></article>
-            <article className={`${panelClass} min-h-[290px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/customers/protection" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="divide-y divide-slate-100 px-4">{data.protections.length ? data.protections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex items-center justify-between gap-3 py-2 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-1 block text-slate-500"><CountryLabel country={item.country} /></span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-1 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-48 place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div></article>
+            <article className={`${panelClass} flex h-[290px] min-h-0 flex-col overflow-hidden`}><div className="flex h-12 shrink-0 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/customers/protection" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="min-h-0 flex-1 divide-y divide-slate-100 px-4">{data.protections.length ? visibleProtections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex h-[48px] items-center justify-between gap-3 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-0.5 block text-slate-500"><CountryLabel country={item.country} /></span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-0.5 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-full place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div>{data.protections.length ? <footer className="flex h-[46px] shrink-0 items-center justify-between border-t border-slate-100 px-4 text-xs text-slate-500"><span>共 {data.protections.length} 条</span><div className="flex items-center gap-2"><button type="button" aria-label="上一页保护到期提醒" disabled={protectionPage <= 1} onClick={() => setProtectionPage((page) => Math.max(1, page - 1))} className="grid h-7 w-7 place-items-center rounded border border-slate-200 text-slate-600 disabled:opacity-35"><ChevronLeft size={14} /></button><span>{protectionPage} / {protectionPages}</span><button type="button" aria-label="下一页保护到期提醒" disabled={protectionPage >= protectionPages} onClick={() => setProtectionPage((page) => Math.min(protectionPages, page + 1))} className="grid h-7 w-7 place-items-center rounded border border-slate-200 text-slate-600 disabled:opacity-35"><ChevronRight size={14} /></button></div></footer> : null}</article>
           </section>
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1fr]">
