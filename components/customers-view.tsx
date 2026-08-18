@@ -60,7 +60,7 @@ const columns: { key: ColumnKey; label: string; locked?: boolean }[] = [
   { key: "ai_score", label: "AI评分" },
   { key: "status", label: "客户阶段" },
   { key: "followup_status", label: "跟进状态" },
-  { key: "protection", label: "保护状态" },
+  { key: "protection", label: "保护期剩余" },
   { key: "last_contact_time", label: "最近跟进" },
   { key: "owner", label: "负责人" },
   { key: "phone", label: "联系电话" },
@@ -123,12 +123,20 @@ function Score({ customer }: { customer: Customer }) {
     </span>
   );
 }
+function ProtectionRemaining({ customer }: { customer: Customer }) {
+  const createdAt = new Date(customer.created_at).getTime();
+  if (!Number.isFinite(createdAt)) return <span className="text-slate-400">-</span>;
+  const expiresAt = createdAt + 90 * 24 * 60 * 60 * 1000;
+  const days = Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return <span className="text-slate-400">已到期</span>;
+  return <span className={days <= 7 ? "font-medium text-rose-600" : days <= 30 ? "font-medium text-amber-600" : "text-emerald-600"}>剩余 {days} 天</span>;
+}
 function value(customer: Customer, key: ColumnKey) {
   if (key === "company_name") return customer.company_name || "-";
   if (key === "country") return customer.country || "-";
   if (key === "status") return stageLabels[customer.status] || customer.status;
   if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[customer.followup_status as FollowupStage] || "待联系";
-  if (key === "protection") return "-";
+  if (key === "protection") return <ProtectionRemaining customer={customer} />;
   if (key === "owner") return customer.owner?.name || customer.owner_id || "-";
   if (key === "contact_name") return customer.contact_name || "-";
   if (key === "phone") return customer.phone || "-";

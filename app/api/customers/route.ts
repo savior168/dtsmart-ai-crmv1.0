@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     // Treat legacy null/empty values as the default first-contact state so
     // older records remain discoverable by the new filter without overwriting
     // statuses that a salesperson has already updated manually.
-    if (followupStatus === "WAITING_CONTACT") query = query.or("followup_status.eq.WAITING_CONTACT,followup_status.is.null,followup_status.eq.");
+    if (followupStatus === "WAITING_CONTACT") query = query.or("followup_status.eq.WAITING_CONTACT,followup_status.is.null");
     else if (followupStatus) query = query.eq("followup_status", followupStatus);
     if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
     if (country) {
