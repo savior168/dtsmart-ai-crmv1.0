@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { countrySearchTokens } from "@/lib/countries";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const writableFields = [
   "company_name",
@@ -35,6 +36,10 @@ const writableFields = [
 function clean(body: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(writableFields.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
 }
+
+const identityName = (value: unknown) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+const identityPhone = (value: unknown) => String(value || "").replace(/[\s()\-]/g, "");
+const identityEmail = (value: unknown) => String(value || "").trim().toLowerCase();
 
 export async function GET(request: NextRequest) {
   try {
@@ -118,10 +123,49 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser();
+    const admin = createAdminClient();
     const body = await request.json();
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
+    const submittedName = identityName(body.company_name);
+    const submittedPhone = identityPhone(body.phone);
+    const submittedEmail = identityEmail(body.email);
+    if (submittedPhone || submittedEmail) {
+      const { data: possibleMatches, error: matchError } = await admin
+        .from("customers")
+        .select("id,company_name,phone,email,owner_id")
+        .ilike("company_name", String(body.company_name).trim())
+        .is("deleted_at", null)
+        .limit(100);
+      if (matchError) throw matchError;
+      const duplicate = (possibleMatches || []).find((item) => {
+        if (identityName(item.company_name) !== submittedName) return false;
+        return Boolean((submittedPhone && identityPhone(item.phone) === submittedPhone) || (submittedEmail && identityEmail(item.email) === submittedEmail));
+      });
+      if (duplicate?.owner_id && duplicate.owner_id !== user.id) {
+        const conflict = {
+          customer_id: duplicate.id,
+          reported_by: user.id,
+          conflict_type: "CROSS_OWNER_DUPLICATE",
+          status: "OPEN",
+          details: { source: "MANUAL_CREATE", submitted: clean(body), matched_customer_id: duplicate.id },
+        };
+        const { error: conflictError } = await supabase.from("customer_conflicts").insert(conflict);
+        if (conflictError) {
+          const { error: auditError } = await supabase.from("audit_logs").insert({ user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer", target_id: duplicate.id, content: conflict });
+          if (auditError) throw new Error(`冲突客户记录创建失败：${auditError.message}`);
+        }
+        return NextResponse.json({ conflict: true, status: "CONFLICT", message: "客户已归属其他销售员，已加入冲突客户列表" }, { status: 201 });
+      }
+      if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
+      if (duplicate && !duplicate.owner_id) {
+        const { data: claimed, error: claimError } = await admin.from("customers").update({ owner_id: user.id, status: "CLAIMED" }).eq("id", duplicate.id).is("owner_id", null).select().single();
+        if (claimError) throw claimError;
+        await writeAudit(supabase, user.id, "CUSTOMER_AUTO_CLAIM", "customer", duplicate.id, { source: "MANUAL_CREATE" });
+        return NextResponse.json(claimed, { status: 200 });
+      }
+    }
     const payload: Record<string, unknown> = { ...clean(body), status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id };
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;

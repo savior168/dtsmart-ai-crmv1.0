@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -21,6 +22,7 @@ import {
   parseImportFile,
   type ImportRow,
 } from "@/lib/import-parser";
+import { downloadWorkbook } from "@/lib/xlsx-export";
 
 type MappedRow = ReturnType<typeof mapImportRow> & {
   preview_id: number;
@@ -39,6 +41,7 @@ type FailedRow = {
 };
 type Stats = {
   total_count: number;
+  importable_count: number;
   success_count: number;
   duplicate_count: number;
   conflict_count?: number;
@@ -91,6 +94,30 @@ function dedupeSelectedFiles(selected: File[]) {
   return Array.from(unique.values());
 }
 
+async function isReadableImportFile(file: File) {
+  if (file.size <= 0 || !/\.(xlsx|xls|csv)$/i.test(file.name)) return false;
+  try {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".csv")) {
+      return (await file.slice(0, 4096).text()).replace(/^\uFEFF/, "").trim().length > 0;
+    }
+    const header = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+    const isZip = header[0] === 0x50 && header[1] === 0x4b;
+    const isOle = header.length >= 8 && [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]
+      .every((byte, index) => header[index] === byte);
+    return lower.endsWith(".xlsx") ? isZip : isOle || isZip;
+  } catch {
+    return false;
+  }
+}
+
+async function sanitizeSelectedFiles(selected: File[]) {
+  const validated = await Promise.all(
+    selected.map(async (file) => ({ file, valid: await isReadableImportFile(file) })),
+  );
+  return dedupeSelectedFiles(validated.filter((item) => item.valid).map((item) => item.file));
+}
+
 function normalizeUrl(value?: string | null) {
   const text = String(value || "").trim();
   if (
@@ -136,14 +163,16 @@ function Metric({
   value,
   tone,
   icon,
+  href,
 }: {
   label: string;
   value: number;
   tone: string;
   icon: React.ReactNode;
+  href?: string;
 }) {
-  return (
-    <div className="flex min-h-[84px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+  const content = (
+    <>
       <div
         className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${tone}`}
       >
@@ -155,8 +184,10 @@ function Metric({
           {value.toLocaleString()}
         </div>
       </div>
-    </div>
+    </>
   );
+  const className = "flex min-h-[84px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm";
+  return href ? <Link href={href} className={`${className} transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}>{content}</Link> : <div className={className}>{content}</div>;
 }
 
 export function ImportView() {
@@ -236,69 +267,50 @@ export function ImportView() {
   );
   const duplicateCount = failed.filter((item) => item.kind === "duplicate").length;
   const invalidCount = failed.filter((item) => item.kind === "error").length;
-  const displayTotal = stats?.total_count ?? rows.length + failed.length;
+  const displayImportable = stats?.importable_count ?? rows.length;
   // A parsed/validated preview is not a successful database import.
   const displaySuccess = stats?.success_count ?? 0;
   const displayDuplicate = stats?.duplicate_count ?? duplicateCount;
-  const displayFailure = stats
-    ? stats.error_count + stats.failed_count
-    : invalidCount;
-  const displayConflict = stats?.conflict_count ?? previewStats.conflict_count;
+  const displayFailure = stats ? stats.error_count + stats.failed_count : 0;
+  const displayConflict = stats?.conflict_count ?? 0;
   const step = stats ? 3 : rows.length ? 2 : files.length ? 1 : 1;
 
   function downloadReport() {
-    const headers = [
-      "结果",
-      "文件",
-      "行号",
-      "客户名称",
-      "国家/地区",
-      "完整号码",
-      "邮箱",
-      "官网网址",
-      "Google地图网址",
-      "原因",
+    if (!stats) return;
+    type ReportEntry = { row: MappedRow; status: "success" | "failed" | "duplicate" | "conflict"; reason: string };
+    const entries: ReportEntry[] = [];
+    rows.forEach((row) => {
+      const status = row.import_result;
+      if (status === "success" || status === "duplicate" || status === "conflict") entries.push({ row, status, reason: row.result_reason || "" });
+      if (status === "failed" || status === "error") entries.push({ row, status: "failed", reason: row.result_reason || "导入失败" });
+    });
+    const existing = new Set(entries.map((item) => `${item.row.file_name.toLowerCase()}|${item.row.row_number}`));
+    failed.forEach((item) => {
+      if (!item.row || item.kind === "duplicate") return;
+      const key = `${item.file_name.toLowerCase()}|${item.row_number}`;
+      if (!existing.has(key)) entries.push({ row: item.row, status: "failed", reason: item.reason });
+    });
+    const rawHeaders: string[] = [];
+    entries.forEach(({ row }) => {
+      const raw = row.import_meta?.raw_data;
+      if (raw && typeof raw === "object") Object.keys(raw).forEach((key) => { if (!rawHeaders.includes(key)) rawHeaders.push(key); });
+    });
+    const headers = ["文件", "原始行号", ...rawHeaders, "处理结果", "处理说明/失败原因"];
+    const resultLabels = { success: "成功导入", failed: "失败导入", duplicate: "重复数据", conflict: "冲突客户" };
+    const sheetRows = (status: ReportEntry["status"]) => [
+      headers,
+      ...entries.filter((item) => item.status === status).map(({ row, reason }) => {
+        const raw = row.import_meta?.raw_data;
+        const values = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+        return [row.file_name, row.row_number, ...rawHeaders.map((key) => values[key] ?? ""), resultLabels[status], reason];
+      }),
     ];
-    const quote = (value: unknown) =>
-      `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const successLines = rows.map((row) => [
-      "成功导入",
-      row.file_name,
-      row.row_number,
-      row.company_name,
-      row.country,
-      row.phone,
-      row.email,
-      row.website,
-      row.google_url,
-      "",
+    downloadWorkbook("完整导入报告.xlsx", [
+      { name: "成功导入", rows: sheetRows("success") },
+      { name: "失败导入", rows: sheetRows("failed") },
+      { name: "重复数据", rows: sheetRows("duplicate") },
+      { name: "冲突客户", rows: sheetRows("conflict") },
     ]);
-    const failedLines = failed.map((item) => [
-      item.kind === "duplicate"
-        ? "重复数据"
-        : item.kind === "error"
-          ? "错误数据"
-          : "导入失败",
-      item.file_name,
-      item.row_number,
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      item.reason,
-    ]);
-    const csv = [headers, ...successLines, ...failedLines]
-      .map((line) => line.map(quote).join(","))
-      .join("\n");
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(
-      new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }),
-    );
-    link.download = "导入明细报告.csv";
-    link.click();
-    URL.revokeObjectURL(link.href);
   }
 
   function removeFile(target: File) {
@@ -376,45 +388,17 @@ export function ImportView() {
     }
     setRows(next);
     setFailed(bad);
-    try {
-      if (!next.length) {
-        setPreviewStats({ success_count: 0, conflict_count: 0 });
-        return;
-      }
-      const response = await fetch("/api/import/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows: next.map(({ preview_id, file_name, row_number, ...item }) => {
-            void preview_id;
-            return {
-              ...item,
-              import_meta: { ...(item.import_meta || {}), file_name, row_number },
-            };
-          }),
-        }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "导入数据预检失败");
-      setPreviewStats({
-        success_count: Number(body.success_count || 0),
-        conflict_count: Number(body.conflict_count || 0),
-      });
-    } catch (reason) {
-      setPreviewStats({ success_count: next.length, conflict_count: 0 });
-      setError(reason instanceof Error ? reason.message : "导入数据预检失败");
-    } finally {
-      setBusy(false);
-    }
+    setPreviewStats({ success_count: 0, conflict_count: 0 });
+    setBusy(false);
   }
 
   async function chooseFileList(list?: FileList | null) {
-    const incoming = dedupeSelectedFiles(Array.from(list || []));
+    const incoming = await sanitizeSelectedFiles(Array.from(list || []));
     if (!incoming.length) {
-      setError("请选择 .xlsx、.xls 或 .csv 文件");
+      setError("未读取到有效文件，请选择内容完整的 .xlsx、.xls 或 .csv 文件");
       return;
     }
-    const merged = dedupeSelectedFiles([...files, ...incoming]);
+    const merged = await sanitizeSelectedFiles([...files, ...incoming]);
     setFiles(merged);
     await parseSelectedFiles(merged);
   }
@@ -497,6 +481,7 @@ export function ImportView() {
       const completedFailures = [...failed, ...serverFailures];
       const completedStats: Stats = {
         total_count: rows.length + failed.length,
+        importable_count: rows.length,
         success_count: Number(body.success_count || 0),
         duplicate_count: duplicateCount + Number(body.duplicate_count || 0),
         conflict_count: Number(body.conflict_count || 0),
@@ -795,7 +780,7 @@ export function ImportView() {
             </div>
           </div>
         </section>
-        <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="flex min-h-[84px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600">
                 <FileSpreadsheet size={18} />
@@ -804,21 +789,24 @@ export function ImportView() {
                 <div className="text-xs text-slate-500">已选文件</div>
                 <div className="mt-0.5 whitespace-nowrap text-xl font-bold text-slate-900">
                   {files.length.toLocaleString()} 个
-                  <span className="ml-1 text-xs font-normal text-slate-500">
-                    （共 {displayTotal.toLocaleString()} 条数据）
-                  </span>
                 </div>
               </div>
           </div>
           <Metric
-            label="成功"
+            label="可导入数据"
+            value={displayImportable}
+            tone="bg-blue-50 text-blue-600"
+            icon={<FileSpreadsheet size={18} />}
+          />
+          <Metric
+            label="成功导入"
             value={displaySuccess}
             tone="bg-emerald-50 text-emerald-600"
             icon={<CheckCircle2 size={18} />}
           />
-          <Metric label="重复" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
-          <Metric label="失败" value={displayFailure} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
-          <Metric label="冲突" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} />
+          <Metric label="失败导入" value={displayFailure} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
+          <Metric label="重复数据" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
+          <Metric label="冲突客户" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} href="/customers/conflicts" />
         </section>
         {error && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -920,7 +908,8 @@ export function ImportView() {
               <button
                 type="button"
                 onClick={downloadReport}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700 hover:bg-blue-50"
+                disabled={!stats}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Download size={14} />
                 下载完整导入报告

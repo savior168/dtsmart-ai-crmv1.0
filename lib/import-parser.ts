@@ -263,6 +263,7 @@ export function mapImportRow(row: ImportRow) {
     website_email: "",
     website_phone: "",
     import_meta: {
+      raw_data: row,
       store_name: value(row, "商店名称", "店铺名称", "store name"),
       store_type: value(row, "商店类型", "店铺类型", "store type"),
       store_url: value(row, "商店网址", "店铺网址", "store url"),
