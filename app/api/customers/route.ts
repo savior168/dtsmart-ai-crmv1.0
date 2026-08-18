@@ -61,6 +61,14 @@ export async function GET(request: NextRequest) {
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
     let query = supabase.from("customers").select(idsOnly ? "id" : "*", { count: "exact" });
+    // Older production databases may not have the additive followup_status
+    // column yet. Probe once so filtering never turns into a generic reload
+    // error; until migration is applied, legacy rows are treated as 待联系.
+    let followupSupported = true;
+    if (followupStatus) {
+      const probe = await supabase.from("customers").select("followup_status").limit(1);
+      followupSupported = !probe.error;
+    }
     // Authorization is enforced by Supabase RLS. Do not narrow the result
     // again by creator/owner: doing so hides records that an administrator,
     // manager, or sales user is already permitted to see.
@@ -73,8 +81,9 @@ export async function GET(request: NextRequest) {
     // Treat legacy null/empty values as the default first-contact state so
     // older records remain discoverable by the new filter without overwriting
     // statuses that a salesperson has already updated manually.
-    if (followupStatus === "WAITING_CONTACT") query = query.or("followup_status.eq.WAITING_CONTACT,followup_status.is.null");
-    else if (followupStatus) query = query.eq("followup_status", followupStatus);
+    if (followupSupported && followupStatus === "WAITING_CONTACT") query = query.or("followup_status.eq.WAITING_CONTACT,followup_status.is.null");
+    else if (followupSupported && followupStatus) query = query.eq("followup_status", followupStatus);
+    else if (!followupSupported && followupStatus && followupStatus !== "WAITING_CONTACT") query = query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
     if (country) {
       const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
