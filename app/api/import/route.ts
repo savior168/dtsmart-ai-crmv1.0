@@ -88,14 +88,23 @@ export async function POST(request: NextRequest) {
     const auditRows: Record<string, unknown>[] = [];
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);
-      const { data, error } = await supabase.from("customers").insert(chunk).select("id");
+      let { data, error } = await supabase.from("customers").insert(chunk).select("id");
+      // Some production projects were initialized before the followup_status
+      // migration. Retry the same rows without that additive column so a
+      // schema-cache lag cannot reject the entire import batch. The customer
+      // list/API treats a missing value as WAITING_CONTACT until the migration
+      // is applied, preserving the required default workflow state.
+      if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
+        const legacyChunk = chunk.map(({ followup_status: _followupStatus, ...row }) => row);
+        ({ data, error } = await supabase.from("customers").insert(legacyChunk).select("id"));
+      }
       if (error) { failed += chunk.length; errors.push(`第 ${offset + 2}-${offset + chunk.length + 1} 行：${error.message}`); continue; }
       success += data?.length || chunk.length;
       (data || []).forEach((item) => auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: item.id, content: { filename: payload.filename || "批量导入" }, created_at: new Date().toISOString() }));
       if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed }).eq("id", taskId);
     }
     if (auditRows.length) await supabase.from("audit_logs").insert(auditRows);
-    const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, failed_count: failed };
+    const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length, failed_count: failed };
     if (taskId) await supabase.from("import_tasks").update(stats).eq("id", taskId);
     if (taskId) await supabase.from("audit_logs").insert({ user_id: user.id, action: "IMPORT_COMPLETE", target_type: "import_task", target_id: taskId, content: stats, created_at: new Date().toISOString() });
     return NextResponse.json({ ...stats, errors, task_id: taskId });

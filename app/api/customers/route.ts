@@ -127,7 +127,11 @@ export async function POST(request: NextRequest) {
     delete payload.ai_screening_done;
     delete payload.website_email;
     delete payload.website_phone;
-    const { data, error } = await supabase.from("customers").insert(payload).select().single();
+    let { data, error } = await supabase.from("customers").insert(payload).select().single();
+    if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
+      const { followup_status: _followupStatus, ...legacyPayload } = payload;
+      ({ data, error } = await supabase.from("customers").insert(legacyPayload).select().single());
+    }
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name });
     return NextResponse.json(data, { status: 201 });

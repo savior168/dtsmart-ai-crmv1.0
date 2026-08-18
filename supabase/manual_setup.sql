@@ -504,3 +504,9 @@ $$;
 
 revoke execute on function public.sales_performance_report(timestamptz, timestamptz) from public, anon;
 grant execute on function public.sales_performance_report(timestamptz, timestamptz) to authenticated;
+
+-- Compatibility: initialize the follow-up workflow state for all new and legacy imports.
+alter table if exists public.customers add column if not exists followup_status text not null default 'WAITING_CONTACT';
+update public.customers set followup_status = 'WAITING_CONTACT' where followup_status is null or followup_status = '';
+create index if not exists idx_customers_followup_status on public.customers(followup_status);
+

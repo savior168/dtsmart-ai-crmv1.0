@@ -531,3 +531,9 @@ alter table public.customers add column if not exists notes text;
 create index if not exists idx_customers_ai_screening_done on public.customers(ai_screening_done);
 create index if not exists idx_customers_website_email on public.customers(website_email);
 
+
+-- Compatibility: initialize the follow-up workflow state for all new and legacy imports.
+alter table if exists public.customers add column if not exists followup_status text not null default 'WAITING_CONTACT';
+update public.customers set followup_status = 'WAITING_CONTACT' where followup_status is null or followup_status = '';
+create index if not exists idx_customers_followup_status on public.customers(followup_status);
+
