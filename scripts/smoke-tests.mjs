@@ -45,13 +45,15 @@ assert.match(importView, /onClick=\{\(\) => void confirmImport\(\)\}/, "正式�
 const taskRuntime = read("components/task-runtime.tsx");
 assert.match(taskRuntime, /requestPath === "\/api\/import"/, "任务提示只能监听正式导入接口");
 assert.doesNotMatch(taskRuntime, /requestUrl\.includes\("\/api\/import"\).*isImport/, "不能把导入预览误判为正式导入");
-assert.match(importView, /href="\/customers\/conflicts"/, "导入结果的冲突客户卡片必须可跳转冲突列表");
+assert.match(importView, /href="\/customers\?tab=conflicts"/, "导入结果的冲突客户卡片必须切换到客户管理冲突页签");
 assert.match(importView, /成功导入[\s\S]*失败导入[\s\S]*重复数据[\s\S]*冲突客户/, "完整导入报告必须包含四类结果页签");
+assert.match(importView, /当前归属人/, "导入明细和冲突报告必须显示当前归属人");
 const importApi = read("app/api/import/route.ts");
 assert.match(importApi, /for \(let from = 0; ; from \+= 1000\)/, "导入去重必须分页读取全部现有客户，不能设置固定上限");
 assert.match(importApi, /error\?\.code === "23505"/, "导入必须处理数据库并发唯一冲突");
 assert.match(importApi, /客户已存在于我的客户列表，保留最先导入的数据/, "本人已有客户必须计入导入失败并保留最早记录");
 assert.match(importApi, /status: "conflict", reason: "客户已归属其他销售员"/, "其他归属人的重复客户必须计入冲突客户");
+assert.match(importApi, /owner_name:/, "冲突导入结果必须返回当前归属人");
 const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /withOwner/, "冲突列表必须返回当前归属人信息");
 assert.match(conflictApi, /\.eq\("reported_by", user\.id\)/, "冲突列表必须显式限定为当前用户提交的数据");
@@ -63,6 +65,10 @@ assert.match(softDelete, /customer\.owner_id === userId/, "销售只能软删除
 const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");
 assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
+const customersView = read("components/customers-view.tsx");
+assert.doesNotMatch(customersView, />\s*跟进待办/, "客户管理页签不得保留跟进待办");
+assert.match(customersView, /CustomerProtectionPanel/, "保护到期必须在客户管理同页切换");
+assert.match(customersView, /CustomerConflictsPanel/, "冲突客户必须在客户管理同页切换");
 const dashboard = read("components/crm-dashboard.tsx");
 assert.match(dashboard, /const protectionPageSize = 4/, "保护到期提醒必须限制单页数量");
 assert.match(dashboard, /visibleProtections\.map/, "保护到期提醒必须只渲染当前页数据");

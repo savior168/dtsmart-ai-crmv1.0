@@ -186,7 +186,7 @@ export function CrmDashboard() {
     { label: "报价中", value: data.totals.quotes, href: "/customers?status=QUOTE", icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "已提供报价", trendColor: "text-sky-600" },
     { label: "已成交", value: data.totals.deals, href: "/customers?status=DEAL", icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
     { label: "今日待跟进", value: data.totals.today_followups, href: "/followups", icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
-    { label: "即将保护到期", value: data.totals.expiring_protection, href: "/customers/protection", icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
+    { label: "即将保护到期", value: data.totals.expiring_protection, href: "/customers?tab=protection", icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
   ] : [];
   const protectionPages = Math.max(
     1,

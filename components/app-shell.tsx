@@ -243,6 +243,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   });
   const [noticeCount, setNoticeCount] = useState(0);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [pageTitleOverride, setPageTitleOverride] = useState("");
   const [modal, setModal] = useState<"avatar" | "name" | "password" | null>(
     null,
   );
@@ -270,7 +271,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     setMobileOpen(false);
+    setPageTitleOverride("");
   }, [path]);
+  useEffect(() => {
+    const updateTitle = (event: Event) => setPageTitleOverride(String((event as CustomEvent<string>).detail || ""));
+    window.addEventListener("dtsmart-page-title", updateTitle);
+    return () => window.removeEventListener("dtsmart-page-title", updateTitle);
+  }, []);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       if (
@@ -283,9 +290,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
   if (path === "/login" || path === "/reset-password") return <>{children}</>;
-  const title =
-    pageTitles.find(([pattern]) => pattern.test(path))?.[1] ||
-    "DTSmart TradeOS";
+  const title = pageTitleOverride || pageTitles.find(([pattern]) => pattern.test(path))?.[1] || "DTSmart TradeOS";
   const titleParts = title.split(" / ");
   const effectiveWidth = collapsed ? 76 : sidebarWidth;
   const sidebarDark = sidebarMode === "dark";

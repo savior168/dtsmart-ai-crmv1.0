@@ -23,6 +23,9 @@ import {
 import type { Customer, CustomerStatus } from "@/lib/types";
 import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/lib/types";
 import { countryInfo } from "@/lib/countries";
+import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels";
+
+type CustomerWorkspace = "list" | "protection" | "conflicts";
 
 const stageLabels: Record<CustomerStatus, string> = {
   UNCLAIMED: "新客户",
@@ -181,6 +184,9 @@ function value(customer: Customer, key: ColumnKey) {
 
 export function CustomersView() {
   const router = useRouter();
+  const [workspace, setWorkspace] = useState<CustomerWorkspace>("list");
+  const [protectionCount, setProtectionCount] = useState(0);
+  const [conflictCount, setConflictCount] = useState(0);
   const [rows, setRows] = useState<Customer[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -241,6 +247,8 @@ export function CustomersView() {
   }, []);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    setWorkspace(tab === "protection" || tab === "conflicts" ? tab : "list");
     setSearch(params.get("search") || "");
     setCountry(params.get("country") || "");
     setStatus(params.get("status") || "");
@@ -251,6 +259,10 @@ export function CustomersView() {
     setSort(params.get("sort") || "updated_at");
     setDirection(params.get("direction") === "asc" ? "asc" : "desc");
   }, []);
+  useEffect(() => {
+    const label = workspace === "protection" ? "保护到期" : workspace === "conflicts" ? "冲突客户" : "客户列表";
+    window.dispatchEvent(new CustomEvent("dtsmart-page-title", { detail: `客户管理 / ${label}` }));
+  }, [workspace]);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       const targetNode = event.target as Node;
@@ -263,6 +275,7 @@ export function CustomersView() {
     return () => document.removeEventListener("mousedown", close);
   }, []);
   const load = useCallback(async () => {
+    if (workspace !== "list") return;
     setLoading(true);
     setError("");
     const params = new URLSearchParams({
@@ -305,6 +318,7 @@ export function CustomersView() {
     aiFilter,
     sort,
     direction,
+    workspace,
   ]);
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -320,6 +334,13 @@ export function CustomersView() {
     [page, pages],
   );
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
+  const visibleCount = workspace === "protection" ? protectionCount : workspace === "conflicts" ? conflictCount : count;
+  function switchWorkspace(next: CustomerWorkspace) {
+    setWorkspace(next);
+    setSelected(new Set());
+    const url = next === "list" ? "/customers" : `/customers?tab=${next}`;
+    window.history.replaceState(null, "", url);
+  }
   const sortableField = (key: ColumnKey) => key === "owner" ? "owner_id" : key === "protection" ? "updated_at" : key;
   function changeSort(key: ColumnKey) {
     const next = sortableField(key);
@@ -486,7 +507,7 @@ export function CustomersView() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">客户管理</h1>
           <span className="text-base text-slate-500">统一管理、跟进和保护客户数据</span>
           <span className="text-lg text-slate-600">
-            <b className="text-blue-600">{count}</b> 家客户
+            <b className="text-blue-600">{visibleCount}</b> 家客户
           </span>
         </div>
         <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-700">
@@ -497,31 +518,23 @@ export function CustomersView() {
           </span>
         </div>
         <nav className="mt-5 flex items-center gap-9 border-b border-slate-200 text-sm">
-          <Link
-            href="/customers"
-            className="border-b-2 border-blue-600 pb-3 font-semibold text-blue-600"
-          >
+          <button type="button" onClick={() => switchWorkspace("list")} className={`border-b-2 pb-3 ${workspace === "list" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
             客户列表
-          </Link>
-          <Link href="/followups" className="pb-3 text-slate-700">
-            跟进待办{" "}
-            <b className="ml-1 rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">
-              —
-            </b>
-          </Link>
-          <Link href="/customers/protection" className="pb-3 text-slate-700 hover:text-blue-600">
+          </button>
+          <button type="button" onClick={() => switchWorkspace("protection")} className={`border-b-2 pb-3 ${workspace === "protection" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
             保护到期{" "}
             <b className="ml-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs text-white">
-              —
+              {protectionCount}
             </b>
-          </Link>
-          <Link href="/customers/conflicts" className="pb-3 text-slate-700 hover:text-blue-600">
+          </button>
+          <button type="button" onClick={() => switchWorkspace("conflicts")} className={`border-b-2 pb-3 ${workspace === "conflicts" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
             冲突客户{" "}
             <b className="ml-1 rounded-full bg-rose-500 px-2 py-0.5 text-xs text-white">
-              —
+              {conflictCount}
             </b>
-          </Link>
+          </button>
         </nav>
+        {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-3">
             <label className="relative min-w-[300px] flex-1">
@@ -1077,6 +1090,7 @@ export function CustomersView() {
             </Link>
           </aside>
         )}
+        </> : workspace === "protection" ? <CustomerProtectionPanel onCount={setProtectionCount} /> : <CustomerConflictsPanel onCount={setConflictCount} />}
       </div>
     </main>
   );

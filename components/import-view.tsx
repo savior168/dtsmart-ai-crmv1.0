@@ -31,6 +31,7 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   row_number: number;
   import_result?: "success" | "duplicate" | "error" | "conflict" | "failed";
   result_reason?: string;
+  conflict_owner_name?: string;
 };
 type FailedRow = {
   id: number;
@@ -279,11 +280,12 @@ export function ImportView() {
     const headers = ["文件", "原始行号", ...rawHeaders, "处理结果", "处理说明/失败原因"];
     const resultLabels = { success: "成功导入", failed: "失败导入", duplicate: "重复数据", conflict: "冲突客户" };
     const sheetRows = (status: ReportEntry["status"]) => [
-      headers,
+      status === "conflict" ? [...headers.slice(0, -2), "当前归属人", ...headers.slice(-2)] : headers,
       ...entries.filter((item) => item.status === status).map(({ row, reason }) => {
         const raw = row.import_meta?.raw_data;
         const values = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-        return [row.file_name, row.row_number, ...rawHeaders.map((key) => values[key] ?? ""), resultLabels[status], reason];
+        const base = [row.file_name, row.row_number, ...rawHeaders.map((key) => values[key] ?? "")];
+        return status === "conflict" ? [...base, row.conflict_owner_name || "已归属其他用户", resultLabels[status], reason] : [...base, resultLabels[status], reason];
       }),
     ];
     downloadWorkbook("完整导入报告.xlsx", [
@@ -439,6 +441,7 @@ export function ImportView() {
           ...row,
           import_result: String(result?.status || "success") as MappedRow["import_result"],
           result_reason: String(result?.reason || ""),
+          conflict_owner_name: String(result?.owner_name || ""),
         };
       });
       completedRows.push(
@@ -448,6 +451,7 @@ export function ImportView() {
             ...item.row!,
             import_result: "duplicate" as const,
             result_reason: item.reason,
+            conflict_owner_name: item.row!.conflict_owner_name || "",
           })),
       );
       const serverFailures = results
@@ -787,7 +791,7 @@ export function ImportView() {
           />
           <Metric label="失败导入" value={displayFailure} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
           <Metric label="重复数据" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
-          <Metric label="冲突客户" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} href="/customers/conflicts" />
+          <Metric label="冲突客户" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} href="/customers?tab=conflicts" />
         </section>
         {error && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -940,6 +944,7 @@ export function ImportView() {
                   >
                     <td className="w-[190px] px-4 py-3 font-medium text-slate-800">
                       <span className="block truncate" title={row.company_name || ""}>{row.company_name || "-"}</span>
+                      {row.import_result === "conflict" ? <span className="mt-1 block truncate text-xs font-semibold text-rose-600" title={`当前归属人：${row.conflict_owner_name || "已归属其他用户"}`}>当前归属人：{row.conflict_owner_name || "已归属其他用户"}</span> : null}
                     </td>
                     <td className="w-[120px] px-4 py-3"><span className="block truncate" title={row.country || ""}>{row.country || "-"}</span></td>
                     <td className="w-[160px] whitespace-nowrap px-4 py-3">

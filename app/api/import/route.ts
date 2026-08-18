@@ -9,6 +9,7 @@ type ImportResult = {
   row_number: number;
   status: "success" | "duplicate" | "error" | "conflict" | "failed";
   reason?: string;
+  owner_name?: string;
 };
 const text = (value: unknown) => String(value || "").trim();
 const bounded = (value: unknown, min: number, max: number) => {
@@ -46,6 +47,12 @@ export async function POST(request: NextRequest) {
     }
     const seen = new Map<string, Record<string, unknown>>();
     existing.forEach((row) => identity(row as Row).keys.forEach((key) => { if (!seen.has(key)) seen.set(key, row); }));
+    const ownerIds = Array.from(new Set(existing.map((row) => text(row.owner_id)).filter(Boolean)));
+    const ownerNames = new Map<string, string>();
+    if (ownerIds.length) {
+      const { data: owners } = await admin.from("users").select("id,name,email").in("id", ownerIds);
+      (owners || []).forEach((owner) => ownerNames.set(owner.id, owner.name || owner.email || owner.id));
+    }
     const accepted: Array<{ row: Row; fileName: string; rowNumber: number }> = [];
     let duplicate = 0;
     let invalid = 0;
@@ -83,7 +90,7 @@ export async function POST(request: NextRequest) {
               status: "OPEN",
               details: { submitted: { company_name: item.company_name || null, contact_name: item.contact_name || null, country: item.country || null, phone: item.phone || null, email: item.email || null, website: item.website || null, google_url: item.google_url || null, address: item.address || null, industry: item.industry || null, category: item.category || null, source: item.source || null, tags: item.tags || [] }, matched_customer_id: duplicateOf.id },
             });
-            results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他销售员" });
+            results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他销售员", owner_name: ownerNames.get(String(duplicateOf.owner_id)) || String(duplicateOf.owner_id) });
           } else if (!duplicateOf.owner_id) {
             claimIds.push(String(duplicateOf.id));
             results.push({ file_name: fileName, row_number: rowNumber, status: "success", reason: "客户已存在且无归属人，已自动认领" });
