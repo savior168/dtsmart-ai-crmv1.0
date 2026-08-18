@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   Trash2,
   UserPlus,
   X,
@@ -458,19 +459,15 @@ export function CustomersView() {
   return (
     <main className="min-h-screen bg-[#f5f8fc] px-5 py-6 lg:px-7">
       <div className="mx-auto max-w-[1800px]">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-            客户管理{" "}
-            <span className="ml-3 text-base font-normal text-slate-500">
-              统一管理、跟进和保护客户数据
-            </span>
-          </h1>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950">客户管理</h1>
+          <span className="text-base text-slate-500">统一管理、跟进和保护客户数据</span>
           <span className="text-lg text-slate-600">
             <b className="text-blue-600">{count}</b> 家客户
           </span>
         </div>
         <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-700">
-          <span className="mr-2 text-blue-600">◈</span>当前数据范围：当前用户 ·
+          <ShieldCheck className="mr-2 inline-block align-[-3px] text-blue-600" size={17} strokeWidth={2} />当前数据范围：当前用户 ·
           系统按登录权限自动确定 · 客户数已按主体去重
           <span className="float-right cursor-pointer text-blue-600">
             查看权限说明 ⓘ

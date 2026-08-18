@@ -17,7 +17,7 @@ const menu = [
   { label: "系统设置", href: "/settings", icon: Settings },
 ] as const;
 
-const pageTitles: Array<[RegExp, string]> = [[/^\/$/, "工作台 / 数据总览"], [/^\/customers\/new$/, "客户管理 / 新增客户"], [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"], [/^\/customers$/, "客户管理 / 客户列表"], [/^\/import$/, "数据导入"], [/^\/ai-screening$/, "AI筛选中心"], [/^\/followups$/, "跟进管理中心"], [/^\/reports$/, "报表中心"], [/^\/settings$/, "系统设置与个人资料"]];
+const pageTitles: Array<[RegExp, string]> = [[/^\/$/, "工作台 / 数据总览"], [/^\/customers\/new$/, "新增客户"], [/^\/customers\/[^/]+$/, "客户详情"], [/^\/customers$/, "客户列表"], [/^\/import$/, "数据导入"], [/^\/ai-screening$/, "AI筛选中心"], [/^\/followups$/, "跟进管理中心"], [/^\/reports$/, "报表中心"], [/^\/settings$/, "系统设置与个人资料"]];
 
 function isActive(path: string, href: string) { return href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`); }
 
