@@ -2,10 +2,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import type { Customer } from "@/lib/types";
-import { countryInfo } from "@/lib/countries";
+import { CountryLabel } from "@/components/country-label";
 const link = (value?: string | null) => { const text = String(value || "").trim(); return text ? (/^https?:\/\//i.test(text) ? text : `https://${text}`) : ""; };
 function LinkValue({ value }: { value?: string | null }) { const href = link(value); return href ? <a href={href} target="_blank" rel="noreferrer" className="break-all text-blue-600 hover:underline">{value}<ExternalLink className="ml-1 inline" size={12} /></a> : <span className="text-slate-400">-</span>; }
-function CountryValue({ value }: { value?: string | null }) { const info = countryInfo(value); const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐"; return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span>{flag}</span><span>{info.name}</span></span>; }
+function CountryValue({ value }: { value?: string | null }) { return <CountryLabel value={value} />; }
 const labels = ["待筛选", "分析中", "已完成", "失败/异常", "筛选规则"];
 export function AiScreeningView() {
   const [tab, setTab] = useState(0); const [items, setItems] = useState<Customer[]>([]); const [count, setCount] = useState(0); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(20); const [search, setSearch] = useState(""); const [selected, setSelected] = useState<Set<string>>(new Set()); const [loading, setLoading] = useState(false); const [running, setRunning] = useState(false); const [done, setDone] = useState(0); const [success, setSuccess] = useState(0); const [failures, setFailures] = useState<string[]>([]); const [error, setError] = useState(""); const [detail, setDetail] = useState<Customer | null>(null);

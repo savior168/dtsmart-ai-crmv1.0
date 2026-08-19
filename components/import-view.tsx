@@ -24,7 +24,7 @@ import {
 } from "@/lib/import-parser";
 import { downloadWorkbook } from "@/lib/xlsx-export";
 import { customerIdentityKeys } from "@/lib/import-dedupe";
-import { countryInfo } from "@/lib/countries";
+import { CountryLabel } from "@/components/country-label";
 
 type MappedRow = ReturnType<typeof mapImportRow> & {
   preview_id: number;
@@ -35,7 +35,7 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   conflict_owner_name?: string;
 };
 
-function ImportCountry({ value }: { value?: string | null }) { const info = countryInfo(value); const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐"; return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span>{flag}</span><span>{info.name}</span></span>; }
+function ImportCountry({ value }: { value?: string | null }) { return <CountryLabel value={value} />; }
 type FailedRow = {
   id: number;
   file_name: string;
@@ -58,6 +58,8 @@ type PreviewStats = { success_count: number; conflict_count: number };
 const pageSizes = [10, 20, 30, 50, 100, 200, 300, 500];
 const directoryProps = { webkitdirectory: "" } as Record<string, string>;
 const LAST_IMPORT_RESULT_KEY = "dtsmart-last-import-result";
+const IMPORT_TASK_KEY = "dtsmart-import-task";
+const IMPORT_TASK_EVENT = "dtsmart-task-update";
 
 type ImportSessionSnapshot = {
   files: File[];
@@ -74,6 +76,19 @@ let importSessionSnapshot: ImportSessionSnapshot = {
   stats: null,
   previewStats: { success_count: 0, conflict_count: 0 },
 };
+
+type PersistedImportTask = {
+  status?: "running" | "completed" | "failed";
+  message?: string;
+};
+
+function readImportTask(): PersistedImportTask | null {
+  try {
+    return JSON.parse(window.localStorage.getItem(IMPORT_TASK_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
 
 function fileKey(file: File) {
   return `${file.name.toLowerCase()}|${file.size}|${file.lastModified}`;
@@ -206,6 +221,7 @@ export function ImportView() {
   const [jumpPage, setJumpPage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const sessionRef = useRef<ImportSessionSnapshot>(importSessionSnapshot);
 
   useEffect(() => {
     // A persisted number-only result has no matching preview rows after a full
@@ -218,8 +234,53 @@ export function ImportView() {
   }, []);
 
   useEffect(() => {
-    importSessionSnapshot = { files, rows, failed, stats, previewStats };
+    const snapshot = { files, rows, failed, stats, previewStats };
+    sessionRef.current = snapshot;
+    importSessionSnapshot = snapshot;
   }, [files, rows, failed, stats, previewStats]);
+
+  useEffect(() => {
+    const syncTaskState = () => {
+      const task = readImportTask();
+      setBusy(task?.status === "running");
+      if (task?.status === "failed" && task.message) setError(task.message);
+      if (task?.status !== "running" && importSessionSnapshot.stats) {
+        const snapshot = importSessionSnapshot;
+        setFiles(snapshot.files);
+        setRows(snapshot.rows);
+        setFailed(snapshot.failed);
+        setStats(snapshot.stats);
+        setPreviewStats(snapshot.previewStats);
+        sessionRef.current = snapshot;
+      }
+    };
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") syncTaskState();
+    };
+
+    syncTaskState();
+    window.addEventListener(IMPORT_TASK_EVENT, syncTaskState);
+    window.addEventListener("focus", syncTaskState);
+    window.addEventListener("pageshow", syncTaskState);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    return () => {
+      window.removeEventListener(IMPORT_TASK_EVENT, syncTaskState);
+      window.removeEventListener("focus", syncTaskState);
+      window.removeEventListener("pageshow", syncTaskState);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+      const task = readImportTask();
+      if (sessionRef.current.stats && task?.status !== "running") {
+        importSessionSnapshot = {
+          files: [],
+          rows: [],
+          failed: [],
+          stats: null,
+          previewStats: { success_count: 0, conflict_count: 0 },
+        };
+        window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
+      }
+    };
+  }, []);
 
   const filteredRows = useMemo(() => {
     const needle = detailSearch.trim().toLowerCase();
@@ -480,17 +541,20 @@ export function ImportView() {
       setRows(completedRows);
       setFailed(completedFailures);
       setStats(completedStats);
-      importSessionSnapshot = {
+      const completedSnapshot = {
         files,
         rows: completedRows,
         failed: completedFailures,
         stats: completedStats,
         previewStats,
       };
+      sessionRef.current = completedSnapshot;
+      importSessionSnapshot = completedSnapshot;
       window.localStorage.setItem(
         LAST_IMPORT_RESULT_KEY,
         JSON.stringify({ stats: completedStats, failed: completedFailures }),
       );
+      window.dispatchEvent(new Event(IMPORT_TASK_EVENT));
       setDetailFilter("all");
       setPage(1);
     } catch (reason) {

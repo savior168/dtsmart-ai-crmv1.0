@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ExternalLink, LoaderCircle, Pencil, RefreshCw, Search } from "lucide-react";
-import { countryInfo } from "@/lib/countries";
+import { CountryLabel } from "@/components/country-label";
 import { FOLLOWUP_STAGE_LABELS, type FollowupStage } from "@/lib/types";
 
 type UnifiedRow = {
@@ -33,7 +33,7 @@ const stageLabels: Record<string, string> = { UNCLAIMED: "新客户", CLAIMED: "
 const tableHeads = ["客户名称", "国家/地区", "AI评分", "客户阶段", "跟进状态", "保护期剩余", "最近跟进", "联系电话", "邮箱", "官网", "Google Maps", "数据来源", "更新时间"];
 const text = (value: unknown) => String(value || "-");
 function date(value: unknown) { return value ? new Date(String(value)).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") : "-"; }
-function Country({ value }: { value: unknown }) { const info = countryInfo(String(value || "")); const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐"; return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span>{flag}</span><span>{info.name}</span></span>; }
+function Country({ value }: { value: unknown }) { return <CountryLabel value={value} />; }
 function UrlCell({ value }: { value: unknown }) { const raw = String(value || "").trim(); const href = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : ""; return href ? <a href={href} target="_blank" rel="noreferrer" className="inline-flex max-w-36 items-center gap-1 text-blue-600 hover:underline"><span className="truncate">{raw}</span><ExternalLink size={12} className="shrink-0"/></a> : <span className="text-slate-400">-</span>; }
 function Score({ row }: { row: UnifiedRow }) { return row.aiScore == null ? <span className="text-slate-400">-</span> : <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{row.aiLevel || "-"} · {row.aiScore}</span>; }
 

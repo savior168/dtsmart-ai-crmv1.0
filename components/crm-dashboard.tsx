@@ -10,7 +10,6 @@ import {
   CheckSquare2,
   ChevronLeft,
   ChevronRight,
-  Download,
   FileText,
   Handshake,
   Info,
@@ -138,7 +137,6 @@ export function CrmDashboard() {
   const [from, setFrom] = useState(() => localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
   const [to, setTo] = useState(() => localDate(now));
   const [country, setCountry] = useState("");
-  const [aiLevel, setAiLevel] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -147,7 +145,7 @@ export function CrmDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
-    const params = new URLSearchParams({ from, to, country, ai_level: aiLevel });
+    const params = new URLSearchParams({ from, to, country });
     try {
       const response = await fetch(`/api/dashboard/stats?${params}`);
       const body = await response.json().catch(() => ({}));
@@ -159,21 +157,13 @@ export function CrmDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [aiLevel, country, from, to]);
+  }, [country, from, to]);
 
   useEffect(() => { void load(); }, [load]);
 
   function reset() {
     setFrom(localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
-    setTo(localDate(now)); setCountry(""); setAiLevel("");
-  }
-
-  function exportData() {
-    if (!data) return;
-    const rows = [["指标", "数量"], ["我的客户", data.totals.my_customers], ["待AI筛选", data.totals.pending_ai], ["有效客户数", data.totals.valid_customers], ["意向客户", data.totals.intentions], ["报价中", data.totals.quotes], ["已成交", data.totals.deals], ["今日待跟进", data.totals.today_followups], ["即将保护到期", data.totals.expiring_protection]];
-    const csv = "\uFEFF" + rows.map((row) => row.join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `DTSmart工作台_${from}_${to}.csv`; anchor.click(); URL.revokeObjectURL(url);
+    setTo(localDate(now)); setCountry("");
   }
 
   const cards = data ? [
@@ -201,8 +191,7 @@ export function CrmDashboard() {
         <section className="mb-4 flex flex-wrap items-center gap-3">
           <label className="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm"><input aria-label="开始日期" type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="w-[132px] border-0 bg-transparent outline-none" /><span className="px-2 text-slate-400">~</span><input aria-label="结束日期" type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="w-[132px] border-0 bg-transparent outline-none" /></label>
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
-          <select aria-label="AI等级筛选" value={aiLevel} onChange={(event) => setAiLevel(event.target.value)} className="h-10 min-w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm"><option value="">全部AI等级</option>{["A", "B", "C", "D"].map((item) => <option key={item} value={item}>{item}级</option>)}</select>
-          <div className="ml-auto flex items-center gap-3"><button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button><button type="button" disabled={!data} onClick={exportData} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"><Download size={16} />导出数据</button></div>
+          <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
         </section>
 
         {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>

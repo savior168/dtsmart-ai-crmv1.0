@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, LoaderCircle, Pencil, RefreshCw, Search, UserPlus } from "lucide-react";
-import { countryInfo } from "@/lib/countries";
+import { CountryLabel } from "@/components/country-label";
 import { FOLLOWUP_STAGE_LABELS, type FollowupStage } from "@/lib/types";
 
 type CustomerData = Record<string, unknown> & { id?: string };
@@ -14,7 +14,7 @@ type Row = { id: string; customerId?: string; company: string; country?: string;
 const stages: Record<string, string> = { UNCLAIMED: "新客户", CLAIMED: "意向客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
 const text = (value: unknown) => String(value || "-");
 const formatDate = (value: unknown) => value ? new Date(String(value)).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") : "-";
-function Country({ value }: { value: unknown }) { const info = countryInfo(String(value || "")); const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐"; return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span>{flag}</span><span>{info.name}</span></span>; }
+function Country({ value }: { value: unknown }) { return <CountryLabel value={value} />; }
 function Url({ value }: { value?: string }) { const raw = String(value || "").trim(); const href = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : ""; return href ? <a href={href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex max-w-36 items-center gap-1 text-blue-600 hover:underline"><span className="truncate">{raw}</span><ExternalLink size={12}/></a> : <span className="text-slate-400">-</span>; }
 
 function DataTable({ rows, loading, empty, page, pageSize, setPage, setPageSize, claim }: { rows: Row[]; loading: boolean; empty: string; page: number; pageSize: number; setPage: (page: number) => void; setPageSize: (size: number) => void; claim?: (row: Row) => void }) {

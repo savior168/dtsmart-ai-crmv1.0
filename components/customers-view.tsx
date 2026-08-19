@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import type { Customer, CustomerStatus } from "@/lib/types";
 import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/lib/types";
-import { countryInfo } from "@/lib/countries";
+import { CountryLabel } from "@/components/country-label";
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
@@ -125,11 +125,6 @@ function Website({ value, kind = "website" }: { value?: string | null; kind?: "w
       <ExternalLink size={12} className="shrink-0" />
     </a>
   );
-}
-function CountryLabel({ value }: { value?: string | null }) {
-  const info = countryInfo(value);
-  const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐";
-  return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span role="img" aria-label={`${info.name}国旗`}>{flag}</span><span>{info.name}</span></span>;
 }
 function completePhone(value?: string | null) {
   const raw = String(value || "").trim();
