@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   Trash2,
   UserPlus,
-  UserMinus,
   X,
 } from "lucide-react";
 import type { Customer, CustomerStatus } from "@/lib/types";
@@ -185,6 +184,7 @@ export function CustomersView() {
   const [conflictCount, setConflictCount] = useState(0);
   const [rows, setRows] = useState<Customer[]>([]);
   const [count, setCount] = useState(0);
+  const [totalCustomerCount, setTotalCustomerCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
@@ -210,6 +210,8 @@ export function CustomersView() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [selectingAll, setSelectingAll] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [permissionOpen, setPermissionOpen] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const newRef = useRef<HTMLDivElement>(null);
   const orderedColumns = useMemo(() => {
@@ -322,6 +324,7 @@ export function CustomersView() {
   }, [load]);
   useEffect(() => {
     void Promise.all([
+      fetch("/api/customers?page=1&pageSize=1&ai_status=all&deleted=false").then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
       fetch("/api/customers/protection").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? body.data?.length ?? 0))),
       fetch("/api/customer-conflicts").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? body.data?.length ?? 0))),
     ]).catch(() => undefined);
@@ -336,7 +339,6 @@ export function CustomersView() {
     [page, pages],
   );
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
-  const visibleCount = workspace === "protection" ? protectionCount : workspace === "conflicts" ? conflictCount : count;
   function switchWorkspace(next: CustomerWorkspace) {
     setWorkspace(next);
     setSelected(new Set());
@@ -491,11 +493,32 @@ export function CustomersView() {
     notify("客户已释放，保护期已清零");
     await load();
   }
-  function exportData() {
+  async function exportData() {
+    setExporting(true);
+    setError("");
+    const exportRows: Customer[] = [];
+    const params = new URLSearchParams({
+      pageSize: "500", search, country, status, ai_level: level, target,
+      followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
+    });
+    try {
+      let currentPage = 1;
+      let total = 0;
+      do {
+        params.set("page", String(currentPage));
+        const response = await fetch(`/api/customers?${params}`);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "导出数据读取失败");
+        const items = Array.isArray(body.data) ? body.data as Customer[] : [];
+        exportRows.push(...items);
+        total = Number(body.count || 0);
+        currentPage += 1;
+        if (!items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
+      } while (exportRows.length < total);
     const header = fields.map(
       (key) => columns.find((item) => item.key === key)?.label || key,
     );
-    const lines = rows.map((row) =>
+    const lines = exportRows.map((row) =>
       fields
         .map((key) =>
           JSON.stringify(
@@ -519,6 +542,14 @@ export function CustomersView() {
     anchor.download = "客户列表.csv";
     anchor.click();
     URL.revokeObjectURL(anchor.href);
+      notify(`已导出当前筛选结果 ${exportRows.length} 条`);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "导出数据失败";
+      setError(message);
+      notify(message, "error");
+    } finally {
+      setExporting(false);
+    }
   }
   return (
     <main className="min-h-screen bg-[#f5f8fc] px-5 py-6 lg:px-7">
@@ -527,15 +558,15 @@ export function CustomersView() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">客户管理</h1>
           <span className="text-base text-slate-500">统一管理、跟进和保护客户数据</span>
           <span className="text-lg text-slate-600">
-            <b className="text-blue-600">{visibleCount}</b> 家客户
+            <b className="text-blue-600">{totalCustomerCount}</b> 家客户
           </span>
         </div>
         <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-700">
           <ShieldCheck className="mr-2 inline-block align-[-3px] text-blue-600" size={17} strokeWidth={2} />当前数据范围：当前用户 ·
           系统按登录权限自动确定 · 客户数已按主体去重
-          <span className="float-right cursor-pointer text-blue-600">
+          <button type="button" onClick={() => setPermissionOpen(true)} className="float-right text-blue-600 hover:underline">
             查看权限说明 ⓘ
-          </span>
+          </button>
         </div>
         <nav className="mt-5 flex items-center gap-9 border-b border-slate-200 text-sm">
           <button type="button" onClick={() => switchWorkspace("list")} className={`border-b-2 pb-3 ${workspace === "list" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
@@ -729,11 +760,12 @@ export function CustomersView() {
               )}
             </div>
             <button
-              onClick={exportData}
+              onClick={() => void exportData()}
+              disabled={exporting}
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"
             >
               <Download size={16} />
-              导出数据
+              {exporting ? "正在导出…" : "导出数据"}
             </button>
             <div ref={fieldRef} className="relative">
               <button
@@ -976,7 +1008,7 @@ export function CustomersView() {
                       >
                         <Pencil size={17} />
                       </Link>
-                      {(row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="mr-2 inline-grid h-8 w-8 place-items-center rounded text-amber-600 hover:bg-amber-50" title="释放客户" aria-label={`释放${row.company_name}`}><UserMinus size={17}/></button> : null}
+                      {(row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="mr-2 rounded px-2 py-1 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1050,6 +1082,23 @@ export function CustomersView() {
                 <button type="button" onClick={() => void remove(deleteIds)} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">确认删除</button>
               </div>
             </div>
+          </div>
+        )}
+        {permissionOpen && (
+          <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/25 p-4" role="dialog" aria-modal="true" aria-labelledby="permission-title" onMouseDown={(event) => event.target === event.currentTarget && setPermissionOpen(false)}>
+            <section className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h2 id="permission-title" className="flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="text-blue-600" size={20}/>客户数据权限说明</h2>
+                <button type="button" onClick={() => setPermissionOpen(false)} aria-label="关闭" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X size={19}/></button>
+              </div>
+              <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
+                <p className="rounded-lg bg-blue-50 p-3"><b className="text-slate-900">我的客户：</b>当前归属自己的客户可查看、编辑、跟进、释放；报价中和成交客户不可删除。</p>
+                <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">冲突客户：</b>非归属人仅可查看自己新增或导入的基础字段和当前归属人，不能查看 AI 证据、跟进记录或修改客户。</p>
+                <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">管理员：</b>可按系统权限查看和管理全部客户；所有关键操作写入审计日志。</p>
+                <p className="text-xs text-slate-400">最终可见范围由 Supabase RLS 与服务端权限共同校验，前端隐藏不代替服务端权限控制。</p>
+              </div>
+              <button type="button" onClick={() => setPermissionOpen(false)} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">我知道了</button>
+            </section>
           </div>
         )}
         {detail && (
