@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
-import { softDeleteCustomers } from "@/lib/customers/soft-delete";
+import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 
 const writable = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
@@ -44,7 +44,7 @@ export async function DELETE(_: NextRequest, context: { params: Promise<{ id: st
   try {
     const { supabase, user } = await requireUser();
     const { id } = await context.params;
-    const result = await softDeleteCustomers({ supabase, userId: user.id, ids: [id] });
+    const result = await permanentlyDeleteCustomers({ supabase, userId: user.id, ids: [id] });
     if (!result.successIds.length) {
       return NextResponse.json({ error: result.failures[0]?.error || "删除未生效，请刷新后重试" }, { status: 400 });
     }

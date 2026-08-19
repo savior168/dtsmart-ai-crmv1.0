@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest) {
     const payload: Record<string, string | null> = {};
     if ("name" in body) {
       const username = String(body.name || "").trim();
-      if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 2-30 位中文、字母、数字、下划线或短横线" }, { status: 400 });
+      if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 1-15 位中文、字母、数字、下划线或短横线" }, { status: 400 });
       const normalized = username.toLowerCase();
       const users = await listAuthUsers();
       if (users.some((item) => item.id !== user.id && String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalized)) {

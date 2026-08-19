@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const sort = request.nextUrl.searchParams.get("sort") || "created_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
-    let query = supabase.from("customers").select(idsOnly ? "id" : "*", { count: "exact" });
+    let query = supabase.from("customers").select(idsOnly ? "id,status" : "*", { count: "exact" });
     // Older production databases may not have the additive followup_status
     // column yet. Probe once so filtering never turns into a generic reload
     // error; until migration is applied, legacy rows are treated as 待联系.

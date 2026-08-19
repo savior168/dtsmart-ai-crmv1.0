@@ -6,15 +6,17 @@ import { customerIdentityKeys } from "@/lib/import-dedupe";
 type ConflictRow = { id: string; customer_id: string | null; conflict_type: string; status: string; details: Record<string, unknown>; created_at: string };
 
 function dedupeConflicts(rows: ConflictRow[]) {
-  const seen = new Set<string>();
+  const seenCustomers = new Set<string>();
+  const seenIdentities = new Set<string>();
   return rows.filter((item) => {
     const submitted = item.details?.submitted;
     const identity = submitted && typeof submitted === "object"
       ? customerIdentityKeys(submitted as { company_name?: unknown; phone?: unknown; email?: unknown })
       : [];
-    const key = item.customer_id ? `customer:${item.customer_id}` : identity[0] || `conflict:${item.id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const customerKey = item.customer_id ? `customer:${item.customer_id}` : "";
+    if ((customerKey && seenCustomers.has(customerKey)) || identity.some((key) => seenIdentities.has(key))) return false;
+    if (customerKey) seenCustomers.add(customerKey);
+    identity.forEach((key) => seenIdentities.add(key));
     return true;
   });
 }

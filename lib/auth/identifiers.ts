@@ -2,7 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const USERNAME_PATTERN = /^[\p{L}\p{N}_-]{2,30}$/u;
+const USERNAME_PATTERN = /^[\p{L}\p{N}_-]{1,15}$/u;
 
 export function normalizeEmail(value: string) {
   return value.trim().toLowerCase();

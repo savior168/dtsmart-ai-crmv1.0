@@ -201,6 +201,7 @@ export function CustomersView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [protectedSelected, setProtectedSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Customer | null>(null);
   const [fields, setFields] = useState<ColumnKey[]>(defaults);
   const [draft, setDraft] = useState<ColumnKey[]>(defaults);
@@ -209,6 +210,7 @@ export function CustomersView() {
   const [newOpen, setNewOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
@@ -342,6 +344,7 @@ export function CustomersView() {
   function switchWorkspace(next: CustomerWorkspace) {
     setWorkspace(next);
     setSelected(new Set());
+    setProtectedSelected(new Set());
     const url = next === "list" ? "/customers" : `/customers?tab=${next}`;
     window.history.replaceState(null, "", url);
   }
@@ -395,37 +398,43 @@ export function CustomersView() {
     setAiFilter("done");
     setPage(1);
     setSelected(new Set());
+    setProtectedSelected(new Set());
   }
   function notify(message: string, type: "success" | "error" = "success") {
     window.dispatchEvent(new CustomEvent("dtsmart-toast", { detail: { message, type } }));
   }
   async function remove(ids: string[]) {
-    if (!ids.length) return;
-    const response =
-      ids.length === 1
-        ? await fetch(`/api/customers/${ids[0]}`, { method: "DELETE" })
-        : await fetch("/api/customers/batch", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ids, action: "DELETE" }),
-          });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setError(body.error || "删除失败");
-      notify(body.error || "删除失败，请稍后重试", "error");
-      return;
+    if (!ids.length || deleting) return;
+    setDeleting(true);
+    try {
+      const response =
+        ids.length === 1
+          ? await fetch(`/api/customers/${ids[0]}`, { method: "DELETE", headers: { "x-dtsmart-toast": "manual" } })
+          : await fetch("/api/customers/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual" },
+              body: JSON.stringify({ ids, action: "DELETE" }),
+            });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        notify(body.error || "删除失败，请稍后重试", "error");
+        return;
+      }
+      const failed = Number(body.failed_count || 0);
+      const succeeded = Number(body.success_count || (body.ok ? 1 : 0));
+      if (!succeeded) {
+        notify(body.results?.find?.((item: { error?: string }) => item.error)?.error || "删除失败，请稍后重试", "error");
+        return;
+      }
+      notify(failed ? `已永久删除 ${succeeded} 条客户，${failed} 条未删除` : `已永久删除 ${succeeded} 条客户`);
+      setSelected(new Set());
+      setProtectedSelected(new Set());
+      setDetail(null);
+      setDeleteIds(null);
+      await load();
+    } finally {
+      setDeleting(false);
     }
-    if (Number(body.failed_count || 0) > 0 || Number(body.success_count || (body.ok ? 1 : 0)) === 0) {
-      const message = body.results?.find?.((item: { error?: string }) => item.error)?.error || "部分客户未能移入回收站";
-      setError(message);
-      notify(message, "error");
-    } else {
-      notify(`已将 ${ids.length} 条客户移入回收站`);
-    }
-    setSelected(new Set());
-    setDetail(null);
-    setDeleteIds(null);
-    await load();
   }
   async function updateStage(nextStatus: string) {
     if (!selected.size) return;
@@ -451,6 +460,7 @@ export function CustomersView() {
     } else notify(`已更新 ${body.success_count || selected.size} 条客户阶段`);
     setBulkOpen(false);
     setSelected(new Set());
+    setProtectedSelected(new Set());
     await load();
   }
   async function selectAllResults() {
@@ -463,6 +473,7 @@ export function CustomersView() {
     });
     try {
       const ids = new Set<string>();
+      const protectedIds = new Set<string>();
       let currentPage = 1;
       let total = 0;
       do {
@@ -472,11 +483,16 @@ export function CustomersView() {
         if (!response.ok) throw new Error(body.error || "全选当前筛选结果失败");
         total = Number(body.count || 0);
         const pageItems = Array.isArray(body.data) ? body.data : [];
-        for (const item of pageItems) ids.add(String(item.id));
+        for (const item of pageItems) {
+          const id = String(item.id);
+          ids.add(id);
+          if (["QUOTE", "DEAL"].includes(String(item.status || ""))) protectedIds.add(id);
+        }
         if (!pageItems.length && ids.size < total) throw new Error(`全选中断：已读取 ${ids.size}/${total} 条，请刷新后重试`);
         currentPage += 1;
       } while (ids.size < total);
       setSelected(ids);
+      setProtectedSelected(protectedIds);
       notify(`已选择当前筛选结果的 ${ids.size} 条客户`);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "全选当前筛选结果失败";
@@ -665,6 +681,7 @@ export function CustomersView() {
                 setFollowupStatus(event.target.value);
                 setPage(1);
                 setSelected(new Set());
+                setProtectedSelected(new Set());
               }}
               className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               aria-label="跟进状态"
@@ -674,7 +691,7 @@ export function CustomersView() {
             </select>
             <select
               value={aiFilter}
-              onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "all"); setPage(1); setSelected(new Set()); }}
+              onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "all"); setPage(1); setSelected(new Set()); setProtectedSelected(new Set()); }}
               className="min-w-36 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-700"
               aria-label="AI筛选状态"
             >
@@ -868,8 +885,12 @@ export function CustomersView() {
               批量更新阶段
             </button>
             <button
-              disabled={!selected.size}
-              onClick={() => setDeleteIds([...selected])}
+              disabled={!selected.size || [...selected].every((id) => protectedSelected.has(id))}
+              onClick={() => {
+                const eligible = [...selected].filter((id) => !protectedSelected.has(id));
+                if (!eligible.length) return notify("报价中和成交客户不允许删除", "error");
+                setDeleteIds(eligible);
+              }}
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2.5 text-sm text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Trash2 size={16} />
@@ -911,9 +932,16 @@ export function CustomersView() {
                       onChange={() =>
                         setSelected((current) => {
                           const next = new Set(current);
-                          rows.forEach((row) =>
-                            allPage ? next.delete(row.id) : next.add(row.id),
-                          );
+                          rows.forEach((row) => {
+                            if (allPage) next.delete(row.id);
+                            else next.add(row.id);
+                            setProtectedSelected((current) => {
+                              const statuses = new Set(current);
+                              if (["QUOTE", "DEAL"].includes(row.status)) statuses.add(row.id);
+                              else statuses.delete(row.id);
+                              return statuses;
+                            });
+                          });
                           return next;
                         })
                       }
@@ -959,6 +987,12 @@ export function CustomersView() {
                             const next = new Set(current);
                             if (next.has(row.id)) next.delete(row.id);
                             else next.add(row.id);
+                            setProtectedSelected((protectedCurrent) => {
+                              const protectedNext = new Set(protectedCurrent);
+                              if (next.has(row.id) && ["QUOTE", "DEAL"].includes(row.status)) protectedNext.add(row.id);
+                              else protectedNext.delete(row.id);
+                              return protectedNext;
+                            });
                             return next;
                           })
                         }
@@ -998,28 +1032,32 @@ export function CustomersView() {
                         )}
                       </td>
                     ))}
-                    <td className="sticky right-0 z-10 bg-white px-4 py-3">
+                    <td className="sticky right-0 z-10 min-w-40 bg-white px-3 py-3">
+                      <div className="flex items-center gap-1 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}
                         onClick={(event) => event.stopPropagation()}
-                        className="mr-2 inline-grid h-8 w-8 place-items-center rounded text-blue-600 hover:bg-blue-50"
+                        className="inline-grid h-8 w-8 place-items-center rounded-lg border border-blue-100 text-blue-600 hover:bg-blue-50"
                         title="编辑客户"
                         aria-label={`编辑${row.company_name}`}
                       >
                         <Pencil size={17} />
                       </Link>
-                      {(row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="mr-2 rounded px-2 py-1 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
+                      {(row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
+                      {!(["QUOTE", "DEAL"] as string[]).includes(row.status) ? (
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
                           setDeleteIds([row.id]);
                         }}
-                        className="inline-grid h-8 w-8 place-items-center rounded text-rose-500 hover:bg-rose-50"
-                        title="移入回收站"
+                        className="inline-grid h-8 w-8 place-items-center rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50"
+                        title="永久删除"
                         aria-label={`删除${row.company_name}`}
                       >
                         <Trash2 size={17} />
                       </button>
+                      ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1073,13 +1111,15 @@ export function CustomersView() {
           </footer>
         </section>
         {deleteIds && (
-          <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/25 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-customer-title">
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-rose-600"><Trash2 size={21} /></div>
-              <h2 id="delete-customer-title" className="mt-4 text-lg font-semibold text-slate-900">确定删除所选数据？</h2>
-              <div className="mt-6 flex justify-end gap-3">
-                <button type="button" onClick={() => setDeleteIds(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50">取消</button>
-                <button type="button" onClick={() => void remove(deleteIds)} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">确认删除</button>
+          <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/35 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="delete-customer-title" onMouseDown={(event) => event.target === event.currentTarget && !deleting && setDeleteIds(null)}>
+            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-rose-100 bg-white shadow-2xl">
+              <div className="flex items-start gap-4 p-6">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600"><Trash2 size={22} /></div>
+                <div><h2 id="delete-customer-title" className="text-lg font-semibold text-slate-900">确定永久删除所选数据？</h2><p className="mt-2 text-sm leading-6 text-slate-600">将从数据库中永久删除 {deleteIds.length} 条客户及其关联记录。此操作不可恢复。</p></div>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-100 bg-white px-6 py-4">
+                <button type="button" disabled={deleting} onClick={() => setDeleteIds(null)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm hover:border-slate-300 disabled:opacity-50">取消</button>
+                <button type="button" disabled={deleting} onClick={() => void remove(deleteIds)} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-rose-700 disabled:opacity-50">{deleting ? "正在删除..." : "确认永久删除"}</button>
               </div>
             </div>
           </div>

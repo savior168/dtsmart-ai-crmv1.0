@@ -253,9 +253,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const profileRef = useRef<HTMLDivElement>(null);
   const loadProfile = () =>
-    fetch("/api/users/me")
-      .then((response) => response.json())
-      .then((body) => setProfile((current) => ({ ...current, ...body })))
+    fetch("/api/users/me", { cache: "no-store", headers: { "x-dtsmart-profile": "current-session" } })
+      .then(async (response) => ({ ok: response.ok, body: await response.json() }))
+      .then(({ ok, body }) => {
+        if (!ok) return setProfile({ name: "当前用户", email: "", avatar_url: "" });
+        setProfile({ name: body.name || "当前用户", email: body.email || "", avatar_url: body.avatar_url || "" });
+      })
       .catch(() => undefined);
   useEffect(() => {
     void loadProfile();
@@ -281,6 +284,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMobileOpen(false);
     setPageTitleOverride("");
+    setProfileOpen(false);
+    if (path !== "/login" && path !== "/reset-password") {
+      setProfile({ name: "当前用户", email: "", avatar_url: "" });
+      void loadProfile();
+    }
   }, [path]);
   useEffect(() => {
     const updateTitle = (event: Event) => setPageTitleOverride(String((event as CustomEvent<string>).detail || ""));
@@ -312,7 +320,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     localStorage.clear();
     sessionStorage.clear();
+    setProfile({ name: "当前用户", email: "", avatar_url: "" });
+    setProfileOpen(false);
+    setModal(null);
     router.replace("/login");
+    router.refresh();
   }
   const sidebar = (
     <>

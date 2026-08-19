@@ -262,7 +262,7 @@ export function PasswordAuthForm() {
           <Field
             label="用户名"
             icon={AtSign}
-            hint="3-30 位中文、字母、数字、下划线或短横线"
+            hint="1-15 位中文、字母、数字、下划线或短横线"
           >
             <input
               required

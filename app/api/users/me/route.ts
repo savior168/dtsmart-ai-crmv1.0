@@ -18,7 +18,7 @@ export async function GET() {
         "当前用户",
       role: data?.role || "SALES",
       avatar_url: profile?.avatar_url ? `/api/users/avatar?v=${encodeURIComponent(profile.avatar_url)}` : "",
-    });
+    }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
   } catch {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }

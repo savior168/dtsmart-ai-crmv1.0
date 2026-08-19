@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const captcha = await verifyCaptcha(body.captcha);
     if (!captcha.ok) return NextResponse.json({ error: captcha.error }, { status: 400 });
 
-    if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 3-30 位中文、字母、数字、下划线或短横线" }, { status: 400 });
+    if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 1-15 位中文、字母、数字、下划线或短横线" }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "密码至少需要 8 位" }, { status: 400 });
     if (!isEmail(email)) return NextResponse.json({ error: "请输入有效邮箱地址" }, { status: 400 });
     if (phone && !isPhone(phone)) return NextResponse.json({ error: "绑定手机号须使用国际格式" }, { status: 400 });

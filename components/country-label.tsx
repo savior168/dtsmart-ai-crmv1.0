@@ -10,7 +10,7 @@ export function CountryLabel({
   const info = countryInfo(String(value || ""));
 
   return (
-    <span className={`inline-flex items-center gap-2 whitespace-nowrap ${className}`}>
+    <span className={`inline-flex items-center gap-2 whitespace-nowrap text-sm font-normal leading-5 text-slate-700 ${className}`}>
       {info.code ? (
         <span
           role="img"

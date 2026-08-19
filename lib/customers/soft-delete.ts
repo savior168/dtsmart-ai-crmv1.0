@@ -4,8 +4,8 @@ import type { requireUser } from "@/lib/auth/current-user";
 type UserSupabase = Awaited<ReturnType<typeof requireUser>>["supabase"];
 type Failure = { id: string; ok: false; error: string };
 
-/** Soft-delete after checking the current user's customer visibility and role. */
-export async function softDeleteCustomers({
+/** Permanently delete customers after checking ownership and protected stages. */
+export async function permanentlyDeleteCustomers({
   supabase: _supabase,
   userId,
   ids,
@@ -44,17 +44,26 @@ export async function softDeleteCustomers({
     .map((id) => ({ id, ok: false, error: ["QUOTE", "DEAL"].includes(visibleById.get(id)?.status || "") ? "报价中和成交客户不允许删除" : "客户不存在、已删除或您没有删除权限" }));
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
-  // Permission is checked above with the caller session. Use the server-only
-  // client for the final soft-delete so an RLS edge case cannot block setting
-  // deleted_at. This never performs a physical DELETE.
+  // Legacy compatibility tables created before ON DELETE CASCADE must be
+  // detached first. Newer related records are removed by their FK cascades.
+  const compatibilityErrors: string[] = [];
+  for (let offset = 0; offset < allowedIds.length; offset += 200) {
+    const batch = allowedIds.slice(offset, offset + 200);
+    const conflictResult = await admin.from("customer_conflicts").delete().in("customer_id", batch);
+    if (conflictResult.error && !/does not exist|schema cache/i.test(conflictResult.error.message)) compatibilityErrors.push(conflictResult.error.message);
+    const importResult = await admin.from("import_rows").update({ customer_id: null }).in("customer_id", batch);
+    if (importResult.error && !/does not exist|schema cache/i.test(importResult.error.message)) compatibilityErrors.push(importResult.error.message);
+  }
+  if (compatibilityErrors.length) throw new Error(`清理客户关联数据失败：${compatibilityErrors[0]}`);
+
+  // Permission is checked above. The service-role client performs a physical
+  // DELETE so the customer cannot be recovered from the customer table.
   const successIds: string[] = [];
-  const deletedAt = new Date().toISOString();
   for (let offset = 0; offset < allowedIds.length; offset += 200) {
     const { data: deleted, error: deleteError } = await admin
       .from("customers")
-      .update({ deleted_at: deletedAt })
+      .delete()
       .in("id", allowedIds.slice(offset, offset + 200))
-      .is("deleted_at", null)
       .select("id");
     if (deleteError) throw deleteError;
     successIds.push(...(deleted || []).map((customer) => customer.id));
@@ -70,9 +79,13 @@ export async function softDeleteCustomers({
       action: "CUSTOMER_DELETE",
       target_type: "customer",
       target_id: id,
-      content: { soft_delete: true },
+      content: { permanent_delete: true, irreversible: true },
     })));
     if (auditError) console.error("CUSTOMER_DELETE_AUDIT_ERROR", auditError.message);
   }
   return { successIds, failures };
 }
+
+// Backward-compatible export for older imports. Its behavior is intentionally
+// permanent; new code should use permanentlyDeleteCustomers.
+export const softDeleteCustomers = permanentlyDeleteCustomers;

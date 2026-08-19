@@ -27,6 +27,12 @@ body { margin:0; color:var(--crm-text); background:var(--crm-bg); font-family:-a
 [data-crm-theme] .crm-content .text-blue-600, [data-crm-theme] .crm-content .text-blue-700 { color:var(--crm-primary) !important; }
 [data-crm-theme] .crm-content .border-blue-600 { border-color:var(--crm-primary) !important; }
 button,input,select,textarea { font:inherit; }
+.crm-content input:not([type="checkbox"]):not([type="radio"]),
+.crm-content select,
+.crm-content textarea { background-color:#fff; }
+.crm-content table { font-size:14px; line-height:1.45; }
+.crm-content table th { font-size:13px; color:#475569; }
+.crm-content table td { color:#334155; font-weight:400; }
 button { cursor:pointer; }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid var(--crm-primary); outline-offset:2px; }
 ::selection { background:var(--crm-primary); color:white; }

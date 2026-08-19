@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
-import { softDeleteCustomers } from "@/lib/customers/soft-delete";
+import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 
 type BatchBody = { ids?: string[]; action?: "STAGE" | "DELETE"; status?: string };
 
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     if (!ids.length) return NextResponse.json({ error: "请选择至少一条客户数据" }, { status: 400 });
 
     if (body.action === "DELETE") {
-      const result = await softDeleteCustomers({ supabase, userId: user.id, ids });
+      const result = await permanentlyDeleteCustomers({ supabase, userId: user.id, ids });
       return NextResponse.json({
         total_count: ids.length,
         success_count: result.successIds.length,

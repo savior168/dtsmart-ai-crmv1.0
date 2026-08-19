@@ -58,9 +58,11 @@ const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /withOwner/, "冲突列表必须返回当前归属人信息");
 assert.match(conflictApi, /\.eq\("reported_by", user\.id\)/, "冲突列表必须显式限定为当前用户提交的数据");
 assert.match(conflictApi, /dedupeConflicts/, "冲突客户汇总必须去重");
-const softDelete = read("lib/customers/soft-delete.ts");
-assert.match(softDelete, /offset \+= 200/, "批量软删除必须分批处理，避免大批量ID被截断");
-assert.match(softDelete, /customer\.owner_id === userId/, "销售只能软删除当前归属自己的客户");
+const permanentDelete = read("lib/customers/soft-delete.ts");
+assert.match(permanentDelete, /offset \+= 200/, "批量永久删除必须分批处理，避免大批量ID被截断");
+assert.match(permanentDelete, /customer\.owner_id === userId/, "销售只能永久删除当前归属自己的客户");
+assert.match(permanentDelete, /\.from\("customers"\)[\s\S]*?\.delete\(\)/, "客户删除必须从数据库物理删除");
+assert.match(permanentDelete, /\["QUOTE", "DEAL"\]/, "报价中和成交客户必须禁止删除");
 
 const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");
