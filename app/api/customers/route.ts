@@ -43,10 +43,10 @@ const identityEmail = (value: unknown) => String(value || "").trim().toLowerCase
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase } = await requireUser();
+    const { supabase, user } = await requireUser();
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
-    const pageSize = Math.min(idsOnly ? 5000 : 100, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 10)));
+    const pageSize = Math.min(idsOnly ? 1000 : 500, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
     const followupStatus = request.nextUrl.searchParams.get("followup_status");
@@ -78,6 +78,12 @@ export async function GET(request: NextRequest) {
     // again by creator/owner: doing so hides records that an administrator,
     // manager, or sales user is already permitted to see.
     query = deleted ? query.not("deleted_at", "is", null) : query.is("deleted_at", null);
+    // 客户列表只展示当前用户仍持有且尚未释放的客户；历史释放/到期客户
+    // 由保护到期页统一展示，避免跨销售数据混入日常工作列表。
+    if (!deleted) {
+      const activeCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+      query = query.eq("owner_id", user.id).neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
+    }
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);

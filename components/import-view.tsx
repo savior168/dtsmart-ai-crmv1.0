@@ -24,6 +24,7 @@ import {
 } from "@/lib/import-parser";
 import { downloadWorkbook } from "@/lib/xlsx-export";
 import { customerIdentityKeys } from "@/lib/import-dedupe";
+import { countryInfo } from "@/lib/countries";
 
 type MappedRow = ReturnType<typeof mapImportRow> & {
   preview_id: number;
@@ -33,6 +34,8 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   result_reason?: string;
   conflict_owner_name?: string;
 };
+
+function ImportCountry({ value }: { value?: string | null }) { const info = countryInfo(value); const flag = info.code ? String.fromCodePoint(...info.code.split("").map((char) => 127397 + char.charCodeAt(0))) : "🌐"; return <span className="inline-flex items-center gap-2 whitespace-nowrap"><span>{flag}</span><span>{info.name}</span></span>; }
 type FailedRow = {
   id: number;
   file_name: string;
@@ -52,7 +55,7 @@ type Stats = {
   errors: string[];
 };
 type PreviewStats = { success_count: number; conflict_count: number };
-const pageSizes = [10, 20, 50, 100];
+const pageSizes = [10, 20, 30, 50, 100, 200, 300, 500];
 const directoryProps = { webkitdirectory: "" } as Record<string, string>;
 const LAST_IMPORT_RESULT_KEY = "dtsmart-last-import-result";
 
@@ -946,7 +949,7 @@ export function ImportView() {
                       <span className="block truncate" title={row.company_name || ""}>{row.company_name || "-"}</span>
                       {row.import_result === "conflict" ? <span className="mt-1 block truncate text-xs font-semibold text-rose-600" title={`当前归属人：${row.conflict_owner_name || "已归属其他用户"}`}>当前归属人：{row.conflict_owner_name || "已归属其他用户"}</span> : null}
                     </td>
-                    <td className="w-[120px] px-4 py-3"><span className="block truncate" title={row.country || ""}>{row.country || "-"}</span></td>
+                    <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>
                     <td className="w-[160px] whitespace-nowrap px-4 py-3">
                       <span className="block truncate" title={row.phone || ""}>{row.phone || "-"}</span>
                     </td>

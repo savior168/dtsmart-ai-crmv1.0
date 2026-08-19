@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AtSign,
@@ -13,6 +13,7 @@ import {
   Phone,
   ShieldCheck,
   UserRound,
+  RefreshCw,
 } from "lucide-react";
 
 type Mode = "login" | "register" | "forgot";
@@ -117,6 +118,17 @@ export function PasswordAuthForm() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [captcha, setCaptcha] = useState("");
+  const [captchaVersion, setCaptchaVersion] = useState(1);
+
+  function refreshCaptcha() {
+    setCaptcha("");
+    setCaptchaVersion((value) => value + 1);
+  }
+  useEffect(() => {
+    const timer = window.setInterval(refreshCaptcha, 110000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -137,10 +149,11 @@ export function PasswordAuthForm() {
     setError("");
     setNotice("");
     try {
-      await postJson("/api/auth/password-login", { identifier, password });
+      await postJson("/api/auth/password-login", { identifier, password, captcha });
       goToApp();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "登录失败");
+      refreshCaptcha();
     } finally {
       setLoading(false);
     }
@@ -154,14 +167,16 @@ export function PasswordAuthForm() {
       return setError("两次输入的密码不一致");
     setLoading(true);
     try {
-      await postJson("/api/auth/register", register);
+      await postJson("/api/auth/register", { ...register, captcha });
       await postJson("/api/auth/password-login", {
         identifier: register.email,
         password: register.password,
+        captcha,
       });
       goToApp();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "注册失败");
+      refreshCaptcha();
     } finally {
       setLoading(false);
     }
@@ -223,6 +238,7 @@ export function PasswordAuthForm() {
             onChange={setPassword}
             autoComplete="current-password"
           />
+          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} />
           <div className="flex justify-end">
             <button
               type="button"
@@ -313,6 +329,7 @@ export function PasswordAuthForm() {
             />
             注册不再依赖不稳定的短信验证码。邮箱用于登录和安全重置密码，手机号可作为绑定登录标识。
           </p>
+          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} />
           <Feedback error={error} notice={notice} />
           <PrimaryButton
             loading={loading}
@@ -361,6 +378,10 @@ export function PasswordAuthForm() {
       </p>
     </div>
   );
+}
+
+function CaptchaField({ value, onChange, version, refresh }: { value: string; onChange: (value: string) => void; version: number; refresh: () => void }) {
+  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className="mt-1.5 block text-xs text-slate-400">验证码约每 2 分钟自动刷新，也可点击图片手动刷新。</span></label>;
 }
 
 function Feedback({ error, notice }: { error: string; notice: string }) {

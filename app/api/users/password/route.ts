@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,10 +17,10 @@ export async function POST(request: NextRequest) {
     const authClient = await createClient();
     const { error: verifyError } = await authClient.auth.signInWithPassword({ email: user.email || "", password: oldPassword });
     if (verifyError) return NextResponse.json({ error: "原密码验证失败" }, { status: 400 });
-    const { error: updateError } = await authClient.auth.updateUser({ password: newPassword });
+    const { error: updateError } = await createAdminClient().auth.admin.updateUserById(user.id, { password: newPassword });
     if (updateError) throw updateError;
     await writeAudit(supabase, user.id, "USER_PASSWORD_UPDATE", "user", user.id, {});
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, message: "登录密码已同步更新" });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "密码修改失败" }, { status: 400 });
   }

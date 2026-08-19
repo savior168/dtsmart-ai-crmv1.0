@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authUserMatchesContact, isEmail, isPhone, isUsername, listAuthUsers, normalizeEmail, normalizePhone } from "@/lib/auth/identifiers";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifyCaptcha } from "@/lib/auth/captcha";
 
 export async function POST(request: NextRequest) {
   let createdUserId = "";
@@ -10,6 +11,8 @@ export async function POST(request: NextRequest) {
     const password = String(body.password || "");
     const email = body.email ? normalizeEmail(String(body.email)) : "";
     const phone = body.phone ? normalizePhone(String(body.phone)) : "";
+    const captcha = await verifyCaptcha(body.captcha);
+    if (!captcha.ok) return NextResponse.json({ error: captcha.error }, { status: 400 });
 
     if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 3-30 位中文、字母、数字、下划线或短横线" }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "密码至少需要 8 位" }, { status: 400 });

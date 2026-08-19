@@ -18,12 +18,13 @@ import {
   ShieldCheck,
   Trash2,
   UserPlus,
+  UserMinus,
   X,
 } from "lucide-react";
 import type { Customer, CustomerStatus } from "@/lib/types";
 import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/lib/types";
 import { countryInfo } from "@/lib/countries";
-import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels";
+import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -324,6 +325,12 @@ export function CustomersView() {
     const timer = setTimeout(() => void load(), 180);
     return () => clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    void Promise.all([
+      fetch("/api/customers/protection").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? body.data?.length ?? 0))),
+      fetch("/api/customer-conflicts").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? body.data?.length ?? 0))),
+    ]).catch(() => undefined);
+  }, []);
   const pages = Math.max(1, Math.ceil(count / pageSize));
   const numbers = useMemo(
     () =>
@@ -453,16 +460,27 @@ export function CustomersView() {
     setSelectingAll(true);
     setError("");
     const params = new URLSearchParams({
-      page: "1", pageSize: "5000", ids_only: "true", search, country, status,
+      page: "1", pageSize: "1000", ids_only: "true", search, country, status,
       followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
       deleted: "false", sort, direction,
     });
     try {
-      const response = await fetch(`/api/customers?${params}`);
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "全选当前筛选结果失败");
-      setSelected(new Set((body.data || []).map((item: Customer) => item.id)));
-      notify(`已选择当前筛选结果的 ${Number(body.count || 0)} 条客户`);
+      const ids = new Set<string>();
+      let currentPage = 1;
+      let total = 0;
+      do {
+        params.set("page", String(currentPage));
+        const response = await fetch(`/api/customers?${params}`);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "全选当前筛选结果失败");
+        total = Number(body.count || 0);
+        const pageItems = Array.isArray(body.data) ? body.data : [];
+        for (const item of pageItems) ids.add(String(item.id));
+        if (!pageItems.length && ids.size < total) throw new Error(`全选中断：已读取 ${ids.size}/${total} 条，请刷新后重试`);
+        currentPage += 1;
+      } while (ids.size < total);
+      setSelected(ids);
+      notify(`已选择当前筛选结果的 ${ids.size} 条客户`);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "全选当前筛选结果失败";
       setError(message);
@@ -470,6 +488,13 @@ export function CustomersView() {
     } finally {
       setSelectingAll(false);
     }
+  }
+  async function releaseCustomer(customer: Customer) {
+    const response = await fetch(`/api/customers/${customer.id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "RELEASE", reason: "用户主动释放" }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) return notify(body.error || "释放客户失败", "error");
+    notify("客户已释放，保护期已清零");
+    await load();
   }
   function exportData() {
     const header = fields.map(
@@ -956,6 +981,7 @@ export function CustomersView() {
                       >
                         <Pencil size={17} />
                       </Link>
+                      {(row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="mr-2 inline-grid h-8 w-8 place-items-center rounded text-amber-600 hover:bg-amber-50" title="释放客户" aria-label={`释放${row.company_name}`}><UserMinus size={17}/></button> : null}
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1016,15 +1042,14 @@ export function CustomersView() {
                 下一页
               </button>
             </div>
-            <div className="flex items-center gap-2"><label className="hidden text-slate-500 lg:block">跳转</label><input type="number" min={1} max={pages} defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const next = Number(event.currentTarget.value); if (Number.isFinite(next)) setPage(Math.min(pages, Math.max(1, next))); } }} className="h-9 w-16 rounded-lg border px-2 text-center" aria-label="跳转到指定页"/><span className="hidden text-slate-500 lg:block">/ {pages} 页</span><select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="rounded-lg border px-3 py-2" aria-label="每页显示数量">{[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size} 条/页</option>)}</select></div>
+            <div className="flex items-center gap-2"><label className="hidden text-slate-500 lg:block">跳转</label><input type="number" min={1} max={pages} defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const next = Number(event.currentTarget.value); if (Number.isFinite(next)) setPage(Math.min(pages, Math.max(1, next))); } }} className="h-9 w-16 rounded-lg border px-2 text-center" aria-label="跳转到指定页"/><span className="hidden text-slate-500 lg:block">/ {pages} 页</span><select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="rounded-lg border px-3 py-2" aria-label="每页显示数量">{[10, 20, 30, 50, 100, 200, 300, 500].map((size) => <option key={size} value={size}>{size} 条/页</option>)}</select></div>
           </footer>
         </section>
         {deleteIds && (
           <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/25 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-customer-title">
             <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-rose-600"><Trash2 size={21} /></div>
-              <h2 id="delete-customer-title" className="mt-4 text-lg font-semibold text-slate-900">确认移入回收站？</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">将把选中的 {deleteIds.length} 条客户移入回收站，客户资料和操作记录会被保留，可由有权限的用户恢复。</p>
+              <h2 id="delete-customer-title" className="mt-4 text-lg font-semibold text-slate-900">确定删除所选数据？</h2>
               <div className="mt-6 flex justify-end gap-3">
                 <button type="button" onClick={() => setDeleteIds(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50">取消</button>
                 <button type="button" onClick={() => void remove(deleteIds)} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">确认删除</button>

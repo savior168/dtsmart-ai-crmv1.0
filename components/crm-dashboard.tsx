@@ -100,16 +100,14 @@ function relativeTime(value: string) {
 
 function DonutChart({ rows, total }: { rows: GradeRow[]; total: number }) {
   const router = useRouter();
-  let cursor = 0;
   const hasData = rows.some((item) => item.count > 0);
+  let cursor = 0;
+  const gradient = hasData ? rows.map((item) => { const start = cursor; cursor += item.percentage; return `${gradeColors[item.grade] || "#94a3b8"} ${start}% ${cursor}%`; }).join(",") : "#e2e8f0 0 100%";
   function openGrade(grade: string) { router.push(grade === "未筛选" ? "/ai-screening" : `/customers?ai_level=${encodeURIComponent(grade)}`); }
-  return <div className="relative h-[182px] w-[182px] shrink-0" aria-label="AI筛选分布图">
-    <svg viewBox="0 0 200 200" className="h-full w-full overflow-visible">
-      <circle cx="100" cy="100" r="70" fill="none" stroke="#e2e8f0" strokeWidth="34" />
-      {hasData ? rows.map((item) => { const start = cursor; cursor += item.percentage; return <circle key={item.grade} cx="100" cy="100" r="70" pathLength="100" fill="none" stroke={gradeColors[item.grade] || "#94a3b8"} strokeWidth="34" strokeDasharray={`${item.percentage} ${100 - item.percentage}`} strokeDashoffset={-start} transform="rotate(-90 100 100)" role="link" tabIndex={0} aria-label={`${item.grade}级客户 ${item.count} 条，占比 ${item.percentage}%`} onClick={() => openGrade(item.grade)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openGrade(item.grade); }} className="dashboard-donut-segment outline-none" ><title>点击查看 {item.grade} 级客户：{number(item.count)} 条（{item.percentage}%）</title></circle>; }) : null}
-    </svg>
+  return <button type="button" onClick={() => openGrade(rows.find((item) => item.count > 0)?.grade || "未筛选")} className="relative h-[182px] w-[182px] shrink-0 rounded-full transition hover:scale-[1.02]" style={{ background: `conic-gradient(from -90deg,${gradient})` }} aria-label="AI筛选分布图，点击查看客户">
+    <span className="absolute inset-[34px] rounded-full bg-white shadow-inner" />
     <span className="pointer-events-none absolute inset-0 grid place-items-center text-center"><span><small className="block text-xs text-slate-500">总客户数</small><b className="mt-1 block text-xl">{number(total)}</b></span></span>
-  </div>;
+  </button>;
 }
 
 function funnelHref(label: string) {
@@ -202,7 +200,7 @@ export function CrmDashboard() {
       <div className="mx-auto max-w-[1660px]">
         <section className="mb-4 flex flex-wrap items-center gap-3">
           <label className="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm"><input aria-label="开始日期" type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="w-[132px] border-0 bg-transparent outline-none" /><span className="px-2 text-slate-400">~</span><input aria-label="结束日期" type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="w-[132px] border-0 bg-transparent outline-none" /></label>
-          <select aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} className="h-10 min-w-32 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm"><option value="">全部国家</option>{data?.filters.countries.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+          <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
           <select aria-label="AI等级筛选" value={aiLevel} onChange={(event) => setAiLevel(event.target.value)} className="h-10 min-w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm"><option value="">全部AI等级</option>{["A", "B", "C", "D"].map((item) => <option key={item} value={item}>{item}级</option>)}</select>
           <div className="ml-auto flex items-center gap-3"><button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button><button type="button" disabled={!data} onClick={exportData} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"><Download size={16} />导出数据</button></div>
         </section>

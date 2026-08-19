@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerIdentityKeys } from "@/lib/import-dedupe";
@@ -23,14 +23,24 @@ async function withOwner(rows: ConflictRow[]) {
   const admin = createAdminClient();
   const customerIds = Array.from(new Set(rows.map((item) => item.customer_id).filter((id): id is string => Boolean(id))));
   if (!customerIds.length) return rows.map((item) => ({ ...item, owner: null }));
-  const { data: customers, error } = await admin.from("customers").select("id,owner_id").in("id", customerIds);
+  const { data: customers, error } = await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIds);
   if (error) throw error;
   const ownerIds = Array.from(new Set((customers || []).map((item) => item.owner_id).filter((id): id is string => Boolean(id))));
   const users = ownerIds.length ? await admin.from("users").select("id,name").in("id", ownerIds) : { data: [], error: null };
   if (users.error) throw users.error;
   const ownerById = new Map((users.data || []).map((item) => [item.id, { id: item.id, name: item.name || "未命名用户" }]));
   const customerOwner = new Map((customers || []).map((item) => [item.id, ownerById.get(item.owner_id) || (item.owner_id ? { id: item.owner_id, name: "已归属其他用户" } : null)]));
-  return rows.map((item) => ({ ...item, owner: item.customer_id ? customerOwner.get(item.customer_id) || null : null }));
+  const protections = await admin.from("customer_protection").select("customer_id,expire_date,status").in("customer_id", customerIds).eq("status", "ACTIVE").order("expire_date", { ascending: false });
+  if (protections.error) throw protections.error;
+  const expiryByCustomer = new Map((protections.data || []).map((item) => [item.customer_id, item.expire_date]));
+  const customerById = new Map((customers || []).map((item) => [item.id, item]));
+  return rows.map((item) => {
+    const customer = item.customer_id ? customerById.get(item.customer_id) : null;
+    const expiry = item.customer_id ? expiryByCustomer.get(item.customer_id) : null;
+    const fallbackExpiry = customer?.created_at ? new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString() : null;
+    const protectionDays = expiry || fallbackExpiry ? Math.max(0, Math.ceil((new Date(String(expiry || fallbackExpiry)).getTime() - Date.now()) / 86400000)) : 0;
+    return { ...item, owner: item.customer_id ? customerOwner.get(item.customer_id) || null : null, protection_days: protectionDays };
+  });
 }
 
 /** Returns the importer's own basic-field snapshot from the conflict queue. */
@@ -62,5 +72,20 @@ export async function GET() {
     return NextResponse.json({ data: await withOwner(unique), count: unique.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "冲突客户加载失败" }, { status: 400 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const { supabase, user } = await requireUser();
+    const { customer_id } = await request.json();
+    if (!customer_id) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
+    const conflict = await createAdminClient().from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", customer_id).limit(1).maybeSingle();
+    if (conflict.error || !conflict.data) return NextResponse.json({ error: "该客户不在您的冲突记录中" }, { status: 403 });
+    const { data, error } = await supabase.rpc("claim_customer", { p_customer_id: customer_id });
+    if (error) throw error;
+    return NextResponse.json({ ok: true, data, message: "客户认领成功" });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "客户认领失败" }, { status: 400 });
   }
 }

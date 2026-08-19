@@ -75,7 +75,8 @@ export async function GET(request: NextRequest) {
       if ((page.data || []).length < 1000) break;
     }
     const countries = Array.from(new Set(sourceCustomers.map((item) => item.country?.trim()).filter((item): item is string => Boolean(item)))).sort((a, b) => a.localeCompare(b, "zh-CN"));
-    const customers = sourceCustomers.filter((item) => (!country || item.country === country) && (!aiLevel || item.ai_level === aiLevel));
+    const countryNeedle = country.toLowerCase();
+    const customers = sourceCustomers.filter((item) => (!countryNeedle || String(item.country || "").toLowerCase().includes(countryNeedle)) && (!aiLevel || item.ai_level === aiLevel));
     const customerMap = new Map(customers.map((item) => [item.id, item]));
 
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());

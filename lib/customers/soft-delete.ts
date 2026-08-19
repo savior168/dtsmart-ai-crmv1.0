@@ -23,10 +23,10 @@ export async function softDeleteCustomers({
   const admin = createAdminClient();
   const { data: profile, error: profileError } = await admin.from("users").select("role").eq("id", userId).maybeSingle();
   if (profileError) throw profileError;
-  const visible: Array<{ id: string; owner_id: string | null }> = [];
+  const visible: Array<{ id: string; owner_id: string | null; status: string }> = [];
   for (let offset = 0; offset < uniqueIds.length; offset += 200) {
     const page = await admin.from("customers")
-      .select("id,owner_id")
+      .select("id,owner_id,status")
       .in("id", uniqueIds.slice(offset, offset + 200))
       .is("deleted_at", null);
     if (page.error) throw page.error;
@@ -37,11 +37,11 @@ export async function softDeleteCustomers({
   const visibleById = new Map((visible || []).map((customer) => [customer.id, customer]));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
-    return Boolean(customer && (elevated || customer.owner_id === userId));
+    return Boolean(customer && !["QUOTE", "DEAL"].includes(customer.status) && (elevated || customer.owner_id === userId));
   });
   const failures: Failure[] = uniqueIds
     .filter((id) => !allowedIds.includes(id))
-    .map((id) => ({ id, ok: false, error: "客户不存在、已删除或您没有删除权限" }));
+    .map((id) => ({ id, ok: false, error: ["QUOTE", "DEAL"].includes(visibleById.get(id)?.status || "") ? "报价中和成交客户不允许删除" : "客户不存在、已删除或您没有删除权限" }));
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
   // Permission is checked above with the caller session. Use the server-only

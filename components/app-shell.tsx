@@ -17,6 +17,7 @@ import {
   Moon,
   Settings,
   Sparkles,
+  UploadCloud,
   Sun,
   UserRound,
   UsersRound,
@@ -57,10 +58,12 @@ function ProfileModal({
   type,
   close,
   saved,
+  profile,
 }: {
   type: "avatar" | "name" | "password";
   close: () => void;
   saved: () => void;
+  profile: { name: string; avatar_url: string };
 }) {
   const [value, setValue] = useState({
     avatar_url: "",
@@ -71,6 +74,8 @@ function ProfileModal({
   });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => setValue((current) => ({ ...current, name: profile.name, avatar_url: profile.avatar_url })), [profile]);
   function selectAvatar(file?: File) {
     setMessage("");
     if (!file) return;
@@ -108,6 +113,7 @@ function ProfileModal({
     const result = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok) return setMessage(result.error || "保存失败");
+    window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
     saved();
     close();
   }
@@ -142,22 +148,19 @@ function ProfileModal({
         <div className="mt-5 space-y-3">
           {type === "avatar" ? (
             <>
-              <input
+              <input ref={inputRef}
                 type="file"
                 accept="image/*"
                 onChange={(event) => selectAvatar(event.target.files?.[0])}
-                className="w-full rounded-xl border border-slate-200 p-2 text-sm"
+                className="hidden"
               />
-              {value.avatar_url ? (
-                <Image
-                  unoptimized
-                  width={96}
-                  height={96}
-                  src={value.avatar_url}
-                  alt="头像预览"
-                  className="mx-auto h-24 w-24 rounded-full border object-cover"
-                />
-              ) : null}
+              <button type="button" onClick={() => inputRef.current?.click()} className="group flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-blue-200 bg-gradient-to-b from-blue-50 to-white px-6 py-7 transition hover:border-blue-400 hover:bg-blue-50">
+                <span className="grid h-28 w-28 place-items-center overflow-hidden rounded-full border-4 border-white bg-blue-100 text-3xl font-bold text-blue-600 shadow-lg">
+                  {value.avatar_url ? <Image unoptimized width={112} height={112} src={value.avatar_url} alt="头像预览" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}
+                </span>
+                <span className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm group-hover:bg-blue-700"><UploadCloud size={17}/>选择头像图片</span>
+                <small className="mt-2 text-slate-500">支持 JPG、PNG、WebP，文件不超过 1MB</small>
+              </button>
             </>
           ) : null}
           {type === "name" ? (
@@ -264,6 +267,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         ),
       )
       .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    const refresh = () => void loadProfile();
+    window.addEventListener("dtsmart-profile-updated", refresh);
+    return () => window.removeEventListener("dtsmart-profile-updated", refresh);
   }, []);
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
@@ -548,6 +556,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           type={modal}
           close={() => setModal(null)}
           saved={loadProfile}
+          profile={profile}
         />
       ) : null}
     </div>

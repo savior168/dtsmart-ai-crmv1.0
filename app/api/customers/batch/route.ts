@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser();
     const body = (await request.json()) as BatchBody;
-    const ids = [...new Set((body.ids || []).filter((id): id is string => typeof id === "string" && id.length > 0))].slice(0, 5000);
+    const ids = [...new Set((body.ids || []).filter((id): id is string => typeof id === "string" && id.length > 0))];
     if (!ids.length) return NextResponse.json({ error: "请选择至少一条客户数据" }, { status: 400 });
 
     if (body.action === "DELETE") {

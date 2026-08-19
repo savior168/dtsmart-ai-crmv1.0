@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classifyIdentifier, findUserByUsername, isUsername } from "@/lib/auth/identifiers";
 import { createClient } from "@/lib/supabase/server";
+import { verifyCaptcha } from "@/lib/auth/captcha";
 
 function loginError(message?: string) {
   if (message?.includes("Email not confirmed") || message?.includes("Phone not confirmed")) {
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest) {
     const identifier = String(body.identifier || "").trim();
     const password = String(body.password || "");
     if (!identifier || !password) return NextResponse.json({ error: "请输入账号和密码" }, { status: 400 });
+    const captcha = await verifyCaptcha(body.captcha);
+    if (!captcha.ok) return NextResponse.json({ error: captcha.error }, { status: 400 });
 
     const classified = classifyIdentifier(identifier);
     let credentials: { email: string; password: string } | { phone: string; password: string };

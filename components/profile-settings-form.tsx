@@ -67,7 +67,7 @@ export function ProfileSettingsForm({
       return;
     }
     setMessage(result.message || "资料已保存");
-    window.setTimeout(() => window.location.reload(), 700);
+    window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
   }
 
   async function savePassword(event: FormEvent) {
@@ -87,7 +87,7 @@ export function ProfileSettingsForm({
       return;
     }
     setPassword({ old_password: "", new_password: "", confirm_password: "" });
-    setMessage("登录密码已更新");
+    setMessage(result.message || "登录密码已更新");
   }
 
   return (
