@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { KeyRound, Save, Upload } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 
 type Props = {
   initialName: string;
@@ -25,6 +26,7 @@ export function ProfileSettingsForm({
     new_password: "",
     confirm_password: "",
   });
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"profile" | "password" | "">("");
@@ -32,22 +34,10 @@ export function ProfileSettingsForm({
   function pickAvatar(file?: File) {
     setError("");
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("请选择图片文件");
-      return;
-    }
-    if (file.size > 1024 * 1024) {
-      setError("头像文件不能超过 1MB");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onerror = () => setError("头像读取失败，请重新选择");
-    reader.onload = () =>
-      setProfile((current) => ({
-        ...current,
-        avatar_url: String(reader.result || ""),
-      }));
-    reader.readAsDataURL(file);
+    const validationError = validateAvatar(file);
+    if (validationError) return setError(validationError);
+    setAvatarFile(file);
+    setProfile((current) => ({ ...current, avatar_url: URL.createObjectURL(file) }));
   }
 
   async function saveProfile(event: FormEvent) {
@@ -55,19 +45,24 @@ export function ProfileSettingsForm({
     setBusy("profile");
     setError("");
     setMessage("");
-    const response = await fetch("/api/users/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(profile),
-    });
-    const result = await response.json().catch(() => ({}));
-    setBusy("");
-    if (!response.ok) {
-      setError(result.error || "资料保存失败");
-      return;
+    try {
+      const avatarPath = avatarFile ? await uploadAvatar(avatarFile) : undefined;
+      const response = await fetch("/api/users/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: profile.name, ...(avatarPath ? { avatar_url: avatarPath } : {}) }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "资料保存失败");
+      setAvatarFile(null);
+      setProfile((current) => ({ ...current, avatar_url: avatarPath ? `/api/users/avatar?v=${Date.now()}` : current.avatar_url }));
+      setMessage(result.message || "资料已保存");
+      window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "资料保存失败");
+    } finally {
+      setBusy("");
     }
-    setMessage(result.message || "资料已保存");
-    window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
   }
 
   async function savePassword(event: FormEvent) {
@@ -117,7 +112,7 @@ export function ProfileSettingsForm({
             更换头像
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               className="hidden"
               onChange={(event) => pickAvatar(event.target.files?.[0])}
             />
@@ -137,14 +132,13 @@ export function ProfileSettingsForm({
         <label className="mt-4 block text-sm font-medium">
           登录邮箱
           <input
-            required
             type="email"
             value={profile.email}
-            onChange={(event) =>
-              setProfile({ ...profile, email: event.target.value })
-            }
-            className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5"
+            readOnly
+            disabled
+            className="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-500"
           />
+          <small className="mt-1 block font-normal text-slate-400">登录邮箱由管理员维护，个人资料中不可修改</small>
         </label>
         <button
           disabled={busy === "profile"}

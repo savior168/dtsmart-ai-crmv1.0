@@ -3,11 +3,11 @@ import { requireUser } from "@/lib/auth/current-user";
 
 export default async function ProfilePage() {
   const { supabase, user } = await requireUser();
-  const { data: profile } = await supabase
+  const [{ data: account }, { data: profile }] = await Promise.all([supabase
     .from("users")
-    .select("name,email,avatar_url")
+    .select("name,email")
     .eq("id", user.id)
-    .maybeSingle();
+    .maybeSingle(), supabase.from("profiles").select("avatar_url").eq("id", user.id).maybeSingle()]);
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-5xl">
@@ -17,9 +17,9 @@ export default async function ProfilePage() {
         </p>
         <div className="mt-5">
           <ProfileSettingsForm
-            initialName={profile?.name || user.email || ""}
-            initialEmail={profile?.email || user.email || ""}
-            initialAvatar={profile?.avatar_url || ""}
+            initialName={account?.name || user.email || ""}
+            initialEmail={account?.email || user.email || ""}
+            initialAvatar={profile?.avatar_url ? "/api/users/avatar" : ""}
           />
         </div>
       </div>

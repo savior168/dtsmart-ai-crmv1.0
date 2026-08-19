@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard },
@@ -74,21 +75,16 @@ function ProfileModal({
   });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => setValue((current) => ({ ...current, name: profile.name, avatar_url: profile.avatar_url })), [profile]);
   function selectAvatar(file?: File) {
     setMessage("");
     if (!file) return;
-    if (!file.type.startsWith("image/")) return setMessage("请选择图片文件");
-    if (file.size > 1024 * 1024) return setMessage("头像文件不能超过 1MB");
-    const reader = new FileReader();
-    reader.onerror = () => setMessage("头像读取失败，请重新选择");
-    reader.onload = () =>
-      setValue((current) => ({
-        ...current,
-        avatar_url: String(reader.result || ""),
-      }));
-    reader.readAsDataURL(file);
+    const validationError = validateAvatar(file);
+    if (validationError) return setMessage(validationError);
+    setAvatarFile(file);
+    setValue((current) => ({ ...current, avatar_url: URL.createObjectURL(file) }));
   }
   async function submit() {
     setMessage("");
@@ -97,25 +93,30 @@ function ProfileModal({
       return setMessage("两次输入的新密码不一致");
     setBusy(true);
     const isPassword = type === "password";
-    const body = isPassword
-      ? value
-      : type === "avatar"
-        ? { avatar_url: value.avatar_url }
-        : { name: value.name.trim() };
-    const response = await fetch(
-      isPassword ? "/api/users/password" : "/api/users/profile",
-      {
-        method: isPassword ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    const result = await response.json().catch(() => ({}));
-    setBusy(false);
-    if (!response.ok) return setMessage(result.error || "保存失败");
-    window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
-    saved();
-    close();
+    try {
+      const body = isPassword
+        ? value
+        : type === "avatar"
+          ? { avatar_url: await uploadAvatar(avatarFile as File) }
+          : { name: value.name.trim() };
+      const response = await fetch(
+        isPassword ? "/api/users/password" : "/api/users/profile",
+        {
+          method: isPassword ? "POST" : "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "保存失败");
+      window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
+      saved();
+      close();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "保存失败");
+    } finally {
+      setBusy(false);
+    }
   }
   const title =
     type === "avatar"
@@ -150,7 +151,7 @@ function ProfileModal({
             <>
               <input ref={inputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 onChange={(event) => selectAvatar(event.target.files?.[0])}
                 className="hidden"
               />
@@ -159,7 +160,7 @@ function ProfileModal({
                   {value.avatar_url ? <Image unoptimized width={112} height={112} src={value.avatar_url} alt="头像预览" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}
                 </span>
                 <span className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm group-hover:bg-blue-700"><UploadCloud size={17}/>选择头像图片</span>
-                <small className="mt-2 text-slate-500">支持 JPG、PNG、WebP，文件不超过 1MB</small>
+                <small className="mt-2 text-slate-500">支持 JPG、PNG、WebP，文件不超过 5MB</small>
               </button>
             </>
           ) : null}
@@ -221,7 +222,7 @@ function ProfileModal({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={busy || (type === "avatar" && !value.avatar_url)}
+            disabled={busy || (type === "avatar" && !avatarFile)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {busy ? "保存中…" : "保存"}

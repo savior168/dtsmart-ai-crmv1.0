@@ -4,11 +4,11 @@ import { requireUser } from "@/lib/auth/current-user";
 
 export default async function SettingsPage() {
   const { supabase, user } = await requireUser();
-  const { data: profile } = await supabase
+  const [{ data: account }, { data: profile }] = await Promise.all([supabase
     .from("users")
-    .select("name,email,avatar_url,role")
+    .select("name,email,role")
     .eq("id", user.id)
-    .maybeSingle();
+    .maybeSingle(), supabase.from("profiles").select("avatar_url").eq("id", user.id).maybeSingle()]);
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1500px]">
@@ -29,7 +29,7 @@ export default async function SettingsPage() {
           <span className="whitespace-nowrap pb-3 text-slate-500">
             AI筛选设置
           </span>
-          {profile?.role === "ADMIN" && (
+          {account?.role === "ADMIN" && (
             <span className="whitespace-nowrap pb-3 text-slate-500">
               权限管理
             </span>
@@ -38,9 +38,9 @@ export default async function SettingsPage() {
 
         <div className="mt-5">
           <ProfileSettingsForm
-            initialName={profile?.name || user.email || ""}
-            initialEmail={profile?.email || user.email || ""}
-            initialAvatar={profile?.avatar_url || ""}
+            initialName={account?.name || user.email || ""}
+            initialEmail={account?.email || user.email || ""}
+            initialAvatar={profile?.avatar_url ? "/api/users/avatar" : ""}
           />
         </div>
 
@@ -61,7 +61,7 @@ export default async function SettingsPage() {
             [
               ShieldCheck,
               "当前角色",
-              profile?.role || "SALES",
+              account?.role || "SALES",
               "text-emerald-600 bg-emerald-50",
             ],
             [

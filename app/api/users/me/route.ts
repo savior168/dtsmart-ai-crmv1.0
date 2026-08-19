@@ -4,7 +4,10 @@ import { requireUser } from "@/lib/auth/current-user";
 export async function GET() {
   try {
     const { supabase, user } = await requireUser();
-    const { data } = await supabase.from("users").select("id,name,email,role,avatar_url").eq("id", user.id).single();
+    const [{ data }, { data: profile }] = await Promise.all([
+      supabase.from("users").select("id,name,email,role").eq("id", user.id).single(),
+      supabase.from("profiles").select("avatar_url").eq("id", user.id).maybeSingle(),
+    ]);
     return NextResponse.json({
       id: user.id,
       email: user.email,
@@ -14,7 +17,7 @@ export async function GET() {
         user.email ||
         "当前用户",
       role: data?.role || "SALES",
-      avatar_url: data?.avatar_url || "",
+      avatar_url: profile?.avatar_url ? `/api/users/avatar?v=${encodeURIComponent(profile.avatar_url)}` : "",
     });
   } catch {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
