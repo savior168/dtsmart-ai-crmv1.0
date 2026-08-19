@@ -20,6 +20,7 @@ export async function updateSession(request: NextRequest) {
     "/api/auth/password-login",
     "/api/auth/register",
     "/api/auth/reset-password",
+    "/api/auth/captcha",
   ];
   const isPublic = publicPaths.some((path) => request.nextUrl.pathname.startsWith(path));
 
