@@ -3,6 +3,16 @@ import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { isUsername, listAuthUsers } from "@/lib/auth/identifiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+function sessionSafeMetadata(value: Record<string, unknown> | null | undefined) {
+  const metadata = { ...(value || {}) };
+  // Never embed an uploaded image/data URL in Supabase Auth metadata. Auth
+  // metadata is copied into the session JWT and can make the browser Cookie
+  // exceed Vercel's request-header limit. The avatar remains in public.users
+  // and public.profiles, where the UI already reads it.
+  delete metadata.avatar_url;
+  return metadata;
+}
+
 export async function PATCH(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser();
@@ -17,7 +27,7 @@ export async function PATCH(request: NextRequest) {
       if (users.some((item) => item.id !== user.id && String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalized)) {
         return NextResponse.json({ error: "该用户名已被使用" }, { status: 409 });
       }
-      const { error: metadataError } = await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...user.user_metadata, username, name: username } });
+      const { error: metadataError } = await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...sessionSafeMetadata(user.user_metadata), username, name: username } });
       if (metadataError) throw metadataError;
       payload.name = username;
     }
@@ -25,15 +35,13 @@ export async function PATCH(request: NextRequest) {
       const avatarUrl = String(body.avatar_url || "").trim();
       if (avatarUrl.length > 1_500_000) return NextResponse.json({ error: "头像文件过大，请压缩后重试" }, { status: 400 });
       payload.avatar_url = avatarUrl || null;
-      const { error: avatarError } = await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...user.user_metadata, avatar_url: avatarUrl || null } });
-      if (avatarError) throw avatarError;
     }
     if ("email" in body) {
       const email = String(body.email || "").trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return NextResponse.json({ error: "请输入有效邮箱" }, { status: 400 });
       }
-      const { error: authError } = await admin.auth.admin.updateUserById(user.id, { email, email_confirm: true, user_metadata: { ...user.user_metadata, email } });
+      const { error: authError } = await admin.auth.admin.updateUserById(user.id, { email, email_confirm: true, user_metadata: { ...sessionSafeMetadata(user.user_metadata), email } });
       if (authError) throw authError;
       payload.email = email;
     }
