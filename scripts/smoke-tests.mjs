@@ -11,6 +11,13 @@ const requiredRoutes = [
   "app/customers/new/page.tsx",
   "app/import/page.tsx",
   "app/ai-screening/page.tsx",
+  "app/ai-screening/new/page.tsx",
+  "app/ai-screening/tasks/[id]/page.tsx",
+  "app/ai-screening/tasks/[id]/report/page.tsx",
+  "app/ai-screening/results/page.tsx",
+  "app/ai-screening/failures/page.tsx",
+  "app/ai-screening/usage/page.tsx",
+  "app/ai-screening/customers/[customerId]/evidence/page.tsx",
   "app/followups/page.tsx",
   "app/reports/page.tsx",
   "app/settings/page.tsx",
@@ -33,6 +40,19 @@ assert.doesNotMatch(aiApi, /OPENAI_API_KEY[^\n]*(NEXT_PUBLIC|return|json)/i, "�
 const analysis = read("lib/ai/customer-analysis.ts");
 assert.match(analysis, /"A"\s*\|\s*"B"\s*\|\s*"C"\s*\|\s*"D"/, "AI等级必须仅包含A/B/C/D");
 assert.doesNotMatch(analysis, /"S"\s*\|/, "不能保留S级");
+
+const taskRunner = read("lib/ai/run-customer-analysis.ts");
+assert.match(taskRunner, /setTimeout\(\(\) => timeoutController\.abort\(\), 30_000\)/, "单个客户AI分析必须在30秒超时并继续后续客户");
+assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
+assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
+const workflow = read("workflows/ai-screening.ts");
+assert.match(workflow, /for \(const itemId of input\.itemIds\)/, "AI任务必须逐客户持续执行，单条失败不能终止整批任务");
+const nextConfig = read("next.config.ts");
+assert.match(nextConfig, /withWorkflow\(nextConfig\)/, "生产构建必须启用持久化Workflow");
+const taskCenter = read("components/ai-screening/task-center-view.tsx");
+for (const action of ["停止任务", "取消任务", "继续执行", "重试失败项"]) {
+  assert.match(taskCenter, new RegExp(action), `任务中心缺少操作：${action}`);
+}
 
 const importView = read("components/import-view.tsx");
 assert.match(importView, /async function isReadableImportFile/, "文件夹导入必须验证真实文件内容");
@@ -89,5 +109,11 @@ for (const table of [
   assert.match(migration, new RegExp(`create table if not exists public\\.${table}`, "i"), `迁移缺少表：${table}`);
 }
 assert.match(migration, /customers_private_select/i, "迁移缺少客户私有读取策略");
+
+const aiWorkflowMigration = read("supabase/migrations/202608200001_ai_screening_workflow.sql");
+for (const field of ["strategy", "total_tokens", "cost_usd", "analyzed_channels", "source_channel"]) {
+  assert.match(aiWorkflowMigration, new RegExp(field, "i"), `AI任务迁移缺少字段：${field}`);
+}
+assert.match(aiWorkflowMigration, /refresh_ai_screening_task_totals/i, "AI任务迁移缺少汇总函数");
 
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");

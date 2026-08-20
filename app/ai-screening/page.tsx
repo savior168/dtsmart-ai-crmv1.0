@@ -1,5 +1,5 @@
-import { AiScreeningView } from "@/components/ai-screening-view";
+import { TaskCenterView } from "@/components/ai-screening/task-center-view";
 
 export default function AiScreeningPage() {
-  return <AiScreeningView />;
+  return <TaskCenterView />;
 }

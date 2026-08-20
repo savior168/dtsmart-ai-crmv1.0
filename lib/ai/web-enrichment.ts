@@ -33,7 +33,19 @@ export type GooglePlaceEvidence = {
 export type CustomerEvidence = {
   website?: WebsiteEvidence;
   google_place?: GooglePlaceEvidence;
+  public_channels?: Record<string, WebsiteEvidence>;
 };
+
+type FetchOptions = { signal?: AbortSignal; timeoutMs?: number };
+
+function requestSignal(options: FetchOptions, fallbackMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || fallbackMs);
+  return {
+    signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
+    clear: () => clearTimeout(timeout),
+  };
+}
 
 function normalizeUrl(url?: string | null) {
   const value = url?.trim();
@@ -75,15 +87,14 @@ function extractPhones(text: string) {
   return unique((text.match(/(?:\+?\d[\d\s\-().]{6,}\d)/g) || []).map((phone) => phone.replace(/\s+/g, " ").trim())).slice(0, 12);
 }
 
-export async function collectWebsiteEvidence(url?: string | null): Promise<WebsiteEvidence | undefined> {
+export async function collectWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
   const normalized = normalizeUrl(url);
   if (!normalized) return undefined;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9000);
+  const request = requestSignal(options, 5000);
   try {
     const response = await fetch(normalized, {
-      signal: controller.signal,
+      signal: request.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation",
         Accept: "text/html,application/xhtml+xml",
@@ -115,7 +126,7 @@ export async function collectWebsiteEvidence(url?: string | null): Promise<Websi
   } catch (error) {
     return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: error instanceof Error ? error.message : "website fetch failed" };
   } finally {
-    clearTimeout(timeout);
+    request.clear();
   }
 }
 
@@ -129,12 +140,11 @@ function sameWebsiteUrl(base: string, candidate: string) {
   }
 }
 
-async function discoverImportantWebsitePages(url: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
+async function discoverImportantWebsitePages(url: string, options: FetchOptions = {}) {
+  const request = requestSignal(options, 3500);
   try {
     const response = await fetch(url, {
-      signal: controller.signal,
+      signal: request.signal,
       headers: { "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation", Accept: "text/html,application/xhtml+xml" },
     });
     if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
@@ -147,16 +157,16 @@ async function discoverImportantWebsitePages(url: string) {
   } catch {
     return [];
   } finally {
-    clearTimeout(timeout);
+    request.clear();
   }
 }
 
-export async function collectDeepWebsiteEvidence(url?: string | null): Promise<WebsiteEvidence | undefined> {
-  const homepage = await collectWebsiteEvidence(url);
+export async function collectDeepWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
+  const homepage = await collectWebsiteEvidence(url, options);
   if (!homepage?.reachable) return homepage;
-  const importantPages = await discoverImportantWebsitePages(homepage.url);
+  const importantPages = await discoverImportantWebsitePages(homepage.url, options);
   if (!importantPages.length) return homepage;
-  const pages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl)))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  const pages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 3500, 3500) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
   return {
     ...homepage,
     headings: unique([...homepage.headings, ...pages.flatMap((page) => page.headings)]).slice(0, 40),
@@ -175,17 +185,18 @@ export async function collectGooglePlaceEvidence(input: {
   address?: string | null;
   country?: string | null;
   google_url?: string | null;
-}): Promise<GooglePlaceEvidence | undefined> {
+}, options: FetchOptions = {}): Promise<GooglePlaceEvidence | undefined> {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
   if (!apiKey) return { configured: false, query, types: [], reviews: [], emails: [], error: "GOOGLE_MAPS_API_KEY_NOT_CONFIGURED" };
 
   try {
+    const request = requestSignal(options, 4500);
     const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
     searchUrl.searchParams.set("query", query);
     searchUrl.searchParams.set("key", apiKey);
-    const searchResponse = await fetch(searchUrl);
+    const searchResponse = await fetch(searchUrl, { signal: request.signal });
     const searchPayload = await searchResponse.json() as {
       status?: string;
       error_message?: string;
@@ -200,7 +211,7 @@ export async function collectGooglePlaceEvidence(input: {
     detailsUrl.searchParams.set("place_id", placeId);
     detailsUrl.searchParams.set("fields", "name,formatted_address,business_status,rating,user_ratings_total,types,website,formatted_phone_number,reviews");
     detailsUrl.searchParams.set("key", apiKey);
-    const detailsResponse = await fetch(detailsUrl);
+    const detailsResponse = await fetch(detailsUrl, { signal: request.signal });
     const detailsPayload = await detailsResponse.json() as {
       status?: string;
       error_message?: string;
@@ -220,7 +231,7 @@ export async function collectGooglePlaceEvidence(input: {
     if (!detailsResponse.ok || !result) {
       return { configured: true, query, types: [], reviews: [], emails: [], error: detailsPayload.error_message || detailsPayload.status || "PLACE_DETAILS_NOT_FOUND" };
     }
-    return {
+    const evidence = {
       configured: true,
       query,
       name: result.name,
@@ -234,6 +245,8 @@ export async function collectGooglePlaceEvidence(input: {
       emails: extractEmails([result.website, result.formatted_address, ...(result.reviews || []).map((review) => review.text || "")].join(" ")),
       reviews: (result.reviews || []).map((review) => review.text || "").filter(Boolean).slice(0, 5),
     };
+    request.clear();
+    return evidence;
   } catch (error) {
     return { configured: true, query, types: [], reviews: [], emails: [], error: error instanceof Error ? error.message : "google place fetch failed" };
   }
@@ -245,15 +258,20 @@ export async function collectCustomerEvidence(input: {
   website?: string | null;
   google_url?: string | null;
   address?: string | null;
-}): Promise<CustomerEvidence> {
+}, options: FetchOptions = {}): Promise<CustomerEvidence> {
   const [website, google_place] = await Promise.all([
-    collectDeepWebsiteEvidence(input.website),
+    collectDeepWebsiteEvidence(input.website, options),
     collectGooglePlaceEvidence({
       company_name: input.customer_name,
       country: input.country,
       address: input.address,
       google_url: input.google_url,
-    }),
+    }, options),
   ]);
   return { website, google_place };
+}
+
+/** Read a public social/company page without requiring provider credentials. */
+export async function collectPublicPageEvidence(url?: string | null, options: FetchOptions = {}) {
+  return collectWebsiteEvidence(url, { ...options, timeoutMs: Math.min(options.timeoutMs || 4000, 4000) });
 }

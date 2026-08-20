@@ -2,5 +2,8 @@ packages:
   - .
 
 allowBuilds:
+  '@swc/core': true
+  cbor-extract: true
+  esbuild: true
   sharp: true
   unrs-resolver: true

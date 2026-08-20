@@ -9,6 +9,6 @@ export const config = {
   // Authentication entry points must stay reachable even when a browser has
   // stale/oversized session cookies. They perform their own auth validation.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|login(?:/|$)|reset-password(?:/|$)|auth/callback(?:/|$)|api/auth(?:/|$)|supabase-test(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.well-known/workflow/|login(?:/|$)|reset-password(?:/|$)|auth/callback(?:/|$)|api/auth(?:/|$)|supabase-test(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
