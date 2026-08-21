@@ -84,8 +84,25 @@ function extractEmails(text: string) {
   return unique((text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map((email) => email.toLowerCase()));
 }
 
-function extractPhones(text: string) {
-  return unique((text.match(/(?:\+?\d[\d\s\-().]{6,}\d)/g) || []).map((phone) => phone.replace(/\s+/g, " ").trim())).slice(0, 12);
+export function isPlausiblePhone(value?: string | null) {
+  const candidate = String(value || "").replace(/(?:ext\.?|extension|分机)\s*\d+$/i, "").trim();
+  if (!candidate || /[A-Za-z@]/.test(candidate)) return false;
+  const digits = candidate.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return false;
+  if (/^(\d)\1{6,}$/.test(digits)) return false;
+  return true;
+}
+
+function extractPhones(html: string) {
+  // Only accept explicit telephone markup or a nearby telephone label. Scanning every
+  // number on a page also captures prices, dates, product codes and analytics values.
+  const labeledText = compactText(html);
+  const candidates = [
+    ...[...html.matchAll(/href=["']tel:([^"'?#]+)["']/gi)].map((match) => decodeURIComponent(match[1]).replace(/^\/\//, "")),
+    ...[...html.matchAll(/["'](?:telephone|phone)["']\s*:\s*["']([^"']+)["']/gi)].map((match) => match[1]),
+    ...[...labeledText.matchAll(/(?:电话|联系电话|联系电话号码|tel(?:ephone)?|phone|teléfono|telefono)\s*[:：]?\s*(\+?\d[\d\s\-().]{5,}\d)/gi)].map((match) => match[1]),
+  ];
+  return unique(candidates.map((phone) => phone.replace(/\s+/g, " ").trim()).filter(isPlausiblePhone)).slice(0, 12);
 }
 
 function extractWhatsapps(text: string) {
@@ -125,7 +142,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
       image_alts: matches(html, /<img[^>]+alt=["']([^"']+)["'][^>]*>/gi, 16),
       image_urls: imageUrls,
       emails: extractEmails(html),
-      phones: extractPhones(compactText(html)),
+      phones: extractPhones(html),
       whatsapps: extractWhatsapps(html),
       video_urls: unique([...html.matchAll(/<(?:video|source|iframe)[^>]+(?:src)=['\"]([^'\"]+)['\"]/gi)].map((match) => match[1])).slice(0, 12),
     };

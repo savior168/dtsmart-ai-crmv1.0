@@ -5,6 +5,7 @@ import {
   collectDeepWebsiteEvidence,
   collectGooglePlaceEvidence,
   collectPublicPageEvidence,
+  isPlausiblePhone,
   type CustomerEvidence,
   type GooglePlaceEvidence,
   type WebsiteEvidence,
@@ -66,6 +67,7 @@ function newPhones(original: string | null, values: string[]) {
   const originalSet = new Set(String(original || "").split(",").map(normalizePhone).filter(Boolean));
   const seen = new Set<string>();
   return values.map((value) => value.trim()).filter((value) => {
+    if (!isPlausiblePhone(value)) return false;
     const key = normalizePhone(value);
     if (!key || originalSet.has(key) || seen.has(key)) return false;
     seen.add(key);

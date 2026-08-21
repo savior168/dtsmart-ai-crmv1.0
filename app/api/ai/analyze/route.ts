@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { analyzeCustomer } from "@/lib/ai/customer-analysis";
-import { collectCustomerEvidence } from "@/lib/ai/web-enrichment";
+import { collectCustomerEvidence, isPlausiblePhone } from "@/lib/ai/web-enrichment";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,6 +25,7 @@ function joinNewPhones(original?: string | null, values: string[] = []) {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const phone of cleaned) {
+    if (!isPlausiblePhone(phone)) continue;
     const key = normalizePhone(phone);
     if (!key || originalSet.has(key) || seen.has(key)) continue;
     seen.add(key);
