@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       await admin.from("ai_screening_tasks").update({ status: "RUNNING", cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);
     } else if (body.action === "retry") {
       if (task.status !== "FAILED") return NextResponse.json({ error: "只有失败任务可以重试失败项" }, { status: 409 });
-      const failed = await admin.from("ai_screening_task_items").select("id").eq("task_id", id).eq("status", "FAILED").eq("retryable", true);
+      const failed = await admin.from("ai_screening_task_items").select("id").eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
       if (failed.error) throw failed.error;
       const itemIds = (failed.data || []).map((item) => item.id);
       if (!itemIds.length) return NextResponse.json({ error: "当前任务没有可重试的失败客户" }, { status: 409 });
@@ -59,4 +59,3 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }
 }
-
