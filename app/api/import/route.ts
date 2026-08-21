@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
         delete item.ai_screening_done;
         delete item.website_email;
         delete item.website_phone;
-        accepted.push({ row: { ...item, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id }, fileName, rowNumber });
+        accepted.push({ row: { ...item, source_channel: "新增&导入", source_batch: fileName, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id }, fileName, rowNumber });
       } catch (reason) {
         invalid += 1;
         const message = reason instanceof Error ? reason.message : "数据格式错误";

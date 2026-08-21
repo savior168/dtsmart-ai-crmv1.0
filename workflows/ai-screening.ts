@@ -1,7 +1,7 @@
 import { sleep } from "workflow";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { runCustomerAnalysis, publicAiError } from "@/lib/ai/run-customer-analysis";
-import type { AiStrategy } from "@/lib/ai/task-types";
+import { createAdminClient } from "../lib/supabase/admin";
+import { runCustomerAnalysis, publicAiError } from "../lib/ai/run-customer-analysis";
+import type { AiStrategy } from "../lib/ai/task-types";
 
 type WorkflowInput = {
   taskId: string;
@@ -79,4 +79,3 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
   await finishTask(input.taskId);
   return { status: "FINISHED" };
 }
-

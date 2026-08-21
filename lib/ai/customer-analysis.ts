@@ -1,5 +1,5 @@
-import { AI_INDUSTRIES } from "@/lib/types";
-import type { CustomerEvidence } from "@/lib/ai/web-enrichment";
+import { AI_INDUSTRIES } from "../types";
+import type { CustomerEvidence } from "./web-enrichment";
 
 export type CustomerAnalysisInput = {
   customer_name: string;

@@ -12,20 +12,26 @@ function taskNumber() {
 
 export async function GET(request: NextRequest) {
   try {
-    const { user } = await requireUser();
+    const { supabase, user } = await requireUser();
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const status = params.get("status") || "";
     const search = params.get("search")?.trim() || "";
+    const selectionMode = params.get("selection_mode") || "";
+    const from = params.get("date_from") || "";
+    const to = params.get("date_to") || "";
     const admin = createAdminClient();
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).eq("user_id", user.id);
     if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSED"]);
     else if (status) query = query.eq("status", status);
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
+    if (selectionMode) query = query.eq("selection_mode", selectionMode);
+    if (from) query = query.gte("created_at", `${from}T00:00:00`);
+    if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
     const result = await query.order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
-    const stats = await admin.from("ai_screening_tasks").select("status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at").eq("user_id", user.id);
+    const stats = await admin.from("ai_screening_tasks").select("id,status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at").eq("user_id", user.id);
     const all = stats.data || [];
     const counts = {
       all: all.length,
@@ -37,11 +43,20 @@ export async function GET(request: NextRequest) {
     };
     const today = new Date().toISOString().slice(0, 10);
     const todayTasks = all.filter((item) => String(item.created_at).startsWith(today));
+    const ownedTaskIds = all.map((item) => item.id);
+    const retryable = ownedTaskIds.length
+      ? await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).in("task_id", ownedTaskIds).eq("status", "FAILED").lt("attempt_count", 3)
+      : { count: 0, error: null };
+    if (retryable.error) throw retryable.error;
+    const pending = await supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).is("ai_score", null);
+    if (pending.error) throw pending.error;
     return NextResponse.json({
       data: result.data || [], count: result.count || 0, counts,
+      pending_customers: pending.count || 0,
       today_cost: todayTasks.reduce((sum, item) => sum + Number(item.total_cost_usd || 0), 0),
       today_completed_customers: todayTasks.reduce((sum, item) => sum + Number(item.success_count || 0), 0),
       today_failed_customers: todayTasks.reduce((sum, item) => sum + Number(item.failed_count || 0), 0),
+      retry_customers: retryable.count || 0,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务列表查询失败";

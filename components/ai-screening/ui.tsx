@@ -3,9 +3,9 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
-export const panel = "rounded-xl border border-slate-200 bg-white shadow-sm";
-export const input = "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
-export const button = "inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-45";
+export const panel = "rounded-[10px] border border-[#e1e6ef] bg-white";
+export const input = "h-[38px] rounded-[7px] border border-[#dbe2ec] bg-white px-[10px] text-sm text-[#334157] outline-none transition focus:border-[#1763e8] focus:ring-2 focus:ring-blue-100";
+export const button = "inline-flex h-[38px] items-center justify-center gap-1.5 rounded-[7px] border border-[#d8dfe9] bg-white px-[14px] text-sm font-medium text-[#314057] transition hover:border-[#1763e8] hover:text-[#1763e8] disabled:cursor-not-allowed disabled:opacity-45";
 export const primaryButton = `${button} border-blue-600 bg-blue-600 text-white hover:border-blue-700 hover:bg-blue-700 hover:text-white`;
 
 const statusMap: Record<string, { label: string; className: string }> = {
@@ -27,14 +27,14 @@ export function StrategyBadge({ strategy }: { strategy: string }) {
   return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${strategy === "DEEP" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>{strategy === "DEEP" ? "深度分析" : "智能分析"} v1.0</span>;
 }
 
-export function PageHeader({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
-  return <header className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-[26px] font-semibold tracking-tight text-slate-950">{title}</h1><p className="mt-1.5 text-sm text-slate-500">{description}</p></div>{actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}</header>;
+export function PageHeader({ title, description, actions }: { title: string; description: ReactNode; actions?: ReactNode }) {
+  return <header className="flex flex-wrap items-start justify-between gap-[14px]"><div><h1 className="m-0 text-2xl font-bold leading-tight tracking-[-.25px] text-[#111a2c]">{title}</h1><div className="mt-[5px] text-sm leading-[1.65] text-[#6d798d]">{description}</div></div>{actions && <div className="flex flex-wrap items-center gap-[9px]">{actions}</div>}</header>;
 }
 
 export function Pagination({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const nums = [...new Set([1, page - 1, page, page + 1, pages].filter((value) => value >= 1 && value <= pages))];
-  return <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-sm"><span className="text-slate-500">共 {total.toLocaleString("zh-CN")} 条</span><div className="flex items-center gap-1"><button className="grid h-9 w-9 place-items-center rounded-lg border disabled:opacity-35" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="上一页"><ChevronLeft size={16}/></button>{nums.map((value, index) => <span key={`${value}-${index}`} className="contents">{index > 0 && value - nums[index - 1] > 1 ? <span className="grid h-9 w-8 place-items-center">…</span> : null}<button onClick={() => onPage(value)} className={`h-9 min-w-9 rounded-lg border px-2 ${value === page ? "border-blue-600 bg-blue-600 text-white" : "bg-white"}`}>{value}</button></span>)}<button className="grid h-9 w-9 place-items-center rounded-lg border disabled:opacity-35" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="下一页"><ChevronRight size={16}/></button></div><div className="flex items-center gap-2"><select className={input} value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>{[10,20,50,100].map((size) => <option key={size} value={size}>{size}条/页</option>)}</select><span className="text-slate-500">第 {page}/{pages} 页</span></div></footer>;
+  return <footer className="grid grid-cols-1 items-center gap-3 border-t border-[#e8ecf2] px-4 py-[14px] text-sm text-[#657187] md:grid-cols-[1fr_auto_1fr]"><span>共 {total.toLocaleString("zh-CN")} 条</span><div className="flex items-center justify-center gap-[5px]"><button className="grid h-[34px] min-w-[34px] place-items-center rounded-md border border-[#dbe1ea] bg-white disabled:opacity-45" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="上一页"><ChevronLeft size={16}/></button>{nums.map((value, index) => <span key={`${value}-${index}`} className="contents">{index > 0 && value - nums[index - 1] > 1 ? <span className="grid h-[34px] w-8 place-items-center">…</span> : null}<button onClick={() => onPage(value)} className={`h-[34px] min-w-[34px] rounded-md border px-2 ${value === page ? "border-[#1763e8] bg-[#1763e8] text-white" : "border-[#dbe1ea] bg-white text-[#46536a]"}`}>{value}</button></span>)}<button className="grid h-[34px] min-w-[34px] place-items-center rounded-md border border-[#dbe1ea] bg-white disabled:opacity-45" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="下一页"><ChevronRight size={16}/></button></div><div className="flex items-center justify-self-end gap-2"><select className={`${input} h-[34px]`} value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>{[10,20,50,100].map((size) => <option key={size} value={size}>{size}条/页</option>)}</select><label className="flex items-center gap-1">跳至 <input className="h-[34px] w-12 rounded-md border border-[#dbe1ea] px-2 text-center" defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const value = Math.min(pages, Math.max(1, Number(event.currentTarget.value) || 1)); onPage(value); } }}/> 页</label></div></footer>;
 }
 
 export function Loading({ text = "正在加载…" }: { text?: string }) {
@@ -60,4 +60,3 @@ export function useToast() {
 export function formatNumber(value: number | null | undefined) { return Number(value || 0).toLocaleString("zh-CN"); }
 export function formatTokens(value: number | null | undefined) { const total = Number(value || 0); return total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)}M` : total >= 1_000 ? `${(total / 1_000).toFixed(2)}K` : String(total); }
 export function formatCost(value: number | string | null | undefined) { return `$${Number(value || 0).toFixed(4)}`; }
-

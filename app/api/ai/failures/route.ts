@@ -12,13 +12,29 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const taskId = params.get("task_id") || "";
+    const search = params.get("search")?.trim() || "";
+    const step = params.get("step") || "";
+    const retry = params.get("retry") || "";
     const admin = createAdminClient();
     const tasks = await admin.from("ai_screening_tasks").select("id,name,task_number,strategy").eq("user_id", user.id);
     if (tasks.error) throw tasks.error;
     let taskIds = (tasks.data || []).map((item) => item.id);
     if (taskId) taskIds = taskIds.filter((id) => id === taskId);
     if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: tasks.data || [] });
-    const result = await admin.from("ai_screening_task_items").select("*,customer:customers(id,company_name,email,phone),task:ai_screening_tasks(id,name,task_number,strategy)", { count: "exact" }).in("task_id", taskIds).eq("status", "FAILED").order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+    let customerIds: string[] | null = null;
+    if (search) {
+      const safe = search.replace(/[,%()]/g, " ").trim();
+      const customers = await admin.from("customers").select("id").or(`company_name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%`).limit(1000);
+      if (customers.error) throw customers.error;
+      customerIds = (customers.data || []).map((row) => row.id);
+      if (!customerIds.length) return NextResponse.json({ data: [], count: 0, tasks: tasks.data || [], page, pageSize });
+    }
+    let query = admin.from("ai_screening_task_items").select("*,customer:customers(id,company_name,email,phone),task:ai_screening_tasks(id,name,task_number,strategy)", { count: "exact" }).in("task_id", taskIds).eq("status", "FAILED");
+    if (customerIds) query = query.in("customer_id", customerIds);
+    if (step) query = query.eq("current_step", step);
+    if (retry === "available") query = query.eq("retryable", true).lt("attempt_count", 3);
+    if (retry === "exhausted") query = query.or("retryable.eq.false,attempt_count.gte.3");
+    const result = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
     return NextResponse.json({ data: result.data || [], count: result.count || 0, tasks: tasks.data || [] });
   } catch (error) {
@@ -32,7 +48,7 @@ export async function POST(request: NextRequest) {
     const { user } = await requireUser();
     const body = await request.json() as { item_ids?: string[]; task_id?: string };
     const admin = createAdminClient();
-    let query = admin.from("ai_screening_task_items").select("id,task_id,task:ai_screening_tasks(id,user_id,strategy)").eq("status", "FAILED").eq("retryable", true);
+    let query = admin.from("ai_screening_task_items").select("id,task_id,task:ai_screening_tasks(id,user_id,strategy)").eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
     if (body.task_id) query = query.eq("task_id", body.task_id);
     if (body.item_ids?.length) query = query.in("id", body.item_ids);
     const failed = await query;
@@ -58,4 +74,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }
 }
-

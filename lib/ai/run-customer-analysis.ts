@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { analyzeCustomer, type CustomerAnalysis } from "@/lib/ai/customer-analysis";
+import { createAdminClient } from "../supabase/admin";
+import { analyzeCustomer, type CustomerAnalysis } from "./customer-analysis";
 import {
   collectDeepWebsiteEvidence,
   collectGooglePlaceEvidence,
@@ -9,7 +9,7 @@ import {
   type GooglePlaceEvidence,
   type WebsiteEvidence,
 } from "@/lib/ai/web-enrichment";
-import { AI_CHANNEL_LABELS, AI_CHANNEL_ORDER, type AiChannel, type AiStrategy } from "@/lib/ai/task-types";
+import { AI_CHANNEL_LABELS, AI_CHANNEL_ORDER, type AiChannel, type AiStrategy } from "./task-types";
 
 type CustomerRow = {
   id: string;
@@ -278,4 +278,3 @@ export function publicAiError(error: unknown) {
   if (raw.includes("GOOGLE_MAPS_API_KEY_NOT_CONFIGURED")) return { code: "GOOGLE_MAPS_NOT_CONFIGURED", message: "未配置Google Maps API，已保留其他公开渠道证据" };
   return { code: "AI_ANALYSIS_FAILED", message: raw || "AI分析失败" };
 }
-

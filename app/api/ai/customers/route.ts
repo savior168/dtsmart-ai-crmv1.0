@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
       if (country) query = query.ilike("country", `%${country}%`);
       if (sourceChannel) {
-        const values = sourcePattern(sourceChannel).split(",").map((value) => `source.ilike.%${value}%`);
+        const values = sourcePattern(sourceChannel).split(",").flatMap((value) => [`source.ilike.%${value}%`, `source_channel.ilike.%${value}%`]);
         query = query.or(values.join(","));
       }
       if (sourceBatch) query = query.ilike("source_batch", `%${sourceBatch}%`);
@@ -67,17 +67,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ids, count: ids.length, database_count: total });
     }
 
-    // Fetch enough rows to compensate for customers already reserved by active tasks.
+    // Fetch the complete filtered result before pagination so the count and
+    // "select all results" semantics stay exact after active-task exclusion.
     const collected: Array<Record<string, unknown>> = [];
-    let databaseCount = 0;
-    for (let offset = 0; collected.length < page * pageSize; offset += 1000) {
+    for (let offset = 0; ; offset += 1000) {
       const result = await buildQuery(offset, offset + 999);
       if (result.error) throw result.error;
-      databaseCount = result.count || 0;
       for (const item of result.data || []) if (!excluded.has(item.id)) collected.push(item);
       if (!result.data || result.data.length < 1000) break;
     }
-    const eligibleCount = Math.max(0, databaseCount - excluded.size);
+    const eligibleCount = collected.length;
     const start = (page - 1) * pageSize;
     const data = collected.slice(start, start + pageSize);
 
@@ -88,4 +87,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录会话已失效，请重新登录" : message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }
 }
-
