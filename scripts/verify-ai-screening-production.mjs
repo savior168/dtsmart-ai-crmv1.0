@@ -104,10 +104,20 @@ try {
     throw new Error(`任务创建幂等验证失败：${JSON.stringify(repeatedTask).slice(0, 500)}`);
   }
 
+  const taskItemsPage = await request(`/api/ai/tasks/${taskId}/items?page=1&pageSize=20`);
+  if (!Array.isArray(taskItemsPage.data) || taskItemsPage.data.length !== 1) {
+    throw new Error(`任务客户明细查询验证失败：${JSON.stringify(taskItemsPage).slice(0, 500)}`);
+  }
+
   let task;
   for (let attempt = 0; attempt < 24; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    task = (await request(`/api/ai/tasks/${taskId}`)).task;
+    const detail = await request(`/api/ai/tasks/${taskId}`);
+    if (!detail.task) {
+      console.warn(`任务状态轮询返回空响应，第 ${attempt + 1} 次重试：${JSON.stringify(detail).slice(0, 240)}`);
+      continue;
+    }
+    task = detail.task;
     if (["COMPLETED", "FAILED", "CANCELLED"].includes(task.status)) break;
   }
 
@@ -149,6 +159,7 @@ try {
     evidence_count: evidence.count || 0,
     customer_writeback: customer.data?.ai_last_result_id === result.data?.id,
     idempotency_verified: repeatedTask.task.id === taskId,
+    task_items_query_verified: taskItemsPage.data.length === 1,
     checkpoint_saved: Boolean(item.data?.last_checkpoint_at),
     model_call_count: calls.count || 0,
     trace_versions: [result.data?.rule_version, result.data?.field_mapping_version],

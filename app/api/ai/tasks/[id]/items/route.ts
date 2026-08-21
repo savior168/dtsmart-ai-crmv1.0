@@ -24,7 +24,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (retry === "retrying") query = query.gt("attempt_count", 0).lt("attempt_count", 3);
     if (retry === "exhausted") query = query.gte("attempt_count", 3);
     if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
-    const result = await query.order("created_at", { ascending: true }).range((page - 1) * pageSize, page * pageSize - 1);
+    const result = await query
+      .order("updated_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
     return NextResponse.json({ data: result.data || [], count: result.count || 0, page, pageSize });
   } catch (error) {
