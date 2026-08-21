@@ -38,6 +38,14 @@ export type CustomerAnalysis = {
     contradiction_risk: number;
   };
   suggested_contact_order: string[];
+  evidence_summaries: Array<{
+    channel: string;
+    title_zh: string;
+    fact_zh: string;
+    source_url: string;
+    evidence_type: "支持" | "矛盾" | "中性";
+    confidence: number;
+  }>;
   usage: {
     model: string;
     input_tokens: number;
@@ -48,6 +56,8 @@ export type CustomerAnalysis = {
     pricing_snapshot: Record<string, number | string>;
   };
 };
+
+export type AnalysisTier = "fast" | "deep" | "escalation";
 
 export function scoreToLevel(score: number): CustomerAnalysis["ai_level"] {
   return score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : "D";
@@ -78,13 +88,43 @@ A级高价值客户优先包括配件进口商、批发商、代理/经销/分�
 评分：85-100为A，70-84为B，50-69为C，0-49为D。只有评分不低于60且有明确业务证据时，is_target_customer才为true。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
 ai_reason必须引用实际证据；business_relevance、customer_value和followup_suggestion必须可供销售直接使用。evidence_conflicts列出证据矛盾，没有则返回空数组。
-score_breakdown的每个维度必须依据输入证据独立评分；contradiction_risk越高表示风险越大。suggested_contact_order按优先顺序给出实际可执行的联系渠道或动作。`;
+score_breakdown的每个维度必须依据输入证据独立评分；contradiction_risk越高表示风险越大。suggested_contact_order按优先顺序给出实际可执行的联系渠道或动作。
+所有给业务员阅读的文字必须使用简体中文。evidence_summaries只可摘录输入中真实存在的事实，每个已成功读取的来源提炼2–5条简洁中文事实；不得输出原始JSON、网页代码或未经读取的图片描述。每条事实必须带真实source_url；无法核验的内容不要写入。`;
 
-export async function analyzeCustomer(input: CustomerAnalysisInput, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<CustomerAnalysis> {
+function modelForTier(tier: AnalysisTier) {
+  if (tier === "escalation") return process.env.OPENAI_ESCALATION_MODEL?.trim() || process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.6-sol";
+  if (tier === "deep") return process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.6-terra";
+  return process.env.OPENAI_SMART_MODEL?.trim() || "gpt-5.6-luna";
+}
+
+function pricingForModel(model: string) {
+  const configured = process.env.OPENAI_MODEL_PRICING_JSON?.trim();
+  if (configured) {
+    try {
+      const all = JSON.parse(configured) as Record<string, { input?: number; cached_input?: number; output?: number }>;
+      const exact = all[model];
+      if (exact) return { input: Number(exact.input || 0), cached_input: Number(exact.cached_input || 0), output: Number(exact.output || 0), source: "OPENAI_MODEL_PRICING_JSON" };
+    } catch { /* invalid optional configuration falls back to versioned defaults */ }
+  }
+  const snapshots: Record<string, { input: number; cached_input: number; output: number }> = {
+    "gpt-5.6-luna": { input: 0.2, cached_input: 0.02, output: 1.2 },
+    "gpt-5.6-terra": { input: 2, cached_input: 0.2, output: 12 },
+    "gpt-5.6-sol": { input: 5, cached_input: 0.5, output: 30 },
+  };
+  const known = snapshots[model];
+  return {
+    input: Number(process.env.OPENAI_INPUT_PRICE_PER_MILLION || known?.input || 0),
+    cached_input: Number(process.env.OPENAI_CACHED_INPUT_PRICE_PER_MILLION || known?.cached_input || 0),
+    output: Number(process.env.OPENAI_OUTPUT_PRICE_PER_MILLION || known?.output || 0),
+    source: known ? "OPENAI_PRICING_2026_08_21" : "ENV_OR_UNCONFIGURED",
+  };
+}
+
+export async function analyzeCustomer(input: CustomerAnalysisInput, options: { signal?: AbortSignal; timeoutMs?: number; tier?: AnalysisTier } = {}): Promise<CustomerAnalysis> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) throw new Error("OPENAI_NOT_CONFIGURED");
 
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  const model = modelForTier(options.tier || "fast");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 18_000);
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
@@ -140,8 +180,25 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
                   required: ["entity_consistency", "company_authenticity", "business_activity", "mobile_parts_match", "macbook_parts_match", "wholesale_import_distribution", "repair_business_match", "bulk_purchase_potential", "contactability", "evidence_completeness", "contradiction_risk"],
                 },
                 suggested_contact_order: { type: "array", items: { type: "string" }, maxItems: 6 },
+                evidence_summaries: {
+                  type: "array",
+                  maxItems: 24,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      channel: { type: "string" },
+                      title_zh: { type: "string" },
+                      fact_zh: { type: "string" },
+                      source_url: { type: "string" },
+                      evidence_type: { type: "string", enum: ["支持", "矛盾", "中性"] },
+                      confidence: { type: "integer", minimum: 0, maximum: 100 },
+                    },
+                    required: ["channel", "title_zh", "fact_zh", "source_url", "evidence_type", "confidence"],
+                  },
+                },
               },
-              required: ["industry_type", "is_target_customer", "ai_score", "ai_level", "ai_reason", "business_relevance", "customer_value", "followup_suggestion", "confidence_score", "evidence_sufficiency", "evidence_conflicts", "score_breakdown", "suggested_contact_order"],
+              required: ["industry_type", "is_target_customer", "ai_score", "ai_level", "ai_reason", "business_relevance", "customer_value", "followup_suggestion", "confidence_score", "evidence_sufficiency", "evidence_conflicts", "score_breakdown", "suggested_contact_order", "evidence_summaries"],
             },
           },
         },
@@ -180,9 +237,10 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   const cachedTokens = Number(usagePayload.input_tokens_details?.cached_tokens || 0);
   const outputTokens = Number(usagePayload.output_tokens || 0);
   const uncachedInput = Math.max(0, inputTokens - cachedTokens);
-  const inputPrice = Number(process.env.OPENAI_INPUT_PRICE_PER_MILLION || 0.15);
-  const cachedPrice = Number(process.env.OPENAI_CACHED_INPUT_PRICE_PER_MILLION || 0.075);
-  const outputPrice = Number(process.env.OPENAI_OUTPUT_PRICE_PER_MILLION || 0.6);
+  const pricing = pricingForModel(model);
+  const inputPrice = pricing.input;
+  const cachedPrice = pricing.cached_input;
+  const outputPrice = pricing.output;
   const cost = (uncachedInput * inputPrice + cachedTokens * cachedPrice + outputTokens * outputPrice) / 1_000_000;
   return {
     ...parsed,
@@ -192,6 +250,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
     is_target_customer: score >= 60 && confidence >= 60,
     evidence_conflicts: Array.isArray(parsed.evidence_conflicts) ? parsed.evidence_conflicts.filter(Boolean).slice(0, 20) : [],
     suggested_contact_order: Array.isArray(parsed.suggested_contact_order) ? parsed.suggested_contact_order.filter(Boolean).slice(0, 6) : [],
+    evidence_summaries: Array.isArray(parsed.evidence_summaries) ? parsed.evidence_summaries.filter((item) => item?.fact_zh && item?.source_url).slice(0, 24) : [],
     usage: {
       model,
       input_tokens: inputTokens,
@@ -199,7 +258,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
       output_tokens: outputTokens,
       total_tokens: Number(usagePayload.total_tokens || inputTokens + outputTokens),
       cost_usd: Number(cost.toFixed(6)),
-      pricing_snapshot: { currency: "USD", unit: "per_million_tokens", input: inputPrice, cached_input: cachedPrice, output: outputPrice },
+      pricing_snapshot: { currency: "USD", unit: "per_million_tokens", input: inputPrice, cached_input: cachedPrice, output: outputPrice, source: pricing.source },
     },
   };
 }

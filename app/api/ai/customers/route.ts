@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mapCustomerForAi } from "@/lib/ai/semantic-fields";
+import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
 function sourcePattern(value: string) {
   const patterns: Record<string, string> = {
@@ -31,18 +32,7 @@ export async function GET(request: NextRequest) {
     const idsOnly = params.get("ids") === "all";
     const admin = createAdminClient();
 
-    const excluded = new Set<string>();
-    for (let offset = 0; ; offset += 1000) {
-      const items = await admin.from("ai_screening_task_items")
-        .select("customer_id,task:ai_screening_tasks!inner(user_id,status)")
-        .eq("task.user_id", user.id)
-        .in("task.status", ["QUEUED", "RUNNING", "PAUSING", "PAUSED"])
-        .in("status", ["PENDING", "RUNNING"])
-        .range(offset, offset + 999);
-      if (items.error) throw items.error;
-      for (const item of items.data || []) excluded.add(item.customer_id);
-      if (!items.data || items.data.length < 1000) break;
-    }
+    const excluded = await getReservedAiCustomerIds(user.id);
 
     const normalizedSourcePatterns = sourcePattern(sourceChannel).split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
     const buildQuery = (start: number, end: number) => {

@@ -27,6 +27,7 @@ export const AI_CUSTOMER_FIELD_CANDIDATES = {
   instagram_url: ["instagram_url", "instagram", "instagram_page"],
   tiktok_url: ["tiktok_url", "tiktok", "tiktok_page"],
   other_public_urls: ["other_public_urls", "public_urls", "social_urls"],
+  created_at: ["created_at", "entered_at", "imported_at"],
 } as const;
 
 type CustomerSemanticKey = keyof typeof AI_CUSTOMER_FIELD_CANDIDATES;
@@ -77,6 +78,7 @@ export function mapCustomerForAi(row: LooseRow) {
     instagram_url: text(row, "instagram_url"),
     tiktok_url: text(row, "tiktok_url"),
     other_public_urls: textArray(row, "other_public_urls"),
+    created_at: text(row, "created_at"),
   };
 }
 

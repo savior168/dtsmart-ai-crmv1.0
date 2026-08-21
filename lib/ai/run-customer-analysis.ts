@@ -11,6 +11,7 @@ import {
 } from "@/lib/ai/web-enrichment";
 import { AI_CHANNEL_LABELS, AI_CHANNEL_ORDER, type AiChannel, type AiStrategy } from "./task-types";
 import { AI_FIELD_MAPPING_VERSION, mapCustomerForAi, type AiMappedCustomer } from "./semantic-fields";
+import { AI_RULE_VERSION, findReusableAnalysis, saveReusableAnalysis } from "./reuse-cache";
 
 type CustomerRow = AiMappedCustomer;
 
@@ -164,12 +165,85 @@ async function saveModelCall(input: {
   if (write.error) throw write.error;
 }
 
+async function saveSupplementalContacts(customer: CustomerRow, contacts: { websiteEmail: string; websitePhone: string; whatsapps: string[] }, records: ChannelRecord[]) {
+  const admin = createAdminClient();
+  const rows: Array<Record<string, unknown>> = [];
+  const sourceUrl = records.find((item) => item.status === "COLLECTED" && item.source_url)?.source_url || null;
+  for (const value of contacts.websiteEmail.split(",").map((item) => item.trim()).filter(Boolean)) rows.push({ customer_id: customer.id, type: "EMAIL", value_raw: value, value_normalized: normalizeEmail(value), source: "AI_PUBLIC_SOURCE", source_url: sourceUrl, identity_match_status: "likely_matched", verification_status: "SOURCE_CONFIRMED" });
+  for (const value of contacts.websitePhone.split(",").map((item) => item.trim()).filter(Boolean)) rows.push({ customer_id: customer.id, type: "PHONE", value_raw: value, value_normalized: normalizePhone(value), source: "AI_PUBLIC_SOURCE", source_url: sourceUrl, identity_match_status: "likely_matched", verification_status: "SOURCE_CONFIRMED" });
+  for (const value of contacts.whatsapps) rows.push({ customer_id: customer.id, type: "WHATSAPP", value_raw: value, value_normalized: normalizePhone(value), source: "AI_PUBLIC_SOURCE", source_url: sourceUrl, identity_match_status: "likely_matched", verification_status: "SOURCE_CONFIRMED" });
+  if (!rows.length) return;
+  const write = await admin.from("customer_contacts").upsert(rows, { onConflict: "customer_id,type,value_normalized,source", ignoreDuplicates: true });
+  if (write.error && !/source_url|identity_match_status|verification_status|constraint|schema cache/i.test(write.error.message)) throw write.error;
+}
+
+async function completeFromReusableCache(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy }, customer: CustomerRow, cache: Record<string, unknown>, started: number) {
+  const admin = createAdminClient();
+  const cachedResult = (cache.analysis_result && typeof cache.analysis_result === "object" ? cache.analysis_result : {}) as Record<string, unknown>;
+  const now = new Date().toISOString();
+  const resultPayload = {
+    ...cachedResult,
+    customer_id: customer.id,
+    task_id: input.taskId,
+    task_item_id: input.taskItemId,
+    strategy: input.strategy,
+    input_tokens: 0,
+    cached_input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    cost_usd: 0,
+    model_calls: 0,
+    pricing_snapshot: { reused: true, cost_usd: 0 },
+    model_snapshot: { ...(cachedResult.model_snapshot as Record<string, unknown> || {}), reused: true, source_result_id: cache.source_result_id },
+    completed_at: now,
+    rule_version: AI_RULE_VERSION,
+  };
+  const resultWrite = await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
+  if (resultWrite.error || !resultWrite.data) throw resultWrite.error || new Error("REUSED_RESULT_WRITE_FAILED");
+  const snapshots = Array.isArray(cache.evidence_snapshot) ? cache.evidence_snapshot : [];
+  if (snapshots.length) {
+    const rows = snapshots.map((row) => ({ ...(row as Record<string, unknown>), id: undefined, result_id: resultWrite.data.id, task_id: input.taskId, customer_id: customer.id, fetched_at: now, captured_at: now }));
+    const evidenceWrite = await admin.from("ai_screening_evidence").insert(rows);
+    if (evidenceWrite.error) throw evidenceWrite.error;
+  }
+  const discovered = (cache.discovered_contacts && typeof cache.discovered_contacts === "object" ? cache.discovered_contacts : {}) as { website_email?: string; website_phone?: string; whatsapp?: string[] };
+  const customerWrite = await admin.from("customers").update({
+    industry: cachedResult.industry_type || cachedResult.customer_type,
+    ai_score: cachedResult.score,
+    ai_level: cachedResult.grade,
+    ai_reason: cachedResult.ai_reason || cachedResult.summary,
+    is_target_customer: cachedResult.target_decision === "VALID",
+    ai_screening_done: true,
+    ai_status: "COMPLETED",
+    business_relevance: cachedResult.business_relevance,
+    customer_value: cachedResult.customer_value,
+    followup_suggestion: cachedResult.followup_suggestion,
+    website_email: discovered.website_email || null,
+    website_phone: discovered.website_phone || null,
+    ai_last_result_id: resultWrite.data.id,
+    ai_last_screened_at: now,
+    updated_at: now,
+  }).eq("id", customer.id);
+  if (customerWrite.error) throw customerWrite.error;
+  await saveSupplementalContacts(customer, { websiteEmail: discovered.website_email || "", websitePhone: discovered.website_phone || "", whatsapps: discovered.whatsapp || [] }, []);
+  const itemWrite = await admin.from("ai_screening_task_items").update({ status: "COMPLETED", progress: 100, current_step: "REUSED_RESULT", cache_reused: true, reuse_source_result_id: cache.source_result_id || null, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_usd: 0, duration_ms: Date.now() - started, completed_at: now, updated_at: now }).eq("id", input.taskItemId);
+  if (itemWrite.error) throw itemWrite.error;
+  await admin.from("ai_screening_model_calls").upsert({ task_id: input.taskId, task_item_id: input.taskItemId, customer_id: customer.id, channel: "cross_user_result_reuse", attempt_number: 1, model: "REUSED_RESULT", model_version: String((cachedResult.model_snapshot as Record<string, unknown> | undefined)?.primary_model || "REUSED_RESULT"), input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, pricing_snapshot: { reused: true }, cost_usd: 0, status: "COMPLETED", cache_hit: true, completed_at: now, duration_ms: Date.now() - started }, { onConflict: "task_item_id,channel,attempt_number" });
+  await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
+  return { status: "COMPLETED" as const, resultId: resultWrite.data.id, reused: true };
+}
+
 export async function runCustomerAnalysis(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; attemptNumber?: number }) {
   const started = Date.now();
   const timeoutController = new AbortController();
   const hardTimeout = setTimeout(() => timeoutController.abort(), 30_000);
   const customer = await readCustomer(input.customerId);
   const admin = createAdminClient();
+  const reusable = await findReusableAnalysis(customer, input.strategy);
+  if (reusable) {
+    clearTimeout(hardTimeout);
+    return completeFromReusableCache(input, customer, reusable as Record<string, unknown>, started);
+  }
   const checkpoint = await admin.from("ai_screening_task_items").select("channel_checkpoint").eq("id", input.taskItemId).maybeSingle();
   if (checkpoint.error) throw checkpoint.error;
   const savedRecords = checkpoint.data?.channel_checkpoint && typeof checkpoint.data.channel_checkpoint === "object"
@@ -197,7 +271,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
           google_url: customer.google_url, address: customer.address,
           industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
           evidence: evidenceForModel(records),
-        }, { signal: timeoutController.signal, timeoutMs: 14_000 });
+        }, { signal: timeoutController.signal, timeoutMs: 14_000, tier: "deep" });
         await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
       } catch (error) {
         await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
@@ -222,14 +296,20 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
             google_url: customer.google_url, address: customer.address,
             industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
             evidence: evidenceForModel(records),
-          }, { signal: timeoutController.signal, timeoutMs: 11_000 });
+          }, { signal: timeoutController.signal, timeoutMs: 11_000, tier: "fast" });
           await saveModelCall({ ...input, channel, attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
         } catch (error) {
           await saveModelCall({ ...input, channel, attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
           throw error;
         }
         usage = addUsage(usage, analysis.usage);
-        if (analysis.confidence_score >= 90 && analysis.evidence_sufficiency !== "不足" && analysis.evidence_conflicts.length === 0) {
+        const strongEvidence = analysis.evidence_summaries.filter((item) => item.evidence_type === "支持" && item.confidence >= 75).length;
+        const independentSources = new Set(analysis.evidence_summaries.filter((item) => item.confidence >= 60).map((item) => item.channel)).size;
+        if (analysis.confidence_score >= 90
+          && analysis.score_breakdown.entity_consistency >= 75
+          && analysis.evidence_sufficiency !== "不足"
+          && analysis.evidence_conflicts.length === 0
+          && (strongEvidence >= 1 || independentSources >= 2)) {
           earlyStopReason = `完成${AI_CHANNEL_LABELS[channel]}后，${analysis.is_target_customer ? "目标" : "非目标"}判断置信度${analysis.confidence_score}分且无关键矛盾`;
           break;
         }
@@ -242,7 +322,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
             google_url: customer.google_url, address: customer.address,
             industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
             evidence: evidenceForModel(records),
-          }, { signal: timeoutController.signal, timeoutMs: 11_000 });
+          }, { signal: timeoutController.signal, timeoutMs: 11_000, tier: "fast" });
           await saveModelCall({ ...input, channel: "available_customer_fields", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
         } catch (error) {
           await saveModelCall({ ...input, channel: "available_customer_fields", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
@@ -252,6 +332,26 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       }
     }
     if (timeoutController.signal.aborted) throw new Error("CUSTOMER_ANALYSIS_TIMEOUT");
+    const needsEscalation = analysis.evidence_conflicts.length > 0
+      || (analysis.ai_score >= 70 && analysis.confidence_score < (input.strategy === "DEEP" ? 95 : 90))
+      || (analysis.evidence_sufficiency !== "不足" && analysis.confidence_score < 55);
+    if (needsEscalation && !timeoutController.signal.aborted) {
+      const callStarted = Date.now();
+      try {
+        const escalated = await analyzeCustomer({
+          customer_name: customer.company_name, country: customer.country, website: customer.website,
+          google_url: customer.google_url, address: customer.address,
+          industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
+          evidence: evidenceForModel(records),
+        }, { signal: timeoutController.signal, timeoutMs: 10_000, tier: "escalation" });
+        await saveModelCall({ ...input, channel: "final_escalation", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: escalated.usage, status: "COMPLETED" });
+        usage = addUsage(usage, escalated.usage);
+        analysis = escalated;
+      } catch (error) {
+        await saveModelCall({ ...input, channel: "final_escalation", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
+        if (input.strategy === "DEEP" && analysis.confidence_score < 60) throw error;
+      }
+    }
 
     const websiteRecords = records
       .filter((item) => item.status === "COLLECTED" && item.channel !== "google_maps")
@@ -284,7 +384,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       manual_review_status: analysis.confidence_score < 60 || analysis.evidence_sufficiency === "不足" ? "NEEDS_REVIEW" : "NOT_REVIEWED",
       suggested_contact_order: analysis.suggested_contact_order,
       discovered_contacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps },
-      model_version: usage.model, rule_version: "2026.08.21", field_mapping_version: AI_FIELD_MAPPING_VERSION,
+      model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
     };
     const previousResult = await admin.from("ai_screening_results").select("id").eq("task_item_id", input.taskItemId).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (previousResult.error) throw previousResult.error;
@@ -293,19 +393,43 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       : await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
     if (resultWrite.error || !resultWrite.data) throw resultWrite.error || new Error("RESULT_WRITE_FAILED");
 
-    const evidenceRows = records.map((item) => ({
-      result_id: resultWrite.data.id, task_id: input.taskId, customer_id: customer.id,
-      evidence_type: AI_CHANNEL_LABELS[item.channel], channel: item.channel,
-      source_url: item.source_url || null, title: item.evidence && "title" in item.evidence ? item.evidence.title || null : item.evidence && "name" in item.evidence ? item.evidence.name || null : null,
-      content: evidenceContent(item), metadata: item.evidence || {}, status: item.status,
-      error_code: item.status === "FAILED" ? item.error || "FETCH_FAILED" : null,
-      content_hash: item.evidence ? createHash("sha256").update(JSON.stringify(item.evidence)).digest("hex") : null,
+    const entityConsistency = analysis.score_breakdown.entity_consistency;
+    const readableEvidence = analysis.evidence_summaries.length ? analysis.evidence_summaries : records.map((item) => ({
+      channel: item.channel,
+      title_zh: `${AI_CHANNEL_LABELS[item.channel]}核验记录`,
+      fact_zh: item.status === "COLLECTED" ? "系统已读取该公开来源，但未提炼到可直接引用的中文关键事实。" : item.status === "FAILED" ? `该来源读取失败：${item.error || "未知错误"}` : `已跳过该来源：${item.error || "没有可读取入口"}`,
+      source_url: item.source_url || "",
+      evidence_type: "中性" as const,
+      confidence: item.status === "COLLECTED" ? 50 : 0,
     }));
+    const evidenceRows = readableEvidence.map((summary) => {
+      const channel = AI_CHANNEL_ORDER.includes(summary.channel as AiChannel) ? summary.channel as AiChannel : "other";
+      const source = records.find((item) => item.channel === channel);
+      const normalizedFact = summary.fact_zh.trim().slice(0, 1600);
+      return {
+        result_id: resultWrite.data.id, task_id: input.taskId, customer_id: customer.id,
+        evidence_type: summary.evidence_type, channel,
+        source_url: summary.source_url || source?.source_url || null,
+        title: summary.title_zh.trim().slice(0, 180) || `${AI_CHANNEL_LABELS[channel]}关键依据`,
+        content: normalizedFact,
+        raw_excerpt: source ? evidenceContent(source) : null,
+        normalized_fact: normalizedFact,
+        identity_match_status: entityConsistency >= 75 ? "matched" : entityConsistency >= 55 ? "likely_matched" : "unverified",
+        supports: summary.evidence_type === "支持" ? "目标客户判断" : null,
+        contradicts: summary.evidence_type === "矛盾" ? "目标客户判断" : null,
+        evidence_confidence: Math.max(0, Math.min(100, Math.round(summary.confidence || 0))),
+        metadata: { channel, status: source?.status || "COLLECTED", media_urls: source?.evidence && "image_urls" in source.evidence ? source.evidence.image_urls : [] },
+        status: source?.status || "COLLECTED",
+        error_code: source?.status === "FAILED" ? source.error || "FETCH_FAILED" : null,
+        failure_reason: source?.status === "FAILED" ? source.error || "来源读取失败" : null,
+        content_hash: createHash("sha256").update(`${channel}|${normalizedFact}|${summary.source_url || source?.source_url || ""}`).digest("hex"),
+      };
+    });
     if (evidenceRows.length) {
-      const existingEvidence = await admin.from("ai_screening_evidence").select("channel").eq("result_id", resultWrite.data.id);
+      const existingEvidence = await admin.from("ai_screening_evidence").select("content_hash").eq("result_id", resultWrite.data.id);
       if (existingEvidence.error) throw existingEvidence.error;
-      const completedChannels = new Set((existingEvidence.data || []).map((row) => row.channel));
-      const pendingEvidence = evidenceRows.filter((row) => !completedChannels.has(row.channel));
+      const completedEvidence = new Set((existingEvidence.data || []).map((row) => row.content_hash).filter(Boolean));
+      const pendingEvidence = evidenceRows.filter((row) => !completedEvidence.has(row.content_hash));
       if (pendingEvidence.length) {
         const evidenceWrite = await admin.from("ai_screening_evidence").insert(pendingEvidence);
         if (evidenceWrite.error) throw evidenceWrite.error;
@@ -328,6 +452,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       }).eq("id", customer.id);
     }
     if (customerWrite.error) throw customerWrite.error;
+    await saveSupplementalContacts(customer, { websiteEmail, websitePhone, whatsapps: discoveredWhatsapps }, records);
 
     const itemWrite = await admin.from("ai_screening_task_items").update({
       status: "COMPLETED", progress: 100, current_step: "WRITTEN_BACK", error_message: null, error_code: null,
@@ -337,6 +462,15 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       duration_ms: Date.now() - started, completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", input.taskItemId);
     if (itemWrite.error) throw itemWrite.error;
+    await saveReusableAnalysis({
+      customer,
+      strategy: input.strategy,
+      resultId: resultWrite.data.id,
+      analysisResult: resultPayload as unknown as Record<string, unknown>,
+      evidenceSnapshot: evidenceRows as unknown as Array<Record<string, unknown>>,
+      discoveredContacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps },
+      modelSnapshot: { primary_model: usage.model, rule_version: AI_RULE_VERSION },
+    });
     await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
     return { status: "COMPLETED" as const, resultId: resultWrite.data.id };
   } finally {

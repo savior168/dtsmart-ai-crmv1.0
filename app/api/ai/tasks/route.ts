@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
+import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -83,11 +84,27 @@ export async function GET(request: NextRequest) {
         if (rows.length < 1000) break;
       }
     }
-    const pending = await supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).is("ai_score", null);
-    if (pending.error) throw pending.error;
+    const reservedCustomerIds = await getReservedAiCustomerIds(user.id);
+    let pendingCustomerCount = 0;
+    let eligibleCustomerCount = 0;
+    for (let offset = 0; ; offset += 1000) {
+      const pending = await supabase
+        .from("customers")
+        .select("id")
+        .is("deleted_at", null)
+        .is("ai_score", null)
+        .range(offset, offset + 999);
+      if (pending.error) throw pending.error;
+      for (const customer of pending.data || []) {
+        pendingCustomerCount += 1;
+        if (!reservedCustomerIds.has(customer.id)) eligibleCustomerCount += 1;
+      }
+      if (!pending.data || pending.data.length < 1000) break;
+    }
     return NextResponse.json({
       data: result.data || [], count: result.count || 0, counts,
-      pending_customers: pending.count || 0,
+      pending_customers: pendingCustomerCount,
+      available_customers: eligibleCustomerCount,
       today_cost: todayCost,
       today_completed_customers: todayCompletedCount,
       today_failed_customers: todayFailedCount,

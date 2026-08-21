@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Activity, CircleDollarSign, Plus, RefreshCw, RotateCcw, Target, Users } from "lucide-react";
+import { Activity, CalendarRange, CircleDollarSign, Plus, RefreshCw, RotateCcw, Target, Users } from "lucide-react";
 import type { AiTask } from "@/components/ai-screening/types";
 import { ConfirmDialog, ErrorState, Loading, PageHeader, Pagination, StatusBadge, StrategyBadge, button, formatCost, formatNumber, formatTokens, panel, primaryButton, input, useToast } from "@/components/ai-screening/ui";
 
@@ -39,7 +39,6 @@ export function TaskCenterView() {
   const [status, setStatus] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
-  const [selectionMode, setSelectionMode] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [pendingAction, setPendingAction] = useState<{ task: AiTask; action: string } | null>(null);
@@ -47,13 +46,13 @@ export function TaskCenterView() {
   const { toast, node: toastNode } = useToast();
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
-    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), status, search, selection_mode: selectionMode, date_from: dateFrom, date_to: dateTo });
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), status, search, date_from: dateFrom, date_to: dateTo });
     const response = await fetch(`/api/ai/tasks?${params}`, { cache: "no-store" });
     const body = await response.json().catch(() => ({}));
     if (!quiet) setLoading(false);
     if (!response.ok) { setError(body.error || "任务列表查询失败"); return; }
     setData(body); setError("");
-  }, [page, pageSize, status, search, selectionMode, dateFrom, dateTo]);
+  }, [page, pageSize, status, search, dateFrom, dateTo]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { const timer = setInterval(() => void load(true), 15000); return () => clearInterval(timer); }, [load]);
 
@@ -83,8 +82,12 @@ export function TaskCenterView() {
     </section>
 
     <section className={`${panel} overflow-hidden`}>
-      <div className="border-b px-5 pt-5"><h2 className="text-lg font-semibold">AI筛选任务</h2><p className="mt-1 text-sm text-slate-500">集中查看当前用户有权限访问的全部历史任务。</p><nav className="mt-4 flex gap-6 overflow-x-auto">{tabs.map(([value, label, key]) => <button key={key} onClick={() => { setStatus(value); setPage(1); }} className={`whitespace-nowrap border-b-2 pb-3 text-sm ${status === value ? "border-blue-600 font-medium text-blue-600" : "border-transparent text-slate-500"}`}>{label} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">{formatNumber(data?.counts?.[key])}</span></button>)}</nav></div>
-      <form onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }} className="grid items-end gap-[10px] border-b p-[14px_16px] xl:grid-cols-[minmax(220px,1.4fr)_minmax(130px,.8fr)_minmax(150px,.8fr)_minmax(220px,1fr)_auto]"><input className={input} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="搜索任务名称或任务编号"/><select className={input} value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">全部状态</option><option value="RUNNING">执行中</option><option value="QUEUED">排队中</option><option value="COMPLETED">已完成</option><option value="FAILED">失败</option></select><select className={input} value={selectionMode} onChange={(event) => { setSelectionMode(event.target.value); setPage(1); }}><option value="">全部创建方式</option><option value="FILTERED">按条件筛选</option><option value="BATCH">指定批次</option><option value="MANUAL">手动选择</option></select><div className="grid grid-cols-2 gap-2"><input type="date" className={input} aria-label="开始日期" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)}/><input type="date" className={input} aria-label="结束日期" value={dateTo} onChange={(event) => setDateTo(event.target.value)}/></div><div className="flex gap-2"><button className={primaryButton}>查询</button><button type="button" className={button} onClick={() => { setSearchDraft(""); setSearch(""); setStatus(""); setSelectionMode(""); setDateFrom(""); setDateTo(""); setPage(1); }}>重置</button></div></form>
+      <div className="border-b px-5 pt-5"><h2 className="text-lg font-semibold">AI筛选任务</h2><p className="mt-1 text-sm text-slate-500">集中查看当前用户有权限访问的全部历史任务；任务状态通过下方页签切换，避免重复筛选。</p><nav className="mt-4 flex gap-6 overflow-x-auto">{tabs.map(([value, label, key]) => <button key={key} onClick={() => { setStatus(value); setPage(1); }} className={`whitespace-nowrap border-b-2 pb-3 text-sm ${status === value ? "border-blue-600 font-medium text-blue-600" : "border-transparent text-slate-500"}`}>{label} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">{formatNumber(data?.counts?.[key])}</span></button>)}</nav></div>
+      <form onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }} className="grid items-end gap-[10px] border-b p-[14px_16px] xl:grid-cols-[minmax(260px,1.25fr)_minmax(430px,1.5fr)_auto]">
+        <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-500">任务名称 / 编号</span><input className={`${input} w-full`} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="搜索任务名称或任务编号"/></label>
+        <fieldset className="min-w-0"><legend className="mb-1.5 text-xs font-medium text-slate-500">创建日期范围</legend><div className="flex h-[38px] items-center overflow-hidden rounded-[7px] border border-[#d8dfe9] bg-white focus-within:border-[#1763e8] focus-within:ring-2 focus-within:ring-blue-100"><CalendarRange className="ml-3 shrink-0 text-slate-400" size={16}/><span className="ml-2 shrink-0 text-xs text-slate-500">开始</span><input type="date" className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-sm outline-none" aria-label="开始日期" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)}/><span className="shrink-0 text-slate-400">至</span><span className="ml-2 shrink-0 text-xs text-slate-500">结束</span><input type="date" className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-sm outline-none" aria-label="结束日期" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)}/></div></fieldset>
+        <div className="flex gap-2"><button className={primaryButton}>查询</button><button type="button" className={button} onClick={() => { setSearchDraft(""); setSearch(""); setStatus(""); setDateFrom(""); setDateTo(""); setPage(1); }}>重置</button></div>
+      </form>
       {error ? <ErrorState message={error} reload={() => void load()}/> : loading ? <Loading/> : <div className="overflow-x-auto"><table className="w-full min-w-[1280px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["任务名称 / 编号","分析策略","筛选客户","状态","进度","总Token","费用","平均每位客户","创建时间","操作"].map((value) => <th key={value} className="px-4 py-3 font-medium">{value}</th>)}</tr></thead><tbody>{(data?.data || []).map((task) => { const itemControl = control(task); const processed = Number(task.processed_count || task.success_count + task.failed_count); const avgTokens = processed ? task.total_tokens / processed : 0; const avgCost = processed ? Number(task.total_cost_usd) / processed : 0; const progress = task.total_count ? Math.min(100, processed / task.total_count * 100) : 0; return <tr key={task.id} className="border-t border-slate-100 hover:bg-blue-50/30"><td className="px-4 py-3"><b className="block font-medium text-slate-900">{task.name}</b><span className="mt-1 block text-xs text-slate-400">{task.task_number}</span></td><td className="px-4 py-3"><StrategyBadge strategy={task.strategy}/></td><td className="px-4 py-3">{formatNumber(task.total_count)} 条</td><td className="px-4 py-3"><StatusBadge status={task.status}/></td><td className="w-44 px-4 py-3"><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }}/></div><span className="mt-1 block text-xs text-slate-400">{formatNumber(processed)} / {formatNumber(task.total_count)}</span></td><td className="px-4 py-3">{formatTokens(task.total_tokens)}</td><td className="px-4 py-3">{formatCost(task.total_cost_usd)}</td><td className="px-4 py-3">{formatTokens(avgTokens)} / {formatCost(avgCost)}</td><td className="px-4 py-3 text-slate-500">{new Date(task.created_at).toLocaleString("zh-CN")}</td><td className="px-4 py-3"><div className="flex items-center gap-3 whitespace-nowrap"><Link href={`/ai-screening/tasks/${task.id}`} className="font-medium text-blue-600">查看详情</Link>{task.status === "COMPLETED" ? <Link href={`/ai-screening/tasks/${task.id}/report`} className="font-medium text-blue-600">查看报告</Link> : null}{itemControl ? <button className={`font-medium ${itemControl.className}`} onClick={() => setPendingAction({ task, action: itemControl.action })}>{itemControl.label}</button> : null}</div></td></tr>; })}</tbody></table>{!data?.data.length ? <div className="p-14 text-center text-sm text-slate-400">暂无符合条件的AI筛选任务</div> : null}</div>}
       <Pagination page={page} pageSize={pageSize} total={data?.count || 0} itemLabel="个任务" onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }}/>
     </section>

@@ -1,0 +1,102 @@
+import { createHash } from "node:crypto";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { AiMappedCustomer } from "@/lib/ai/semantic-fields";
+import type { AiStrategy } from "@/lib/ai/task-types";
+
+export const AI_RULE_VERSION = "2026.08.21.2";
+
+function compact(value?: string | null) {
+  return String(value || "").normalize("NFKC").trim().toLowerCase().replace(/[^\p{L}\p{N}@.+]/gu, "");
+}
+
+function domain(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try { return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.replace(/^www\./, "").toLowerCase(); }
+  catch { return ""; }
+}
+
+function digest(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function customerIdentityKeys(customer: AiMappedCustomer) {
+  const name = compact(customer.company_name || customer.contact_name);
+  const country = compact(customer.country);
+  const phone = compact(customer.phone);
+  const email = compact(customer.email);
+  const website = domain(customer.website);
+  const google = compact(customer.google_url);
+  const strong: string[] = [];
+  if (name && phone.length >= 7) strong.push(`name_phone:${name}|${phone}|${country}`);
+  if (name && email.includes("@")) strong.push(`name_email:${name}|${email}|${country}`);
+  if (name && website) strong.push(`name_domain:${name}|${website}|${country}`);
+  if (name && google) strong.push(`name_google:${name}|${google}|${country}`);
+  return [...new Set(strong)].map(digest);
+}
+
+export function customerSourceSignature(customer: AiMappedCustomer) {
+  return digest(JSON.stringify({
+    company: compact(customer.company_name), country: compact(customer.country), phone: compact(customer.phone),
+    email: compact(customer.email), website: domain(customer.website), google: compact(customer.google_url),
+    linkedin: compact(customer.linkedin_url), facebook: compact(customer.facebook_url), instagram: compact(customer.instagram_url),
+  }));
+}
+
+export async function findReusableAnalysis(customer: AiMappedCustomer, strategy: AiStrategy) {
+  const keys = customerIdentityKeys(customer);
+  if (!keys.length) return null;
+  const strategies = strategy === "SMART" ? ["SMART", "DEEP"] : ["DEEP"];
+  const admin = createAdminClient();
+  const result = await admin.from("ai_analysis_reuse_cache")
+    .select("*")
+    .in("identity_key", keys)
+    .in("strategy", strategies)
+    .eq("rule_version", AI_RULE_VERSION)
+    .gt("expires_at", new Date().toISOString())
+    .order("captured_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (result.error) {
+    // Compatibility: a not-yet-applied additive migration must not stop analysis.
+    if (/ai_analysis_reuse_cache|schema cache|does not exist/i.test(result.error.message)) return null;
+    throw result.error;
+  }
+  return result.data || null;
+}
+
+export async function saveReusableAnalysis(input: {
+  customer: AiMappedCustomer;
+  strategy: AiStrategy;
+  resultId: string;
+  analysisResult: Record<string, unknown>;
+  evidenceSnapshot: unknown[];
+  discoveredContacts: Record<string, unknown>;
+  modelSnapshot: Record<string, unknown>;
+}) {
+  const keys = customerIdentityKeys(input.customer);
+  if (!keys.length) return;
+  const admin = createAdminClient();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + (input.strategy === "DEEP" ? 30 : 14) * 86_400_000).toISOString();
+  const sourceSignature = customerSourceSignature(input.customer);
+  const rows = keys.map((identityKey) => ({
+    identity_key: identityKey,
+    source_customer_id: input.customer.id,
+    source_result_id: input.resultId,
+    strategy: input.strategy,
+    rule_version: AI_RULE_VERSION,
+    field_mapping_version: "2026.08.21",
+    source_signature: sourceSignature,
+    analysis_result: input.analysisResult,
+    evidence_snapshot: input.evidenceSnapshot,
+    discovered_contacts: input.discoveredContacts,
+    model_snapshot: input.modelSnapshot,
+    captured_at: now.toISOString(),
+    expires_at: expiresAt,
+    updated_at: now.toISOString(),
+  }));
+  const write = await admin.from("ai_analysis_reuse_cache").upsert(rows, { onConflict: "identity_key,strategy,rule_version,source_signature" });
+  if (write.error && !/ai_analysis_reuse_cache|schema cache|does not exist/i.test(write.error.message)) throw write.error;
+}
+

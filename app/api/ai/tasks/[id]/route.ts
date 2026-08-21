@@ -38,7 +38,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (task.status !== "RUNNING") return NextResponse.json({ error: "只有执行中的任务可以停止" }, { status: 409 });
       await admin.from("ai_screening_tasks").update({ status: "PAUSING", updated_at: new Date().toISOString() }).eq("id", id);
     } else if (body.action === "cancel") {
-      if (task.status !== "QUEUED") return NextResponse.json({ error: "只有排队中的任务可以取消" }, { status: 409 });
+      if (!["QUEUED", "PAUSED"].includes(task.status)) return NextResponse.json({ error: "只有排队中或已停止的任务可以取消" }, { status: 409 });
       await admin.from("ai_screening_tasks").update({ status: "CANCELLED", cancel_requested: true, cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id);
     } else if (body.action === "resume") {
       if (task.status !== "PAUSED") return NextResponse.json({ error: "只有已停止的任务可以继续执行" }, { status: 409 });
