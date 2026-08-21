@@ -30,14 +30,14 @@ export async function GET(request: NextRequest) {
     if (selectionMode) query = query.eq("selection_mode", selectionMode);
     if (from) query = query.gte("created_at", `${from}T00:00:00`);
     if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
-    const result = await query.order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+    const result = await query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
     const all: Array<{ id: string; status: string; total_count: number; success_count: number; failed_count: number; total_tokens: number; total_cost_usd: number; created_at: string }> = [];
     for (let offset = 0; ; offset += 1000) {
       const stats = await admin.from("ai_screening_tasks")
         .select("id,status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
+        .order("updated_at", { ascending: false })
         .range(offset, offset + 999);
       if (stats.error) throw stats.error;
       const rows = stats.data || [];

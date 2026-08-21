@@ -167,3 +167,21 @@ table th { font-weight:600; }
   .dashboard-donut-segment:focus-visible { animation: none; }
   .dashboard-funnel-layer { transition: none; }
 }
+/* AI任务创建页暂不开放来源渠道、批次、估算费用与完成通知。保留底层字段以便后续启用。 */
+.ai-create-task-page label:has(select option[value="新增&导入"]),
+.ai-create-task-page label:has(input[list="ai-source-batches"]),
+.ai-create-task-page aside label:has(select option[value="IN_APP_EMAIL"]),
+.ai-create-task-page aside dl > div:last-child {
+  display: none;
+}
+
+/* 客户分析依据页主操作按钮必须始终显示清晰的客户详情文字。 */
+a[href^="/customers/"][class*="bg-[#1763e8]"] {
+  color: #fff !important;
+}
+
+@media (min-width: 1280px) {
+  .ai-create-task-page div:has(> label select option[value="新增&导入"]) {
+    grid-template-columns: minmax(300px, 1.35fr) minmax(200px, .7fr) minmax(360px, 1fr) auto !important;
+  }
+}

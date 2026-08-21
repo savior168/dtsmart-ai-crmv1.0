@@ -48,7 +48,11 @@ assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实�
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 const workflow = read("workflows/ai-screening.ts");
 assert.match(workflow, /Promise\.all\(batch\.map/, "AI任务必须按可控并发持续执行，单条失败不能终止整批任务");
+assert.match(workflow, /Promise\.race\(\[analysis, deadline\]\)/, "单个客户必须有独立30秒强制超时兜底");
 assert.match(workflow, /AI_SCREENING_CONCURRENCY/, "AI任务并发量必须可通过服务端环境变量配置");
+assert.match(workflow, /status: "COMPLETED"/, "单个客户失败不能把已跑完的整个任务标记为失败");
+assert.match(workflow, /failTask\(input\.taskId/, "任务级异常必须单独标记整个任务失败");
+assert.match(workflow, /order\("updated_at", \{ ascending: false \}\)/, "任务客户领取顺序必须按最近更新时间倒序");
 const nextConfig = read("next.config.ts");
 assert.match(nextConfig, /withWorkflow\(nextConfig\)/, "生产构建必须启用持久化Workflow");
 const taskCenter = read("components/ai-screening/task-center-view.tsx");
@@ -59,14 +63,21 @@ assert.match(taskCenter, /status === "RUNNING"[\s\S]*action: "pause"[\s\S]*停�
 assert.match(taskCenter, /status === "QUEUED"[\s\S]*action: "cancel"[\s\S]*取消任务/, "排队中任务必须显示取消任务");
 assert.match(taskCenter, /status === "PAUSED"[\s\S]*action: "resume"[\s\S]*继续执行/, "已停止任务必须显示继续执行");
 assert.match(taskCenter, /status === "FAILED"[\s\S]*action: "retry"[\s\S]*重试失败项/, "失败任务必须显示重试失败项");
+assert.match(taskCenter, /查看AI筛选用量/, "任务中心顶部必须提供清晰可识别的AI用量入口");
+assert.match(taskCenter, /成功 \/ 失败[\s\S]*任务耗时/, "任务列表必须显示实时成功失败数量和任务耗时");
+const taskActionApi = read("app/api/ai/tasks/[id]/route.ts");
+assert.match(taskActionApi, /getRun[\s\S]*run\.cancel\(\)/, "停止任务必须真实取消当前持久工作流运行");
+assert.match(taskActionApi, /status: "PAUSED"[\s\S]*elapsed_ms:/, "停止任务必须落为已停止并保存累计耗时");
+assert.match(taskActionApi, /action === "resume"[\s\S]*start\(aiScreeningWorkflow/, "继续执行必须启动新的持久工作流处理剩余项");
 const taskDetail = read("components/ai-screening/task-detail-view.tsx");
-assert.match(taskDetail, /RUNNING" \? "pause"[\s\S]*QUEUED" \? "cancel"[\s\S]*PAUSED" \? "resume"[\s\S]*FAILED" \? "retry"/, "任务详情状态操作必须与任务中心一致");
+assert.match(taskDetail, /\["RUNNING", "PAUSING"\][\s\S]*"pause"[\s\S]*QUEUED" \? "cancel"[\s\S]*PAUSED" \? "resume"[\s\S]*FAILED" \|\|[\s\S]*COMPLETED"[\s\S]*"retry"/, "任务详情状态操作必须与任务中心一致");
 for (const href of ["/ai-screening/new", "/ai-screening/results", "/ai-screening/failures", "/ai-screening/usage", "/ai-screening/tasks/"]) {
   assert.match(taskCenter, new RegExp(href.replaceAll("/", "\\/")), `任务中心缺少入口：${href}`);
 }
 const createTaskView = read("components/ai-screening/create-task-view.tsx");
 assert.match(createTaskView, /useEffect\(\(\) => \{ void load\(true\)/, "创建任务首次进入必须加载并选中全部待筛选客户");
 assert.match(createTaskView, /datetime-local/, "预约执行必须提供日期时间组合组件");
+assert.match(createTaskView, /useState\(10\)/, "创建任务客户列表必须默认每页显示10条");
 assert.match(createTaskView, /全选全部查询结果[\s\S]*清空选择/, "创建任务必须支持全部查询结果选择与清空");
 assert.match(createTaskView, /\/ai-screening\/strategies/, "创建任务策略弹窗必须能进入完整策略说明");
 const resultsApi = read("app/api/ai/results/route.ts");

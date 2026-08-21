@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {
-      const owned = await admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).range(offset, offset + 999);
+      const owned = await admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(offset, offset + 999);
       if (owned.error) throw owned.error;
       const rows = owned.data || [];
       ownedTasks.push(...rows);

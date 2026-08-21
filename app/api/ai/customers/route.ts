@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       let query = supabase.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
       if (from) query = query.gte("created_at", `${from}T00:00:00`);
       if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
-      return query.order("created_at", { ascending: false }).range(start, end);
+      return query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(start, end);
     };
 
     const matchesFilters = (row: ReturnType<typeof mapCustomerForAi>) => {

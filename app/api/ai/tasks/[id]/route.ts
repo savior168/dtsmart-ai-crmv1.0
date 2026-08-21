@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { start } from "workflow/api";
+import { getRun, start } from "workflow/api";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
@@ -10,6 +10,19 @@ async function ownedTask(id: string, userId: string) {
   const result = await admin.from("ai_screening_tasks").select("*").eq("id", id).eq("user_id", userId).single();
   if (result.error || !result.data) throw result.error || new Error("任务不存在或无权访问");
   return result.data;
+}
+
+function accumulatedElapsed(task: { elapsed_ms?: number | null; started_at?: string | null }) {
+  const previous = Number(task.elapsed_ms || 0);
+  if (!task.started_at) return previous;
+  const started = new Date(task.started_at).getTime();
+  return previous + (Number.isFinite(started) ? Math.max(0, Date.now() - started) : 0);
+}
+
+async function cancelWorkflowRun(runId?: string | null) {
+  if (!runId) return;
+  const run = getRun(runId);
+  if (await run.exists) await run.cancel();
 }
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -35,24 +48,56 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const task = await ownedTask(id, user.id);
     const admin = createAdminClient();
     if (body.action === "pause") {
-      if (task.status !== "RUNNING") return NextResponse.json({ error: "只有执行中的任务可以停止" }, { status: 409 });
-      await admin.from("ai_screening_tasks").update({ status: "PAUSING", updated_at: new Date().toISOString() }).eq("id", id);
+      if (!["RUNNING", "PAUSING"].includes(task.status)) return NextResponse.json({ error: "只有执行中的任务可以停止" }, { status: 409 });
+      const now = new Date().toISOString();
+      const pausing = await admin.from("ai_screening_tasks").update({ status: "PAUSING", updated_at: now }).eq("id", id);
+      if (pausing.error) throw pausing.error;
+      await cancelWorkflowRun(task.workflow_run_id);
+      const resetItems = await admin.from("ai_screening_task_items").update({
+        status: "PENDING", progress: 0, current_step: "WAITING", started_at: null, updated_at: now,
+      }).eq("task_id", id).eq("status", "RUNNING");
+      if (resetItems.error) throw resetItems.error;
+      const paused = await admin.from("ai_screening_tasks").update({
+        status: "PAUSED", started_at: null, pause_started_at: now,
+        elapsed_ms: accumulatedElapsed(task), cancel_requested: false, updated_at: now,
+      }).eq("id", id);
+      if (paused.error) throw paused.error;
+      await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: id });
     } else if (body.action === "cancel") {
       if (!["QUEUED", "PAUSED"].includes(task.status)) return NextResponse.json({ error: "只有排队中或已停止的任务可以取消" }, { status: 409 });
-      await admin.from("ai_screening_tasks").update({ status: "CANCELLED", cancel_requested: true, cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id);
+      await cancelWorkflowRun(task.workflow_run_id);
+      const now = new Date().toISOString();
+      const cancelled = await admin.from("ai_screening_tasks").update({ status: "CANCELLED", cancel_requested: true, cancelled_at: now, finished_at: now, updated_at: now }).eq("id", id);
+      if (cancelled.error) throw cancelled.error;
     } else if (body.action === "resume") {
       if (task.status !== "PAUSED") return NextResponse.json({ error: "只有已停止的任务可以继续执行" }, { status: 409 });
-      await admin.from("ai_screening_tasks").update({ status: "RUNNING", cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);
+      const now = new Date().toISOString();
+      const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, pause_started_at: null, completed_at: null, finished_at: null, error_message: null, updated_at: now }).eq("id", id);
+      if (queued.error) throw queued.error;
+      const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);
+      const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", id);
+      if (linked.error) throw linked.error;
     } else if (body.action === "retry") {
-      if (task.status !== "FAILED") return NextResponse.json({ error: "只有失败任务可以重试失败项" }, { status: 409 });
+      if (!["FAILED", "COMPLETED"].includes(task.status)) return NextResponse.json({ error: "只有失败任务或含失败客户的已完成任务可以重试" }, { status: 409 });
       const failed = await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
       if (failed.error) throw failed.error;
-      if (!failed.count) return NextResponse.json({ error: "当前任务没有可重试的失败客户" }, { status: 409 });
+      const pending = task.status === "FAILED"
+        ? await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).eq("task_id", id).in("status", ["PENDING", "RUNNING"])
+        : { count: 0, error: null };
+      if (pending.error) throw pending.error;
+      if (!failed.count && !pending.count) return NextResponse.json({ error: "当前任务没有可重试或未完成的客户" }, { status: 409 });
+      if (task.status === "FAILED") {
+        const resetRunning = await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", started_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "RUNNING");
+        if (resetRunning.error) throw resetRunning.error;
+      }
       const reset = await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
       if (reset.error) throw reset.error;
-      await admin.from("ai_screening_tasks").update({ status: "QUEUED", failed_count: 0, completed_at: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);
+      await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: id });
+      const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, finished_at: null, error_message: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);
+      if (queued.error) throw queued.error;
       const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);
-      await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId }).eq("id", id);
+      const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", id);
+      if (linked.error) throw linked.error;
     } else if (body.action === "edit") {
       if (task.status !== "QUEUED") return NextResponse.json({ error: "只有尚未执行的排队任务可以编辑" }, { status: 409 });
       const name = body.name?.trim();

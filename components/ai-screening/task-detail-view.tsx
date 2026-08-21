@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import type { AiTask, TaskItem } from "@/components/ai-screening/types";
-import { ConfirmDialog, ErrorState, Loading, PageHeader, Pagination, StatusBadge, StrategyBadge, button, formatCost, formatNumber, formatTokens, input, panel, primaryButton, useToast } from "@/components/ai-screening/ui";
+import { ConfirmDialog, ErrorState, Loading, PageHeader, Pagination, StatusBadge, StrategyBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, input, panel, primaryButton, useToast } from "@/components/ai-screening/ui";
 
 const stepLabels: Record<string, string> = { WAITING: "等待分析", COLLECTING_EVIDENCE: "读取公开渠道证据", ANALYZING: "OpenAI结构化分析", WRITTEN_BACK: "结果已写回客户档案", FAILED: "分析失败" };
 const actionCopy: Record<string, { label: string; title: string; description: string }> = {
@@ -14,7 +14,7 @@ const actionCopy: Record<string, { label: string; title: string; description: st
   retry: { label: "重试失败项", title: "重试失败客户？", description: "仅重试失败客户，已完成客户不会重复分析。" },
 };
 
-function actionFor(status?: string) { return status === "RUNNING" ? "pause" : status === "QUEUED" ? "cancel" : status === "PAUSED" ? "resume" : status === "FAILED" ? "retry" : null; }
+function actionFor(task?: AiTask | null) { const status = task?.status; return ["RUNNING", "PAUSING"].includes(String(status)) ? "pause" : status === "QUEUED" ? "cancel" : status === "PAUSED" ? "resume" : status === "FAILED" || (status === "COMPLETED" && Number(task?.failed_count || 0) > 0) ? "retry" : null; }
 
 export function TaskDetailView({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<AiTask | null>(null);
@@ -32,6 +32,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const { toast, node } = useToast();
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -46,8 +47,9 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
     setTask(taskBody.task); setItems(itemsBody.data || []); setCount(itemsBody.count || 0); setError("");
   }, [taskId, page, pageSize, status, step, retryState, search]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (!task || refreshMs <= 0 || !["QUEUED", "RUNNING", "PAUSED"].includes(task.status)) return; const timer = setInterval(() => void load(true), refreshMs); return () => clearInterval(timer); }, [task, load, refreshMs]);
-  const currentAction = actionFor(task?.status);
+  useEffect(() => { if (!task || refreshMs <= 0 || !["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(task.status)) return; const timer = setInterval(() => void load(true), refreshMs); return () => clearInterval(timer); }, [task, load, refreshMs]);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  const currentAction = actionFor(task);
   const processed = Number(task?.processed_count || 0);
   const remaining = Math.max(0, Number(task?.total_count || 0) - processed);
   const averageTokens = processed ? Number(task?.total_tokens || 0) / processed : 0;
@@ -66,13 +68,14 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-[14px]">
     <PageHeader title={task?.name || "AI筛选任务详情"} description={`任务编号 ${task?.task_number || "-"} · ${task?.strategy === "DEEP" ? "深度分析" : "智能分析"} v1.0 · 创建于 ${task?.created_at ? new Date(task.created_at).toLocaleString("zh-CN") : "-"}`} actions={<><Link href="/ai-screening" className={button}>返回任务中心</Link><Link href={`/ai-screening/tasks/${taskId}/report`} className={primaryButton}>查看任务报告</Link>{currentAction ? <button className={button} onClick={() => setConfirm(currentAction)}>{actionCopy[currentAction].label}</button> : null}</>}/>
     {error ? <ErrorState message={error} reload={() => void load()}/> : null}
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">{[
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">{[
       ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <StrategyBadge key="strategy" strategy={task?.strategy || "SMART"}/>],
       ["已完成分析", formatNumber(processed), `占任务总量${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
       ["剩余待分析", formatNumber(remaining), `排队与处理中客户`],
       ["完成结果", `${formatNumber(task?.success_count)} / ${formatNumber(task?.failed_count)}`, "成功 / 失败"],
       ["当前总消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(task?.total_cost_usd)}`, "Token / 实际费用"],
       ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageCost)}`, "Token / 客户费用"],
+      ["任务执行耗时", formatDuration(task ? effectiveElapsedMs(task, now) : 0), "仅统计实际执行时间"],
     ].map(([label,value,sub]) => <article key={String(label)} className={`${panel} p-4`}><p className="text-xs text-slate-500">{label}</p><div className="mt-2 min-h-7 text-xl font-semibold text-slate-950">{value}</div><div className="mt-1 text-xs text-slate-400">{sub}</div></article>)}</section>
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#dce8ff] bg-[#f4f8ff] px-3 py-[10px] text-sm text-[#40608c]"><span><b>总体进度 {formatNumber(processed)} / {formatNumber(task?.total_count)}</b> · 页面刷新不会增加OpenAI调用或Token。</span><span className="flex items-center gap-2"><select className={`${input} h-8 w-auto`} value={refreshMs} onChange={(event) => setRefreshMs(Number(event.target.value))}><option value={10000}>每10秒刷新</option><option value={30000}>每30秒刷新</option><option value={0}>手动刷新</option></select><button className={`${button} h-8 px-3 text-[13px]`} onClick={() => void load()}><RefreshCw size={14}/>立即刷新</button></span></div>
     <section className={`${panel} overflow-hidden`}><div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold">任务处理队列</h2><p className="mt-1 text-sm text-[#778397]">用于监控每位客户的执行状态、当前步骤和异常重试；最终评分结果统一进入任务报告。</p></div><form onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }} className="grid items-end gap-[10px] border-b p-[14px_16px] xl:grid-cols-[minmax(220px,1.4fr)_repeat(3,minmax(150px,.8fr))_auto]"><input className={input} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="搜索客户名称、邮箱或电话"/><select className={input} value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">全部处理状态</option><option value="PENDING">等待分析</option><option value="RUNNING">分析中</option><option value="COMPLETED">已完成</option><option value="FAILED">分析失败</option></select><select className={input} value={step} onChange={(event) => { setStep(event.target.value); setPage(1); }}><option value="">全部处理步骤</option><option value="COLLECTING_EVIDENCE">读取公开入口</option><option value="ANALYZING">证据分析</option><option value="WRITTEN_BACK">写回客户</option><option value="FAILED">处理失败</option></select><select className={input} value={retryState} onChange={(event) => { setRetryState(event.target.value); setPage(1); }}><option value="">全部重试状态</option><option value="none">未重试</option><option value="retrying">自动重试中</option><option value="exhausted">已达重试上限</option></select><div className="flex gap-2"><button className={primaryButton}>查询</button><button type="button" className={button} onClick={() => { setSearchDraft(""); setSearch(""); setStatus(""); setStep(""); setRetryState(""); setPage(1); }}>重置</button></div></form>

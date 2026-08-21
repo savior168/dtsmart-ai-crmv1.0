@@ -22,10 +22,10 @@ export async function GET(request: NextRequest) {
     const returnAll = params.get("all") === "true";
     const admin = createAdminClient();
 
-    let taskQuery = admin.from("ai_screening_tasks").select("id,name,task_number,status,total_count,processed_count,input_tokens,cached_input_tokens,output_tokens,total_tokens,total_cost_usd,created_at").eq("user_id", user.id);
+    let taskQuery = admin.from("ai_screening_tasks").select("id,name,task_number,status,total_count,processed_count,input_tokens,cached_input_tokens,output_tokens,total_tokens,total_cost_usd,created_at,updated_at").eq("user_id", user.id);
     if (status) taskQuery = taskQuery.eq("status", status);
     if (taskId) taskQuery = taskQuery.eq("id", taskId);
-    const taskResult = await taskQuery.order("created_at", { ascending: false });
+    const taskResult = await taskQuery.order("updated_at", { ascending: false }).order("created_at", { ascending: false });
     if (taskResult.error) throw taskResult.error;
     const ownedTasks = taskResult.data || [];
     const taskIds = ownedTasks.map((item) => item.id);

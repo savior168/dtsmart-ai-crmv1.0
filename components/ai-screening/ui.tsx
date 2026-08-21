@@ -32,7 +32,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
   return <header className="flex flex-wrap items-start justify-between gap-[14px]"><div><h1 className="m-0 text-2xl font-bold leading-tight tracking-[-.25px] text-[#111a2c]">{title}</h1><div className="mt-[5px] text-sm leading-[1.65] text-[#6d798d]">{description}</div></div>{actions && <div className="flex flex-wrap items-center gap-[9px]">{actions}</div>}</header>;
 }
 
-export function Pagination({ page, pageSize, total, onPage, onPageSize, itemLabel = "条", pageSizes = [20, 50, 100] }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void; itemLabel?: string; pageSizes?: number[] }) {
+export function Pagination({ page, pageSize, total, onPage, onPageSize, itemLabel = "条", pageSizes = [10, 20, 50, 100] }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void; itemLabel?: string; pageSizes?: number[] }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const nums = [...new Set([1, page - 1, page, page + 1, pages].filter((value) => value >= 1 && value <= pages))];
   return <footer className="grid grid-cols-1 items-center gap-3 border-t border-[#e8ecf2] px-4 py-[14px] text-sm text-[#657187] md:grid-cols-[1fr_auto_1fr]"><span>共 {total.toLocaleString("zh-CN")} {itemLabel}</span><div className="flex items-center justify-center gap-[5px]"><button className="grid h-[34px] min-w-[34px] place-items-center rounded-md border border-[#dbe1ea] bg-white disabled:opacity-45" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="上一页"><ChevronLeft size={16}/></button>{nums.map((value, index) => <span key={`${value}-${index}`} className="contents">{index > 0 && value - nums[index - 1] > 1 ? <span className="grid h-[34px] w-8 place-items-center">…</span> : null}<button onClick={() => onPage(value)} className={`h-[34px] min-w-[34px] rounded-md border px-2 ${value === page ? "border-[#1763e8] bg-[#1763e8] text-white" : "border-[#dbe1ea] bg-white text-[#46536a]"}`}>{value}</button></span>)}<button className="grid h-[34px] min-w-[34px] place-items-center rounded-md border border-[#dbe1ea] bg-white disabled:opacity-45" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="下一页"><ChevronRight size={16}/></button></div><div className="flex items-center justify-self-end gap-2"><select className={`${input} h-[34px]`} value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>{pageSizes.map((size) => <option key={size} value={size}>{size}条/页</option>)}</select><label className="flex items-center gap-1">跳至 <input className="h-[34px] w-12 rounded-md border border-[#dbe1ea] px-2 text-center" defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const value = Math.min(pages, Math.max(1, Number(event.currentTarget.value) || 1)); onPage(value); } }}/> 页</label></div></footer>;
@@ -61,3 +61,19 @@ export function useToast() {
 export function formatNumber(value: number | null | undefined) { return Number(value || 0).toLocaleString("zh-CN"); }
 export function formatTokens(value: number | null | undefined) { const total = Number(value || 0); return total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)}M` : total >= 1_000 ? `${(total / 1_000).toFixed(2)}K` : String(total); }
 export function formatCost(value: number | string | null | undefined) { return `$${Number(value || 0).toFixed(4)}`; }
+export function formatDuration(value: number | null | undefined) {
+  const totalSeconds = Math.max(0, Math.floor(Number(value || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}小时${minutes}分${seconds}秒`;
+  if (minutes) return `${minutes}分${seconds}秒`;
+  return `${seconds}秒`;
+}
+
+export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number | null; started_at?: string | null }, now = Date.now()) {
+  const accumulated = Number(task.elapsed_ms || 0);
+  if (!["RUNNING", "PAUSING"].includes(String(task.status)) || !task.started_at) return accumulated;
+  const started = new Date(task.started_at).getTime();
+  return accumulated + (Number.isFinite(started) ? Math.max(0, now - started) : 0);
+}

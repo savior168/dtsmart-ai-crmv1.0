@@ -31,7 +31,7 @@ export function CreateTaskView() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(10);
   const [strategy, setStrategy] = useState<"SMART" | "DEEP">("SMART");
   const [notificationMode, setNotificationMode] = useState("IN_APP");
   const [loading, setLoading] = useState(true);
@@ -68,14 +68,14 @@ export function CreateTaskView() {
     if (!selected.size) return toast("请至少选择一条待筛选客户", "error");
     if (scheduleType === "scheduled" && (!scheduledAt || new Date(scheduledAt).getTime() <= Date.now())) return toast("请选择晚于当前时间的预约执行时间", "error");
     setSaving(true);
-    const response = await fetch("/api/ai/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), strategy, scheduled_at: scheduleType === "scheduled" ? scheduledAt : null, customer_ids: [...selected], filters, notification_mode: notificationMode, request_key: requestKey.current }) });
+    const response = await fetch("/api/ai/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), strategy, scheduled_at: scheduleType === "scheduled" ? scheduledAt : null, customer_ids: [...selected], filters, request_key: requestKey.current }) });
     const body = await response.json().catch(() => ({})); setSaving(false);
     if (!response.ok) return toast(body.error || "AI筛选任务创建失败", "error");
     toast("AI筛选任务已创建，服务端将持续执行");
     router.push(`/ai-screening/tasks/${body.task.id}`);
   }
 
-  return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
+  return <main className="ai-create-task-page min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="创建AI筛选任务" description="设置任务、筛选并选择客户、选择分析策略，确认后由服务端持续执行。" actions={<Link href="/ai-screening" className={button}>返回任务中心</Link>}/>
     <section className={panel}><div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务基本信息</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">任务名称用于后续查询、费用统计和报告归档。</p></div><div className="grid gap-3 p-4 lg:grid-cols-[minmax(480px,1.55fr)_minmax(360px,1fr)]"><label className="space-y-[5px]"><span className="block text-sm font-medium">任务名称</span><input className={`${input} w-full`} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：西班牙8月新客户智能分析" maxLength={80}/></label><div className="space-y-[5px]"><span className="block text-sm font-medium">执行时间</span><div className={`grid gap-3 ${scheduleType === "scheduled" ? "grid-cols-[180px_1fr]" : "grid-cols-[180px]"}`}><select className={`${input} w-full`} value={scheduleType} onChange={(event) => setScheduleType(event.target.value as "now" | "scheduled")}><option value="now">立即执行</option><option value="scheduled">预约执行</option></select>{scheduleType === "scheduled" ? <label className="relative"><CalendarClock className="absolute left-3 top-[11px] text-slate-400" size={16}/><input type="datetime-local" className={`${input} w-full pl-10`} value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}/></label> : null}</div></div></div></section>
 

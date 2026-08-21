@@ -64,7 +64,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     if (result.error) throw result.error;
     const task = result.data ? (Array.isArray(result.data.task) ? result.data.task[0] : result.data.task) : null;
     if (task && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
-    const evidence = result.data ? await admin.from("ai_screening_evidence").select("*").eq("result_id", result.data.id).order("fetched_at", { ascending: true }) : { data: [], error: null };
+    const evidence = result.data ? await admin.from("ai_screening_evidence").select("*").eq("result_id", result.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     return NextResponse.json({
       customer: visible.data,
