@@ -5,7 +5,6 @@ import type { AiStrategy } from "../lib/ai/task-types";
 
 type WorkflowInput = {
   taskId: string;
-  itemIds: string[];
   strategy: AiStrategy;
   scheduledAt?: string | null;
 };
@@ -24,6 +23,26 @@ async function beginTask(taskId: string) {
   await admin.from("ai_screening_tasks").update({ status: "RUNNING", started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", taskId).in("status", ["QUEUED", "PENDING", "RUNNING"]);
 }
 
+async function settlePause(taskId: string) {
+  "use step";
+  const admin = createAdminClient();
+  await admin.from("ai_screening_tasks").update({ status: "PAUSED", updated_at: new Date().toISOString() }).eq("id", taskId).eq("status", "PAUSING");
+}
+
+async function nextPendingItems(taskId: string, limit: number) {
+  "use step";
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("ai_screening_task_items")
+    .select("id")
+    .eq("task_id", taskId)
+    .eq("status", "PENDING")
+    .order("updated_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map((item) => item.id);
+}
+
 async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrategy) {
   "use step";
   const admin = createAdminClient();
@@ -35,7 +54,10 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
   if (!claim.data) return { status: "SKIPPED" as const };
   await admin.from("ai_screening_task_items").update({ attempt_count: Number(claim.data.attempt_count || 0) + 1 }).eq("id", itemId);
   try {
-    return await runCustomerAnalysis({ taskId, taskItemId: itemId, customerId: claim.data.customer_id, strategy });
+    return await runCustomerAnalysis({
+      taskId, taskItemId: itemId, customerId: claim.data.customer_id, strategy,
+      attemptNumber: Number(claim.data.attempt_count || 0) + 1,
+    });
   } catch (error) {
     const failure = publicAiError(error);
     await admin.from("ai_screening_task_items").update({
@@ -67,14 +89,27 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
   const initial = await taskState(input.taskId);
   if (initial.status === "CANCELLED" || initial.cancelRequested) return { status: "CANCELLED" };
   await beginTask(input.taskId);
-  for (const itemId of input.itemIds) {
+  const concurrency = Math.min(8, Math.max(1, Number(process.env.AI_SCREENING_CONCURRENCY || 3)));
+  while (true) {
     let state = await taskState(input.taskId);
-    while (state.status === "PAUSED") {
-      await sleep("10s");
+    if (state.status === "PAUSING") {
+      await settlePause(input.taskId);
       state = await taskState(input.taskId);
     }
+    while (state.status === "PAUSED" || state.status === "PAUSING") {
+      await sleep("10s");
+      state = await taskState(input.taskId);
+      if (state.status === "PAUSING") {
+        await settlePause(input.taskId);
+        state = await taskState(input.taskId);
+      }
+    }
     if (state.status === "CANCELLED" || state.cancelRequested) break;
-    await analyzeTaskItem(input.taskId, itemId, input.strategy);
+    const batch = await nextPendingItems(input.taskId, concurrency);
+    if (!batch.length) break;
+    await Promise.all(batch.map((itemId) => analyzeTaskItem(input.taskId, itemId, input.strategy)));
+    state = await taskState(input.taskId);
+    if (state.status === "PAUSING") await settlePause(input.taskId);
   }
   await finishTask(input.taskId);
   return { status: "FINISHED" };

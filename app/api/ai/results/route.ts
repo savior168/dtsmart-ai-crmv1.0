@@ -14,28 +14,61 @@ export async function GET(request: NextRequest) {
     const target = params.get("target") || "";
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
+    const returnAll = params.get("all") === "true";
     const admin = createAdminClient();
-    const owned = await admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at").eq("user_id", user.id);
-    if (owned.error) throw owned.error;
-    let taskIds = (owned.data || []).map((item) => item.id);
+    const ownedTasks: Array<Record<string, unknown>> = [];
+    for (let offset = 0; ; offset += 1000) {
+      const owned = await admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).range(offset, offset + 999);
+      if (owned.error) throw owned.error;
+      const rows = owned.data || [];
+      ownedTasks.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    let taskIds = ownedTasks.map((item) => String(item.id));
     if (taskId) taskIds = taskIds.filter((id) => id === taskId);
-    if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: owned.data || [], summary: { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, grades: {} } });
-    let customerIds:string[]|null=null;
-    if(search){const safe=search.replace(/[,%()]/g," ").trim();const customers=await admin.from("customers").select("id").or(`company_name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%`).limit(1000);if(customers.error)throw customers.error;customerIds=(customers.data||[]).map(row=>row.id);if(!customerIds.length)return NextResponse.json({data:[],count:0,tasks:owned.data||[],page,pageSize});}
-    let query = admin.from("ai_screening_results").select("*,customer:customers(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks(id,name,task_number)", { count: "exact" }).in("task_id", taskIds);
-    if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-    if (grade) query = query.eq("grade", grade);
-    if (target) query = query.eq("target_decision", target);
-    if (evidence) query = query.eq("evidence_sufficiency", evidence);
-    if (customerIds) query = query.in("customer_id",customerIds);
-    const result = await query.order("completed_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
-    if (result.error) throw result.error;
-    let summaryQuery = admin.from("ai_screening_results").select("grade,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at").in("task_id", taskIds);
-    if (today) summaryQuery = summaryQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-    const summaryRows = await summaryQuery;
-    if (summaryRows.error) throw summaryRows.error;
+    if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: ownedTasks, summary: { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, grades: {} } });
+    const safeSearch = search.replace(/[,%()]/g," ").trim();
+    const buildResultQuery = () => {
+      let query = admin.from("ai_screening_results").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks!inner(id,name,task_number,user_id)", { count: "exact" }).eq("task.user_id", user.id);
+      if (taskId) query = query.eq("task_id", taskId);
+      if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+      if (grade) query = query.eq("grade", grade);
+      if (target) query = query.eq("target_decision", target);
+      if (evidence) query = query.eq("evidence_sufficiency", evidence);
+      if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
+      return query.order("completed_at", { ascending: false });
+    };
+    let resultData: unknown[] = [];
+    let resultCount = 0;
+    if (returnAll) {
+      const batchSize = 1000;
+      for (let offset = 0; ; offset += batchSize) {
+        const batch = await buildResultQuery().range(offset, offset + batchSize - 1);
+        if (batch.error) throw batch.error;
+        const rows = batch.data || [];
+        resultData = resultData.concat(rows);
+        resultCount = batch.count || resultData.length;
+        if (rows.length < batchSize) break;
+      }
+    } else {
+      const result = await buildResultQuery().range((page - 1) * pageSize, page * pageSize - 1);
+      if (result.error) throw result.error;
+      resultData = result.data || [];
+      resultCount = result.count || 0;
+    }
+    const summaryItems: Array<{ grade: string | null; target_decision: string | null; total_tokens: number | null; cost_usd: number | string | null; evidence_sufficiency: string | null; early_stop_reason: string | null; completed_at: string | null }> = [];
+    for (let offset = 0; ; offset += 1000) {
+      let summaryQuery = admin.from("ai_screening_results").select("grade,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)").eq("task.user_id", user.id);
+      if (taskId) summaryQuery = summaryQuery.eq("task_id", taskId);
+      if (today) summaryQuery = summaryQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+      const summaryRows = await summaryQuery.range(offset, offset + 999);
+      if (summaryRows.error) throw summaryRows.error;
+      const rows = summaryRows.data || [];
+      summaryItems.push(...rows);
+      if (rows.length < 1000) break;
+    }
     const grades: Record<string, number> = {};
-    const summary = (summaryRows.data || []).reduce((value, item) => {
+    const summary = summaryItems.reduce((value, item) => {
       value.total += 1;
       if (item.target_decision === "VALID") value.valid += 1;
       else if (item.target_decision === "INVALID") value.invalid += 1;
@@ -47,12 +80,62 @@ export async function GET(request: NextRequest) {
       grades[item.grade || "-"] = (grades[item.grade || "-"] || 0) + 1;
       return value;
     }, { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, sufficient: 0, early_stopped: 0, grades });
-    const failed = await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).in("task_id", taskIds).eq("status", "FAILED");
+    let failedQuery = admin.from("ai_screening_task_items").select("id,task:ai_screening_tasks!inner(user_id)", { count: "exact", head: true }).eq("task.user_id", user.id).eq("status", "FAILED");
+    if (taskId) failedQuery = failedQuery.eq("task_id", taskId);
+    if (today) failedQuery = failedQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const failed = await failedQuery;
     if (failed.error) throw failed.error;
     summary.failed = failed.count || 0;
-    return NextResponse.json({ data: result.data || [], count: result.count || 0, tasks: owned.data || [], summary, page, pageSize });
+    return NextResponse.json({ data: resultData, count: resultCount, tasks: ownedTasks, summary, page, pageSize });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI结果查询失败";
+    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { user } = await requireUser();
+    const body = await request.json() as {
+      result_ids?: string[]; result_id?: string; target_decision?: "VALID" | "INVALID" | "REVIEW";
+      grade?: "A" | "B" | "C" | "D"; score?: number; manual_review_note?: string;
+    };
+    const resultIds = [...new Set([...(body.result_ids || []), ...(body.result_id ? [body.result_id] : [])])];
+    if (!resultIds.length) return NextResponse.json({ error: "请选择需要修正的分析结果" }, { status: 400 });
+    if (body.score !== undefined && (!Number.isInteger(body.score) || body.score < 0 || body.score > 100)) return NextResponse.json({ error: "目标客户评分必须为0到100的整数" }, { status: 400 });
+    const admin = createAdminClient();
+    const owned = await admin.from("ai_screening_results").select("id,customer_id,task:ai_screening_tasks!inner(user_id)").in("id", resultIds);
+    if (owned.error) throw owned.error;
+    const permitted = (owned.data || []).filter((row) => {
+      const task = Array.isArray(row.task) ? row.task[0] : row.task;
+      return task?.user_id === user.id;
+    });
+    if (permitted.length !== resultIds.length) return NextResponse.json({ error: "部分分析结果不存在或无权修改" }, { status: 403 });
+    const update: Record<string, unknown> = {
+      manual_review_status: "REVIEWED",
+      manual_review_note: body.manual_review_note?.trim() || null,
+      manual_reviewed_by: user.id,
+      manual_reviewed_at: new Date().toISOString(),
+    };
+    if (body.target_decision) update.target_decision = body.target_decision;
+    if (body.grade) update.grade = body.grade;
+    if (body.score !== undefined) update.score = body.score;
+    const saved = await admin.from("ai_screening_results").update(update).in("id", resultIds);
+    if (saved.error) throw saved.error;
+    for (const row of permitted) {
+      const customerUpdate: Record<string, unknown> = {};
+      if (body.grade) customerUpdate.ai_level = body.grade;
+      if (body.score !== undefined) customerUpdate.ai_score = body.score;
+      if (body.target_decision) customerUpdate.is_target_customer = body.target_decision === "VALID";
+      if (Object.keys(customerUpdate).length) {
+        const customerSaved = await admin.from("customers").update(customerUpdate).eq("id", row.customer_id);
+        if (customerSaved.error) throw customerSaved.error;
+      }
+    }
+    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_RESULT_MANUAL_REVIEW", target_type: "ai_screening_result", target_id: resultIds[0], content: { result_ids: resultIds, changes: update } });
+    return NextResponse.json({ success: true, updated: resultIds.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "AI分析结果修正失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }
 }

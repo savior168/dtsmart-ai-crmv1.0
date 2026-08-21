@@ -45,6 +45,7 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/import$/, "数据导入"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
+  [/^\/ai-screening\/strategies$/, "AI筛选 / 任务中心 / 策略说明"],
   [/^\/ai-screening\/tasks\/[^/]+\/report$/, "AI筛选 / 任务详情 / 任务报告"],
   [/^\/ai-screening\/tasks\/[^/]+$/, "AI筛选 / 任务中心 / 任务详情"],
   [/^\/ai-screening\/results$/, "AI筛选 / 今日完成客户"],

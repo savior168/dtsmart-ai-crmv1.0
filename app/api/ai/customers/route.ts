@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mapCustomerForAi } from "@/lib/ai/semantic-fields";
 
 function sourcePattern(value: string) {
   const patterns: Record<string, string> = {
@@ -30,28 +31,37 @@ export async function GET(request: NextRequest) {
     const idsOnly = params.get("ids") === "all";
     const admin = createAdminClient();
 
-    const activeTasks = await admin.from("ai_screening_tasks").select("id").eq("user_id", user.id).in("status", ["QUEUED", "RUNNING", "PAUSED"]);
-    const taskIds = (activeTasks.data || []).map((item) => item.id);
     const excluded = new Set<string>();
-    for (let offset = 0; taskIds.length; offset += 1000) {
-      const items = await admin.from("ai_screening_task_items").select("customer_id").in("task_id", taskIds).in("status", ["PENDING", "RUNNING"]).range(offset, offset + 999);
+    for (let offset = 0; ; offset += 1000) {
+      const items = await admin.from("ai_screening_task_items")
+        .select("customer_id,task:ai_screening_tasks!inner(user_id,status)")
+        .eq("task.user_id", user.id)
+        .in("task.status", ["QUEUED", "RUNNING", "PAUSING", "PAUSED"])
+        .in("status", ["PENDING", "RUNNING"])
+        .range(offset, offset + 999);
+      if (items.error) throw items.error;
       for (const item of items.data || []) excluded.add(item.customer_id);
       if (!items.data || items.data.length < 1000) break;
     }
 
-    const select = "id,company_name,contact_name,country,phone,email,website,google_url,source,source_channel,source_batch,created_at";
+    const normalizedSourcePatterns = sourcePattern(sourceChannel).split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
     const buildQuery = (start: number, end: number) => {
-      let query = supabase.from("customers").select(select, { count: "exact" }).is("deleted_at", null).is("ai_score", null);
-      if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
-      if (country) query = query.ilike("country", `%${country}%`);
-      if (sourceChannel) {
-        const values = sourcePattern(sourceChannel).split(",").flatMap((value) => [`source.ilike.%${value}%`, `source_channel.ilike.%${value}%`]);
-        query = query.or(values.join(","));
-      }
-      if (sourceBatch) query = query.ilike("source_batch", `%${sourceBatch}%`);
+      let query = supabase.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
       if (from) query = query.gte("created_at", `${from}T00:00:00`);
       if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
       return query.order("created_at", { ascending: false }).range(start, end);
+    };
+
+    const matchesFilters = (row: ReturnType<typeof mapCustomerForAi>) => {
+      const needle = search.toLowerCase();
+      if (needle && ![row.company_name, row.contact_name, row.email, row.phone].some((value) => String(value || "").toLowerCase().includes(needle))) return false;
+      if (country && !String(row.country || "").toLowerCase().includes(country.toLowerCase())) return false;
+      if (normalizedSourcePatterns.length) {
+        const sourceText = String(row.source || "").toLowerCase();
+        if (!normalizedSourcePatterns.some((pattern) => sourceText.includes(pattern))) return false;
+      }
+      if (sourceBatch && !String(row.source_batch || "").toLowerCase().includes(sourceBatch.toLowerCase())) return false;
+      return true;
     };
 
     if (idsOnly) {
@@ -61,7 +71,10 @@ export async function GET(request: NextRequest) {
         const result = await buildQuery(offset, offset + 999);
         if (result.error) throw result.error;
         total = result.count || 0;
-        for (const item of result.data || []) if (!excluded.has(item.id)) ids.push(item.id);
+        for (const item of result.data || []) {
+          const mapped = mapCustomerForAi(item as Record<string, unknown>);
+          if (!excluded.has(mapped.id) && matchesFilters(mapped)) ids.push(mapped.id);
+        }
         if (!result.data || result.data.length < 1000) break;
       }
       return NextResponse.json({ ids, count: ids.length, database_count: total });
@@ -73,7 +86,10 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; ; offset += 1000) {
       const result = await buildQuery(offset, offset + 999);
       if (result.error) throw result.error;
-      for (const item of result.data || []) if (!excluded.has(item.id)) collected.push(item);
+      for (const item of result.data || []) {
+        const mapped = mapCustomerForAi(item as Record<string, unknown>);
+        if (!excluded.has(mapped.id) && matchesFilters(mapped)) collected.push(mapped as unknown as Record<string, unknown>);
+      }
       if (!result.data || result.data.length < 1000) break;
     }
     const eligibleCount = collected.length;

@@ -12,6 +12,7 @@ const requiredRoutes = [
   "app/import/page.tsx",
   "app/ai-screening/page.tsx",
   "app/ai-screening/new/page.tsx",
+  "app/ai-screening/strategies/page.tsx",
   "app/ai-screening/tasks/[id]/page.tsx",
   "app/ai-screening/tasks/[id]/report/page.tsx",
   "app/ai-screening/results/page.tsx",
@@ -46,13 +47,35 @@ assert.match(taskRunner, /setTimeout\(\(\) => timeoutController\.abort\(\), 30_0
 assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 const workflow = read("workflows/ai-screening.ts");
-assert.match(workflow, /for \(const itemId of input\.itemIds\)/, "AI任务必须逐客户持续执行，单条失败不能终止整批任务");
+assert.match(workflow, /Promise\.all\(batch\.map/, "AI任务必须按可控并发持续执行，单条失败不能终止整批任务");
+assert.match(workflow, /AI_SCREENING_CONCURRENCY/, "AI任务并发量必须可通过服务端环境变量配置");
 const nextConfig = read("next.config.ts");
 assert.match(nextConfig, /withWorkflow\(nextConfig\)/, "生产构建必须启用持久化Workflow");
 const taskCenter = read("components/ai-screening/task-center-view.tsx");
 for (const action of ["停止任务", "取消任务", "继续执行", "重试失败项"]) {
   assert.match(taskCenter, new RegExp(action), `任务中心缺少操作：${action}`);
 }
+assert.match(taskCenter, /status === "RUNNING"[\s\S]*action: "pause"[\s\S]*停止任务/, "执行中任务必须显示停止任务");
+assert.match(taskCenter, /status === "QUEUED"[\s\S]*action: "cancel"[\s\S]*取消任务/, "排队中任务必须显示取消任务");
+assert.match(taskCenter, /status === "PAUSED"[\s\S]*action: "resume"[\s\S]*继续执行/, "已停止任务必须显示继续执行");
+assert.match(taskCenter, /status === "FAILED"[\s\S]*action: "retry"[\s\S]*重试失败项/, "失败任务必须显示重试失败项");
+const taskDetail = read("components/ai-screening/task-detail-view.tsx");
+assert.match(taskDetail, /RUNNING" \? "pause"[\s\S]*QUEUED" \? "cancel"[\s\S]*PAUSED" \? "resume"[\s\S]*FAILED" \? "retry"/, "任务详情状态操作必须与任务中心一致");
+for (const href of ["/ai-screening/new", "/ai-screening/results", "/ai-screening/failures", "/ai-screening/usage", "/ai-screening/tasks/"]) {
+  assert.match(taskCenter, new RegExp(href.replaceAll("/", "\\/")), `任务中心缺少入口：${href}`);
+}
+const createTaskView = read("components/ai-screening/create-task-view.tsx");
+assert.match(createTaskView, /useEffect\(\(\) => \{ void load\(true\)/, "创建任务首次进入必须加载并选中全部待筛选客户");
+assert.match(createTaskView, /datetime-local/, "预约执行必须提供日期时间组合组件");
+assert.match(createTaskView, /全选全部查询结果[\s\S]*清空选择/, "创建任务必须支持全部查询结果选择与清空");
+assert.match(createTaskView, /\/ai-screening\/strategies/, "创建任务策略弹窗必须能进入完整策略说明");
+const resultsApi = read("app/api/ai/results/route.ts");
+assert.match(resultsApi, /for \(let offset = 0; ; offset \+= batchSize\)/, "结果导出必须分批读取全部筛选结果，不能受1000行上限影响");
+const resultsView = read("components/ai-screening/results-view.tsx");
+assert.match(resultsView, /查看分析依据/, "结果与报告必须能进入客户分析依据");
+assert.match(resultsView, /全部任务/, "今日完成客户必须可按所属任务筛选");
+const strategiesPage = read("app/ai-screening/strategies/page.tsx");
+assert.match(strategiesPage, /返回任务中心/, "分析策略说明必须有返回任务中心出口");
 
 const importView = read("components/import-view.tsx");
 assert.match(importView, /async function isReadableImportFile/, "文件夹导入必须验证真实文件内容");
@@ -115,5 +138,15 @@ for (const field of ["strategy", "total_tokens", "cost_usd", "analyzed_channels"
   assert.match(aiWorkflowMigration, new RegExp(field, "i"), `AI任务迁移缺少字段：${field}`);
 }
 assert.match(aiWorkflowMigration, /refresh_ai_screening_task_totals/i, "AI任务迁移缺少汇总函数");
+
+const traceMigration = read("supabase/migrations/202608210001_ai_screening_trace_and_checkpoint.sql");
+for (const field of ["channel_checkpoint", "last_completed_channel", "score_breakdown", "manual_review_status", "ai_screening_model_calls", "request_key"]) {
+  assert.match(traceMigration, new RegExp(field, "i"), `AI追溯迁移缺少字段：${field}`);
+}
+const semanticFields = read("lib/ai/semantic-fields.ts");
+assert.match(semanticFields, /AI_CUSTOMER_FIELD_CANDIDATES/, "AI筛选必须使用只读语义字段映射");
+assert.match(semanticFields, /customer_name[\s\S]*company_name/, "AI字段映射必须兼容历史客户名称字段");
+assert.match(taskRunner, /saveCheckpoint/, "AI筛选必须在每个渠道后保存断点");
+assert.match(taskRunner, /saveModelCall/, "AI筛选必须记录每次OpenAI调用的Token和费用");
 
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");

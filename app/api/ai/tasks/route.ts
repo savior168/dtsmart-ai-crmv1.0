@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const to = params.get("date_to") || "";
     const admin = createAdminClient();
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).eq("user_id", user.id);
-    if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSED"]);
+    if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
     else if (status) query = query.eq("status", status);
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
     if (selectionMode) query = query.eq("selection_mode", selectionMode);
@@ -31,32 +31,67 @@ export async function GET(request: NextRequest) {
     if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
     const result = await query.order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
-    const stats = await admin.from("ai_screening_tasks").select("id,status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at").eq("user_id", user.id);
-    const all = stats.data || [];
+    const all: Array<{ id: string; status: string; total_count: number; success_count: number; failed_count: number; total_tokens: number; total_cost_usd: number; created_at: string }> = [];
+    for (let offset = 0; ; offset += 1000) {
+      const stats = await admin.from("ai_screening_tasks")
+        .select("id,status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + 999);
+      if (stats.error) throw stats.error;
+      const rows = stats.data || [];
+      all.push(...rows);
+      if (rows.length < 1000) break;
+    }
     const counts = {
       all: all.length,
-      active: all.filter((item) => ["QUEUED", "RUNNING", "PAUSED"].includes(item.status)).length,
+      active: all.filter((item) => ["QUEUED", "RUNNING", "PAUSING"].includes(item.status)).length,
       running: all.filter((item) => item.status === "RUNNING").length,
       queued: all.filter((item) => item.status === "QUEUED").length,
       completed: all.filter((item) => item.status === "COMPLETED").length,
       failed: all.filter((item) => item.status === "FAILED").length,
     };
     const today = new Date().toISOString().slice(0, 10);
-    const todayTasks = all.filter((item) => String(item.created_at).startsWith(today));
+    const todayStart = `${today}T00:00:00.000Z`;
     const ownedTaskIds = all.map((item) => item.id);
-    const retryable = ownedTaskIds.length
-      ? await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).in("task_id", ownedTaskIds).eq("status", "FAILED").lt("attempt_count", 3)
-      : { count: 0, error: null };
-    if (retryable.error) throw retryable.error;
+    const countItems = async (statusValue: string, since?: string, retryableOnly = false) => {
+      let total = 0;
+      for (let offset = 0; offset < ownedTaskIds.length; offset += 100) {
+        let itemQuery = admin.from("ai_screening_task_items")
+          .select("id", { count: "exact", head: true })
+          .in("task_id", ownedTaskIds.slice(offset, offset + 100))
+          .eq("status", statusValue);
+        if (since) itemQuery = itemQuery.gte("completed_at", since);
+        if (retryableOnly) itemQuery = itemQuery.lt("attempt_count", 3);
+        const counted = await itemQuery;
+        if (counted.error) throw counted.error;
+        total += counted.count || 0;
+      }
+      return total;
+    };
+    const retryableCount = await countItems("FAILED", undefined, true);
+    const todayCompletedCount = await countItems("COMPLETED", todayStart);
+    const todayFailedCount = await countItems("FAILED", todayStart);
+    let todayCost = 0;
+    for (let idOffset = 0; idOffset < ownedTaskIds.length; idOffset += 100) {
+      const idBatch = ownedTaskIds.slice(idOffset, idOffset + 100);
+      for (let rowOffset = 0; ; rowOffset += 1000) {
+        const calls = await admin.from("ai_screening_model_calls").select("cost_usd").in("task_id", idBatch).gte("created_at", todayStart).range(rowOffset, rowOffset + 999);
+        if (calls.error) throw calls.error;
+        const rows = calls.data || [];
+        todayCost += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
+        if (rows.length < 1000) break;
+      }
+    }
     const pending = await supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).is("ai_score", null);
     if (pending.error) throw pending.error;
     return NextResponse.json({
       data: result.data || [], count: result.count || 0, counts,
       pending_customers: pending.count || 0,
-      today_cost: todayTasks.reduce((sum, item) => sum + Number(item.total_cost_usd || 0), 0),
-      today_completed_customers: todayTasks.reduce((sum, item) => sum + Number(item.success_count || 0), 0),
-      today_failed_customers: todayTasks.reduce((sum, item) => sum + Number(item.failed_count || 0), 0),
-      retry_customers: retryable.count || 0,
+      today_cost: todayCost,
+      today_completed_customers: todayCompletedCount,
+      today_failed_customers: todayFailedCount,
+      retry_customers: retryableCount,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务列表查询失败";
@@ -69,7 +104,7 @@ export async function POST(request: NextRequest) {
     const { supabase, user } = await requireUser();
     const body = await request.json() as {
       name?: string; strategy?: AiStrategy; scheduled_at?: string | null; customer_ids?: string[];
-      filters?: Record<string, unknown>; notification_mode?: string;
+      filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
     };
     const name = body.name?.trim();
     const strategy = body.strategy || "SMART";
@@ -86,12 +121,20 @@ export async function POST(request: NextRequest) {
       allowedIds.push(...(allowed.data || []).map((item) => item.id));
     }
     const admin = createAdminClient();
-    const active = await admin.from("ai_screening_tasks").select("id").eq("user_id",user.id).in("status",["QUEUED","RUNNING","PAUSED"]);
-    if(active.error)throw active.error;
-    const activeTaskIds=(active.data||[]).map(item=>item.id);
+    const requestKey = body.request_key?.trim().slice(0, 120) || null;
+    if (requestKey) {
+      const existing = await admin.from("ai_screening_tasks").select("*").eq("user_id", user.id).eq("request_key", requestKey).maybeSingle();
+      if (existing.error) throw existing.error;
+      if (existing.data) return NextResponse.json({ task: existing.data, idempotent: true }, { status: 200 });
+    }
     const reserved=new Set<string>();
-    for(let offset=0;activeTaskIds.length&&offset<allowedIds.length;offset+=200){
-      const rows=await admin.from("ai_screening_task_items").select("customer_id").in("task_id",activeTaskIds).in("customer_id",allowedIds.slice(offset,offset+200)).in("status",["PENDING","RUNNING"]);
+    for(let offset=0;offset<allowedIds.length;offset+=200){
+      const rows=await admin.from("ai_screening_task_items")
+        .select("customer_id,task:ai_screening_tasks!inner(user_id,status)")
+        .eq("task.user_id",user.id)
+        .in("task.status",["QUEUED","RUNNING","PAUSING","PAUSED"])
+        .in("customer_id",allowedIds.slice(offset,offset+200))
+        .in("status",["PENDING","RUNNING"]);
       if(rows.error)throw rows.error;
       for(const row of rows.data||[])reserved.add(row.customer_id);
     }
@@ -104,19 +147,19 @@ export async function POST(request: NextRequest) {
       status: "QUEUED", total_count: eligibleIds.length, pending_count: eligibleIds.length,
       filters: body.filters || {}, selection_mode: "FILTERED", scheduled_at: scheduledAt,
       notification_mode: body.notification_mode || "IN_APP",
+      request_key: requestKey,
     }).select("*").single();
     if (task.error || !task.data) throw task.error || new Error("任务创建失败");
     const rows = eligibleIds.map((customerId) => ({
       task_id: task.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0",
     }));
-    const itemIds: string[] = [];
     for (let offset = 0; offset < rows.length; offset += 500) {
-      const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500)).select("id");
+      const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
       if (inserted.error) throw inserted.error;
-      itemIds.push(...(inserted.data || []).map((item) => item.id));
     }
-    const run = await start(aiScreeningWorkflow, [{ taskId: task.data.id, itemIds, strategy, scheduledAt }]);
+    const run = await start(aiScreeningWorkflow, [{ taskId: task.data.id, strategy, scheduledAt }]);
     await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", task.data.id);
+    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, total_count: eligibleIds.length } });
     return NextResponse.json({ task: { ...task.data, workflow_run_id: run.runId } }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务创建失败";

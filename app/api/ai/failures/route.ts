@@ -21,16 +21,10 @@ export async function GET(request: NextRequest) {
     let taskIds = (tasks.data || []).map((item) => item.id);
     if (taskId) taskIds = taskIds.filter((id) => id === taskId);
     if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: tasks.data || [] });
-    let customerIds: string[] | null = null;
-    if (search) {
-      const safe = search.replace(/[,%()]/g, " ").trim();
-      const customers = await admin.from("customers").select("id").or(`company_name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%`).limit(1000);
-      if (customers.error) throw customers.error;
-      customerIds = (customers.data || []).map((row) => row.id);
-      if (!customerIds.length) return NextResponse.json({ data: [], count: 0, tasks: tasks.data || [], page, pageSize });
-    }
-    let query = admin.from("ai_screening_task_items").select("*,customer:customers(id,company_name,email,phone),task:ai_screening_tasks(id,name,task_number,strategy)", { count: "exact" }).in("task_id", taskIds).eq("status", "FAILED");
-    if (customerIds) query = query.in("customer_id", customerIds);
+    const safeSearch = search.replace(/[,%()]/g, " ").trim();
+    let query = admin.from("ai_screening_task_items").select("*,customer:customers!inner(id,company_name,email,phone),task:ai_screening_tasks!inner(id,name,task_number,strategy,user_id)", { count: "exact" }).eq("task.user_id", user.id).eq("status", "FAILED");
+    if (taskId) query = query.eq("task_id", taskId);
+    if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
     if (step) query = query.eq("current_step", step);
     if (retry === "available") query = query.eq("retryable", true).lt("attempt_count", 3);
     if (retry === "exhausted") query = query.or("retryable.eq.false,attempt_count.gte.3");
@@ -48,13 +42,33 @@ export async function POST(request: NextRequest) {
     const { user } = await requireUser();
     const body = await request.json() as { item_ids?: string[]; task_id?: string };
     const admin = createAdminClient();
-    let query = admin.from("ai_screening_task_items").select("id,task_id,task:ai_screening_tasks(id,user_id,strategy)").eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
-    if (body.task_id) query = query.eq("task_id", body.task_id);
-    if (body.item_ids?.length) query = query.in("id", body.item_ids);
-    const failed = await query;
-    if (failed.error) throw failed.error;
+    type RetryRow = { id: string; task_id: string; task: { id: string; user_id: string; strategy: string } | Array<{ id: string; user_id: string; strategy: string }> };
+    const failedRows: RetryRow[] = [];
+    const fetchRetryRows = async (ids?: string[], from = 0) => {
+      let query = admin.from("ai_screening_task_items")
+        .select("id,task_id,task:ai_screening_tasks!inner(id,user_id,strategy)")
+        .eq("task.user_id", user.id)
+        .eq("status", "FAILED")
+        .eq("retryable", true)
+        .lt("attempt_count", 3);
+      if (body.task_id) query = query.eq("task_id", body.task_id);
+      if (ids?.length) query = query.in("id", ids);
+      const result = ids?.length ? await query : await query.range(from, from + 999);
+      if (result.error) throw result.error;
+      return (result.data || []) as RetryRow[];
+    };
+    if (body.item_ids?.length) {
+      const uniqueIds = [...new Set(body.item_ids)];
+      for (let offset = 0; offset < uniqueIds.length; offset += 100) failedRows.push(...await fetchRetryRows(uniqueIds.slice(offset, offset + 100)));
+    } else {
+      for (let offset = 0; ; offset += 1000) {
+        const rows = await fetchRetryRows(undefined, offset);
+        failedRows.push(...rows);
+        if (rows.length < 1000) break;
+      }
+    }
     const groups = new Map<string, { strategy: AiStrategy; ids: string[] }>();
-    for (const item of failed.data || []) {
+    for (const item of failedRows) {
       const task = Array.isArray(item.task) ? item.task[0] : item.task;
       if (!task || task.user_id !== user.id) continue;
       const current = groups.get(item.task_id) || { strategy: task.strategy as AiStrategy, ids: [] };
@@ -63,9 +77,12 @@ export async function POST(request: NextRequest) {
     }
     if (!groups.size) return NextResponse.json({ error: "没有可重试的失败客户" }, { status: 409 });
     for (const [taskId, group] of groups) {
-      await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).in("id", group.ids);
+      for (let offset = 0; offset < group.ids.length; offset += 100) {
+        const reset = await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).in("id", group.ids.slice(offset, offset + 100));
+        if (reset.error) throw reset.error;
+      }
       await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", taskId);
-      const run = await start(aiScreeningWorkflow, [{ taskId, itemIds: group.ids, strategy: group.strategy, scheduledAt: null }]);
+      const run = await start(aiScreeningWorkflow, [{ taskId, strategy: group.strategy, scheduledAt: null }]);
       await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId }).eq("id", taskId);
     }
     return NextResponse.json({ success: true, retried: [...groups.values()].reduce((sum, group) => sum + group.ids.length, 0) });

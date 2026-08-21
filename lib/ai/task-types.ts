@@ -1,4 +1,4 @@
-export const AI_TASK_STATUSES = ["QUEUED", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED"] as const;
+export const AI_TASK_STATUSES = ["QUEUED", "RUNNING", "PAUSING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED"] as const;
 export type AiTaskStatus = (typeof AI_TASK_STATUSES)[number];
 
 export const AI_STRATEGIES = ["SMART", "DEEP"] as const;
@@ -30,4 +30,3 @@ export type AiTaskFilters = {
   date_from?: string;
   date_to?: string;
 };
-

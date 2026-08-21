@@ -9,6 +9,7 @@ export type WebsiteEvidence = {
   image_urls: string[];
   emails: string[];
   phones: string[];
+  whatsapps?: string[];
   video_urls?: string[];
   pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; emails: string[]; phones: string[] }>;
   error?: string;
@@ -87,6 +88,10 @@ function extractPhones(text: string) {
   return unique((text.match(/(?:\+?\d[\d\s\-().]{6,}\d)/g) || []).map((phone) => phone.replace(/\s+/g, " ").trim())).slice(0, 12);
 }
 
+function extractWhatsapps(text: string) {
+  return unique([...text.matchAll(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp:\/\/send\?phone=)(\+?\d{7,18})/gi)].map((match) => match[1]));
+}
+
 export async function collectWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
   const normalized = normalizeUrl(url);
   if (!normalized) return undefined;
@@ -121,6 +126,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
       image_urls: imageUrls,
       emails: extractEmails(html),
       phones: extractPhones(compactText(html)),
+      whatsapps: extractWhatsapps(html),
       video_urls: unique([...html.matchAll(/<(?:video|source|iframe)[^>]+(?:src)=['\"]([^'\"]+)['\"]/gi)].map((match) => match[1])).slice(0, 12),
     };
   } catch (error) {
@@ -175,6 +181,7 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
     video_urls: unique([...(homepage.video_urls || []), ...pages.flatMap((page) => page.video_urls || [])]).slice(0, 20),
     emails: unique([...homepage.emails, ...pages.flatMap((page) => page.emails)]),
     phones: unique([...homepage.phones, ...pages.flatMap((page) => page.phones)]),
+    whatsapps: unique([...(homepage.whatsapps || []), ...pages.flatMap((page) => page.whatsapps || [])]),
     text_excerpt: [homepage.text_excerpt, ...pages.map((page) => page.text_excerpt)].filter(Boolean).join("\n\n").slice(0, 16_000),
     pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, emails, phones }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, emails, phones })),
   };
@@ -191,8 +198,8 @@ export async function collectGooglePlaceEvidence(input: {
   const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
   if (!apiKey) return { configured: false, query, types: [], reviews: [], emails: [], error: "GOOGLE_MAPS_API_KEY_NOT_CONFIGURED" };
 
+  const request = requestSignal(options, 4500);
   try {
-    const request = requestSignal(options, 4500);
     const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
     searchUrl.searchParams.set("query", query);
     searchUrl.searchParams.set("key", apiKey);
@@ -245,10 +252,11 @@ export async function collectGooglePlaceEvidence(input: {
       emails: extractEmails([result.website, result.formatted_address, ...(result.reviews || []).map((review) => review.text || "")].join(" ")),
       reviews: (result.reviews || []).map((review) => review.text || "").filter(Boolean).slice(0, 5),
     };
-    request.clear();
     return evidence;
   } catch (error) {
     return { configured: true, query, types: [], reviews: [], emails: [], error: error instanceof Error ? error.message : "google place fetch failed" };
+  } finally {
+    request.clear();
   }
 }
 
