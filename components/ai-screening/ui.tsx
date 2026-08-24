@@ -71,9 +71,15 @@ export function formatDuration(value: number | null | undefined) {
   return `${seconds}秒`;
 }
 
-export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number | null; started_at?: string | null }, now = Date.now()) {
+export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number | null; started_at?: string | null; finished_at?: string | null; completed_at?: string | null; updated_at?: string | null }, now = Date.now()) {
   const accumulated = Number(task.elapsed_ms || 0);
-  if (!["RUNNING", "PAUSING"].includes(String(task.status)) || !task.started_at) return accumulated;
+  if (["RUNNING", "PAUSING"].includes(String(task.status)) && task.started_at) {
+    const started = new Date(task.started_at).getTime();
+    return accumulated + (Number.isFinite(started) ? Math.max(0, now - started) : 0);
+  }
+  if (accumulated > 0 || !task.started_at) return accumulated;
   const started = new Date(task.started_at).getTime();
-  return accumulated + (Number.isFinite(started) ? Math.max(0, now - started) : 0);
+  const ended = new Date(task.finished_at || task.completed_at || task.updated_at || "").getTime();
+  return Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : 0;
 }
+

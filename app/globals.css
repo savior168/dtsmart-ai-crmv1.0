@@ -171,12 +171,15 @@ table th { font-weight:600; }
 .ai-create-task-page label:has(select option[value="新增&导入"]),
 .ai-create-task-page label:has(input[list="ai-source-batches"]),
 .ai-create-task-page aside label:has(select option[value="IN_APP_EMAIL"]),
+.ai-create-task-page aside dl > div:nth-child(3),
 .ai-create-task-page aside dl > div:last-child {
   display: none;
 }
 
 /* 客户分析依据页主操作按钮必须始终显示清晰的客户详情文字。 */
 a[href^="/customers/"][class*="bg-[#1763e8]"] {
+  display: inline-flex !important;
+  min-width: 96px;
   color: #fff !important;
 }
 
@@ -185,3 +188,4 @@ a[href^="/customers/"][class*="bg-[#1763e8]"] {
     grid-template-columns: minmax(300px, 1.35fr) minmax(200px, .7fr) minmax(360px, 1fr) auto !important;
   }
 }
+

@@ -67,7 +67,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (!["QUEUED", "PAUSED"].includes(task.status)) return NextResponse.json({ error: "只有排队中或已停止的任务可以取消" }, { status: 409 });
       await cancelWorkflowRun(task.workflow_run_id);
       const now = new Date().toISOString();
-      const cancelled = await admin.from("ai_screening_tasks").update({ status: "CANCELLED", cancel_requested: true, cancelled_at: now, finished_at: now, updated_at: now }).eq("id", id);
+      const cancelled = await admin.from("ai_screening_tasks").update({
+        status: "CANCELLED", cancel_requested: true, cancelled_at: now, finished_at: now,
+        elapsed_ms: accumulatedElapsed(task), updated_at: now,
+      }).eq("id", id);
       if (cancelled.error) throw cancelled.error;
     } else if (body.action === "resume") {
       if (task.status !== "PAUSED") return NextResponse.json({ error: "只有已停止的任务可以继续执行" }, { status: 409 });
@@ -138,3 +141,4 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }
 }
+

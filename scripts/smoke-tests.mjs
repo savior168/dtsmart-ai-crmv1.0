@@ -71,6 +71,10 @@ assert.match(taskActionApi, /status: "PAUSED"[\s\S]*elapsed_ms:/, "停止任务�
 assert.match(taskActionApi, /action === "resume"[\s\S]*start\(aiScreeningWorkflow/, "继续执行必须启动新的持久工作流处理剩余项");
 const taskDetail = read("components/ai-screening/task-detail-view.tsx");
 assert.match(taskDetail, /\["RUNNING", "PAUSING"\][\s\S]*"pause"[\s\S]*QUEUED" \? "cancel"[\s\S]*PAUSED" \? "resume"[\s\S]*FAILED" \|\|[\s\S]*COMPLETED"[\s\S]*"retry"/, "任务详情状态操作必须与任务中心一致");
+const aiUi = read("components/ai-screening/ui.tsx");
+assert.match(aiUi, /finished_at \|\| task\.completed_at \|\| task\.updated_at/, "历史任务缺少elapsed_ms时必须用开始和结束时间计算真实耗时");
+const elapsedBackfill = read("supabase/migrations/202608240001_backfill_ai_task_elapsed.sql");
+assert.match(elapsedBackfill, /coalesce\(finished_at, completed_at, updated_at\) - started_at/, "生产迁移必须回填历史任务执行耗时");
 for (const href of ["/ai-screening/new", "/ai-screening/results", "/ai-screening/failures", "/ai-screening/usage", "/ai-screening/tasks/"]) {
   assert.match(taskCenter, new RegExp(href.replaceAll("/", "\\/")), `任务中心缺少入口：${href}`);
 }
@@ -161,3 +165,4 @@ assert.match(taskRunner, /saveCheckpoint/, "AI筛选必须在每个渠道后保�
 assert.match(taskRunner, /saveModelCall/, "AI筛选必须记录每次OpenAI调用的Token和费用");
 
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");
+
