@@ -3,7 +3,20 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { AiMappedCustomer } from "@/lib/ai/semantic-fields";
 import type { AiStrategy } from "@/lib/ai/task-types";
 
-export const AI_RULE_VERSION = "2026.08.21.2";
+export const AI_RULE_VERSION = "2026.08.24.1";
+
+function reusableEvidenceIsTraceable(row: Record<string, unknown>) {
+  const snapshot = Array.isArray(row.evidence_snapshot) ? row.evidence_snapshot : [];
+  return snapshot.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const record = item as Record<string, unknown>;
+    const fact = String(record.normalized_fact || record.content || "").trim();
+    const url = String(record.source_url || "").trim();
+    return /[\u3400-\u9fff]/.test(fact)
+      && !/读取失败|未能取得|未保存|请重新执行/.test(fact)
+      && /^https?:\/\//i.test(url);
+  });
+}
 
 function compact(value?: string | null) {
   return String(value || "").normalize("NFKC").trim().toLowerCase().replace(/[^\p{L}\p{N}@.+]/gu, "");
@@ -62,7 +75,8 @@ export async function findReusableAnalysis(customer: AiMappedCustomer, strategy:
     if (/ai_analysis_reuse_cache|schema cache|does not exist/i.test(result.error.message)) return null;
     throw result.error;
   }
-  return result.data || null;
+  if (!result.data || !reusableEvidenceIsTraceable(result.data as Record<string, unknown>)) return null;
+  return result.data;
 }
 
 export async function saveReusableAnalysis(input: {
@@ -99,4 +113,3 @@ export async function saveReusableAnalysis(input: {
   const write = await admin.from("ai_analysis_reuse_cache").upsert(rows, { onConflict: "identity_key,strategy,rule_version,source_signature" });
   if (write.error && !/ai_analysis_reuse_cache|schema cache|does not exist/i.test(write.error.message)) throw write.error;
 }
-

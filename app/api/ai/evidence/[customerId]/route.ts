@@ -27,8 +27,14 @@ function readableFact(row: Record<string, unknown>) {
   if (normalized && hasChinese(normalized) && !normalized.startsWith("{") && !normalized.startsWith("[")) return normalized;
   const content = typeof row.content === "string" ? row.content.trim() : "";
   if (content && hasChinese(content) && !content.startsWith("{") && !content.startsWith("[")) return content;
-  if (row.status === "FAILED") return `该公开来源读取失败：${typeof row.failure_reason === "string" && hasChinese(row.failure_reason) ? row.failure_reason : "未能取得可核验页面信息"}`;
-  return "该历史记录未保存中文提炼依据，请重新执行AI分析后查看可直接核验的关键事实。";
+  return "";
+}
+
+function isUsableEvidence(row: ReturnType<typeof normalizeEvidence>) {
+  return Boolean(row.content)
+    && /[\u3400-\u9fff]/.test(row.content)
+    && !/读取失败|未能取得|未保存|请重新执行|GOOGLE_MAPS_API_KEY|fetch failed/i.test(row.content)
+    && Boolean(row.source_url && /^https?:\/\//i.test(row.source_url));
 }
 
 function normalizeEvidence(row: Record<string, unknown>) {
@@ -69,7 +75,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     return NextResponse.json({
       customer: visible.data,
       result: result.data || null,
-      evidence: (evidence.data || []).map((row) => normalizeEvidence(row as Record<string, unknown>)),
+      evidence: (evidence.data || [])
+        .map((row) => normalizeEvidence(row as Record<string, unknown>))
+        .filter(isUsableEvidence),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI分析依据查询失败";

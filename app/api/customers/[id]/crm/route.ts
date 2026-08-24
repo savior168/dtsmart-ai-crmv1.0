@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -19,12 +20,25 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (claimsResult.error) throw claimsResult.error;
     if (protectionResult.error) throw protectionResult.error;
     if (aiEvidenceResult.error) throw aiEvidenceResult.error;
+    const admin = createAdminClient();
+    const latestAi = await admin.from("ai_screening_results").select("*").eq("customer_id", id).order("completed_at", { ascending: false }).limit(1).maybeSingle();
+    if (latestAi.error) throw latestAi.error;
+    const evidence = latestAi.data
+      ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false })
+      : { data: [], error: null };
+    if (evidence.error) throw evidence.error;
+    const aiFacts = (evidence.data || []).filter((item) => {
+      const fact = String(item.normalized_fact || item.content || "").trim();
+      return /[\u3400-\u9fff]/.test(fact)
+        && !/读取失败|未能取得|未保存|请重新执行|GOOGLE_MAPS_API_KEY|fetch failed/i.test(fact)
+        && /^https?:\/\//i.test(String(item.source_url || ""));
+    });
     let users: unknown[] = [];
     if (profileResult.data.role === "ADMIN") {
       const result = await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name");
       if (!result.error) users = result.data || [];
     }
-    return NextResponse.json({ customer: customerResult.data, profile: profileResult.data, followups: followupsResult.data, claims: claimsResult.data, protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, users });
+    return NextResponse.json({ customer: customerResult.data, profile: profileResult.data, followups: followupsResult.data, claims: claimsResult.data, protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

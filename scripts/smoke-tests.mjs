@@ -41,11 +41,27 @@ assert.doesNotMatch(aiApi, /OPENAI_API_KEY[^\n]*(NEXT_PUBLIC|return|json)/i, "�
 const analysis = read("lib/ai/customer-analysis.ts");
 assert.match(analysis, /"A"\s*\|\s*"B"\s*\|\s*"C"\s*\|\s*"D"/, "AI等级必须仅包含A/B/C/D");
 assert.doesNotMatch(analysis, /"S"\s*\|/, "不能保留S级");
+assert.match(analysis, /EXCEL_IMPORT[\s\S]*绝不是进口商/, "导入来源标签不得作为进口商或行业证据");
+assert.match(analysis, /groundCustomerAnalysis/, "AI结论必须经过证据一致性校验");
+assert.match(analysis, /tool_choice: "required"[\s\S]*web_search_call\.action\.sources/, "缺少结构化Maps证据时必须执行带来源引用的公开网页检索");
+assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)/, "未实际读取的输入网址不得自动视为有效证据来源");
+
+const reuseCache = read("lib/ai/reuse-cache.ts");
+assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
+assert.match(reuseCache, /2026\.08\.24\.1/, "旧版无证据高分缓存必须失效");
 
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /setTimeout\(\(\) => timeoutController\.abort\(\), 30_000\)/, "单个客户AI分析必须在30秒超时并继续后续客户");
 assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
+assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
+assert.doesNotMatch(taskRunner, /JSON\.stringify\(item\.evidence\)/, "不得把原始证据JSON直接保存或展示给业务员");
+const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
+assert.match(evidenceApi, /isUsableEvidence/, "依据接口必须过滤失败码、原始JSON和不可追溯记录");
+assert.match(evidenceApi, /GOOGLE_MAPS_API_KEY\|fetch failed/, "依据接口不得向业务员展示内部抓取错误码");
+const evidenceView = read("components/ai-screening/evidence-view.tsx");
+assert.match(evidenceView, /<span>客户详情<\/span>/, "AI分析依据页必须显示客户详情按钮文字");
+assert.match(evidenceView, /需重新核验/, "历史无证据高分结果必须显示为需重新核验");
 const workflow = read("workflows/ai-screening.ts");
 assert.match(workflow, /Promise\.all\(batch\.map/, "AI任务必须按可控并发持续执行，单条失败不能终止整批任务");
 assert.match(workflow, /Promise\.race\(\[analysis, deadline\]\)/, "单个客户必须有独立30秒强制超时兜底");
@@ -165,4 +181,3 @@ assert.match(taskRunner, /saveCheckpoint/, "AI筛选必须在每个渠道后保�
 assert.match(taskRunner, /saveModelCall/, "AI筛选必须记录每次OpenAI调用的Token和费用");
 
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");
-

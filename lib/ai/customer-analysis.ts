@@ -84,17 +84,155 @@ const systemPrompt = `你是 DTSmart TradeOS 的B2B客户筛选专家。只能�
 A级高价值客户优先包括配件进口商、批发商、代理/经销/分销商、为维修门店供货的供应商、多门店维修连锁、具有海关采购记录或专业展会证据且有批量采购能力的企业。B级潜在客户包括稳定经营的手机/iPhone/MacBook/电脑维修店、兼营配件的门店及有持续补货需求的电商卖家。
 个人消费者、纯软件公司、无关企业、只卖整机且无维修配件业务的商家、官方直营店、无配件采购业务的运营商营业厅、永久停业机构和主体无法核实的数据通常不是目标客户。
 电话或邮箱缺失不能直接判为非目标；单独出现mobile、phone、computer等词也不能直接判为目标。必须结合主体一致性、经营范围、产品/服务、活跃度、批发进口属性和采购可能性。
+EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任务标签只表示数据如何进入系统，绝不是进口商、批发商或任何行业属性证据，严禁用于行业归类和评分。
 目标行业：手机维修店、手机配件批发商、手机配件零售商、手机进口商、电脑维修店、电脑配件批发商；无法确认时归类为其他。
 评分：85-100为A，70-84为B，50-69为C，0-49为D。只有评分不低于60且有明确业务证据时，is_target_customer才为true。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
 ai_reason必须引用实际证据；business_relevance、customer_value和followup_suggestion必须可供销售直接使用。evidence_conflicts列出证据矛盾，没有则返回空数组。
 score_breakdown的每个维度必须依据输入证据独立评分；contradiction_risk越高表示风险越大。suggested_contact_order按优先顺序给出实际可执行的联系渠道或动作。
-所有给业务员阅读的文字必须使用简体中文。evidence_summaries只可摘录输入中真实存在的事实，每个已成功读取的来源提炼2–5条简洁中文事实；不得输出原始JSON、网页代码或未经读取的图片描述。每条事实必须带真实source_url；无法核验的内容不要写入。`;
+所有给业务员阅读的文字必须使用简体中文。evidence_summaries只可摘录输入中真实存在的事实，每个已成功读取的来源提炼2–5条简洁中文事实；事实应直接说明“来源页面实际显示了什么”和“它支持或限制什么判断”，不得输出原始JSON、网页代码、空泛套话或未经视觉读取的图片内容。图片和视频只能提供真实可点击地址供人工核验，未实际读取画面时不得描述画面。每条事实必须带真实source_url；无法核验的内容不要写入。`;
 
 function modelForTier(tier: AnalysisTier) {
   if (tier === "escalation") return process.env.OPENAI_ESCALATION_MODEL?.trim() || process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.6-sol";
   if (tier === "deep") return process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.6-terra";
   return process.env.OPENAI_SMART_MODEL?.trim() || "gpt-5.6-luna";
+}
+
+function hasChinese(value: unknown): value is string {
+  return typeof value === "string" && /[\u3400-\u9fff]/.test(value) && !/^[\s]*[\[{]/.test(value);
+}
+
+function normalizedUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    url.hash = "";
+    return `${url.origin}${url.pathname}`.replace(/\/$/, "").toLowerCase();
+  } catch { return ""; }
+}
+
+function allowedEvidenceUrls(input: CustomerAnalysisInput) {
+  const urls = new Set<string>();
+  const add = (value: unknown) => { const normalized = normalizedUrl(value); if (normalized) urls.add(normalized); };
+  const website = input.evidence?.website;
+  if (website?.reachable) {
+    add(website.url);
+    website.pages?.forEach((page) => add(page.url));
+  }
+  Object.values(input.evidence?.public_channels || {}).forEach((channel) => {
+    if (!channel.reachable) return;
+    add(channel.url);
+    channel.pages?.forEach((page) => add(page.url));
+  });
+  if (input.evidence?.google_place?.name) {
+    add(input.google_url);
+    add(input.evidence.google_place.website);
+  }
+  return urls;
+}
+
+function sameOrChildUrl(candidate: string, allowed: Set<string>) {
+  const normalized = normalizedUrl(candidate);
+  if (!normalized) return false;
+  return [...allowed].some((source) => normalized === source || normalized.startsWith(`${source}/`) || source.startsWith(`${normalized}/`));
+}
+
+function sourceOrigin(value: string) {
+  try { return new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`).origin.toLowerCase(); }
+  catch { return ""; }
+}
+
+function ensureChinese(value: unknown, fallback: string) {
+  return hasChinese(value) ? value.trim().slice(0, 1800) : fallback;
+}
+
+function cleanEvidenceText(value: string) {
+  return value
+    .replace(/\(\[[^\]]+\]\(https?:\/\/[^)]+\)\)/gi, "")
+    .replace(/\[[^\]]+\]\(https?:\/\/[^)]+\)/gi, "")
+    .replace(/Mobile Phone Repair Shop/gi, "手机维修店")
+    .replace(/Cell Phone Store/gi, "手机零售店")
+    .replace(/Computer Repair Service/gi, "电脑维修服务")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 1600);
+}
+
+/** Enforces evidence-to-conclusion consistency after the model response. */
+export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: Omit<CustomerAnalysis, "usage">, additionalAllowedUrls: string[] = []): Omit<CustomerAnalysis, "usage"> {
+  const allowedUrls = allowedEvidenceUrls(input);
+  additionalAllowedUrls.forEach((url) => { const normalized = normalizedUrl(url); if (normalized) allowedUrls.add(normalized); });
+  const evidence = (Array.isArray(analysis.evidence_summaries) ? analysis.evidence_summaries : [])
+    .filter((item) => item && hasChinese(item.fact_zh) && hasChinese(item.title_zh) && sameOrChildUrl(item.source_url, allowedUrls))
+    .map((item) => ({ ...item, title_zh: cleanEvidenceText(item.title_zh).slice(0, 180), fact_zh: cleanEvidenceText(item.fact_zh), confidence: Math.max(0, Math.min(100, Math.round(Number(item.confidence) || 0))) }))
+    .filter((item) => item.fact_zh && !/GOOGLE_MAPS_API_KEY|fetch failed|EXCEL_IMPORT|MANUAL|CSV_IMPORT/i.test(item.fact_zh))
+    .slice(0, 24);
+  const supporting = evidence.filter((item) => item.evidence_type === "支持" && item.confidence >= 60);
+  const independentSources = new Set(supporting.map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
+  const evidenceSufficient = supporting.length >= 2 && independentSources >= 1;
+  const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
+  let score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
+  let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
+  if (!evidenceSufficient) {
+    score = Math.min(score, 49);
+    confidence = Math.min(confidence, evidence.length ? 49 : 25);
+  } else if (!strongEnoughForHighConfidence) {
+    confidence = Math.min(confidence, 79);
+    score = Math.min(score, 84);
+  }
+  const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
+  const insufficientReason = evidence.length
+    ? "本次仅取得有限的可核验公开信息，证据不足以确认其行业属性和批量采购能力，建议人工核验或补充公开入口后重新分析。"
+    : "本次未取得可追溯的公开页面证据，暂不能确认该客户是否属于目标行业，请补充有效官网、谷歌地图或企业主页后重新分析。";
+  const aiReason = evidenceSufficient
+    ? `公开证据显示：${evidenceLead}。据此将其归类为“${analysis.industry_type}”，综合评分${score}分；采购规模与实际需求仍需销售沟通确认。`
+    : insufficientReason;
+  const scoreBreakdown = evidenceSufficient ? analysis.score_breakdown : {
+    entity_consistency: Math.min(49, Number(analysis.score_breakdown?.entity_consistency) || 0),
+    company_authenticity: Math.min(49, Number(analysis.score_breakdown?.company_authenticity) || 0),
+    business_activity: Math.min(49, Number(analysis.score_breakdown?.business_activity) || 0),
+    mobile_parts_match: 0,
+    macbook_parts_match: 0,
+    wholesale_import_distribution: 0,
+    repair_business_match: 0,
+    bulk_purchase_potential: 0,
+    contactability: Math.min(49, Number(analysis.score_breakdown?.contactability) || 0),
+    evidence_completeness: Math.min(25, Number(analysis.score_breakdown?.evidence_completeness) || 0),
+    contradiction_risk: Math.max(60, Number(analysis.score_breakdown?.contradiction_risk) || 0),
+  };
+  return {
+    ...analysis,
+    ai_score: score,
+    ai_level: scoreToLevel(score),
+    is_target_customer: evidenceSufficient && score >= 60 && confidence >= 60,
+    confidence_score: confidence,
+    evidence_sufficiency: evidenceSufficient ? (strongEnoughForHighConfidence ? analysis.evidence_sufficiency : "一般") : "不足",
+    ai_reason: aiReason,
+    business_relevance: evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : insufficientReason,
+    customer_value: evidenceSufficient ? ensureChinese(analysis.customer_value, "已取得业务相关证据，但采购规模仍需销售首次沟通确认。") : "待核验：当前公开证据不足，不能可靠判断采购价值。",
+    followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : "先核验企业主体并补充有效公开入口，证据充分后再制定销售开发计划。",
+    score_breakdown: scoreBreakdown,
+    evidence_conflicts: (Array.isArray(analysis.evidence_conflicts) ? analysis.evidence_conflicts : []).filter(hasChinese).slice(0, 20),
+    suggested_contact_order: (Array.isArray(analysis.suggested_contact_order) ? analysis.suggested_contact_order : []).filter(Boolean).slice(0, 6),
+    evidence_summaries: evidence,
+  };
+}
+
+function webSearchSources(payload: Record<string, unknown>) {
+  const urls = new Set<string>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "url" && typeof child === "string" && /^https?:\/\//i.test(child)) urls.add(child);
+      else visit(child);
+    }
+  };
+  // Responses may expose sources on web_search_call.action.sources and/or
+  // message output_text annotations. Traverse the complete output so both
+  // representations are accepted, but never accept URLs merely echoed by the model.
+  visit(payload.output);
+  return [...urls];
 }
 
 function pricingForModel(model: string) {
@@ -125,6 +263,13 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   if (!key) throw new Error("OPENAI_NOT_CONFIGURED");
 
   const model = modelForTier(options.tier || "fast");
+  const hasDirectEvidence = Boolean(input.evidence?.website?.reachable)
+    || Object.values(input.evidence?.public_channels || {}).some((item) => item.reachable)
+    || Boolean(input.evidence?.google_place?.name);
+  const needsPublicSearch = !hasDirectEvidence || Boolean(input.google_url && input.evidence?.google_place?.configured === false);
+  const publicSearchInstruction = needsPublicSearch
+    ? `\n结构化公开证据不足。请立即使用网页检索工具核验该企业，优先检索精确企业名称“${input.customer_name}”、国家/地址“${[input.country, input.address].filter(Boolean).join(" ")}”以及谷歌地图入口“${input.google_url || "未提供"}”。只有网页检索实际返回并带URL引用的事实才能写入evidence_summaries；无法从公开网页确认的电话、地址、营业时间、评分、评论、图片或行业不得猜测。`
+    : "";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 18_000);
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
@@ -137,9 +282,14 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
       body: JSON.stringify({
         model,
         store: false,
+        ...(needsPublicSearch ? {
+          tools: [{ type: "web_search", search_context_size: options.tier === "deep" ? "medium" : "low" }],
+          tool_choice: "required",
+          include: ["web_search_call.action.sources"],
+        } : {}),
         input: [
           { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
-          { role: "user", content: [{ type: "input_text", text: JSON.stringify(input) }] },
+          { role: "user", content: [{ type: "input_text", text: `${JSON.stringify(input)}${publicSearchInstruction}` }] },
         ],
         text: {
           format: {
@@ -242,15 +392,15 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   const cachedPrice = pricing.cached_input;
   const outputPrice = pricing.output;
   const cost = (uncachedInput * inputPrice + cachedTokens * cachedPrice + outputTokens * outputPrice) / 1_000_000;
-  return {
+  const grounded = groundCustomerAnalysis(input, {
     ...parsed,
     ai_score: score,
     confidence_score: confidence,
     ai_level: scoreToLevel(score),
     is_target_customer: score >= 60 && confidence >= 60,
-    evidence_conflicts: Array.isArray(parsed.evidence_conflicts) ? parsed.evidence_conflicts.filter(Boolean).slice(0, 20) : [],
-    suggested_contact_order: Array.isArray(parsed.suggested_contact_order) ? parsed.suggested_contact_order.filter(Boolean).slice(0, 6) : [],
-    evidence_summaries: Array.isArray(parsed.evidence_summaries) ? parsed.evidence_summaries.filter((item) => item?.fact_zh && item?.source_url).slice(0, 24) : [],
+  }, webSearchSources(payload));
+  return {
+    ...grounded,
     usage: {
       model,
       input_tokens: inputTokens,

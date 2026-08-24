@@ -158,4 +158,3 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     return { status: "FAILED", error: message };
   }
 }
-

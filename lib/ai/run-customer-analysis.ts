@@ -77,23 +77,30 @@ function newPhones(original: string | null, values: string[]) {
 
 function evidenceForModel(records: ChannelRecord[]): CustomerEvidence {
   const publicChannels: Record<string, WebsiteEvidence> = {};
+  const compactWebsite = (item: WebsiteEvidence): WebsiteEvidence => ({
+    ...item,
+    headings: (item.headings || []).slice(0, 16),
+    text_excerpt: item.text_excerpt?.slice(0, 5000),
+    image_alts: (item.image_alts || []).slice(0, 16),
+    image_urls: (item.image_urls || []).slice(0, 10),
+    video_urls: (item.video_urls || []).slice(0, 6),
+    emails: (item.emails || []).slice(0, 12),
+    phones: (item.phones || []).slice(0, 12),
+    whatsapps: (item.whatsapps || []).slice(0, 8),
+    pages: (item.pages || []).slice(0, 6).map((page) => ({ ...page, headings: page.headings.slice(0, 8), text_excerpt: page.text_excerpt?.slice(0, 1800), image_alts: page.image_alts.slice(0, 8), image_urls: page.image_urls.slice(0, 6), emails: page.emails.slice(0, 8), phones: page.phones.slice(0, 8) })),
+  });
   for (const item of records) {
     if (item.status !== "COLLECTED" || !item.evidence) continue;
     if (item.channel === "website") continue;
     if (item.channel === "google_maps") continue;
-    publicChannels[item.channel] = item.evidence as WebsiteEvidence;
+    publicChannels[item.channel] = compactWebsite(item.evidence as WebsiteEvidence);
   }
+  const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
   return {
-    website: records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined,
-    google_place: records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined,
+    website: (() => { const value = records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined; return value ? compactWebsite(value) : undefined; })(),
+    google_place: google ? { ...google, reviews: (google.reviews || []).slice(0, 5).map((review) => review.slice(0, 700)), types: (google.types || []).slice(0, 12) } : undefined,
     public_channels: publicChannels,
   };
-}
-
-function evidenceContent(item: ChannelRecord) {
-  if (!item.evidence) return null;
-  const raw = JSON.stringify(item.evidence);
-  return raw.length > 45_000 ? `${raw.slice(0, 45_000)}…` : raw;
 }
 
 function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
@@ -255,23 +262,22 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   let usage = { ...ZERO_USAGE };
   let earlyStopReason: string | null = null;
   try {
-    if (input.strategy === "DEEP") {
-      for (const channel of AI_CHANNEL_ORDER) {
-        if (timeoutController.signal.aborted) throw new Error("CUSTOMER_ANALYSIS_TIMEOUT");
-        const saved = records.find((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status));
-        if (!saved) {
-          const current = await collectChannel(customer, channel, timeoutController.signal);
-          const index = records.findIndex((item) => item.channel === channel);
-          if (index >= 0) records[index] = current; else records.push(current);
-          await saveCheckpoint(input.taskItemId, records, channel);
-        }
+    const pendingChannels = AI_CHANNEL_ORDER.filter((channel) => !records.some((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status)));
+    if (pendingChannels.length) {
+      const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, timeoutController.signal)));
+      for (const current of collected) {
+        const index = records.findIndex((item) => item.channel === current.channel);
+        if (index >= 0) records[index] = current; else records.push(current);
       }
+      await saveCheckpoint(input.taskItemId, records, pendingChannels[pendingChannels.length - 1]);
+    }
+    if (input.strategy === "DEEP") {
       const callStarted = Date.now();
       try {
         analysis = await analyzeCustomer({
           customer_name: customer.company_name, country: customer.country, website: customer.website,
           google_url: customer.google_url, address: customer.address,
-          industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
+          industry_keywords: [customer.industry, customer.category, ...customer.tags].filter(Boolean).join(" / "),
           evidence: evidenceForModel(records),
         }, { signal: timeoutController.signal, timeoutMs: 14_000, tier: "deep" });
         await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
@@ -281,57 +287,21 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       }
       usage = addUsage(usage, analysis.usage);
     } else {
-      for (const channel of AI_CHANNEL_ORDER) {
-        if (timeoutController.signal.aborted) throw new Error("CUSTOMER_ANALYSIS_TIMEOUT");
-        const saved = records.find((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status));
-        if (!saved) {
-          const current = await collectChannel(customer, channel, timeoutController.signal);
-          const index = records.findIndex((item) => item.channel === channel);
-          if (index >= 0) records[index] = current; else records.push(current);
-          await saveCheckpoint(input.taskItemId, records, channel);
-        }
-        if (!records.some((item) => item.status === "COLLECTED")) continue;
-        const callStarted = Date.now();
-        try {
-          analysis = await analyzeCustomer({
-            customer_name: customer.company_name, country: customer.country, website: customer.website,
-            google_url: customer.google_url, address: customer.address,
-            industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
-            evidence: evidenceForModel(records),
-          }, { signal: timeoutController.signal, timeoutMs: 11_000, tier: "fast" });
-          await saveModelCall({ ...input, channel, attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
-        } catch (error) {
-          await saveModelCall({ ...input, channel, attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
-          throw error;
-        }
-        usage = addUsage(usage, analysis.usage);
-        const strongEvidence = analysis.evidence_summaries.filter((item) => item.evidence_type === "支持" && item.confidence >= 75).length;
-        const independentSources = new Set(analysis.evidence_summaries.filter((item) => item.confidence >= 60).map((item) => item.channel)).size;
-        if (analysis.confidence_score >= 90
-          && analysis.score_breakdown.entity_consistency >= 75
-          && analysis.evidence_sufficiency !== "不足"
-          && analysis.evidence_conflicts.length === 0
-          && (strongEvidence >= 1 || independentSources >= 2)) {
-          earlyStopReason = `完成${AI_CHANNEL_LABELS[channel]}后，${analysis.is_target_customer ? "目标" : "非目标"}判断置信度${analysis.confidence_score}分且无关键矛盾`;
-          break;
-        }
+      const callStarted = Date.now();
+      try {
+        analysis = await analyzeCustomer({
+          customer_name: customer.company_name, country: customer.country, website: customer.website,
+          google_url: customer.google_url, address: customer.address,
+          industry_keywords: [customer.industry, customer.category, ...customer.tags].filter(Boolean).join(" / "),
+          evidence: evidenceForModel(records),
+        }, { signal: timeoutController.signal, timeoutMs: 12_000, tier: "fast" });
+        await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
+      } catch (error) {
+        await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
+        throw error;
       }
-      if (!analysis) {
-        const callStarted = Date.now();
-        try {
-          analysis = await analyzeCustomer({
-            customer_name: customer.company_name, country: customer.country, website: customer.website,
-            google_url: customer.google_url, address: customer.address,
-            industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
-            evidence: evidenceForModel(records),
-          }, { signal: timeoutController.signal, timeoutMs: 11_000, tier: "fast" });
-          await saveModelCall({ ...input, channel: "available_customer_fields", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
-        } catch (error) {
-          await saveModelCall({ ...input, channel: "available_customer_fields", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
-          throw error;
-        }
-        usage = addUsage(usage, analysis.usage);
-      }
+      usage = addUsage(usage, analysis.usage);
+      earlyStopReason = "已并行读取全部可用公开来源，并用一次模型调用完成综合判断";
     }
     if (timeoutController.signal.aborted) throw new Error("CUSTOMER_ANALYSIS_TIMEOUT");
     const needsEscalation = analysis.evidence_conflicts.length > 0
@@ -343,7 +313,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         const escalated = await analyzeCustomer({
           customer_name: customer.company_name, country: customer.country, website: customer.website,
           google_url: customer.google_url, address: customer.address,
-          industry_keywords: [customer.industry, customer.category, customer.source, ...customer.tags].filter(Boolean).join(" / "),
+          industry_keywords: [customer.industry, customer.category, ...customer.tags].filter(Boolean).join(" / "),
           evidence: evidenceForModel(records),
         }, { signal: timeoutController.signal, timeoutMs: 10_000, tier: "escalation" });
         await saveModelCall({ ...input, channel: "final_escalation", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: escalated.usage, status: "COMPLETED" });
@@ -396,34 +366,36 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     if (resultWrite.error || !resultWrite.data) throw resultWrite.error || new Error("RESULT_WRITE_FAILED");
 
     const entityConsistency = analysis.score_breakdown.entity_consistency;
-    const readableEvidence = analysis.evidence_summaries.length ? analysis.evidence_summaries : records.map((item) => ({
-      channel: item.channel,
-      title_zh: `${AI_CHANNEL_LABELS[item.channel]}核验记录`,
-      fact_zh: item.status === "COLLECTED" ? "系统已读取该公开来源，但未提炼到可直接引用的中文关键事实。" : item.status === "FAILED" ? `该来源读取失败：${item.error || "未知错误"}` : `已跳过该来源：${item.error || "没有可读取入口"}`,
-      source_url: item.source_url || "",
-      evidence_type: "中性" as const,
-      confidence: item.status === "COLLECTED" ? 50 : 0,
-    }));
+    // Failed/skipped channels are audit limitations, never business evidence.
+    const readableEvidence = analysis.evidence_summaries;
     const evidenceRows = readableEvidence.map((summary) => {
       const channel = AI_CHANNEL_ORDER.includes(summary.channel as AiChannel) ? summary.channel as AiChannel : "other";
       const source = records.find((item) => item.channel === channel);
       const normalizedFact = summary.fact_zh.trim().slice(0, 1600);
+      const acquiredByPublicSearch = source?.status !== "COLLECTED";
       return {
         result_id: resultWrite.data.id, task_id: input.taskId, customer_id: customer.id,
         evidence_type: summary.evidence_type, channel,
         source_url: summary.source_url || source?.source_url || null,
         title: summary.title_zh.trim().slice(0, 180) || `${AI_CHANNEL_LABELS[channel]}关键依据`,
         content: normalizedFact,
-        raw_excerpt: source ? evidenceContent(source) : null,
+        raw_excerpt: normalizedFact,
         normalized_fact: normalizedFact,
         identity_match_status: entityConsistency >= 75 ? "matched" : entityConsistency >= 55 ? "likely_matched" : "unverified",
         supports: summary.evidence_type === "支持" ? "目标客户判断" : null,
         contradicts: summary.evidence_type === "矛盾" ? "目标客户判断" : null,
         evidence_confidence: Math.max(0, Math.min(100, Math.round(summary.confidence || 0))),
-        metadata: { channel, status: source?.status || "COLLECTED", media_urls: source?.evidence && "image_urls" in source.evidence ? source.evidence.image_urls : [] },
-        status: source?.status || "COLLECTED",
-        error_code: source?.status === "FAILED" ? source.error || "FETCH_FAILED" : null,
-        failure_reason: source?.status === "FAILED" ? source.error || "来源读取失败" : null,
+        metadata: {
+          channel,
+          status: "COLLECTED",
+          acquisition: acquiredByPublicSearch ? "OPENAI_WEB_SEARCH" : "DIRECT_SOURCE_READ",
+          media_urls: source?.evidence && "image_urls" in source.evidence
+            ? [...source.evidence.image_urls, ...("video_urls" in source.evidence ? source.evidence.video_urls || [] : [])].slice(0, 16)
+            : [],
+        },
+        status: "COLLECTED",
+        error_code: null,
+        failure_reason: null,
         content_hash: createHash("sha256").update(`${channel}|${normalizedFact}|${summary.source_url || source?.source_url || ""}`).digest("hex"),
       };
     });

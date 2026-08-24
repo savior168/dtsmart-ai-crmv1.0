@@ -213,7 +213,14 @@ export async function collectGooglePlaceEvidence(input: {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
-  if (!apiKey) return { configured: false, query, types: [], reviews: [], emails: [], error: "GOOGLE_MAPS_API_KEY_NOT_CONFIGURED" };
+  if (!apiKey) return {
+    configured: false,
+    query,
+    types: [],
+    reviews: [],
+    emails: [],
+    error: "谷歌地图结构化数据服务未配置，本次将改用带来源引用的公开网页检索；未取得的字段不得参与评分。",
+  };
 
   const request = requestSignal(options, 4500);
   try {

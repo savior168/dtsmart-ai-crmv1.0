@@ -82,4 +82,3 @@ export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number 
   const ended = new Date(task.finished_at || task.completed_at || task.updated_at || "").getTime();
   return Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : 0;
 }
-
