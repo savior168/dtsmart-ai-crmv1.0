@@ -4,7 +4,7 @@
  * Keep this layer read-only: AI screening may consume any recognized alias,
  * but it must never rename or overwrite the original source field.
  */
-export const AI_FIELD_MAPPING_VERSION = "2026.08.21";
+export const AI_FIELD_MAPPING_VERSION = "2026.08.24.2";
 
 export const AI_CUSTOMER_FIELD_CANDIDATES = {
   id: ["id"],

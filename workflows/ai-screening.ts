@@ -72,7 +72,7 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
     if (raw.includes("OPENAI_NOT_CONFIGURED") || /OPENAI_API_ERROR:\s*(401|403)\b/.test(raw)) throw error;
     const failure = publicAiError(error);
     await admin.from("ai_screening_task_items").update({
-      status: "FAILED", progress: 100, current_step: "FAILED", error_code: failure.code,
+      status: "FAILED", automation_status: "ANALYSIS_FAILED", progress: 100, current_step: "FAILED", error_code: failure.code,
       error_message: failure.message, retryable: true, duration_ms: 30_000,
       completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", itemId);

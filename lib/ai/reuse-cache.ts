@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { AiMappedCustomer } from "@/lib/ai/semantic-fields";
+import { AI_FIELD_MAPPING_VERSION, type AiMappedCustomer } from "@/lib/ai/semantic-fields";
 import type { AiStrategy } from "@/lib/ai/task-types";
 
-export const AI_RULE_VERSION = "2026.08.24.1";
+export const AI_RULE_VERSION = "2026.08.24.2";
+export const AI_EVIDENCE_SCHEMA_VERSION = "2026.08.24.2";
 
 function reusableEvidenceIsTraceable(row: Record<string, unknown>) {
   const snapshot = Array.isArray(row.evidence_snapshot) ? row.evidence_snapshot : [];
@@ -61,11 +62,15 @@ export async function findReusableAnalysis(customer: AiMappedCustomer, strategy:
   if (!keys.length) return null;
   const strategies = strategy === "SMART" ? ["SMART", "DEEP"] : ["DEEP"];
   const admin = createAdminClient();
+  const sourceSignature = customerSourceSignature(customer);
   const result = await admin.from("ai_analysis_reuse_cache")
     .select("*")
     .in("identity_key", keys)
     .in("strategy", strategies)
     .eq("rule_version", AI_RULE_VERSION)
+    .eq("field_mapping_version", AI_FIELD_MAPPING_VERSION)
+    .eq("evidence_schema_version", AI_EVIDENCE_SCHEMA_VERSION)
+    .eq("source_signature", sourceSignature)
     .gt("expires_at", new Date().toISOString())
     .order("captured_at", { ascending: false })
     .limit(1)
@@ -76,6 +81,7 @@ export async function findReusableAnalysis(customer: AiMappedCustomer, strategy:
     throw result.error;
   }
   if (!result.data || !reusableEvidenceIsTraceable(result.data as Record<string, unknown>)) return null;
+  await admin.from("ai_analysis_reuse_cache").update({ reused_at: new Date().toISOString() }).eq("id", result.data.id);
   return result.data;
 }
 
@@ -100,13 +106,15 @@ export async function saveReusableAnalysis(input: {
     source_result_id: input.resultId,
     strategy: input.strategy,
     rule_version: AI_RULE_VERSION,
-    field_mapping_version: "2026.08.21",
+    field_mapping_version: AI_FIELD_MAPPING_VERSION,
+    evidence_schema_version: AI_EVIDENCE_SCHEMA_VERSION,
     source_signature: sourceSignature,
     analysis_result: input.analysisResult,
     evidence_snapshot: input.evidenceSnapshot,
     discovered_contacts: input.discoveredContacts,
     model_snapshot: input.modelSnapshot,
     captured_at: now.toISOString(),
+    original_captured_at: now.toISOString(),
     expires_at: expiresAt,
     updated_at: now.toISOString(),
   }));

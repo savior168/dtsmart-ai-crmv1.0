@@ -48,18 +48,20 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.24\.1/, "旧版无证据高分缓存必须失效");
-
+assert.match(reuseCache, /2026\.08\.24\.2/, "旧版无证据高分缓存必须失效");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
+assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
 assert.match(taskRunner, /setTimeout\(\(\) => timeoutController\.abort\(\), 30_000\)/, "单个客户AI分析必须在30秒超时并继续后续客户");
 assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
 assert.doesNotMatch(taskRunner, /JSON\.stringify\(item\.evidence\)/, "不得把原始证据JSON直接保存或展示给业务员");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
+assert.match(evidenceApi, /verified_contacts/, "AI依据接口必须返回可追溯的新联系方式");
 assert.match(evidenceApi, /isUsableEvidence/, "依据接口必须过滤失败码、原始JSON和不可追溯记录");
 assert.match(evidenceApi, /GOOGLE_MAPS_API_KEY\|fetch failed/, "依据接口不得向业务员展示内部抓取错误码");
 const evidenceView = read("components/ai-screening/evidence-view.tsx");
+assert.match(evidenceView, /已核实联系方式更新/, "AI依据页必须在结论附近显眼展示已核实联系方式");
 assert.match(evidenceView, /<span>客户详情<\/span>/, "AI分析依据页必须显示客户详情按钮文字");
 assert.match(evidenceView, /需重新核验/, "历史无证据高分结果必须显示为需重新核验");
 const workflow = read("workflows/ai-screening.ts");

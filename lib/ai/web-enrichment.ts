@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+
 export type WebsiteEvidence = {
   url: string;
   reachable: boolean;
@@ -11,7 +13,7 @@ export type WebsiteEvidence = {
   phones: string[];
   whatsapps?: string[];
   video_urls?: string[];
-  pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; emails: string[]; phones: string[] }>;
+  pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; video_urls?: string[]; emails: string[]; phones: string[]; whatsapps?: string[] }>;
   error?: string;
 };
 
@@ -28,6 +30,13 @@ export type GooglePlaceEvidence = {
   phone?: string;
   emails?: string[];
   reviews: string[];
+  place_id?: string;
+  candidate_count?: number;
+  identity_status?: "MATCHED" | "LIKELY_MATCHED" | "AMBIGUOUS" | "CONFLICTED" | "NOT_FOUND";
+  identity_confidence?: number;
+  match_signals?: string[];
+  mismatch_signals?: string[];
+  verified_google_maps_url?: string;
   error?: string;
 };
 
@@ -84,6 +93,93 @@ function extractEmails(text: string) {
   return unique((text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map((email) => email.toLowerCase()));
 }
 
+function safePublicUrl(url?: string | null) {
+  const normalized = normalizeUrl(url);
+  if (!normalized) return null;
+  try {
+    const parsed = new URL(normalized);
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    const host = parsed.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host === "0.0.0.0" || host === "::1") return null;
+    if (/^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(host)) return null;
+    return parsed.toString();
+  } catch { return null; }
+}
+
+function isPrivateAddress(address: string) {
+  const normalized = address.toLowerCase();
+  return /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(normalized)
+    || normalized === "::1"
+    || normalized.startsWith("fc")
+    || normalized.startsWith("fd")
+    || normalized.startsWith("fe80:");
+}
+
+async function assertPublicHost(url: string) {
+  const host = new URL(url).hostname;
+  const addresses = await lookup(host, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) {
+    throw new Error("UNSAFE_SOURCE_ADDRESS");
+  }
+}
+
+async function waitForRetry(attempt: number, signal?: AbortSignal) {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(resolve, 250 * (2 ** attempt));
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+
+async function fetchWithRetry(url: string | URL, init: RequestInit, retries = 2) {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    response = await fetch(url, init);
+    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === retries) return response;
+    await waitForRetry(attempt, init.signal || undefined);
+  }
+  return response!;
+}
+
+async function readTextLimited(response: Response, maxBytes = 350_000) {
+  if (!response.body) return (await response.text()).slice(0, maxBytes);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size < maxBytes) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const remaining = maxBytes - size;
+    chunks.push(value.length > remaining ? value.slice(0, remaining) : value);
+    size += Math.min(value.length, remaining);
+    if (value.length > remaining) {
+      await reader.cancel("SOURCE_RESPONSE_TOO_LARGE");
+      break;
+    }
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+async function fetchPublic(url: string, init: RequestInit, maxRedirects = 3): Promise<Response> {
+  let current = safePublicUrl(url);
+  if (!current) throw new Error("UNSAFE_SOURCE_URL");
+  for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
+    await assertPublicHost(current);
+    const response: Response = await fetchWithRetry(current, { ...init, redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      const length = Number(response.headers.get("content-length") || 0);
+      if (length > 2_000_000) throw new Error("SOURCE_RESPONSE_TOO_LARGE");
+      return response;
+    }
+    const location: string | null = response.headers.get("location");
+    current = location ? safePublicUrl(new URL(location, current).toString()) : null;
+    if (!current) throw new Error("UNSAFE_SOURCE_REDIRECT");
+  }
+  throw new Error("SOURCE_REDIRECT_LIMIT");
+}
+
 export function isPlausiblePhone(value?: string | null) {
   const candidate = String(value || "").replace(/(?:ext\.?|extension|分机)\s*\d+$/i, "").trim();
   if (!candidate || /[A-Za-z@]/.test(candidate)) return false;
@@ -110,12 +206,16 @@ function extractWhatsapps(text: string) {
 }
 
 export async function collectWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
-  const normalized = normalizeUrl(url);
+  const normalized = safePublicUrl(url);
   if (!normalized) return undefined;
 
   const request = requestSignal(options, 5000);
   try {
-    const response = await fetch(normalized, {
+    const parsedUrl = new URL(normalized);
+    if (/google\./i.test(parsedUrl.hostname) && /^\/search/i.test(parsedUrl.pathname)) {
+      return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: "搜索结果页不是具体企业页面" };
+    }
+    const response = await fetchPublic(normalized, {
       signal: request.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation",
@@ -126,7 +226,12 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
     if (!response.ok || !contentType.includes("text/html")) {
       return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: `HTTP ${response.status}` };
     }
-    const html = (await response.text()).slice(0, 350_000);
+    const html = await readTextLimited(response);
+    const visibleText = compactText(html).slice(0, 6000);
+    if (/(?:log in|sign in|登录后继续|cookie settings|accept all cookies)/i.test(`${firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i) || ""} ${visibleText}`)
+        && /(?:facebook|instagram|linkedin|tiktok)\.com/i.test(parsedUrl.hostname)) {
+      return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: "社媒登录页或Cookie页，未读取到企业公开主页" };
+    }
     const imageUrls = [...html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)]
       .slice(0, 12)
       .map((match) => match[1])
@@ -138,7 +243,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
       description: firstMatch(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i)
         || firstMatch(html, /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["'][^>]*>/i),
       headings: matches(html, /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi, 16),
-      text_excerpt: compactText(html).slice(0, 5000),
+      text_excerpt: visibleText.slice(0, 5000),
       image_alts: matches(html, /<img[^>]+alt=["']([^"']+)["'][^>]*>/gi, 16),
       image_urls: imageUrls,
       emails: extractEmails(html),
@@ -157,7 +262,7 @@ function sameWebsiteUrl(base: string, candidate: string) {
   try {
     const resolved = new URL(candidate, base);
     const origin = new URL(base);
-    return ["http:", "https:"].includes(resolved.protocol) && resolved.hostname === origin.hostname ? resolved.toString() : null;
+    return ["http:", "https:"].includes(resolved.protocol) && resolved.hostname === origin.hostname ? safePublicUrl(resolved.toString()) : null;
   } catch {
     return null;
   }
@@ -166,12 +271,12 @@ function sameWebsiteUrl(base: string, candidate: string) {
 async function discoverImportantWebsitePages(url: string, options: FetchOptions = {}) {
   const request = requestSignal(options, 3500);
   try {
-    const response = await fetch(url, {
+    const response = await fetchPublic(url, {
       signal: request.signal,
       headers: { "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation", Accept: "text/html,application/xhtml+xml" },
     });
     if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
-    const html = (await response.text()).slice(0, 350_000);
+    const html = await readTextLimited(response);
     const keywords = /about|company|service|product|contact|support|team|portfolio|solution|业务|关于|服务|产品|联系/i;
     const links = [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
       .map((match) => ({ url: sameWebsiteUrl(url, match[1]), text: compactText(match[2]) }))
@@ -200,8 +305,22 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
     phones: unique([...homepage.phones, ...pages.flatMap((page) => page.phones)]),
     whatsapps: unique([...(homepage.whatsapps || []), ...pages.flatMap((page) => page.whatsapps || [])]),
     text_excerpt: [homepage.text_excerpt, ...pages.map((page) => page.text_excerpt)].filter(Boolean).join("\n\n").slice(0, 16_000),
-    pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, emails, phones }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, emails, phones })),
+    pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps })),
   };
+}
+
+function googlePlaceIdFromUrl(value?: string | null) {
+  if (!value) return "";
+  try {
+    const decoded = decodeURIComponent(value);
+    const parsed = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    const explicit = parsed.searchParams.get("place_id")
+      || decoded.match(/place_id[:=]([A-Za-z0-9_-]{10,})/i)?.[1]
+      || decoded.match(/(?:^|[?&])q=place_id:([A-Za-z0-9_-]{10,})/i)?.[1];
+    return explicit || "";
+  } catch {
+    return "";
+  }
 }
 
 export async function collectGooglePlaceEvidence(input: {
@@ -209,6 +328,8 @@ export async function collectGooglePlaceEvidence(input: {
   address?: string | null;
   country?: string | null;
   google_url?: string | null;
+  phone?: string | null;
+  website?: string | null;
 }, options: FetchOptions = {}): Promise<GooglePlaceEvidence | undefined> {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
@@ -224,45 +345,71 @@ export async function collectGooglePlaceEvidence(input: {
 
   const request = requestSignal(options, 4500);
   try {
-    const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
-    searchUrl.searchParams.set("query", query);
-    searchUrl.searchParams.set("key", apiKey);
-    const searchResponse = await fetch(searchUrl, { signal: request.signal });
-    const searchPayload = await searchResponse.json() as {
-      status?: string;
-      error_message?: string;
-      results?: Array<{ place_id?: string }>;
-    };
-    const placeId = searchPayload.results?.[0]?.place_id;
-    if (!searchResponse.ok || !placeId) {
-      return { configured: true, query, types: [], reviews: [], emails: [], error: searchPayload.error_message || searchPayload.status || "PLACE_NOT_FOUND" };
-    }
-
-    const detailsUrl = new URL("https://maps.googleapis.com/maps/api/place/details/json");
-    detailsUrl.searchParams.set("place_id", placeId);
-    detailsUrl.searchParams.set("fields", "name,formatted_address,business_status,rating,user_ratings_total,types,website,formatted_phone_number,reviews");
-    detailsUrl.searchParams.set("key", apiKey);
-    const detailsResponse = await fetch(detailsUrl, { signal: request.signal });
-    const detailsPayload = await detailsResponse.json() as {
-      status?: string;
-      error_message?: string;
-      result?: {
-        name?: string;
-        formatted_address?: string;
-        business_status?: string;
-        rating?: number;
-        user_ratings_total?: number;
-        types?: string[];
-        website?: string;
-        formatted_phone_number?: string;
-        reviews?: Array<{ text?: string }>;
+    type Candidate = { place_id?: string; name?: string; formatted_address?: string; business_status?: string; rating?: number; user_ratings_total?: number; types?: string[] };
+    const directPlaceId = googlePlaceIdFromUrl(input.google_url);
+    let candidates: Candidate[] = directPlaceId ? [{ place_id: directPlaceId }] : [];
+    if (!candidates.length) {
+      const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
+      searchUrl.searchParams.set("query", query);
+      searchUrl.searchParams.set("key", apiKey);
+      const searchResponse = await fetchWithRetry(searchUrl, { signal: request.signal });
+      const searchPayload = await searchResponse.json() as {
+        status?: string;
+        error_message?: string;
+        results?: Candidate[];
       };
-    };
-    const result = detailsPayload.result;
-    if (!detailsResponse.ok || !result) {
-      return { configured: true, query, types: [], reviews: [], emails: [], error: detailsPayload.error_message || detailsPayload.status || "PLACE_DETAILS_NOT_FOUND" };
+      candidates = (searchPayload.results || []).filter((item) => item.place_id).slice(0, 5);
+      if (!searchResponse.ok || !candidates.length) {
+        return { configured: true, query, types: [], reviews: [], emails: [], error: searchPayload.error_message || searchPayload.status || "PLACE_NOT_FOUND" };
+      }
     }
-    const evidence = {
+    type Detail = { place_id: string; name?: string; formatted_address?: string; business_status?: string; rating?: number; user_ratings_total?: number; types?: string[]; website?: string; formatted_phone_number?: string; reviews?: Array<{ text?: string }> };
+    const details = (await Promise.all(candidates.map(async (candidate): Promise<Detail | null> => {
+      const detailsUrl = new URL("https://maps.googleapis.com/maps/api/place/details/json");
+      detailsUrl.searchParams.set("place_id", candidate.place_id!);
+      detailsUrl.searchParams.set("fields", "place_id,name,formatted_address,business_status,rating,user_ratings_total,types,website,formatted_phone_number,reviews,url");
+      detailsUrl.searchParams.set("key", apiKey);
+       const response = await fetchWithRetry(detailsUrl, { signal: request.signal });
+      const payload = await response.json() as { result?: Omit<Detail, "place_id">; status?: string };
+      return response.ok && payload.result ? { ...candidate, ...payload.result, place_id: candidate.place_id! } : null;
+    }))).filter((item): item is Detail => Boolean(item));
+    if (!details.length) return { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidates.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "PLACE_DETAILS_NOT_FOUND" };
+    const normalize = (value?: string | null) => String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const tokens = (value?: string | null) => new Set(normalize(value).split(/\s+/).filter((item) => item.length > 1));
+    const similarity = (a?: string | null, b?: string | null) => {
+      const left = tokens(a); const right = tokens(b); if (!left.size || !right.size) return 0;
+      const common = [...left].filter((item) => right.has(item)).length;
+      return common / Math.max(left.size, right.size);
+    };
+    const domain = (value?: string | null) => { try { return new URL(/^https?:\/\//i.test(String(value)) ? String(value) : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+    const phone = (value?: string | null) => String(value || "").replace(/\D/g, "");
+    const scored = details.map((item) => {
+      const matchSignals: string[] = []; const mismatchSignals: string[] = [];
+      const nameScore = Math.round(similarity(input.company_name, item.name) * 45);
+      if (nameScore >= 36) matchSignals.push("商家名称高度一致"); else mismatchSignals.push("商家名称未达到高度一致");
+      const addressScore = Math.round(similarity(input.address, item.formatted_address) * 25);
+      if (addressScore >= 18) matchSignals.push("地址信息一致"); else if (input.address) mismatchSignals.push("地址信息不足或不一致");
+      const countryScore = input.country && normalize(item.formatted_address).includes(normalize(input.country)) ? 10 : 0;
+      if (countryScore) matchSignals.push("国家或地区一致");
+      const websiteScore = domain(input.website) && domain(input.website) === domain(item.website) ? 15 : 0;
+      if (websiteScore) matchSignals.push("官网域名一致"); else if (input.website && item.website) mismatchSignals.push("官网域名不一致");
+      const phoneScore = phone(input.phone).length >= 7 && phone(input.phone) === phone(item.formatted_phone_number) ? 20 : 0;
+      if (phoneScore) matchSignals.push("电话号码一致"); else if (input.phone && item.formatted_phone_number) mismatchSignals.push("电话号码不一致");
+      return { item, score: Math.min(100, nameScore + addressScore + countryScore + websiteScore + phoneScore), matchSignals, mismatchSignals };
+    }).sort((a, b) => b.score - a.score);
+    const top = scored[0]; const runnerUp = scored[1];
+    const closeCandidates = Boolean(runnerUp && top.score - runnerUp.score < 10);
+    const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = closeCandidates
+      ? "AMBIGUOUS"
+      : top.score >= 90
+        ? "MATCHED"
+        : top.score >= 70
+          ? "LIKELY_MATCHED"
+          : top.score >= 45
+            ? "AMBIGUOUS"
+            : "NOT_FOUND";
+    const result = top.item;
+    const evidence: GooglePlaceEvidence = {
       configured: true,
       query,
       name: result.name,
@@ -273,8 +420,17 @@ export async function collectGooglePlaceEvidence(input: {
       types: result.types || [],
       website: result.website,
       phone: result.formatted_phone_number,
-      emails: extractEmails([result.website, result.formatted_address, ...(result.reviews || []).map((review) => review.text || "")].join(" ")),
+      // Google Places does not expose a business email. Review text belongs to
+      // reviewers and must never be promoted to the merchant's contact data.
+      emails: [],
       reviews: (result.reviews || []).map((review) => review.text || "").filter(Boolean).slice(0, 5),
+      place_id: result.place_id,
+      candidate_count: details.length,
+      identity_status: identityStatus,
+      identity_confidence: top.score,
+      match_signals: top.matchSignals,
+      mismatch_signals: top.mismatchSignals,
+      verified_google_maps_url: `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(result.place_id)}`,
     };
     return evidence;
   } catch (error) {

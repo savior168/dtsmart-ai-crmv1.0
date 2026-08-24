@@ -14,8 +14,13 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 const MATCH_LABELS: Record<string, string> = {
   matched: "主体一致",
+  MATCHED: "主体一致",
   likely_matched: "主体基本一致",
+  LIKELY_MATCHED: "主体基本一致",
   unverified: "主体待核验",
+  AMBIGUOUS: "主体待核验",
+  CONFLICTED: "主体冲突",
+  NOT_FOUND: "主体未定位",
 };
 
 function hasChinese(value: string) {
@@ -23,6 +28,8 @@ function hasChinese(value: string) {
 }
 
 function readableFact(row: Record<string, unknown>) {
+  const translated = typeof row.translated_fact === "string" ? row.translated_fact.trim() : "";
+  if (translated && hasChinese(translated) && !translated.startsWith("{") && !translated.startsWith("[")) return translated;
   const normalized = typeof row.normalized_fact === "string" ? row.normalized_fact.trim() : "";
   if (normalized && hasChinese(normalized) && !normalized.startsWith("{") && !normalized.startsWith("[")) return normalized;
   const content = typeof row.content === "string" ? row.content.trim() : "";
@@ -72,12 +79,18 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     if (task && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
     const evidence = result.data ? await admin.from("ai_screening_evidence").select("*").eq("result_id", result.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
+    const contacts = await admin.from("customer_contacts")
+      .select("id,type,value_raw,value_normalized,source_channel,exact_source_url,source_page_title,captured_at,identity_match_status,verification_status,contact_status")
+      .eq("customer_id", customerId)
+      .order("captured_at", { ascending: false });
+    if (contacts.error) throw contacts.error;
     return NextResponse.json({
       customer: visible.data,
       result: result.data || null,
       evidence: (evidence.data || [])
         .map((row) => normalizeEvidence(row as Record<string, unknown>))
         .filter(isUsableEvidence),
+      verified_contacts: contacts.data || [],
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI分析依据查询失败";

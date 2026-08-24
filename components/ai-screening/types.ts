@@ -19,8 +19,11 @@ export type AiResult = {
   business_relevance?: string | null; customer_value?: string | null; followup_suggestion?: string | null;
   confidence_score?: number | null; evidence_sufficiency?: string | null; analyzed_channels?: string[]; skipped_channels?: unknown[];
   evidence_conflicts?: string[]; early_stop_reason?: string | null; total_tokens: number; cost_usd: number; completed_at?: string | null;
-  score_breakdown?: Record<string, number>; suggested_contact_order?: string[]; discovered_contacts?: { website_email?: string | null; website_phone?: string | null };
+  score_breakdown?: Record<string, number>; suggested_contact_order?: string[]; discovered_contacts?: { website_email?: string | null; website_phone?: string | null; whatsapp?: string[]; contacts?: Array<{ type?: string; valueRaw?: string; valueNormalized?: string; verificationStatus?: string; sourceChannel?: string; sourceUrl?: string }> };
   manual_review_status?: string; manual_review_note?: string | null; model_version?: string | null; rule_version?: string | null; field_mapping_version?: string | null;
+  automation_status?: "AUTO_DEVELOP"|"AUTO_REJECT"|"AUTO_HOLD"|"ANALYSIS_FAILED";
+  primary_industry?: string|null; identity_status?: string|null; identity_confidence?:number|null; industry_confidence?:number|null; decision_confidence?:number|null;
+  preferred_contact_type?:string|null; preferred_contact_value?:string|null; preferred_contact_source_url?:string|null; preferred_contact_reason?:string|null; preferred_contact_confidence?:number|null;
   customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; website?: string | null; google_url?: string | null } | null;
   task?: { id: string; name: string; task_number: string } | null;
 };

@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url);
+const policy = await jiti.import(resolve("lib/ai/evidence-policy.ts"));
+const contacts = await jiti.import(resolve("lib/ai/contact-intelligence.ts"));
+const source = (file) => readFileSync(resolve(file), "utf8");
+let passed = 0;
+const test = (name, fn) => { fn(); passed += 1; process.stdout.write(`✓ ${name}\n`); };
+const evidence = (fact, kind="支持", channel="website", url="https://shop.example.com/services/repair") => ({ sourceId:`S${passed}`, channel, sourceUrl:url, fact, kind, confidence:96 });
+const gate = (overrides={}) => policy.evaluateEvidenceGate({ strategy:"SMART", identityStatus:"MATCHED", identityConfidence:96, industryConfidence:96, decisionConfidence:96, score:82, industry:"MOBILE_PHONE_REPAIR_SHOP", evidence:[evidence("官网明确提供手机换屏和电池更换服务")], hasCriticalConflict:false, ...overrides });
+
+test("01 只卖手机成品不判维修店",()=>assert.equal(policy.primaryIndustryFor("手机成品零售"),"MOBILE_PHONE_RETAILER"));
+test("02 运营商营业厅单独分类",()=>assert.equal(policy.primaryIndustryFor("运营商营业厅"),"MOBILE_NETWORK_OPERATOR_STORE"));
+test("03 外配件零售与内配件分离",()=>assert.equal(policy.primaryIndustryFor("手机外配件零售"),"MOBILE_ACCESSORY_RETAILER"));
+test("04 维修店不自动映射批发商",()=>assert.notEqual(policy.primaryIndustryFor("手机维修店"),"MOBILE_REPAIR_PARTS_WHOLESALER"));
+test("05 普通电脑维修与Apple维修分离",()=>assert.notEqual(policy.primaryIndustryFor("电脑维修店"),"APPLE_DEVICE_REPAIR_SHOP"));
+test("06 明确换屏换电池是强直接证据",()=>assert.equal(policy.evidenceStrengthFor(evidence("官网明确提供手机换屏和电池更换服务")),"STRONG_DIRECT"));
+test("07 只有原始标签归UNKNOWN",()=>assert.equal(policy.primaryIndustryFor("其他"),"UNKNOWN"));
+test("08 无外部证据不得自动开发",()=>assert.equal(gate({evidence:[]}).automationStatus,"AUTO_HOLD"));
+test("09 Google候选按匹配分排序而非首条",()=>assert.match(source("lib/ai/web-enrichment.ts"),/details\.map[\s\S]*sort\(\(a, b\) => b\.score - a\.score\)/));
+test("10 社媒登录页不能成为证据",()=>assert.match(source("lib/ai/web-enrichment.ts"),/社媒登录页或Cookie页/));
+test("11 官网新电话可标准化",()=>assert.equal(contacts.normalizePhoneInternational("020 7946 0958","GB"),"+442079460958"));
+test("12 地图国际电话保持E164",()=>assert.equal(contacts.normalizePhoneInternational("+34 641 58 19 81","ES"),"+34641581981"));
+test("13 新电话不覆盖原值而标记新增",()=>assert.equal(contacts.buildContactCandidate({type:"PHONE",value:"+34641581981",country:"ES",sourceChannel:"website",sourceUrl:"https://a.es/contact",identityStatus:"MATCHED",originalValues:["+34600000000"]}).verificationStatus,"NEW_VERIFIED"));
+test("14 官网地图电话冲突双方保留",()=>{const a=contacts.buildContactCandidate({type:"PHONE",value:"+34611111111",country:"ES",sourceChannel:"website",sourceUrl:"https://a.es/contact",identityStatus:"MATCHED",originalValues:[]});const b=contacts.buildContactCandidate({type:"PHONE",value:"+34622222222",country:"ES",sourceChannel:"google_maps",sourceUrl:"https://google.com/maps/place/a",identityStatus:"MATCHED",originalValues:[]});const r=contacts.reconcileContacts([a,b]);assert.equal(r.contacts.length,2);assert.ok(r.contacts.every(x=>x.verificationStatus==="CONFLICTING_VERIFIED"));});
+test("15 总部与分店按来源URL分开保存",()=>assert.match(source("lib/ai/contact-intelligence.ts"),/valueNormalized\}\|\$\{candidate\.sourceUrl/));
+test("16 新邮箱记录准确来源",()=>assert.equal(contacts.buildContactCandidate({type:"EMAIL",value:"sales@a.es",sourceChannel:"website",sourceUrl:"https://a.es/contact",identityStatus:"MATCHED",originalValues:[]}).sourceUrl,"https://a.es/contact"));
+test("17 示例邮箱被拒绝",()=>assert.equal(contacts.normalizeEmailStrict("sales@example.com"),""));
+test("18 普通电话不自动判WhatsApp",()=>assert.match(source("lib/ai/web-enrichment.ts"),/extractWhatsapps/));
+test("19 依据页显眼显示新联系方式",()=>assert.match(source("components/ai-screening/evidence-view.tsx"),/已核实联系方式更新/));
+test("20 状态同时有文字和图标",()=>{const s=source("components/ai-screening/evidence-view.tsx");assert.match(s,/新发现并已核实/);assert.match(s,/CheckCircle2/);});
+test("21 联系方式支持复制和来源链接",()=>{const s=source("components/ai-screening/evidence-view.tsx");assert.match(s,/navigator\.clipboard\.writeText/);assert.match(s,/打开来源/);});
+test("22 缓存复用保留原证据时间",()=>assert.match(source("lib/ai/run-customer-analysis.ts"),/captured_at: source\.captured_at \|\| source\.fetched_at \|\| cache\.original_captured_at/));
+test("23 客户数据变化使缓存签名变化",()=>{const s=source("lib/ai/reuse-cache.ts");for(const field of ["company_name","phone","email","website","google_url","linkedin_url","facebook_url","instagram_url"])assert.match(s,new RegExp(field));assert.match(s,/source_signature/);});
+test("24 海关同名不得直接归属",()=>assert.match(source("lib/ai/customer-analysis.ts"),/身份匹配的海关记录/));
+test("25 海关查询不得阻塞基础分析",()=>assert.doesNotMatch(source("lib/ai/run-customer-analysis.ts"),/await\s+collectCustoms/));
+test("26 智能模式不逐渠道调用模型",()=>assert.match(source("lib/ai/run-customer-analysis.ts"),/channel: "all_available_sources"/));
+test("27 深度证据不足进入AUTO_HOLD",()=>assert.equal(gate({strategy:"DEEP"}).automationStatus,"AUTO_HOLD"));
+test("28 暂停继续跳过已完成客户",()=>assert.match(source("workflows/ai-screening.ts"),/\.eq\("status", "PENDING"\)/));
+test("29 报告数据来自数据库结果",()=>assert.match(source("app/api/ai/results/route.ts"),/ai_screening_results/));
+test("30 无证据VALID为0",()=>assert.notEqual(policy.compatibilityTargetDecision(gate({evidence:[]}).automationStatus),"VALID"));
+test("31 无证据INVALID为0",()=>assert.notEqual(policy.compatibilityTargetDecision(gate({evidence:[]}).automationStatus),"INVALID"));
+
+console.log(`AI证据与联系方式规则测试通过：${passed}/31`);

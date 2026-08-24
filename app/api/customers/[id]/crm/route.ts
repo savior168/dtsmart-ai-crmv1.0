@@ -27,6 +27,11 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false })
       : { data: [], error: null };
     if (evidence.error) throw evidence.error;
+    const verifiedContacts = await admin.from("customer_contacts")
+      .select("id,type,value_raw,value_normalized,source_channel,exact_source_url,source_page_title,captured_at,identity_match_status,verification_status,contact_status")
+      .eq("customer_id", id)
+      .order("captured_at", { ascending: false });
+    if (verifiedContacts.error) throw verifiedContacts.error;
     const aiFacts = (evidence.data || []).filter((item) => {
       const fact = String(item.normalized_fact || item.content || "").trim();
       return /[\u3400-\u9fff]/.test(fact)
@@ -38,7 +43,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       const result = await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name");
       if (!result.error) users = result.data || [];
     }
-    return NextResponse.json({ customer: customerResult.data, profile: profileResult.data, followups: followupsResult.data, claims: claimsResult.data, protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, users });
+    return NextResponse.json({ customer: customerResult.data, profile: profileResult.data, followups: followupsResult.data, claims: claimsResult.data, protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: verifiedContacts.data || [], users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
