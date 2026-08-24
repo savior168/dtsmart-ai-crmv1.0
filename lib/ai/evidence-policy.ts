@@ -91,13 +91,13 @@ export function evaluateEvidenceGate(input: {
     const medium = items.filter((item) => evidenceStrengthFor(item) === "MEDIUM_CORROBORATING");
     const independent = new Set(items.map((item) => origin(item.sourceUrl)).filter(Boolean)).size;
     return input.strategy === "DEEP"
-      ? (strong.length >= 1 && independent >= 2) || (medium.length >= 3 && independent >= 3)
+      ? strong.length >= 1 || (medium.length >= 3 && independent >= 2)
       : strong.length >= 1 || (medium.length >= 2 && independent >= 2);
   };
   const positiveEnough = sufficient(positive);
   const negativeEnough = sufficient(negative);
-  const identityThreshold = input.strategy === "DEEP" ? 95 : 90;
-  const industryThreshold = input.strategy === "DEEP" ? 95 : 90;
+  const identityThreshold = 90;
+  const industryThreshold = 90;
   const evidenceIds = usable.map((item) => item.sourceId).filter((item): item is string => Boolean(item));
 
   if (input.identityStatus !== "MATCHED" || input.identityConfidence < identityThreshold) {
@@ -121,3 +121,4 @@ export function evaluateEvidenceGate(input: {
 export function compatibilityTargetDecision(status: AutomationStatus) {
   return status === "AUTO_DEVELOP" ? "VALID" : status === "AUTO_REJECT" ? "INVALID" : "REVIEW";
 }
+

@@ -121,3 +121,4 @@ export async function saveReusableAnalysis(input: {
   const write = await admin.from("ai_analysis_reuse_cache").upsert(rows, { onConflict: "identity_key,strategy,rule_version,source_signature" });
   if (write.error && !/ai_analysis_reuse_cache|schema cache|does not exist/i.test(write.error.message)) throw write.error;
 }
+

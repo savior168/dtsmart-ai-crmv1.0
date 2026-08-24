@@ -83,3 +83,4 @@ export function mapCustomerForAi(row: LooseRow) {
 }
 
 export type AiMappedCustomer = ReturnType<typeof mapCustomerForAi>;
+

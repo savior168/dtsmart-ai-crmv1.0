@@ -12,3 +12,4 @@ where started_at is not null
   and coalesce(finished_at, completed_at, updated_at) is not null
   and coalesce(elapsed_ms, 0) <= 0
   and status in ('COMPLETED', 'FAILED', 'CANCELLED');
+

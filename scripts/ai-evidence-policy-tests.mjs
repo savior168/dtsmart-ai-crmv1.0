@@ -6,6 +6,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url);
 const policy = await jiti.import(resolve("lib/ai/evidence-policy.ts"));
 const contacts = await jiti.import(resolve("lib/ai/contact-intelligence.ts"));
+const customerAnalysis = await jiti.import(resolve("lib/ai/customer-analysis.ts"));
 const source = (file) => readFileSync(resolve(file), "utf8");
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; process.stdout.write(`✓ ${name}\n`); };
@@ -37,11 +38,15 @@ test("22 缓存复用保留原证据时间",()=>assert.match(source("lib/ai/run-
 test("23 客户数据变化使缓存签名变化",()=>{const s=source("lib/ai/reuse-cache.ts");for(const field of ["company_name","phone","email","website","google_url","linkedin_url","facebook_url","instagram_url"])assert.match(s,new RegExp(field));assert.match(s,/source_signature/);});
 test("24 海关同名不得直接归属",()=>assert.match(source("lib/ai/customer-analysis.ts"),/身份匹配的海关记录/));
 test("25 海关查询不得阻塞基础分析",()=>assert.doesNotMatch(source("lib/ai/run-customer-analysis.ts"),/await\s+collectCustoms/));
-test("26 智能模式不逐渠道调用模型",()=>assert.match(source("lib/ai/run-customer-analysis.ts"),/channel: "all_available_sources"/));
-test("27 深度证据不足进入AUTO_HOLD",()=>assert.equal(gate({strategy:"DEEP"}).automationStatus,"AUTO_HOLD"));
+test("26 智能模式不逐渠道调用模型",()=>{const s=source("lib/ai/run-customer-analysis.ts");assert.match(s,/run\("all_available_sources"/);assert.match(s,/run\("all_available_sources_retry"/);});
+test("27 深度模式单条强直接证据可完成行业判断",()=>assert.equal(gate({strategy:"DEEP"}).automationStatus,"AUTO_DEVELOP"));
 test("28 暂停继续跳过已完成客户",()=>assert.match(source("workflows/ai-screening.ts"),/\.eq\("status", "PENDING"\)/));
 test("29 报告数据来自数据库结果",()=>assert.match(source("app/api/ai/results/route.ts"),/ai_screening_results/));
 test("30 无证据VALID为0",()=>assert.notEqual(policy.compatibilityTargetDecision(gate({evidence:[]}).automationStatus),"VALID"));
 test("31 无证据INVALID为0",()=>assert.notEqual(policy.compatibilityTargetDecision(gate({evidence:[]}).automationStatus),"INVALID"));
+test("32 Google维修分类属于强直接证据",()=>assert.equal(policy.evidenceStrengthFor(evidence("Google商家页明确分类为手机维修店","支持","google_maps","https://www.google.com/maps/place/demo")),"STRONG_DIRECT"));
+test("33 不再存在整客户30秒硬超时",()=>{const runner=source("lib/ai/run-customer-analysis.ts");const workflow=source("workflows/ai-screening.ts");assert.doesNotMatch(runner,/timeoutController\.abort\(\), 30_000/);assert.doesNotMatch(workflow,/Promise\.race\(\[analysis, deadline\]\)/);});
+test("34 已匹配Google手机维修分类不得被压成D级",()=>{const result=customerAnalysis.groundCustomerAnalysis({customer_name:"测试维修店",country:"EC",google_url:"https://www.google.com/maps/place/test",evidence:{google_place:{configured:false,name:"测试维修店",types:["手机维修店"],reviews:[],identity_status:"MATCHED",identity_confidence:96,business_status:"OPERATIONAL",verified_google_maps_url:"https://www.google.com/maps/place/test"}}},{industry_type:"手机维修店",is_target_customer:true,ai_score:88,ai_level:"A",ai_reason:"公开信息显示该商家提供手机维修服务。",business_relevance:"提供手机维修服务。",customer_value:"可能采购手机维修配件。",followup_suggestion:"联系确认配件需求。",confidence_score:95,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{entity_consistency:95,company_authenticity:90,business_activity:90,mobile_parts_match:90,macbook_parts_match:0,wholesale_import_distribution:20,repair_business_match:95,bulk_purchase_potential:60,contactability:80,evidence_completeness:75,contradiction_risk:0},suggested_contact_order:[],evidence_summaries:[]});assert.ok(result.ai_score>=60);assert.notEqual(result.ai_level,"D");assert.ok(result.evidence_summaries.some(x=>x.title_zh==="Google商家分类"));});
 
-console.log(`AI证据与联系方式规则测试通过：${passed}/31`);
+console.log(`AI证据与联系方式规则测试通过：${passed}/34`);
+

@@ -136,8 +136,73 @@ function allowedEvidenceUrls(input: CustomerAnalysisInput) {
   if (input.evidence?.google_place?.name) {
     add(input.google_url);
     add(input.evidence.google_place.website);
+    add(input.evidence.google_place.verified_google_maps_url);
   }
   return urls;
+}
+
+function translatedGoogleType(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const translations: Record<string, string> = {
+    "cell phone store": "手机零售店",
+    "mobile phone shop": "手机零售店",
+    "mobile phone repair shop": "手机维修店",
+    "phone repair service": "手机维修服务",
+    "computer repair service": "电脑维修服务",
+    "computer accessories store": "电脑配件商店",
+    "electronics store": "电子产品商店",
+  };
+  return translations[normalized] || (/^[\u3400-\u9fff]/.test(value) ? value.trim() : "");
+}
+
+function structuredGoogleEvidence(input: CustomerAnalysisInput): CustomerAnalysis["evidence_summaries"] {
+  const google = input.evidence?.google_place;
+  const sourceUrl = google?.verified_google_maps_url || input.google_url || "";
+  if (!google?.name || !/^https?:\/\//i.test(sourceUrl)
+      || !["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) return [];
+  const confidence = Math.max(60, Math.min(100, Math.round(Number(google.identity_confidence) || 0)));
+  const types = [...new Set((google.types || []).map(translatedGoogleType).filter(Boolean))].slice(0, 8);
+  const rows: CustomerAnalysis["evidence_summaries"] = [];
+  if (types.length) {
+    rows.push({
+      channel: "google_maps",
+      title_zh: "Google商家分类",
+      fact_zh: `Google商家页明确将该企业分类为“${types.join("、")}”，这是判断其实际经营行业的直接依据。`,
+      source_url: sourceUrl,
+      evidence_type: "支持",
+      confidence,
+    });
+  }
+  if (google.business_status === "OPERATIONAL") {
+    rows.push({
+      channel: "google_maps",
+      title_zh: "Google商家营业状态",
+      fact_zh: "Google商家页显示该企业当前处于正常营业状态。",
+      source_url: sourceUrl,
+      evidence_type: "中性",
+      confidence,
+    });
+  } else if (google.business_status === "CLOSED_PERMANENTLY") {
+    rows.push({
+      channel: "google_maps",
+      title_zh: "Google商家营业状态",
+      fact_zh: "Google商家页显示该企业已经永久关闭。",
+      source_url: sourceUrl,
+      evidence_type: "矛盾",
+      confidence,
+    });
+  }
+  if (google.phone) {
+    rows.push({
+      channel: "google_maps",
+      title_zh: "Google商家联系方式",
+      fact_zh: "Google商家页公开了可联系的电话号码，系统已按来源保存并与客户原始电话去重。",
+      source_url: sourceUrl,
+      evidence_type: "中性",
+      confidence,
+    });
+  }
+  return rows;
 }
 
 function sameOrChildUrl(candidate: string, allowed: Set<string>) {
@@ -171,14 +236,17 @@ function cleanEvidenceText(value: string) {
 export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: Omit<CustomerAnalysis, "usage">, additionalAllowedUrls: string[] = []): Omit<CustomerAnalysis, "usage"> {
   const allowedUrls = allowedEvidenceUrls(input);
   additionalAllowedUrls.forEach((url) => { const normalized = normalizedUrl(url); if (normalized) allowedUrls.add(normalized); });
-  const evidence = (Array.isArray(analysis.evidence_summaries) ? analysis.evidence_summaries : [])
+  const evidence = [...(Array.isArray(analysis.evidence_summaries) ? analysis.evidence_summaries : []), ...structuredGoogleEvidence(input)]
     .filter((item) => item && hasChinese(item.fact_zh) && hasChinese(item.title_zh) && sameOrChildUrl(item.source_url, allowedUrls))
     .map((item) => ({ ...item, title_zh: cleanEvidenceText(item.title_zh).slice(0, 180), fact_zh: cleanEvidenceText(item.fact_zh), confidence: Math.max(0, Math.min(100, Math.round(Number(item.confidence) || 0))) }))
     .filter((item) => item.fact_zh && !/GOOGLE_MAPS_API_KEY|fetch failed|EXCEL_IMPORT|MANUAL|CSV_IMPORT/i.test(item.fact_zh))
     .slice(0, 24);
   const supporting = evidence.filter((item) => item.evidence_type === "支持" && item.confidence >= 60);
   const independentSources = new Set(supporting.map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
-  const evidenceSufficient = supporting.length >= 2 && independentSources >= 1;
+  const hasStrongDirectEvidence = supporting.some((item) =>
+    ["website", "google_maps"].includes(item.channel)
+      && /(?:手机维修|手机配件|电脑维修|电脑配件|批发|经销|分销|进口|永久关闭)/.test(item.fact_zh));
+  const evidenceSufficient = hasStrongDirectEvidence || (supporting.length >= 2 && independentSources >= 1);
   const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
   let score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
   let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
@@ -186,8 +254,8 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     score = Math.min(score, 49);
     confidence = Math.min(confidence, evidence.length ? 49 : 25);
   } else if (!strongEnoughForHighConfidence) {
-    confidence = Math.min(confidence, 79);
-    score = Math.min(score, 84);
+    confidence = Math.min(confidence, hasStrongDirectEvidence ? 92 : 79);
+    score = Math.min(score, hasStrongDirectEvidence ? 89 : 84);
   }
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const insufficientReason = evidence.length
@@ -452,3 +520,4 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
     },
   };
 }
+

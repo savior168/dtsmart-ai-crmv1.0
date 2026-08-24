@@ -97,3 +97,4 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }
 }
+

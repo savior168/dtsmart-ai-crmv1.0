@@ -101,3 +101,4 @@ alter table if exists public.ai_analysis_reuse_cache
 update public.ai_analysis_reuse_cache
 set original_captured_at = coalesce(original_captured_at, captured_at)
 where original_captured_at is null;
+

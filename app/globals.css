@@ -188,3 +188,4 @@ a[href^="/customers/"][class*="bg-[#1763e8]"] {
     grid-template-columns: minmax(300px, 1.35fr) minmax(200px, .7fr) minmax(360px, 1fr) auto !important;
   }
 }
+

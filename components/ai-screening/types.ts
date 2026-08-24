@@ -27,3 +27,4 @@ export type AiResult = {
   customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; website?: string | null; google_url?: string | null } | null;
   task?: { id: string; name: string; task_number: string } | null;
 };
+

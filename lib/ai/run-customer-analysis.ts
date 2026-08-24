@@ -210,13 +210,13 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: customer.website }, { signal, timeoutMs: 4500 })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: customer.website }, { signal, timeoutMs: 12_000 })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
     return { channel, status: failed ? "FAILED" : "COLLECTED", source_url: url, evidence, error: evidence.error || null };
   } catch (error) {
-    if (signal.aborted) throw new Error("CUSTOMER_ANALYSIS_TIMEOUT");
+    if (signal.aborted) throw new Error("CUSTOMER_ANALYSIS_CANCELLED");
     return { channel, status: "FAILED", source_url: url, error: error instanceof Error ? error.message : "渠道读取失败" };
   }
 }
@@ -261,6 +261,53 @@ async function saveModelCall(input: {
     error_message: input.status === "FAILED" ? publicAiError(input.error).message : null,
   }, { onConflict: "task_item_id,channel,attempt_number" });
   if (write.error) throw write.error;
+}
+
+function canRecoverModelCall(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /OPENAI_TIMEOUT|OPENAI_NETWORK_ERROR|OPENAI_API_ERROR:(?:HTTP_)?(?:429|500|502|503|504)/i.test(message);
+}
+
+async function analyzeWithRecovery(input: {
+  taskId: string;
+  taskItemId: string;
+  customerId: string;
+  attemptNumber: number;
+  customer: CustomerRow;
+  records: ChannelRecord[];
+  signal: AbortSignal;
+  tier: "fast" | "deep";
+}) {
+  const modelInput = {
+    customer_name: input.customer.company_name,
+    country: input.customer.country,
+    website: input.customer.website,
+    google_url: input.customer.google_url,
+    address: input.customer.address,
+    industry_keywords: null,
+    evidence: evidenceForModel(input.records),
+  };
+  const primaryTimeout = input.tier === "deep" ? 60_000 : 40_000;
+  const retryTimeout = input.tier === "deep" ? 60_000 : 35_000;
+  const run = async (channel: string, timeoutMs: number) => {
+    const startedAt = Date.now();
+    try {
+      const result = await analyzeCustomer(modelInput, { signal: input.signal, timeoutMs, tier: input.tier });
+      await saveModelCall({ ...input, channel, startedAt, usage: result.usage, status: "COMPLETED" });
+      return result;
+    } catch (error) {
+      await saveModelCall({ ...input, channel, startedAt, status: "FAILED", error });
+      throw error;
+    }
+  };
+  try {
+    return await run("all_available_sources", primaryTimeout);
+  } catch (error) {
+    if (!canRecoverModelCall(error)) throw error;
+    // The evidence checkpoint is already stored. Retry only the model synthesis,
+    // never re-crawl the customer or discard facts collected by the first pass.
+    return run("all_available_sources_retry", retryTimeout);
+  }
 }
 
 async function saveVerifiedContacts(input: { taskId: string; resultId: string; customer: CustomerRow; contacts: ContactCandidate[]; preferred?: ContactCandidate | null }) {
@@ -376,13 +423,14 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
 
 export async function runCustomerAnalysis(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; attemptNumber?: number }) {
   const started = Date.now();
-  const timeoutController = new AbortController();
-  const hardTimeout = setTimeout(() => timeoutController.abort(), 30_000);
+  // Do not impose one hard timeout on the whole customer. Each public source and
+  // model call owns a bounded timeout, while completed source checkpoints remain
+  // reusable if a later source is slow or the model call needs retrying.
+  const analysisController = new AbortController();
   const customer = await readCustomer(input.customerId);
   const admin = createAdminClient();
   const reusable = await findReusableAnalysis(customer, input.strategy);
   if (reusable) {
-    clearTimeout(hardTimeout);
     return completeFromReusableCache(input, customer, reusable as Record<string, unknown>, started);
   }
   const checkpoint = await admin.from("ai_screening_task_items").select("channel_checkpoint").eq("id", input.taskItemId).maybeSingle();
@@ -397,7 +445,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const strategyChannels = input.strategy === "DEEP" ? AI_CHANNEL_ORDER : (["website", "google_maps"] as AiChannel[]);
     const pendingChannels = strategyChannels.filter((channel) => !records.some((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status)));
     if (pendingChannels.length) {
-      const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, timeoutController.signal)));
+      const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, analysisController.signal)));
       for (const current of collected) {
         const index = records.findIndex((item) => item.channel === current.channel);
         if (index >= 0) records[index] = current; else records.push(current);
@@ -405,40 +453,15 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       await saveCheckpoint(input.taskItemId, records, pendingChannels[pendingChannels.length - 1]);
     }
     if (input.strategy === "DEEP") {
-      const callStarted = Date.now();
-      try {
-        analysis = await analyzeCustomer({
-          customer_name: customer.company_name, country: customer.country, website: customer.website,
-          google_url: customer.google_url, address: customer.address,
-          industry_keywords: null,
-          evidence: evidenceForModel(records),
-        }, { signal: timeoutController.signal, timeoutMs: 14_000, tier: "deep" });
-        await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
-      } catch (error) {
-        await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
-        throw error;
-      }
+      analysis = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "deep" });
       usage = addUsage(usage, analysis.usage);
     } else {
-      const callStarted = Date.now();
-      try {
-        analysis = await analyzeCustomer({
-          customer_name: customer.company_name, country: customer.country, website: customer.website,
-          google_url: customer.google_url, address: customer.address,
-          industry_keywords: null,
-          evidence: evidenceForModel(records),
-        }, { signal: timeoutController.signal, timeoutMs: 12_000, tier: "fast" });
-        await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: analysis.usage, status: "COMPLETED" });
-      } catch (error) {
-        await saveModelCall({ ...input, channel: "all_available_sources", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
-        throw error;
-      }
+      analysis = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "fast" });
       usage = addUsage(usage, analysis.usage);
       earlyStopReason = "已并行读取全部可用公开来源，并用一次模型调用完成综合判断";
     }
-    if (timeoutController.signal.aborted) throw new Error("CUSTOMER_ANALYSIS_TIMEOUT");
     const needsEscalation = analysis.evidence_conflicts.length > 0;
-    if (needsEscalation && !timeoutController.signal.aborted) {
+    if (needsEscalation) {
       const callStarted = Date.now();
       try {
         const escalated = await analyzeCustomer({
@@ -446,7 +469,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
           google_url: customer.google_url, address: customer.address,
           industry_keywords: null,
           evidence: evidenceForModel(records),
-        }, { signal: timeoutController.signal, timeoutMs: 10_000, tier: "escalation" });
+        }, { signal: analysisController.signal, timeoutMs: 45_000, tier: "escalation" });
         await saveModelCall({ ...input, channel: "final_escalation", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: escalated.usage, status: "COMPLETED" });
         usage = addUsage(usage, escalated.usage);
         analysis = escalated;
@@ -553,7 +576,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
           status: "COLLECTED",
           acquisition: acquiredByPublicSearch ? "OPENAI_WEB_SEARCH" : "DIRECT_SOURCE_READ",
           media_urls: source?.evidence && "image_urls" in source.evidence
-            ? [...source.evidence.image_urls, ...("video_urls" in source.evidence ? source.evidence.video_urls || [] : [])].slice(0, 16)
+            ? [...(source.evidence.image_urls || []), ...("video_urls" in source.evidence ? source.evidence.video_urls || [] : [])].slice(0, 16)
             : [],
         },
         status: "COLLECTED",
@@ -615,15 +638,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
     return { status: "COMPLETED" as const, resultId: resultWrite.data.id };
   } finally {
-    clearTimeout(hardTimeout);
+    analysisController.abort();
   }
 }
 
 export function publicAiError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "UNKNOWN_ERROR");
-  if (raw.includes("CUSTOMER_ANALYSIS_TIMEOUT") || raw.includes("OPENAI_TIMEOUT")) return { code: "CUSTOMER_ANALYSIS_TIMEOUT", message: "单个客户分析超过30秒，已自动跳过并继续下一个客户" };
+  if (raw.includes("OPENAI_TIMEOUT")) return { code: "OPENAI_TIMEOUT", message: "AI综合判断本次响应超时；已保存公开来源抓取进度，可直接重试而无需重复抓取" };
   if (raw.includes("OPENAI_NOT_CONFIGURED")) return { code: "OPENAI_NOT_CONFIGURED", message: "生产环境未配置OpenAI API密钥" };
   if (raw.includes("OPENAI_API_ERROR")) return { code: "OPENAI_API_ERROR", message: raw.replace(/^.*OPENAI_API_ERROR:/, "OpenAI接口错误：") };
   if (raw.includes("GOOGLE_MAPS_API_KEY_NOT_CONFIGURED")) return { code: "GOOGLE_MAPS_NOT_CONFIGURED", message: "未配置Google Maps API，已保留其他公开渠道证据" };
   return { code: "AI_ANALYSIS_FAILED", message: raw || "AI分析失败" };
 }
+

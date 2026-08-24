@@ -28,6 +28,10 @@ export type GooglePlaceEvidence = {
   types: string[];
   website?: string;
   phone?: string;
+  description?: string;
+  opening_hours?: string[];
+  image_urls?: string[];
+  video_urls?: string[];
   emails?: string[];
   reviews: string[];
   place_id?: string;
@@ -135,11 +139,18 @@ async function waitForRetry(attempt: number, signal?: AbortSignal) {
 
 async function fetchWithRetry(url: string | URL, init: RequestInit, retries = 2) {
   let response: Response | null = null;
+  let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    response = await fetch(url, init);
-    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === retries) return response;
+    try {
+      response = await fetch(url, init);
+      if (![429, 500, 502, 503, 504].includes(response.status) || attempt === retries) return response;
+    } catch (error) {
+      lastError = error;
+      if (init.signal?.aborted || attempt === retries) throw error;
+    }
     await waitForRetry(attempt, init.signal || undefined);
   }
+  if (!response && lastError) throw lastError;
   return response!;
 }
 
@@ -323,6 +334,131 @@ function googlePlaceIdFromUrl(value?: string | null) {
   }
 }
 
+function decodeHtmlAttribute(value: string) {
+  return value.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+
+function normalizedWords(value?: string | null) {
+  return new Set(String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).filter((item) => item.length > 1));
+}
+
+function textSimilarity(left?: string | null, right?: string | null) {
+  const a = normalizedWords(left); const b = normalizedWords(right);
+  if (!a.size || !b.size) return 0;
+  return [...a].filter((item) => b.has(item)).length / Math.max(a.size, b.size);
+}
+
+function nestedStrings(value: unknown, output: string[] = []): string[] {
+  if (typeof value === "string") output.push(value);
+  else if (Array.isArray(value)) value.forEach((item) => nestedStrings(item, output));
+  return output;
+}
+
+/**
+ * Google Maps' public search page exposes the selected public place payload to
+ * ordinary browsers. Use it as a credential-free fallback so a customer is not
+ * downgraded merely because the optional Places API key is absent. This only
+ * reads public fields and keeps the exact Maps page as the audit source.
+ */
+async function collectPublicGooglePlaceEvidence(input: {
+  company_name: string;
+  address?: string | null;
+  country?: string | null;
+  google_url?: string | null;
+  phone?: string | null;
+  website?: string | null;
+}, options: FetchOptions): Promise<GooglePlaceEvidence | undefined> {
+  const locationText = String(input.address || "").trim();
+  const query = unique([
+    locationText && locationText.toLowerCase().includes(input.company_name.toLowerCase()) ? locationText : input.company_name,
+    locationText && !locationText.toLowerCase().includes(input.company_name.toLowerCase()) ? locationText : "",
+    input.country || "",
+  ]).join(", ");
+  if (!query) return undefined;
+  const request = requestSignal(options, 9_000);
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,es;q=0.7",
+    Accept: "text/html,application/xhtml+xml,application/json",
+  };
+  try {
+    const providedUrl = safePublicUrl(input.google_url);
+    const isSpecificPlaceUrl = Boolean(providedUrl && /google\.[^/]+\/maps\/place\//i.test(providedUrl));
+    const searchPage = isSpecificPlaceUrl ? providedUrl! : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    const pageResponse = await fetchPublic(searchPage, { signal: request.signal, headers });
+    if (!pageResponse.ok) return undefined;
+    const pageHtml = await readTextLimited(pageResponse, 450_000);
+    const endpointMatch = pageHtml.match(/<link\s+href="([^"]*(?:\/search\?tbm=map|\/maps\/preview\/place\?)[^"]+)"/i);
+    if (!endpointMatch) return undefined;
+    const endpoint = new URL(decodeHtmlAttribute(endpointMatch[1]), "https://www.google.com").toString();
+    const dataResponse = await fetchPublic(endpoint, { signal: request.signal, headers });
+    if (!dataResponse.ok) return undefined;
+    const raw = await readTextLimited(dataResponse, 1_500_000);
+    const payload = JSON.parse(raw.replace(/^\)\]\}'\s*/, "")) as unknown;
+    const candidateArrays: unknown[][] = [];
+    const visit = (value: unknown) => {
+      if (!Array.isArray(value)) return;
+      if (value.length > 80 && typeof value[11] === "string" && Array.isArray(value[13]) && typeof value[18] === "string") candidateArrays.push(value);
+      value.forEach(visit);
+    };
+    visit(payload);
+    if (!candidateArrays.length) return undefined;
+    const digits = (value?: string | null) => String(value || "").replace(/\D/g, "");
+    const domain = (value?: string | null) => { try { return new URL(/^https?:\/\//i.test(String(value)) ? String(value) : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+    const candidates = candidateArrays.map((row) => {
+      const name = String(row[11] || "");
+      const address = String(row[18] || row[39] || "");
+      const website = Array.isArray(row[7]) ? String(row[7][0] || "") : "";
+      const countryCode = String(row[243] || "").toUpperCase();
+      const phoneBlock = Array.isArray(row[178]) && Array.isArray(row[178][0]) ? row[178][0] : [];
+      const phone = String(phoneBlock[0] || "");
+      const nameScore = Math.round(textSimilarity(input.company_name, name) * 45);
+      const addressScore = Math.round(textSimilarity(input.address, address) * 35);
+      const websiteScore = domain(input.website) && domain(input.website) === domain(website) ? 15 : 0;
+      const phoneScore = digits(input.phone).length >= 7 && digits(input.phone) === digits(phone) ? 20 : 0;
+      const countryScore = input.country && String(input.country).toUpperCase() === countryCode ? 10 : 0;
+      const exactPlaceUrlScore = isSpecificPlaceUrl && nameScore >= 35 ? 35 : 0;
+      return { row, name, address, website, phone, countryCode, score: Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactPlaceUrlScore) };
+    }).sort((a, b) => b.score - a.score);
+    const top = candidates[0]; const runnerUp = candidates[1];
+    const close = Boolean(runnerUp && top.score - runnerUp.score < 10);
+    const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = close ? "AMBIGUOUS" : top.score >= 80 ? "MATCHED" : top.score >= 60 ? "LIKELY_MATCHED" : top.score >= 40 ? "AMBIGUOUS" : "NOT_FOUND";
+    const allStrings = nestedStrings(top.row);
+    const imageUrls = unique(allStrings.filter((item) => /^https:\/\/(?:lh\d+|streetviewpixels)\.googleusercontent\.com/i.test(item))).slice(0, 24);
+    const videoUrls = unique(allStrings.filter((item) => /^https?:\/\//i.test(item) && /(?:youtube\.com|youtu\.be|\.mp4(?:\?|$))/i.test(item))).slice(0, 12);
+    const hours = unique(allStrings.filter((item) => /(?:营业|开放|关闭|abierto|cerrado|a\.m\.|p\.m\.)/i.test(item) && item.length < 140)).slice(0, 14);
+    const descriptionBlock = Array.isArray(top.row[154]) && Array.isArray(top.row[154][0]) ? top.row[154][0] : [];
+    const verifiedUrl = isSpecificPlaceUrl ? searchPage : typeof top.row[42] === "string" ? top.row[42] : searchPage;
+    const matchSignals = [top.score >= 35 ? "商家名称一致" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", textSimilarity(input.address, top.address) >= 0.45 ? "完整地址一致" : "", input.country && String(input.country).toUpperCase() === top.countryCode ? "国家代码一致" : "", domain(input.website) && domain(input.website) === domain(top.website) ? "公开网站一致" : "", digits(input.phone).length >= 7 && digits(input.phone) === digits(top.phone) ? "电话号码一致" : ""].filter(Boolean);
+    return {
+      configured: false,
+      query,
+      name: top.name,
+      formatted_address: top.address,
+      business_status: allStrings.some((item) => /(?:永久关闭|cerrado permanentemente|permanently closed)/i.test(item)) ? "CLOSED_PERMANENTLY" : "OPERATIONAL",
+      types: Array.isArray(top.row[13]) ? top.row[13].filter((item): item is string => typeof item === "string") : [],
+      website: top.website || undefined,
+      phone: top.phone || undefined,
+      description: String(descriptionBlock[0] || "") || undefined,
+      opening_hours: hours,
+      image_urls: imageUrls,
+      video_urls: videoUrls,
+      emails: [], reviews: [],
+      place_id: typeof top.row[78] === "string" ? top.row[78] : undefined,
+      candidate_count: candidates.length,
+      identity_status: identityStatus,
+      identity_confidence: top.score,
+      match_signals: matchSignals,
+      mismatch_signals: identityStatus === "NOT_FOUND" ? ["公开地图结果与客户名称或地址不一致"] : [],
+      verified_google_maps_url: verifiedUrl,
+    };
+  } catch {
+    return undefined;
+  } finally {
+    request.clear();
+  }
+}
+
 export async function collectGooglePlaceEvidence(input: {
   company_name: string;
   address?: string | null;
@@ -334,13 +470,11 @@ export async function collectGooglePlaceEvidence(input: {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
-  if (!apiKey) return {
-    configured: false,
-    query,
-    types: [],
-    reviews: [],
-    emails: [],
-    error: "谷歌地图结构化数据服务未配置，本次将改用带来源引用的公开网页检索；未取得的字段不得参与评分。",
+  const publicEvidence = await collectPublicGooglePlaceEvidence(input, options);
+  if (publicEvidence && ["MATCHED", "LIKELY_MATCHED"].includes(String(publicEvidence.identity_status))) return publicEvidence;
+  if (!apiKey) return publicEvidence || {
+    configured: false, query, types: [], reviews: [], emails: [],
+    error: "未能从公开Google商家页定位到与名称和地址一致的具体企业。",
   };
 
   const request = requestSignal(options, 4500);
@@ -463,3 +597,4 @@ export async function collectCustomerEvidence(input: {
 export async function collectPublicPageEvidence(url?: string | null, options: FetchOptions = {}) {
   return collectWebsiteEvidence(url, { ...options, timeoutMs: Math.min(options.timeoutMs || 4000, 4000) });
 }
+

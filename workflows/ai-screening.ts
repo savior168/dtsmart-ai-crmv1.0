@@ -49,6 +49,7 @@ async function nextPendingItems(taskId: string, limit: number) {
 
 async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrategy) {
   "use step";
+  const startedAt = Date.now();
   const admin = createAdminClient();
   const claim = await admin.from("ai_screening_task_items").update({
     status: "RUNNING", progress: 5, current_step: "COLLECTING_EVIDENCE",
@@ -57,29 +58,23 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
   if (claim.error) throw claim.error;
   if (!claim.data) return { status: "SKIPPED" as const };
   await admin.from("ai_screening_task_items").update({ attempt_count: Number(claim.data.attempt_count || 0) + 1 }).eq("id", itemId);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const analysis = runCustomerAnalysis({
+    return await runCustomerAnalysis({
       taskId, taskItemId: itemId, customerId: claim.data.customer_id, strategy,
       attemptNumber: Number(claim.data.attempt_count || 0) + 1,
     });
-    const deadline = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => reject(new Error("CUSTOMER_ANALYSIS_TIMEOUT")), 30_000);
-    });
-    return await Promise.race([analysis, deadline]);
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error || "");
     if (raw.includes("OPENAI_NOT_CONFIGURED") || /OPENAI_API_ERROR:\s*(401|403)\b/.test(raw)) throw error;
     const failure = publicAiError(error);
     await admin.from("ai_screening_task_items").update({
       status: "FAILED", automation_status: "ANALYSIS_FAILED", progress: 100, current_step: "FAILED", error_code: failure.code,
-      error_message: failure.message, retryable: true, duration_ms: 30_000,
+      error_message: failure.message, retryable: true,
+      duration_ms: Date.now() - startedAt,
       completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", itemId);
     await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: taskId });
     return { status: "FAILED" as const, error: failure };
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
 }
 analyzeTaskItem.maxRetries = 0;
@@ -158,3 +153,4 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     return { status: "FAILED", error: message };
   }
 }
+
