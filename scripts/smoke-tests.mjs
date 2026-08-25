@@ -43,7 +43,7 @@ assert.match(analysis, /"A"\s*\|\s*"B"\s*\|\s*"C"\s*\|\s*"D"/, "AI等级必须�
 assert.doesNotMatch(analysis, /"S"\s*\|/, "不能保留S级");
 assert.match(analysis, /EXCEL_IMPORT[\s\S]*绝不是进口商/, "导入来源标签不得作为进口商或行业证据");
 assert.match(analysis, /groundCustomerAnalysis/, "AI结论必须经过证据一致性校验");
-assert.match(analysis, /tool_choice: "required"[\s\S]*web_search_call\.action\.sources/, "缺少结构化Maps证据时必须执行带来源引用的公开网页检索");
+assert.doesNotMatch(analysis, /tools:\s*\[\{ type: "web_search"/, "模型内置网页搜索不得作为默认兜底，否则会重复抓取并放大Token成本");
 assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)/, "未实际读取的输入网址不得自动视为有效证据来源");
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
@@ -185,4 +185,3 @@ assert.match(taskRunner, /saveCheckpoint/, "AI筛选必须在每个渠道后保�
 assert.match(taskRunner, /saveModelCall/, "AI筛选必须记录每次OpenAI调用的Token和费用");
 
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");
-

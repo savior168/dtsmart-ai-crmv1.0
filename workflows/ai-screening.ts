@@ -2,6 +2,7 @@ import { sleep } from "workflow";
 import { createAdminClient } from "../lib/supabase/admin";
 import { runCustomerAnalysis, publicAiError } from "../lib/ai/run-customer-analysis";
 import type { AiStrategy } from "../lib/ai/task-types";
+import { normalizeError } from "../lib/ai/error-normalization";
 
 type WorkflowInput = {
   taskId: string;
@@ -52,7 +53,8 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
   const startedAt = Date.now();
   const admin = createAdminClient();
   const claim = await admin.from("ai_screening_task_items").update({
-    status: "RUNNING", progress: 5, current_step: "COLLECTING_EVIDENCE",
+    status: "RUNNING", analysis_status: "RUNNING", writeback_status: "PENDING",
+    progress: 5, current_step: "COLLECTING_EVIDENCE", pipeline_stage: "COLLECTING_EVIDENCE",
     started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).eq("id", itemId).in("status", ["PENDING", "FAILED"]).select("id,customer_id,attempt_count").maybeSingle();
   if (claim.error) throw claim.error;
@@ -66,10 +68,35 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error || "");
     if (raw.includes("OPENAI_NOT_CONFIGURED") || /OPENAI_API_ERROR:\s*(401|403)\b/.test(raw)) throw error;
+    const durable = await admin.from("ai_screening_task_items")
+      .select("analysis_status,result_id")
+      .eq("id", itemId)
+      .maybeSingle();
+    if (durable.error) throw durable.error;
+    if (durable.data?.analysis_status === "COMPLETED" || durable.data?.result_id) {
+      const warning = normalizeError(error, { stage: "POST_ANALYSIS_WRITEBACK", attemptNumber: Number(claim.data.attempt_count || 0) + 1, durationMs: Date.now() - startedAt });
+      const writeback = await admin.from("ai_screening_task_items").update({
+        status: "COMPLETED",
+        analysis_status: "COMPLETED",
+        writeback_status: "WARNING",
+        current_step: "COMPLETED_WITH_WRITEBACK_WARNING",
+        error_context: { writeback_warnings: [warning] },
+        writeback_warning_count: 1,
+        duration_ms: Date.now() - startedAt,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", itemId);
+      if (writeback.error) throw writeback.error;
+      await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: taskId });
+      return { status: "COMPLETED" as const, writebackWarning: warning };
+    }
     const failure = publicAiError(error);
+    const normalized = normalizeError(error, { stage: "ANALYSIS", attemptNumber: Number(claim.data.attempt_count || 0) + 1, durationMs: Date.now() - startedAt });
     await admin.from("ai_screening_task_items").update({
-      status: "FAILED", automation_status: "ANALYSIS_FAILED", progress: 100, current_step: "FAILED", error_code: failure.code,
+      status: "FAILED", analysis_status: "FAILED", writeback_status: "NOT_STARTED",
+      automation_status: "ANALYSIS_FAILED", progress: 100, current_step: "FAILED", pipeline_stage: "FAILED", error_code: failure.code,
       error_message: failure.message, retryable: true,
+      error_context: normalized,
       duration_ms: Date.now() - startedAt,
       completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", itemId);
@@ -89,7 +116,7 @@ async function finishTask(taskId: string) {
   if (!data || ["CANCELLED", "PAUSED"].includes(String(data.status))) return;
   const now = new Date();
   const started = data.started_at ? new Date(data.started_at).getTime() : NaN;
-  const elapsedMs = Number(data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
+  const elapsedMs = Number.isFinite(started) ? Math.max(0, now.getTime() - started) : Number(data.elapsed_ms || 0);
   const completed = await admin.from("ai_screening_tasks").update({
     status: "COMPLETED",
     completed_at: now.toISOString(), finished_at: now.toISOString(),
@@ -108,7 +135,7 @@ async function failTask(taskId: string, errorMessage: string) {
   if (!data || ["CANCELLED", "PAUSED"].includes(String(data.status))) return;
   const now = new Date();
   const started = data.started_at ? new Date(data.started_at).getTime() : NaN;
-  const elapsedMs = Number(data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
+  const elapsedMs = Number.isFinite(started) ? Math.max(0, now.getTime() - started) : Number(data.elapsed_ms || 0);
   const failed = await admin.from("ai_screening_tasks").update({
     status: "FAILED", finished_at: now.toISOString(),
     elapsed_ms: elapsedMs, error_message: errorMessage.slice(0, 1000), updated_at: now.toISOString(),
@@ -153,4 +180,3 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     return { status: "FAILED", error: message };
   }
 }
-

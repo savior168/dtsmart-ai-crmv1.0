@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createJiti } from "jiti";
 
-const jiti = createJiti(import.meta.url);
+const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const policy = await jiti.import(resolve("lib/ai/evidence-policy.ts"));
 const contacts = await jiti.import(resolve("lib/ai/contact-intelligence.ts"));
 const customerAnalysis = await jiti.import(resolve("lib/ai/customer-analysis.ts"));
+const runner = await jiti.import(resolve("lib/ai/run-customer-analysis.ts"));
+const errors = await jiti.import(resolve("lib/ai/error-normalization.ts"));
 const source = (file) => readFileSync(resolve(file), "utf8");
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; process.stdout.write(`✓ ${name}\n`); };
@@ -47,6 +49,17 @@ test("31 无证据INVALID为0",()=>assert.notEqual(policy.compatibilityTargetDec
 test("32 Google维修分类属于强直接证据",()=>assert.equal(policy.evidenceStrengthFor(evidence("Google商家页明确分类为手机维修店","支持","google_maps","https://www.google.com/maps/place/demo")),"STRONG_DIRECT"));
 test("33 不再存在整客户30秒硬超时",()=>{const runner=source("lib/ai/run-customer-analysis.ts");const workflow=source("workflows/ai-screening.ts");assert.doesNotMatch(runner,/timeoutController\.abort\(\), 30_000/);assert.doesNotMatch(workflow,/Promise\.race\(\[analysis, deadline\]\)/);});
 test("34 已匹配Google手机维修分类不得被压成D级",()=>{const result=customerAnalysis.groundCustomerAnalysis({customer_name:"测试维修店",country:"EC",google_url:"https://www.google.com/maps/place/test",evidence:{google_place:{configured:false,name:"测试维修店",types:["手机维修店"],reviews:[],identity_status:"MATCHED",identity_confidence:96,business_status:"OPERATIONAL",verified_google_maps_url:"https://www.google.com/maps/place/test"}}},{industry_type:"手机维修店",is_target_customer:true,ai_score:88,ai_level:"A",ai_reason:"公开信息显示该商家提供手机维修服务。",business_relevance:"提供手机维修服务。",customer_value:"可能采购手机维修配件。",followup_suggestion:"联系确认配件需求。",confidence_score:95,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{entity_consistency:95,company_authenticity:90,business_activity:90,mobile_parts_match:90,macbook_parts_match:0,wholesale_import_distribution:20,repair_business_match:95,bulk_purchase_potential:60,contactability:80,evidence_completeness:75,contradiction_risk:0},suggested_contact_order:[],evidence_summaries:[]});assert.ok(result.ai_score>=60);assert.notEqual(result.ai_level,"D");assert.ok(result.evidence_summaries.some(x=>x.title_zh==="Google商家分类"));});
+test("35 明确Google维修分类由规则引擎零Token完成",()=>{const result=runner.deterministicAnalysis({id:"c1",company_name:"Phone Fix",country:"ES",google_url:"https://www.google.com/maps/place/phone-fix"},[{channel:"google_maps",status:"COLLECTED",source_url:"https://www.google.com/maps/place/phone-fix",evidence:{configured:false,name:"Phone Fix",types:["mobile phone repair shop"],reviews:[],identity_status:"MATCHED",identity_confidence:96,verified_google_maps_url:"https://www.google.com/maps/place/phone-fix"}}]);assert.equal(result.usage.model,"RULE_ENGINE");assert.equal(result.usage.total_tokens,0);assert.equal(result.industry_type,"手机维修店");});
+test("36 PostgREST对象错误不会退化为object Object",()=>{const result=errors.normalizeError({code:"PGRST204",message:"schema cache缺少字段",details:"column missing",hint:"reload"},{stage:"CUSTOMER_WRITEBACK"});assert.equal(result.error_code,"PGRST204");assert.match(result.error_message,/schema cache/);assert.doesNotMatch(result.error_message,/object Object/);});
+test("37 分析结果保存后写回失败只记警告",()=>{const s=source("lib/ai/run-customer-analysis.ts");assert.match(s,/analysis_status: "COMPLETED"[\s\S]*writeback_status: "PENDING"/);assert.match(s,/COMPLETED_WITH_WRITEBACK_WARNING/);});
+test("38 任务统计以模型调用表为费用真值",()=>assert.match(source("supabase/migrations/202608240003_ai_screening_pipeline_v3.sql"),/case when c\.call_count > 0 then c\.total_cost_usd/));
+test("39 模型内置网页搜索不再默认启用",()=>assert.doesNotMatch(source("lib/ai/customer-analysis.ts"),/tools:\s*\[\{ type: "web_search"/));
+test("40 智能模式单次调用且深度模式最多两次",()=>{const s=source("lib/ai/run-customer-analysis.ts");assert.match(s,/AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER/);assert.match(s,/maxRequests: 1/);});
+test("41 余额耗尽属于不可重试错误",()=>assert.equal(errors.normalizeError({status:429,code:"credit_balance_exhausted",message:"余额不足"},{stage:"MODEL_CALL"}).retryable,false));
+test("42 智能模式输入证据有严格长度上限",()=>{const compact=runner.evidenceForModel([{channel:"website",status:"COLLECTED",source_url:"https://a.example",evidence:{url:"https://a.example",reachable:true,title:"测试企业",description:"业务".repeat(1000),headings:Array(20).fill("手机维修"),text_excerpt:"维修换屏".repeat(4000),image_alts:Array(20).fill("维修门店"),image_urls:Array(20).fill("https://a.example/image.jpg"),video_urls:Array(10).fill("https://a.example/video.mp4"),emails:[],phones:[],pages:Array(8).fill({url:"https://a.example/service",title:"服务",description:"维修".repeat(500),headings:["维修"],text_excerpt:"换屏".repeat(1000),image_alts:[],image_urls:[],emails:[],phones:[]})}}],"fast");assert.ok(JSON.stringify(compact).length<7000);});
+test("43 媒体网址保留入库但不发送文本模型",()=>{const compact=runner.evidenceForModel([{channel:"website",status:"COLLECTED",source_url:"https://a.example",evidence:{url:"https://a.example",reachable:true,headings:[],image_alts:[],image_urls:["https://a.example/image.jpg"],video_urls:["https://a.example/video.mp4"],emails:[],phones:[]}}],"deep");const text=JSON.stringify(compact);assert.doesNotMatch(text,/image\.jpg|video\.mp4/);});
+test("44 无有效证据会阻止无效模型调用",()=>{const s=source("lib/ai/run-customer-analysis.ts");assert.match(s,/NO_EVIDENCE_GATE/);assert.match(s,/证据门禁阻止了无效模型调用/);});
+test("45 默认模型采用低成本分层",()=>{const s=source("lib/ai/customer-analysis.ts");assert.match(s,/gpt-5\.4-nano/);assert.match(s,/gpt-5\.4-mini/);assert.match(s,/gpt-5\.6-luna/);});
+test("46 深度模式默认仅一次模型调用",()=>assert.match(source("lib/ai/run-customer-analysis.ts"),/AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER \|\| 1/));
 
-console.log(`AI证据与联系方式规则测试通过：${passed}/34`);
-
+console.log(`AI证据、成本与写回规则测试通过：${passed}/${passed}`);
