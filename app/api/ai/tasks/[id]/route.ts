@@ -53,8 +53,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const pausing = await admin.from("ai_screening_tasks").update({ status: "PAUSING", updated_at: now }).eq("id", id);
       if (pausing.error) throw pausing.error;
       await cancelWorkflowRun(task.workflow_run_id);
+      const invalidatePartial = await admin.from("ai_screening_results").update({ is_latest_valid: false }).eq("task_id", id).neq("writeback_status", "COMPLETED");
+      if (invalidatePartial.error) throw invalidatePartial.error;
       const resetItems = await admin.from("ai_screening_task_items").update({
-        status: "PENDING", progress: 0, current_step: "WAITING", started_at: null, updated_at: now,
+        status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING",
+        automation_status: null, result_id: null, progress: 0, current_step: "WAITING",
+        pipeline_stage: "NORMALIZED", started_at: null, completed_at: null, updated_at: now,
       }).eq("task_id", id).eq("status", "RUNNING");
       if (resetItems.error) throw resetItems.error;
       const paused = await admin.from("ai_screening_tasks").update({
@@ -90,10 +94,17 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (pending.error) throw pending.error;
       if (!failed.count && !pending.count) return NextResponse.json({ error: "当前任务没有可重试或未完成的客户" }, { status: 409 });
       if (task.status === "FAILED") {
-        const resetRunning = await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", started_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "RUNNING");
+        const resetRunning = await admin.from("ai_screening_task_items").update({ status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null, result_id: null, progress: 0, current_step: "WAITING", pipeline_stage: "NORMALIZED", started_at: null, completed_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "RUNNING");
         if (resetRunning.error) throw resetRunning.error;
       }
-      const reset = await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
+      const failedIds = await admin.from("ai_screening_task_items").select("id").eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
+      if (failedIds.error) throw failedIds.error;
+      const ids = (failedIds.data || []).map((item) => item.id);
+      if (ids.length) {
+        const invalidated = await admin.from("ai_screening_results").update({ is_latest_valid: false }).in("task_item_id", ids);
+        if (invalidated.error) throw invalidated.error;
+      }
+      const reset = await admin.from("ai_screening_task_items").update({ status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null, result_id: null, progress: 0, current_step: "WAITING", pipeline_stage: "NORMALIZED", error_message: null, error_code: null, error_context: {}, writeback_warning_count: 0, retry_at: null, completed_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
       if (reset.error) throw reset.error;
       await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: id });
       const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, finished_at: null, error_message: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);

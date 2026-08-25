@@ -3,12 +3,28 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { AI_FIELD_MAPPING_VERSION, type AiMappedCustomer } from "@/lib/ai/semantic-fields";
 import type { AiStrategy } from "@/lib/ai/task-types";
 
-export const AI_RULE_VERSION = "2026.08.24.2";
-export const AI_EVIDENCE_SCHEMA_VERSION = "2026.08.24.2";
+// Bump both versions whenever the evidence gate or writeback contract changes.
+// This deliberately invalidates older cache rows that could be reused before
+// their evidence/customer writeback had completed.
+export const AI_RULE_VERSION = "2026.08.25.1";
+export const AI_EVIDENCE_SCHEMA_VERSION = "2026.08.25.1";
+
+function isUuid(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
 
 function reusableEvidenceIsTraceable(row: Record<string, unknown>) {
+  if (!isUuid(row.source_result_id)) return false;
+  const analysis = row.analysis_result && typeof row.analysis_result === "object"
+    ? row.analysis_result as Record<string, unknown>
+    : null;
+  if (!analysis
+    || analysis.writeback_status !== "COMPLETED"
+    || analysis.is_latest_valid !== true
+    || analysis.identity_status !== "MATCHED"
+    || !["AUTO_DEVELOP", "AUTO_REJECT"].includes(String(analysis.automation_status || ""))) return false;
   const snapshot = Array.isArray(row.evidence_snapshot) ? row.evidence_snapshot : [];
-  return snapshot.some((item) => {
+  const valid = snapshot.filter((item) => {
     if (!item || typeof item !== "object") return false;
     const record = item as Record<string, unknown>;
     const fact = String(record.normalized_fact || record.content || "").trim();
@@ -17,6 +33,9 @@ function reusableEvidenceIsTraceable(row: Record<string, unknown>) {
       && !/读取失败|未能取得|未保存|请重新执行/.test(fact)
       && /^https?:\/\//i.test(url);
   });
+  const channels = new Set(valid.map((item) => String((item as Record<string, unknown>).channel || (item as Record<string, unknown>).source_channel || "")));
+  return valid.some((item) => String((item as Record<string, unknown>).strength || "") === "STRONG_DIRECT")
+    || (valid.length >= 2 && channels.size >= 2);
 }
 
 function compact(value?: string | null) {
@@ -81,6 +100,12 @@ export async function findReusableAnalysis(customer: AiMappedCustomer, strategy:
     throw result.error;
   }
   if (!result.data || !reusableEvidenceIsTraceable(result.data as Record<string, unknown>)) return null;
+  const sourceResultId = String(result.data.source_result_id || "");
+  const [sourceResult, sourceEvidence] = await Promise.all([
+    admin.from("ai_screening_results").select("id").eq("id", sourceResultId).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED").maybeSingle(),
+    admin.from("ai_screening_evidence").select("id").eq("result_id", sourceResultId).limit(1).maybeSingle(),
+  ]);
+  if (sourceResult.error || sourceEvidence.error || !sourceResult.data || !sourceEvidence.data) return null;
   await admin.from("ai_analysis_reuse_cache").update({ reused_at: new Date().toISOString() }).eq("id", result.data.id);
   return result.data;
 }

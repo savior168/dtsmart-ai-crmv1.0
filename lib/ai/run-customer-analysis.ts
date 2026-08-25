@@ -33,7 +33,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.24.2";
+const ANALYSIS_VERSION = "2026.08.25.1";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -171,15 +171,17 @@ function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analys
     return { status, confidence: score, verifiedBusinessName: status === "MATCHED" ? customer.company_name : null, verifiedAddress: addressScore ? customer.address : null, verifiedWebsite: sourceDomainMatch ? customer.website : null, verifiedGoogleMapsUrl: verifiedMapSource?.source_url || customer.google_url, placeId: null, candidateCount: searched.length, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["公开来源主体匹配信号不足"] };
   }
   const pageText = [website.title, website.description, website.text_excerpt].filter(Boolean).join(" ");
-  const nameScore = Math.round(identitySimilarity(customer.company_name, pageText) * 50);
+  const nameScore = Math.round(identitySimilarity(customer.company_name, pageText) * 65);
   const originalPhone = normalizePhone(customer.phone);
   const phoneMatch = Boolean(originalPhone && website.phones.some((item) => normalizePhone(item) === originalPhone));
   const emailDomain = normalizeEmail(customer.email).split("@")[1] || "";
   let websiteDomain = ""; try { websiteDomain = new URL(website.url).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
+  let inputWebsiteDomain = ""; try { inputWebsiteDomain = new URL(/^https?:\/\//i.test(String(customer.website || "")) ? String(customer.website) : `https://${customer.website}`).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
+  const providedDomainMatch = Boolean(inputWebsiteDomain && websiteDomain && inputWebsiteDomain === websiteDomain);
   const emailMatch = Boolean(emailDomain && websiteDomain && (emailDomain === websiteDomain || emailDomain.endsWith(`.${websiteDomain}`)));
   const addressMatch = Boolean(customer.address && compactIdentity(pageText).includes(compactIdentity(customer.address).slice(0, 24)));
-  const score = Math.min(100, nameScore + (phoneMatch ? 25 : 0) + (emailMatch ? 20 : 0) + (addressMatch ? 20 : 0));
-  const signals = [nameScore >= 35 ? "官网名称与客户名称一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
+  const score = Math.min(100, nameScore + (providedDomainMatch ? 25 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 20 : 0) + (addressMatch ? 20 : 0));
+  const signals = [nameScore >= 45 ? "官网名称与客户名称一致" : "", providedDomainMatch ? "读取域名与客户官网一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
   const status: IdentityStatus = score >= 90 ? "MATCHED" : score >= 70 ? "LIKELY_MATCHED" : "AMBIGUOUS";
   return { status, confidence: score, verifiedBusinessName: website.title || customer.company_name, verifiedAddress: addressMatch ? customer.address : null, verifiedWebsite: website.url, verifiedGoogleMapsUrl: customer.google_url, placeId: null, candidateCount: 0, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["官网主体匹配信号不足"] };
 }
@@ -238,21 +240,21 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
     url: item.url,
     reachable: item.reachable,
     title: item.title,
-    description: item.description?.slice(0, deep ? 500 : 320),
+    description: item.description?.slice(0, deep ? 360 : 240),
     headings: (item.headings || []).slice(0, deep ? 6 : 4),
-    text_excerpt: item.text_excerpt?.slice(0, deep ? 1400 : 800),
+    text_excerpt: item.text_excerpt?.slice(0, deep ? 900 : 520),
     image_alts: (item.image_alts || []).filter(Boolean).slice(0, deep ? 5 : 3),
     image_urls: [],
     video_urls: [],
     emails: (item.emails || []).slice(0, 5),
     phones: (item.phones || []).slice(0, 5),
     whatsapps: (item.whatsapps || []).slice(0, 3),
-    pages: (item.pages || []).slice(0, deep ? 2 : 1).map((page) => withoutEmpty({
+    pages: (item.pages || []).slice(0, 1).map((page) => withoutEmpty({
       url: page.url,
       title: page.title,
       description: page.description?.slice(0, 240),
       headings: (page.headings || []).slice(0, 3),
-      text_excerpt: page.text_excerpt?.slice(0, deep ? 420 : 260),
+      text_excerpt: page.text_excerpt?.slice(0, deep ? 320 : 220),
       image_alts: (page.image_alts || []).filter(Boolean).slice(0, 2),
       image_urls: [],
       emails: (page.emails || []).slice(0, 3),
@@ -279,7 +281,7 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
       user_ratings_total: google.user_ratings_total,
       business_status: google.business_status,
       types: (google.types || []).slice(0, 8),
-      reviews: (google.reviews || []).slice(0, deep ? 2 : 1).map((review) => review.slice(0, deep ? 220 : 140)),
+      reviews: (google.reviews || []).slice(0, 1).map((review) => review.slice(0, deep ? 180 : 120)),
       image_urls: [],
       video_urls: [],
       emails: (google.emails || []).slice(0, 3),
@@ -306,24 +308,10 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
   });
 }
 
-function noEvidenceAnalysis(records: ChannelRecord[]): CustomerAnalysis {
-  const attempted = records.filter((item) => item.status !== "SKIPPED").map((item) => AI_CHANNEL_LABELS[item.channel]).join("、");
-  const summary = attempted
-    ? `已尝试读取${attempted}，但未取得可核验的企业经营事实；本次不调用大模型、不作目标客户判定。`
-    : "客户档案没有可访问的公开入口；本次不调用大模型、不作目标客户判定。";
-  return {
-    industry_type: "其他", is_target_customer: false, ai_score: 0, ai_level: "D",
-    ai_reason: summary, business_relevance: "没有可核验的公开经营信息，不能判断与手机或电脑维修配件业务的相关性。",
-    customer_value: "当前无法依据公开事实评估客户价值。", followup_suggestion: "补充企业官网、Google商家页或官方社媒主页后再分析。",
-    confidence_score: 0, evidence_sufficiency: "不足", evidence_conflicts: [], score_breakdown: emptyBreakdown(0),
-    suggested_contact_order: [], evidence_summaries: [], usage: { ...ZERO_USAGE, model: "NO_EVIDENCE_GATE" },
-  };
-}
-
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; score: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n de (?:m[oó]viles|celulares)|维修手机|手机维修)/i, industry: "手机维修店", score: 78, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|维修手机|手机维修)/i, industry: "手机维修店", score: 78, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair)/i, industry: "Apple或MacBook维修店", score: 82, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n de ordenadores|电脑维修)/i, industry: "电脑维修店", score: 72, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|电脑维修)/i, industry: "电脑维修店", score: 72, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|批发|分销|进口商)/i, industry: "进口商或分销商", score: 90, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|手机配件)/i, industry: "手机外配件零售", score: 68, target: true },
 ];
@@ -379,15 +367,14 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       url: website.url,
       title: "企业官网业务说明",
       text: [website.title, website.description, ...(website.headings || []), website.text_excerpt].filter(Boolean).join("；").slice(0, 6000),
-      confidence: 88,
+      confidence: 92,
     });
   }
   for (const candidate of candidates) {
     const rule = RULE_INDUSTRIES.find((item) => item.pattern.test(candidate.text));
     if (!rule) continue;
-    const matchedText = candidate.text.match(rule.pattern)?.[0] || "相关业务";
     const sourceName = candidate.channel === "google_maps" ? "Google商家页" : "企业官网";
-    const fact = `${sourceName}公开信息明确显示“${matchedText}”相关经营内容，可直接支持将企业归类为“${rule.industry}”。`;
+    const fact = `${sourceName}公开的商家分类或经营说明明确显示该企业从事“${rule.industry}”相关业务，可直接支持该行业归类。`;
     const score = rule.score;
     return {
       industry_type: rule.industry,
@@ -605,31 +592,31 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
     model_snapshot: { ...(cachedResult.model_snapshot as Record<string, unknown> || {}), reused: true, source_result_id: cache.source_result_id },
     completed_at: now,
     rule_version: AI_RULE_VERSION,
+    is_latest_valid: false,
+    writeback_status: "PENDING",
+    writeback_warnings: [],
   };
   const resultWrite = await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
   if (resultWrite.error || !resultWrite.data) throw resultWrite.error || new Error("REUSED_RESULT_WRITE_FAILED");
   const warnings: Array<ReturnType<typeof normalizeError>> = [];
   const durable = await admin.from("ai_screening_task_items").update({
-    status: "COMPLETED", analysis_status: "COMPLETED", writeback_status: "PENDING",
-    result_id: resultWrite.data.id, progress: 100, current_step: "REUSED_RESULT_SAVED",
+    status: "RUNNING", analysis_status: "RUNNING", writeback_status: "PENDING",
+    result_id: resultWrite.data.id, progress: 80, current_step: "REUSED_RESULT_SAVED",
     cache_reused: true, reuse_source_result_id: cache.source_result_id || null,
     completed_at: now, duration_ms: Date.now() - started, updated_at: now,
   }).eq("id", input.taskItemId);
   if (durable.error) throw durable.error;
   const snapshots = Array.isArray(cache.evidence_snapshot) ? cache.evidence_snapshot : [];
-  if (snapshots.length) {
-    const rows = snapshots.map((row, index) => {
-      const source = row as Record<string, unknown>;
-      return { ...source, id: undefined, result_id: resultWrite.data.id, task_id: input.taskId, customer_id: customer.id, source_id: `${String(source.source_id || "SRC")}-R${resultWrite.data.id.slice(0, 8)}-${index}`, captured_at: source.captured_at || source.fetched_at || cache.original_captured_at || cache.captured_at, fetched_at: source.fetched_at || source.captured_at || cache.original_captured_at || cache.captured_at, metadata: { ...((source.metadata as Record<string, unknown>) || {}), cache_reused: true, reused_at: now, source_result_id: cache.source_result_id } };
-    });
-    await optionalWrite("REUSED_EVIDENCE_WRITE", warnings, async () => {
-      const evidenceWrite = await admin.from("ai_screening_evidence").insert(rows);
-      if (evidenceWrite.error) throw evidenceWrite.error;
-    });
-  }
+  if (!snapshots.length) throw new Error("REUSED_EVIDENCE_MISSING");
+  const rows = snapshots.map((row, index) => {
+    const source = { ...(row as Record<string, unknown>) };
+    delete source.id;
+    return { ...source, id: randomUUID(), result_id: resultWrite.data.id, task_id: input.taskId, task_item_id: input.taskItemId, customer_id: customer.id, source_id: `${String(source.source_id || "SRC")}-R${resultWrite.data.id.slice(0, 8)}-${index}`, captured_at: source.captured_at || source.fetched_at || cache.original_captured_at || cache.captured_at, fetched_at: source.fetched_at || source.captured_at || cache.original_captured_at || cache.captured_at, metadata: { ...((source.metadata as Record<string, unknown>) || {}), cache_reused: true, reused_at: now, source_result_id: cache.source_result_id } };
+  });
+  const evidenceWrite = await admin.from("ai_screening_evidence").insert(rows).select("id");
+  if (evidenceWrite.error || !evidenceWrite.data?.length) throw evidenceWrite.error || new Error("REUSED_EVIDENCE_WRITE_FAILED");
   const discovered = (cache.discovered_contacts && typeof cache.discovered_contacts === "object" ? cache.discovered_contacts : {}) as { website_email?: string; website_phone?: string; whatsapp?: string[]; contacts?: ContactCandidate[] };
-  await optionalWrite("REUSED_CUSTOMER_WRITEBACK", warnings, async () => {
-    const customerWrite = await admin.from("customers").update({
+  const customerWrite = await admin.from("customers").update({
       industry: cachedResult.industry_type || cachedResult.customer_type,
       ai_score: cachedResult.score,
       ai_level: cachedResult.grade,
@@ -645,20 +632,20 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
       ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: now,
       updated_at: now,
-    }).eq("id", customer.id);
-    if (customerWrite.error) throw customerWrite.error;
-  });
+  }).eq("id", customer.id);
+  if (customerWrite.error) throw customerWrite.error;
   if (Array.isArray(discovered.contacts) && discovered.contacts.length) {
     const preferredValue = String(cachedResult.preferred_contact_value || "");
     const preferred = discovered.contacts.find((item) => item.valueRaw === preferredValue || item.valueNormalized === preferredValue) || null;
     await optionalWrite("REUSED_CONTACT_WRITEBACK", warnings, () => saveVerifiedContacts({ taskId: input.taskId, resultId: resultWrite.data.id, customer, contacts: discovered.contacts!, preferred }));
   }
-  const itemWrite = await admin.from("ai_screening_task_items").update({ status: "COMPLETED", analysis_status: "COMPLETED", writeback_status: warnings.length ? "WARNING" : "COMPLETED", writeback_warning_count: warnings.length, error_context: warnings.length ? { writeback_warnings: warnings } : {}, automation_status: String(cachedResult.automation_status || "AUTO_HOLD"), retry_at: cachedResult.retry_at || null, progress: 100, current_step: warnings.length ? "COMPLETED_WITH_WRITEBACK_WARNING" : "REUSED_RESULT", cache_reused: true, reuse_source_result_id: cache.source_result_id || null, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_usd: 0, duration_ms: Date.now() - started, completed_at: now, updated_at: now }).eq("id", input.taskItemId);
+  const itemWrite = await admin.from("ai_screening_task_items").update({ status: "COMPLETED", analysis_status: "COMPLETED", writeback_status: "COMPLETED", writeback_warning_count: warnings.length, error_context: warnings.length ? { writeback_warnings: warnings } : {}, automation_status: String(cachedResult.automation_status || "AUTO_HOLD"), retry_at: cachedResult.retry_at || null, progress: 100, current_step: "REUSED_RESULT", cache_reused: true, reuse_source_result_id: cache.source_result_id || null, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_usd: 0, duration_ms: Date.now() - started, completed_at: now, updated_at: now }).eq("id", input.taskItemId);
   if (itemWrite.error) throw itemWrite.error;
   const resultStatus = await admin.from("ai_screening_results").update({
-    writeback_status: warnings.length ? "WARNING" : "COMPLETED",
+    writeback_status: "COMPLETED",
     writeback_warnings: warnings,
     is_latest_valid: true,
+    evidence_ids: evidenceWrite.data.map((row) => row.id),
   }).eq("id", resultWrite.data.id);
   if (resultStatus.error) throw resultStatus.error;
   await admin.from("ai_screening_model_calls").upsert({ task_id: input.taskId, task_item_id: input.taskItemId, customer_id: customer.id, channel: "cross_user_result_reuse", attempt_number: 1, model: "REUSED_RESULT", model_version: String((cachedResult.model_snapshot as Record<string, unknown> | undefined)?.primary_model || "REUSED_RESULT"), input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, pricing_snapshot: { reused: true }, cost_usd: 0, status: "COMPLETED", cache_hit: true, completed_at: now, duration_ms: Date.now() - started }, { onConflict: "task_item_id,channel,attempt_number" });
@@ -688,8 +675,12 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   let usage = { ...ZERO_USAGE };
   let earlyStopReason: string | null = null;
   try {
-    const strategyChannels = input.strategy === "DEEP" ? AI_CHANNEL_ORDER : (["website", "google_maps"] as AiChannel[]);
-    const pendingChannels = strategyChannels.filter((channel) => !records.some((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status)));
+    // Both modes start with the two highest-value public sources. Secondary
+    // channels are collected in small batches only when the primary evidence
+    // cannot support a reliable conclusion. This is faster and avoids sending
+    // redundant public content to the model.
+    const primaryChannels = ["website", "google_maps"] as AiChannel[];
+    const pendingChannels = primaryChannels.filter((channel) => !records.some((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status)));
     if (pendingChannels.length) {
       const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, analysisController.signal)));
       for (const current of collected) {
@@ -710,13 +701,15 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       },
     });
     analysis = deterministicAnalysis(customer, records);
-    if (!analysis && input.strategy === "SMART") {
-      const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !strategyChannels.includes(channel) && Boolean(channelUrl(customer, channel)) && !records.some((item) => item.channel === channel));
-      if (secondaryChannels.length) {
-        const secondary = await Promise.all(secondaryChannels.map((channel) => collectChannel(customer, channel, analysisController.signal)));
+    if (!analysis) {
+      const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !primaryChannels.includes(channel) && Boolean(channelUrl(customer, channel)) && !records.some((item) => item.channel === channel));
+      for (let index = 0; index < secondaryChannels.length && !analysis; index += 2) {
+        const batch = secondaryChannels.slice(index, index + 2);
+        const secondary = await Promise.all(batch.map((channel) => collectChannel(customer, channel, analysisController.signal)));
         records.push(...secondary);
-        await saveCheckpoint(input.taskItemId, records, secondaryChannels[secondaryChannels.length - 1]);
+        await saveCheckpoint(input.taskItemId, records, batch[batch.length - 1]);
         analysis = deterministicAnalysis(customer, records);
+        if (analysis) earlyStopReason = "补充公开渠道已取得足够的直接经营证据，停止继续采集并由规则引擎完成判断。";
       }
     }
     let modelRequestCount = 0;
@@ -726,8 +719,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     if (analysis) {
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
     } else if (!hasUsableCollectedEvidence(records)) {
-      analysis = noEvidenceAnalysis(records);
-      earlyStopReason = "没有可核验的公开经营事实，证据门禁阻止了无效模型调用。";
+      throw new Error("AI_EVIDENCE_NOT_AVAILABLE");
     } else if (input.strategy === "DEEP") {
       const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "deep", maxRequests: maxModelCalls as 1 | 2 });
       analysis = outcome.analysis;
@@ -773,6 +765,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       hasCriticalConflict: analysis.evidence_conflicts.length > 0 || ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
+    if (!["AUTO_DEVELOP", "AUTO_REJECT"].includes(gate.automationStatus) || !analysis.evidence_summaries.length) {
+      throw new Error("AI_EVIDENCE_GATE_NOT_SATISFIED");
+    }
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
     const verifiedNew = reconciled.contacts.filter((item) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus));
     const websiteEmail = verifiedNew.filter((item) => item.type === "EMAIL").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
@@ -827,28 +822,25 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       decision_status: gate.automationStatus === "AUTO_HOLD" ? "NEEDS_REVIEW" : gate.automationStatus,
       short_reason: gate.reason,
       attempt_number: input.attemptNumber || 1,
-      is_latest_valid: true,
+      is_latest_valid: false,
       writeback_status: "PENDING",
       writeback_warnings: [],
     };
-    const previousResult = await admin.from("ai_screening_results").select("id").eq("task_item_id", input.taskItemId).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (previousResult.error) throw previousResult.error;
-    const resultWrite = previousResult.data
-      ? await admin.from("ai_screening_results").update(resultPayload).eq("id", previousResult.data.id).select("id").single()
-      : await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
+    const invalidatePrevious = await admin.from("ai_screening_results").update({ is_latest_valid: false }).eq("task_item_id", input.taskItemId).eq("is_latest_valid", true);
+    if (invalidatePrevious.error) throw invalidatePrevious.error;
+    const resultWrite = await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
     if (resultWrite.error || !resultWrite.data) throw resultWrite.error || new Error("RESULT_WRITE_FAILED");
 
-    // The AI conclusion is durable at this point. Any later evidence/contact/
-    // customer writeback failure is a writeback warning and must never convert
-    // a successfully analyzed customer into an analysis failure.
+    // A saved model conclusion is only a checkpoint. It is not a completed AI
+    // screening until evidence and the customer writeback are both durable.
     const analysisComplete = await admin.from("ai_screening_task_items").update({
-      status: "COMPLETED",
-      analysis_status: "COMPLETED",
+      status: "RUNNING",
+      analysis_status: "RUNNING",
       writeback_status: "PENDING",
       result_id: resultWrite.data.id,
       automation_status: gate.automationStatus,
       retry_at: retryAt,
-      progress: 100,
+      progress: 80,
       current_step: "RESULT_SAVED",
       pipeline_stage: "RESULT_SAVED",
       error_message: null,
@@ -863,7 +855,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       total_tokens: usage.total_tokens,
       cost_usd: usage.cost_usd,
       duration_ms: Date.now() - started,
-      completed_at: new Date().toISOString(),
+      completed_at: null,
       updated_at: new Date().toISOString(),
     }).eq("id", input.taskItemId);
     if (analysisComplete.error) throw analysisComplete.error;
@@ -928,9 +920,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         content_hash: createHash("sha256").update(`${channel}|${normalizedFact}|${summary.source_url || source?.source_url || ""}`).digest("hex"),
       };
     });
+    if (!evidenceRows.length) throw new Error("AI_EVIDENCE_ROWS_EMPTY");
     const savedEvidenceIds: string[] = [];
-    await optionalWrite("EVIDENCE_WRITE", writebackWarnings, async () => {
-      if (!evidenceRows.length) return;
+    {
       const existingEvidence = await admin.from("ai_screening_evidence").select("id,content_hash").eq("result_id", resultWrite.data.id);
       if (existingEvidence.error) throw existingEvidence.error;
       const completedEvidence = new Set((existingEvidence.data || []).map((row) => row.content_hash).filter(Boolean));
@@ -947,7 +939,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       }).eq("id", resultWrite.data.id);
       if (resultEvidence.error) throw resultEvidence.error;
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "EVIDENCE_SAVED", startedAt: started, details: { evidence_count: savedEvidenceIds.length } });
-    });
+    }
 
     const customerUpdate = {
       industry: primaryIndustry === "UNKNOWN" ? customer.industry : analysis.industry_type,
@@ -960,19 +952,11 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       website_phone: websitePhone || null, ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
-    await optionalWrite("CUSTOMER_WRITEBACK", writebackWarnings, async () => {
-      let customerWrite = await admin.from("customers").update(customerUpdate).eq("id", customer.id);
-      if (customerWrite.error) {
-        customerWrite = await admin.from("customers").update({
-          industry: customerUpdate.industry,
-          ai_score: customerUpdate.ai_score,
-          ai_level: customerUpdate.ai_level,
-          ai_reason: customerUpdate.ai_reason,
-        }).eq("id", customer.id);
-      }
+    {
+      const customerWrite = await admin.from("customers").update(customerUpdate).eq("id", customer.id);
       if (customerWrite.error) throw customerWrite.error;
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_WRITTEN_BACK", startedAt: started });
-    });
+    }
     await optionalWrite("CONTACT_WRITEBACK", writebackWarnings, async () => {
       await saveVerifiedContacts({ taskId: input.taskId, resultId: resultWrite.data.id, customer, contacts: reconciled.contacts, preferred: reconciled.preferred });
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CONTACTS_SAVED", startedAt: started, details: { contact_count: reconciled.contacts.length } });
@@ -982,7 +966,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         customer,
         strategy: input.strategy,
         resultId: resultWrite.data.id,
-        analysisResult: resultPayload as unknown as Record<string, unknown>,
+        analysisResult: { ...(resultPayload as unknown as Record<string, unknown>), is_latest_valid: true, writeback_status: "COMPLETED" },
         evidenceSnapshot: evidenceRows as unknown as Array<Record<string, unknown>>,
         discoveredContacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps, contacts: reconciled.contacts },
         modelSnapshot: { primary_model: usage.model, rule_version: AI_RULE_VERSION },
@@ -990,14 +974,13 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CACHE_SAVED", startedAt: started });
     });
 
-    const finalWritebackStatus = writebackWarnings.length ? "WARNING" : "COMPLETED";
     const finalItem = await admin.from("ai_screening_task_items").update({
       status: "COMPLETED",
       analysis_status: "COMPLETED",
-      writeback_status: finalWritebackStatus,
+      writeback_status: "COMPLETED",
       writeback_warning_count: writebackWarnings.length,
       error_context: writebackWarnings.length ? { writeback_warnings: writebackWarnings } : null,
-      current_step: writebackWarnings.length ? "COMPLETED_WITH_WRITEBACK_WARNING" : "COMPLETED",
+      current_step: "COMPLETED",
       pipeline_stage: "COMPLETED",
       duration_ms: Date.now() - started,
       completed_at: new Date().toISOString(),
@@ -1005,12 +988,12 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }).eq("id", input.taskItemId);
     if (finalItem.error) throw finalItem.error;
     const finalResult = await admin.from("ai_screening_results").update({
-      writeback_status: finalWritebackStatus,
+      writeback_status: "COMPLETED",
       writeback_warnings: writebackWarnings,
       is_latest_valid: true,
     }).eq("id", resultWrite.data.id);
     if (finalResult.error) throw finalResult.error;
-    await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "COMPLETED", startedAt: started, status: writebackWarnings.length ? "WARNING" : "COMPLETED", details: { writeback_warning_count: writebackWarnings.length } });
+    await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "COMPLETED", startedAt: started, status: "COMPLETED", details: { writeback_warning_count: writebackWarnings.length } });
     const totals = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
     if (totals.error) throw totals.error;
     return { status: "COMPLETED" as const, resultId: resultWrite.data.id, writebackWarnings };
@@ -1021,6 +1004,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
 
 export function publicAiError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "UNKNOWN_ERROR");
+  if (raw.includes("AI_EVIDENCE_NOT_AVAILABLE") || raw.includes("AI_EVIDENCE_GATE_NOT_SATISFIED") || raw.includes("AI_EVIDENCE_ROWS_EMPTY")) {
+    return { code: "AI_EVIDENCE_INSUFFICIENT", message: "本次未取得达到自动判定门槛的可核验经营事实；未写入AI评分，可在公开入口可访问后重试" };
+  }
   if (raw.includes("OPENAI_TIMEOUT")) return { code: "OPENAI_TIMEOUT", message: "AI综合判断本次响应超时；已保存公开来源抓取进度，可直接重试而无需重复抓取" };
   if (raw.includes("OPENAI_NOT_CONFIGURED")) return { code: "OPENAI_NOT_CONFIGURED", message: "生产环境未配置OpenAI API密钥" };
   if (raw.includes("OPENAI_API_ERROR")) return { code: "OPENAI_API_ERROR", message: raw.replace(/^.*OPENAI_API_ERROR:/, "OpenAI接口错误：") };

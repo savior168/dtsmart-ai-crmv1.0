@@ -21,7 +21,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (protectionResult.error) throw protectionResult.error;
     if (aiEvidenceResult.error) throw aiEvidenceResult.error;
     const admin = createAdminClient();
-    const latestAi = await admin.from("ai_screening_results").select("*").eq("customer_id", id).order("completed_at", { ascending: false }).limit(1).maybeSingle();
+    const latestAi = await admin.from("ai_screening_results").select("*").eq("customer_id", id).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED").order("completed_at", { ascending: false }).limit(1).maybeSingle();
     if (latestAi.error) throw latestAi.error;
     const evidence = latestAi.data
       ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false })

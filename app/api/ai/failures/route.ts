@@ -78,7 +78,16 @@ export async function POST(request: NextRequest) {
     if (!groups.size) return NextResponse.json({ error: "没有可重试的失败客户" }, { status: 409 });
     for (const [taskId, group] of groups) {
       for (let offset = 0; offset < group.ids.length; offset += 100) {
-        const reset = await admin.from("ai_screening_task_items").update({ status: "PENDING", progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).in("id", group.ids.slice(offset, offset + 100));
+        const ids = group.ids.slice(offset, offset + 100);
+        const invalidated = await admin.from("ai_screening_results").update({ is_latest_valid: false }).in("task_item_id", ids);
+        if (invalidated.error) throw invalidated.error;
+        const reset = await admin.from("ai_screening_task_items").update({
+          status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING",
+          automation_status: null, result_id: null, progress: 0, current_step: "WAITING",
+          pipeline_stage: "NORMALIZED", error_message: null, error_code: null,
+          error_context: {}, writeback_warning_count: 0, retry_at: null,
+          completed_at: null, updated_at: new Date().toISOString(),
+        }).in("id", ids);
         if (reset.error) throw reset.error;
       }
       await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", taskId);

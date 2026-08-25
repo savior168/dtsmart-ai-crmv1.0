@@ -35,7 +35,8 @@ assert.match(customerApi, /customer_conflicts/, "手动新增的跨用户重复�
 assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨归属人重复标记");
 
 const aiApi = read("app/api/ai/analyze/route.ts");
-assert.match(aiApi, /ai_screening_done/, "AI完成后必须写入筛选状态");
+assert.match(aiApi, /start\(aiScreeningWorkflow/, "保存并筛选必须进入持久化AI任务，不能绕过证据与写回流程");
+assert.match(aiApi, /ai_screening_task_items/, "兼容分析接口必须创建可追踪的任务客户记录");
 assert.doesNotMatch(aiApi, /OPENAI_API_KEY[^\n]*(NEXT_PUBLIC|return|json)/i, "服务端密钥不能返回前端");
 
 const analysis = read("lib/ai/customer-analysis.ts");
@@ -48,7 +49,8 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.24\.2/, "旧版无证据高分缓存必须失效");
+assert.match(reuseCache, /2026\.08\.25\.1/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
 assert.doesNotMatch(taskRunner, /setTimeout\(\(\) => timeoutController\.abort\(\), 30_000\)/, "不得用30秒整客户硬超时丢弃已抓取证据");
@@ -57,6 +59,8 @@ assert.match(taskRunner, /all_available_sources_retry/, "模型恢复重试必�
 assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
+assert.match(taskRunner, /id: randomUUID\(\)/, "复用证据必须生成新的主键，不能写入空ID");
+assert.match(taskRunner, /AI_EVIDENCE_NOT_AVAILABLE/, "公开证据不足时必须失败待重试，不能写入虚假低分");
 assert.doesNotMatch(taskRunner, /JSON\.stringify\(item\.evidence\)/, "不得把原始证据JSON直接保存或展示给业务员");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
 assert.match(evidenceApi, /verified_contacts/, "AI依据接口必须返回可追溯的新联系方式");

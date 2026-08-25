@@ -369,11 +369,10 @@ async function collectPublicGooglePlaceEvidence(input: {
   website?: string | null;
 }, options: FetchOptions): Promise<GooglePlaceEvidence | undefined> {
   const locationText = String(input.address || "").trim();
-  const query = unique([
-    locationText && locationText.toLowerCase().includes(input.company_name.toLowerCase()) ? locationText : input.company_name,
-    locationText && !locationText.toLowerCase().includes(input.company_name.toLowerCase()) ? locationText : "",
-    input.country || "",
-  ]).join(", ");
+  // When a customer link opens a broad Maps result list, search the full
+  // address first. It is a better locator than appending several loose terms
+  // and avoids selecting a similarly named nearby business.
+  const query = locationText || [input.company_name, input.country].filter(Boolean).join(", ");
   if (!query) return undefined;
   const request = requestSignal(options, 9_000);
   const headers = {
@@ -417,7 +416,7 @@ async function collectPublicGooglePlaceEvidence(input: {
       const websiteScore = domain(input.website) && domain(input.website) === domain(website) ? 15 : 0;
       const phoneScore = digits(input.phone).length >= 7 && digits(input.phone) === digits(phone) ? 20 : 0;
       const countryScore = input.country && String(input.country).toUpperCase() === countryCode ? 10 : 0;
-      const exactPlaceUrlScore = isSpecificPlaceUrl && nameScore >= 35 ? 35 : 0;
+      const exactPlaceUrlScore = isSpecificPlaceUrl && nameScore >= 35 ? 50 : 0;
       return { row, name, address, website, phone, countryCode, score: Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactPlaceUrlScore) };
     }).sort((a, b) => b.score - a.score);
     const top = candidates[0]; const runnerUp = candidates[1];

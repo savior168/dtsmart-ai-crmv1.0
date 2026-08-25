@@ -71,7 +71,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     if (visible.error || !visible.data) throw visible.error || new Error("客户不存在或无权访问");
     const admin = createAdminClient();
     const requestedTaskId = request.nextUrl.searchParams.get("task")?.trim() || "";
-    let resultQuery = admin.from("ai_screening_results").select("*,task:ai_screening_tasks(id,name,task_number,user_id)").eq("customer_id", customerId);
+    let resultQuery = admin.from("ai_screening_results").select("*,task:ai_screening_tasks(id,name,task_number,user_id)").eq("customer_id", customerId).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
     if (requestedTaskId) resultQuery = resultQuery.eq("task_id", requestedTaskId);
     const result = await resultQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (result.error) throw result.error;

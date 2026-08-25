@@ -69,11 +69,11 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
     const raw = error instanceof Error ? error.message : String(error || "");
     if (raw.includes("OPENAI_NOT_CONFIGURED") || /OPENAI_API_ERROR:\s*(401|403)\b/.test(raw)) throw error;
     const durable = await admin.from("ai_screening_task_items")
-      .select("analysis_status,result_id")
+      .select("analysis_status,writeback_status,result_id")
       .eq("id", itemId)
       .maybeSingle();
     if (durable.error) throw durable.error;
-    if (durable.data?.analysis_status === "COMPLETED" || durable.data?.result_id) {
+    if (durable.data?.analysis_status === "COMPLETED" && durable.data?.writeback_status === "COMPLETED" && durable.data?.result_id) {
       const warning = normalizeError(error, { stage: "POST_ANALYSIS_WRITEBACK", attemptNumber: Number(claim.data.attempt_count || 0) + 1, durationMs: Date.now() - startedAt });
       const writeback = await admin.from("ai_screening_task_items").update({
         status: "COMPLETED",
