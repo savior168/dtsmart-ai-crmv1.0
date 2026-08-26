@@ -138,9 +138,22 @@ function identitySimilarity(left?: string | null, right?: string | null) {
   return [...a].filter((item) => b.has(item)).length / Math.max(a.size, b.size);
 }
 
+function identityNameSimilarity(left?: string | null, right?: string | null) {
+  const a = new Set(compactIdentity(left).split(/\s+/).filter((item) => item.length > 1));
+  const b = new Set(compactIdentity(right).split(/\s+/).filter((item) => item.length > 1));
+  if (!a.size || !b.size) return 0;
+  const overlap = [...a].filter((item) => b.has(item)).length;
+  return Math.max(overlap / Math.max(a.size, b.size), overlap / Math.min(a.size, b.size));
+}
+
 function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analysis?: CustomerAnalysis | null) {
   const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
-  if (google?.identity_status) return {
+  const website = records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined;
+  // Prefer a fully matched Google entity. If Google is only ambiguous while a
+  // supplied official website was successfully read, evaluate that website
+  // instead of letting the weaker Maps candidate override stronger identity
+  // signals from the exact domain, email and business name.
+  if (google?.identity_status && (Number(google.identity_confidence || 0) >= 90 || !website?.reachable)) return {
     status: google.identity_status as IdentityStatus,
     confidence: Number(google.identity_confidence || 0),
     verifiedBusinessName: google.name || null,
@@ -152,7 +165,6 @@ function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analys
     matchSignals: google.match_signals || [],
     mismatchSignals: google.mismatch_signals || [],
   };
-  const website = records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined;
   if (!website?.reachable) {
     const searched = (analysis?.evidence_summaries || []).filter((item) => /^https?:\/\//i.test(item.source_url));
     const combined = searched.map((item) => `${item.title_zh} ${item.fact_zh}`).join(" ");
@@ -171,7 +183,7 @@ function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analys
     return { status, confidence: score, verifiedBusinessName: status === "MATCHED" ? customer.company_name : null, verifiedAddress: addressScore ? customer.address : null, verifiedWebsite: sourceDomainMatch ? customer.website : null, verifiedGoogleMapsUrl: verifiedMapSource?.source_url || customer.google_url, placeId: null, candidateCount: searched.length, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["公开来源主体匹配信号不足"] };
   }
   const pageText = [website.title, website.description, website.text_excerpt].filter(Boolean).join(" ");
-  const nameScore = Math.round(identitySimilarity(customer.company_name, pageText) * 65);
+  const nameScore = Math.round(identityNameSimilarity(customer.company_name, pageText) * 65);
   const originalPhone = normalizePhone(customer.phone);
   const phoneMatch = Boolean(originalPhone && website.phones.some((item) => normalizePhone(item) === originalPhone));
   const emailDomain = normalizeEmail(customer.email).split("@")[1] || "";
@@ -309,12 +321,27 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; score: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|维修手机|手机维修)/i, industry: "手机维修店", score: 78, target: true },
-  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair)/i, industry: "Apple或MacBook维修店", score: 82, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|电脑维修)/i, industry: "电脑维修店", score: 72, target: true },
-  { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|批发|分销|进口商)/i, industry: "进口商或分销商", score: 90, target: true },
-  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|手机配件)/i, industry: "手机外配件零售", score: 68, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", score: 78, target: true },
+  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|serwis (?:apple|iphone|macbook)|naprawa (?:iphone|macbook))/i, industry: "Apple或MacBook维修店", score: 82, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机服务)/i, industry: "电脑维修店", score: 72, target: true },
+  { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", score: 90, target: true },
+  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", score: 68, target: true },
 ];
+
+function conciseDeterministicFact(candidate: { channel: string; text: string }, industry: CustomerAnalysis["industry_type"]) {
+  if (candidate.channel === "google_maps") {
+    const chineseTypes = candidate.text.split("；").filter((item) => /[\u3400-\u9fff]/.test(item) && item.length <= 24).slice(0, 4);
+    return chineseTypes.length
+      ? `Google商家页公开分类为“${chineseTypes.join("、")}”，可直接确认其经营范围属于“${industry}”相关业务。`
+      : `Google商家页公开分类和经营说明明确显示该企业从事“${industry}”相关业务。`;
+  }
+  const specifics: string[] = [];
+  if (/(?:wymian\w* (?:szyb|wyświetlacz)|screen replacement|换屏|更换屏幕)/i.test(candidate.text)) specifics.push("屏幕或玻璃更换");
+  if (/(?:wymian\w* bater|battery replacement|换电池|电池更换)/i.test(candidate.text)) specifics.push("电池更换");
+  if (/(?:iphone|samsung|xiaomi|huawei|macbook)/i.test(candidate.text)) specifics.push("主流手机或电脑品牌维修");
+  const detail = specifics.length ? `，并明确提到${specifics.join("、")}` : "";
+  return `企业官网页面标题与业务说明明确提供“${industry}”相关服务${detail}。`;
+}
 
 function emptyBreakdown(value: number): CustomerAnalysis["score_breakdown"] {
   return {
@@ -374,7 +401,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     const rule = RULE_INDUSTRIES.find((item) => item.pattern.test(candidate.text));
     if (!rule) continue;
     const sourceName = candidate.channel === "google_maps" ? "Google商家页" : "企业官网";
-    const fact = `${sourceName}公开的商家分类或经营说明明确显示该企业从事“${rule.industry}”相关业务，可直接支持该行业归类。`;
+    const fact = conciseDeterministicFact(candidate, rule.industry);
     const score = rule.score;
     return {
       industry_type: rule.industry,
@@ -451,7 +478,10 @@ async function saveModelCall(input: {
   taskId: string; taskItemId: string; customerId: string; channel: string; attemptNumber: number;
   startedAt: number; usage?: CustomerAnalysis["usage"]; status: "COMPLETED" | "FAILED"; error?: unknown;
 }) {
-  const usage = input.usage || ZERO_USAGE;
+  const errorUsage = input.error && typeof input.error === "object"
+    ? (input.error as { usage?: CustomerAnalysis["usage"] }).usage
+    : undefined;
+  const usage = input.usage || errorUsage || ZERO_USAGE;
   const admin = createAdminClient();
   const normalized = input.status === "FAILED"
     ? normalizeError(input.error, { stage: "MODEL_CALL", channel: input.channel, attemptNumber: input.attemptNumber, durationMs: Date.now() - input.startedAt })

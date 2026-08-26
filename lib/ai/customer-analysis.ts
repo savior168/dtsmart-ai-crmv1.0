@@ -332,6 +332,28 @@ function pricingForModel(model: string) {
   };
 }
 
+function usageFromPayload(model: string, payload: Record<string, unknown>): CustomerAnalysis["usage"] {
+  const usagePayload = (payload.usage && typeof payload.usage === "object" ? payload.usage : {}) as {
+    input_tokens?: number; output_tokens?: number; total_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number };
+  };
+  const inputTokens = Number(usagePayload.input_tokens || 0);
+  const cachedTokens = Number(usagePayload.input_tokens_details?.cached_tokens || 0);
+  const outputTokens = Number(usagePayload.output_tokens || 0);
+  const uncachedInput = Math.max(0, inputTokens - cachedTokens);
+  const pricing = pricingForModel(model);
+  const cost = (uncachedInput * pricing.input + cachedTokens * pricing.cached_input + outputTokens * pricing.output) / 1_000_000;
+  return {
+    model,
+    input_tokens: inputTokens,
+    cached_input_tokens: cachedTokens,
+    output_tokens: outputTokens,
+    total_tokens: Number(usagePayload.total_tokens || inputTokens + outputTokens),
+    cost_usd: Number(cost.toFixed(6)),
+    pricing_snapshot: { currency: "USD", unit: "per_million_tokens", input: pricing.input, cached_input: pricing.cached_input, output: pricing.output, source: pricing.source },
+  };
+}
+
 async function postOpenAiResponses(key: string, body: string, signal: AbortSignal) {
   return fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -354,7 +376,11 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
     response = await postOpenAiResponses(key, JSON.stringify({
         model,
         store: false,
-        max_output_tokens: options.tier === "escalation" ? 850 : options.tier === "deep" ? 700 : 520,
+         // The previous 520-token fast ceiling could truncate an otherwise
+         // valid strict-schema response before its closing brace. Most clear
+         // customers are now handled by the zero-token rule engine; ambiguous
+         // customers get enough room for one complete, auditable JSON result.
+         max_output_tokens: options.tier === "escalation" ? 1300 : options.tier === "deep" ? 1100 : 900,
         reasoning: { effort: options.tier === "escalation" ? "medium" : "low" },
         input: [
           { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
@@ -443,28 +469,26 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
     throw failure;
   }
 
+  const usage = usageFromPayload(model, payload);
   let parsed: Omit<CustomerAnalysis, "usage">;
   try {
     parsed = JSON.parse(responseText(payload)) as Omit<CustomerAnalysis, "usage">;
   } catch {
-    throw new Error("OPENAI_INVALID_JSON");
+    const failure = new Error("OPENAI_INVALID_JSON") as Error & {
+      usage?: CustomerAnalysis["usage"];
+      details?: string;
+    };
+    failure.usage = usage;
+    const responseStatus = typeof payload.status === "string" ? payload.status : "unknown";
+    const incomplete = payload.incomplete_details && typeof payload.incomplete_details === "object"
+      ? JSON.stringify(payload.incomplete_details).slice(0, 500)
+      : "";
+    failure.details = `response_status=${responseStatus}${incomplete ? `; incomplete=${incomplete}` : ""}`;
+    throw failure;
   }
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.ai_score) || 0)));
   const confidence = Math.max(0, Math.min(100, Math.round(Number(parsed.confidence_score) || 0)));
   if (!ANALYSIS_INDUSTRIES.includes(parsed.industry_type)) throw new Error("OPENAI_INVALID_INDUSTRY");
-  const usagePayload = (payload.usage && typeof payload.usage === "object" ? payload.usage : {}) as {
-    input_tokens?: number; output_tokens?: number; total_tokens?: number;
-    input_tokens_details?: { cached_tokens?: number };
-  };
-  const inputTokens = Number(usagePayload.input_tokens || 0);
-  const cachedTokens = Number(usagePayload.input_tokens_details?.cached_tokens || 0);
-  const outputTokens = Number(usagePayload.output_tokens || 0);
-  const uncachedInput = Math.max(0, inputTokens - cachedTokens);
-  const pricing = pricingForModel(model);
-  const inputPrice = pricing.input;
-  const cachedPrice = pricing.cached_input;
-  const outputPrice = pricing.output;
-  const cost = (uncachedInput * inputPrice + cachedTokens * cachedPrice + outputTokens * outputPrice) / 1_000_000;
   const grounded = groundCustomerAnalysis(input, {
     ...parsed,
     ai_score: score,
@@ -474,14 +498,6 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   });
   return {
     ...grounded,
-    usage: {
-      model,
-      input_tokens: inputTokens,
-      cached_input_tokens: cachedTokens,
-      output_tokens: outputTokens,
-      total_tokens: Number(usagePayload.total_tokens || inputTokens + outputTokens),
-      cost_usd: Number(cost.toFixed(6)),
-      pricing_snapshot: { currency: "USD", unit: "per_million_tokens", input: inputPrice, cached_input: cachedPrice, output: outputPrice, source: pricing.source },
-    },
+    usage,
   };
 }

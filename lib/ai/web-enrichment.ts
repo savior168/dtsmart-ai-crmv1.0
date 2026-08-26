@@ -348,10 +348,40 @@ function textSimilarity(left?: string | null, right?: string | null) {
   return [...a].filter((item) => b.has(item)).length / Math.max(a.size, b.size);
 }
 
+function nameSimilarity(left?: string | null, right?: string | null) {
+  const compactLeft = String(left || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const compactRight = String(right || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  if (!compactLeft || !compactRight) return 0;
+  if (compactLeft === compactRight) return 1;
+  const shorterText = compactLeft.length <= compactRight.length ? compactLeft : compactRight;
+  const longerText = compactLeft.length > compactRight.length ? compactLeft : compactRight;
+  if (shorterText.length >= 6 && longerText.includes(shorterText)) return 1;
+  const a = normalizedWords(left); const b = normalizedWords(right);
+  if (!a.size || !b.size) return 0;
+  const overlap = [...a].filter((item) => b.has(item)).length;
+  const jaccardLike = overlap / Math.max(a.size, b.size);
+  // Token containment is useful only for a sufficiently specific (3+ token)
+  // business name. Two generic shared words such as "doctor" and "iphone"
+  // must not make a different nearby business an automatic identity match.
+  return Math.min(a.size, b.size) >= 3 ? Math.max(jaccardLike, overlap / Math.min(a.size, b.size)) : jaccardLike;
+}
+
 function nestedStrings(value: unknown, output: string[] = []): string[] {
   if (typeof value === "string") output.push(value);
   else if (Array.isArray(value)) value.forEach((item) => nestedStrings(item, output));
   return output;
+}
+
+function googleCidLookupUrl(value?: string | null) {
+  if (!value) return null;
+  try {
+    const decoded = decodeURIComponent(value);
+    const matches = [...decoded.matchAll(/!1s0x[0-9a-f]+:(0x[0-9a-f]+)/gi)];
+    const hex = matches.at(-1)?.[1];
+    return hex ? `https://www.google.com/maps?cid=${BigInt(hex).toString()}` : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -383,11 +413,25 @@ async function collectPublicGooglePlaceEvidence(input: {
   try {
     const providedUrl = safePublicUrl(input.google_url);
     const isSpecificPlaceUrl = Boolean(providedUrl && /google\.[^/]+\/maps\/place\//i.test(providedUrl));
-    const searchPage = isSpecificPlaceUrl ? providedUrl! : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    const canonicalSearchPage = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    const cidLookupPage = isSpecificPlaceUrl ? googleCidLookupUrl(providedUrl) : null;
+    const searchPage = cidLookupPage || (isSpecificPlaceUrl ? providedUrl! : canonicalSearchPage);
     const pageResponse = await fetchPublic(searchPage, { signal: request.signal, headers });
     if (!pageResponse.ok) return undefined;
-    const pageHtml = await readTextLimited(pageResponse, 450_000);
-    const endpointMatch = pageHtml.match(/<link\s+href="([^"]*(?:\/search\?tbm=map|\/maps\/preview\/place\?)[^"]+)"/i);
+    let pageHtml = await readTextLimited(pageResponse, 450_000);
+    let endpointMatch = pageHtml.match(/<link\s+href="([^"]*(?:\/search\?tbm=map|\/maps\/preview\/place\?)[^"]+)"/i);
+    let resolvedFromSpecificPlace = Boolean(endpointMatch && cidLookupPage);
+    // A concrete /maps/place/ page often bootstraps its place payload through
+    // JavaScript and no longer exposes the legacy endpoint link in the first
+    // HTML response. Fall back to an exact business-name search instead of
+    // incorrectly treating the supplied place URL as unreadable.
+    if (!endpointMatch && isSpecificPlaceUrl) {
+      const fallbackResponse = await fetchPublic(canonicalSearchPage, { signal: request.signal, headers });
+      if (!fallbackResponse.ok) return undefined;
+      pageHtml = await readTextLimited(fallbackResponse, 450_000);
+      endpointMatch = pageHtml.match(/<link\s+href="([^"]*(?:\/search\?tbm=map|\/maps\/preview\/place\?)[^"]+)"/i);
+      resolvedFromSpecificPlace = false;
+    }
     if (!endpointMatch) return undefined;
     const endpoint = new URL(decodeHtmlAttribute(endpointMatch[1]), "https://www.google.com").toString();
     const dataResponse = await fetchPublic(endpoint, { signal: request.signal, headers });
@@ -411,13 +455,19 @@ async function collectPublicGooglePlaceEvidence(input: {
       const countryCode = String(row[243] || "").toUpperCase();
       const phoneBlock = Array.isArray(row[178]) && Array.isArray(row[178][0]) ? row[178][0] : [];
       const phone = String(phoneBlock[0] || "");
-      const nameScore = Math.round(textSimilarity(input.company_name, name) * 45);
+       const candidateNameSimilarity = nameSimilarity(input.company_name, name);
+       const nameScore = Math.round(candidateNameSimilarity * 45);
       const addressScore = Math.round(textSimilarity(input.address, address) * 35);
       const websiteScore = domain(input.website) && domain(input.website) === domain(website) ? 15 : 0;
       const phoneScore = digits(input.phone).length >= 7 && digits(input.phone) === digits(phone) ? 20 : 0;
       const countryScore = input.country && String(input.country).toUpperCase() === countryCode ? 10 : 0;
-      const exactPlaceUrlScore = isSpecificPlaceUrl && nameScore >= 35 ? 50 : 0;
-      return { row, name, address, website, phone, countryCode, score: Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactPlaceUrlScore) };
+       // An exact/near-exact business name returned as the unique top Google
+       // candidate is a strong identity signal even when imported rows lack an
+       // address. A supplied concrete place URL strengthens it further, while a
+       // mismatched place URL receives no bonus and remains blocked.
+       const exactNameScore = candidateNameSimilarity >= 0.85 ? 45 : 0;
+       const exactPlaceUrlScore = resolvedFromSpecificPlace && candidateNameSimilarity >= 0.55 ? 65 : 0;
+       return { row, name, address, website, phone, countryCode, score: Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactNameScore + exactPlaceUrlScore) };
     }).sort((a, b) => b.score - a.score);
     const top = candidates[0]; const runnerUp = candidates[1];
     const close = Boolean(runnerUp && top.score - runnerUp.score < 10);
@@ -427,7 +477,10 @@ async function collectPublicGooglePlaceEvidence(input: {
     const videoUrls = unique(allStrings.filter((item) => /^https?:\/\//i.test(item) && /(?:youtube\.com|youtu\.be|\.mp4(?:\?|$))/i.test(item))).slice(0, 12);
     const hours = unique(allStrings.filter((item) => /(?:营业|开放|关闭|abierto|cerrado|a\.m\.|p\.m\.)/i.test(item) && item.length < 140)).slice(0, 14);
     const descriptionBlock = Array.isArray(top.row[154]) && Array.isArray(top.row[154][0]) ? top.row[154][0] : [];
-    const verifiedUrl = isSpecificPlaceUrl ? searchPage : typeof top.row[42] === "string" ? top.row[42] : searchPage;
+    // Keep the customer's original concrete Maps URL as the audit entry. The
+    // CID/search endpoints above are implementation details used to read its
+    // public payload and must not replace the user-verifiable source link.
+    const verifiedUrl = isSpecificPlaceUrl ? providedUrl! : typeof top.row[42] === "string" ? top.row[42] : searchPage;
     const matchSignals = [top.score >= 35 ? "商家名称一致" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", textSimilarity(input.address, top.address) >= 0.45 ? "完整地址一致" : "", input.country && String(input.country).toUpperCase() === top.countryCode ? "国家代码一致" : "", domain(input.website) && domain(input.website) === domain(top.website) ? "公开网站一致" : "", digits(input.phone).length >= 7 && digits(input.phone) === digits(top.phone) ? "电话号码一致" : ""].filter(Boolean);
     return {
       configured: false,
