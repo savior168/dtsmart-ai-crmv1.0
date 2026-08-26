@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node scripts/smoke-tests.mjs && node scripts/import-search-regression-tests.mjs && node scripts/ai-evidence-policy-tests.mjs",
+    "test": "node scripts/smoke-tests.mjs && node scripts/import-search-regression-tests.mjs && node scripts/import-dedupe-regression-tests.mjs && node scripts/ai-evidence-policy-tests.mjs",
     "admin:create": "node --env-file-if-exists=.env.local scripts/create-admin.mjs"
   },
   "dependencies": {

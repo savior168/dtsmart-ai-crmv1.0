@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 type Row = {
   company_name?: string;
@@ -8,21 +9,6 @@ type Row = {
   email?: string;
   [key: string]: unknown;
 };
-
-const text = (value: unknown) => String(value || "").trim();
-const nameKey = (value: unknown) => text(value).replace(/\s+/g, " ").toLowerCase();
-const phoneKey = (value: unknown) => text(value).replace(/[\s()\-]/g, "");
-const emailKey = (value: unknown) => text(value).toLowerCase();
-
-function keys(row: Row) {
-  const name = nameKey(row.company_name);
-  const phone = phoneKey(row.phone);
-  const email = emailKey(row.email);
-  return [
-    phone ? `p:${name}|${phone}` : "",
-    email ? `e:${name}|${email}` : "",
-  ].filter(Boolean);
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,29 +20,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success_count: 0, conflict_count: 0 });
     }
 
-    const { data, error } = await admin
-      .from("customers")
-      .select("id,company_name,phone,email,owner_id")
-      .is("deleted_at", null)
-      .limit(10000);
-    if (error) throw error;
+    const data: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = await admin.from("customers")
+        .select("id,company_name,phone,email,website,google_url,owner_id")
+        .order("created_at", { ascending: true })
+        .range(from, from + 999);
+      if (page.error) throw page.error;
+      data.push(...(page.data || []));
+      if ((page.data || []).length < 1000) break;
+    }
 
     const existing = new Map<string, Record<string, unknown>>();
-    (data || []).forEach((row) =>
-      keys(row as Row).forEach((key) => existing.set(key, row)),
+    data.forEach((row) =>
+      customerIndexIdentityKeys(row as Row).forEach((key) => { if (!existing.has(key)) existing.set(key, row); }),
     );
 
-    let conflicts = 0;
+    const conflictIds = new Set<string>();
+    let existingDuplicates = 0;
     rows.forEach((row) => {
-      const match = keys(row)
+      const match = customerLookupIdentityKeys(row)
         .map((key) => existing.get(key))
         .find(Boolean);
-      if (match?.owner_id && match.owner_id !== user.id) conflicts += 1;
+      if (match?.owner_id && match.owner_id !== user.id) conflictIds.add(String(match.id));
+      else if (match) existingDuplicates += 1;
     });
 
     return NextResponse.json({
-      success_count: Math.max(0, rows.length - conflicts),
-      conflict_count: conflicts,
+      success_count: Math.max(0, rows.length - conflictIds.size - existingDuplicates),
+      conflict_count: conflictIds.size,
+      existing_duplicate_count: existingDuplicates,
     });
   } catch (error) {
     return NextResponse.json(

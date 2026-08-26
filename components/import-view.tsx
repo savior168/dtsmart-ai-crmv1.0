@@ -413,7 +413,7 @@ export function ImportView() {
               id: badId++,
               file_name: file.name,
               row_number: index + 2,
-              reason: "名称+电话或名称+邮箱重复，仅保留最先导入的数据",
+              reason: "客户身份重复，仅保留文件中最先出现的数据",
               kind: "duplicate",
               row: item,
             });

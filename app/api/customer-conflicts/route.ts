@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { customerIdentityKeys } from "@/lib/import-dedupe";
+import { customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 type ConflictRow = { id: string; customer_id: string | null; conflict_type: string; status: string; details: Record<string, unknown>; created_at: string };
 
@@ -11,7 +11,7 @@ function dedupeConflicts(rows: ConflictRow[]) {
   return rows.filter((item) => {
     const submitted = item.details?.submitted;
     const identity = submitted && typeof submitted === "object"
-      ? customerIdentityKeys(submitted as { company_name?: unknown; phone?: unknown; email?: unknown })
+      ? customerLookupIdentityKeys(submitted as { company_name?: unknown; phone?: unknown; email?: unknown; website?: unknown; google_url?: unknown })
       : [];
     const customerKey = item.customer_id ? `customer:${item.customer_id}` : "";
     if ((customerKey && seenCustomers.has(customerKey)) || identity.some((key) => seenIdentities.has(key))) return false;

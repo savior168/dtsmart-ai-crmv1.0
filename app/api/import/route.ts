@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { customerIdentityKeys, normalizeIdentityText } from "@/lib/import-dedupe";
+import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -18,7 +18,7 @@ const bounded = (value: unknown, min: number, max: number) => {
   const number = Number(match[0]);
   return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : null;
 };
-function identity(row: Row) { return { name: normalizeIdentityText(row.company_name), keys: customerIdentityKeys(row) }; }
+function identity(row: Row) { return { lookupKeys: customerLookupIdentityKeys(row), indexKeys: customerIndexIdentityKeys(row) }; }
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       if ((page.data || []).length < 1000) break;
     }
     const seen = new Map<string, Record<string, unknown>>();
-    existing.forEach((row) => identity(row as Row).keys.forEach((key) => { if (!seen.has(key)) seen.set(key, row); }));
+    existing.forEach((row) => identity(row as Row).indexKeys.forEach((key) => { if (!seen.has(key)) seen.set(key, row); }));
     const ownerIds = Array.from(new Set(existing.map((row) => text(row.owner_id)).filter(Boolean)));
     const ownerNames = new Map<string, string>();
     if (ownerIds.length) {
@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
       if ("ai_score" in item) item.ai_score = bounded(item.ai_score, 0, 100);
       const current = identity(item);
       try {
-        if (!current.name) throw new Error("客户名称为空");
+        if (!text(item.company_name)) throw new Error("客户名称为空");
         if (![item.phone, item.email, item.website, item.google_url].some((value) => text(value))) throw new Error("缺少电话、邮箱、官网或 Google 地图联系方式");
-        const duplicateOf = current.keys.map((key) => seen.get(key)).find(Boolean);
+        const duplicateOf = current.lookupKeys.map((key) => seen.get(key)).find(Boolean);
         if (duplicateOf) {
           if (!duplicateOf.id) {
             duplicate += 1;
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
           }
           return;
         }
-        current.keys.forEach((key) => seen.set(key, item));
+        current.indexKeys.forEach((key) => seen.set(key, item));
         delete item.import_meta;
         // 兼容旧版 customers 表：AI 筛选状态列由筛选接口按 schema 兼容处理，导入不应因缺少该可选列而整批失败。
         delete item.ai_screening_done;
@@ -126,12 +126,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (conflicts.length) {
-      const { error: conflictError } = await supabase.from("customer_conflicts").insert(conflicts);
+      const conflictIds = Array.from(new Set(conflicts.map((item) => String(item.customer_id))));
+      const prior = await supabase.from("customer_conflicts").select("customer_id").eq("reported_by", user.id).eq("status", "OPEN").in("customer_id", conflictIds);
+      const priorIds = new Set((prior.data || []).map((item) => String(item.customer_id)));
+      const newConflicts = conflicts.filter((item) => !priorIds.has(String(item.customer_id)));
+      const { error: conflictError } = newConflicts.length
+        ? await supabase.from("customer_conflicts").insert(newConflicts)
+        : { error: null };
       // Production databases upgraded from the original schema may not yet
       // have the optional conflict table. Never lose a valid import because
       // of that: retain the same immutable conflict snapshot in audit_logs.
       if (conflictError) {
-        const { error: auditConflictError } = await supabase.from("audit_logs").insert(conflicts.map((item) => ({
+        const { error: auditConflictError } = await supabase.from("audit_logs").insert(newConflicts.map((item) => ({
           user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer",
           target_id: item.customer_id as string, content: item,
         })));

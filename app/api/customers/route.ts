@@ -3,6 +3,7 @@ import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 const writableFields = [
   "company_name",
@@ -37,10 +38,6 @@ const writableFields = [
 function clean(body: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(writableFields.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
 }
-
-const identityName = (value: unknown) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
-const identityPhone = (value: unknown) => String(value || "").replace(/[\s()\-]/g, "");
-const identityEmail = (value: unknown) => String(value || "").trim().toLowerCase();
 
 export async function GET(request: NextRequest) {
   try {
@@ -135,40 +132,46 @@ export async function POST(request: NextRequest) {
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
-    const submittedName = identityName(body.company_name);
-    const submittedPhone = identityPhone(body.phone);
-    const submittedEmail = identityEmail(body.email);
-    if (submittedPhone || submittedEmail) {
-      const { data: possibleMatches, error: matchError } = await admin
-        .from("customers")
-        .select("id,company_name,phone,email,owner_id")
-        .ilike("company_name", String(body.company_name).trim())
-        .limit(100);
-      if (matchError) throw matchError;
-      const duplicate = (possibleMatches || []).find((item) => {
-        if (identityName(item.company_name) !== submittedName) return false;
-        return Boolean((submittedPhone && identityPhone(item.phone) === submittedPhone) || (submittedEmail && identityEmail(item.email) === submittedEmail));
-      });
+    const submittedKeys = customerLookupIdentityKeys(body);
+    if (submittedKeys.length) {
+      const possibleMatches: Record<string, unknown>[] = [];
+      for (let from = 0; ; from += 1000) {
+        const page = await admin.from("customers")
+          .select("id,company_name,phone,email,website,google_url,owner_id,created_at")
+          .order("created_at", { ascending: true })
+          .range(from, from + 999);
+        if (page.error) throw page.error;
+        possibleMatches.push(...(page.data || []));
+        if ((page.data || []).length < 1000) break;
+      }
+      const existingByKey = new Map<string, Record<string, unknown>>();
+      possibleMatches.forEach((item) => customerIndexIdentityKeys(item).forEach((key) => { if (!existingByKey.has(key)) existingByKey.set(key, item); }));
+      const duplicate = submittedKeys.map((key) => existingByKey.get(key)).find(Boolean);
+      const duplicateId = typeof duplicate?.id === "string" ? duplicate.id : null;
+      if (duplicate && !duplicateId) throw new Error("重复客户记录缺少有效ID");
       if (duplicate?.owner_id && duplicate.owner_id !== user.id) {
         const conflict = {
-          customer_id: duplicate.id,
+          customer_id: duplicateId,
           reported_by: user.id,
           conflict_type: "CROSS_OWNER_DUPLICATE",
           status: "OPEN",
-          details: { source: "MANUAL_CREATE", submitted: clean(body), matched_customer_id: duplicate.id },
+          details: { source: "MANUAL_CREATE", submitted: clean(body), matched_customer_id: duplicateId },
         };
-        const { error: conflictError } = await supabase.from("customer_conflicts").insert(conflict);
-        if (conflictError) {
-          const { error: auditError } = await supabase.from("audit_logs").insert({ user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer", target_id: duplicate.id, content: conflict });
+        const prior = await supabase.from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", duplicateId).eq("status", "OPEN").limit(1).maybeSingle();
+        const { error: conflictError } = prior.data
+          ? { error: null }
+          : await supabase.from("customer_conflicts").insert(conflict);
+        if (conflictError && conflictError.code !== "23505") {
+          const { error: auditError } = await supabase.from("audit_logs").insert({ user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer", target_id: duplicateId, content: conflict });
           if (auditError) throw new Error(`冲突客户记录创建失败：${auditError.message}`);
         }
         return NextResponse.json({ conflict: true, status: "CONFLICT", message: "客户已归属其他销售员，已加入冲突客户列表" }, { status: 201 });
       }
       if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
       if (duplicate && !duplicate.owner_id) {
-        const { data: claimed, error: claimError } = await admin.from("customers").update({ owner_id: user.id, status: "CLAIMED" }).eq("id", duplicate.id).is("owner_id", null).select().single();
+        const { data: claimed, error: claimError } = await admin.from("customers").update({ owner_id: user.id, status: "CLAIMED" }).eq("id", duplicateId).is("owner_id", null).select().single();
         if (claimError) throw claimError;
-        await writeAudit(supabase, user.id, "CUSTOMER_AUTO_CLAIM", "customer", duplicate.id, { source: "MANUAL_CREATE" });
+        await writeAudit(supabase, user.id, "CUSTOMER_AUTO_CLAIM", "customer", duplicateId, { source: "MANUAL_CREATE" });
         return NextResponse.json(claimed, { status: 200 });
       }
     }
