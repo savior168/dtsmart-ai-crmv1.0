@@ -20,7 +20,7 @@ import {
   type IdentityStatus,
   type PolicyEvidence,
 } from "./evidence-policy";
-import { buildContactCandidate, reconcileContacts, type ContactCandidate } from "./contact-intelligence";
+import { buildContactCandidate, reconcileContacts, type ContactCandidate, type ContactType } from "./contact-intelligence";
 import { normalizeError } from "./error-normalization";
 
 type CustomerRow = AiMappedCustomer;
@@ -238,12 +238,34 @@ function policyEvidenceFromAnalysis(analysis: CustomerAnalysis): PolicyEvidence[
   });
 }
 
+function splitContacts(value?: string | null) {
+  return String(value || "").split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function contactTypeForUrl(value?: string | null): ContactType {
+  const url = String(value || "").toLowerCase();
+  if (/facebook\.com/.test(url)) return "FACEBOOK";
+  if (/instagram\.com/.test(url)) return "INSTAGRAM";
+  if (/linkedin\.com/.test(url)) return "LINKEDIN";
+  if (/tiktok\.com/.test(url)) return "TIKTOK";
+  if (/wa\.me|whatsapp\.com/.test(url)) return "WHATSAPP";
+  return "OTHER";
+}
+
+function originalValuesForType(customer: CustomerRow, type: ContactType) {
+  if (type === "EMAIL") return splitContacts(customer.email);
+  if (type === "PHONE" || type === "WHATSAPP") return splitContacts(customer.phone);
+  if (type === "FACEBOOK") return splitContacts(customer.facebook_url);
+  if (type === "INSTAGRAM") return splitContacts(customer.instagram_url);
+  if (type === "LINKEDIN") return splitContacts(customer.linkedin_url);
+  if (type === "TIKTOK") return splitContacts(customer.tiktok_url);
+  return customer.other_public_urls || [];
+}
+
 function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
   const candidates: ContactCandidate[] = [];
-  const originalEmails = String(customer.email || "").split(",").map((item) => item.trim()).filter(Boolean);
-  const originalPhones = String(customer.phone || "").split(",").map((item) => item.trim()).filter(Boolean);
-  const add = (type: "EMAIL" | "PHONE" | "WHATSAPP", value: string, channel: string, url: string, title?: string | null) => {
-    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus, originalValues: type === "EMAIL" ? originalEmails : originalPhones });
+  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null) => {
+    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus, originalValues: originalValuesForType(customer, type) });
     if (candidate) candidates.push(candidate);
   };
   for (const record of records) {
@@ -253,17 +275,37 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
       const url = item.verified_google_maps_url || record.source_url || customer.google_url || "";
       if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name);
       for (const email of item.emails || []) add("EMAIL", email, "google_maps", url, item.name);
+      if (item.website) add(contactTypeForUrl(item.website), item.website, "google_maps", url, item.name);
       continue;
     }
     const item = record.evidence as WebsiteEvidence;
-    const pages = [{ url: item.url, title: item.title, emails: item.emails, phones: item.phones, whatsapps: item.whatsapps || [] }, ...(item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [] }))];
+    const pages = [{ url: item.url, title: item.title, emails: item.emails, phones: item.phones, whatsapps: item.whatsapps || [], social_urls: item.social_urls || [] }, ...(item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }))];
     for (const page of pages) {
       for (const email of page.emails || []) add("EMAIL", email, record.channel, page.url, page.title);
       for (const phone of page.phones || []) add("PHONE", phone, record.channel, page.url, page.title);
       for (const whatsapp of page.whatsapps || []) add("WHATSAPP", whatsapp, record.channel, page.url, page.title);
+      for (const socialUrl of page.social_urls || []) add(contactTypeForUrl(socialUrl), socialUrl, record.channel, page.url, page.title);
+    }
+    if (["facebook", "instagram", "linkedin", "tiktok"].includes(record.channel) && record.source_url) {
+      add(contactTypeForUrl(record.source_url), record.source_url, record.channel, record.source_url, item.title);
     }
   }
   return reconcileContacts(candidates);
+}
+
+function reconcileCachedContacts(customer: CustomerRow, contacts?: ContactCandidate[]) {
+  const rebuilt = (contacts || []).map((item) => buildContactCandidate({
+    type: item.type,
+    value: item.valueRaw,
+    country: customer.country,
+    sourceChannel: item.sourceChannel,
+    sourceUrl: item.sourceUrl,
+    sourcePageTitle: item.sourcePageTitle,
+    identityStatus: item.identityStatus,
+    originalValues: originalValuesForType(customer, item.type),
+    capturedAt: item.capturedAt,
+  })).filter((item): item is ContactCandidate => Boolean(item));
+  return reconcileContacts(rebuilt);
 }
 
 function withoutEmpty<T extends Record<string, unknown>>(value: T): T {
@@ -349,13 +391,61 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
   });
 }
 
-const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; score: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", score: 78, target: true },
-  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|serwis (?:apple|iphone|macbook)|naprawa (?:iphone|macbook))/i, industry: "Apple或MacBook维修店", score: 82, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机服务)/i, industry: "电脑维修店", score: 72, target: true },
-  { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", score: 90, target: true },
-  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", score: 68, target: true },
+const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 70, target: true },
+  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|serwis (?:apple|iphone|macbook)|naprawa (?:iphone|macbook))/i, industry: "Apple或MacBook维修店", baseScore: 76, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机服务)/i, industry: "电脑维修店", baseScore: 65, target: true },
+  { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 82, target: true },
+  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 61, target: true },
 ];
+
+function deterministicScore(input: {
+  rule: (typeof RULE_INDUSTRIES)[number];
+  candidate: { channel: string; text: string; confidence: number };
+  customer: CustomerRow;
+  records: ChannelRecord[];
+  google?: GooglePlaceEvidence;
+}) {
+  const matchingSources = input.records.filter((record) => {
+    if (record.status !== "COLLECTED" || !record.evidence) return false;
+    if (record.channel === "google_maps") {
+      const evidence = record.evidence as GooglePlaceEvidence;
+      return input.rule.pattern.test([...(evidence.types || []), evidence.name, evidence.description].filter(Boolean).join(" "));
+    }
+    const evidence = record.evidence as WebsiteEvidence;
+    return input.rule.pattern.test([evidence.title, evidence.description, ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join(" "));
+  }).length;
+  const specificServices = [
+    /(?:screen replacement|wymian\w* (?:szyb|wyświetlacz)|换屏|更换屏幕)/i,
+    /(?:battery replacement|wymian\w* bater|换电池|电池更换)/i,
+    /(?:iphone|samsung|xiaomi|huawei|macbook)/i,
+  ].filter((pattern) => pattern.test(input.candidate.text)).length;
+  const identityBonus = Math.max(0, Math.min(6, Math.round((input.candidate.confidence - 70) / 5)));
+  const sourceBonus = input.candidate.channel === "website" ? 4 : 3;
+  const independentSourceBonus = Math.min(5, Math.max(0, matchingSources - 1) * 3);
+  const contactBonus = Math.min(4, (input.customer.phone ? 2 : 0) + (input.customer.email ? 2 : 0));
+  const serviceBonus = specificServices * 2;
+  const reviewCount = Number(input.google?.user_ratings_total || 0);
+  const activityBonus = reviewCount >= 100 ? 4 : reviewCount >= 20 ? 3 : reviewCount > 0 ? 2 : 0;
+  const score = Math.max(0, Math.min(100, input.rule.baseScore + sourceBonus + identityBonus + independentSourceBonus + contactBonus + serviceBonus + activityBonus));
+  const evidenceCompleteness = Math.min(100, 48 + sourceBonus * 5 + independentSourceBonus * 6 + contactBonus * 4 + activityBonus * 3);
+  return {
+    score,
+    breakdown: {
+      entity_consistency: Math.max(0, Math.min(100, input.candidate.confidence)),
+      company_authenticity: Math.min(100, 65 + sourceBonus * 5 + activityBonus * 4),
+      business_activity: Math.min(100, 55 + activityBonus * 8 + serviceBonus * 3),
+      mobile_parts_match: input.rule.target ? score : Math.min(score, 40),
+      macbook_parts_match: /apple|iphone|macbook/i.test(input.candidate.text) ? Math.min(100, score + 5) : 0,
+      wholesale_import_distribution: /批发|分销|进口|wholesale|distribut|import|hurtownia|b2b/i.test(input.candidate.text) ? score : Math.min(35, score),
+      repair_business_match: /维修|repair|serwis|napraw|reparaci|réparation/i.test(input.candidate.text) ? score : Math.min(45, score),
+      bulk_purchase_potential: input.rule.industry === "进口商或分销商" ? Math.min(95, score) : Math.min(65, Math.max(35, score - 20)),
+      contactability: input.customer.phone && input.customer.email ? 90 : input.customer.phone || input.customer.email ? 70 : 35,
+      evidence_completeness: evidenceCompleteness,
+      contradiction_risk: 0,
+    } satisfies CustomerAnalysis["score_breakdown"],
+  };
+}
 
 function conciseDeterministicFact(candidate: { channel: string; text: string }, industry: CustomerAnalysis["industry_type"]) {
   if (candidate.channel === "google_maps") {
@@ -431,12 +521,13 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     if (!rule) continue;
     const sourceName = candidate.channel === "google_maps" ? "Google商家页" : "企业官网";
     const fact = conciseDeterministicFact(candidate, rule.industry);
-    const score = rule.score;
+    const scored = deterministicScore({ rule, candidate, customer, records, google });
+    const score = scored.score;
     return {
       industry_type: rule.industry,
       is_target_customer: rule.target,
       ai_score: score,
-      ai_level: score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : "D",
+      ai_level: score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D",
       ai_reason: fact,
       business_relevance: `该企业经营内容与手机、电脑维修配件业务相关；直接依据来自${sourceName}。`,
       customer_value: score >= 85 ? "具备较高的批量采购或分销合作潜力，采购规模仍需销售确认。" : "具备维修配件补货需求的可能性，采购频次和规模需销售确认。",
@@ -444,7 +535,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       confidence_score: candidate.confidence,
       evidence_sufficiency: "充分",
       evidence_conflicts: [],
-      score_breakdown: emptyBreakdown(score),
+      score_breakdown: scored.breakdown,
       suggested_contact_order: ["电话", "邮箱", "WhatsApp"],
       evidence_summaries: [{ channel: candidate.channel, title_zh: candidate.title, fact_zh: fact, source_url: candidate.url, evidence_type: "支持", confidence: candidate.confidence }],
       usage: { ...ZERO_USAGE, model: "RULE_ENGINE" },
@@ -617,11 +708,23 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
   }
   const audits = input.contacts
     .filter((item) => {
-      if (!["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus)) return false;
+      if (!["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus)) return false;
       const previous = existingByKey.get(`${item.type}|${item.valueNormalized}|${item.sourceChannel}`);
       return previous !== item.verificationStatus;
     })
-    .map((item) => ({ task_id: input.taskId, customer_id: input.customer.id, result_id: input.resultId, action: item.verificationStatus === "NEW_VERIFIED" ? "DISCOVER_VERIFIED_CONTACT" : "CONTACT_SOURCE_CONFLICT", old_value: item.type === "EMAIL" ? input.customer.email : input.customer.phone, new_value: item.valueRaw, source_url: item.sourceUrl, captured_at: item.capturedAt, analysis_version: ANALYSIS_VERSION }));
+    .map((item) => ({
+      task_id: input.taskId,
+      customer_id: input.customer.id,
+      result_id: input.resultId,
+      action: item.verificationStatus === "MATCHED_ORIGINAL"
+        ? "VERIFY_ORIGINAL_CONTACT_SOURCE"
+        : item.verificationStatus === "NEW_VERIFIED" ? "DISCOVER_VERIFIED_CONTACT" : "CONTACT_SOURCE_CONFLICT",
+      old_value: originalValuesForType(input.customer, item.type).join(", ") || null,
+      new_value: item.valueRaw,
+      source_url: item.sourceUrl,
+      captured_at: item.capturedAt,
+      analysis_version: ANALYSIS_VERSION,
+    }));
   if (input.preferred) {
     audits.push({
       task_id: input.taskId,
@@ -685,6 +788,10 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   const evidenceWrite = await admin.from("ai_screening_evidence").insert(rows).select("id");
   if (evidenceWrite.error || !evidenceWrite.data?.length) throw evidenceWrite.error || new Error("REUSED_EVIDENCE_WRITE_FAILED");
   const discovered = (cache.discovered_contacts && typeof cache.discovered_contacts === "object" ? cache.discovered_contacts : {}) as { website_email?: string; website_phone?: string; whatsapp?: string[]; contacts?: ContactCandidate[] };
+  const cachedContacts = reconcileCachedContacts(customer, discovered.contacts);
+  const verifiedNew = cachedContacts.contacts.filter((item) => item.verificationStatus === "NEW_VERIFIED");
+  const websiteEmail = verifiedNew.filter((item) => item.type === "EMAIL").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
+  const websitePhone = verifiedNew.filter((item) => item.type === "PHONE").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
   const customerWrite = await admin.from("customers").update({
       industry: cachedResult.industry_type || cachedResult.customer_type,
       ai_score: cachedResult.score,
@@ -696,17 +803,17 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
       business_relevance: cachedResult.business_relevance,
       customer_value: cachedResult.customer_value,
       followup_suggestion: cachedResult.followup_suggestion,
-      website_email: discovered.website_email || null,
-      website_phone: discovered.website_phone || null,
+      website_email: websiteEmail || null,
+      website_phone: websitePhone || null,
       ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: now,
       updated_at: now,
   }).eq("id", customer.id);
   if (customerWrite.error) throw customerWrite.error;
-  if (Array.isArray(discovered.contacts) && discovered.contacts.length) {
+  if (cachedContacts.contacts.length) {
     const preferredValue = String(cachedResult.preferred_contact_value || "");
-    const preferred = discovered.contacts.find((item) => item.valueRaw === preferredValue || item.valueNormalized === preferredValue) || null;
-    await optionalWrite("REUSED_CONTACT_WRITEBACK", warnings, () => saveVerifiedContacts({ taskId: input.taskId, resultId: resultWrite.data.id, customer, contacts: discovered.contacts!, preferred }));
+    const preferred = cachedContacts.contacts.find((item) => item.valueRaw === preferredValue || item.valueNormalized === preferredValue) || cachedContacts.preferred || null;
+    await optionalWrite("REUSED_CONTACT_WRITEBACK", warnings, () => saveVerifiedContacts({ taskId: input.taskId, resultId: resultWrite.data.id, customer, contacts: cachedContacts.contacts, preferred }));
   }
   const itemWrite = await admin.from("ai_screening_task_items").update({ status: "COMPLETED", analysis_status: "COMPLETED", writeback_status: "COMPLETED", writeback_warning_count: warnings.length, error_context: warnings.length ? { writeback_warnings: warnings } : {}, automation_status: String(cachedResult.automation_status || "AUTO_HOLD"), retry_at: cachedResult.retry_at || null, progress: 100, current_step: "REUSED_RESULT", cache_reused: true, reuse_source_result_id: cache.source_result_id || null, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_usd: 0, duration_ms: Date.now() - started, completed_at: now, updated_at: now }).eq("id", input.taskItemId);
   if (itemWrite.error) throw itemWrite.error;
@@ -838,7 +945,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       throw new Error("AI_EVIDENCE_GATE_NOT_SATISFIED");
     }
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
-    const verifiedNew = reconciled.contacts.filter((item) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus));
+    // Conflicting official sources remain visible in customer_contacts for
+    // manual verification, but are not written into the customer's usable
+    // system-discovered fields. Only an unambiguous new contact is promoted.
+    const verifiedNew = reconciled.contacts.filter((item) => item.verificationStatus === "NEW_VERIFIED");
     const websiteEmail = verifiedNew.filter((item) => item.type === "EMAIL").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
     const websitePhone = verifiedNew.filter((item) => item.type === "PHONE").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
     const discoveredWhatsapps = reconciled.contacts.filter((item) => item.type === "WHATSAPP").map((item) => item.valueRaw);

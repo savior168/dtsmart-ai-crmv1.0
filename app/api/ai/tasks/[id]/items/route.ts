@@ -29,7 +29,18 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       .order("id", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
-    return NextResponse.json({ data: result.data || [], count: result.count || 0, page, pageSize });
+    const rows = result.data || [];
+    const resultIds = [...new Set(rows.map((row) => String(row.result_id || "")).filter(Boolean))];
+    const analysisResults = resultIds.length
+      ? await admin.from("ai_screening_results").select("id,score,grade,target_decision").in("id", resultIds)
+      : { data: [], error: null };
+    if (analysisResults.error) throw analysisResults.error;
+    const resultById = new Map((analysisResults.data || []).map((row) => [String(row.id), row]));
+    const data = rows.map((row) => ({
+      ...row,
+      result: resultById.get(String(row.result_id || "")) || null,
+    }));
+    return NextResponse.json({ data, count: result.count || 0, page, pageSize });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务客户查询失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

@@ -95,6 +95,15 @@ assert.match(taskActionApi, /status: "PAUSED"[\s\S]*elapsed_ms:/, "停止任务�
 assert.match(taskActionApi, /action === "resume"[\s\S]*start\(aiScreeningWorkflow/, "继续执行必须启动新的持久工作流处理剩余项");
 const taskDetail = read("components/ai-screening/task-detail-view.tsx");
 assert.match(taskDetail, /\["RUNNING", "PAUSING"\][\s\S]*"pause"[\s\S]*QUEUED" \? "cancel"[\s\S]*PAUSED" \? "resume"[\s\S]*FAILED" \|\|[\s\S]*COMPLETED"[\s\S]*"retry"/, "任务详情状态操作必须与任务中心一致");
+assert.match(taskDetail, /AI等级 \/ 评分/, "任务详情处理队列必须显示本任务AI等级与评分");
+assert.match(taskDetail, /block truncate font-medium/, "任务详情超长客户名称必须省略并保留悬停全文");
+assert.doesNotMatch(taskDetail, /查看原因并重试/, "任务详情失败操作必须简化为重试");
+assert.match(taskDetail, /aiErrorMessageZh/, "任务详情失败原因必须转换为中文显示");
+const taskItemsApi = read("app/api/ai/tasks/[id]/items/route.ts");
+assert.match(taskItemsApi, /ai_screening_results[\s\S]*score,grade,target_decision/, "任务详情必须关联本任务分析结果而不是只读客户当前评分");
+const failureView = read("components/ai-screening/failures-view.tsx");
+assert.match(failureView, /flex min-h-9 items-center/, "待重试页面操作入口必须垂直对齐");
+assert.match(failureView, /aiErrorCodeLabel/, "待重试页面错误代码必须使用中文名称");
 const aiUi = read("components/ai-screening/ui.tsx");
 assert.match(aiUi, /finished_at \|\| task\.completed_at \|\| task\.updated_at/, "历史任务缺少elapsed_ms时必须用开始和结束时间计算真实耗时");
 const elapsedBackfill = read("supabase/migrations/202608240001_backfill_ai_task_elapsed.sql");

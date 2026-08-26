@@ -9,7 +9,9 @@ export type AiTask = {
 export type TaskItem = {
   id: string; task_id: string; customer_id: string; status: string; progress: number; current_step: string;
   attempt_count: number; max_attempts: number; error_code?: string | null; error_message?: string | null;
+  pipeline_stage?: string | null; result_id?: string | null; error_context?: Record<string, unknown> | null;
   total_tokens: number; cost_usd: number; updated_at: string;
+  result?: { id: string; score?: number | null; grade?: string | null; target_decision?: string | null } | null;
   customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; ai_score?: number | null; ai_level?: string | null } | null;
 };
 

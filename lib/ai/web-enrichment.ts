@@ -12,8 +12,9 @@ export type WebsiteEvidence = {
   emails: string[];
   phones: string[];
   whatsapps?: string[];
+  social_urls?: string[];
   video_urls?: string[];
-  pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; video_urls?: string[]; emails: string[]; phones: string[]; whatsapps?: string[] }>;
+  pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; video_urls?: string[]; emails: string[]; phones: string[]; whatsapps?: string[]; social_urls?: string[] }>;
   error?: string;
 };
 
@@ -216,6 +217,16 @@ function extractWhatsapps(text: string) {
   return unique([...text.matchAll(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp:\/\/send\?phone=)(\+?\d{7,18})/gi)].map((match) => match[1]));
 }
 
+function extractSocialUrls(html: string, baseUrl: string) {
+  const supported = /(?:facebook\.com|instagram\.com|linkedin\.com|tiktok\.com|wa\.me|api\.whatsapp\.com)/i;
+  return unique([...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => {
+      try { return new URL(decodeHtmlAttribute(match[1]), baseUrl).toString(); } catch { return ""; }
+    })
+    .filter((url) => supported.test(url)))
+    .slice(0, 20);
+}
+
 export async function collectWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
   const normalized = safePublicUrl(url);
   if (!normalized) return undefined;
@@ -260,6 +271,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
       emails: extractEmails(html),
       phones: extractPhones(html),
       whatsapps: extractWhatsapps(html),
+      social_urls: extractSocialUrls(html, normalized),
       video_urls: unique([...html.matchAll(/<(?:video|source|iframe)[^>]+(?:src)=['\"]([^'\"]+)['\"]/gi)].map((match) => match[1])).slice(0, 12),
     };
   } catch (error) {
@@ -315,8 +327,9 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
     emails: unique([...homepage.emails, ...pages.flatMap((page) => page.emails)]),
     phones: unique([...homepage.phones, ...pages.flatMap((page) => page.phones)]),
     whatsapps: unique([...(homepage.whatsapps || []), ...pages.flatMap((page) => page.whatsapps || [])]),
+    social_urls: unique([...(homepage.social_urls || []), ...pages.flatMap((page) => page.social_urls || [])]),
     text_excerpt: [homepage.text_excerpt, ...pages.map((page) => page.text_excerpt)].filter(Boolean).join("\n\n").slice(0, 16_000),
-    pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps })),
+    pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps, social_urls }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps, social_urls })),
   };
 }
 

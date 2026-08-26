@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import { countryInfo } from "../countries";
 import type { IdentityStatus } from "./evidence-policy";
 
-export type ContactType = "PHONE" | "EMAIL" | "WHATSAPP" | "CONTACT_FORM" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "OTHER";
+export type ContactType = "PHONE" | "EMAIL" | "WHATSAPP" | "CONTACT_FORM" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "TIKTOK" | "OTHER";
 export type ContactVerification = "ORIGINAL" | "MATCHED_ORIGINAL" | "NEW_VERIFIED" | "CONFLICTING_VERIFIED" | "UNVERIFIED" | "STALE" | "INVALID";
 
 export type ContactCandidate = {
@@ -24,7 +25,9 @@ const dialCodes: Record<string, string> = {
   DK: "+45", FI: "+358", CH: "+41", AT: "+43", AU: "+61", NZ: "+64", CN: "+86",
   HK: "+852", SG: "+65", MY: "+60", TH: "+66", VN: "+84", PH: "+63", ID: "+62",
   IN: "+91", AE: "+971", SA: "+966", ZA: "+27", MX: "+52", BR: "+55", AR: "+54",
-  CO: "+57", CL: "+56", PE: "+51", EC: "+593",
+  CO: "+57", CL: "+56", PE: "+51", EC: "+593", JP: "+81", KR: "+82",
+  RU: "+7", CZ: "+420", SK: "+421", HU: "+36", RO: "+40", BG: "+359",
+  GR: "+30", TR: "+90", IL: "+972", PK: "+92", BD: "+880", NG: "+234",
 };
 
 function digest(value: string) { return createHash("sha256").update(value).digest("hex"); }
@@ -44,12 +47,42 @@ export function normalizePhoneInternational(value?: string | null, country?: str
   if (digits.length < 7 || digits.length > 15 || /^(\d)\1{6,}$/.test(digits)) return "";
   if (raw.startsWith("+")) return `+${digits}`;
   if (digits.startsWith("00")) return `+${digits.slice(2)}`;
-  const code = dialCodes[String(country || "").trim().toUpperCase()];
+  // Customer country values are stored in mixed forms (PL, Poland, 波兰, PL 波兰).
+  // Resolve all of them to ISO before comparing a discovered public number with
+  // the original number. Otherwise the same Polish number can be mistaken for a
+  // new contact merely because one copy contains "+48" and spaces.
+  const isoCode = countryInfo(country).code || String(country || "").trim().toUpperCase();
+  const code = dialCodes[isoCode];
   if (!code) return digits;
   const countryDigits = code.slice(1);
   if (digits.startsWith(countryDigits)) return `+${digits}`;
   digits = digits.replace(/^0+/, "");
   return digits ? `${code}${digits}` : "";
+}
+
+export function normalizePublicContactUrl(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    parsed.hash = "";
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^(?:utm_|fbclid|gclid|igshid|ref$|ref_src$)/i.test(key)) parsed.searchParams.delete(key);
+    }
+    parsed.hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function normalizeByType(type: ContactType, value: string, country?: string | null) {
+  if (type === "EMAIL") return normalizeEmailStrict(value);
+  if (type === "PHONE" || type === "WHATSAPP") return normalizePhoneInternational(value, country);
+  if (["FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK", "OTHER", "CONTACT_FORM"].includes(type)) return normalizePublicContactUrl(value);
+  return String(value || "").trim();
 }
 
 export function buildContactCandidate(input: {
@@ -63,13 +96,9 @@ export function buildContactCandidate(input: {
   originalValues?: string[];
   capturedAt?: string;
 }): ContactCandidate | null {
-  const normalized = input.type === "EMAIL"
-    ? normalizeEmailStrict(input.value)
-    : input.type === "PHONE" || input.type === "WHATSAPP"
-      ? normalizePhoneInternational(input.value, input.country)
-      : String(input.value || "").trim();
+  const normalized = normalizeByType(input.type, input.value, input.country);
   if (!normalized || !/^https?:\/\//i.test(input.sourceUrl)) return null;
-  const originals = new Set((input.originalValues || []).map((item) => input.type === "EMAIL" ? normalizeEmailStrict(item) : normalizePhoneInternational(item, input.country)).filter(Boolean));
+  const originals = new Set((input.originalValues || []).map((item) => normalizeByType(input.type, item, input.country)).filter(Boolean));
   const official = ["website", "google_maps", "facebook", "instagram", "linkedin"].includes(input.sourceChannel);
   const verificationStatus: ContactVerification = originals.has(normalized)
     ? "MATCHED_ORIGINAL"
