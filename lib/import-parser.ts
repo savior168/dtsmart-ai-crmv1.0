@@ -1,7 +1,5 @@
 export type ImportRow = Record<string, string | number | null>;
 
-type SheetRows = { name: string; rows: string[][] };
-
 function csvRows(text: string) {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -32,117 +30,6 @@ function csvRows(text: string) {
   row.push(cell);
   if (row.some((value) => String(value || "").trim())) rows.push(row);
   return rows;
-}
-
-function u16(view: DataView, offset: number) { return view.getUint16(offset, true); }
-function u32(view: DataView, offset: number) { return view.getUint32(offset, true); }
-
-async function unzip(buffer: ArrayBuffer) {
-  const bytes = new Uint8Array(buffer);
-  const view = new DataView(buffer);
-  let eocd = -1;
-  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
-    if (u32(view, i) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  }
-  if (eocd < 0) throw new Error("无效的 XLSX 文件");
-  const count = u16(view, eocd + 10);
-  const central = u32(view, eocd + 16);
-  let pos = central;
-  const files = new Map<string, string>();
-  for (let n = 0; n < count; n++) {
-    if (u32(view, pos) !== 0x02014b50) break;
-    const method = u16(view, pos + 10);
-    const size = u32(view, pos + 20);
-    const nameLen = u16(view, pos + 28);
-    const extraLen = u16(view, pos + 30);
-    const commentLen = u16(view, pos + 32);
-    const local = u32(view, pos + 42);
-    const name = new TextDecoder().decode(bytes.slice(pos + 46, pos + 46 + nameLen));
-    const localName = u16(view, local + 26);
-    const localExtra = u16(view, local + 28);
-    const start = local + 30 + localName + localExtra;
-    let raw = bytes.slice(start, start + size);
-    if (method === 8) {
-      const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-      raw = new Uint8Array(await new Response(stream).arrayBuffer());
-    }
-    if (method === 0 || method === 8) files.set(name, new TextDecoder().decode(raw));
-    pos += 46 + nameLen + extraLen + commentLen;
-  }
-  return files;
-}
-
-function parseXml(xml: string) {
-  return new DOMParser().parseFromString(xml, "text/xml");
-}
-
-function xmlText(xml: string) {
-  const doc = parseXml(`<root>${xml}</root>`);
-  return Array.from(doc.querySelectorAll("t")).map((node) => node.textContent || "").join("");
-}
-
-function colIndex(ref: string) {
-  let n = 0;
-  for (const c of ref.match(/[A-Z]+/)?.[0] || "") n = n * 26 + c.charCodeAt(0) - 64;
-  return n - 1;
-}
-
-function decodeEntities(value: string) {
-  return value
-    .replace(/&quot;/g, "\"")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#10;/g, "\n")
-    .replace(/\r\n/g, "\n")
-    .trim();
-}
-
-function workbookSheets(files: Map<string, string>) {
-  const workbook = parseXml(files.get("xl/workbook.xml") || "<workbook/>");
-  const rels = parseXml(files.get("xl/_rels/workbook.xml.rels") || "<Relationships/>");
-  const relMap = new Map<string, string>();
-  rels.querySelectorAll("Relationship").forEach((rel) => {
-    const id = rel.getAttribute("Id");
-    const target = rel.getAttribute("Target");
-    if (!id || !target) return;
-    relMap.set(id, target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\.\//, "")}`);
-  });
-  const result: Array<{ name: string; path: string }> = [];
-  workbook.querySelectorAll("sheet").forEach((sheet) => {
-    const name = sheet.getAttribute("name") || "Sheet";
-    const rid = sheet.getAttribute("r:id");
-    const path = rid ? relMap.get(rid) : undefined;
-    if (path && files.has(path)) result.push({ name, path });
-  });
-  if (!result.length) {
-    [...files.keys()].filter((key) => /^xl\/worksheets\/sheet\d+\.xml$/.test(key)).sort().forEach((path, index) => result.push({ name: `Sheet${index + 1}`, path }));
-  }
-  return result;
-}
-
-async function xlsxSheets(buffer: ArrayBuffer): Promise<SheetRows[]> {
-  const files = await unzip(buffer);
-  const sharedDoc = parseXml(files.get("xl/sharedStrings.xml") || "<sst/>");
-  const shared = Array.from(sharedDoc.querySelectorAll("si")).map((node) => Array.from(node.querySelectorAll("t")).map((t) => t.textContent || "").join(""));
-  return workbookSheets(files).map(({ name, path }) => {
-    const doc = parseXml(files.get(path) || "<worksheet/>");
-    const rows = Array.from(doc.querySelectorAll("sheetData > row")).map((row) => {
-      const values: string[] = [];
-      row.querySelectorAll("c").forEach((cell) => {
-        const idx = colIndex(cell.getAttribute("r") || "");
-        const type = cell.getAttribute("t");
-        const raw = cell.querySelector("v")?.textContent || "";
-        const inline = cell.querySelector("is")?.innerHTML || "";
-        values[idx] = decodeEntities(type === "s" ? shared[Number(raw)] || "" : type === "inlineStr" ? xmlText(inline) : raw);
-      });
-      return values;
-    }).filter((row) => row.some((value) => String(value || "").trim()));
-    return { name, rows };
-  });
 }
 
 function rowsToObjects(rows: string[][]) {
@@ -199,10 +86,26 @@ export async function parseImportFile(file: File): Promise<ImportRow[]> {
   const lower = file.name.toLowerCase();
   const rows = lower.endsWith(".csv")
     ? rowsToObjects(csvRows(await file.text()))
-    : (await xlsxSheets(await file.arrayBuffer())).flatMap((sheet) => rowsToObjects(sheet.rows));
+    : await parseExcelWorkbook(await file.arrayBuffer());
   // 跨文件及单文件内的重复行统一在预览层标记，不能在解析阶段静默丢弃，
   // 否则重复数量和具体文件/行号都会不准确。
   return rows;
+}
+
+async function parseExcelWorkbook(buffer: ArrayBuffer): Promise<ImportRow[]> {
+  // SheetJS simultaneously supports the OLE/BIFF structure used by legacy
+  // .xls files and the ZIP/XML structure used by .xlsx. `raw: false` keeps
+  // displayed phone numbers and identifiers instead of coercing them to
+  // scientific notation.
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(buffer, { type: "array", raw: false, cellDates: false });
+  return workbook.SheetNames.flatMap((name) =>
+    XLSX.utils.sheet_to_json<ImportRow>(workbook.Sheets[name], {
+      defval: "",
+      raw: false,
+      blankrows: false,
+    }),
+  );
 }
 
 export function mapImportRow(row: ImportRow) {

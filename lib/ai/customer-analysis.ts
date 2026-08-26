@@ -85,6 +85,7 @@ function responseText(payload: Record<string, unknown>): string {
 }
 
 const systemPrompt = `你是 DTSmart TradeOS 的B2B客户筛选专家。只能依据输入的可核对公开证据判断，不得编造事实。
+证据页面可能使用世界上任何语言或多语言混排。必须按原文语义识别企业名称、行业、产品、服务、营业状态和联系方式，并忠实翻译为简体中文；不得因为语言不是中文或英语就忽略证据，也不得把翻译后的推测写成原文事实。品牌名、企业名、产品型号和网址保持原样。
 我们的业务是一站式手机和电脑维修配件外贸批发，核心产品包括手机/LCD/OLED屏幕、触摸屏总成、iPhone和MacBook屏幕、电池、MacBook键盘及上盖、充电尾插和排线、马达、摄像头、听筒、扬声器、麦克风、内部排线、主板维修配件、维修工具和耗材。
 A级高价值客户优先包括配件进口商、批发商、代理/经销/分销商、为维修门店供货的供应商、多门店维修连锁、具有海关采购记录或专业展会证据且有批量采购能力的企业。B级潜在客户包括稳定经营的手机/iPhone/MacBook/电脑维修店、兼营配件的门店及有持续补货需求的电商卖家。
 个人消费者、纯软件公司、无关企业、只卖整机且无维修配件业务的商家、官方直营店、无配件采购业务的运营商营业厅、永久停业机构和主体无法核实的数据通常不是目标客户。
@@ -380,7 +381,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
          // valid strict-schema response before its closing brace. Most clear
          // customers are now handled by the zero-token rule engine; ambiguous
          // customers get enough room for one complete, auditable JSON result.
-         max_output_tokens: options.tier === "escalation" ? 1800 : options.tier === "deep" ? 1600 : 1400,
+         max_output_tokens: options.tier === "escalation" ? 2400 : options.tier === "deep" ? 2200 : 1800,
         reasoning: { effort: options.tier === "escalation" ? "medium" : "low" },
         input: [
           { role: "system", content: [{ type: "input_text", text: systemPrompt }] },

@@ -3,8 +3,12 @@ import { lookup } from "node:dns/promises";
 export type WebsiteEvidence = {
   url: string;
   reachable: boolean;
+  language?: string;
   title?: string;
   description?: string;
+  structured_types?: string[];
+  structured_names?: string[];
+  structured_descriptions?: string[];
   headings: string[];
   text_excerpt?: string;
   image_alts: string[];
@@ -92,6 +96,27 @@ function firstMatch(html: string, pattern: RegExp) {
 
 function unique(values: string[]) {
   return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+}
+
+function extractStructuredBusinessData(html: string) {
+  const types: string[] = [];
+  const names: string[] = [];
+  const descriptions: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    const record = value as Record<string, unknown>;
+    const rawTypes = Array.isArray(record["@type"]) ? record["@type"] : [record["@type"]];
+    rawTypes.filter((item): item is string => typeof item === "string").forEach((item) => types.push(item));
+    if (typeof record.name === "string") names.push(compactText(record.name));
+    if (typeof record.description === "string") descriptions.push(compactText(record.description));
+    for (const key of ["category", "serviceType", "knowsAbout", "makesOffer", "itemOffered", "department", "hasOfferCatalog", "@graph"]) visit(record[key]);
+  };
+  for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try { visit(JSON.parse(match[1].trim())); } catch { /* malformed third-party JSON-LD is ignored */ }
+  }
+  for (const match of html.matchAll(/itemtype=["'][^"']*schema\.org\/([^"'\s>]+)["']/gi)) types.push(match[1]);
+  return { types: unique(types).slice(0, 24), names: unique(names).slice(0, 12), descriptions: unique(descriptions).slice(0, 12) };
 }
 
 function extractEmails(text: string) {
@@ -249,6 +274,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
       return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: `HTTP ${response.status}` };
     }
     const html = await readTextLimited(response);
+    const structured = extractStructuredBusinessData(html);
     const visibleText = compactText(html).slice(0, 6000);
     if (/(?:log in|sign in|登录后继续|cookie settings|accept all cookies)/i.test(`${firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i) || ""} ${visibleText}`)
         && /(?:facebook|instagram|linkedin|tiktok)\.com/i.test(parsedUrl.hostname)) {
@@ -261,9 +287,15 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
     return {
       url: normalized,
       reachable: true,
+      language: firstMatch(html, /<html[^>]+lang=["']([^"']+)["']/i)
+        || response.headers.get("content-language")?.split(",")[0]?.trim()
+        || undefined,
       title: firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
       description: firstMatch(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i)
         || firstMatch(html, /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["'][^>]*>/i),
+      structured_types: structured.types,
+      structured_names: structured.names,
+      structured_descriptions: structured.descriptions,
       headings: matches(html, /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi, 16),
       text_excerpt: visibleText.slice(0, 5000),
       image_alts: matches(html, /<img[^>]+alt=["']([^"']+)["'][^>]*>/gi, 16),
@@ -300,11 +332,30 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
     });
     if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
     const html = await readTextLimited(response);
-    const keywords = /about|company|service|product|contact|support|team|portfolio|solution|业务|关于|服务|产品|联系/i;
+    // Known words give a strong ranking signal, but they are deliberately not
+    // the only route to discovery. A website can use any language, omit html
+    // lang, or use localized slugs. In that case we still inspect a small set
+    // of shallow same-origin navigation pages and let the multilingual model
+    // interpret their original text. This keeps coverage global without
+    // crawling an entire site or inflating token cost.
+    const keywords = /about|company|service|product|contact|support|team|portfolio|solution|repair|shop|store|business|o nas|kontakt|usług|serwis|napraw|produkt|empresa|nosotros|contacto|servicio|reparaci|producto|à propos|contact|service|répar|produit|azienda|chi siamo|contatt|servizi|ripar|prodott|empresa|sobre|contato|serviç|repara|produto|über uns|kontakt|dienst|reparatur|produkt|о нас|контакт|услуг|ремонт|продукт|会社|私たち|連絡|サービス|修理|製品|公司|关于|服务|维修|产品|联系|會社|關於|服務|維修|產品|聯絡/i;
+    const excluded = /privacy|policy|terms|legal|cookie|login|sign[ -]?in|register|account|cart|checkout|wishlist|blog|news|press|career|vacan|polityka|regulamin|privacidad|mentions-l[eé]gales|impressum|隐私|条款|登录|注册|购物车/i;
     const links = [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
-      .map((match) => ({ url: sameWebsiteUrl(url, match[1]), text: compactText(match[2]) }))
-      .filter((item): item is { url: string; text: string } => Boolean(item.url) && keywords.test(`${item.url} ${item.text}`));
-    return [...new Set(links.map((item) => item.url).filter((item) => item !== url))].slice(0, 4);
+      .map((match, index) => ({ url: sameWebsiteUrl(url, match[1]), text: compactText(match[2]), index }))
+      .filter((item): item is { url: string; text: string; index: number } => Boolean(item.url) && item.url !== url)
+      .filter((item) => !excluded.test(`${item.url} ${item.text}`))
+      .map((item) => {
+        const candidate = new URL(item.url);
+        const depth = candidate.pathname.split("/").filter(Boolean).length;
+        const label = `${candidate.pathname} ${item.text}`;
+        const score = (keywords.test(label) ? 100 : 0)
+          + (depth <= 1 ? 18 : depth === 2 ? 8 : 0)
+          + (item.text.length >= 2 && item.text.length <= 40 ? 5 : 0)
+          - Math.min(12, item.index / 12);
+        return { ...item, score };
+      })
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+    return [...new Set(links.map((item) => item.url))].slice(0, 4);
   } catch {
     return [];
   } finally {
@@ -320,6 +371,9 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
   const pages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 3500, 3500) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
   return {
     ...homepage,
+    structured_types: unique([...(homepage.structured_types || []), ...pages.flatMap((page) => page.structured_types || [])]).slice(0, 40),
+    structured_names: unique([...(homepage.structured_names || []), ...pages.flatMap((page) => page.structured_names || [])]).slice(0, 24),
+    structured_descriptions: unique([...(homepage.structured_descriptions || []), ...pages.flatMap((page) => page.structured_descriptions || [])]).slice(0, 24),
     headings: unique([...homepage.headings, ...pages.flatMap((page) => page.headings)]).slice(0, 40),
     image_alts: unique([...homepage.image_alts, ...pages.flatMap((page) => page.image_alts)]).slice(0, 40),
     image_urls: unique([...homepage.image_urls, ...pages.flatMap((page) => page.image_urls)]).slice(0, 30),
@@ -415,7 +469,7 @@ async function collectPublicGooglePlaceEvidence(input: {
   // When a customer link opens a broad Maps result list, search the full
   // address first. It is a better locator than appending several loose terms
   // and avoids selecting a similarly named nearby business.
-  const query = locationText || [input.company_name, input.country].filter(Boolean).join(", ");
+  const query = [input.company_name, locationText, input.country].filter(Boolean).join(", ");
   if (!query) return undefined;
   const request = requestSignal(options, 9_000);
   const headers = {

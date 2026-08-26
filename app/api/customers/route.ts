@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { countrySearchTokens } from "@/lib/countries";
+import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const writableFields = [
@@ -51,7 +52,6 @@ export async function GET(request: NextRequest) {
     const status = request.nextUrl.searchParams.get("status");
     const followupStatus = request.nextUrl.searchParams.get("followup_status");
     const target = request.nextUrl.searchParams.get("target");
-    const deleted = request.nextUrl.searchParams.get("deleted") === "true";
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
     const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
@@ -77,16 +77,17 @@ export async function GET(request: NextRequest) {
     // Authorization is enforced by Supabase RLS. Do not narrow the result
     // again by creator/owner: doing so hides records that an administrator,
     // manager, or sales user is already permitted to see.
-    query = deleted ? query.not("deleted_at", "is", null) : query.is("deleted_at", null);
+    query = query.is("deleted_at", null);
     // 客户列表只展示当前用户仍持有且尚未释放的客户；历史释放/到期客户
     // 由保护到期页统一展示，避免跨销售数据混入日常工作列表。
-    if (!deleted) {
-      const activeCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
-      query = query.eq("owner_id", user.id).neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
-    }
+    const activeCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+    query = query.eq("owner_id", user.id).neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
-    if (search) query = query.or(`company_name.ilike.%${search}%,contact_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+    if (search) {
+      const pattern = postgrestContains(search);
+      query = query.or(`company_name.ilike.${pattern},contact_name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`);
+    }
     if (status === "CLAIMED") query = query.in("status", ["CLAIMED", "FOLLOWING"]);
     else if (status) query = query.eq("status", status);
     // Treat legacy null/empty values as the default first-contact state so
@@ -142,7 +143,6 @@ export async function POST(request: NextRequest) {
         .from("customers")
         .select("id,company_name,phone,email,owner_id")
         .ilike("company_name", String(body.company_name).trim())
-        .is("deleted_at", null)
         .limit(100);
       if (matchError) throw matchError;
       const duplicate = (possibleMatches || []).find((item) => {

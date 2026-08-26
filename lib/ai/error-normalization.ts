@@ -54,6 +54,7 @@ function retryableFor(code: string, status: number | null, message: string) {
   if (/credit_balance_exhausted|insufficient_quota|billing_hard_limit|quota_exceeded/i.test(`${code} ${message}`)) return false;
   if ([408, 409, 425, 429, 500, 502, 503, 504].includes(status || 0)) return true;
   if (/timeout|timed out|network|fetch failed|connection|rate.?limit|temporar|schema cache/i.test(`${code} ${message}`)) return true;
+  if (/OPENAI_INVALID_JSON|OPENAI_EMPTY_RESPONSE|incomplete/i.test(`${code} ${message}`)) return true;
   if (/401|403|invalid.*key|not configured|permission denied|row-level security/i.test(`${code} ${message}`)) return false;
   return false;
 }

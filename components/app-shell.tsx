@@ -293,10 +293,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     setMobileOpen(false);
     setPageTitleOverride("");
     setProfileOpen(false);
-    if (path !== "/login" && path !== "/reset-password") {
-      setProfile({ name: "当前用户", email: "", avatar_url: "" });
-      void loadProfile();
-    }
   }, [path]);
   useEffect(() => {
     const updateTitle = (event: Event) => setPageTitleOverride(String((event as CustomEvent<string>).detail || ""));

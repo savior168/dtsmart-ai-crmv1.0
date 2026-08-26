@@ -33,7 +33,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.25.1";
+const ANALYSIS_VERSION = "2026.08.26.1";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -221,7 +221,7 @@ function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analys
   // The exact domain of a non-personal company mailbox is a strong identity
   // signal for imported branch records whose display name may only be a mall or
   // district name. It verifies the company, but still does not prove industry.
-  const score = Math.min(100, nameScore + (providedDomainMatch ? 30 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 50 : 0) + (addressMatch ? 20 : 0));
+  const score = Math.min(100, Math.max(providedDomainMatch ? 75 : 0, nameScore + (providedDomainMatch ? 30 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 50 : 0) + (addressMatch ? 20 : 0)));
   const signals = [nameScore >= 45 ? "官网名称与客户名称一致" : "", providedDomainMatch ? "读取域名与客户官网一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
   const status: IdentityStatus = score >= 90 ? "MATCHED" : score >= 70 ? "LIKELY_MATCHED" : "AMBIGUOUS";
   return { status, confidence: score, verifiedBusinessName: website.title || customer.company_name, verifiedAddress: addressMatch ? customer.address : null, verifiedWebsite: website.url, verifiedGoogleMapsUrl: customer.google_url, placeId: null, candidateCount: 0, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["官网主体匹配信号不足"] };
@@ -322,8 +322,12 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
   const compactWebsite = (item: WebsiteEvidence): WebsiteEvidence => withoutEmpty({
     url: item.url,
     reachable: item.reachable,
+    language: item.language,
     title: item.title,
     description: item.description?.slice(0, deep ? 360 : 240),
+    structured_types: (item.structured_types || []).slice(0, 12),
+    structured_names: (item.structured_names || []).slice(0, 6),
+    structured_descriptions: (item.structured_descriptions || []).map((value) => value.slice(0, 240)).slice(0, deep ? 6 : 3),
     headings: (item.headings || []).slice(0, deep ? 6 : 4),
     text_excerpt: item.text_excerpt?.slice(0, deep ? 900 : 520),
     image_alts: (item.image_alts || []).filter(Boolean).slice(0, deep ? 5 : 3),
@@ -393,7 +397,7 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
   { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 70, target: true },
-  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|serwis (?:apple|iphone|macbook)|naprawa (?:iphone|macbook))/i, industry: "Apple或MacBook维修店", baseScore: 76, target: true },
+  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 76, target: true },
   { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机服务)/i, industry: "电脑维修店", baseScore: 65, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 82, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 61, target: true },
@@ -512,7 +516,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       channel: "website",
       url: website.url,
       title: "企业官网业务说明",
-      text: [website.title, website.description, ...(website.headings || []), website.text_excerpt].filter(Boolean).join("；").slice(0, 6000),
+      text: [website.title, website.description, ...(website.structured_types || []), ...(website.structured_names || []), ...(website.structured_descriptions || []), ...(website.headings || []), website.text_excerpt].filter(Boolean).join("；").slice(0, 6000),
       confidence: 92,
     });
   }

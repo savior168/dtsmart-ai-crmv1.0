@@ -49,7 +49,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.25\.1/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.08\.26\.1/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
@@ -154,6 +154,7 @@ assert.match(permanentDelete, /offset \+= 200/, "批量永久删除必须分批�
 assert.match(permanentDelete, /customer\.owner_id === userId/, "销售只能永久删除当前归属自己的客户");
 assert.match(permanentDelete, /\.from\("customers"\)[\s\S]*?\.delete\(\)/, "客户删除必须从数据库物理删除");
 assert.match(permanentDelete, /\["QUOTE", "DEAL"\]/, "报价中和成交客户必须禁止删除");
+assert.equal(existsSync(resolve(root, "app/api/customers/[id]/restore/route.ts")), false, "永久删除模式不得保留客户恢复接口");
 
 const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");

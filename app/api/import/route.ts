@@ -37,8 +37,7 @@ export async function POST(request: NextRequest) {
     const existing: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id,created_at")
-        .is("deleted_at", null)
+        .select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id,created_at,deleted_at")
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
