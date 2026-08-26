@@ -68,5 +68,6 @@ test("52 官网联系方式保存不依赖可选唯一约束",()=>{const runnerS
 test("53 结构化输出上限足以容纳完整严格JSON",()=>{const analysis=source("lib/ai/customer-analysis.ts");assert.match(analysis,/\? 1800 : options\.tier === "deep" \? 1600 : 1400/);});
 test("49 具体Google商家页缺少旧端点时回退精确名称搜索",()=>{const s=source("lib/ai/web-enrichment.ts");assert.match(s,/if \(!endpointMatch && isSpecificPlaceUrl\)/);assert.match(s,/canonicalSearchPage/);assert.match(s,/exactPlaceUrlScore/);});
 test("50 模型JSON失败仍保留真实用量诊断",()=>{const analysis=source("lib/ai/customer-analysis.ts");const runnerSource=source("lib/ai/run-customer-analysis.ts");assert.match(analysis,/failure\.usage = usage/);assert.match(analysis,/max_output_tokens:[\s\S]*1400/);assert.match(runnerSource,/errorUsage/);});
+test("54 成功任务写回空错误上下文而不是NULL",()=>{const runnerSource=source("lib/ai/run-customer-analysis.ts");assert.match(runnerSource,/error_context: writebackWarnings\.length \? \{ writeback_warnings: writebackWarnings \} : \{\}/);});
 
 console.log(`AI证据、成本与写回规则测试通过：${passed}/${passed}`);

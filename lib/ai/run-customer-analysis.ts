@@ -1048,7 +1048,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       analysis_status: "COMPLETED",
       writeback_status: "COMPLETED",
       writeback_warning_count: writebackWarnings.length,
-      error_context: writebackWarnings.length ? { writeback_warnings: writebackWarnings } : null,
+      // Production keeps this JSONB column NOT NULL. An empty successful run
+      // must therefore persist an empty object instead of null; otherwise a
+      // fully analyzed customer is incorrectly reported as FAILED here.
+      error_context: writebackWarnings.length ? { writeback_warnings: writebackWarnings } : {},
       current_step: "COMPLETED",
       pipeline_stage: "COMPLETED",
       duration_ms: Date.now() - started,
