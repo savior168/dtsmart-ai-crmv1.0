@@ -458,7 +458,11 @@ async function collectPublicGooglePlaceEvidence(input: {
        const candidateNameSimilarity = nameSimilarity(input.company_name, name);
        const nameScore = Math.round(candidateNameSimilarity * 45);
       const addressScore = Math.round(textSimilarity(input.address, address) * 35);
-      const websiteScore = domain(input.website) && domain(input.website) === domain(website) ? 15 : 0;
+      // A candidate exposing the exact customer-supplied official domain is a
+      // much stronger identity signal than a loose name overlap. This is still
+      // identity evidence only; the page content/types must separately prove
+      // the industry.
+      const websiteScore = domain(input.website) && domain(input.website) === domain(website) ? 55 : 0;
       const phoneScore = digits(input.phone).length >= 7 && digits(input.phone) === digits(phone) ? 20 : 0;
       const countryScore = input.country && String(input.country).toUpperCase() === countryCode ? 10 : 0;
        // An exact/near-exact business name returned as the unique top Google
@@ -577,7 +581,7 @@ export async function collectGooglePlaceEvidence(input: {
       if (addressScore >= 18) matchSignals.push("地址信息一致"); else if (input.address) mismatchSignals.push("地址信息不足或不一致");
       const countryScore = input.country && normalize(item.formatted_address).includes(normalize(input.country)) ? 10 : 0;
       if (countryScore) matchSignals.push("国家或地区一致");
-      const websiteScore = domain(input.website) && domain(input.website) === domain(item.website) ? 15 : 0;
+      const websiteScore = domain(input.website) && domain(input.website) === domain(item.website) ? 55 : 0;
       if (websiteScore) matchSignals.push("官网域名一致"); else if (input.website && item.website) mismatchSignals.push("官网域名不一致");
       const phoneScore = phone(input.phone).length >= 7 && phone(input.phone) === phone(item.formatted_phone_number) ? 20 : 0;
       if (phoneScore) matchSignals.push("电话号码一致"); else if (input.phone && item.formatted_phone_number) mismatchSignals.push("电话号码不一致");

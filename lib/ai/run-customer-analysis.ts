@@ -127,6 +127,31 @@ function normalizePhone(value?: string | null) {
   return String(value || "").replace(/[\s\-()]/g, "");
 }
 
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com",
+  "icloud.com", "me.com", "yahoo.com", "yahoo.co.uk", "proton.me",
+  "protonmail.com", "aol.com", "qq.com", "163.com", "126.com", "wp.pl",
+  "onet.pl", "o2.pl", "interia.pl",
+]);
+
+function emailBusinessDomain(value?: string | null) {
+  const domain = normalizeEmail(value).split("@").at(-1) || "";
+  if (!domain || PERSONAL_EMAIL_DOMAINS.has(domain) || domain.split(".").length < 2) return "";
+  return domain;
+}
+
+/**
+ * A company-domain mailbox is a strong public locator. Imported branch rows
+ * frequently contain the official mailbox but omit the website column. Use the
+ * domain only to retrieve public evidence; it is never itself treated as proof
+ * of an industry or target-customer decision.
+ */
+function effectiveWebsite(customer: CustomerRow) {
+  if (customer.website) return customer.website;
+  const domain = emailBusinessDomain(customer.email);
+  return domain ? `https://${domain}` : null;
+}
+
 function compactIdentity(value?: string | null) {
   return String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
@@ -188,11 +213,15 @@ function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analys
   const phoneMatch = Boolean(originalPhone && website.phones.some((item) => normalizePhone(item) === originalPhone));
   const emailDomain = normalizeEmail(customer.email).split("@")[1] || "";
   let websiteDomain = ""; try { websiteDomain = new URL(website.url).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
-  let inputWebsiteDomain = ""; try { inputWebsiteDomain = new URL(/^https?:\/\//i.test(String(customer.website || "")) ? String(customer.website) : `https://${customer.website}`).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
+  const customerWebsite = effectiveWebsite(customer);
+  let inputWebsiteDomain = ""; try { inputWebsiteDomain = new URL(/^https?:\/\//i.test(String(customerWebsite || "")) ? String(customerWebsite) : `https://${customerWebsite}`).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
   const providedDomainMatch = Boolean(inputWebsiteDomain && websiteDomain && inputWebsiteDomain === websiteDomain);
   const emailMatch = Boolean(emailDomain && websiteDomain && (emailDomain === websiteDomain || emailDomain.endsWith(`.${websiteDomain}`)));
   const addressMatch = Boolean(customer.address && compactIdentity(pageText).includes(compactIdentity(customer.address).slice(0, 24)));
-  const score = Math.min(100, nameScore + (providedDomainMatch ? 25 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 20 : 0) + (addressMatch ? 20 : 0));
+  // The exact domain of a non-personal company mailbox is a strong identity
+  // signal for imported branch records whose display name may only be a mall or
+  // district name. It verifies the company, but still does not prove industry.
+  const score = Math.min(100, nameScore + (providedDomainMatch ? 30 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 50 : 0) + (addressMatch ? 20 : 0));
   const signals = [nameScore >= 45 ? "官网名称与客户名称一致" : "", providedDomainMatch ? "读取域名与客户官网一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
   const status: IdentityStatus = score >= 90 ? "MATCHED" : score >= 70 ? "LIKELY_MATCHED" : "AMBIGUOUS";
   return { status, confidence: score, verifiedBusinessName: website.title || customer.company_name, verifiedAddress: addressMatch ? customer.address : null, verifiedWebsite: website.url, verifiedGoogleMapsUrl: customer.google_url, placeId: null, candidateCount: 0, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["官网主体匹配信号不足"] };
@@ -425,7 +454,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
 }
 
 function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
-  if (channel === "website") return customer.website;
+  if (channel === "website") return effectiveWebsite(customer);
   if (channel === "google_maps") return customer.google_url;
   if (channel === "linkedin") return customer.linkedin_url || null;
   if (channel === "facebook") return customer.facebook_url || null;
@@ -442,7 +471,7 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: customer.website }, { signal, timeoutMs: 12_000 })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer) }, { signal, timeoutMs: 12_000 })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
@@ -557,7 +586,7 @@ async function analyzeWithRecovery(input: {
 async function saveVerifiedContacts(input: { taskId: string; resultId: string; customer: CustomerRow; contacts: ContactCandidate[]; preferred?: ContactCandidate | null }) {
   const admin = createAdminClient();
   const existing = await admin.from("customer_contacts")
-    .select("type,value_normalized,source,verification_status")
+    .select("id,type,value_normalized,source,verification_status")
     .eq("customer_id", input.customer.id);
   if (existing.error) throw existing.error;
   const existingByKey = new Map((existing.data || []).map((item) => [
@@ -574,8 +603,18 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
     content_hash: item.contentHash, updated_at: new Date().toISOString(),
   }));
   if (!rows.length) return;
-  const write = await admin.from("customer_contacts").upsert(rows, { onConflict: "customer_id,type,value_normalized,source" });
-  if (write.error) throw write.error;
+  // Some production projects were initialized before the optional normalized
+  // contact unique index existed. Do not let contact persistence depend on that
+  // migration: update an existing logical key or insert it when absent.
+  const existingRows = existing.data || [];
+  for (const row of rows) {
+    const match = existingRows.find((item) => item.type === row.type
+      && item.value_normalized === row.value_normalized && item.source === row.source);
+    const write = match
+      ? await admin.from("customer_contacts").update(row).eq("id", match.id)
+      : await admin.from("customer_contacts").insert(row);
+    if (write.error) throw write.error;
+  }
   const audits = input.contacts
     .filter((item) => {
       if (!["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus)) return false;
@@ -768,7 +807,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       const callStarted = Date.now();
       try {
         const escalated = await analyzeCustomer({
-          customer_name: customer.company_name, country: customer.country, website: customer.website,
+          customer_name: customer.company_name, country: customer.country, website: effectiveWebsite(customer),
           google_url: customer.google_url, address: customer.address,
           industry_keywords: null,
           evidence: evidenceForModel(records, "escalation"),

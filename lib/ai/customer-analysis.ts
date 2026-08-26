@@ -380,7 +380,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
          // valid strict-schema response before its closing brace. Most clear
          // customers are now handled by the zero-token rule engine; ambiguous
          // customers get enough room for one complete, auditable JSON result.
-         max_output_tokens: options.tier === "escalation" ? 1300 : options.tier === "deep" ? 1100 : 900,
+         max_output_tokens: options.tier === "escalation" ? 1800 : options.tier === "deep" ? 1600 : 1400,
         reasoning: { effort: options.tier === "escalation" ? "medium" : "low" },
         input: [
           { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
