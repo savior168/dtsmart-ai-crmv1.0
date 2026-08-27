@@ -20,7 +20,14 @@ import {
   type IdentityStatus,
   type PolicyEvidence,
 } from "./evidence-policy";
-import { buildContactCandidate, reconcileContacts, type ContactCandidate, type ContactType } from "./contact-intelligence";
+import {
+  buildContactCandidate,
+  normalizeEmailStrict,
+  normalizePhoneInternational,
+  reconcileContacts,
+  type ContactCandidate,
+  type ContactType,
+} from "./contact-intelligence";
 import { normalizeError } from "./error-normalization";
 
 type CustomerRow = AiMappedCustomer;
@@ -33,7 +40,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.26.1";
+const ANALYSIS_VERSION = "2026.08.27.1";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -171,24 +178,33 @@ function identityNameSimilarity(left?: string | null, right?: string | null) {
   return Math.max(overlap / Math.max(a.size, b.size), overlap / Math.min(a.size, b.size));
 }
 
-function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analysis?: CustomerAnalysis | null) {
+export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analysis?: CustomerAnalysis | null) {
   const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
   const website = records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined;
   // Prefer a fully matched Google entity. If Google is only ambiguous while a
   // supplied official website was successfully read, evaluate that website
   // instead of letting the weaker Maps candidate override stronger identity
   // signals from the exact domain, email and business name.
-  if (google?.identity_status && (Number(google.identity_confidence || 0) >= 90 || !website?.reachable)) return {
-    status: google.identity_status as IdentityStatus,
-    confidence: Number(google.identity_confidence || 0),
-    verifiedBusinessName: google.name || null,
-    verifiedAddress: google.formatted_address || null,
-    verifiedWebsite: google.website || null,
-    verifiedGoogleMapsUrl: google.verified_google_maps_url || customer.google_url,
-    placeId: google.place_id || null,
-    candidateCount: Number(google.candidate_count || 0),
-    matchSignals: google.match_signals || [],
-    mismatchSignals: google.mismatch_signals || [],
+  const googleConfidence = Number(google?.identity_confidence || 0);
+  const googleMatchSignals = google?.match_signals || [];
+  const googleMismatchSignals = google?.mismatch_signals || [];
+  const exactGoogleSignals = googleMatchSignals.filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口/.test(signal)).length;
+  const normalizedGoogleStatus: IdentityStatus | null = google?.identity_status
+    ? (google.identity_status === "AMBIGUOUS" && googleConfidence >= 90 && exactGoogleSignals >= 2 && googleMismatchSignals.length === 0
+      ? "MATCHED"
+      : google.identity_status as IdentityStatus)
+    : null;
+  if (normalizedGoogleStatus && (googleConfidence >= 90 || !website?.reachable)) return {
+    status: normalizedGoogleStatus,
+    confidence: googleConfidence,
+    verifiedBusinessName: google?.name || null,
+    verifiedAddress: google?.formatted_address || null,
+    verifiedWebsite: google?.website || null,
+    verifiedGoogleMapsUrl: google?.verified_google_maps_url || customer.google_url,
+    placeId: google?.place_id || null,
+    candidateCount: Number(google?.candidate_count || 0),
+    matchSignals: googleMatchSignals,
+    mismatchSignals: googleMismatchSignals,
   };
   if (!website?.reachable) {
     const searched = (analysis?.evidence_summaries || []).filter((item) => /^https?:\/\//i.test(item.source_url));
@@ -308,6 +324,28 @@ function reconcileCachedContacts(customer: CustomerRow, contacts?: ContactCandid
   return reconcileContacts(rebuilt);
 }
 
+function mergedVerifiedContactValues(customer: CustomerRow, contacts: ContactCandidate[], type: "EMAIL" | "PHONE") {
+  const existing = splitContacts(type === "EMAIL" ? customer.website_email : customer.website_phone);
+  const normalized = (value: string) => type === "EMAIL"
+    ? normalizeEmailStrict(value)
+    : normalizePhoneInternational(value, customer.country);
+  const unique = new Map<string, string>();
+  for (const raw of existing) {
+    const key = normalized(raw);
+    if (key && !unique.has(key)) unique.set(key, raw);
+  }
+  for (const contact of contacts) {
+    if (contact.type !== type || contact.verificationStatus !== "NEW_VERIFIED") continue;
+    if (!unique.has(contact.valueNormalized)) unique.set(contact.valueNormalized, contact.valueRaw);
+  }
+  return [...unique.values()].join(", ");
+}
+
+function firstVerifiedContact(contacts: ContactCandidate[], type: ContactType) {
+  return contacts.find((item) => item.type === type
+    && ["NEW_VERIFIED", "MATCHED_ORIGINAL"].includes(item.verificationStatus))?.valueRaw || null;
+}
+
 function withoutEmpty<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => {
     if (item === null || item === undefined || item === "") return false;
@@ -396,12 +434,23 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 70, target: true },
-  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 76, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机服务)/i, industry: "电脑维修店", baseScore: 65, target: true },
-  { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 82, target: true },
-  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 61, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
+  { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
+  { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
+  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
+  { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|软件开发|软件公司|IT咨询|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
+  { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|运营商营业厅|手机套餐|电信运营商)/i, industry: "运营商营业厅", baseScore: 22, target: false },
 ];
+
+const PRODUCT_RELEVANCE_PATTERN = /(?:mobile|phone|cellular|smartphone|iphone|ipad|macbook|computer|laptop|gsm|lcd|oled|screen|battery|repair parts?|spare parts?|accessor(?:y|ies)|telefon|komputer|smartfon|手机|电脑|屏幕|电池|配件|维修件)/i;
+
+function ruleIsSupported(rule: (typeof RULE_INDUSTRIES)[number], text: string) {
+  if (!rule.pattern.test(text)) return false;
+  // 任何行业都可以出现“批发/分销”字样；必须同时证明手机、电脑或维修配件产品相关，才能归入高价值渠道客户。
+  if (rule.industry === "进口商或分销商") return PRODUCT_RELEVANCE_PATTERN.test(text);
+  return true;
+}
 
 function deterministicScore(input: {
   rule: (typeof RULE_INDUSTRIES)[number];
@@ -427,11 +476,19 @@ function deterministicScore(input: {
   const identityBonus = Math.max(0, Math.min(6, Math.round((input.candidate.confidence - 70) / 5)));
   const sourceBonus = input.candidate.channel === "website" ? 4 : 3;
   const independentSourceBonus = Math.min(5, Math.max(0, matchingSources - 1) * 3);
-  const contactBonus = Math.min(4, (input.customer.phone ? 2 : 0) + (input.customer.email ? 2 : 0));
+  const verifiedContacts = input.records.some((record) => {
+    if (record.status !== "COLLECTED" || !record.evidence) return false;
+    const evidence = record.evidence as WebsiteEvidence & GooglePlaceEvidence;
+    return Boolean(evidence.phone || evidence.phones?.length || evidence.emails?.length);
+  });
+  const contactBonus = verifiedContacts ? 3 : 0;
   const serviceBonus = specificServices * 2;
   const reviewCount = Number(input.google?.user_ratings_total || 0);
   const activityBonus = reviewCount >= 100 ? 4 : reviewCount >= 20 ? 3 : reviewCount > 0 ? 2 : 0;
-  const score = Math.max(0, Math.min(100, input.rule.baseScore + sourceBonus + identityBonus + independentSourceBonus + contactBonus + serviceBonus + activityBonus));
+  const rawScore = input.rule.baseScore + sourceBonus + identityBonus + independentSourceBonus + contactBonus + serviceBonus + activityBonus;
+  const repairOnly = /维修店/.test(input.rule.industry);
+  const accessoryRetail = input.rule.industry === "手机外配件零售";
+  const score = Math.max(0, Math.min(input.rule.target ? repairOnly ? 84 : accessoryRetail ? 69 : 100 : 39, rawScore));
   const evidenceCompleteness = Math.min(100, 48 + sourceBonus * 5 + independentSourceBonus * 6 + contactBonus * 4 + activityBonus * 3);
   return {
     score,
@@ -464,6 +521,10 @@ function conciseDeterministicFact(candidate: { channel: string; text: string }, 
   if (/(?:iphone|samsung|xiaomi|huawei|macbook)/i.test(candidate.text)) specifics.push("主流手机或电脑品牌维修");
   const detail = specifics.length ? `，并明确提到${specifics.join("、")}` : "";
   return `企业官网页面标题与业务说明明确提供“${industry}”相关服务${detail}。`;
+}
+
+function deterministicEvidenceType(target: boolean) {
+  return target ? "支持" as const : "矛盾" as const;
 }
 
 function emptyBreakdown(value: number): CustomerAnalysis["score_breakdown"] {
@@ -505,7 +566,8 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       channel: "google_maps",
       url: googleUrl,
       title: "Google商家分类",
-      text: [...(google.types || []), google.name].join("；"),
+      // 商家名称只用于主体匹配，严禁用名称中的 Repair/Serwis 等词推断行业。
+      text: [...(google.types || []), google.description].filter(Boolean).join("；"),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
     });
   }
@@ -516,36 +578,125 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       channel: "website",
       url: website.url,
       title: "企业官网业务说明",
-      text: [website.title, website.description, ...(website.structured_types || []), ...(website.structured_names || []), ...(website.structured_descriptions || []), ...(website.headings || []), website.text_excerpt].filter(Boolean).join("；").slice(0, 6000),
+      // 结构化企业名称也是定位线索，不是行业证据。只使用官网业务描述、类型和标题。
+      text: [website.title, website.description, ...(website.structured_types || []), ...(website.structured_descriptions || []), ...(website.headings || []), website.text_excerpt?.slice(0, 1600)].filter(Boolean).join("；").slice(0, 4000),
       confidence: 92,
     });
   }
-  for (const candidate of candidates) {
-    const rule = RULE_INDUSTRIES.find((item) => item.pattern.test(candidate.text));
-    if (!rule) continue;
-    const sourceName = candidate.channel === "google_maps" ? "Google商家页" : "企业官网";
-    const fact = conciseDeterministicFact(candidate, rule.industry);
-    const scored = deterministicScore({ rule, candidate, customer, records, google });
-    const score = scored.score;
-    return {
-      industry_type: rule.industry,
-      is_target_customer: rule.target,
-      ai_score: score,
-      ai_level: score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D",
-      ai_reason: fact,
-      business_relevance: `该企业经营内容与手机、电脑维修配件业务相关；直接依据来自${sourceName}。`,
-      customer_value: score >= 85 ? "具备较高的批量采购或分销合作潜力，采购规模仍需销售确认。" : "具备维修配件补货需求的可能性，采购频次和规模需销售确认。",
-      followup_suggestion: "优先使用已核验联系方式，确认常购配件品类、月采购量和报价需求。",
-      confidence_score: candidate.confidence,
-      evidence_sufficiency: "充分",
-      evidence_conflicts: [],
-      score_breakdown: scored.breakdown,
-      suggested_contact_order: ["电话", "邮箱", "WhatsApp"],
-      evidence_summaries: [{ channel: candidate.channel, title_zh: candidate.title, fact_zh: fact, source_url: candidate.url, evidence_type: "支持", confidence: candidate.confidence }],
-      usage: { ...ZERO_USAGE, model: "RULE_ENGINE" },
-    };
+  const matches = candidates.flatMap((candidate) => RULE_INDUSTRIES
+    .filter((rule) => ruleIsSupported(rule, candidate.text))
+    .map((rule) => ({ candidate, rule, scored: deterministicScore({ rule, candidate, customer, records, google }) })))
+    .sort((left, right) => right.scored.score - left.scored.score || right.candidate.confidence - left.candidate.confidence);
+  const selected = matches[0];
+  if (!selected) return null;
+  const evidenceSummaries = candidates.flatMap((candidate) => {
+    const match = matches.find((item) => item.candidate === candidate);
+    if (!match) return [];
+    return [{
+      channel: candidate.channel,
+      title_zh: candidate.title,
+      fact_zh: conciseDeterministicFact(candidate, match.rule.industry),
+      source_url: candidate.url,
+      evidence_type: deterministicEvidenceType(match.rule.target),
+      confidence: candidate.confidence,
+    }];
+  }).filter((item, index, all) => all.findIndex((other) => other.channel === item.channel && other.source_url === item.source_url) === index).slice(0, 4);
+  const score = selected.scored.score;
+  const facts = evidenceSummaries.map((item) => item.fact_zh);
+  const sourceNames = [...new Set(evidenceSummaries.map((item) => item.channel === "google_maps" ? "Google商家页" : "企业官网"))].join("和");
+  const contactChannels = [customer.phone ? "原始电话" : "", customer.email ? "原始邮箱" : ""].filter(Boolean);
+  const repairIndustry = /维修/.test(selected.rule.industry);
+  const wholesaleIndustry = /批发|进口|分销/.test(selected.rule.industry);
+  return {
+    industry_type: selected.rule.industry,
+    is_target_customer: selected.rule.target,
+    ai_score: score,
+    ai_level: score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : "D",
+    ai_reason: `已核验${sourceNames}中的公开经营信息：${facts.join("；")}`,
+    business_relevance: wholesaleIndustry
+      ? `公开来源明确显示该企业从事${selected.rule.industry}相关业务，与手机和电脑配件外贸批发的渠道客户画像直接匹配。`
+      : repairIndustry
+        ? `公开来源明确显示该企业提供${selected.rule.industry}相关服务，具备维修用手机或电脑配件的实际使用场景。`
+        : `公开来源明确显示该企业经营${selected.rule.industry}相关业务，与目标产品存在可解释的业务关联。`,
+    customer_value: wholesaleIndustry
+      ? "其公开经营模式具备批量采购或渠道合作场景；实际采购品类、采购量和合作周期仍需销售沟通确认。"
+      : repairIndustry
+        ? "其维修业务会实际使用屏幕、电池、接口、排线等维修配件，存在补货机会；门店规模和月度用量仍需销售确认。"
+        : "已确认其经营业务与目标产品相关，具体采购频率、数量和决策角色仍需销售确认。",
+    followup_suggestion: `${contactChannels.length ? `优先通过${contactChannels.join("或")}` : "通过已核验公开联系方式"}联系，引用已确认的“${selected.rule.industry}”业务切入，询问常用配件品类、月度用量、当前采购渠道和报价需求。`,
+    confidence_score: Math.max(...evidenceSummaries.map((item) => item.confidence)),
+    evidence_sufficiency: "充分",
+    evidence_conflicts: [],
+    score_breakdown: selected.scored.breakdown,
+    suggested_contact_order: ["电话", "邮箱", "WhatsApp"],
+    evidence_summaries: evidenceSummaries,
+    usage: { ...ZERO_USAGE, model: "RULE_ENGINE" },
+  };
+}
+
+function insufficientDataAnalysis(customer: CustomerRow, records: ChannelRecord[]): CustomerAnalysis {
+  const collected = records.filter((item) => item.status === "COLLECTED");
+  const failed = records.filter((item) => item.status === "FAILED");
+  const collectedText = collected.length
+    ? `已读取${collected.map((item) => AI_CHANNEL_LABELS[item.channel]).join("、")}，但未提取到能够确认经营行业的直接事实`
+    : "未找到能够与该客户主体可靠匹配并可读取的公开企业页面";
+  const limitation = failed.length
+    ? `；${failed.map((item) => AI_CHANNEL_LABELS[item.channel]).join("、")}未能取得有效公开内容`
+    : "";
+  const reason = `${collectedText}${limitation}。本次筛选已完成，但资料不足，不评级、不打分，也不判定为有效或无效客户。`;
+  return {
+    // 内部保持合法行业枚举；资料不足时最终写回会将行业、分数和等级留空。
+    industry_type: "其他",
+    is_target_customer: false,
+    ai_score: 0,
+    ai_level: "D",
+    ai_reason: reason,
+    business_relevance: "现有公开资料不足以确认该企业的实际经营范围，不能据此判断与手机、电脑配件业务的相关程度。",
+    customer_value: "暂不判断客户价值；需要补充可匹配的官网、具体Google商家页或其他官方公开主页后再分析。",
+    followup_suggestion: "如需继续开发，请先补充或核验企业官网、具体Google商家页及有效联系方式，再创建新的AI筛选任务。",
+    confidence_score: 0,
+    evidence_sufficiency: "不足",
+    evidence_conflicts: [],
+    score_breakdown: emptyBreakdown(0),
+    suggested_contact_order: [],
+    evidence_summaries: [],
+    usage: { ...ZERO_USAGE, model: "NO_MODEL" },
+  };
+}
+
+export function verifiedBusinessScope(analysis: CustomerAnalysis) {
+  const facts = analysis.evidence_summaries
+    .filter((item) => item.evidence_type === "支持" && item.confidence >= 60)
+    .map((item) => item.fact_zh.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (!facts.length) return null;
+  const directFacts = [...new Set(facts)].slice(0, 2).join("；");
+  return `主营：${analysis.industry_type}。已核验经营事实：${directFacts}`.slice(0, 600);
+}
+
+export function verifiedCompanyScale(records: ChannelRecord[]) {
+  type TradeFact = { product?: unknown; quantity?: unknown; amount?: unknown; currency?: unknown; date?: unknown; supplier?: unknown; source_url?: unknown };
+  const verified: Array<{ text: string; sourceUrl: string }> = [];
+  for (const record of records) {
+    if (record.status !== "COLLECTED" || !record.evidence || typeof record.evidence !== "object") continue;
+    const evidence = record.evidence as Record<string, unknown>;
+    const rawRows = [...(Array.isArray(evidence.customs_records) ? evidence.customs_records : []), ...(Array.isArray(evidence.trade_records) ? evidence.trade_records : [])];
+    for (const raw of rawRows) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw as TradeFact;
+      const sourceUrl = typeof row.source_url === "string" && /^https?:\/\//i.test(row.source_url) ? row.source_url : record.source_url || "";
+      const product = typeof row.product === "string" ? row.product.trim() : "";
+      const quantity = row.quantity == null ? "" : String(row.quantity).trim();
+      const amount = row.amount == null ? "" : String(row.amount).trim();
+      const date = typeof row.date === "string" ? row.date.trim() : "";
+      if (!sourceUrl || !product || (!quantity && !amount && !date)) continue;
+      const detail = [date ? `日期${date}` : "", `产品${product}`, quantity ? `数量${quantity}` : "", amount ? `金额${amount}${row.currency ? ` ${String(row.currency)}` : ""}` : "", row.supplier ? `供应商${String(row.supplier)}` : ""].filter(Boolean).join("，");
+      verified.push({ text: detail, sourceUrl });
+    }
   }
-  return null;
+  if (!verified.length) return { companyScale: null, companyScaleEvidence: null };
+  const facts = verified.slice(0, 3).map((item) => `${item.text}（核验：${item.sourceUrl}）`).join("；");
+  return { companyScale: "存在可核验采购记录", companyScaleEvidence: facts.slice(0, 1200) };
 }
 
 function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
@@ -793,9 +944,8 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   if (evidenceWrite.error || !evidenceWrite.data?.length) throw evidenceWrite.error || new Error("REUSED_EVIDENCE_WRITE_FAILED");
   const discovered = (cache.discovered_contacts && typeof cache.discovered_contacts === "object" ? cache.discovered_contacts : {}) as { website_email?: string; website_phone?: string; whatsapp?: string[]; contacts?: ContactCandidate[] };
   const cachedContacts = reconcileCachedContacts(customer, discovered.contacts);
-  const verifiedNew = cachedContacts.contacts.filter((item) => item.verificationStatus === "NEW_VERIFIED");
-  const websiteEmail = verifiedNew.filter((item) => item.type === "EMAIL").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
-  const websitePhone = verifiedNew.filter((item) => item.type === "PHONE").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
+  const websiteEmail = mergedVerifiedContactValues(customer, cachedContacts.contacts, "EMAIL");
+  const websitePhone = mergedVerifiedContactValues(customer, cachedContacts.contacts, "PHONE");
   const customerWrite = await admin.from("customers").update({
       industry: cachedResult.industry_type || cachedResult.customer_type,
       ai_score: cachedResult.score,
@@ -807,8 +957,16 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
       business_relevance: cachedResult.business_relevance,
       customer_value: cachedResult.customer_value,
       followup_suggestion: cachedResult.followup_suggestion,
+      business_scope: cachedResult.business_scope || customer.business_scope || null,
+      company_scale: cachedResult.company_scale || customer.company_scale || null,
+      company_scale_evidence: cachedResult.company_scale_evidence || customer.company_scale_evidence || null,
       website_email: websiteEmail || null,
       website_phone: websitePhone || null,
+      ...(customer.whatsapp ? {} : { whatsapp: firstVerifiedContact(cachedContacts.contacts, "WHATSAPP") }),
+      ...(customer.facebook_url ? {} : { facebook_url: firstVerifiedContact(cachedContacts.contacts, "FACEBOOK") }),
+      ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(cachedContacts.contacts, "INSTAGRAM") }),
+      ...(customer.linkedin_url ? {} : { linkedin_url: firstVerifiedContact(cachedContacts.contacts, "LINKEDIN") }),
+      ...(customer.tiktok_url ? {} : { tiktok_url: firstVerifiedContact(cachedContacts.contacts, "TIKTOK") }),
       ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: now,
       updated_at: now,
@@ -899,7 +1057,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     if (analysis) {
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
     } else if (!hasUsableCollectedEvidence(records)) {
-      throw new Error("AI_EVIDENCE_NOT_AVAILABLE");
+      analysis = insufficientDataAnalysis(customer, records);
+      earlyStopReason = "公开来源检索已完成，但没有取得可用于行业判断的可靠经营事实；本次不调用大模型。";
     } else if (input.strategy === "DEEP") {
       const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "deep", maxRequests: maxModelCalls as 1 | 2 });
       analysis = outcome.analysis;
@@ -945,38 +1104,40 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       hasCriticalConflict: analysis.evidence_conflicts.length > 0 || ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
-    if (!["AUTO_DEVELOP", "AUTO_REJECT"].includes(gate.automationStatus) || !analysis.evidence_summaries.length) {
-      throw new Error("AI_EVIDENCE_GATE_NOT_SATISFIED");
-    }
+    const insufficientData = gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length;
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
     // Conflicting official sources remain visible in customer_contacts for
     // manual verification, but are not written into the customer's usable
     // system-discovered fields. Only an unambiguous new contact is promoted.
-    const verifiedNew = reconciled.contacts.filter((item) => item.verificationStatus === "NEW_VERIFIED");
-    const websiteEmail = verifiedNew.filter((item) => item.type === "EMAIL").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
-    const websitePhone = verifiedNew.filter((item) => item.type === "PHONE").map((item) => item.valueRaw).filter((value, index, all) => all.indexOf(value) === index).join(", ");
+    const websiteEmail = mergedVerifiedContactValues(customer, reconciled.contacts, "EMAIL");
+    const websitePhone = mergedVerifiedContactValues(customer, reconciled.contacts, "PHONE");
     const discoveredWhatsapps = reconciled.contacts.filter((item) => item.type === "WHATSAPP").map((item) => item.valueRaw);
     const analyzedChannels = records.filter((item) => item.status === "COLLECTED").map((item) => item.channel);
     const skippedChannels = records.filter((item) => item.status !== "COLLECTED").map((item) => ({ channel: item.channel, status: item.status, reason: item.error }));
-    const retryAt = gate.automationStatus === "AUTO_HOLD" ? new Date(Date.now() + (identity.status === "NOT_FOUND" ? 30 : 7) * 86_400_000).toISOString() : null;
+    const retryAt = null;
     const google = records.find((item) => item.channel === "google_maps")?.evidence as GooglePlaceEvidence | undefined;
-    const scaleSignals = [Number(google?.user_ratings_total || 0) > 0 ? `Google评论量：${google?.user_ratings_total}` : "", records.filter((item) => item.status === "COLLECTED").length > 1 ? "存在多个已核实公开来源" : ""].filter(Boolean);
+    const businessScope = insufficientData ? null : verifiedBusinessScope(analysis);
+    const verifiedScale = verifiedCompanyScale(records);
+    const scaleSignals = verifiedScale.companyScaleEvidence ? [verifiedScale.companyScaleEvidence] : [];
     const resultPayload = {
       customer_id: customer.id, task_id: input.taskId, task_item_id: input.taskItemId,
-      score: analysis.ai_score, grade: analysis.ai_level,
-      target_decision: compatibilityTargetDecision(gate.automationStatus), automation_status: gate.automationStatus,
-      customer_type: analysis.industry_type, industry_type: analysis.industry_type,
-      primary_industry: primaryIndustry, secondary_industries: [], business_activities: [],
-      industry_confidence: analysis.confidence_score, identity_confidence: identity.confidence,
-      decision_confidence: analysis.confidence_score, contact_confidence: reconciled.preferred ? (reconciled.preferred.identityStatus === "MATCHED" ? 90 : 55) : 0,
-      scale_confidence: scaleSignals.length ? 40 : 0, evidence_sufficiency_score: Math.min(100, policyEvidence.filter((item) => item.kind !== "中性").length * 20),
+      score: insufficientData ? null : analysis.ai_score, grade: insufficientData ? null : analysis.ai_level,
+      target_decision: insufficientData ? "REVIEW" : compatibilityTargetDecision(gate.automationStatus), automation_status: gate.automationStatus,
+      customer_type: insufficientData ? null : analysis.industry_type, industry_type: insufficientData ? null : analysis.industry_type,
+      primary_industry: primaryIndustry, secondary_industries: [], business_activities: businessScope ? [businessScope] : [],
+      business_scope: businessScope,
+      company_scale: verifiedScale.companyScale,
+      company_scale_evidence: verifiedScale.companyScaleEvidence,
+      industry_confidence: insufficientData ? 0 : analysis.confidence_score, identity_confidence: identity.confidence,
+      decision_confidence: insufficientData ? 0 : analysis.confidence_score, contact_confidence: reconciled.preferred ? (reconciled.preferred.identityStatus === "MATCHED" ? 90 : 55) : 0,
+      scale_confidence: scaleSignals.length ? 90 : 0, evidence_sufficiency_score: Math.min(100, policyEvidence.filter((item) => item.kind !== "中性").length * 20),
       identity_status: identity.status, identity_details: identity,
       verified_business_name: identity.verifiedBusinessName, verified_address: identity.verifiedAddress,
       verified_website: identity.verifiedWebsite, verified_google_maps_url: identity.verifiedGoogleMapsUrl,
       place_id: identity.placeId, candidate_count: identity.candidateCount,
       match_signals: identity.matchSignals, mismatch_signals: identity.mismatchSignals,
       industry_evidence_ids: gate.evidenceIds, industry_conflicts: analysis.evidence_conflicts,
-      scale_analysis: { scale_level: "UNKNOWN", scale_confidence: scaleSignals.length ? 40 : 0, scale_signals: scaleSignals, location_count: google?.place_id ? 1 : null, review_activity: google?.user_ratings_total || null, procurement_signals: [], trade_records: [] },
+      scale_analysis: { scale_level: verifiedScale.companyScale || "UNKNOWN", scale_confidence: scaleSignals.length ? 90 : 0, scale_signals: scaleSignals, location_count: google?.place_id ? 1 : null, review_activity: google?.user_ratings_total || null, procurement_signals: scaleSignals, trade_records: [] },
       preferred_contact_type: reconciled.preferred?.type || null, preferred_contact_value: reconciled.preferred?.valueRaw || null,
       preferred_contact_source_url: reconciled.preferred?.sourceUrl || null,
       preferred_contact_reason: reconciled.preferred ? `优先采用${reconciled.preferred.sourceChannel === "website" ? "已确认企业官网" : reconciled.preferred.sourceChannel === "google_maps" ? "已匹配Google具体门店" : "已确认官方公开页面"}中的联系方式；未覆盖原始数据。` : null,
@@ -994,16 +1155,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       pricing_snapshot: usage.pricing_snapshot, model_snapshot: { primary_model: usage.model }, completed_at: new Date().toISOString(),
       score_breakdown: analysis.score_breakdown,
       entity_match: identity,
-      manual_review_status: gate.automationStatus === "AUTO_HOLD" ? "NEEDS_REVIEW" : "NOT_REVIEWED",
+      manual_review_status: insufficientData ? "INSUFFICIENT_DATA" : "NOT_REVIEWED",
       suggested_contact_order: analysis.suggested_contact_order,
       discovered_contacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps, contacts: reconciled.contacts },
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
-      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "NEEDS_REVIEW",
-      lead_priority: analysis.ai_level,
-      purchase_scale: "UNKNOWN",
-      decision_status: gate.automationStatus === "AUTO_HOLD" ? "NEEDS_REVIEW" : gate.automationStatus,
-      short_reason: gate.reason,
+      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "INSUFFICIENT_DATA",
+      lead_priority: insufficientData ? null : analysis.ai_level,
+      purchase_scale: verifiedScale.companyScale || "UNKNOWN",
+      decision_status: insufficientData ? "INSUFFICIENT_DATA" : gate.automationStatus,
+      short_reason: insufficientData ? analysis.ai_reason : gate.reason,
       attempt_number: input.attemptNumber || 1,
       is_latest_valid: false,
       writeback_status: "PENDING",
@@ -1103,9 +1264,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         content_hash: createHash("sha256").update(`${channel}|${normalizedFact}|${summary.source_url || source?.source_url || ""}`).digest("hex"),
       };
     });
-    if (!evidenceRows.length) throw new Error("AI_EVIDENCE_ROWS_EMPTY");
     const savedEvidenceIds: string[] = [];
-    {
+    if (evidenceRows.length) {
       const existingEvidence = await admin.from("ai_screening_evidence").select("id,content_hash").eq("result_id", resultWrite.data.id);
       if (existingEvidence.error) throw existingEvidence.error;
       const completedEvidence = new Set((existingEvidence.data || []).map((row) => row.content_hash).filter(Boolean));
@@ -1125,14 +1285,23 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
 
     const customerUpdate = {
-      industry: primaryIndustry === "UNKNOWN" ? customer.industry : analysis.industry_type,
-      ai_score: analysis.ai_score, ai_level: analysis.ai_level,
-      ai_reason: `${analysis.ai_reason}\n自动处理状态：${gate.automationStatus}；${gate.reason}`,
-      is_target_customer: gate.automationStatus === "AUTO_DEVELOP" ? true : gate.automationStatus === "AUTO_REJECT" ? false : null,
+      industry: insufficientData || primaryIndustry === "UNKNOWN" ? customer.industry : analysis.industry_type,
+      ai_score: insufficientData ? null : analysis.ai_score, ai_level: insufficientData ? null : analysis.ai_level,
+      ai_reason: analysis.ai_reason,
+      is_target_customer: insufficientData ? null : gate.automationStatus === "AUTO_DEVELOP" ? true : false,
       ai_screening_done: true, ai_status: "COMPLETED",
       business_relevance: analysis.business_relevance, customer_value: analysis.customer_value,
       followup_suggestion: analysis.followup_suggestion, website_email: websiteEmail || null,
-      website_phone: websitePhone || null, ai_last_result_id: resultWrite.data.id,
+      website_phone: websitePhone || null,
+      business_scope: businessScope,
+      company_scale: verifiedScale.companyScale || customer.company_scale || null,
+      company_scale_evidence: verifiedScale.companyScaleEvidence || customer.company_scale_evidence || null,
+      ...(customer.whatsapp ? {} : { whatsapp: firstVerifiedContact(reconciled.contacts, "WHATSAPP") }),
+      ...(customer.facebook_url ? {} : { facebook_url: firstVerifiedContact(reconciled.contacts, "FACEBOOK") }),
+      ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(reconciled.contacts, "INSTAGRAM") }),
+      ...(customer.linkedin_url ? {} : { linkedin_url: firstVerifiedContact(reconciled.contacts, "LINKEDIN") }),
+      ...(customer.tiktok_url ? {} : { tiktok_url: firstVerifiedContact(reconciled.contacts, "TIKTOK") }),
+      ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
     {
@@ -1190,7 +1359,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
 
 export function publicAiError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "UNKNOWN_ERROR");
-  if (raw.includes("AI_EVIDENCE_NOT_AVAILABLE") || raw.includes("AI_EVIDENCE_GATE_NOT_SATISFIED") || raw.includes("AI_EVIDENCE_ROWS_EMPTY")) {
+  if (raw.includes("AI_EVIDENCE_NOT_AVAILABLE") || raw.includes("AI_EVIDENCE_ROWS_EMPTY")) {
     return { code: "AI_EVIDENCE_INSUFFICIENT", message: "本次未取得达到自动判定门槛的可核验经营事实；未写入AI评分，可在公开入口可访问后重试" };
   }
   if (raw.includes("OPENAI_TIMEOUT")) return { code: "OPENAI_TIMEOUT", message: "AI综合判断本次响应超时；已保存公开来源抓取进度，可直接重试而无需重复抓取" };

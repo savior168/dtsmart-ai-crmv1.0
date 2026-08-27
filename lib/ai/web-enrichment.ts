@@ -98,6 +98,85 @@ function unique(values: string[]) {
   return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
 }
 
+const BUSINESS_MEDIA_TERMS = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|repair|service|screen|display|battery|accessor|parts|wholesale|store|shop|workshop|technician|smartphone|telefon|kom[oó]rk|napraw|serwis|komputer|reparaci|m[oó]vil|ordenador|inform[aá]tic|r[eé]paration|t[eé]l[eé]phone|ordinateur|riparazione|cellulare|维修|修理|手机|电脑|配件|屏幕|电池|门店|店铺|产品)/i;
+const DECORATIVE_MEDIA_TERMS = /(?:logo|icon|avatar|favicon|sprite|placeholder|spinner|loader|tracking|pixel|badge|payment|flag|emoji|newsletter|cookie|banner-ad)/i;
+
+function originalMediaUrl(raw: string, baseUrl: string) {
+  try {
+    const decoded = decodeHtmlAttribute(raw.trim());
+    if (!decoded || /^(?:data|blob|javascript):/i.test(decoded)) return null;
+    const url = new URL(decoded, baseUrl);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    // Google business photos commonly expose many resized variants of the
+    // same photo. Keep the canonical photo path and request its original
+    // resolution instead of persisting a blurred thumbnail.
+    if (/\.googleusercontent\.com$/i.test(url.hostname) && /\/p\//i.test(url.pathname)) {
+      url.search = "";
+      url.hash = "";
+      return `${url.origin}${url.pathname.replace(/=(?:w|s)\d+.*$/i, "")}=s0`;
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function mediaIdentity(url: string) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/\.(?:thumb|thumbnail)(?=\.)/i, "").replace(/[-_](?:\d{2,4}x\d{2,4}|thumb|thumbnail)(?=\.)/gi, "");
+    return `${parsed.hostname.toLowerCase()}${path.toLowerCase()}`;
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+function uniqueOriginalMedia(values: string[], baseUrl: string, limit: number) {
+  const output = new Map<string, string>();
+  for (const raw of values) {
+    const url = originalMediaUrl(raw, baseUrl);
+    if (!url || DECORATIVE_MEDIA_TERMS.test(url) || /\.svg(?:\?|$)/i.test(url)) continue;
+    const key = mediaIdentity(url);
+    if (!output.has(key)) output.set(key, url);
+    if (output.size >= limit) break;
+  }
+  return [...output.values()];
+}
+
+function extractRelevantWebsiteImages(html: string, baseUrl: string) {
+  const pageContext = [
+    firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
+    firstMatch(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i),
+  ].filter(Boolean).join(" ");
+  const ranked = [...html.matchAll(/<img\b[^>]*>/gi)].flatMap((match, index) => {
+    const tag = match[0];
+    const alt = decodeHtmlAttribute(tag.match(/\balt=["']([^"']*)["']/i)?.[1] || "");
+    const title = decodeHtmlAttribute(tag.match(/\btitle=["']([^"']*)["']/i)?.[1] || "");
+    const srcset = tag.match(/\bsrcset=["']([^"']+)["']/i)?.[1] || "";
+    const srcsetCandidates = srcset.split(",").map((item) => item.trim().split(/\s+/)[0]).filter(Boolean);
+    const raw = srcsetCandidates.at(-1)
+      || tag.match(/\b(?:data-src|data-lazy-src|src)=["']([^"']+)["']/i)?.[1]
+      || "";
+    const context = `${alt} ${title} ${raw}`;
+    if (!raw || DECORATIVE_MEDIA_TERMS.test(context)) return [];
+    const score = (BUSINESS_MEDIA_TERMS.test(context) ? 100 : 0)
+      + (BUSINESS_MEDIA_TERMS.test(pageContext) ? 20 : 0)
+      - index / 100;
+    return [{ raw, score }];
+  }).sort((a, b) => b.score - a.score);
+  // Only media carrying direct business context is retained as a key evidence
+  // attachment. Generic hero/decorative images are deliberately excluded.
+  return uniqueOriginalMedia(ranked.filter((item) => item.score >= 100).map((item) => item.raw), baseUrl, 12);
+}
+
+function extractRelevantWebsiteVideos(html: string, baseUrl: string) {
+  const values = [...html.matchAll(/<(?:video|source|iframe)\b[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => match[1])
+    .filter((value) => /(?:youtube\.com|youtu\.be|vimeo\.com|\.mp4(?:\?|$)|\.webm(?:\?|$))/i.test(value));
+  return uniqueOriginalMedia(values, baseUrl, 8);
+}
+
 function extractStructuredBusinessData(html: string) {
   const types: string[] = [];
   const names: string[] = [];
@@ -280,10 +359,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
         && /(?:facebook|instagram|linkedin|tiktok)\.com/i.test(parsedUrl.hostname)) {
       return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: "社媒登录页或Cookie页，未读取到企业公开主页" };
     }
-    const imageUrls = [...html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)]
-      .slice(0, 12)
-      .map((match) => match[1])
-      .filter(Boolean);
+    const imageUrls = extractRelevantWebsiteImages(html, normalized);
     return {
       url: normalized,
       reachable: true,
@@ -304,7 +380,7 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
       phones: extractPhones(html),
       whatsapps: extractWhatsapps(html),
       social_urls: extractSocialUrls(html, normalized),
-      video_urls: unique([...html.matchAll(/<(?:video|source|iframe)[^>]+(?:src)=['\"]([^'\"]+)['\"]/gi)].map((match) => match[1])).slice(0, 12),
+      video_urls: extractRelevantWebsiteVideos(html, normalized),
     };
   } catch (error) {
     return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: error instanceof Error ? error.message : "website fetch failed" };
@@ -544,8 +620,16 @@ async function collectPublicGooglePlaceEvidence(input: {
     const close = Boolean(runnerUp && top.score - runnerUp.score < 10);
     const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = close ? "AMBIGUOUS" : top.score >= 80 ? "MATCHED" : top.score >= 60 ? "LIKELY_MATCHED" : top.score >= 40 ? "AMBIGUOUS" : "NOT_FOUND";
     const allStrings = nestedStrings(top.row);
-    const imageUrls = unique(allStrings.filter((item) => /^https:\/\/(?:lh\d+|streetviewpixels)\.googleusercontent\.com/i.test(item))).slice(0, 24);
-    const videoUrls = unique(allStrings.filter((item) => /^https?:\/\//i.test(item) && /(?:youtube\.com|youtu\.be|\.mp4(?:\?|$))/i.test(item))).slice(0, 12);
+    const imageUrls = uniqueOriginalMedia(
+      allStrings.filter((item) => /^https:\/\/lh\d+\.googleusercontent\.com\/p\//i.test(item)),
+      searchPage,
+      12,
+    );
+    const videoUrls = uniqueOriginalMedia(
+      allStrings.filter((item) => /^https?:\/\//i.test(item) && /(?:youtube\.com|youtu\.be|vimeo\.com|\.mp4(?:\?|$)|\.webm(?:\?|$))/i.test(item)),
+      searchPage,
+      8,
+    );
     const hours = unique(allStrings.filter((item) => /(?:营业|开放|关闭|abierto|cerrado|a\.m\.|p\.m\.)/i.test(item) && item.length < 140)).slice(0, 14);
     const descriptionBlock = Array.isArray(top.row[154]) && Array.isArray(top.row[154][0]) ? top.row[154][0] : [];
     // Keep the customer's original concrete Maps URL as the audit entry. The

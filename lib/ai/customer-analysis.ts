@@ -95,7 +95,7 @@ EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任�
 手机成品零售、SIM卡或套餐销售不能证明手机维修；手机壳、保护膜、耳机、数据线、充电器只能证明外配件；维修店不能自动判为批发商。维修店需要换屏、换电池、尾插维修、维修预约、维修报价、近期维修评论或官方维修案例等明确证据。批发、进口或分销需要wholesale、B2B、MOQ、bulk price、trade account、distributor、dealer、reseller、向维修店供货、批量目录或身份匹配的海关记录。
 没有真实采购证据时只能写“采购能力待销售核验”，不得声称已有采购能力、采购规模或进口记录。无法确认所属行业时必须归类为“其他”，不得为了填满字段强行分类。
 行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、已关闭、其他。无法确认时必须选择“其他”。
-评分：85-100为A，70-84为B，50-69为C，0-49为D。评分表示目标价值，不代表证据置信度；只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
+评分：85-100为A，70-84为B，50-69为C，0-49为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度。A级必须有可追溯的配件批发、进口、分销、B2B供货、连锁或实际采购能力证据，不得仅因为是手机/电脑维修店就评A。单一维修门店最高B级，只有一条分类证据的普通门店通常应为C级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
 ai_reason必须引用实际证据；business_relevance、customer_value和followup_suggestion必须可供销售直接使用。evidence_conflicts列出证据矛盾，没有则返回空数组。
 score_breakdown的每个维度必须依据输入证据独立评分；contradiction_risk越高表示风险越大。suggested_contact_order按优先顺序给出实际可执行的联系渠道或动作。
@@ -261,6 +261,14 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
       && /(?:手机维修|手机配件|电脑维修|电脑配件|批发|经销|分销|进口|永久关闭)/.test(item.fact_zh));
   const evidenceSufficient = hasStrongDirectEvidence || (supporting.length >= 2 && independentSources >= 2);
   const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
+  const supportingText = supporting.map((item) => item.fact_zh).join("；");
+  const verifiedProductFit = /(?:手机|电脑|iPhone|iPad|MacBook|LCD|OLED|屏幕|电池|配件|维修件|触摸屏|尾插|排线|摄像头)/i.test(supportingText);
+  const verifiedBuyingRole = /(?:配件批发|配件进口|配件分销|B2B|MOQ|批量供货|渠道供货|经销商|代理商|采购记录|海关记录|批发商|进口商|分销商)/i.test(supportingText);
+  const verifiedChain = /(?:连锁|多家门店|多门店|分店)/.test(supportingText);
+  const directServiceSignalCount = [/(?:换屏|屏幕更换|玻璃更换)/, /(?:电池更换|换电池)/, /(?:主板维修|尾插|排线|摄像头)/, /(?:iPhone|iPad|MacBook|Samsung|Xiaomi|Huawei)/i]
+    .filter((pattern) => pattern.test(supportingText)).length;
+  const repairOrRetail = /(?:维修店|外配件零售|维修内配件零售|手机成品零售|综合电子产品零售)/.test(analysis.industry_type);
+  const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|已关闭|其他)$/.test(analysis.industry_type);
   let score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
   let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
   if (!evidenceSufficient) {
@@ -270,6 +278,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     confidence = Math.min(confidence, hasStrongDirectEvidence ? 92 : 79);
     score = Math.min(score, hasStrongDirectEvidence ? 89 : 84);
   }
+  // 价值等级必须由采购角色证据驱动，而不是由“维修店”这个行业标签驱动。
+  if (unrelatedIndustry) score = Math.min(score, 39);
+  if (repairOrRetail && !verifiedBuyingRole && !verifiedChain) {
+    // 仅一条商家分类只能证明“是这个行业”，不足以证明稳定补货能力。
+    const hasDetailedRepairEvidence = supporting.length >= 2 || directServiceSignalCount >= 2;
+    score = Math.min(score, hasDetailedRepairEvidence ? 79 : 69);
+  }
+  if (!verifiedBuyingRole && !verifiedChain && !repairOrRetail) score = Math.min(score, 69);
+  if ((verifiedBuyingRole || verifiedChain) && !verifiedProductFit) score = Math.min(score, 49);
+  if (score >= 85 && !(verifiedProductFit && (verifiedBuyingRole || verifiedChain) && strongEnoughForHighConfidence)) score = 84;
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const insufficientReason = evidence.length
     ? "本次仅取得有限的可核验公开信息，证据不足以确认其行业属性和批量采购能力，建议人工核验或补充公开入口后重新分析。"
@@ -277,7 +295,11 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const aiReason = evidenceSufficient
     ? `公开证据显示：${evidenceLead}。据此将其归类为“${analysis.industry_type}”，综合评分${score}分；采购规模与实际需求仍需销售沟通确认。`
     : insufficientReason;
-  const scoreBreakdown = evidenceSufficient ? analysis.score_breakdown : {
+  const scoreBreakdown = evidenceSufficient ? {
+    ...analysis.score_breakdown,
+    wholesale_import_distribution: verifiedBuyingRole ? analysis.score_breakdown.wholesale_import_distribution : Math.min(35, Number(analysis.score_breakdown.wholesale_import_distribution) || 0),
+    bulk_purchase_potential: verifiedBuyingRole || verifiedChain ? analysis.score_breakdown.bulk_purchase_potential : Math.min(40, Number(analysis.score_breakdown.bulk_purchase_potential) || 0),
+  } : {
     entity_consistency: Math.min(49, Number(analysis.score_breakdown?.entity_consistency) || 0),
     company_authenticity: Math.min(49, Number(analysis.score_breakdown?.company_authenticity) || 0),
     business_activity: Math.min(49, Number(analysis.score_breakdown?.business_activity) || 0),
@@ -299,7 +321,11 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     evidence_sufficiency: evidenceSufficient ? (strongEnoughForHighConfidence ? analysis.evidence_sufficiency : "一般") : "不足",
     ai_reason: aiReason,
     business_relevance: evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : insufficientReason,
-    customer_value: evidenceSufficient ? ensureChinese(analysis.customer_value, "已取得业务相关证据，但采购规模仍需销售首次沟通确认。") : "待核验：当前公开证据不足，不能可靠判断采购价值。",
+    customer_value: evidenceSufficient
+      ? verifiedBuyingRole || verifiedChain
+        ? ensureChinese(analysis.customer_value, "已取得批发、分销、连锁或采购角色证据，具体采购品类和规模仍需销售确认。")
+        : "已确认实际经营目标行业，但尚无可核验的批发、进口、分销或实际采购记录；采购能力和规模必须由销售沟通确认。"
+      : "待核验：当前公开证据不足，不能可靠判断采购价值。",
     followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : "先核验企业主体并补充有效公开入口，证据充分后再制定销售开发计划。",
     score_breakdown: scoreBreakdown,
     evidence_conflicts: (Array.isArray(analysis.evidence_conflicts) ? analysis.evidence_conflicts : []).filter(hasChinese).slice(0, 20),

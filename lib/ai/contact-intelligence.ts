@@ -117,11 +117,10 @@ export function reconcileContacts(candidates: ContactCandidate[]) {
   const unique = new Map<string, ContactCandidate>();
   for (const candidate of candidates) unique.set(`${candidate.type}|${candidate.valueNormalized}|${candidate.sourceUrl}`, candidate);
   const values = [...unique.values()];
-  for (const type of ["PHONE", "EMAIL"] as const) {
-    const officialNew = values.filter((item) => item.type === type && item.verificationStatus === "NEW_VERIFIED");
-    const distinct = new Set(officialNew.map((item) => item.valueNormalized));
-    if (distinct.size > 1) officialNew.forEach((item) => { item.verificationStatus = "CONFLICTING_VERIFIED"; });
-  }
+  // An official business may legitimately publish several phone numbers or
+  // mailboxes. Multiple verified values are not a conflict by themselves.
+  // Keep every source for audit, while the customer summary fields deduplicate
+  // them later by the normalized contact value.
   const rank = (item: ContactCandidate) => {
     const source = item.sourceChannel === "website" ? 40 : item.sourceChannel === "google_maps" ? 35 : 20;
     const status = item.verificationStatus === "MATCHED_ORIGINAL" ? 35 : item.verificationStatus === "NEW_VERIFIED" ? 30 : item.verificationStatus === "CONFLICTING_VERIFIED" ? 15 : 0;

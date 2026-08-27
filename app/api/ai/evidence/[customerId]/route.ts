@@ -67,7 +67,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
   try {
     const { supabase, user } = await requireUser();
     const { customerId } = await context.params;
-    const visible = await supabase.from("customers").select("id,company_name,contact_name,country,phone,email,website,google_url,website_email,website_phone,ai_score,ai_level,ai_reason,business_relevance,customer_value,followup_suggestion").eq("id", customerId).single();
+    const visible = await supabase.from("customers").select("id,company_name,contact_name,country,phone,email,website,google_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId).single();
     if (visible.error || !visible.data) throw visible.error || new Error("客户不存在或无权访问");
     const admin = createAdminClient();
     const requestedTaskId = request.nextUrl.searchParams.get("task")?.trim() || "";

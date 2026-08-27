@@ -17,6 +17,9 @@ export type Customer = {
   review_count?: number | null;
   address: string | null;
   industry: string | null;
+  business_scope?: string | null;
+  company_scale?: string | null;
+  company_scale_evidence?: string | null;
   category: string | null;
   source: string | null;
   tags: string[];

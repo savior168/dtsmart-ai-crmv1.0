@@ -49,7 +49,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.26\.1/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.08\.27\.1/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
@@ -60,7 +60,8 @@ assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实�
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
 assert.match(taskRunner, /id: randomUUID\(\)/, "复用证据必须生成新的主键，不能写入空ID");
-assert.match(taskRunner, /AI_EVIDENCE_NOT_AVAILABLE/, "公开证据不足时必须失败待重试，不能写入虚假低分");
+assert.match(taskRunner, /decision_status: insufficientData \? "INSUFFICIENT_DATA"/, "公开证据不足时必须完成筛选但不评级、不打分");
+assert.doesNotMatch(taskRunner, /AI_EVIDENCE_GATE_NOT_SATISFIED/, "资料不足不得被错误标记为任务执行失败");
 assert.doesNotMatch(taskRunner, /JSON\.stringify\(item\.evidence\)/, "不得把原始证据JSON直接保存或展示给业务员");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
 assert.match(evidenceApi, /verified_contacts/, "AI依据接口必须返回可追溯的新联系方式");
@@ -69,7 +70,7 @@ assert.match(evidenceApi, /GOOGLE_MAPS_API_KEY\|fetch failed/, "依据接口不�
 const evidenceView = read("components/ai-screening/evidence-view.tsx");
 assert.match(evidenceView, /已核实联系方式更新/, "AI依据页必须在结论附近显眼展示已核实联系方式");
 assert.match(evidenceView, /<span>客户详情<\/span>/, "AI分析依据页必须显示客户详情按钮文字");
-assert.match(evidenceView, /本次分析未完成/, "历史无证据结果必须明确标记为分析未完成而非重复展示空结论");
+assert.match(evidenceView, /已完成AI筛选·资料不足/, "资料不足结果必须明确显示已筛选且不评级");
 const workflow = read("workflows/ai-screening.ts");
 assert.match(workflow, /Promise\.all\(batch\.map/, "AI任务必须按可控并发持续执行，单条失败不能终止整批任务");
 assert.doesNotMatch(workflow, /Promise\.race\(\[analysis, deadline\]\)/, "工作流不得用30秒整客户硬超时中断证据收集");

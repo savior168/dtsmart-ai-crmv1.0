@@ -17,7 +17,8 @@ export type TaskItem = {
 
 export type AiResult = {
   id: string; task_id: string; customer_id: string; strategy: "SMART" | "DEEP"; strategy_version: string;
-  score: number; grade: string; target_decision: string; industry_type?: string | null; summary?: string | null; ai_reason?: string | null;
+  score: number | null; grade: string | null; target_decision: string; industry_type?: string | null; summary?: string | null; ai_reason?: string | null;
+  decision_status?: string | null; business_scope?: string | null; company_scale?: string | null; company_scale_evidence?: string | null;
   business_relevance?: string | null; customer_value?: string | null; followup_suggestion?: string | null;
   confidence_score?: number | null; evidence_sufficiency?: string | null; analyzed_channels?: string[]; skipped_channels?: unknown[];
   evidence_conflicts?: string[]; early_stop_reason?: string | null; total_tokens: number; cost_usd: number; completed_at?: string | null;
