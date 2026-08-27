@@ -221,7 +221,6 @@ export function websiteRecordMatchesEntity(customer: CustomerRow, records: Chann
     identityNameSimilarity(customer.company_name, pageText),
     identityNameSimilarity(google?.name, pageText),
   );
-  const nameMatch = nameSimilarity >= 0.5;
   const strongNameMatch = nameSimilarity >= 0.75;
   const knownPhones = [customer.phone, google?.phone]
     .map((value) => normalizePhoneInternational(value, customer.country))
@@ -236,9 +235,11 @@ export function websiteRecordMatchesEntity(customer: CustomerRow, records: Chann
     const normalized = compactIdentity(value);
     return normalized.length >= 6 && (compactIdentity(pageText).includes(normalized.slice(0, 32)) || identitySimilarity(value, pageText) >= 0.55);
   });
-  // 电话或企业邮箱域名属于强信号；Google具体商家已严格匹配时，Google绑定官网+页面名称
-  // 形成双重信号；没有Google时则要求页面名称和域名/地址同时吻合。
-  return phoneMatch || emailDomainMatch || (exactGoogleWebsite && nameMatch) || (strongNameMatch && (domainNameMatch || Boolean(pageAddress)));
+  // 电话或企业邮箱域名属于强信号。Google具体商家已通过名称、地址、电话、
+  // Place ID等多信号严格匹配时，该商家资料绑定的可访问官网本身就是权威关联，
+  // 即使页面由脚本渲染而没有在首屏重复商家名称，也必须继续抓取分析。
+  // 非Google绑定的原始网址仍要求页面名称和域名/地址形成交叉信号。
+  return phoneMatch || emailDomainMatch || exactGoogleWebsite || (strongNameMatch && (domainNameMatch || Boolean(pageAddress)));
 }
 
 // 保留旧导出名，避免已有测试或调用方中断。
