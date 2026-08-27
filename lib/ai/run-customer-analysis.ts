@@ -72,8 +72,8 @@ function durableError(error: unknown, stage: string) {
 
 export function resultLeadPriority(insufficientData: boolean, level: CustomerAnalysis["ai_level"]) {
   // ai_screening_results.lead_priority is NOT NULL in production. An
-  // evidence-insufficient customer is still a completed screening result, but
-  // receives no score/grade and the lowest workflow priority.
+  // low-evidence customer is still a completed, scored screening result, but
+  // receives the lowest workflow priority.
   return insufficientData ? "LOW" : level;
 }
 
@@ -278,6 +278,61 @@ function policyEvidenceFromAnalysis(analysis: CustomerAnalysis): PolicyEvidence[
 
 function splitContacts(value?: string | null) {
   return String(value || "").split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
+}
+
+const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|铁路|电气|食品/;
+
+function recordBusinessText(record?: ChannelRecord) {
+  if (!record?.evidence) return "";
+  if (record.channel === "google_maps") {
+    const item = record.evidence as GooglePlaceEvidence;
+    // 商家名称和Google分类只用于主体定位；这里只使用商家描述和评论，
+    // 避免把名称中的 Repair/Serwis 或单一平台分类误当成经营事实。
+    return [item.description, ...(item.reviews || [])].filter(Boolean).join("；");
+  }
+  const item = record.evidence as WebsiteEvidence;
+  return [item.description, ...(item.structured_descriptions || []), ...(item.headings || []), item.text_excerpt]
+    .filter(Boolean).join("；");
+}
+
+/**
+ * The model occasionally labels a direct source fact as "neutral". Reconcile
+ * that label against the source-language excerpt before the evidence gate runs.
+ * This never promotes a company name, import tag, or Google category alone.
+ */
+export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: ChannelRecord[]): CustomerAnalysis {
+  const evidenceSummaries = analysis.evidence_summaries.map((summary) => {
+    const source = records.find((record) => record.channel === summary.channel
+      && (!record.source_url || !summary.source_url || record.source_url === summary.source_url));
+    const originalExcerpt = (summary.original_excerpt || recordBusinessText(source)).trim().slice(0, 4000);
+    const labels = [...new Set(verifiedFactLabels(originalExcerpt))];
+    const targetLabels = labels.filter((label) => !NON_TARGET_FACT_LABEL.test(label));
+    const nonTargetLabels = labels.filter((label) => NON_TARGET_FACT_LABEL.test(label));
+    if (summary.evidence_type === "中性" && targetLabels.length && !nonTargetLabels.length) {
+      return {
+        ...summary,
+        fact_zh: `${summary.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字"}明确列出：${targetLabels.slice(0, 6).join("、")}。`,
+        evidence_type: "支持" as const,
+        confidence: Math.max(70, summary.confidence),
+        original_excerpt: originalExcerpt,
+      };
+    }
+    if (summary.evidence_type === "中性" && nonTargetLabels.length && !targetLabels.length) {
+      return {
+        ...summary,
+        fact_zh: `${summary.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字"}明确列出：${nonTargetLabels.slice(0, 6).join("、")}。`,
+        evidence_type: "矛盾" as const,
+        confidence: Math.max(70, summary.confidence),
+        original_excerpt: originalExcerpt,
+      };
+    }
+    return { ...summary, original_excerpt: originalExcerpt || summary.original_excerpt };
+  });
+  return {
+    ...analysis,
+    evidence_sufficiency: analysis.evidence_sufficiency === "不足" ? "一般" : analysis.evidence_sufficiency,
+    evidence_summaries: evidenceSummaries,
+  };
 }
 
 function contactTypeForUrl(value?: string | null): ContactType {
@@ -760,7 +815,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   };
 }
 
-function insufficientDataAnalysis(customer: CustomerRow, records: ChannelRecord[]): CustomerAnalysis {
+export function insufficientDataAnalysis(customer: CustomerRow, records: ChannelRecord[]): CustomerAnalysis {
   const collected = records.filter((item) => item.status === "COLLECTED");
   const failed = records.filter((item) => item.status === "FAILED");
   const collectedText = collected.length
@@ -769,30 +824,32 @@ function insufficientDataAnalysis(customer: CustomerRow, records: ChannelRecord[
   const limitation = failed.length
     ? `；${failed.map((item) => AI_CHANNEL_LABELS[item.channel]).join("、")}未能取得有效公开内容`
     : "";
-  const reason = `${collectedText}${limitation}。本次筛选已完成；系统未使用客户名称、导入标签或原始分类臆测行业，因此不评级、不打分。`;
+  const sourceCount = new Set(collected.map((item) => item.channel)).size;
+  const locatorCount = [effectiveWebsite(customer), customer.google_url, customer.phone, customer.email].filter(Boolean).length;
+  const score = Math.min(39, 8 + sourceCount * 7 + Math.min(8, locatorCount * 2));
+  const reason = `${collectedText}${limitation}。本次公开检索已完成；未发现能够证明目标业务的经营事实，因此按低销售优先级评为D级${score}分。该分数表示当前目标价值，不代表凭空判定企业行业。`;
   const attemptEvidence = records.flatMap((record) => {
     const url = record.source_url || channelUrl(customer, record.channel);
     if (!url || !/^https?:\/\//i.test(url)) return [];
     const label = AI_CHANNEL_LABELS[record.channel];
     const fact = record.status === "COLLECTED"
-      ? `已读取${label}；本次采集到的可解析文字中未发现足以确认手机、电脑维修配件、批发分销或明确非目标行业的直接经营事实，系统未据此推断行业。`
-      : `已尝试读取${label}，本次未取得可解析的公开页面内容；该读取结果未作为行业或评分依据。`;
+      ? `已读取${label}；本次可解析公开内容中未发现手机或电脑维修配件、批发分销、进口采购等目标经营事实。`
+      : `已尝试读取${label}；本次未取得可解析的公开页面内容，该来源仅作为已执行检索记录。`;
     return [{ channel: record.channel, title_zh: `${label}采集记录`, fact_zh: fact, source_url: url, evidence_type: "中性" as const, confidence: 100, original_excerpt: "" }];
   }).slice(0, 5);
   return {
-    // 内部保持合法行业枚举；资料不足时最终写回会将行业、分数和等级留空。
     industry_type: "其他",
     is_target_customer: false,
-    ai_score: 0,
+    ai_score: score,
     ai_level: "D",
     ai_reason: reason,
-    business_relevance: "现有公开资料不足以确认该企业的实际经营范围，不能据此判断与手机、电脑配件业务的相关程度。",
-    customer_value: "暂不判断客户价值；需要补充可匹配的官网、具体Google商家页或其他官方公开主页后再分析。",
-    followup_suggestion: "如需继续开发，请先补充或核验企业官网、具体Google商家页及有效联系方式，再创建新的AI筛选任务。",
-    confidence_score: 0,
-    evidence_sufficiency: "不足",
+    business_relevance: "本次已完成可用公开入口检索，但没有发现与手机、电脑维修配件、批发分销或采购相关的可核验经营事实，当前按低相关度处理。",
+    customer_value: "当前未发现可支持销售开发的目标业务事实，列为低优先级客户；后续如新增有效公开入口可重新分析。",
+    followup_suggestion: "暂不进入重点开发名单；保留来源链接供复核，后续补充官网、具体Google商家页或官方企业主页后可重新筛选。",
+    confidence_score: Math.min(59, 30 + sourceCount * 8),
+    evidence_sufficiency: "一般",
     evidence_conflicts: [],
-    score_breakdown: emptyBreakdown(0),
+    score_breakdown: { ...emptyBreakdown(score), evidence_completeness: Math.min(49, 20 + sourceCount * 10), contradiction_risk: 45 },
     suggested_contact_order: [],
     evidence_summaries: attemptEvidence,
     usage: { ...ZERO_USAGE, model: "NO_MODEL" },
@@ -1037,9 +1094,27 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
 async function completeFromReusableCache(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy }, customer: CustomerRow, cache: Record<string, unknown>, started: number) {
   const admin = createAdminClient();
   const cachedResult = (cache.analysis_result && typeof cache.analysis_result === "object" ? cache.analysis_result : {}) as Record<string, unknown>;
+  const cachedScoreValue = Number(cachedResult.score ?? cachedResult.ai_score);
+  const cachedScore = Number.isFinite(cachedScoreValue)
+    ? Math.max(0, Math.min(100, Math.round(cachedScoreValue)))
+    : 20;
+  const normalizedCachedResult = {
+    ...cachedResult,
+    score: cachedScore,
+    grade: scoreToLevel(cachedScore),
+    customer_type: cachedResult.customer_type || cachedResult.industry_type || "其他",
+    industry_type: cachedResult.industry_type || cachedResult.customer_type || "其他",
+    evidence_sufficiency: cachedResult.evidence_sufficiency === "不足" || !cachedResult.evidence_sufficiency
+      ? "一般"
+      : cachedResult.evidence_sufficiency,
+    target_fit: cachedResult.target_fit || "NOT_TARGET",
+    lead_priority: cachedResult.lead_priority || "LOW",
+    decision_status: cachedResult.decision_status || "AUTO_HOLD",
+    manual_review_status: cachedResult.manual_review_status || "NEEDS_REVIEW",
+  };
   const now = new Date().toISOString();
   const resultPayload = {
-    ...cachedResult,
+    ...normalizedCachedResult,
     customer_id: customer.id,
     task_id: input.taskId,
     task_item_id: input.taskItemId,
@@ -1082,9 +1157,9 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   const websiteEmail = mergedVerifiedContactValues(customer, cachedContacts.contacts, "EMAIL");
   const websitePhone = mergedVerifiedContactValues(customer, cachedContacts.contacts, "PHONE");
   const customerWrite = await admin.from("customers").update({
-      industry: cachedResult.industry_type || cachedResult.customer_type,
-      ai_score: cachedResult.score,
-      ai_level: cachedResult.grade,
+    industry: normalizedCachedResult.industry_type,
+    ai_score: normalizedCachedResult.score,
+    ai_level: normalizedCachedResult.grade,
       ai_reason: cachedResult.ai_reason || cachedResult.summary,
       is_target_customer: cachedResult.target_decision === "VALID" ? true : cachedResult.target_decision === "INVALID" ? false : null,
       ai_screening_done: true,
@@ -1228,6 +1303,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
     await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "MODEL_COMPLETED", startedAt: started, details: { model_calls: usage.model_calls, total_tokens: usage.total_tokens } });
 
+    analysis = normalizeAnalysisEvidence(analysis, records);
     const identity = resolveIdentity(customer, records, analysis);
     const policyEvidence = policyEvidenceFromAnalysis(analysis);
     const primaryIndustry = primaryIndustryFor(analysis.industry_type);
@@ -1239,7 +1315,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       hasCriticalConflict: analysis.evidence_conflicts.length > 0 || ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
-    const insufficientData = gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length;
+    const needsReview = gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length;
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
     // Conflicting official sources remain visible in customer_contacts for
     // manual verification, but are not written into the customer's usable
@@ -1251,20 +1327,20 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const skippedChannels = records.filter((item) => item.status !== "COLLECTED").map((item) => ({ channel: item.channel, status: item.status, reason: item.error }));
     const retryAt = null;
     const google = records.find((item) => item.channel === "google_maps")?.evidence as GooglePlaceEvidence | undefined;
-    const businessScope = insufficientData ? null : verifiedBusinessScope(analysis);
+    const businessScope = verifiedBusinessScope(analysis);
     const verifiedScale = verifiedCompanyScale(records);
     const scaleSignals = verifiedScale.companyScaleEvidence ? [verifiedScale.companyScaleEvidence] : [];
     const resultPayload = {
       customer_id: customer.id, task_id: input.taskId, task_item_id: input.taskItemId,
-      score: insufficientData ? null : analysis.ai_score, grade: insufficientData ? null : analysis.ai_level,
-      target_decision: insufficientData ? "REVIEW" : compatibilityTargetDecision(gate.automationStatus), automation_status: gate.automationStatus,
-      customer_type: insufficientData ? null : analysis.industry_type, industry_type: insufficientData ? null : analysis.industry_type,
+      score: analysis.ai_score, grade: analysis.ai_level,
+      target_decision: compatibilityTargetDecision(gate.automationStatus), automation_status: gate.automationStatus,
+      customer_type: analysis.industry_type, industry_type: analysis.industry_type,
       primary_industry: primaryIndustry, secondary_industries: [], business_activities: businessScope ? [businessScope] : [],
       business_scope: businessScope,
       company_scale: verifiedScale.companyScale,
       company_scale_evidence: verifiedScale.companyScaleEvidence,
-      industry_confidence: insufficientData ? 0 : analysis.confidence_score, identity_confidence: identity.confidence,
-      decision_confidence: insufficientData ? 0 : analysis.confidence_score, contact_confidence: reconciled.preferred ? (reconciled.preferred.identityStatus === "MATCHED" ? 90 : 55) : 0,
+      industry_confidence: analysis.confidence_score, identity_confidence: identity.confidence,
+      decision_confidence: analysis.confidence_score, contact_confidence: reconciled.preferred ? (reconciled.preferred.identityStatus === "MATCHED" ? 90 : 55) : 0,
       scale_confidence: scaleSignals.length ? 90 : 0, evidence_sufficiency_score: Math.min(100, policyEvidence.filter((item) => item.kind !== "中性").length * 20),
       identity_status: identity.status, identity_details: identity,
       verified_business_name: identity.verifiedBusinessName, verified_address: identity.verifiedAddress,
@@ -1290,16 +1366,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       pricing_snapshot: usage.pricing_snapshot, model_snapshot: { primary_model: usage.model }, completed_at: new Date().toISOString(),
       score_breakdown: analysis.score_breakdown,
       entity_match: identity,
-      manual_review_status: insufficientData ? "INSUFFICIENT_DATA" : "NOT_REVIEWED",
+      manual_review_status: needsReview ? "NEEDS_REVIEW" : "NOT_REVIEWED",
       suggested_contact_order: analysis.suggested_contact_order,
       discovered_contacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps, contacts: reconciled.contacts },
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
-      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "INSUFFICIENT_DATA",
-      lead_priority: resultLeadPriority(insufficientData, analysis.ai_level),
+      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : "NOT_TARGET",
+      lead_priority: resultLeadPriority(needsReview, analysis.ai_level),
       purchase_scale: verifiedScale.companyScale || "UNKNOWN",
-      decision_status: insufficientData ? "INSUFFICIENT_DATA" : gate.automationStatus,
-      short_reason: insufficientData ? analysis.ai_reason : gate.reason,
+      decision_status: gate.automationStatus,
+      short_reason: needsReview ? analysis.ai_reason : gate.reason,
       attempt_number: input.attemptNumber || 1,
       is_latest_valid: false,
       writeback_status: "PENDING",
@@ -1430,10 +1506,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
 
     const customerUpdate = {
-      industry: insufficientData || primaryIndustry === "UNKNOWN" ? customer.industry : analysis.industry_type,
-      ai_score: insufficientData ? null : analysis.ai_score, ai_level: insufficientData ? null : analysis.ai_level,
+      industry: analysis.industry_type,
+      ai_score: analysis.ai_score, ai_level: analysis.ai_level,
       ai_reason: analysis.ai_reason,
-      is_target_customer: insufficientData ? null : gate.automationStatus === "AUTO_DEVELOP" ? true : false,
+      is_target_customer: gate.automationStatus === "AUTO_DEVELOP",
       ai_screening_done: true, ai_status: "COMPLETED",
       business_relevance: analysis.business_relevance, customer_value: analysis.customer_value,
       followup_suggestion: analysis.followup_suggestion, website_email: websiteEmail || null,

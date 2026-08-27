@@ -67,7 +67,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
     const grade = item.result?.grade || item.customer?.ai_level || "-";
     const score = item.result?.score ?? item.customer?.ai_score;
     if (!item.result?.grade && item.result?.score == null && item.customer?.ai_score == null) {
-      return <span className="inline-flex rounded-md bg-amber-50 px-2 py-1 font-medium text-amber-700">资料不足</span>;
+      return <span className="inline-flex min-w-[62px] justify-center rounded-md bg-rose-50 px-2 py-1 font-semibold text-rose-700">D · 0</span>;
     }
     const color = grade === "A" ? "bg-emerald-50 text-emerald-700" : grade === "B" ? "bg-blue-50 text-blue-700" : grade === "C" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700";
     return <span className={`inline-flex min-w-[62px] justify-center rounded-md px-2 py-1 font-semibold ${color}`}>{grade} · {score ?? "-"}</span>;

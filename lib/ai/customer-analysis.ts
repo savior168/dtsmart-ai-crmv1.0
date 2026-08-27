@@ -376,15 +376,15 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   if (score > 94 && !verifiedProcurement) score = 94;
   if (score > 96 && !verifiedLargeRecentProcurement) score = 96;
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
-  const insufficientReason = evidence.length
-    ? "本次仅取得有限的可核验公开信息，证据不足以确认其目标业务属性，建议补充公开入口后重新分析。"
-    : "本次未取得可追溯的公开页面证据，暂不能确认该客户是否属于目标行业，请补充有效官网、谷歌地图或企业主页后重新分析。";
+  const lowEvidenceReason = evidence.length
+    ? `已完成公开来源检索；现有可核验内容没有出现足以证明手机、电脑维修配件或批发分销业务的经营事实，因此按低相关度D级${score}分处理。`
+    : `已完成可用公开入口检索，但没有取得可追溯的目标经营事实，因此按低销售优先级D级${score}分处理；后续新增有效公开入口后可重新分析。`;
   const normalizedIndustry = itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : analysis.industry_type;
   const aiReason = itSupportOnly
     ? `公开证据仅显示该企业提供IT系统、网络、NAS、服务器或计算机技术支持，未发现电脑硬件维修及配件更换服务，因此不属于目标客户，综合评分${score}分。`
     : evidenceSufficient
     ? `公开证据显示：${evidenceLead}。据此将其归类为“${analysis.industry_type}”，并按业务匹配、经营规模、采购事实、经营活跃度、证据闭环、可联系性及风险综合评分${score}分。`
-    : insufficientReason;
+    : lowEvidenceReason;
   const scoreBreakdown = evidenceSufficient ? {
     ...analysis.score_breakdown,
     wholesale_import_distribution: verifiedBuyingRole ? analysis.score_breakdown.wholesale_import_distribution : Math.min(35, Number(analysis.score_breakdown.wholesale_import_distribution) || 0),
@@ -409,17 +409,17 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     ai_level: scoreToLevel(score),
     is_target_customer: !itSupportOnly && !(computerRepairClaim && !verifiedComputerHardwareRepair) && evidenceSufficient && score >= 60 && confidence >= 60,
     confidence_score: confidence,
-    evidence_sufficiency: evidenceSufficient ? (strongEnoughForHighConfidence ? analysis.evidence_sufficiency : "一般") : "不足",
+    evidence_sufficiency: evidenceSufficient ? (strongEnoughForHighConfidence ? analysis.evidence_sufficiency : "一般") : "一般",
     ai_reason: aiReason,
     business_relevance: itSupportOnly
       ? "现有证据属于IT系统、网络、NAS、服务器或计算机技术支持，不包含电脑硬件维修或维修配件更换，因此与目标业务不匹配。"
-      : evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : insufficientReason,
+      : evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : lowEvidenceReason,
     customer_value: evidenceSufficient
       ? verifiedBuyingRole || verifiedChain || verifiedProcurement
         ? ensureChinese(analysis.customer_value, verifiedProcurement ? "已取得可核验的相关产品采购事实，可结合采购日期、产品、数量或金额制定销售方案。" : "已取得批发、分销、连锁或高业务量证据，具体采购品类和规模仍需销售确认。")
         : "已确认实际经营目标行业，但尚无可核验的批发、进口、分销或实际采购记录；采购能力和规模必须由销售沟通确认。"
-      : "待核验：当前公开证据不足，不能可靠判断采购价值。",
-    followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : "先核验企业主体并补充有效公开入口，证据充分后再制定销售开发计划。",
+      : "当前没有发现能够支持销售开发的目标经营事实，按低优先级管理；后续出现新的公开经营证据时可重新评估。",
+    followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : "暂不进入重点开发名单；保留已检索来源，后续补充官网、具体Google商家页或官方企业主页后可重新筛选。",
     score_breakdown: scoreBreakdown,
     evidence_conflicts: (Array.isArray(analysis.evidence_conflicts) ? analysis.evidence_conflicts : []).filter(hasChinese).slice(0, 20),
     suggested_contact_order: (Array.isArray(analysis.suggested_contact_order) ? analysis.suggested_contact_order : []).filter(Boolean).slice(0, 6),
