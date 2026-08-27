@@ -711,72 +711,139 @@ export async function collectGooglePlaceEvidence(input: {
   google_url?: string | null;
   phone?: string | null;
   website?: string | null;
+  place_id?: string | null;
 }, options: FetchOptions = {}): Promise<GooglePlaceEvidence | undefined> {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
-  const publicEvidence = await collectPublicGooglePlaceEvidence(input, options);
-  if (publicEvidence && ["MATCHED", "LIKELY_MATCHED"].includes(String(publicEvidence.identity_status))) return publicEvidence;
-  if (!apiKey) return publicEvidence || {
-    configured: false, query, types: [], reviews: [], emails: [],
-    error: "未能从公开Google商家页定位到与名称和地址一致的具体企业。",
-  };
+  if (!apiKey) {
+    const publicEvidence = await collectPublicGooglePlaceEvidence(input, options);
+    return publicEvidence || {
+      configured: false, query, types: [], reviews: [], emails: [],
+      error: "未能从公开Google商家页定位到与名称和地址一致的具体企业。",
+    };
+  }
 
-  const request = requestSignal(options, 4500);
+  // Cost-controlled Places API (New) flow:
+  // 1. Search only for Place IDs (currently an unlimited free SKU).
+  // 2. Read the minimum Pro fields for the top-ranked candidate and only try a
+  //    second/third candidate when identity matching is still ambiguous.
+  // 3. Read Enterprise contact fields only after the entity is matched and the
+  //    customer is missing an official phone or website.
+  // Public Maps parsing remains a fallback for API/network failures; it is no
+  // longer the primary path when a server-side key is configured.
+  const request = requestSignal(options, 12_000);
   try {
-    type Candidate = { place_id?: string; name?: string; formatted_address?: string; business_status?: string; rating?: number; user_ratings_total?: number; types?: string[] };
-    const directPlaceId = googlePlaceIdFromUrl(input.google_url);
-    let candidates: Candidate[] = directPlaceId ? [{ place_id: directPlaceId }] : [];
-    if (!candidates.length) {
-      const searchUrl = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
-      searchUrl.searchParams.set("query", query);
-      searchUrl.searchParams.set("key", apiKey);
-      const searchResponse = await fetchWithRetry(searchUrl, { signal: request.signal });
-      const searchPayload = await searchResponse.json() as {
-        status?: string;
-        error_message?: string;
-        results?: Candidate[];
-      };
-      candidates = (searchPayload.results || []).filter((item) => item.place_id).slice(0, 5);
-      if (!searchResponse.ok || !candidates.length) {
-        return { configured: true, query, types: [], reviews: [], emails: [], error: searchPayload.error_message || searchPayload.status || "PLACE_NOT_FOUND" };
+    type LocalizedText = { text?: string; languageCode?: string };
+    type PlaceDetail = {
+      id?: string;
+      displayName?: LocalizedText;
+      formattedAddress?: string;
+      businessStatus?: string;
+      types?: string[];
+      primaryType?: string;
+      primaryTypeDisplayName?: LocalizedText;
+      googleMapsUri?: string;
+      photos?: Array<{ name?: string }>;
+      internationalPhoneNumber?: string;
+      nationalPhoneNumber?: string;
+      websiteUri?: string;
+      rating?: number;
+      userRatingCount?: number;
+      regularOpeningHours?: { weekdayDescriptions?: string[] };
+    };
+    const placesHeaders = (fieldMask: string) => ({
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": fieldMask,
+    });
+    const detailUrl = (placeId: string) => `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`;
+    const readDetail = async (placeId: string, fieldMask: string): Promise<PlaceDetail | null> => {
+      const response = await fetchWithRetry(detailUrl(placeId), {
+        signal: request.signal,
+        headers: placesHeaders(fieldMask),
+      });
+      if (!response.ok) return null;
+      return await response.json() as PlaceDetail;
+    };
+
+    const directPlaceId = input.place_id?.trim() || googlePlaceIdFromUrl(input.google_url);
+    let candidateIds = directPlaceId ? [directPlaceId] : [];
+    if (!candidateIds.length) {
+      const searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        signal: request.signal,
+        headers: placesHeaders("places.id"),
+        body: JSON.stringify({ textQuery: query, pageSize: 3, languageCode: "zh-CN" }),
+      });
+      const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
+      candidateIds = (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
+      if (!searchResponse.ok || !candidateIds.length) {
+        const fallback = await collectPublicGooglePlaceEvidence(input, options);
+        return fallback || {
+          configured: true, query, types: [], reviews: [], emails: [], candidate_count: 0,
+          identity_status: "NOT_FOUND", identity_confidence: 0,
+          error: searchPayload.error?.message || "未找到匹配的Google商家。",
+        };
       }
     }
-    type Detail = { place_id: string; name?: string; formatted_address?: string; business_status?: string; rating?: number; user_ratings_total?: number; types?: string[]; website?: string; formatted_phone_number?: string; reviews?: Array<{ text?: string }> };
-    const details = (await Promise.all(candidates.map(async (candidate): Promise<Detail | null> => {
-      const detailsUrl = new URL("https://maps.googleapis.com/maps/api/place/details/json");
-      detailsUrl.searchParams.set("place_id", candidate.place_id!);
-      detailsUrl.searchParams.set("fields", "place_id,name,formatted_address,business_status,rating,user_ratings_total,types,website,formatted_phone_number,reviews,url");
-      detailsUrl.searchParams.set("key", apiKey);
-       const response = await fetchWithRetry(detailsUrl, { signal: request.signal });
-      const payload = await response.json() as { result?: Omit<Detail, "place_id">; status?: string };
-      return response.ok && payload.result ? { ...candidate, ...payload.result, place_id: candidate.place_id! } : null;
-    }))).filter((item): item is Detail => Boolean(item));
-    if (!details.length) return { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidates.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "PLACE_DETAILS_NOT_FOUND" };
+
+    const proFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri,photos";
+    const details: PlaceDetail[] = [];
+    for (const candidateId of candidateIds) {
+      const item = await readDetail(candidateId, proFields);
+      if (item) details.push(item);
+      // A specific supplied Place ID is already the exact entity; there is no
+      // reason to spend another request on other candidates.
+      if (directPlaceId && item) break;
+      // Most Text Search requests rank the intended entity first. A near-exact
+      // name plus address is enough to avoid additional paid candidate reads.
+      if (item && nameSimilarity(input.company_name, item.displayName?.text) >= 0.88
+        && (!input.address || addressIdentityScore(input.address, item.formattedAddress) >= 0.55)) break;
+    }
+    if (!details.length) {
+      const fallback = await collectPublicGooglePlaceEvidence(input, options);
+      return fallback || { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
+    }
     const normalize = (value?: string | null) => String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-    const tokens = (value?: string | null) => new Set(normalize(value).split(/\s+/).filter((item) => item.length > 1));
-    const similarity = (a?: string | null, b?: string | null) => {
-      const left = tokens(a); const right = tokens(b); if (!left.size || !right.size) return 0;
-      const common = [...left].filter((item) => right.has(item)).length;
-      return common / Math.max(left.size, right.size);
-    };
     const domain = (value?: string | null) => { try { return new URL(/^https?:\/\//i.test(String(value)) ? String(value) : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
     const phone = (value?: string | null) => String(value || "").replace(/\D/g, "");
     const scored = details.map((item) => {
       const matchSignals: string[] = []; const mismatchSignals: string[] = [];
-      const nameScore = Math.round(similarity(input.company_name, item.name) * 45);
-      if (nameScore >= 36) matchSignals.push("商家名称高度一致"); else mismatchSignals.push("商家名称未达到高度一致");
-      const addressScore = Math.round(similarity(input.address, item.formatted_address) * 25);
-      if (addressScore >= 18) matchSignals.push("地址信息一致"); else if (input.address) mismatchSignals.push("地址信息不足或不一致");
-      const countryScore = input.country && normalize(item.formatted_address).includes(normalize(input.country)) ? 10 : 0;
+      const candidateName = item.displayName?.text || "";
+      const candidateNameSimilarity = nameSimilarity(input.company_name, candidateName);
+      const nameScore = Math.round(candidateNameSimilarity * 55);
+      if (nameScore >= 44) matchSignals.push("商家名称高度一致"); else mismatchSignals.push("商家名称未达到高度一致");
+      const addressSimilarity = addressIdentityScore(input.address, item.formattedAddress);
+      const addressScore = Math.round(addressSimilarity * 35);
+      if (addressScore >= 21) matchSignals.push("地址信息一致"); else if (input.address) mismatchSignals.push("地址信息不足或不一致");
+      const countryScore = input.country && normalize(item.formattedAddress).includes(normalize(input.country)) ? 10 : 0;
       if (countryScore) matchSignals.push("国家或地区一致");
-      const websiteScore = domain(input.website) && domain(input.website) === domain(item.website) ? 55 : 0;
-      if (websiteScore) matchSignals.push("官网域名一致"); else if (input.website && item.website) mismatchSignals.push("官网域名不一致");
-      const phoneScore = phone(input.phone).length >= 7 && phone(input.phone) === phone(item.formatted_phone_number) ? 20 : 0;
-      if (phoneScore) matchSignals.push("电话号码一致"); else if (input.phone && item.formatted_phone_number) mismatchSignals.push("电话号码不一致");
-      return { item, score: Math.min(100, nameScore + addressScore + countryScore + websiteScore + phoneScore), matchSignals, mismatchSignals };
+      const specificUrlScore = input.google_url && /google\.[^/]+\/maps\/(?:place|search)/i.test(input.google_url) && candidateNameSimilarity >= 0.55 ? 25 : 0;
+      if (specificUrlScore) matchSignals.push("客户提供的Google商家入口与候选名称一致");
+      const directIdScore = directPlaceId && item.id === directPlaceId ? 35 : 0;
+      if (directIdScore) matchSignals.push("Google Place ID一致");
+      return { item, score: Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore), matchSignals, mismatchSignals };
     }).sort((a, b) => b.score - a.score);
-    const top = scored[0]; const runnerUp = scored[1];
+    let top = scored[0]; const runnerUp = scored[1];
+
+    // Contact/rating fields are Enterprise-priced. Request them once, and only
+    // for the selected entity when they are needed for contact discovery or to
+    // resolve an otherwise ambiguous identity. Reviews and photo media are not
+    // requested here because they trigger higher-cost SKUs.
+    const needsContactEnrichment = !input.phone || !input.website || top.score < 70;
+    if (top.item.id && needsContactEnrichment) {
+      const enterprise = await readDetail(top.item.id, "id,internationalPhoneNumber,nationalPhoneNumber,websiteUri,rating,userRatingCount,regularOpeningHours");
+      if (enterprise) {
+        top = { ...top, item: { ...top.item, ...enterprise } };
+        const websiteScore = domain(input.website) && domain(input.website) === domain(enterprise.websiteUri) ? 35 : 0;
+        const enterprisePhone = enterprise.internationalPhoneNumber || enterprise.nationalPhoneNumber;
+        const phoneScore = phone(input.phone).length >= 7 && phone(input.phone) === phone(enterprisePhone) ? 25 : 0;
+        if (websiteScore) top.matchSignals.push("官网域名一致");
+        if (phoneScore) top.matchSignals.push("电话号码一致");
+        top.score = Math.min(100, top.score + websiteScore + phoneScore);
+      }
+    }
     const closeCandidates = Boolean(runnerUp && top.score - runnerUp.score < 10);
     const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = closeCandidates
       ? "AMBIGUOUS"
@@ -791,29 +858,31 @@ export async function collectGooglePlaceEvidence(input: {
     const evidence: GooglePlaceEvidence = {
       configured: true,
       query,
-      name: result.name,
-      formatted_address: result.formatted_address,
-      business_status: result.business_status,
+      name: result.displayName?.text,
+      formatted_address: result.formattedAddress,
+      business_status: result.businessStatus,
       rating: result.rating,
-      user_ratings_total: result.user_ratings_total,
-      types: result.types || [],
-      website: result.website,
-      phone: result.formatted_phone_number,
+      user_ratings_total: result.userRatingCount,
+      types: unique([result.primaryTypeDisplayName?.text || "", result.primaryType || "", ...(result.types || [])]).filter(Boolean),
+      website: result.websiteUri,
+      phone: result.internationalPhoneNumber || result.nationalPhoneNumber,
+      opening_hours: result.regularOpeningHours?.weekdayDescriptions || [],
       // Google Places does not expose a business email. Review text belongs to
       // reviewers and must never be promoted to the merchant's contact data.
       emails: [],
-      reviews: (result.reviews || []).map((review) => review.text || "").filter(Boolean).slice(0, 5),
-      place_id: result.place_id,
+      reviews: [],
+      place_id: result.id,
       candidate_count: details.length,
       identity_status: identityStatus,
       identity_confidence: top.score,
       match_signals: top.matchSignals,
       mismatch_signals: top.mismatchSignals,
-      verified_google_maps_url: `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(result.place_id)}`,
+      verified_google_maps_url: result.googleMapsUri || (result.id ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(result.id)}` : input.google_url || undefined),
     };
     return evidence;
   } catch (error) {
-    return { configured: true, query, types: [], reviews: [], emails: [], error: error instanceof Error ? error.message : "google place fetch failed" };
+    const fallback = await collectPublicGooglePlaceEvidence(input, options);
+    return fallback || { configured: true, query, types: [], reviews: [], emails: [], error: error instanceof Error ? error.message : "Google商家读取失败" };
   } finally {
     request.clear();
   }

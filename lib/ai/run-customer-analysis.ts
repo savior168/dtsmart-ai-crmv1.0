@@ -921,7 +921,7 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer) }, { signal, timeoutMs: 12_000 })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id }, { signal, timeoutMs: 12_000 })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
@@ -1189,6 +1189,8 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
       ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(cachedContacts.contacts, "INSTAGRAM") }),
       ...(customer.linkedin_url ? {} : { linkedin_url: firstVerifiedContact(cachedContacts.contacts, "LINKEDIN") }),
       ...(customer.tiktok_url ? {} : { tiktok_url: firstVerifiedContact(cachedContacts.contacts, "TIKTOK") }),
+      ...(customer.google_place_id ? {} : { google_maps_place_id: cachedResult.place_id || null }),
+      ...(customer.google_url ? {} : { google_url: cachedResult.verified_google_maps_url || null }),
       ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: now,
       updated_at: now,
@@ -1534,6 +1536,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(reconciled.contacts, "INSTAGRAM") }),
       ...(customer.linkedin_url ? {} : { linkedin_url: firstVerifiedContact(reconciled.contacts, "LINKEDIN") }),
       ...(customer.tiktok_url ? {} : { tiktok_url: firstVerifiedContact(reconciled.contacts, "TIKTOK") }),
+      ...(customer.google_place_id ? {} : { google_maps_place_id: google?.place_id || null }),
+      ...(customer.google_url ? {} : { google_url: google?.verified_google_maps_url || null }),
       ai_last_result_id: resultWrite.data.id,
       ai_last_screened_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
