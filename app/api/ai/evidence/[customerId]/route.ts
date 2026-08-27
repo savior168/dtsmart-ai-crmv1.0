@@ -49,12 +49,16 @@ function normalizeEvidence(row: Record<string, unknown>) {
   const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata as Record<string, unknown> : {};
   const mediaUrls = Array.isArray(metadata.media_urls) ? metadata.media_urls.filter((item): item is string => typeof item === "string" && /^https?:\/\//i.test(item)) : [];
   const matchStatus = typeof row.identity_match_status === "string" ? row.identity_match_status : "unverified";
+  const originalExcerpt = typeof row.original_excerpt === "string" && row.original_excerpt.trim()
+    ? row.original_excerpt.trim().slice(0, 1200)
+    : null;
   return {
     id: row.id,
     source_type: CHANNEL_LABELS[channel] || "公开信息来源",
     source_url: typeof row.source_url === "string" ? row.source_url : null,
     title: `${CHANNEL_LABELS[channel] || "公开信息"}关键依据`,
     content: readableFact(row),
+    original_excerpt: originalExcerpt,
     evidence_type: row.evidence_type === "支持" || row.evidence_type === "矛盾" ? row.evidence_type : "中性",
     evidence_confidence: typeof row.evidence_confidence === "number" ? row.evidence_confidence : null,
     identity_match_label: MATCH_LABELS[matchStatus] || "主体待核验",

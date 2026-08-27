@@ -50,6 +50,8 @@ export type CustomerAnalysis = {
     source_url: string;
     evidence_type: "支持" | "矛盾" | "中性";
     confidence: number;
+    /** Source-language excerpt captured from the referenced page. Never synthesized. */
+    original_excerpt?: string;
   }>;
   usage: {
     model: string;
@@ -285,11 +287,19 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     })
     .slice(0, 5);
   const supporting = evidence.filter((item) => item.evidence_type === "支持" && item.confidence >= 60);
+  const contradicting = evidence.filter((item) => item.evidence_type === "矛盾" && item.confidence >= 60);
   const independentSources = new Set(supporting.map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
   const hasStrongDirectEvidence = supporting.some((item) =>
     ["website", "google_maps"].includes(item.channel)
       && /(?:手机维修|手机配件|电脑维修|电脑配件|批发|经销|分销|进口|永久关闭)/.test(item.fact_zh));
-  const evidenceSufficient = hasStrongDirectEvidence || (supporting.length >= 2 && independentSources >= 2);
+  const hasStrongDirectContradiction = contradicting.some((item) =>
+    ["website", "google_maps"].includes(item.channel)
+      && /(?:软件|IT服务|技术支持|网络|NAS|服务器|运营商|永久关闭|已停业|食品|铁路|电气安全)/.test(item.fact_zh));
+  // A verified official source can conclusively prove a non-target business as
+  // well. Requiring positive evidence here used to turn real negative findings
+  // into the misleading generic "insufficient information" state.
+  const evidenceSufficient = hasStrongDirectEvidence || hasStrongDirectContradiction
+    || (supporting.length >= 2 && independentSources >= 2);
   const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
   const supportingText = supporting.map((item) => item.fact_zh).join("；");
   const allEvidenceText = evidence.map((item) => item.fact_zh).join("；");

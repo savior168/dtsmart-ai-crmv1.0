@@ -64,7 +64,7 @@ export function evidenceStrengthFor(evidence: PolicyEvidence): EvidenceStrength 
     && /(?:分类|类别)/.test(fact)
     && /(?:手机维修|电脑维修|电子产品维修)/.test(fact)
     && !/(?:换屏|屏幕更换|换电池|电池更换|尾插|充电口|主板|维修评论|维修工作台|拆机|内配件)/.test(fact);
-  const directRejectFact = /(?:计算机服务|计算机技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|software|IT support|technical support|managed services|network setup|NAS setup|server maintenance)/i.test(fact);
+  const directRejectFact = /(?:计算机服务|计算机技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|软件开发|云服务|网络托管|运营商套餐|SIM卡|食品批发|铁路工程|铁路安全|电气安全|software|IT support|technical support|managed services|network setup|NAS setup|server maintenance)/i.test(fact);
   // A page path such as /services or /contact is not evidence by itself. Strong
   // evidence requires a concrete business fact from an authoritative source.
   if (googleRepairCategoryOnly) return "MEDIUM_CORROBORATING";
@@ -103,8 +103,12 @@ export function evaluateEvidenceGate(input: {
   };
   const positiveEnough = sufficient(positive);
   const negativeEnough = sufficient(negative);
-  const identityThreshold = 90;
-  const industryThreshold = 90;
+  // MATCHED already means the collector found a strong exact-name, domain,
+  // phone or address chain. Requiring 90 again rejected exact public entities
+  // whose raw score was 80-89, even when an official page supplied direct
+  // business facts.
+  const identityThreshold = 80;
+  const industryThreshold = 82;
   const evidenceIds = usable.map((item) => item.sourceId).filter((item): item is string => Boolean(item));
 
   if (input.identityStatus !== "MATCHED" || input.identityConfidence < identityThreshold) {

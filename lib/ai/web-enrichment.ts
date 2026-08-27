@@ -275,7 +275,31 @@ async function readTextLimited(response: Response, maxBytes = 350_000) {
       break;
     }
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  const bytes = Buffer.concat(chunks);
+  // Legacy non-UTF-8 sites are still common internationally. Respect the
+  // declared charset so multilingual business evidence is not corrupted.
+  const headerCharset = response.headers.get("content-type")?.match(/charset\s*=\s*["']?([^;\s"']+)/i)?.[1];
+  const asciiPreview = bytes.subarray(0, Math.min(bytes.length, 8192)).toString("latin1");
+  const metaCharset = asciiPreview.match(/<meta[^>]+charset\s*=\s*["']?([^\s"'/>;]+)/i)?.[1]
+    || asciiPreview.match(/<meta[^>]+content=["'][^"']*charset\s*=\s*([^\s"';>]+)/i)?.[1];
+  const declared = String(headerCharset || metaCharset || "utf-8").trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    utf8: "utf-8",
+    "iso-8859-1": "windows-1252",
+    latin1: "windows-1252",
+    gb2312: "gbk",
+    "gb_2312-80": "gbk",
+    "shift-jis": "shift_jis",
+    sjis: "shift_jis",
+    "x-sjis": "shift_jis",
+    eucjp: "euc-jp",
+    "ks_c_5601-1987": "euc-kr",
+  };
+  try {
+    return new TextDecoder(aliases[declared] || declared).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
 }
 
 async function fetchPublic(url: string, init: RequestInit, maxRedirects = 3): Promise<Response> {
@@ -491,6 +515,19 @@ function textSimilarity(left?: string | null, right?: string | null) {
   return [...a].filter((item) => b.has(item)).length / Math.max(a.size, b.size);
 }
 
+function addressIdentityScore(left?: string | null, right?: string | null) {
+  const a = normalizedWords(left); const b = normalizedWords(right);
+  if (!a.size || !b.size) return 0;
+  const important = [...a].filter((item) => /\d/.test(item) || item.length >= 4);
+  const overlap = important.filter((item) => b.has(item)).length;
+  const postal = [...a].find((item) => /\d/.test(item) && item.length >= 4);
+  const postalMatch = Boolean(postal && b.has(postal));
+  const streetNumber = [...a].find((item) => /^\d+[a-z]?$/.test(item));
+  const streetNumberMatch = Boolean(streetNumber && b.has(streetNumber));
+  const ratio = important.length ? overlap / important.length : textSimilarity(left, right);
+  return Math.min(1, ratio + (postalMatch ? 0.25 : 0) + (streetNumberMatch ? 0.15 : 0));
+}
+
 function nameSimilarity(left?: string | null, right?: string | null) {
   const compactLeft = String(left || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const compactRight = String(right || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -600,7 +637,8 @@ async function collectPublicGooglePlaceEvidence(input: {
       const phone = String(phoneBlock[0] || "");
        const candidateNameSimilarity = nameSimilarity(input.company_name, name);
        const nameScore = Math.round(candidateNameSimilarity * 45);
-      const addressScore = Math.round(textSimilarity(input.address, address) * 35);
+      const addressSimilarity = addressIdentityScore(input.address, address);
+      const addressScore = Math.round(addressSimilarity * 45);
       // A candidate exposing the exact customer-supplied official domain is a
       // much stronger identity signal than a loose name overlap. This is still
       // identity evidence only; the page content/types must separately prove
@@ -636,7 +674,7 @@ async function collectPublicGooglePlaceEvidence(input: {
     // CID/search endpoints above are implementation details used to read its
     // public payload and must not replace the user-verifiable source link.
     const verifiedUrl = isSpecificPlaceUrl ? providedUrl! : typeof top.row[42] === "string" ? top.row[42] : searchPage;
-    const matchSignals = [top.score >= 35 ? "商家名称一致" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", textSimilarity(input.address, top.address) >= 0.45 ? "完整地址一致" : "", input.country && String(input.country).toUpperCase() === top.countryCode ? "国家代码一致" : "", domain(input.website) && domain(input.website) === domain(top.website) ? "公开网站一致" : "", digits(input.phone).length >= 7 && digits(input.phone) === digits(top.phone) ? "电话号码一致" : ""].filter(Boolean);
+    const matchSignals = [top.score >= 35 ? "商家名称一致" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", addressIdentityScore(input.address, top.address) >= 0.7 ? "完整地址一致" : "", input.country && String(input.country).toUpperCase() === top.countryCode ? "国家代码一致" : "", domain(input.website) && domain(input.website) === domain(top.website) ? "公开网站一致" : "", digits(input.phone).length >= 7 && digits(input.phone) === digits(top.phone) ? "电话号码一致" : ""].filter(Boolean);
     return {
       configured: false,
       query,

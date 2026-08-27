@@ -24,7 +24,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const latestAi = await admin.from("ai_screening_results").select("*").eq("customer_id", id).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED").order("completed_at", { ascending: false }).limit(1).maybeSingle();
     if (latestAi.error) throw latestAi.error;
     const evidence = latestAi.data
-      ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false })
+      ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,original_excerpt,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false })
       : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     const verifiedContacts = await admin.from("customer_contacts")
