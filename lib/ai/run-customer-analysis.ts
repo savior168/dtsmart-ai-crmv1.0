@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.27.2";
+const ANALYSIS_VERSION = "2026.08.27.3";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -180,6 +180,69 @@ function effectiveWebsite(customer: CustomerRow) {
   const domain = emailBusinessDomain(customer.email);
   return domain ? `https://${domain}` : null;
 }
+
+const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia)\./i;
+
+function websiteHost(value?: string | null) {
+  try {
+    return new URL(/^https?:\/\//i.test(String(value || "")) ? String(value) : `https://${value}`).hostname
+      .replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** Google返回网址后仍须先通过具体商家主体门槛，不能把目录或同名企业当官网。 */
+export function verifiedOfficialWebsiteFromGoogle(records: ChannelRecord[]) {
+  const record = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
+  const google = record?.evidence as GooglePlaceEvidence | undefined;
+  const candidate = String(google?.website || "").trim();
+  const host = websiteHost(candidate);
+  if (!candidate || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return null;
+  const confidence = Number(google?.identity_confidence || 0);
+  const strongSignals = (google?.match_signals || []).filter((signal) => /名称|地址|电话|官网|域名|具体Google商家入口|Place ID/.test(signal));
+  if (google?.identity_status !== "MATCHED" || confidence < 90 || strongSignals.length < 2 || (google?.mismatch_signals || []).length) return null;
+  return candidate;
+}
+
+/**
+ * 官网页面自身必须再次证明它属于当前客户。
+ * 客户填写的网址和Google返回的网址都只视为定位线索，不能仅因URL存在就参与分析或联系方式回写。
+ */
+export function websiteRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], websiteRecord: ChannelRecord) {
+  if (websiteRecord.status !== "COLLECTED" || !websiteRecord.evidence) return false;
+  const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  const website = websiteRecord.evidence as WebsiteEvidence;
+  const host = websiteHost(website.url);
+  if (!website.reachable || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return false;
+  const pageText = [website.title, website.description, ...(website.structured_names || []), ...(website.structured_descriptions || []), website.text_excerpt]
+    .filter(Boolean).join(" ");
+  const nameSimilarity = Math.max(
+    identityNameSimilarity(customer.company_name, pageText),
+    identityNameSimilarity(google?.name, pageText),
+  );
+  const nameMatch = nameSimilarity >= 0.5;
+  const strongNameMatch = nameSimilarity >= 0.75;
+  const knownPhones = [customer.phone, google?.phone]
+    .map((value) => normalizePhoneInternational(value, customer.country))
+    .filter(Boolean);
+  const phoneMatch = website.phones.some((value) => knownPhones.includes(normalizePhoneInternational(value, customer.country)));
+  const customerDomain = emailBusinessDomain(customer.email);
+  const emailDomainMatch = Boolean(customerDomain && (host === customerDomain || host.endsWith(`.${customerDomain}`)));
+  const googleWebsite = verifiedOfficialWebsiteFromGoogle(records);
+  const exactGoogleWebsite = Boolean(googleWebsite && websiteHost(googleWebsite) === host);
+  const domainNameMatch = identityNameSimilarity(customer.company_name, host.replace(/\./g, " ")) >= 0.55;
+  const pageAddress = [customer.address, google?.formatted_address].filter(Boolean).find((value) => {
+    const normalized = compactIdentity(value);
+    return normalized.length >= 6 && (compactIdentity(pageText).includes(normalized.slice(0, 32)) || identitySimilarity(value, pageText) >= 0.55);
+  });
+  // 电话或企业邮箱域名属于强信号；Google具体商家已严格匹配时，Google绑定官网+页面名称
+  // 形成双重信号；没有Google时则要求页面名称和域名/地址同时吻合。
+  return phoneMatch || emailDomainMatch || (exactGoogleWebsite && nameMatch) || (strongNameMatch && (domainNameMatch || Boolean(pageAddress)));
+}
+
+// 保留旧导出名，避免已有测试或调用方中断。
+export const discoveredWebsiteMatchesEntity = websiteRecordMatchesEntity;
 
 function compactIdentity(value?: string | null) {
   return String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -1236,6 +1299,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   let analysis: CustomerAnalysis | null = null;
   let usage = { ...ZERO_USAGE };
   let earlyStopReason: string | null = null;
+  let discoveredOfficialWebsite: string | null = null;
   try {
     // Both modes start with the two highest-value public sources. Secondary
     // channels are collected in small batches only when the primary evidence
@@ -1250,6 +1314,34 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         if (index >= 0) records[index] = current; else records.push(current);
       }
       await saveCheckpoint(input.taskItemId, records, pendingChannels[pendingChannels.length - 1]);
+    }
+
+    // The original website and Google Places are collected concurrently. When
+    // an exact matched Place supplies a missing official website, the old flow
+    // discovered it too late and never read it. Fetch it now, then require the
+    // fetched page itself to corroborate the business identity before allowing
+    // its evidence or contacts into the pipeline.
+    const websiteIndex = records.findIndex((item) => item.channel === "website");
+    let currentWebsite = websiteIndex >= 0 ? records[websiteIndex] : undefined;
+    const currentWebsiteVerified = Boolean(currentWebsite && websiteRecordMatchesEntity(customer, records, currentWebsite));
+    if (currentWebsite?.status === "COLLECTED" && !currentWebsiteVerified) {
+      // 保留页面和失败原因供任务审计，但FAILED记录不会进入模型证据、评分或联系方式写回。
+      currentWebsite = { ...currentWebsite, status: "FAILED", error: "官网页面与当前客户主体交叉校验未通过" };
+      records[websiteIndex] = currentWebsite;
+      await saveCheckpoint(input.taskItemId, records, "website");
+    }
+
+    const googleWebsite = verifiedOfficialWebsiteFromGoogle(records);
+    if (googleWebsite && !currentWebsiteVerified) {
+      const candidate = await collectChannel({ ...customer, website: googleWebsite }, "website", analysisController.signal);
+      if (websiteRecordMatchesEntity(customer, records, candidate)) {
+        discoveredOfficialWebsite = googleWebsite;
+        // 原网址无法证明主体时，使用Google具体商家绑定且经页面二次核验的官网。
+        const index = records.findIndex((item) => item.channel === "website");
+        if (index >= 0) records[index] = candidate; else records.push(candidate);
+        currentWebsite = candidate;
+        await saveCheckpoint(input.taskItemId, records, "website");
+      }
     }
     await recordStage({
       taskId: input.taskId,
@@ -1531,6 +1623,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       business_scope: businessScope,
       company_scale: verifiedScale.companyScale || customer.company_scale || null,
       company_scale_evidence: verifiedScale.companyScaleEvidence || customer.company_scale_evidence || null,
+      ...(!customer.website && discoveredOfficialWebsite && identity.status === "MATCHED"
+        ? { website: discoveredOfficialWebsite }
+        : {}),
       ...(customer.whatsapp ? {} : { whatsapp: firstVerifiedContact(reconciled.contacts, "WHATSAPP") }),
       ...(customer.facebook_url ? {} : { facebook_url: firstVerifiedContact(reconciled.contacts, "FACEBOOK") }),
       ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(reconciled.contacts, "INSTAGRAM") }),
