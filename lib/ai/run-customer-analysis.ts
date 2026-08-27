@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.27.1";
+const ANALYSIS_VERSION = "2026.08.27.2";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -301,32 +301,35 @@ function recordBusinessText(record?: ChannelRecord) {
  * This never promotes a company name, import tag, or Google category alone.
  */
 export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: ChannelRecord[]): CustomerAnalysis {
-  const evidenceSummaries = analysis.evidence_summaries.map((summary) => {
-    const source = records.find((record) => record.channel === summary.channel
-      && (!record.source_url || !summary.source_url || record.source_url === summary.source_url));
-    const originalExcerpt = (summary.original_excerpt || recordBusinessText(source)).trim().slice(0, 4000);
+  const expandedEvidence = analysis.evidence_summaries.flatMap((summary) => {
+    const channelRecords = records.filter((record) => record.channel === summary.channel && record.status === "COLLECTED");
+    // A source may be collected through a broad Maps/search URL and later be
+    // canonicalized to the concrete place URL returned by Google. Do not lose
+    // the business description merely because those two audit URLs differ.
+    const source = channelRecords.find((record) => !record.source_url || !summary.source_url || record.source_url === summary.source_url)
+      || channelRecords[0];
+    const originalExcerpt = [...new Set([summary.original_excerpt, recordBusinessText(source)].map((item) => String(item || "").trim()).filter(Boolean))]
+      .join("；").slice(0, 4000);
     const labels = [...new Set(verifiedFactLabels(originalExcerpt))];
-    const targetLabels = labels.filter((label) => !NON_TARGET_FACT_LABEL.test(label));
-    const nonTargetLabels = labels.filter((label) => NON_TARGET_FACT_LABEL.test(label));
-    if (summary.evidence_type === "中性" && targetLabels.length && !nonTargetLabels.length) {
-      return {
-        ...summary,
-        fact_zh: `${summary.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字"}明确列出：${targetLabels.slice(0, 6).join("、")}。`,
-        evidence_type: "支持" as const,
-        confidence: Math.max(70, summary.confidence),
-        original_excerpt: originalExcerpt,
-      };
-    }
-    if (summary.evidence_type === "中性" && nonTargetLabels.length && !targetLabels.length) {
-      return {
-        ...summary,
-        fact_zh: `${summary.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字"}明确列出：${nonTargetLabels.slice(0, 6).join("、")}。`,
-        evidence_type: "矛盾" as const,
-        confidence: Math.max(70, summary.confidence),
-        original_excerpt: originalExcerpt,
-      };
-    }
+    // Keep every verified operating fact as an individual, clickable evidence
+    // row. This applies equally to target and non-target businesses: users
+    // should see what the source actually proved, never a generic template.
+    if (labels.length) return labels.slice(0, 10).map((label, index) => ({
+      ...summary,
+      title_zh: `${summary.channel === "google_maps" ? "Google商家" : "企业官网"}经营事实${labels.length > 1 ? ` ${index + 1}` : ""}`,
+      fact_zh: `${summary.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字"}明确显示：${label}。`,
+      evidence_type: NON_TARGET_FACT_LABEL.test(label) ? "矛盾" as const : "支持" as const,
+      confidence: Math.max(70, summary.confidence),
+      original_excerpt: originalExcerpt,
+    }));
     return { ...summary, original_excerpt: originalExcerpt || summary.original_excerpt };
+  });
+  const seen = new Set<string>();
+  const evidenceSummaries = expandedEvidence.filter((item) => {
+    const key = `${item.channel}|${item.source_url}|${item.fact_zh}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
   return {
     ...analysis,
@@ -484,6 +487,7 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
       business_status: google.business_status,
       types: (google.types || []).slice(0, 8),
       reviews: (google.reviews || []).slice(0, deep ? 3 : 2).map((review) => review.slice(0, deep ? 220 : 160)),
+      description: google.description?.slice(0, deep ? 800 : 520),
       image_urls: (google.image_urls || []).slice(0, deep ? 2 : 1),
       video_urls: [],
       emails: (google.emails || []).slice(0, 3),
@@ -511,9 +515,9 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|(?:repair|fix|service|care)[\s\S]{0,100}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,100}(?:repair|fix|service|care)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix|service|care)[\s\S]{0,100}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,100}(?:repair|fix|service|care)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
@@ -578,6 +582,8 @@ function deterministicScore(input: {
   };
   const googleDirectTargetEvidence = matchingRecords.some((record) => record.channel === "google_maps" && directTargetPattern.test(recordTargetText(record)));
   const websiteDirectTargetEvidence = matchingRecords.some((record) => record.channel === "website" && directTargetPattern.test(recordTargetText(record)));
+  const googleDirectBusinessEvidence = matchingRecords.some((record) => record.channel === "google_maps"
+    && verifiedFactLabels(recordTargetText(record)).some((label) => !NON_TARGET_FACT_LABEL.test(label)));
   const verifiedContacts = input.records.some((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     const evidence = record.evidence as WebsiteEvidence & GooglePlaceEvidence;
@@ -622,6 +628,11 @@ function deterministicScore(input: {
   // a real repair-parts usage scenario. They must not collapse into D merely
   // because a second platform omitted the same wording.
   if (input.rule.target && websiteDirectTargetEvidence && specificServices >= 2) rawScore = Math.max(rawScore, 72);
+  // A subject-matched Google business description that explicitly says it
+  // repairs phones/laptops or sells their accessories is direct operating
+  // evidence. It is weaker than component-level or multi-source proof, but it
+  // must clear the target threshold instead of being mislabeled as D.
+  if (input.rule.target && googleDirectBusinessEvidence) rawScore = Math.max(rawScore, 62);
   if (completeDirectTargetChain) rawScore = Math.max(rawScore, 85);
   const qualifiesForA = completeDirectTargetChain || (input.rule.target && matchingSources >= 2
     && (verifiedProcurementEvidence || highVolumeRepair || (wholesale && scaleValue >= 15)));
@@ -650,8 +661,8 @@ function deterministicScore(input: {
 }
 
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
-  { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono).{0,28}(?:repair|service|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur).{0,28}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)|手机维修/i },
-  { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador).{0,28}(?:repair|service|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur).{0,28}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
+  { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)|手机维修/i },
+  { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
   { label: "屏幕或玻璃更换", pattern: /(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
   { label: "电池更换", pattern: /(?:battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
   { label: "充电口或接口维修", pattern: /(?:charging port|charge port|dock connector|usb port|ladebuchse|puerto de carga|port de charge|connettore di ricarica|充电口|尾插)/i },
@@ -659,6 +670,7 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "板级或元器件级维修", pattern: /(?:component[- ]level repair|board[- ]level repair|microsoldering|micro soldering|板级维修|元器件级维修)/i },
   { label: "键盘或触控板维修", pattern: /(?:keyboard|trackpad|touchpad|klawiatur|teclado|clavier|tastiera|键盘|触控板).{0,20}(?:replacement|repair|wymian|napraw|repar|r[eé]paration|sostituzione|更换|维修)/i },
   { label: "手机或电脑维修配件销售", pattern: /(?:repair parts?|spare parts?|replacement parts?|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|内配件)/i },
+  { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|covers?|screen protectors?|adapters?|chargers?|earphones?|smart ?watch|手机壳|保护膜|充电器|耳机|手机配件|平板配件)/i },
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
   { label: "软件开发、云服务或网络托管", pattern: /(?:software development|software company|cloud services|web hosting|cyber ?security|软件开发|软件公司|云服务|网络托管|信息安全)/i },

@@ -376,10 +376,11 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   if (score > 94 && !verifiedProcurement) score = 94;
   if (score > 96 && !verifiedLargeRecentProcurement) score = 96;
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
-  const lowEvidenceReason = evidence.length
-    ? `已完成公开来源检索；现有可核验内容没有出现足以证明手机、电脑维修配件或批发分销业务的经营事实，因此按低相关度D级${score}分处理。`
-    : `已完成可用公开入口检索，但没有取得可追溯的目标经营事实，因此按低销售优先级D级${score}分处理；后续新增有效公开入口后可重新分析。`;
+  const allEvidenceLead = evidence.slice(0, 4).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const normalizedIndustry = itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : analysis.industry_type;
+  const lowEvidenceReason = evidence.length
+    ? `公开来源实际识别到：${allEvidenceLead}。据此将该企业归类为“${normalizedIndustry}”；上述事实未证明其经营手机、电脑维修配件或相关批发分销业务，因此综合评为D级${score}分。每条事实均保留来源链接供核验。`
+    : `已完成可用公开入口检索，但没有取得可追溯的目标经营事实，因此按低销售优先级D级${score}分处理；后续新增有效公开入口后可重新分析。`;
   const aiReason = itSupportOnly
     ? `公开证据仅显示该企业提供IT系统、网络、NAS、服务器或计算机技术支持，未发现电脑硬件维修及配件更换服务，因此不属于目标客户，综合评分${score}分。`
     : evidenceSufficient
@@ -418,8 +419,8 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
       ? verifiedBuyingRole || verifiedChain || verifiedProcurement
         ? ensureChinese(analysis.customer_value, verifiedProcurement ? "已取得可核验的相关产品采购事实，可结合采购日期、产品、数量或金额制定销售方案。" : "已取得批发、分销、连锁或高业务量证据，具体采购品类和规模仍需销售确认。")
         : "已确认实际经营目标行业，但尚无可核验的批发、进口、分销或实际采购记录；采购能力和规模必须由销售沟通确认。"
-      : "当前没有发现能够支持销售开发的目标经营事实，按低优先级管理；后续出现新的公开经营证据时可重新评估。",
-    followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : "暂不进入重点开发名单；保留已检索来源，后续补充官网、具体Google商家页或官方企业主页后可重新筛选。",
+      : `已核验的经营事实指向“${normalizedIndustry}”，当前与目标业务匹配度较低；如需复核，可逐条打开已保存的来源页面。`,
+    followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : `先核对已保存的“${normalizedIndustry}”经营证据；仅在出现手机、电脑维修配件或相关采购事实后转入销售开发。`,
     score_breakdown: scoreBreakdown,
     evidence_conflicts: (Array.isArray(analysis.evidence_conflicts) ? analysis.evidence_conflicts : []).filter(hasChinese).slice(0, 20),
     suggested_contact_order: (Array.isArray(analysis.suggested_contact_order) ? analysis.suggested_contact_order : []).filter(Boolean).slice(0, 6),
