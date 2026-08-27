@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser, writeAudit } from "@/lib/auth/current-user";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 
+// Only user-entered source data is editable here. AI conclusions, verified
+// contacts, ownership and workflow state must be changed by their dedicated
+// server-side flows so an operator cannot overwrite traceable analysis data.
 const writable = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
-  "website", "google_url", "address", "industry", "category", "source", "tags",
-  "rating", "ai_score", "ai_level", "ai_reason", "is_target_customer",
-  "ai_screening_done", "website_email", "website_phone", "business_relevance",
-  "customer_value", "followup_suggestion", "notes", "status", "followup_status",
+  "website", "google_url", "address", "category", "tags", "notes",
+  "store_name", "product_image", "store_score", "review_count",
 ];
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -28,9 +29,17 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
-    delete payload.ai_screening_done;
-    delete payload.website_email;
-    delete payload.website_phone;
+    const [{ data: customer, error: customerError }, { data: profile, error: profileError }] = await Promise.all([
+      supabase.from("customers").select("id,owner_id,created_by,company_name,country").eq("id", id).single(),
+      supabase.from("users").select("role").eq("id", user.id).single(),
+    ]);
+    if (customerError) throw customerError;
+    if (profileError) throw profileError;
+    const canEdit = profile.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
+    if (!canEdit) return NextResponse.json({ error: "只有当前归属人或管理员可以编辑客户原始资料" }, { status: 403 });
+    if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
+    if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
+    if (!(payload.country ?? customer.country)?.toString().trim()) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select().single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_UPDATE", "customer", id, { fields: Object.keys(payload) });

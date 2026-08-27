@@ -164,6 +164,17 @@ const customersView = read("components/customers-view.tsx");
 assert.doesNotMatch(customersView, />\s*跟进待办/, "客户管理页签不得保留跟进待办");
 assert.match(customersView, /CustomerProtectionPanel/, "保护到期必须在客户管理同页切换");
 assert.match(customersView, /CustomerConflictsPanel/, "冲突客户必须在客户管理同页切换");
+const customerDetail = read("components/customer-crm-detail-view.tsx");
+assert.match(customerDetail, /href="\/customers"[\s\S]*返回客户列表/, "客户详情必须提供明确的返回客户列表入口");
+assert.match(customerDetail, /<CountryLabel value=\{customer\.country\}/, "客户详情必须把国家代码转换为国旗和中文国家名称");
+assert.match(customerDetail, /editBasicOnly/, "客户详情编辑必须启用仅原始资料模式");
+assert.match(customerDetail, /AI分析结果（只读）/, "客户详情必须明确标注AI分析数据只读");
+const customerDetailApi = read("app/api/customers/[id]/crm/route.ts");
+assert.match(customerDetailApi, /DEFAULT_90_DAYS[\s\S]*remaining_days/, "没有显式保护记录时必须按归属日起计算默认90天保护期");
+const customerUpdateApi = read("app/api/customers/[id]/route.ts");
+for (const readOnlyField of ["ai_score", "ai_level", "ai_reason", "industry", "website_email", "website_phone", "is_target_customer"]) {
+  assert.doesNotMatch(customerUpdateApi.match(/const writable = \[([\s\S]*?)\];/)?.[1] || "", new RegExp(`\\b${readOnlyField}\\b`), `客户人工编辑接口不得允许覆盖AI字段：${readOnlyField}`);
+}
 const dashboard = read("components/crm-dashboard.tsx");
 assert.match(dashboard, /const protectionPageSize = 4/, "保护到期提醒必须限制单页数量");
 assert.match(dashboard, /visibleProtections\.map/, "保护到期提醒必须只渲染当前页数据");
