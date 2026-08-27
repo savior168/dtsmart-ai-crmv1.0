@@ -59,10 +59,12 @@ export function evidenceStrengthFor(evidence: PolicyEvidence): EvidenceStrength 
   if (evidence.strength) return evidence.strength;
   const channel = evidence.channel.toLowerCase();
   const fact = evidence.fact.toLowerCase();
-  const directBusinessFact = /(?:换屏|更换屏幕|换电池|电池更换|尾插维修|维修预约|维修报价|手机维修|电脑维修|计算机维修|计算机支持与服务|电脑硬件维修|macbook维修|手机配件(?:商店|零售|批发)?|电脑配件(?:商店|零售|批发)?|电子设备维修|电子产品维修|lcd|oled|批发|经销|分销|进口|wholesale|\bb2b\b|\bmoq\b|bulk price|trade account|distributor|dealer|reseller|永久关闭|已停业|只销售手机成品|运营商套餐)/i.test(fact);
+  const directBusinessFact = /(?:换屏|更换屏幕|换电池|电池更换|尾插维修|维修预约|维修报价|手机维修|电脑维修|计算机维修|电脑硬件维修|macbook维修|手机配件(?:商店|零售|批发)?|电脑配件(?:商店|零售|批发)?|电子设备维修|电子产品维修|lcd|oled|批发|经销|分销|进口|wholesale|\bb2b\b|\bmoq\b|bulk price|trade account|distributor|dealer|reseller|永久关闭|已停业|只销售手机成品|运营商套餐)/i.test(fact);
+  const directRejectFact = /(?:计算机服务|计算机技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|software|IT support|technical support|managed services|network setup|NAS setup|server maintenance)/i.test(fact);
   // A page path such as /services or /contact is not evidence by itself. Strong
   // evidence requires a concrete business fact from an authoritative source.
-  if (["website", "google_maps", "customs", "exhibition"].includes(channel) && directBusinessFact) return "STRONG_DIRECT";
+  if (["website", "google_maps", "customs", "exhibition"].includes(channel)
+      && (directBusinessFact || (evidence.kind === "矛盾" && directRejectFact))) return "STRONG_DIRECT";
   if (["website", "google_maps", "linkedin", "business_registry", "directory"].includes(channel)) return "MEDIUM_CORROBORATING";
   return "WEAK_HINT";
 }

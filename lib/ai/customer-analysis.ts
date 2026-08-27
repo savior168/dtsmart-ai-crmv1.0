@@ -65,7 +65,22 @@ export type CustomerAnalysis = {
 export type AnalysisTier = "fast" | "deep" | "escalation";
 
 export function scoreToLevel(score: number): CustomerAnalysis["ai_level"] {
-  return score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : "D";
+  return score >= 85 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D";
+}
+
+export const COMPUTER_HARDWARE_REPAIR_EVIDENCE_PATTERN = /(?:电脑硬件维修|计算机硬件维修|电脑维修店|计算机维修店|电脑屏幕(?:更换|维修)|笔记本屏幕(?:更换|维修)|电脑电池(?:更换|维修)|笔记本电池(?:更换|维修)|键盘(?:更换|维修)|充电器(?:更换|维修)|充电口(?:更换|维修)|主板(?:维修|更换)|硬盘(?:更换|升级)|内存(?:更换|升级)|computer hardware repair|computer repair shop|laptop repair|pc repair|screen replacement|battery replacement|keyboard replacement|charging port repair|motherboard repair|hardware repair|computerreparatur|laptopreparatur|naprawa (?:komputer[oó]w|laptop[oó]w)|serwis (?:komputer[oó]w|laptop[oó]w)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’])?(?:ordinateur|informatique))/i;
+export const IT_SUPPORT_EVIDENCE_PATTERN = /(?:计算机服务|计算机技术支持|电脑技术支持|IT系统|IT技术支持|信息技术支持|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci)/i;
+
+export function isComputerHardwareRepairEvidence(text: string) {
+  const withoutNegatedRepair = text.replace(
+    /(?:不提供|未提供|没有|并无|不含|未发现)(?:任何)?[^。；，]{0,16}(?:电脑硬件维修|计算机硬件维修|电脑维修|计算机维修|屏幕更换|电池更换|键盘更换|主板维修)/gi,
+    "",
+  );
+  return COMPUTER_HARDWARE_REPAIR_EVIDENCE_PATTERN.test(withoutNegatedRepair);
+}
+
+export function isItSupportWithoutHardwareRepair(text: string) {
+  return IT_SUPPORT_EVIDENCE_PATTERN.test(text) && !isComputerHardwareRepairEvidence(text);
 }
 
 function responseText(payload: Record<string, unknown>): string {
@@ -89,13 +104,14 @@ const systemPrompt = `你是 DTSmart TradeOS 的B2B客户筛选专家。只能�
 我们的业务是一站式手机和电脑维修配件外贸批发，核心产品包括手机/LCD/OLED屏幕、触摸屏总成、iPhone和MacBook屏幕、电池、MacBook键盘及上盖、充电尾插和排线、马达、摄像头、听筒、扬声器、麦克风、内部排线、主板维修配件、维修工具和耗材。
 A级高价值客户优先包括配件进口商、批发商、代理/经销/分销商、为维修门店供货的供应商、多门店维修连锁、具有海关采购记录或专业展会证据且有批量采购能力的企业。B级潜在客户包括稳定经营的手机/iPhone/MacBook/电脑维修店、兼营配件的门店及有持续补货需求的电商卖家。
 个人消费者、纯软件公司、无关企业、只卖整机且无维修配件业务的商家、官方直营店、无配件采购业务的运营商营业厅、永久停业机构和主体无法核实的数据通常不是目标客户。
+“计算机服务”“计算机技术支持”以及仅提供IT系统、网络、NAS、服务器的设置、维护、管理或故障排除，属于软件或IT服务，不属于电脑维修目标客户。只有公开证据明确出现电脑硬件维修，或屏幕、电池、键盘、充电器/充电口、主板、硬盘、内存等硬件更换维修，才可归为电脑维修店并获得60分以上。
 电话或邮箱缺失不能直接判为非目标；单独出现mobile、phone、computer等词也不能直接判为目标。必须结合主体一致性、经营范围、产品/服务、活跃度、批发进口属性和采购可能性。
 EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任务标签只表示数据如何进入系统，绝不是进口商、批发商或任何行业属性证据，严禁用于行业归类和评分。
 客户名称、原始地址、原始电话、原始邮箱、原始行业、分类、标签、搜索关键词、数据来源和原始网址全部只是定位线索LOCATOR_HINT，不是VERIFIED_EVIDENCE。它们不得进入支持性证据、不得增加评分、不得单独决定行业或有效/无效。
 手机成品零售、SIM卡或套餐销售不能证明手机维修；手机壳、保护膜、耳机、数据线、充电器只能证明外配件；维修店不能自动判为批发商。维修店需要换屏、换电池、尾插维修、维修预约、维修报价、近期维修评论或官方维修案例等明确证据。批发、进口或分销需要wholesale、B2B、MOQ、bulk price、trade account、distributor、dealer、reseller、向维修店供货、批量目录或身份匹配的海关记录。
 没有真实采购证据时只能写“采购能力待销售核验”，不得声称已有采购能力、采购规模或进口记录。无法确认所属行业时必须归类为“其他”，不得为了填满字段强行分类。
 行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、已关闭、其他。无法确认时必须选择“其他”。
-评分：85-100为A，70-84为B，50-69为C，0-49为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度。A级必须有可追溯的配件批发、进口、分销、B2B供货、连锁或实际采购能力证据，不得仅因为是手机/电脑维修店就评A。单一维修门店最高B级，只有一条分类证据的普通门店通常应为C级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
+评分：85-100为A，70-84为B，60-69为C，0-59为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度。A级必须有可追溯的目标配件批发、进口、分销、B2B供货、多门店连锁或实际采购能力证据，并由至少两个独立公开来源相互印证；不得仅因为名称含有批发/维修，或仅凭单一页面就评A。单一维修门店最高B级，只有一条直接行业证据的普通门店通常应为C级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
 ai_reason必须引用实际证据；business_relevance、customer_value和followup_suggestion必须可供销售直接使用。evidence_conflicts列出证据矛盾，没有则返回空数组。
 score_breakdown的每个维度必须依据输入证据独立评分；contradiction_risk越高表示风险越大。suggested_contact_order按优先顺序给出实际可执行的联系渠道或动作。
@@ -240,7 +256,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const seenEvidence = new Set<string>();
   const evidence = [...(Array.isArray(analysis.evidence_summaries) ? analysis.evidence_summaries : []), ...structuredGoogleEvidence(input)]
     .filter((item) => item && hasChinese(item.fact_zh) && hasChinese(item.title_zh) && sameOrChildUrl(item.source_url, allowedUrls))
-    .map((item) => ({ ...item, title_zh: cleanEvidenceText(item.title_zh).slice(0, 180), fact_zh: cleanEvidenceText(item.fact_zh), confidence: Math.max(0, Math.min(100, Math.round(Number(item.confidence) || 0))) }))
+    .map((item) => {
+      const fact = cleanEvidenceText(item.fact_zh);
+      return {
+        ...item,
+        title_zh: cleanEvidenceText(item.title_zh).slice(0, 180),
+        fact_zh: fact,
+        evidence_type: isItSupportWithoutHardwareRepair(fact) ? "矛盾" as const : item.evidence_type,
+        confidence: Math.max(0, Math.min(100, Math.round(Number(item.confidence) || 0))),
+      };
+    })
     .filter((item) => item.fact_zh && !/GOOGLE_MAPS_API_KEY|fetch failed|EXCEL_IMPORT|MANUAL|CSV_IMPORT/i.test(item.fact_zh))
     .sort((a, b) => {
       const rank = (item: typeof a) => (/(?:手机维修|手机配件|电脑维修|电脑配件|批发|经销|分销|进口|永久关闭)/.test(item.fact_zh) ? 100 : 0)
@@ -262,6 +287,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const evidenceSufficient = hasStrongDirectEvidence || (supporting.length >= 2 && independentSources >= 2);
   const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
   const supportingText = supporting.map((item) => item.fact_zh).join("；");
+  const allEvidenceText = evidence.map((item) => item.fact_zh).join("；");
   const verifiedProductFit = /(?:手机|电脑|iPhone|iPad|MacBook|LCD|OLED|屏幕|电池|配件|维修件|触摸屏|尾插|排线|摄像头)/i.test(supportingText);
   const verifiedBuyingRole = /(?:配件批发|配件进口|配件分销|B2B|MOQ|批量供货|渠道供货|经销商|代理商|采购记录|海关记录|批发商|进口商|分销商)/i.test(supportingText);
   const verifiedChain = /(?:连锁|多家门店|多门店|分店)/.test(supportingText);
@@ -269,6 +295,9 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     .filter((pattern) => pattern.test(supportingText)).length;
   const repairOrRetail = /(?:维修店|外配件零售|维修内配件零售|手机成品零售|综合电子产品零售)/.test(analysis.industry_type);
   const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|已关闭|其他)$/.test(analysis.industry_type);
+  const computerRepairClaim = analysis.industry_type === "电脑维修店";
+  const verifiedComputerHardwareRepair = isComputerHardwareRepairEvidence(supportingText);
+  const itSupportOnly = isItSupportWithoutHardwareRepair(allEvidenceText);
   let score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
   let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
   if (!evidenceSufficient) {
@@ -287,12 +316,22 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   }
   if (!verifiedBuyingRole && !verifiedChain && !repairOrRetail) score = Math.min(score, 69);
   if ((verifiedBuyingRole || verifiedChain) && !verifiedProductFit) score = Math.min(score, 49);
+  // Computer support, network/NAS setup and generic troubleshooting are not
+  // hardware repair. A model may not promote them into the target band unless
+  // the saved evidence explicitly names hardware repair or part replacement.
+  if ((computerRepairClaim && !verifiedComputerHardwareRepair) || itSupportOnly) {
+    score = Math.min(score, 39);
+    confidence = Math.min(confidence, evidence.length ? 90 : 25);
+  }
   if (score >= 85 && !(verifiedProductFit && (verifiedBuyingRole || verifiedChain) && strongEnoughForHighConfidence)) score = 84;
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const insufficientReason = evidence.length
     ? "本次仅取得有限的可核验公开信息，证据不足以确认其行业属性和批量采购能力，建议人工核验或补充公开入口后重新分析。"
     : "本次未取得可追溯的公开页面证据，暂不能确认该客户是否属于目标行业，请补充有效官网、谷歌地图或企业主页后重新分析。";
-  const aiReason = evidenceSufficient
+  const normalizedIndustry = itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : analysis.industry_type;
+  const aiReason = itSupportOnly
+    ? `公开证据仅显示该企业提供IT系统、网络、NAS、服务器或计算机技术支持，未发现电脑硬件维修及配件更换服务，因此不属于目标客户，综合评分${score}分。`
+    : evidenceSufficient
     ? `公开证据显示：${evidenceLead}。据此将其归类为“${analysis.industry_type}”，综合评分${score}分；采购规模与实际需求仍需销售沟通确认。`
     : insufficientReason;
   const scoreBreakdown = evidenceSufficient ? {
@@ -314,13 +353,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   };
   return {
     ...analysis,
+    industry_type: normalizedIndustry,
     ai_score: score,
     ai_level: scoreToLevel(score),
-    is_target_customer: evidenceSufficient && score >= 60 && confidence >= 60,
+    is_target_customer: !itSupportOnly && !(computerRepairClaim && !verifiedComputerHardwareRepair) && evidenceSufficient && score >= 60 && confidence >= 60,
     confidence_score: confidence,
     evidence_sufficiency: evidenceSufficient ? (strongEnoughForHighConfidence ? analysis.evidence_sufficiency : "一般") : "不足",
     ai_reason: aiReason,
-    business_relevance: evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : insufficientReason,
+    business_relevance: itSupportOnly
+      ? "现有证据属于IT系统、网络、NAS、服务器或计算机技术支持，不包含电脑硬件维修或维修配件更换，因此与目标业务不匹配。"
+      : evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : insufficientReason,
     customer_value: evidenceSufficient
       ? verifiedBuyingRole || verifiedChain
         ? ensureChinese(analysis.customer_value, "已取得批发、分销、连锁或采购角色证据，具体采购品类和规模仍需销售确认。")

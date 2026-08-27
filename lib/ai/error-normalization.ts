@@ -77,9 +77,10 @@ export function normalizeError(error: unknown, context: ErrorContext): Normalize
   const message = rawMessage && rawMessage !== "[object Object]"
     ? rawMessage
     : compactJson(error) || "未返回可识别的错误信息";
-  const inferredCode = /OPENAI_/i.test(message) ? message.match(/OPENAI_[A-Z0-9_]+/i)?.[0]
+  const leadingCode = message.match(/^([A-Z0-9_]{3,120})\s*[：:]/i)?.[1];
+  const inferredCode = leadingCode || (/OPENAI_/i.test(message) ? message.match(/OPENAI_[A-Z0-9_]+/i)?.[0]
     : /GOOGLE_/i.test(message) ? message.match(/GOOGLE_[A-Z0-9_]+/i)?.[0]
-      : undefined;
+      : undefined);
   const code = textValue(root.code, nested.code, cause.code, inferredCode, status ? `HTTP_${status}` : "", "UNKNOWN_ERROR")
     .replace(/[^A-Z0-9_:-]+/gi, "_").toUpperCase().slice(0, 120);
   const requestId = textValue(

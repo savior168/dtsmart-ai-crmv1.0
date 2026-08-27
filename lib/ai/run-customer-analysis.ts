@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
-import { analyzeCustomer, type CustomerAnalysis } from "./customer-analysis";
+import {
+  analyzeCustomer,
+  isComputerHardwareRepairEvidence,
+  scoreToLevel,
+  type CustomerAnalysis,
+} from "./customer-analysis";
 import {
   collectDeepWebsiteEvidence,
   collectGooglePlaceEvidence,
@@ -55,6 +60,23 @@ const ZERO_USAGE: UsageTotals = {
   model_calls: 0,
 };
 
+function durableError(error: unknown, stage: string) {
+  if (error instanceof Error && error.message && error.message !== "[object Object]") return error;
+  const normalized = normalizeError(error, { stage });
+  const details = normalized.details ? `；${normalized.details}` : "";
+  const hint = normalized.hint ? `；${normalized.hint}` : "";
+  const result = new Error(`${normalized.error_code}：${normalized.error_message}${details}${hint}`);
+  Object.assign(result, { code: normalized.error_code, details: normalized.details, hint: normalized.hint });
+  return result;
+}
+
+export function resultLeadPriority(insufficientData: boolean, level: CustomerAnalysis["ai_level"]) {
+  // ai_screening_results.lead_priority is NOT NULL in production. An
+  // evidence-insufficient customer is still a completed screening result, but
+  // receives no score/grade and the lowest workflow priority.
+  return insufficientData ? "LOW" : level;
+}
+
 type PipelineStage =
   | "CUSTOMER_LOADED"
   | "SOURCES_COLLECTED"
@@ -90,14 +112,14 @@ async function recordStage(input: {
     duration_ms: durationMs,
     checkpoint: input.details || {},
   }, { onConflict: "task_item_id,stage,attempt_number" });
-  if (event.error) throw event.error;
+  if (event.error) throw durableError(event.error, `STAGE_EVENT_${input.stage}`);
   const item = await admin.from("ai_screening_task_items").update({
     pipeline_stage: input.stage,
     current_step: input.stage,
     checkpoint: { stage: input.stage, completed_at: completedAt, ...(input.details || {}) },
     updated_at: completedAt,
   }).eq("id", input.taskItemId);
-  if (item.error) throw item.error;
+  if (item.error) throw durableError(item.error, `STAGE_ITEM_${input.stage}`);
 }
 
 async function optionalWrite<T>(
@@ -439,7 +461,7 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
   { pattern: /(?:computer repair|pc repair|laptop repair|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
-  { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|软件开发|软件公司|IT咨询|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
+  { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
   { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|运营商营业厅|手机套餐|电信运营商)/i, industry: "运营商营业厅", baseScore: 22, target: false },
 ];
 
@@ -449,6 +471,7 @@ function ruleIsSupported(rule: (typeof RULE_INDUSTRIES)[number], text: string) {
   if (!rule.pattern.test(text)) return false;
   // 任何行业都可以出现“批发/分销”字样；必须同时证明手机、电脑或维修配件产品相关，才能归入高价值渠道客户。
   if (rule.industry === "进口商或分销商") return PRODUCT_RELEVANCE_PATTERN.test(text);
+  if (rule.industry === "电脑维修店") return isComputerHardwareRepairEvidence(text);
   return true;
 }
 
@@ -488,7 +511,14 @@ function deterministicScore(input: {
   const rawScore = input.rule.baseScore + sourceBonus + identityBonus + independentSourceBonus + contactBonus + serviceBonus + activityBonus;
   const repairOnly = /维修店/.test(input.rule.industry);
   const accessoryRetail = input.rule.industry === "手机外配件零售";
-  const score = Math.max(0, Math.min(input.rule.target ? repairOnly ? 84 : accessoryRetail ? 69 : 100 : 39, rawScore));
+  const verifiedProcurementEvidence = input.records.some((record) =>
+    ["customs", "exhibition"].includes(record.channel) && record.status === "COLLECTED",
+  );
+  const qualifiesForA = input.rule.industry === "进口商或分销商"
+    && PRODUCT_RELEVANCE_PATTERN.test(input.candidate.text)
+    && (matchingSources >= 2 || verifiedProcurementEvidence);
+  const targetMaximum = repairOnly ? 84 : accessoryRetail ? 69 : qualifiesForA ? 100 : 84;
+  const score = Math.max(0, Math.min(input.rule.target ? targetMaximum : 39, rawScore));
   const evidenceCompleteness = Math.min(100, 48 + sourceBonus * 5 + independentSourceBonus * 6 + contactBonus * 4 + activityBonus * 3);
   return {
     score,
@@ -611,7 +641,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     industry_type: selected.rule.industry,
     is_target_customer: selected.rule.target,
     ai_score: score,
-    ai_level: score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : "D",
+    ai_level: scoreToLevel(score),
     ai_reason: `已核验${sourceNames}中的公开经营信息：${facts.join("；")}`,
     business_relevance: wholesaleIndustry
       ? `公开来源明确显示该企业从事${selected.rule.industry}相关业务，与手机和电脑配件外贸批发的渠道客户画像直接匹配。`
@@ -1161,7 +1191,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
       target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "INSUFFICIENT_DATA",
-      lead_priority: insufficientData ? null : analysis.ai_level,
+      lead_priority: resultLeadPriority(insufficientData, analysis.ai_level),
       purchase_scale: verifiedScale.companyScale || "UNKNOWN",
       decision_status: insufficientData ? "INSUFFICIENT_DATA" : gate.automationStatus,
       short_reason: insufficientData ? analysis.ai_reason : gate.reason,
@@ -1171,9 +1201,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       writeback_warnings: [],
     };
     const invalidatePrevious = await admin.from("ai_screening_results").update({ is_latest_valid: false }).eq("task_item_id", input.taskItemId).eq("is_latest_valid", true);
-    if (invalidatePrevious.error) throw invalidatePrevious.error;
+    if (invalidatePrevious.error) throw durableError(invalidatePrevious.error, "INVALIDATE_PREVIOUS_RESULT");
     const resultWrite = await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
-    if (resultWrite.error || !resultWrite.data) throw resultWrite.error || new Error("RESULT_WRITE_FAILED");
+    if (resultWrite.error || !resultWrite.data) throw durableError(resultWrite.error || new Error("RESULT_WRITE_FAILED"), "RESULT_WRITE");
 
     // A saved model conclusion is only a checkpoint. It is not a completed AI
     // screening until evidence and the customer writeback are both durable.
@@ -1202,7 +1232,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       completed_at: null,
       updated_at: new Date().toISOString(),
     }).eq("id", input.taskItemId);
-    if (analysisComplete.error) throw analysisComplete.error;
+    if (analysisComplete.error) throw durableError(analysisComplete.error, "RESULT_CHECKPOINT_WRITE");
     await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "RESULT_SAVED", startedAt: started, details: { result_id: resultWrite.data.id } });
     const writebackWarnings: Array<ReturnType<typeof normalizeError>> = [];
 
@@ -1267,12 +1297,12 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const savedEvidenceIds: string[] = [];
     if (evidenceRows.length) {
       const existingEvidence = await admin.from("ai_screening_evidence").select("id,content_hash").eq("result_id", resultWrite.data.id);
-      if (existingEvidence.error) throw existingEvidence.error;
+      if (existingEvidence.error) throw durableError(existingEvidence.error, "EVIDENCE_LOOKUP");
       const completedEvidence = new Set((existingEvidence.data || []).map((row) => row.content_hash).filter(Boolean));
       const pendingEvidence = evidenceRows.filter((row) => !completedEvidence.has(row.content_hash));
       if (pendingEvidence.length) {
         const evidenceWrite = await admin.from("ai_screening_evidence").insert(pendingEvidence).select("id");
-        if (evidenceWrite.error) throw evidenceWrite.error;
+        if (evidenceWrite.error) throw durableError(evidenceWrite.error, "EVIDENCE_WRITE");
         savedEvidenceIds.push(...(evidenceWrite.data || []).map((row) => String(row.id)));
       }
       savedEvidenceIds.push(...(existingEvidence.data || []).map((row) => String(row.id)));
@@ -1280,7 +1310,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         evidence_ids: [...new Set(savedEvidenceIds)],
         contradiction_evidence_ids: evidenceRows.filter((row) => row.evidence_type === "矛盾").map((row) => row.id),
       }).eq("id", resultWrite.data.id);
-      if (resultEvidence.error) throw resultEvidence.error;
+      if (resultEvidence.error) throw durableError(resultEvidence.error, "RESULT_EVIDENCE_LINK");
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "EVIDENCE_SAVED", startedAt: started, details: { evidence_count: savedEvidenceIds.length } });
     }
 
@@ -1306,7 +1336,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     };
     {
       const customerWrite = await admin.from("customers").update(customerUpdate).eq("id", customer.id);
-      if (customerWrite.error) throw customerWrite.error;
+      if (customerWrite.error) throw durableError(customerWrite.error, "CUSTOMER_AI_WRITEBACK");
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_WRITTEN_BACK", startedAt: started });
     }
     await optionalWrite("CONTACT_WRITEBACK", writebackWarnings, async () => {
@@ -1341,16 +1371,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", input.taskItemId);
-    if (finalItem.error) throw finalItem.error;
+    if (finalItem.error) throw durableError(finalItem.error, "TASK_ITEM_COMPLETION");
     const finalResult = await admin.from("ai_screening_results").update({
       writeback_status: "COMPLETED",
       writeback_warnings: writebackWarnings,
       is_latest_valid: true,
     }).eq("id", resultWrite.data.id);
-    if (finalResult.error) throw finalResult.error;
+    if (finalResult.error) throw durableError(finalResult.error, "RESULT_COMPLETION");
     await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "COMPLETED", startedAt: started, status: "COMPLETED", details: { writeback_warning_count: writebackWarnings.length } });
     const totals = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
-    if (totals.error) throw totals.error;
+    if (totals.error) throw durableError(totals.error, "TASK_TOTAL_REFRESH");
     return { status: "COMPLETED" as const, resultId: resultWrite.data.id, writebackWarnings };
   } finally {
     analysisController.abort();
@@ -1358,7 +1388,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
 }
 
 export function publicAiError(error: unknown) {
-  const raw = error instanceof Error ? error.message : String(error || "UNKNOWN_ERROR");
+  const normalized = normalizeError(error, { stage: "ANALYSIS" });
+  const raw = normalized.error_message;
   if (raw.includes("AI_EVIDENCE_NOT_AVAILABLE") || raw.includes("AI_EVIDENCE_ROWS_EMPTY")) {
     return { code: "AI_EVIDENCE_INSUFFICIENT", message: "本次未取得达到自动判定门槛的可核验经营事实；未写入AI评分，可在公开入口可访问后重试" };
   }
@@ -1366,5 +1397,11 @@ export function publicAiError(error: unknown) {
   if (raw.includes("OPENAI_NOT_CONFIGURED")) return { code: "OPENAI_NOT_CONFIGURED", message: "生产环境未配置OpenAI API密钥" };
   if (raw.includes("OPENAI_API_ERROR")) return { code: "OPENAI_API_ERROR", message: raw.replace(/^.*OPENAI_API_ERROR:/, "OpenAI接口错误：") };
   if (raw.includes("GOOGLE_MAPS_API_KEY_NOT_CONFIGURED")) return { code: "GOOGLE_MAPS_NOT_CONFIGURED", message: "未配置Google Maps API，已保留其他公开渠道证据" };
-  return { code: "AI_ANALYSIS_FAILED", message: raw || "AI分析失败" };
+  if (normalized.error_code === "23502") {
+    return { code: "ANALYSIS_RESULT_WRITE_FAILED", message: `分析结果保存失败：${raw}` };
+  }
+  return {
+    code: normalized.error_code === "UNKNOWN_ERROR" ? "AI_ANALYSIS_FAILED" : normalized.error_code,
+    message: raw || "AI分析失败",
+  };
 }
