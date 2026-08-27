@@ -751,6 +751,8 @@ export async function collectGooglePlaceEvidence(input: {
       rating?: number;
       userRatingCount?: number;
       regularOpeningHours?: { weekdayDescriptions?: string[] };
+      editorialSummary?: LocalizedText;
+      reviews?: Array<{ text?: LocalizedText; originalText?: LocalizedText }>;
     };
     const placesHeaders = (fieldMask: string) => ({
       "Content-Type": "application/json",
@@ -827,13 +829,24 @@ export async function collectGooglePlaceEvidence(input: {
     }).sort((a, b) => b.score - a.score);
     let top = scored[0]; const runnerUp = scored[1];
 
-    // Contact/rating fields are Enterprise-priced. Request them once, and only
-    // for the selected entity when they are needed for contact discovery or to
-    // resolve an otherwise ambiguous identity. Reviews and photo media are not
-    // requested here because they trigger higher-cost SKUs.
+    // Contact/rating fields are requested once, and only for the selected
+    // entity. Generic Places categories such as `service` do not prove an
+    // industry, so an already strongly matched but generically classified
+    // entity also receives a small review/editorial clarification request.
+    // This prevents clear repair businesses from being downgraded merely
+    // because Google returned a generic primary type, while avoiding this
+    // higher-cost evidence request for every customer.
+    const genericPlaceTypes = new Set(["service", "point_of_interest", "establishment"]);
+    const hasSpecificPlaceType = (top.item.types || []).some((type) => !genericPlaceTypes.has(type));
+    const needsBusinessClarification = top.score >= 70 && !hasSpecificPlaceType;
     const needsContactEnrichment = !input.phone || !input.website || top.score < 70;
-    if (top.item.id && needsContactEnrichment) {
-      const enterprise = await readDetail(top.item.id, "id,internationalPhoneNumber,nationalPhoneNumber,websiteUri,rating,userRatingCount,regularOpeningHours");
+    if (top.item.id && (needsContactEnrichment || needsBusinessClarification)) {
+      const enrichmentFields = [
+        "id", "internationalPhoneNumber", "nationalPhoneNumber", "websiteUri",
+        "rating", "userRatingCount", "regularOpeningHours",
+        ...(needsBusinessClarification ? ["editorialSummary", "reviews"] : []),
+      ].join(",");
+      const enterprise = await readDetail(top.item.id, enrichmentFields);
       if (enterprise) {
         top = { ...top, item: { ...top.item, ...enterprise } };
         const websiteScore = domain(input.website) && domain(input.website) === domain(enterprise.websiteUri) ? 35 : 0;
@@ -855,6 +868,42 @@ export async function collectGooglePlaceEvidence(input: {
             ? "AMBIGUOUS"
             : "NOT_FOUND";
     const result = top.item;
+    const reviewTexts = unique((result.reviews || []).map((review) => review.text?.text || review.originalText?.text || "")).slice(0, 5);
+    const textualBusinessFacts = [result.editorialSummary?.text, ...reviewTexts].filter(Boolean).join(" ");
+    const hasDirectBusinessActivity = /(?:repair|fix|replacement|parts?|accessor|wholesale|distributor|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|更换|配件|批发|分销)/i.test(textualBusinessFacts);
+
+    // Places photo resources require a separate paid media call. For a
+    // strongly matched but generically typed business, reuse the public Maps
+    // payload only as an auditable media supplement. It is merged solely when
+    // Place ID, phone, or address independently confirms the same entity.
+    let publicMedia: GooglePlaceEvidence | undefined;
+    if (needsBusinessClarification) {
+      publicMedia = await collectPublicGooglePlaceEvidence(input, { ...options, timeoutMs: Math.min(options.timeoutMs || 9_000, 9_000) });
+      const samePublicEntity = Boolean(publicMedia && (
+        (result.id && publicMedia.place_id === result.id)
+        || (phone(publicMedia.phone).length >= 7 && phone(publicMedia.phone) === phone(result.internationalPhoneNumber || result.nationalPhoneNumber))
+        || addressIdentityScore(publicMedia.formatted_address, result.formattedAddress) >= 0.8
+      ));
+      if (!samePublicEntity) publicMedia = undefined;
+    }
+    let placePhotoUrls: string[] = [];
+    if (needsBusinessClarification && !hasDirectBusinessActivity && !(publicMedia?.image_urls?.length) && result.photos?.length) {
+      const photoResponses = await Promise.all(result.photos.slice(0, 2).map(async (photo) => {
+        if (!photo.name) return "";
+        try {
+          const photoResponse = await fetchWithRetry(`https://places.googleapis.com/v1/${photo.name}/media?maxHeightPx=1200&maxWidthPx=1200&skipHttpRedirect=true`, {
+            signal: request.signal,
+            headers: { "X-Goog-Api-Key": apiKey },
+          });
+          if (!photoResponse.ok) return "";
+          const payload = await photoResponse.json() as { photoUri?: string };
+          return /^https?:\/\//i.test(payload.photoUri || "") ? payload.photoUri || "" : "";
+        } catch {
+          return "";
+        }
+      }));
+      placePhotoUrls = unique(photoResponses).slice(0, 2);
+    }
     const evidence: GooglePlaceEvidence = {
       configured: true,
       query,
@@ -867,10 +916,13 @@ export async function collectGooglePlaceEvidence(input: {
       website: result.websiteUri,
       phone: result.internationalPhoneNumber || result.nationalPhoneNumber,
       opening_hours: result.regularOpeningHours?.weekdayDescriptions || [],
+      description: result.editorialSummary?.text || publicMedia?.description,
+      image_urls: unique([...(publicMedia?.image_urls || []), ...placePhotoUrls]).slice(0, 2),
+      video_urls: publicMedia?.video_urls || [],
       // Google Places does not expose a business email. Review text belongs to
       // reviewers and must never be promoted to the merchant's contact data.
       emails: [],
-      reviews: [],
+      reviews: reviewTexts,
       place_id: result.id,
       candidate_count: details.length,
       identity_status: identityStatus,

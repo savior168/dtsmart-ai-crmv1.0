@@ -607,11 +607,22 @@ function deterministicScore(input: {
   records: ChannelRecord[];
   google?: GooglePlaceEvidence;
 }) {
+  const googleBusinessText = (evidence: GooglePlaceEvidence) => {
+    const publicFacts = [evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
+    // A business name is an identity signal, not sufficient industry evidence.
+    // It may participate only when the same, strongly matched Google entity
+    // also has an independent public description/review stating a repair or
+    // parts activity. This covers cases such as "PhonenPhone" + "speedy
+    // repair" without allowing a keyword-only imported name to inflate score.
+    const nameHasDevice = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|pc|handy|telefon|smartfon|m[oó]vil|celular|手机|电脑)/i.test(evidence.name || "");
+    const factsHaveActivity = /(?:repair|fix|service|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|配件|parts?|accessor)/i.test(publicFacts);
+    return [...(evidence.types || []), evidence.description, ...(evidence.reviews || []), nameHasDevice && factsHaveActivity ? evidence.name : ""].filter(Boolean).join("；");
+  };
   const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
-      return input.rule.pattern.test([...(evidence.types || []), evidence.name, evidence.description].filter(Boolean).join(" "));
+      return input.rule.pattern.test(googleBusinessText(evidence));
     }
     const evidence = record.evidence as WebsiteEvidence;
     return input.rule.pattern.test([evidence.title, evidence.description, ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join(" "));
@@ -622,7 +633,7 @@ function deterministicScore(input: {
   const combinedText = matchingRecords.map((record) => {
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
-      return [...(evidence.types || []), evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
+      return googleBusinessText(evidence);
     }
     const evidence = record.evidence as WebsiteEvidence;
     return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
@@ -639,7 +650,7 @@ function deterministicScore(input: {
     if (!record.evidence) return "";
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
-      return [evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
+      return googleBusinessText(evidence);
     }
     const evidence = record.evidence as WebsiteEvidence;
     return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
@@ -802,13 +813,19 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   }
 
   const candidates: Array<{ channel: string; url: string; title: string; text: string; confidence: number; originalExcerpt: string }> = [];
+  let googleCorroboratedName = "";
   if (google?.name && /^https?:\/\//i.test(googleUrl) && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) {
+    const publicFacts = [google.description, ...(google.reviews || [])].filter(Boolean).join("；");
+    const nameHasDevice = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|pc|handy|telefon|smartfon|m[oó]vil|celular|手机|电脑)/i.test(google.name);
+    const factsHaveActivity = /(?:repair|fix|service|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|配件|parts?|accessor)/i.test(publicFacts);
+    googleCorroboratedName = nameHasDevice && factsHaveActivity ? google.name : "";
     candidates.push({
       channel: "google_maps",
       url: googleUrl,
       title: "Google商家分类",
-      // 商家名称只用于主体匹配，严禁用名称中的 Repair/Serwis 等词推断行业。
-      text: [...(google.types || []), google.description].filter(Boolean).join("；"),
+      // 名称不得单独推断行业；只有同一已匹配主体的公开说明/评论同时
+      // 明确维修或配件活动时，名称中的设备类型才可作为组合证据。
+      text: [...(google.types || []), google.description, ...(google.reviews || []), googleCorroboratedName].filter(Boolean).join("；"),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
       originalExcerpt: [google.description, ...(google.reviews || [])].filter(Boolean).join("；").slice(0, 1600),
     });
@@ -830,7 +847,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       if (candidate.channel !== "google_maps" || !rule.target) return true;
       // Google 分类只负责定位候选主体。目标客户分类还需要商家描述、
       // 评论或部件级服务事实佐证；否则交给后续视觉/模型核验。
-      const corroborationText = [google?.description, ...(google?.reviews || [])].filter(Boolean).join("；");
+      const corroborationText = [google?.description, ...(google?.reviews || []), googleCorroboratedName].filter(Boolean).join("；");
       return ruleIsSupported(rule, corroborationText)
         || /(?:换屏|屏幕更换|玻璃更换|换电池|电池更换|尾插|充电口|主板|拆机|维修作业|screen replacement|battery replacement|charging port|motherboard|wymian\w* (?:szyb|wyświetlacz|bater))/i.test(corroborationText);
     })
