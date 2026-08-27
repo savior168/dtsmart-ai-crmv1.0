@@ -102,16 +102,18 @@ function responseText(payload: Record<string, unknown>): string {
 const systemPrompt = `你是 DTSmart TradeOS 的B2B客户筛选专家。只能依据输入的可核对公开证据判断，不得编造事实。
 证据页面可能使用世界上任何语言或多语言混排。必须按原文语义识别企业名称、行业、产品、服务、营业状态和联系方式，并忠实翻译为简体中文；不得因为语言不是中文或英语就忽略证据，也不得把翻译后的推测写成原文事实。品牌名、企业名、产品型号和网址保持原样。
 我们的业务是一站式手机和电脑维修配件外贸批发，核心产品包括手机/LCD/OLED屏幕、触摸屏总成、iPhone和MacBook屏幕、电池、MacBook键盘及上盖、充电尾插和排线、马达、摄像头、听筒、扬声器、麦克风、内部排线、主板维修配件、维修工具和耗材。
-A级高价值客户优先包括配件进口商、批发商、代理/经销/分销商、为维修门店供货的供应商、多门店维修连锁、具有海关采购记录或专业展会证据且有批量采购能力的企业。B级潜在客户包括稳定经营的手机/iPhone/MacBook/电脑维修店、兼营配件的门店及有持续补货需求的电商卖家。
+A级高价值客户包括两类：一类是配件进口商、批发商、代理/经销/分销商、为维修门店供货的供应商、多门店维修连锁或具有真实采购记录的企业；另一类是虽暂无规模或采购记录，但企业官网与Google商家页等独立来源主体一致，分别提供直接、具体、相互印证的目标业务事实，且证据链清晰完整、没有关键矛盾的维修或配件企业。B级潜在客户包括目标业务已经证实，但跨来源证据的具体程度、完整度或经营价值尚未达到A级的手机/iPhone/MacBook/电脑维修店、兼营配件的门店及电商卖家。
 个人消费者、纯软件公司、无关企业、只卖整机且无维修配件业务的商家、官方直营店、无配件采购业务的运营商营业厅、永久停业机构和主体无法核实的数据通常不是目标客户。
 “计算机服务”“计算机技术支持”以及仅提供IT系统、网络、NAS、服务器的设置、维护、管理或故障排除，属于软件或IT服务，不属于电脑维修目标客户。只有公开证据明确出现电脑硬件维修，或屏幕、电池、键盘、充电器/充电口、主板、硬盘、内存等硬件更换维修，才可归为电脑维修店并获得60分以上。
 电话或邮箱缺失不能直接判为非目标；单独出现mobile、phone、computer等词也不能直接判为目标。必须结合主体一致性、经营范围、产品/服务、活跃度、批发进口属性和采购可能性。
 EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任务标签只表示数据如何进入系统，绝不是进口商、批发商或任何行业属性证据，严禁用于行业归类和评分。
 客户名称、原始地址、原始电话、原始邮箱、原始行业、分类、标签、搜索关键词、数据来源和原始网址全部只是定位线索LOCATOR_HINT，不是VERIFIED_EVIDENCE。它们不得进入支持性证据、不得增加评分、不得单独决定行业或有效/无效。
 手机成品零售、SIM卡或套餐销售不能证明手机维修；手机壳、保护膜、耳机、数据线、充电器只能证明外配件；维修店不能自动判为批发商。维修店需要换屏、换电池、尾插维修、维修预约、维修报价、近期维修评论或官方维修案例等明确证据。批发、进口或分销需要wholesale、B2B、MOQ、bulk price、trade account、distributor、dealer、reseller、向维修店供货、批量目录或身份匹配的海关记录。
+Google商家分类“手机维修服务”“电子产品维修”等只能作为行业定位线索，不能单独证明真实维修能力或配件采购价值。必须再取得至少一项直接佐证：商家描述或近期评论明确提到维修行为/更换部件；官网明确列出屏幕、电池、键盘、充电口、主板等硬件维修；或商家/官网图片清楚展示拆机设备、维修工作台、内配件陈列或真实维修作业。普通门头、品牌Logo、整机陈列、模糊图片不能作为维修能力证据。
 没有真实采购证据时只能写“采购能力待销售核验”，不得声称已有采购能力、采购规模或进口记录。无法确认所属行业时必须归类为“其他”，不得为了填满字段强行分类。
 行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、已关闭、其他。无法确认时必须选择“其他”。
-评分：85-100为A，70-84为B，60-69为C，0-59为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度。A级必须有可追溯的目标配件批发、进口、分销、B2B供货、多门店连锁或实际采购能力证据，并由至少两个独立公开来源相互印证；不得仅因为名称含有批发/维修，或仅凭单一页面就评A。单一维修门店最高B级，只有一条直接行业证据的普通门店通常应为C级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
+评分：85-100为A，70-84为B，60-69为C，0-59为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度，也不能用固定行业模板打出相同分数。必须分别评估：业务匹配度、经营规模和采购潜力、真实采购事实、经营活跃度、证据完整性、可联系性与矛盾风险。进入A级不强制要求规模或采购记录：Google商家页与企业官网等至少两个独立来源若主体一致，分别给出直接、可核验且相互印证的目标业务事实，明确涉及屏幕、电池、键盘、充电口、主板等内配件使用或维修场景，证据链完整且没有关键矛盾，即使是单店维修企业也可以评为85-89分的A级。规模、连锁、高业务量、海关记录或近期采购事实用于进一步提高A级内的分值，而不是进入A级的必要条件。大型连锁手机配件批发/分销企业若多渠道证据闭环，并有身份匹配的近期海关采购或大额采购事实，应评为A中的高分。单一Google分类、企业名称关键词、资料字段齐全或联系方式齐全都不能单独提高价值等级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
+分值应随证据强弱拉开差异：95-100需要极高业务匹配、显著规模以及近期可核验的大额/批量采购事实；90-94需要高匹配、多渠道闭环，并有明确规模、连锁、持续高业务量或强采购证据；85-89需要两个以上独立来源形成完整直接证据链，充分证明其目标业务和内配件使用场景，即使暂无规模或采购记录也可进入；70-84为已证实且稳定的目标客户，但证据链完整度或经营价值尚未达到A级；60-69为存在一项直接目标业务证据但规模和证据覆盖有限；低于60为非目标、证据不足或存在关键矛盾。采购记录必须带可核验来源、相关产品以及日期/数量/金额至少一项，否则不得加采购事实分。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
 ai_reason必须引用实际证据；business_relevance、customer_value和followup_suggestion必须可供销售直接使用。evidence_conflicts列出证据矛盾，没有则返回空数组。
 score_breakdown的每个维度必须依据输入证据独立评分；contradiction_risk越高表示风险越大。suggested_contact_order按优先顺序给出实际可执行的联系渠道或动作。
@@ -181,12 +183,15 @@ function structuredGoogleEvidence(input: CustomerAnalysisInput): CustomerAnalysi
   const types = [...new Set((google.types || []).map(translatedGoogleType).filter(Boolean))].slice(0, 8);
   const rows: CustomerAnalysis["evidence_summaries"] = [];
   if (types.length) {
+    const repairCategoryOnly = types.some((type) => /维修/.test(type));
     rows.push({
       channel: "google_maps",
       title_zh: "Google商家分类",
-      fact_zh: `Google商家页明确将该企业分类为“${types.join("、")}”，这是判断其实际经营行业的直接依据。`,
+      fact_zh: repairCategoryOnly
+        ? `Google商家页将该企业分类为“${types.join("、")}”；该分类仅作为行业定位线索，仍需维修评论、业务说明、官网服务或维修场景图片佐证。`
+        : `Google商家页将该企业分类为“${types.join("、")}”，这是判断其经营方向的公开线索。`,
       source_url: sourceUrl,
-      evidence_type: "支持",
+      evidence_type: repairCategoryOnly ? "中性" : "支持",
       confidence,
     });
   }
@@ -291,26 +296,56 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const verifiedProductFit = /(?:手机|电脑|iPhone|iPad|MacBook|LCD|OLED|屏幕|电池|配件|维修件|触摸屏|尾插|排线|摄像头)/i.test(supportingText);
   const verifiedBuyingRole = /(?:配件批发|配件进口|配件分销|B2B|MOQ|批量供货|渠道供货|经销商|代理商|采购记录|海关记录|批发商|进口商|分销商)/i.test(supportingText);
   const verifiedChain = /(?:连锁|多家门店|多门店|分店)/.test(supportingText);
-  const directServiceSignalCount = [/(?:换屏|屏幕更换|玻璃更换)/, /(?:电池更换|换电池)/, /(?:主板维修|尾插|排线|摄像头)/, /(?:iPhone|iPad|MacBook|Samsung|Xiaomi|Huawei)/i]
+  const verifiedHighVolumeRepair = verifiedChain || /(?:大量近期维修评论|高频维修|大型维修中心|多名维修技师|丰富维修案例|配件库存|超过\s*\d+\s*条维修评论|more than \d+ repair reviews|multiple technicians|large repair center)/i.test(supportingText);
+  const verifiedProcurement = /(?:海关记录|采购记录|采购订单|进口记录)/.test(supportingText)
+    && verifiedProductFit
+    && /(?:日期|数量|金额|供应商|采购|进口)/.test(supportingText);
+  const verifiedLargeRecentProcurement = verifiedProcurement
+    && /(?:近期|最近|近\s*\d+\s*(?:天|月)|大额|大单|批量|金额\s*[^，；]{1,24}|数量\s*[^，；]{1,24}|20\d{2}[-/.年])/i.test(supportingText);
+  const directTargetFactPattern = /(?:换屏|更换(?:手机|电脑|iPhone|iPad|MacBook)?(?:屏幕|玻璃|电池|键盘)|屏幕更换|玻璃更换|电池更换|换电池|键盘更换|充电口|尾插|排线|摄像头|主板维修|维修工作台|拆机维修|维修作业|内配件|维修配件|LCD|OLED|触摸屏|批量供货|配件批发|配件分销|配件进口|B2B|MOQ|trade account)/i;
+  const directServiceSignalCount = [/(?:换屏|更换(?:手机|电脑|iPhone|iPad|MacBook)?(?:屏幕|玻璃)|屏幕更换|玻璃更换|LCD|OLED|触摸屏)/i, /(?:更换(?:手机|电脑|iPhone|iPad|MacBook)?电池|电池更换|换电池)/, /(?:更换(?:手机|电脑|MacBook)?键盘|键盘更换|充电口|尾插|排线|摄像头|主板维修)/, /(?:维修工作台|拆机维修|维修作业|内配件|维修配件)/, /(?:配件批发|配件分销|配件进口|B2B|MOQ|trade account)/i]
     .filter((pattern) => pattern.test(supportingText)).length;
+  const websiteDirectTargetEvidence = supporting.some((item) => item.channel === "website" && directTargetFactPattern.test(item.fact_zh));
+  const googleDirectTargetEvidence = supporting.some((item) => item.channel === "google_maps" && directTargetFactPattern.test(item.fact_zh));
+  const completeDirectTargetChain = verifiedProductFit
+    && strongEnoughForHighConfidence
+    && websiteDirectTargetEvidence
+    && googleDirectTargetEvidence
+    && directServiceSignalCount >= 1;
   const repairOrRetail = /(?:维修店|外配件零售|维修内配件零售|手机成品零售|综合电子产品零售)/.test(analysis.industry_type);
   const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|已关闭|其他)$/.test(analysis.industry_type);
   const computerRepairClaim = analysis.industry_type === "电脑维修店";
   const verifiedComputerHardwareRepair = isComputerHardwareRepairEvidence(supportingText);
   const itSupportOnly = isItSupportWithoutHardwareRepair(allEvidenceText);
-  let score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
+  const breakdown = analysis.score_breakdown || {} as CustomerAnalysis["score_breakdown"];
+  const metric = (key: keyof CustomerAnalysis["score_breakdown"]) => Math.max(0, Math.min(100, Number(breakdown[key]) || 0));
+  const businessFit = Math.max(metric("mobile_parts_match"), metric("macbook_parts_match"), metric("repair_business_match"), metric("wholesale_import_distribution"));
+  const commercialValue = Math.max(metric("wholesale_import_distribution"), metric("bulk_purchase_potential"));
+  const proofQuality = (metric("entity_consistency") + metric("company_authenticity") + metric("evidence_completeness")) / 3;
+  const calibratedScore = Math.round(
+    businessFit * 0.34
+    + commercialValue * 0.24
+    + proofQuality * 0.18
+    + metric("business_activity") * 0.12
+    + metric("contactability") * 0.07
+    + Math.max(0, Math.min(100, Number(analysis.ai_score) || 0)) * 0.05
+    - metric("contradiction_risk") * 0.2,
+  );
+  let score = Math.max(0, Math.min(100, calibratedScore));
   let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
   if (!evidenceSufficient) {
     score = Math.min(score, 49);
     confidence = Math.min(confidence, evidence.length ? 49 : 25);
   } else if (!strongEnoughForHighConfidence) {
     confidence = Math.min(confidence, hasStrongDirectEvidence ? 92 : 79);
-    score = Math.min(score, hasStrongDirectEvidence ? 89 : 84);
+    // 单一直接来源可以确认业务，但不能形成A/B所需的跨来源闭环。
+    score = Math.min(score, hasStrongDirectEvidence ? 69 : 59);
   }
-  // 价值等级必须由采购角色证据驱动，而不是由“维修店”这个行业标签驱动。
+  // 先确认业务和证据链，再评客户价值。规模或采购不是进入A级的硬门槛；
+  // 官网与Google商家页的直接事实形成完整闭环时，证据完整度本身可以支撑A级。
   if (unrelatedIndustry) score = Math.min(score, 39);
-  if (repairOrRetail && !verifiedBuyingRole && !verifiedChain) {
-    // 仅一条商家分类只能证明“是这个行业”，不足以证明稳定补货能力。
+  if (repairOrRetail && !completeDirectTargetChain && !verifiedBuyingRole && !verifiedHighVolumeRepair) {
+    // 未形成跨来源直接证据链时，普通维修/零售客户仍按证据覆盖限制等级。
     const hasDetailedRepairEvidence = supporting.length >= 2 || directServiceSignalCount >= 2;
     score = Math.min(score, hasDetailedRepairEvidence ? 79 : 69);
   }
@@ -323,21 +358,27 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     score = Math.min(score, 39);
     confidence = Math.min(confidence, evidence.length ? 90 : 25);
   }
-  if (score >= 85 && !(verifiedProductFit && (verifiedBuyingRole || verifiedChain) && strongEnoughForHighConfidence)) score = 84;
+  const qualifiesForA = completeDirectTargetChain || (verifiedProductFit && strongEnoughForHighConfidence
+    && (verifiedBuyingRole || verifiedHighVolumeRepair || verifiedProcurement));
+  if (completeDirectTargetChain && metric("contradiction_risk") < 20) score = Math.max(score, 85);
+  if (score >= 85 && !qualifiesForA) score = 84;
+  if (score > 89 && !(verifiedBuyingRole || verifiedHighVolumeRepair || verifiedProcurement)) score = 89;
+  if (score > 94 && !verifiedProcurement) score = 94;
+  if (score > 96 && !verifiedLargeRecentProcurement) score = 96;
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const insufficientReason = evidence.length
-    ? "本次仅取得有限的可核验公开信息，证据不足以确认其行业属性和批量采购能力，建议人工核验或补充公开入口后重新分析。"
+    ? "本次仅取得有限的可核验公开信息，证据不足以确认其目标业务属性，建议补充公开入口后重新分析。"
     : "本次未取得可追溯的公开页面证据，暂不能确认该客户是否属于目标行业，请补充有效官网、谷歌地图或企业主页后重新分析。";
   const normalizedIndustry = itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : analysis.industry_type;
   const aiReason = itSupportOnly
     ? `公开证据仅显示该企业提供IT系统、网络、NAS、服务器或计算机技术支持，未发现电脑硬件维修及配件更换服务，因此不属于目标客户，综合评分${score}分。`
     : evidenceSufficient
-    ? `公开证据显示：${evidenceLead}。据此将其归类为“${analysis.industry_type}”，综合评分${score}分；采购规模与实际需求仍需销售沟通确认。`
+    ? `公开证据显示：${evidenceLead}。据此将其归类为“${analysis.industry_type}”，并按业务匹配、经营规模、采购事实、经营活跃度、证据闭环、可联系性及风险综合评分${score}分。`
     : insufficientReason;
   const scoreBreakdown = evidenceSufficient ? {
     ...analysis.score_breakdown,
     wholesale_import_distribution: verifiedBuyingRole ? analysis.score_breakdown.wholesale_import_distribution : Math.min(35, Number(analysis.score_breakdown.wholesale_import_distribution) || 0),
-    bulk_purchase_potential: verifiedBuyingRole || verifiedChain ? analysis.score_breakdown.bulk_purchase_potential : Math.min(40, Number(analysis.score_breakdown.bulk_purchase_potential) || 0),
+    bulk_purchase_potential: verifiedBuyingRole || verifiedChain || verifiedProcurement ? analysis.score_breakdown.bulk_purchase_potential : Math.min(40, Number(analysis.score_breakdown.bulk_purchase_potential) || 0),
   } : {
     entity_consistency: Math.min(49, Number(analysis.score_breakdown?.entity_consistency) || 0),
     company_authenticity: Math.min(49, Number(analysis.score_breakdown?.company_authenticity) || 0),
@@ -364,8 +405,8 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
       ? "现有证据属于IT系统、网络、NAS、服务器或计算机技术支持，不包含电脑硬件维修或维修配件更换，因此与目标业务不匹配。"
       : evidenceSufficient ? `业务相关性依据：${evidenceLead}。以上事实与手机、电脑维修配件业务的匹配程度已计入评分。` : insufficientReason,
     customer_value: evidenceSufficient
-      ? verifiedBuyingRole || verifiedChain
-        ? ensureChinese(analysis.customer_value, "已取得批发、分销、连锁或采购角色证据，具体采购品类和规模仍需销售确认。")
+      ? verifiedBuyingRole || verifiedChain || verifiedProcurement
+        ? ensureChinese(analysis.customer_value, verifiedProcurement ? "已取得可核验的相关产品采购事实，可结合采购日期、产品、数量或金额制定销售方案。" : "已取得批发、分销、连锁或高业务量证据，具体采购品类和规模仍需销售确认。")
         : "已确认实际经营目标行业，但尚无可核验的批发、进口、分销或实际采购记录；采购能力和规模必须由销售沟通确认。"
       : "待核验：当前公开证据不足，不能可靠判断采购价值。",
     followup_suggestion: evidenceSufficient ? ensureChinese(analysis.followup_suggestion, "优先通过已核验的联系方式确认经营范围、采购频次和配件需求。") : "先核验企业主体并补充有效公开入口，证据充分后再制定销售开发计划。",
@@ -440,6 +481,22 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 18_000);
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  const visualUrls = [
+    ...(input.evidence?.google_place?.image_urls || []),
+    ...(input.evidence?.website?.image_urls || []),
+    ...((input.evidence?.website?.pages || []).flatMap((page) => page.image_urls || [])),
+  ].filter((value, index, all) => /^https?:\/\//i.test(value) && all.indexOf(value) === index)
+    .slice(0, options.tier === "deep" || options.tier === "escalation" ? 2 : 1);
+  const promptInput = structuredClone(input);
+  if (promptInput.evidence?.google_place) promptInput.evidence.google_place.image_urls = [];
+  if (promptInput.evidence?.website) {
+    promptInput.evidence.website.image_urls = [];
+    for (const page of promptInput.evidence.website.pages || []) page.image_urls = [];
+  }
+  const userContent: Array<Record<string, unknown>> = [
+    { type: "input_text", text: JSON.stringify(promptInput) },
+    ...visualUrls.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
+  ];
   let response: Response;
   try {
     response = await postOpenAiResponses(key, JSON.stringify({
@@ -453,7 +510,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
         reasoning: { effort: options.tier === "escalation" ? "medium" : "low" },
         input: [
           { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
-          { role: "user", content: [{ type: "input_text", text: JSON.stringify(input) }] },
+          { role: "user", content: userContent },
         ],
         text: {
           format: {

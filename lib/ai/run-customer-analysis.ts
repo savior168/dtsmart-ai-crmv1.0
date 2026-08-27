@@ -391,7 +391,7 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
     headings: (item.headings || []).slice(0, deep ? 6 : 4),
     text_excerpt: item.text_excerpt?.slice(0, deep ? 900 : 520),
     image_alts: (item.image_alts || []).filter(Boolean).slice(0, deep ? 5 : 3),
-    image_urls: [],
+    image_urls: (item.image_urls || []).slice(0, deep ? 2 : 1),
     video_urls: [],
     emails: (item.emails || []).slice(0, 5),
     phones: (item.phones || []).slice(0, 5),
@@ -403,7 +403,7 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
       headings: (page.headings || []).slice(0, 3),
       text_excerpt: page.text_excerpt?.slice(0, deep ? 320 : 220),
       image_alts: (page.image_alts || []).filter(Boolean).slice(0, 2),
-      image_urls: [],
+      image_urls: (page.image_urls || []).slice(0, 1),
       emails: (page.emails || []).slice(0, 3),
       phones: (page.phones || []).slice(0, 3),
     })),
@@ -428,8 +428,8 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
       user_ratings_total: google.user_ratings_total,
       business_status: google.business_status,
       types: (google.types || []).slice(0, 8),
-      reviews: (google.reviews || []).slice(0, 1).map((review) => review.slice(0, deep ? 180 : 120)),
-      image_urls: [],
+      reviews: (google.reviews || []).slice(0, deep ? 3 : 2).map((review) => review.slice(0, deep ? 220 : 160)),
+      image_urls: (google.image_urls || []).slice(0, deep ? 2 : 1),
       video_urls: [],
       emails: (google.emails || []).slice(0, 3),
       identity_status: google.identity_status,
@@ -482,7 +482,7 @@ function deterministicScore(input: {
   records: ChannelRecord[];
   google?: GooglePlaceEvidence;
 }) {
-  const matchingSources = input.records.filter((record) => {
+  const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
@@ -490,47 +490,96 @@ function deterministicScore(input: {
     }
     const evidence = record.evidence as WebsiteEvidence;
     return input.rule.pattern.test([evidence.title, evidence.description, ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join(" "));
-  }).length;
+  });
+  const matchingSources = new Set(matchingRecords.map((record) => {
+    try { return new URL(record.source_url || "").origin; } catch { return record.channel; }
+  }).filter(Boolean)).size;
+  const combinedText = matchingRecords.map((record) => {
+    if (record.channel === "google_maps") {
+      const evidence = record.evidence as GooglePlaceEvidence;
+      return [...(evidence.types || []), evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
+    }
+    const evidence = record.evidence as WebsiteEvidence;
+    return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
+  }).join("；");
   const specificServices = [
-    /(?:screen replacement|wymian\w* (?:szyb|wyświetlacz)|换屏|更换屏幕)/i,
+    /(?:screen replacement|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|换屏|更换屏幕|玻璃更换|触摸屏)/i,
     /(?:battery replacement|wymian\w* bater|换电池|电池更换)/i,
-    /(?:iphone|samsung|xiaomi|huawei|macbook)/i,
-  ].filter((pattern) => pattern.test(input.candidate.text)).length;
-  const identityBonus = Math.max(0, Math.min(6, Math.round((input.candidate.confidence - 70) / 5)));
-  const sourceBonus = input.candidate.channel === "website" ? 4 : 3;
-  const independentSourceBonus = Math.min(5, Math.max(0, matchingSources - 1) * 3);
+    /(?:charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|尾插|充电口|主板维修|键盘更换|摄像头|排线)/i,
+    /(?:repair bench|device disassembly|repair work|维修工作台|拆机维修|维修作业|内配件|维修配件)/i,
+    /(?:wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i,
+  ].filter((pattern) => pattern.test(combinedText || input.candidate.text)).length;
+  const directTargetPattern = /(?:screen replacement|battery replacement|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|device disassembly|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|键盘更换|摄像头|排线|维修工作台|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
+  const recordTargetText = (record: ChannelRecord) => {
+    if (!record.evidence) return "";
+    if (record.channel === "google_maps") {
+      const evidence = record.evidence as GooglePlaceEvidence;
+      return [evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
+    }
+    const evidence = record.evidence as WebsiteEvidence;
+    return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
+  };
+  const googleDirectTargetEvidence = matchingRecords.some((record) => record.channel === "google_maps" && directTargetPattern.test(recordTargetText(record)));
+  const websiteDirectTargetEvidence = matchingRecords.some((record) => record.channel === "website" && directTargetPattern.test(recordTargetText(record)));
   const verifiedContacts = input.records.some((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     const evidence = record.evidence as WebsiteEvidence & GooglePlaceEvidence;
     return Boolean(evidence.phone || evidence.phones?.length || evidence.emails?.length);
   });
-  const contactBonus = verifiedContacts ? 3 : 0;
-  const serviceBonus = specificServices * 2;
   const reviewCount = Number(input.google?.user_ratings_total || 0);
-  const activityBonus = reviewCount >= 100 ? 4 : reviewCount >= 20 ? 3 : reviewCount > 0 ? 2 : 0;
-  const rawScore = input.rule.baseScore + sourceBonus + identityBonus + independentSourceBonus + contactBonus + serviceBonus + activityBonus;
   const repairOnly = /维修店/.test(input.rule.industry);
+  const wholesale = input.rule.industry === "进口商或分销商";
   const accessoryRetail = input.rule.industry === "手机外配件零售";
-  const verifiedProcurementEvidence = input.records.some((record) =>
-    ["customs", "exhibition"].includes(record.channel) && record.status === "COLLECTED",
-  );
-  const qualifiesForA = input.rule.industry === "进口商或分销商"
-    && PRODUCT_RELEVANCE_PATTERN.test(input.candidate.text)
-    && (matchingSources >= 2 || verifiedProcurementEvidence);
-  const targetMaximum = repairOnly ? 84 : accessoryRetail ? 69 : qualifiesForA ? 100 : 84;
+  const verifiedChain = /(?:连锁|多家门店|多门店|分店|multiple locations|chain of repair|sie[cć] serwis)/i.test(combinedText);
+  const highVolumeRepair = repairOnly
+    && matchingSources >= 2
+    && specificServices >= 2
+    && (reviewCount >= 100 || verifiedChain || /(?:大型维修中心|多名维修技师|丰富维修案例|维修工作台|配件库存|large repair center|multiple technicians)/i.test(combinedText));
+  const verifiedProcurementEvidence = input.records.some((record) => {
+    if (record.status !== "COLLECTED" || !record.evidence || typeof record.evidence !== "object") return false;
+    const evidence = record.evidence as Record<string, unknown>;
+    const rows = [...(Array.isArray(evidence.customs_records) ? evidence.customs_records : []), ...(Array.isArray(evidence.trade_records) ? evidence.trade_records : [])];
+    return rows.some((row) => row && typeof row === "object" && /^https?:\/\//i.test(String((row as Record<string, unknown>).source_url || record.source_url || ""))
+      && PRODUCT_RELEVANCE_PATTERN.test(String((row as Record<string, unknown>).product || ""))
+      && ["quantity", "amount", "date"].some((key) => Boolean((row as Record<string, unknown>)[key])));
+  });
+
+  // 客户价值由独立事实维度组成，不能因行业标签而集中得到固定分数。
+  const businessFit = wholesale ? 38 : repairOnly ? Math.min(38, 32 + specificServices * 2) : accessoryRetail ? 24 : input.rule.target ? 28 : 12;
+  const scaleValue = verifiedChain ? 20 : highVolumeRepair ? 18 : wholesale ? (matchingSources >= 2 ? 15 : 8) : repairOnly ? (matchingSources >= 2 ? 8 : 6) : 5;
+  const procurementValue = verifiedProcurementEvidence ? 20 : wholesale ? (matchingSources >= 2 ? 10 : 6) : highVolumeRepair ? 8 : repairOnly ? 3 : 2;
+  const evidenceValue = matchingSources >= 3 ? 15 : matchingSources >= 2 ? 12 : 10;
+  const websiteReachable = input.records.some((record) => record.channel === "website" && record.status === "COLLECTED");
+  const activityValue = Math.min(8, (reviewCount >= 100 ? 7 : reviewCount >= 20 ? 5 : reviewCount > 0 ? 3 : 0) + (websiteReachable ? 2 : 0));
+  const contactValue = verifiedContacts ? (input.customer.phone && input.customer.email ? 5 : 4) : 0;
+  const multiSourceOperatingBonus = matchingSources >= 2 ? 3 : 0;
+  const completeDirectTargetChain = input.rule.target
+    && matchingSources >= 2
+    && websiteReachable
+    && googleDirectTargetEvidence
+    && websiteDirectTargetEvidence
+    && specificServices >= 1;
+  const rawScore = businessFit + scaleValue + procurementValue + evidenceValue + activityValue + contactValue
+    + multiSourceOperatingBonus + (completeDirectTargetChain ? 12 : 0);
+  const qualifiesForA = completeDirectTargetChain || (input.rule.target && matchingSources >= 2
+    && (verifiedProcurementEvidence || highVolumeRepair || (wholesale && scaleValue >= 15)));
+  const targetMaximum = repairOnly
+    ? highVolumeRepair ? 94 : completeDirectTargetChain ? 89 : 84
+    : accessoryRetail ? 69
+      : qualifiesForA ? (verifiedProcurementEvidence ? 100 : 89) : 84;
   const score = Math.max(0, Math.min(input.rule.target ? targetMaximum : 39, rawScore));
-  const evidenceCompleteness = Math.min(100, 48 + sourceBonus * 5 + independentSourceBonus * 6 + contactBonus * 4 + activityBonus * 3);
+  const evidenceCompleteness = Math.min(100, 35 + evidenceValue * 3 + contactValue * 3 + activityValue * 2);
   return {
     score,
     breakdown: {
       entity_consistency: Math.max(0, Math.min(100, input.candidate.confidence)),
-      company_authenticity: Math.min(100, 65 + sourceBonus * 5 + activityBonus * 4),
-      business_activity: Math.min(100, 55 + activityBonus * 8 + serviceBonus * 3),
-      mobile_parts_match: input.rule.target ? score : Math.min(score, 40),
+      company_authenticity: Math.min(100, 55 + evidenceValue * 2 + activityValue * 2),
+      business_activity: Math.min(100, 35 + activityValue * 7 + scaleValue),
+      mobile_parts_match: input.rule.target ? Math.min(100, businessFit * 2.5) : Math.min(score, 40),
       macbook_parts_match: /apple|iphone|macbook/i.test(input.candidate.text) ? Math.min(100, score + 5) : 0,
-      wholesale_import_distribution: /批发|分销|进口|wholesale|distribut|import|hurtownia|b2b/i.test(input.candidate.text) ? score : Math.min(35, score),
-      repair_business_match: /维修|repair|serwis|napraw|reparaci|réparation/i.test(input.candidate.text) ? score : Math.min(45, score),
-      bulk_purchase_potential: input.rule.industry === "进口商或分销商" ? Math.min(95, score) : Math.min(65, Math.max(35, score - 20)),
+      wholesale_import_distribution: wholesale ? Math.min(100, 55 + scaleValue + procurementValue) : Math.min(35, score),
+      repair_business_match: repairOnly ? Math.min(100, 55 + specificServices * 10 + Math.min(20, scaleValue)) : Math.min(45, score),
+      bulk_purchase_potential: Math.min(100, 25 + scaleValue * 2 + procurementValue * 2),
       contactability: input.customer.phone && input.customer.email ? 90 : input.customer.phone || input.customer.email ? 70 : 35,
       evidence_completeness: evidenceCompleteness,
       contradiction_risk: 0,
@@ -577,7 +626,9 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   const googleRecord = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
   const google = googleRecord?.evidence as GooglePlaceEvidence | undefined;
   const googleUrl = google?.verified_google_maps_url || googleRecord?.source_url || customer.google_url || "";
-  if (google?.business_status === "CLOSED_PERMANENTLY" && /^https?:\/\//i.test(googleUrl)) {
+  const websiteRecord = records.find((item) => item.channel === "website" && item.status === "COLLECTED");
+  const website = websiteRecord?.evidence as WebsiteEvidence | undefined;
+  if (google?.business_status === "CLOSED_PERMANENTLY" && !website?.reachable && /^https?:\/\//i.test(googleUrl)) {
     const fact = "Google商家页显示该企业已经永久关闭。";
     return {
       industry_type: "已关闭", is_target_customer: false, ai_score: 10, ai_level: "D",
@@ -601,8 +652,6 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
     });
   }
-  const websiteRecord = records.find((item) => item.channel === "website" && item.status === "COLLECTED");
-  const website = websiteRecord?.evidence as WebsiteEvidence | undefined;
   if (website?.reachable && /^https?:\/\//i.test(website.url)) {
     candidates.push({
       channel: "website",
@@ -614,7 +663,15 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     });
   }
   const matches = candidates.flatMap((candidate) => RULE_INDUSTRIES
-    .filter((rule) => ruleIsSupported(rule, candidate.text))
+    .filter((rule) => {
+      if (!ruleIsSupported(rule, candidate.text)) return false;
+      if (candidate.channel !== "google_maps" || !rule.target) return true;
+      // Google 分类只负责定位候选主体。目标客户分类还需要商家描述、
+      // 评论或部件级服务事实佐证；否则交给后续视觉/模型核验。
+      const corroborationText = [google?.description, ...(google?.reviews || [])].filter(Boolean).join("；");
+      return ruleIsSupported(rule, corroborationText)
+        || /(?:换屏|屏幕更换|玻璃更换|换电池|电池更换|尾插|充电口|主板|拆机|维修作业|screen replacement|battery replacement|charging port|motherboard|wymian\w* (?:szyb|wyświetlacz|bater))/i.test(corroborationText);
+    })
     .map((rule) => ({ candidate, rule, scored: deterministicScore({ rule, candidate, customer, records, google }) })))
     .sort((left, right) => right.scored.score - left.scored.score || right.candidate.confidence - left.candidate.confidence);
   const selected = matches[0];
