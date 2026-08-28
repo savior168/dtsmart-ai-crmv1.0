@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import { isDateLikeContactValue } from "./contact-intelligence";
 
 export type WebsiteEvidence = {
   url: string;
@@ -322,7 +323,7 @@ async function fetchPublic(url: string, init: RequestInit, maxRedirects = 3): Pr
 
 export function isPlausiblePhone(value?: string | null) {
   const candidate = String(value || "").replace(/(?:ext\.?|extension|分机)\s*\d+$/i, "").trim();
-  if (!candidate || /[A-Za-z@]/.test(candidate)) return false;
+  if (!candidate || /[A-Za-z@]/.test(candidate) || isDateLikeContactValue(candidate)) return false;
   const digits = candidate.replace(/\D/g, "");
   if (digits.length < 7 || digits.length > 15) return false;
   if (/^(\d)\1{6,}$/.test(digits)) return false;

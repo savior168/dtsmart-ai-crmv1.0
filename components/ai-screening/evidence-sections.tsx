@@ -23,6 +23,7 @@ export type VerifiedContactDisplayItem = {
   id: string;
   type: string;
   value_raw: string;
+  value_normalized?: string | null;
   source_channel?: string | null;
   exact_source_url?: string | null;
   source_page_title?: string | null;
@@ -52,29 +53,57 @@ const contactLabels: Record<string, string> = {
   TIKTOK: "TikTok",
 };
 
-const verificationLabels: Record<string, string> = {
-  NEW_VERIFIED: "新发现并已核实",
-  MATCHED_ORIGINAL: "与原始资料一致",
-};
-
 function ensureUrl(value: string) {
   if (/^https?:\/\//i.test(value)) return value;
   return `https://${value}`;
 }
 
-function contactHref(contact: VerifiedContactDisplayItem) {
+function contactLinkHref(contact: VerifiedContactDisplayItem) {
   const type = contact.type.toUpperCase();
   const value = contact.value_raw.trim();
   if (!value) return "";
-  if (type === "EMAIL") return `mailto:${value}`;
-  if (type === "PHONE") return `tel:${value.replace(/[^\d+]/g, "")}`;
-  if (type === "WHATSAPP") {
-    if (/^https?:\/\//i.test(value)) return value;
-    const digits = value.replace(/\D/g, "");
-    return digits ? `https://wa.me/${digits}` : "";
-  }
+  // Number-like contacts are deliberately copy-only. A user can decide which
+  // local calling/messaging client to use without the browser rewriting it.
+  if (["EMAIL", "PHONE", "WHATSAPP"].includes(type) && !/^https?:\/\//i.test(value)) return "";
   if (["WEBSITE", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK"].includes(type)) return ensureUrl(value);
   return /^https?:\/\//i.test(value) ? value : "";
+}
+
+function displayContactKey(contact: VerifiedContactDisplayItem) {
+  const type = contact.type.toUpperCase();
+  const raw = contact.value_raw.trim();
+  const stored = String(contact.value_normalized || "").trim().toLowerCase();
+  if (stored) return `${type}|${stored}`;
+  if (type === "EMAIL") return `${type}|${raw.toLowerCase()}`;
+  if (["PHONE", "WHATSAPP"].includes(type)) return `${type}|${raw.replace(/\D/g, "")}`;
+  try {
+    const parsed = new URL(ensureUrl(raw));
+    parsed.hash = "";
+    return `${type}|${parsed.toString().replace(/\/$/, "").toLowerCase()}`;
+  } catch {
+    return `${type}|${raw.toLowerCase()}`;
+  }
+}
+
+function groupedContacts(contacts: VerifiedContactDisplayItem[]) {
+  const deduped = new Map<string, VerifiedContactDisplayItem>();
+  for (const contact of contacts) {
+    const raw = contact.value_raw.trim();
+    if (!raw) continue;
+    if (["PHONE", "WHATSAPP"].includes(contact.type.toUpperCase())
+      && (/^(?:\d{1,2}[./-]){2}(?:19|20)\d{2}$/.test(raw) || /^(?:19|20)\d{2}[./-]\d{1,2}[./-]\d{1,2}$/.test(raw))) continue;
+    if (!deduped.has(displayContactKey(contact))) deduped.set(displayContactKey(contact), contact);
+  }
+  const groups = new Map<string, VerifiedContactDisplayItem[]>();
+  for (const contact of deduped.values()) {
+    const type = contact.type.toUpperCase();
+    groups.set(type, [...(groups.get(type) || []), contact]);
+  }
+  const order = ["PHONE", "EMAIL", "WHATSAPP", "WEBSITE", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK"];
+  return [...groups.entries()].sort(([left], [right]) => {
+    const a = order.indexOf(left); const b = order.indexOf(right);
+    return (a < 0 ? 99 : a) - (b < 0 ? 99 : b);
+  });
 }
 
 function ContactIcon({ type }: { type: string }) {
@@ -118,30 +147,33 @@ export function groupEvidenceByChannel(items: EvidenceDisplayItem[]) {
 }
 
 export function VerifiedContactsSection({ contacts, preferredValue }: { contacts: VerifiedContactDisplayItem[]; preferredValue?: string | null }) {
+  const groups = groupedContacts(contacts);
   const verifiedPreferred = contacts.find((item) => item.value_raw === preferredValue);
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI核验发现的联系方式</h3><p className="mt-1 text-sm text-slate-500">均已完成主体核验；点击即可联系客户或打开对应商家页面。</p></div>
+      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI核验发现的联系方式</h3><p className="mt-1 text-sm text-slate-500">同类信息已合并去重；号码和邮箱可复制，商家与社媒链接可直接打开。</p></div>
       {verifiedPreferred ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">推荐优先：{verifiedPreferred.value_raw}</span> : null}
     </div>
-    <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
-      {contacts.map((contact) => {
-        const href = contactHref(contact);
-        const type = contact.type.toUpperCase();
-        return <article key={contact.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 text-sm transition hover:border-blue-200 hover:bg-blue-50/40">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0"><p className="flex items-center gap-2 font-semibold text-slate-800"><ContactIcon type={type} />{contactLabels[type] || type}</p><p className="mt-2 break-all font-medium text-slate-700">{contact.value_raw}</p></div>
-            <button type="button" aria-label={`复制${contactLabels[type] || "联系方式"}`} onClick={() => void navigator.clipboard.writeText(contact.value_raw)} className="shrink-0 rounded-md border border-slate-200 bg-white p-1.5 text-slate-500 hover:text-blue-600"><Copy size={14} /></button>
-          </div>
-          <p className="mt-2 flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 size={13} />{verificationLabels[contact.verification_status || ""] || "已完成主体核验"}</p>
-          <p className="mt-1 text-xs text-slate-500">来源：{channelLabels[contact.source_channel || ""] || contact.source_page_title || "已核实公开页面"}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {href ? <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white">{type === "EMAIL" ? "发送邮件" : type === "PHONE" ? "拨打电话" : type === "WHATSAPP" ? "WhatsApp沟通" : "打开商家页面"}<ExternalLink size={12} /></a> : null}
-            {contact.exact_source_url ? <a href={contact.exact_source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600">核对来源<ExternalLink size={12} /></a> : null}
-          </div>
-        </article>;
-      })}
-      {!contacts.length ? <div className="col-span-full rounded-xl border border-dashed border-slate-300 p-7 text-center text-sm text-slate-500">本次未发现经过主体核验的新联系方式</div> : null}
+    <div className="grid gap-3 p-4 lg:grid-cols-2">
+      {groups.map(([type, values]) => <article key={type} className="rounded-lg border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm">
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <p className="flex items-center gap-2 font-semibold text-slate-800"><ContactIcon type={type} />{contactLabels[type] || type}<span className="rounded-full bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{values.length}</span></p>
+          <span className="flex items-center gap-1 text-[11px] text-emerald-700"><CheckCircle2 size={12} />已核验</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {values.map((contact) => {
+            const href = contactLinkHref(contact);
+            const label = channelLabels[contact.source_channel || ""] || contact.source_page_title || "已核实公开页面";
+            return <div key={contact.id} title={`来源：${label}`} className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white py-1.5 pl-2.5 pr-1.5 text-slate-700 shadow-[0_1px_1px_rgba(15,23,42,0.03)] transition hover:border-blue-300 hover:bg-blue-50/50">
+              {href ? <a href={href} target="_blank" rel="noreferrer" className="min-w-0 break-all font-medium text-blue-700 hover:underline">{contact.value_raw}</a> : <span className="min-w-0 break-all font-medium">{contact.value_raw}</span>}
+              {href ? <ExternalLink size={12} className="shrink-0 text-blue-500" /> : null}
+              <button type="button" aria-label={`复制${contactLabels[type] || "联系方式"}`} title="复制" onClick={() => void navigator.clipboard.writeText(contact.value_raw)} className="shrink-0 rounded p-1 text-slate-400 hover:bg-white hover:text-blue-600"><Copy size={13} /></button>
+              {contact.exact_source_url && contact.exact_source_url !== href ? <a href={contact.exact_source_url} target="_blank" rel="noreferrer" title="核对来源页面" aria-label="核对来源页面" className="shrink-0 rounded p-1 text-slate-400 hover:bg-white hover:text-blue-600"><ExternalLink size={13} /></a> : null}
+            </div>;
+          })}
+        </div>
+      </article>)}
+      {!groups.length ? <div className="col-span-full rounded-xl border border-dashed border-slate-300 p-7 text-center text-sm text-slate-500">本次未发现经过主体核验的新联系方式</div> : null}
     </div>
   </section>;
 }

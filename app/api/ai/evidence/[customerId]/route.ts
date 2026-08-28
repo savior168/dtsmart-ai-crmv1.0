@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
 
 const CHANNEL_LABELS: Record<string, string> = {
   website: "企业官网",
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
       evidence: (evidence.data || [])
         .map((row) => normalizeEvidence(row as Record<string, unknown>))
         .filter(isUsableEvidence),
-      verified_contacts: contacts.data || [],
+      verified_contacts: dedupeVerifiedContactRows(contacts.data || []),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI分析依据查询失败";

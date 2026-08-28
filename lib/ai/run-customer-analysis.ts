@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.28.1";
+const ANALYSIS_VERSION = "2026.08.28.2";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -353,7 +353,7 @@ function splitContacts(value?: string | null) {
   return String(value || "").split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
 }
 
-const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|铁路|电气|食品/;
+const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品/;
 
 function recordBusinessText(record?: ChannelRecord) {
   if (!record?.evidence) return "";
@@ -601,21 +601,24 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|(?:repair|fix|service|care)[\s\S]{0,100}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,100}(?:repair|fix|service|care)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handy(?:reparatur|service)|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|(?:repair|fix)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix|service|care)[\s\S]{0,100}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,100}(?:repair|fix|service|care)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
-  { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|运营商营业厅|手机套餐|电信运营商)/i, industry: "运营商营业厅", baseScore: 22, target: false },
+  { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|运营商营业厅|手机套餐|电信运营商|通信合约|宽带套餐)/i, industry: "运营商营业厅", baseScore: 22, target: false },
   { pattern: /(?:railway engineering|rail safety|railway safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i, industry: "其他", baseScore: 15, target: false },
   { pattern: /(?:food wholesale|food distributor|vegetable wholesale|fruit wholesale|食品批发|蔬菜批发|水果批发|餐饮供应)/i, industry: "其他", baseScore: 10, target: false },
 ];
 
 const PRODUCT_RELEVANCE_PATTERN = /(?:mobile|phone|cellular|smartphone|iphone|ipad|macbook|computer|laptop|gsm|lcd|oled|screen|battery|repair parts?|spare parts?|accessor(?:y|ies)|telefon|komputer|smartfon|手机|电脑|屏幕|电池|配件|维修件)/i;
+const TELECOM_SERVICE_PATTERN = /(?:mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|sim card|mobile plan|通信合约|宽带套餐|手机套餐|运营商)/i;
+const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone repair|iphone repair|computer repair|laptop repair|handyreparatur|computerreparatur|napraw\w* (?:telefon|smartfon|komputer|laptop)|serwis\w* (?:telefon|gsm|smartfon|komputer|laptop)|reparaci[oó]n (?:de )?(?:tel[eé]fonos|m[oó]viles|celulares|ordenadores|computadoras)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones|computadores)|手机维修|电脑维修|换屏|电池更换|充电口|主板维修)/i;
 
 function ruleIsSupported(rule: (typeof RULE_INDUSTRIES)[number], text: string) {
   if (!rule.pattern.test(text)) return false;
+  if (/维修店/.test(rule.industry) && TELECOM_SERVICE_PATTERN.test(text) && !EXPLICIT_DEVICE_REPAIR_PATTERN.test(text)) return false;
   // 任何行业都可以出现“批发/分销”字样；必须同时证明手机、电脑或维修配件产品相关，才能归入高价值渠道客户。
   if (rule.industry === "进口商或分销商") return PRODUCT_RELEVANCE_PATTERN.test(text);
   if (rule.industry === "电脑维修店") return isComputerHardwareRepairEvidence(text);
@@ -752,7 +755,7 @@ function deterministicScore(input: {
 }
 
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
-  { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)|手机维修/i },
+  { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)|手机维修/i },
   { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
   { label: "屏幕或玻璃更换", pattern: /(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
   { label: "电池更换", pattern: /(?:battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
@@ -765,7 +768,11 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
   { label: "软件开发、云服务或网络托管", pattern: /(?:software development|software company|cloud services|web hosting|cyber ?security|软件开发|软件公司|云服务|网络托管|信息安全)/i },
-  { label: "运营商套餐、SIM卡或通信服务", pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|运营商营业厅|手机套餐|电信运营商)/i },
+  { label: "手机合约或移动通信套餐", pattern: /(?:sim card|mobile plan|mobile contract|phone contract|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|手机套餐|手机合约|通信合约|移动通信套餐)/i },
+  { label: "固定电话服务", pattern: /(?:festnetz|fixed[- ]line|landline|固定电话)/i },
+  { label: "互联网或宽带服务", pattern: /(?:\binternet\b|internet(?:vertrag|tarif)|broadband|dsl|fiber internet|互联网|宽带套餐|宽带服务)/i },
+  { label: "MagentaTV或电视服务", pattern: /(?:magenta\s*tv|iptv|television package|电视服务)/i },
+  { label: "电信合作伙伴或运营商服务", pattern: /(?:mobile network operator|telecommunications service provider|telekom partner|telekommunikationspartner|运营商营业厅|电信运营商|电信合作伙伴)/i },
   { label: "铁路工程、电气安装或电气安全服务", pattern: /(?:railway engineering|rail safety|railway safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i },
   { label: "食品批发或餐饮供应", pattern: /(?:food wholesale|food distributor|vegetable wholesale|fruit wholesale|食品批发|蔬菜批发|水果批发|餐饮供应)/i },
 ];
@@ -777,7 +784,7 @@ function verifiedFactLabels(text: string) {
 function conciseDeterministicFact(candidate: { channel: string; text: string }, industry: CustomerAnalysis["industry_type"]) {
   let labels = [...new Set(verifiedFactLabels(candidate.text))];
   if (industry === "软件或IT服务") labels = labels.filter((item) => /IT|软件|云服务|网络托管/.test(item));
-  if (industry === "运营商营业厅") labels = labels.filter((item) => /运营商|SIM卡|通信服务/.test(item));
+  if (industry === "运营商营业厅") labels = labels.filter((item) => /手机合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|运营商/.test(item));
   if (industry === "其他" && labels.some((item) => /食品/.test(item))) labels = labels.filter((item) => /食品/.test(item));
   if (industry === "其他" && labels.some((item) => /铁路|电气/.test(item))) labels = labels.filter((item) => /铁路|电气/.test(item));
   labels = labels.slice(0, 6);
@@ -790,8 +797,8 @@ function conciseDeterministicFact(candidate: { channel: string; text: string }, 
 }
 
 function sourceConclusion(channel: string, labels: string[]) {
-  const source = channel === "google_maps" ? "Google商家页" : "企业官网";
-  return `${source}确认：${labels.join("、")}`;
+  const source = channel === "google_maps" ? "Google商家" : channel === "website" ? "官网" : AI_CHANNEL_LABELS[channel as AiChannel] || "公开来源";
+  return `${source}明确显示：${labels.join("、")}。`;
 }
 
 function salesSummaryFields(params: {
@@ -808,8 +815,8 @@ function salesSummaryFields(params: {
   const serviceText = allLabels.length ? allLabels.join("、") : params.industry;
   const repairParts = allLabels.filter((label) => /屏幕|玻璃|电池|充电口|接口|主板|板级|键盘|触控板|维修配件|配件销售/.test(label));
   const wholesaleFacts = allLabels.filter((label) => /批发|分销|进口/.test(label));
-  const conclusion = `${sourceConclusions.join("\n")}\n• 综合结论：行业归类为“${params.industry}”。`;
-  const scope = `${sourceConclusions.join("\n")}\n• 经营归类：${params.industry}。`;
+  const conclusion = `${sourceConclusions.join("\n")}\n• 行业判断：根据以上可核验事实，归类为“${params.industry}”。`;
+  const scope = sourceConclusions.join("\n");
 
   if (!params.target) {
     return {
@@ -915,7 +922,17 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     })
     .map((rule) => ({ candidate, rule, scored: deterministicScore({ rule, candidate, customer, records, google }) })))
     .sort((left, right) => right.scored.score - left.scored.score || right.candidate.confidence - left.candidate.confidence);
-  const selected = matches[0];
+  // A verified official website is authoritative for the company's declared
+  // products and services. Google remains authoritative for operating status,
+  // address and recent public activity. Prefer an explicit website business
+  // fact over a conflicting platform category, while preserving any direct
+  // cross-source conflict for the user instead of silently blending it.
+  const websiteMatches = matches.filter((item) => item.candidate.channel === "website" && verifiedFactLabels(item.candidate.text).length);
+  const googleMatches = matches.filter((item) => item.candidate.channel === "google_maps" && verifiedFactLabels(item.candidate.text).length);
+  const bestWebsite = websiteMatches[0];
+  const bestGoogle = googleMatches[0];
+  const crossSourceConflict = Boolean(bestWebsite && bestGoogle && bestWebsite.rule.target !== bestGoogle.rule.target);
+  const selected = bestWebsite || matches[0];
   if (!selected) return null;
   const evidenceSummaries = candidates.flatMap((candidate) => {
     const match = matches.find((item) => item.candidate === candidate);
@@ -930,21 +947,31 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       original_excerpt: candidate.originalExcerpt,
     }];
   }).filter((item, index, all) => all.findIndex((other) => other.channel === item.channel && other.source_url === item.source_url) === index).slice(0, 4);
-  const score = selected.scored.score;
+  const conflictTargetMatch = crossSourceConflict
+    ? [bestWebsite, bestGoogle].find((item) => item?.rule.target)
+    : undefined;
+  const effectiveTarget = Boolean(conflictTargetMatch?.rule.target || selected.rule.target);
+  const effectiveIndustry = crossSourceConflict && conflictTargetMatch
+    ? "混合经营" as const
+    : selected.rule.industry;
+  const score = conflictTargetMatch ? Math.max(60, conflictTargetMatch.scored.score) : selected.scored.score;
   const contactChannels = [customer.phone ? "原始电话" : "", customer.email ? "原始邮箱" : ""].filter(Boolean);
-  const salesFields = salesSummaryFields({ industry: selected.rule.industry, target: selected.rule.target, candidates, contactChannels });
+  const salesFields = salesSummaryFields({ industry: effectiveIndustry, target: effectiveTarget, candidates, contactChannels });
+  const evidenceConflicts = crossSourceConflict
+    ? [`官网与Google商家公开信息显示不同经营方向：官网明确显示“${bestWebsite?.rule.industry}”，Google商家公开说明或评论显示“${bestGoogle?.rule.industry}”。系统保留两方事实并按混合经营处理。`]
+    : [];
   return {
-    industry_type: selected.rule.industry,
-    is_target_customer: selected.rule.target,
+    industry_type: effectiveIndustry,
+    is_target_customer: effectiveTarget,
     ai_score: score,
     ai_level: scoreToLevel(score),
     ai_reason: salesFields.reason,
     business_relevance: salesFields.relevance,
     customer_value: salesFields.value,
     followup_suggestion: salesFields.followup,
-    confidence_score: Math.max(...evidenceSummaries.map((item) => item.confidence)),
+    confidence_score: crossSourceConflict ? Math.min(79, Math.max(...evidenceSummaries.map((item) => item.confidence))) : Math.max(...evidenceSummaries.map((item) => item.confidence)),
     evidence_sufficiency: "充分",
-    evidence_conflicts: [],
+    evidence_conflicts: evidenceConflicts,
     score_breakdown: selected.scored.breakdown,
     suggested_contact_order: ["电话", "邮箱", "WhatsApp"],
     evidence_summaries: evidenceSummaries,
@@ -995,7 +1022,10 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
 
 export function verifiedBusinessScope(analysis: CustomerAnalysis) {
   const facts = analysis.evidence_summaries
-    .filter((item) => item.evidence_type === "支持" && item.confidence >= 60)
+    // “矛盾” means contradictory to our target-customer profile, not that the
+    // source fact is false. Non-target operating facts are still the customer's
+    // verified business scope and must be shown to sales users.
+    .filter((item) => item.evidence_type !== "中性" && item.confidence >= 60)
     .map((item) => item.fact_zh.replace(/\s+/g, " ").trim())
     .filter(Boolean);
   if (!facts.length) return null;
@@ -1166,7 +1196,7 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
     .eq("customer_id", input.customer.id);
   if (existing.error) throw existing.error;
   const existingByKey = new Map((existing.data || []).map((item) => [
-    `${String(item.type)}|${String(item.value_normalized)}|${String(item.source)}`,
+    `${String(item.type)}|${String(item.value_normalized)}`,
     String(item.verification_status || ""),
   ]));
   const rows = input.contacts.map((item) => ({
@@ -1185,7 +1215,7 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
   const existingRows = existing.data || [];
   for (const row of rows) {
     const match = existingRows.find((item) => item.type === row.type
-      && item.value_normalized === row.value_normalized && item.source === row.source);
+      && item.value_normalized === row.value_normalized);
     const write = match
       ? await admin.from("customer_contacts").update(row).eq("id", match.id)
       : await admin.from("customer_contacts").insert(row);
@@ -1194,7 +1224,7 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
   const audits = input.contacts
     .filter((item) => {
       if (!["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus)) return false;
-      const previous = existingByKey.get(`${item.type}|${item.valueNormalized}|${item.sourceChannel}`);
+      const previous = existingByKey.get(`${item.type}|${item.valueNormalized}`);
       return previous !== item.verificationStatus;
     })
     .map((item) => ({

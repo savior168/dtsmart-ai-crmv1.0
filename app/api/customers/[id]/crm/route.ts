@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -67,7 +68,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       permanent,
     };
     const canEdit = profileResult.data.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
-    return NextResponse.json({ customer, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: verifiedContacts.data || [], users });
+    return NextResponse.json({ customer, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

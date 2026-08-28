@@ -19,6 +19,19 @@ export type ContactCandidate = {
   contentHash: string;
 };
 
+export function isDateLikeContactValue(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  // Dates and times are frequently exposed in JSON-LD next to telephone
+  // fields by malformed themes. They are not contact numbers. Keep dotted
+  // phone formats such as 01.23.45.67.89 valid by only rejecting a complete
+  // three-part date whose final component is a four-digit year.
+  if (/^(?:\d{1,2}[./-]){2}(?:19|20)\d{2}$/.test(raw)) return true;
+  if (/^(?:19|20)\d{2}[./-]\d{1,2}[./-]\d{1,2}$/.test(raw)) return true;
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(raw)) return true;
+  return false;
+}
+
 const dialCodes: Record<string, string> = {
   US: "+1", CA: "+1", GB: "+44", IE: "+353", ES: "+34", PT: "+351", FR: "+33",
   DE: "+49", IT: "+39", NL: "+31", BE: "+32", PL: "+48", SE: "+46", NO: "+47",
@@ -42,7 +55,7 @@ export function normalizeEmailStrict(value?: string | null) {
 
 export function normalizePhoneInternational(value?: string | null, country?: string | null) {
   const raw = String(value || "").replace(/(?:ext\.?|extension|分机)\s*\d+$/i, "").trim();
-  if (!raw || /[A-Za-z@]/.test(raw)) return "";
+  if (!raw || /[A-Za-z@]/.test(raw) || isDateLikeContactValue(raw)) return "";
   let digits = raw.replace(/\D/g, "");
   if (digits.length < 7 || digits.length > 15 || /^(\d)\1{6,}$/.test(digits)) return "";
   if (raw.startsWith("+")) return `+${digits}`;
@@ -114,19 +127,22 @@ export function buildContactCandidate(input: {
 }
 
 export function reconcileContacts(candidates: ContactCandidate[]) {
-  const unique = new Map<string, ContactCandidate>();
-  for (const candidate of candidates) unique.set(`${candidate.type}|${candidate.valueNormalized}|${candidate.sourceUrl}`, candidate);
-  const values = [...unique.values()];
-  // An official business may legitimately publish several phone numbers or
-  // mailboxes. Multiple verified values are not a conflict by themselves.
-  // Keep every source for audit, while the customer summary fields deduplicate
-  // them later by the normalized contact value.
   const rank = (item: ContactCandidate) => {
     const source = item.sourceChannel === "website" ? 40 : item.sourceChannel === "google_maps" ? 35 : 20;
     const status = item.verificationStatus === "MATCHED_ORIGINAL" ? 35 : item.verificationStatus === "NEW_VERIFIED" ? 30 : item.verificationStatus === "CONFLICTING_VERIFIED" ? 15 : 0;
     const purpose = item.type === "EMAIL" && /(?:sales|purchase|procurement|wholesale|trade)@/i.test(item.valueNormalized) ? 15 : item.type === "WHATSAPP" ? 10 : 5;
     return source + status + purpose;
   };
+  const unique = new Map<string, ContactCandidate>();
+  for (const candidate of candidates) {
+    const key = `${candidate.type}|${candidate.valueNormalized}`;
+    const current = unique.get(key);
+    // A contact can appear on the home page, contact page and Google profile.
+    // Persist it once and retain the strongest verified source instead of
+    // presenting identical WhatsApp/phone/email values several times.
+    if (!current || rank(candidate) > rank(current)) unique.set(key, candidate);
+  }
+  const values = [...unique.values()];
   // Only a contact that either matches the customer's original value or was
   // found on a strictly matched official entity can be recommended. An
   // ambiguous Google candidate is useful for audit, but must never become the
@@ -135,6 +151,37 @@ export function reconcileContacts(candidates: ContactCandidate[]) {
     .filter((item) => ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(item.verificationStatus))
     .sort((a, b) => rank(b) - rank(a))[0] || null;
   return { contacts: values, preferred };
+}
+
+type StoredContactRow = {
+  type?: unknown;
+  value_raw?: unknown;
+  value_normalized?: unknown;
+  source_channel?: unknown;
+  verification_status?: unknown;
+};
+
+/** Collapses legacy duplicates at API boundaries without deleting audit rows. */
+export function dedupeVerifiedContactRows<T extends StoredContactRow>(rows: T[]) {
+  const sourceRank = (row: T) => {
+    const source = String(row.source_channel || "");
+    const status = String(row.verification_status || "");
+    return (source === "website" ? 40 : source === "google_maps" ? 35 : 20)
+      + (status === "MATCHED_ORIGINAL" ? 35 : status === "NEW_VERIFIED" ? 30 : 0);
+  };
+  const unique = new Map<string, T>();
+  for (const row of rows) {
+    const type = String(row.type || "").toUpperCase();
+    const raw = String(row.value_raw || "").trim();
+    if (!type || !raw || (["PHONE", "WHATSAPP"].includes(type) && isDateLikeContactValue(raw))) continue;
+    const normalized = String(row.value_normalized || "").trim().toLowerCase()
+      || (type === "EMAIL" ? normalizeEmailStrict(raw) : ["PHONE", "WHATSAPP"].includes(type) ? normalizePhoneInternational(raw) : normalizePublicContactUrl(raw));
+    if (!normalized) continue;
+    const key = `${type}|${normalized}`;
+    const current = unique.get(key);
+    if (!current || sourceRank(row) > sourceRank(current)) unique.set(key, row);
+  }
+  return [...unique.values()];
 }
 
 
