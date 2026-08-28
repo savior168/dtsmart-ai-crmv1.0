@@ -51,6 +51,7 @@ const contactLabels: Record<string, string> = {
   INSTAGRAM: "Instagram",
   LINKEDIN: "LinkedIn",
   TIKTOK: "TikTok",
+  OTHER: "企业官网或公开链接",
 };
 
 function ensureUrl(value: string) {
@@ -99,7 +100,7 @@ function groupedContacts(contacts: VerifiedContactDisplayItem[]) {
     const type = contact.type.toUpperCase();
     groups.set(type, [...(groups.get(type) || []), contact]);
   }
-  const order = ["PHONE", "EMAIL", "WHATSAPP", "WEBSITE", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK"];
+  const order = ["PHONE", "EMAIL", "WHATSAPP", "WEBSITE", "OTHER", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK"];
   return [...groups.entries()].sort(([left], [right]) => {
     const a = order.indexOf(left); const b = order.indexOf(right);
     return (a < 0 ? 99 : a) - (b < 0 ? 99 : b);

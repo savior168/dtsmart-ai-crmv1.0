@@ -49,6 +49,9 @@ export function normalizeEmailStrict(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) return "";
   if (/@(?:example\.(?:com|org|net)|test\.|invalid\.|email\.)/i.test(normalized)) return "";
+  // Common misspellings shipped in website/theme demo blocks. They can be
+  // exposed as real mailto links, so syntax validation alone is insufficient.
+  if (/@(?:examplde|exmaple|exemple|examle)\./i.test(normalized)) return "";
   if (/^(?:your|name|example|sample|test|user)@/i.test(normalized)) return "";
   return normalized;
 }
@@ -58,6 +61,10 @@ export function normalizePhoneInternational(value?: string | null, country?: str
   if (!raw || /[A-Za-z@]/.test(raw) || isDateLikeContactValue(raw)) return "";
   let digits = raw.replace(/\D/g, "");
   if (digits.length < 7 || digits.length > 15 || /^(\d)\1{6,}$/.test(digits)) return "";
+  // Theme/demo phone values are often emitted through a genuine `tel:` link.
+  // Reject unmistakable sequential placeholders before they can be presented
+  // to sales users as verified customer contacts.
+  if (/0123456789|1234567890|9876543210/.test(digits)) return "";
   if (raw.startsWith("+")) return `+${digits}`;
   if (digits.startsWith("00")) return `+${digits.slice(2)}`;
   // Customer country values are stored in mixed forms (PL, Poland, 波兰, PL 波兰).
@@ -174,8 +181,13 @@ export function dedupeVerifiedContactRows<T extends StoredContactRow>(rows: T[])
     const type = String(row.type || "").toUpperCase();
     const raw = String(row.value_raw || "").trim();
     if (!type || !raw || (["PHONE", "WHATSAPP"].includes(type) && isDateLikeContactValue(raw))) continue;
-    const normalized = String(row.value_normalized || "").trim().toLowerCase()
-      || (type === "EMAIL" ? normalizeEmailStrict(raw) : ["PHONE", "WHATSAPP"].includes(type) ? normalizePhoneInternational(raw) : normalizePublicContactUrl(raw));
+    // Revalidate the raw value on every read. Older rows may contain a stored
+    // normalized value that predates the stricter placeholder/date rules.
+    const normalized = type === "EMAIL"
+      ? normalizeEmailStrict(raw)
+      : ["PHONE", "WHATSAPP"].includes(type)
+        ? normalizePhoneInternational(raw)
+        : normalizePublicContactUrl(raw);
     if (!normalized) continue;
     const key = `${type}|${normalized}`;
     const current = unique.get(key);

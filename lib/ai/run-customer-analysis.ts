@@ -423,12 +423,21 @@ function contactTypeForUrl(value?: string | null): ContactType {
 
 function originalValuesForType(customer: CustomerRow, type: ContactType) {
   if (type === "EMAIL") return splitContacts(customer.email);
-  if (type === "PHONE" || type === "WHATSAPP") return splitContacts(customer.phone);
+  // Phone and WhatsApp are the same numbering namespace. A number already
+  // present in either original field is a match, not an AI-discovered contact.
+  if (type === "PHONE" || type === "WHATSAPP") return [
+    ...splitContacts(customer.phone),
+    ...splitContacts(customer.whatsapp),
+  ];
   if (type === "FACEBOOK") return splitContacts(customer.facebook_url);
   if (type === "INSTAGRAM") return splitContacts(customer.instagram_url);
   if (type === "LINKEDIN") return splitContacts(customer.linkedin_url);
   if (type === "TIKTOK") return splitContacts(customer.tiktok_url);
-  return customer.other_public_urls || [];
+  return [
+    ...splitContacts(customer.website),
+    ...splitContacts(customer.google_url),
+    ...(customer.other_public_urls || []),
+  ];
 }
 
 function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
@@ -491,13 +500,14 @@ function mergedVerifiedContactValues(customer: CustomerRow, contacts: ContactCan
     ? normalizeEmailStrict(value)
     : normalizePhoneInternational(value, customer.country);
   const unique = new Map<string, string>();
+  const originals = new Set(originalValuesForType(customer, type).map(normalized).filter(Boolean));
   for (const raw of existing) {
     const key = normalized(raw);
-    if (key && !unique.has(key)) unique.set(key, raw);
+    if (key && !originals.has(key) && !unique.has(key)) unique.set(key, raw);
   }
   for (const contact of contacts) {
     if (contact.type !== type || contact.verificationStatus !== "NEW_VERIFIED") continue;
-    if (!unique.has(contact.valueNormalized)) unique.set(contact.valueNormalized, contact.valueRaw);
+    if (!originals.has(contact.valueNormalized) && !unique.has(contact.valueNormalized)) unique.set(contact.valueNormalized, contact.valueRaw);
   }
   return [...unique.values()].join(", ");
 }

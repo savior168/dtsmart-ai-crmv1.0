@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
+import { dedupeVerifiedContactRows, normalizeEmailStrict, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
+
+function cleanStoredDiscoveredValues(value: unknown, type: "EMAIL" | "PHONE", country: unknown, originals: unknown[]) {
+  const normalize = (item: unknown) => type === "EMAIL"
+    ? normalizeEmailStrict(String(item || ""))
+    : normalizePhoneInternational(String(item || ""), String(country || ""));
+  const originalSet = new Set(originals.map(normalize).filter(Boolean));
+  const unique = new Map<string, string>();
+  for (const raw of String(value || "").split(/[,;\n]/).map((item) => item.trim()).filter(Boolean)) {
+    const key = normalize(raw);
+    if (key && !originalSet.has(key) && !unique.has(key)) unique.set(key, raw);
+  }
+  return [...unique.values()].join(", ") || null;
+}
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -68,7 +81,12 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       permanent,
     };
     const canEdit = profileResult.data.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
-    return NextResponse.json({ customer, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
+    const customerForDisplay = {
+      ...customer,
+      website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),
+      website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]),
+    };
+    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

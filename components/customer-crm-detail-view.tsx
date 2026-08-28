@@ -35,13 +35,12 @@ function normalizedContact(type:string,value?:string|null){
 }
 
 function aiDiscoveredContacts(data:Data){
+  const originalPhones=[data.customer.phone,data.customer.whatsapp].map((item)=>normalizedContact("PHONE",item)).filter(Boolean);
   const originalByType:Record<string,Set<string>>={
     EMAIL:new Set([normalizedContact("EMAIL",data.customer.email)].filter(Boolean)),
-    PHONE:new Set([normalizedContact("PHONE",data.customer.phone)].filter(Boolean)),
-    WHATSAPP:new Set([
-      normalizedContact("WHATSAPP",data.customer.whatsapp),
-      normalizedContact("WHATSAPP",data.customer.phone),
-    ].filter(Boolean)),
+    PHONE:new Set(originalPhones),
+    WHATSAPP:new Set(originalPhones),
+    OTHER:new Set([data.customer.website,data.customer.google_url].map((item)=>normalizedContact("OTHER",item)).filter(Boolean)),
   };
   return (data.verified_contacts||[]).filter((contact)=>{
     if(contact.verification_status!=="NEW_VERIFIED")return false;
