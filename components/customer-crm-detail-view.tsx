@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowLeft, CalendarClock, ExternalLink, History, LoaderCircle, MessageSquarePlus, Pencil, ShieldCheck, X } from "lucide-react";
+import { GroupedEvidenceSection, VerifiedContactsSection, type EvidenceDisplayItem, type VerifiedContactDisplayItem } from "@/components/ai-screening/evidence-sections";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerForm } from "@/components/customer-form";
 import type { Customer, Followup, FollowupType } from "@/lib/types";
@@ -11,9 +12,9 @@ import { CUSTOMER_STATUS_LABELS, FOLLOWUP_TYPE_LABELS, FOLLOWUP_TYPES } from "@/
 type EffectiveProtection = { source:"EXPLICIT"|"DEFAULT_90_DAYS"|"NONE"; start_date:string|null; expire_date:string|null; status:"ACTIVE"|"RELEASED"|"EXPIRED"; remaining_days:number|null; permanent:boolean };
 type Claim = { id:string; action:string; created_at:string };
 type AuditLog = { id:string; action:string; created_at:string };
-type AiFact = { id:string; title?:string|null; normalized_fact?:string|null; content?:string|null; source_url?:string|null; evidence_type?:string|null; evidence_confidence?:number|null; metadata?:{media_urls?:string[]}|null };
-type AiResult = { ai_reason?:string|null; summary?:string|null; business_relevance?:string|null; business_scope?:string|null; company_scale_evidence?:string|null; customer_value?:string|null; followup_suggestion?:string|null };
-type VerifiedContact = { id:string; type:string; value_raw:string; source_channel?:string|null };
+type AiFact = EvidenceDisplayItem;
+type AiResult = { id?:string|null; task_id?:string|null; ai_reason?:string|null; summary?:string|null; business_relevance?:string|null; business_scope?:string|null; company_scale_evidence?:string|null; customer_value?:string|null; followup_suggestion?:string|null };
+type VerifiedContact = VerifiedContactDisplayItem;
 type Data = { customer:Customer; can_edit:boolean; effective_protection:EffectiveProtection; followups:Followup[]; claims:Claim[]; audit_logs:AuditLog[]; ai_result?:AiResult|null; ai_facts?:AiFact[]; verified_contacts?:VerifiedContact[] };
 const tabs = ["资料","AI分析","跟进记录","报价记录","操作日志"] as const;
 type Tab = typeof tabs[number];
@@ -28,6 +29,7 @@ function CustomerAiAnalysis({data}:{data:Data}){
   const result=data.ai_result;
   const facts=(data.ai_facts||[]).filter(item=>{const text=item.normalized_fact||item.content||"";return /[\u3400-\u9fff]/.test(text)&&!/未保存|未提炼|请重新执行|读取失败|未能取得|GOOGLE_MAPS_API_KEY|fetch failed/i.test(text)&&/^https?:\/\//i.test(item.source_url||"")});
   return <div className="space-y-4 p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3"><div><b className="text-sm text-slate-800">销售判断摘要</b><p className="mt-1 text-xs text-slate-500">本页保留最重要结论、证据和可联系入口；完整分析过程在核验页查看。</p></div><Link href={`/ai-screening/customers/${data.customer.id}/evidence${result?.task_id?`?task=${result.task_id}`:""}`} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">查看完整AI分析依据<ExternalLink size={14}/></Link></div>
     <div className="grid gap-4 md:grid-cols-2">
       <Info title="分析摘要" content={result?.ai_reason||result?.summary||data.customer.ai_reason}/>
       <Info title="经营范围" content={result?.business_scope||data.customer.business_scope}/>
@@ -36,8 +38,8 @@ function CustomerAiAnalysis({data}:{data:Data}){
       <Info title="跟进建议" content={result?.followup_suggestion||data.customer.followup_suggestion}/>
       {(result?.company_scale_evidence||data.customer.company_scale_evidence)?<Info title="可核验采购/规模记录" content={result?.company_scale_evidence||data.customer.company_scale_evidence}/>:null}
     </div>
-    {data.verified_contacts?.length?<section className="rounded-xl border bg-white p-5"><h3 className="font-semibold">AI核验发现的联系方式</h3><div className="mt-3 grid gap-2 md:grid-cols-2">{data.verified_contacts.map(contact=><div key={contact.id} className="rounded-lg bg-slate-50 p-3 text-sm"><b>{contact.type}</b><span className="ml-2">{contact.value_raw}</span><p className="mt-1 text-xs text-slate-500">来源：{contact.source_channel||"公开页面"}</p></div>)}</div></section>:null}
-    <section className="rounded-xl border bg-white p-5"><div className="flex items-center justify-between gap-2"><div><h3 className="font-semibold">可核验的中文分析依据</h3><p className="mt-1 text-sm text-slate-500">AI数据只读；来源页面保留用于核验。</p></div><span className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">{facts.length} 条有效依据</span></div><div className="mt-4 space-y-3">{facts.map(item=><article key={item.id} className="rounded-lg border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{item.title||"公开来源关键依据"}</b><span className="text-xs text-slate-500">{item.evidence_type||"中性"} · 可信度 {Number(item.evidence_confidence||0)}%</span></div><p className="mt-2 text-sm leading-7 text-slate-700">{item.normalized_fact||item.content}</p><div className="mt-2 flex flex-wrap gap-2">{item.source_url?<a href={item.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-blue-600">核对来源页面<ExternalLink size={12}/></a>:null}{(item.metadata?.media_urls||[]).slice(0,6).map((url,index)=><a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600">高清原图/原视频 {index+1}<ExternalLink size={12}/></a>)}</div></article>)}{!facts.length?<p className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-500">当前没有可展示的有效公开依据。</p>:null}</div></section>
+    <VerifiedContactsSection contacts={data.verified_contacts||[]} />
+    <GroupedEvidenceSection evidence={facts} compact/>
   </div>
 }
 

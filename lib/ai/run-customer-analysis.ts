@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.27.3";
+const ANALYSIS_VERSION = "2026.08.28.1";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -789,6 +789,57 @@ function conciseDeterministicFact(candidate: { channel: string; text: string }, 
   return `${source}显示其经营内容属于“${industry}”；具体原文已随本条证据保存，可通过来源链接核验。`;
 }
 
+function sourceConclusion(channel: string, labels: string[]) {
+  const source = channel === "google_maps" ? "Google商家页" : "企业官网";
+  return `${source}确认：${labels.join("、")}`;
+}
+
+function salesSummaryFields(params: {
+  industry: CustomerAnalysis["industry_type"];
+  target: boolean;
+  candidates: Array<{ channel: string; text: string }>;
+  contactChannels: string[];
+}) {
+  const sourceFacts = params.candidates
+    .map((candidate) => ({ channel: candidate.channel, labels: [...new Set(verifiedFactLabels(candidate.text))].slice(0, 6) }))
+    .filter((item) => item.labels.length);
+  const allLabels = [...new Set(sourceFacts.flatMap((item) => item.labels))];
+  const sourceConclusions = sourceFacts.map((item) => `• ${sourceConclusion(item.channel, item.labels)}`);
+  const serviceText = allLabels.length ? allLabels.join("、") : params.industry;
+  const repairParts = allLabels.filter((label) => /屏幕|玻璃|电池|充电口|接口|主板|板级|键盘|触控板|维修配件|配件销售/.test(label));
+  const wholesaleFacts = allLabels.filter((label) => /批发|分销|进口/.test(label));
+  const conclusion = `${sourceConclusions.join("\n")}\n• 综合结论：行业归类为“${params.industry}”。`;
+  const scope = `${sourceConclusions.join("\n")}\n• 经营归类：${params.industry}。`;
+
+  if (!params.target) {
+    return {
+      scope,
+      reason: conclusion,
+      relevance: `• 已证实：${serviceText}。\n• 目标业务匹配：现有来源没有显示手机或电脑维修配件、相关配件批发分销或采购事实。`,
+      value: "• 开发判断：当前证据不支持列入手机、电脑配件销售开发名单。\n• 后续处理：仅在出现新的目标业务证据后重新分析。",
+      followup: "• 当前建议：无需常规销售跟进。\n• 核验方式：保留并直接打开来源页面；经营范围发生变化后再重新筛选。",
+    };
+  }
+
+  const directFit = wholesaleFacts.length
+    ? `已核验${wholesaleFacts.join("、")}业务，存在直接的渠道合作场景。`
+    : repairParts.length
+      ? `已核验${repairParts.join("、")}服务，与我方对应维修配件存在直接产品交集。`
+      : `已核验${serviceText}，属于手机或电脑配件的潜在使用场景；具体配件需求尚需销售确认。`;
+  const value = wholesaleFacts.length
+    ? "公开证据支持其具备批发、分销或进口业务场景；尚未取得真实采购量、采购周期或订单金额，不把采购规模作为既定事实。"
+    : repairParts.length
+      ? `公开证据直接显示${repairParts.join("、")}，可围绕对应配件开展销售沟通；门店规模、月用量和采购渠道尚未核验。`
+      : "公开证据支持其属于目标经营场景，但尚无具体配件采购、采购频次或规模证据，销售优先确认实际需求。";
+  return {
+    scope,
+    reason: conclusion,
+    relevance: `• 已证实：${serviceText}。\n• 与我方业务交集：${directFit}`,
+    value: `• 可开发依据：${value}\n• 事实边界：未核验的信息不会写成既定事实。`,
+    followup: `• 联系入口：${params.contactChannels.length ? `优先通过${params.contactChannels.join("或")}` : "使用已核验公开联系方式"}。\n• 沟通内容：引用已核验的“${serviceText}”业务，确认常用配件、月度用量、采购渠道和报价需求。`,
+  };
+}
+
 function deterministicEvidenceType(target: boolean) {
   return target ? "支持" as const : "矛盾" as const;
 }
@@ -880,35 +931,17 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     }];
   }).filter((item, index, all) => all.findIndex((other) => other.channel === item.channel && other.source_url === item.source_url) === index).slice(0, 4);
   const score = selected.scored.score;
-  const facts = evidenceSummaries.map((item) => item.fact_zh);
-  const sourceNames = [...new Set(evidenceSummaries.map((item) => item.channel === "google_maps" ? "Google商家页" : "企业官网"))].join("和");
   const contactChannels = [customer.phone ? "原始电话" : "", customer.email ? "原始邮箱" : ""].filter(Boolean);
-  const repairIndustry = /维修/.test(selected.rule.industry);
-  const wholesaleIndustry = /批发|进口|分销/.test(selected.rule.industry);
-  const nonTarget = !selected.rule.target;
+  const salesFields = salesSummaryFields({ industry: selected.rule.industry, target: selected.rule.target, candidates, contactChannels });
   return {
     industry_type: selected.rule.industry,
     is_target_customer: selected.rule.target,
     ai_score: score,
     ai_level: scoreToLevel(score),
-    ai_reason: `已核验${sourceNames}中的公开经营信息：${facts.join("；")}`,
-    business_relevance: nonTarget
-      ? `已核验公开经营事实属于“${selected.rule.industry}”，未发现手机或电脑维修内配件、相关配件批发分销或采购业务，和目标客户画像不匹配。`
-      : wholesaleIndustry
-      ? `公开来源明确显示该企业从事${selected.rule.industry}相关业务，与手机和电脑配件外贸批发的渠道客户画像直接匹配。`
-      : repairIndustry
-        ? `公开来源明确显示该企业提供${selected.rule.industry}相关服务，具备维修用手机或电脑配件的实际使用场景。`
-        : `公开来源明确显示该企业经营${selected.rule.industry}相关业务，与目标产品存在可解释的业务关联。`,
-    customer_value: nonTarget
-      ? "当前可核验经营范围与DTSmart手机、电脑维修配件批发业务不匹配，不建议进入销售开发名单。"
-      : wholesaleIndustry
-      ? "其公开经营模式具备批量采购或渠道合作场景；实际采购品类、采购量和合作周期仍需销售沟通确认。"
-      : repairIndustry
-        ? "其维修业务会实际使用屏幕、电池、接口、排线等维修配件，存在补货机会；门店规模和月度用量仍需销售确认。"
-        : "已确认其经营业务与目标产品相关，具体采购频率、数量和决策角色仍需销售确认。",
-    followup_suggestion: nonTarget
-      ? "保留来源链接和原文摘录用于复核；除非后续出现手机或电脑维修配件业务的新证据，否则无需销售跟进。"
-      : `${contactChannels.length ? `优先通过${contactChannels.join("或")}` : "通过已核验公开联系方式"}联系，引用已确认的“${selected.rule.industry}”业务切入，询问常用配件品类、月度用量、当前采购渠道和报价需求。`,
+    ai_reason: salesFields.reason,
+    business_relevance: salesFields.relevance,
+    customer_value: salesFields.value,
+    followup_suggestion: salesFields.followup,
     confidence_score: Math.max(...evidenceSummaries.map((item) => item.confidence)),
     evidence_sufficiency: "充分",
     evidence_conflicts: [],
@@ -966,8 +999,9 @@ export function verifiedBusinessScope(analysis: CustomerAnalysis) {
     .map((item) => item.fact_zh.replace(/\s+/g, " ").trim())
     .filter(Boolean);
   if (!facts.length) return null;
-  const directFacts = [...new Set(facts)].slice(0, 2).join("；");
-  return `主营：${analysis.industry_type}。已核验经营事实：${directFacts}`.slice(0, 600);
+  const labels = [...new Set(facts.flatMap((fact) => verifiedFactLabels(fact)))];
+  const directFacts = labels.length ? labels.slice(0, 8).join("、") : [...new Set(facts)].slice(0, 2).join("；");
+  return `主营业务：${analysis.industry_type}。已核验经营内容：${directFacts}。`.slice(0, 600);
 }
 
 export function verifiedCompanyScale(records: ChannelRecord[]) {

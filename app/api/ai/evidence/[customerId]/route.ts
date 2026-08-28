@@ -50,10 +50,11 @@ function normalizeEvidence(row: Record<string, unknown>) {
   const mediaUrls = Array.isArray(metadata.media_urls) ? metadata.media_urls.filter((item): item is string => typeof item === "string" && /^https?:\/\//i.test(item)) : [];
   const matchStatus = typeof row.identity_match_status === "string" ? row.identity_match_status : "unverified";
   const originalExcerpt = typeof row.original_excerpt === "string" && row.original_excerpt.trim()
-    ? row.original_excerpt.trim().slice(0, 1200)
+    ? row.original_excerpt.replace(/\s+/g, " ").trim().slice(0, 320)
     : null;
   return {
     id: row.id,
+    channel,
     source_type: CHANNEL_LABELS[channel] || "公开信息来源",
     source_url: typeof row.source_url === "string" ? row.source_url : null,
     title: `${CHANNEL_LABELS[channel] || "公开信息"}关键依据`,

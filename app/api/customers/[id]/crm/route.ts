@@ -32,6 +32,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const verifiedContacts = await admin.from("customer_contacts")
       .select("id,type,value_raw,value_normalized,source_channel,exact_source_url,source_page_title,captured_at,identity_match_status,verification_status,contact_status")
       .eq("customer_id", id)
+      .in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED"])
       .order("captured_at", { ascending: false });
     if (verifiedContacts.error) throw verifiedContacts.error;
     const aiFacts = (evidence.data || []).filter((item) => {
