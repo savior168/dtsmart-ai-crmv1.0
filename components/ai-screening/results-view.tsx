@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import type { AiResult } from "@/components/ai-screening/types";
 import { ErrorState, Loading, PageHeader, Pagination, StrategyBadge, button, formatCost, formatNumber, formatTokens, input, panel, primaryButton, useToast } from "@/components/ai-screening/ui";
+import { cleanChineseAiNarrative } from "@/lib/ai/presentation";
 
 type Summary = { total:number;valid:number;invalid:number;review:number;failed:number;tokens:number;cost:number;sufficient:number;early_stopped:number;grades:Record<string,number> };
 const EMPTY_SUMMARY: Summary = {total:0,valid:0,invalid:0,review:0,failed:0,tokens:0,cost:0,sufficient:0,early_stopped:0,grades:{}};
@@ -14,7 +15,7 @@ function chineseText(value: unknown, fallback = CHINESE_FALLBACK) {
   if (typeof value !== "string") return fallback;
   const text = value.trim();
   if (!text || /^[\[{]/.test(text) || !/[\u3400-\u9fff]/.test(text)) return fallback;
-  return text;
+  return cleanChineseAiNarrative(text) || fallback;
 }
 function channelText(channels?: string[]) {
   return channels?.map(channel=>CHANNEL_LABELS[channel]||"其他公开来源").join("、")||"-";

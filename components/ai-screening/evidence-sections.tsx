@@ -255,23 +255,25 @@ export function GroupedEvidenceSection({ evidence, compact = false }: { evidence
             {group.sources.map((source, sourceIndex) => {
               const sourceItems = compact ? source.items.slice(0, 3) : source.items;
               const sourceMedia = compact ? source.mediaUrls.slice(0, 3) : source.mediaUrls;
-              return <section key={source.key} className={group.sources.length > 1 ? "rounded-lg border border-slate-100 bg-slate-50/40 p-3" : ""}>
-                {group.sources.length > 1 ? <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-slate-600">来源 {sourceIndex + 1}：{source.title}</b>{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-blue-700">核对页面<ExternalLink size={12} /></a> : null}</div> : null}
+              return <section key={source.key} className="rounded-lg border border-slate-100 bg-slate-50/40 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-slate-600">{group.sources.length > 1 ? `来源 ${sourceIndex + 1}：` : "来源："}{source.title}</b>{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">打开来源核验<ExternalLink size={12} /></a> : null}</div>
                 <ol className="space-y-2.5">
                   {sourceItems.map((item, index) => <li key={item.id} className="grid grid-cols-[24px_1fr] gap-2 text-sm leading-6 text-slate-700"><span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full bg-blue-50 text-[11px] font-semibold text-blue-700">{index + 1}</span><p>{evidenceFact(item)}</p></li>)}
                 </ol>
-                {!compact && source.excerpts.length ? <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium text-slate-700">来源原文</span>
-                    <span className="flex items-center gap-1.5">
-                      {source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" title="打开原始证据页面" className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 font-medium text-blue-700 hover:border-blue-300"><Globe2 size={12}/>核对原文</a> : null}
+                {!compact && source.excerpts.length ? <details className="group mt-3 rounded-md border border-slate-200 bg-white text-xs text-slate-600">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 font-medium text-slate-700 hover:bg-slate-50"><span>查看原文与中文对照</span><span className="text-slate-400 transition group-open:rotate-180">⌄</span></summary>
+                  <div className="border-t border-slate-100 p-3">
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-md bg-blue-50/70 p-3"><b className="text-blue-800">中文提炼</b><ol className="mt-2 space-y-1.5 leading-5">{sourceItems.map((item, index) => <li key={`${item.id}-translation`}>{index + 1}. {evidenceFact(item)}</li>)}</ol></div>
+                      <div className="rounded-md bg-slate-50 p-3"><b className="text-slate-700">来源原文</b><p className="mt-2 break-words leading-5">{source.excerpts.join(" … ")}</p></div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" title="打开原始证据页面" className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 font-medium text-blue-700 hover:border-blue-300"><Globe2 size={12}/>打开原始页面</a> : null}
                       <a href={translateTextUrl(source.excerpts.join(" … "))} target="_blank" rel="noreferrer" title="将此段原文翻译为中文" className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 font-medium text-blue-700 hover:border-blue-300"><Languages size={12}/>翻译中文</a>
-                    </span>
+                    </div>
                   </div>
-                  <p className="break-words">{source.excerpts.join(" … ")}</p>
-                </div> : null}
+                </details> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {group.sources.length === 1 && source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700">核对来源<ExternalLink size={12} /></a> : null}
                   {sourceMedia.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700">关键原图/视频 {index + 1}<ExternalLink size={12} /></a>)}
                 </div>
               </section>;

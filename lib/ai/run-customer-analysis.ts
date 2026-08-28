@@ -941,10 +941,12 @@ function salesSummaryFields(params: {
     channel: candidate.channel,
     source: candidateSourceName(candidate),
     labels: labelsForIndustry(candidate, params.industry),
-    excerpt: compactBusinessExcerpt(candidate.originalExcerpt || candidate.text),
   })).filter((item) => item.labels.length);
   const allLabels = [...new Set(sourceFacts.flatMap((item) => item.labels))];
-  const sourceConclusions = sourceFacts.map((item) => `• ${item.source}：${item.labels.join("、")}；关键原文：“${item.excerpt}”。`);
+  // Sales-facing conclusions contain Chinese verified facts only. The exact
+  // foreign-language excerpt remains attached to the evidence record together
+  // with its source URL, where users can expand and verify it on demand.
+  const sourceConclusions = sourceFacts.map((item) => `• ${item.source}：已核验${item.labels.join("、")}。`);
   const sourceNames = sourceFacts.map((item) => item.source).join("、");
   const serviceText = allLabels.length ? allLabels.join("、") : params.industry;
   const repairParts = allLabels.filter((label) => /屏幕|玻璃|电池|充电口|接口|主板|板级|键盘|触控板|维修配件|配件销售/.test(label));
