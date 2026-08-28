@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.28.6";
+const ANALYSIS_VERSION = "2026.08.28.7";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -752,10 +752,11 @@ function deterministicScore(input: {
     /(?:screen (?:replacement|repair)|display (?:replacement|repair)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
     /(?:battery (?:replacement|repair)|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
     /(?:component[- ]level repair|board[- ]level repair|microsoldering|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线)/i,
-    /(?:repair bench|device disassembly|repair work|维修工作台|拆机维修|维修作业|内配件|维修配件)/i,
+    /(?:repair bench|device disassembly|repair work|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|维修工作台|拆机维修|维修作业|专业维修车间|内配件|维修配件)/i,
+    /(?:spare parts?|replacement parts?|repair parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|优质备件|维修配件|内配件)/i,
     /(?:wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i,
   ].filter((pattern) => pattern.test(combinedText || input.candidate.text)).length;
-  const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|screen replacement|battery replacement|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|device disassembly|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
+  const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|screen replacement|battery replacement|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|device disassembly|spare parts?|replacement parts?|repair parts?|ersatzteil\w*|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|专业维修车间|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
   const recordTargetText = (record: ChannelRecord) => {
     if (!record.evidence) return "";
     if (record.channel === "google_maps") {
@@ -854,7 +855,8 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "主板或逻辑板维修", pattern: /(?:motherboard|mainboard|logic board|logicboard|płyta gł[oó]wna|placa madre|carte m[eè]re|scheda madre|主板|逻辑板).{0,20}(?:repair|service|napraw|repar|r[eé]paration|riparazione|维修)/i },
   { label: "板级或元器件级维修", pattern: /(?:component[- ]level repair|board[- ]level repair|microsoldering|micro soldering|板级维修|元器件级维修)/i },
   { label: "键盘或触控板维修", pattern: /(?:keyboard|trackpad|touchpad|klawiatur|teclado|clavier|tastiera|键盘|触控板).{0,20}(?:replacement|repair|wymian|napraw|repar|r[eé]paration|sostituzione|更换|维修)/i },
-  { label: "手机或电脑维修配件销售", pattern: /(?:repair parts?|spare parts?|replacement parts?|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|内配件)/i },
+  { label: "专业维修车间", pattern: /(?:repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|专业维修车间|专用维修车间)/i },
+  { label: "使用手机或电脑维修备件", pattern: /(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)/i },
   { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|covers?|screen protectors?|adapters?|chargers?|earphones?|smart ?watch|手机壳|保护膜|充电器|耳机|手机配件|平板配件)/i },
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
@@ -1005,19 +1007,6 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   const googleUrl = google?.verified_google_maps_url || googleRecord?.source_url || customer.google_url || "";
   const websiteRecord = records.find((item) => item.channel === "website" && item.status === "COLLECTED");
   const website = websiteRecord?.evidence as WebsiteEvidence | undefined;
-  if (google?.business_status === "CLOSED_PERMANENTLY" && !website?.reachable && /^https?:\/\//i.test(googleUrl)) {
-    const fact = "Google商家页显示该企业已经永久关闭。";
-    return {
-      industry_type: "已关闭", is_target_customer: false, ai_score: 10, ai_level: "D",
-      ai_reason: fact, business_relevance: "企业已永久关闭，不属于当前可开发客户。",
-      customer_value: "无当前开发价值。", followup_suggestion: "停止销售跟进，并保留商家页作为核验依据。",
-      confidence_score: Math.max(85, Number(google.identity_confidence || 0)), evidence_sufficiency: "充分", evidence_conflicts: [],
-      score_breakdown: { ...emptyBreakdown(10), contradiction_risk: 100 }, suggested_contact_order: [],
-      evidence_summaries: [{ channel: "google_maps", title_zh: "Google商家营业状态", fact_zh: fact, source_url: googleUrl, evidence_type: "矛盾", confidence: Math.max(85, Number(google.identity_confidence || 0)) }],
-      usage: { ...ZERO_USAGE, model: "RULE_ENGINE" },
-    };
-  }
-
   const candidates: DeterministicCandidate[] = [];
   if (google?.name && /^https?:\/\//i.test(googleUrl) && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) {
     candidates.push({
@@ -1035,7 +1024,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     candidates.push({
       channel: "website",
       url: website.url,
-      title: website.title || "官网页面",
+      title: website.title || customer.company_name || new URL(website.url).hostname,
       // 结构化企业名称也是定位线索，不是行业证据。只使用官网业务描述、类型和标题。
       text: [website.title, website.description, ...(website.structured_types || []), ...(website.structured_descriptions || []), ...(website.headings || []), website.text_excerpt?.slice(0, 1600)].filter(Boolean).join("；").slice(0, 4000),
       confidence: 92,
@@ -1066,7 +1055,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   const crossSourceConflict = Boolean(bestWebsite && bestGoogle && bestWebsite.rule.target !== bestGoogle.rule.target);
   const selected = bestWebsite || matches[0];
   if (!selected) return null;
-  const evidenceSummaries = candidates.flatMap((candidate) => {
+  const evidenceSummaries = [...candidates.flatMap((candidate) => {
     const match = matches.find((item) => item.candidate === candidate);
     if (!match) return [];
     return [{
@@ -1078,7 +1067,11 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       confidence: candidate.confidence,
       original_excerpt: candidate.originalExcerpt,
     }];
-  }).filter((item, index, all) => all.findIndex((other) => other.channel === item.channel && other.source_url === item.source_url) === index).slice(0, 4);
+  }).filter((item, index, all) => all.findIndex((other) => other.channel === item.channel && other.source_url === item.source_url) === index),
+  ...(google?.business_status === "CLOSED_PERMANENTLY" && /^https?:\/\//i.test(googleUrl)
+    ? [{ channel: "google_maps", title_zh: "Google商家营业状态", fact_zh: "Google商家页显示该营业地点已经永久停业。", source_url: googleUrl, evidence_type: "矛盾" as const, confidence: Math.max(85, Number(google.identity_confidence || 0)), original_excerpt: "" }]
+    : []),
+  ].slice(0, 5);
   const conflictTargetMatch = crossSourceConflict
     ? [bestWebsite, bestGoogle].find((item) => item?.rule.target)
     : undefined;
@@ -1089,9 +1082,14 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   const score = conflictTargetMatch ? Math.max(60, conflictTargetMatch.scored.score) : selected.scored.score;
   const contactChannels = [customer.phone ? "原始电话" : "", customer.email ? "原始邮箱" : ""].filter(Boolean);
   const salesFields = salesSummaryFields({ industry: effectiveIndustry, target: effectiveTarget, candidates, contactChannels });
-  const evidenceConflicts = crossSourceConflict
-    ? [`官网与Google商家公开信息显示不同经营方向：官网明确显示“${bestWebsite?.rule.industry}”，Google商家公开说明或评论显示“${bestGoogle?.rule.industry}”。系统保留两方事实并按混合经营处理。`]
-    : [];
+  const evidenceConflicts = [
+    ...(crossSourceConflict
+      ? [`官网与Google商家公开信息显示不同经营方向：官网明确显示“${bestWebsite?.rule.industry}”，Google商家公开说明或评论显示“${bestGoogle?.rule.industry}”。系统保留两方事实并按混合经营处理。`]
+      : []),
+    ...(google?.business_status === "CLOSED_PERMANENTLY" && website?.reachable
+      ? ["Google商家页显示该营业地点永久停业，但当前企业官网仍可访问并公开维修服务；可能是旧门店关闭或经营方式变更，联系前应先确认当前营业状态。"]
+      : []),
+  ];
   return {
     industry_type: effectiveIndustry,
     is_target_customer: effectiveTarget,

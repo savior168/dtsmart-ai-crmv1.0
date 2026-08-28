@@ -1,17 +1,17 @@
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function updateSession(request: NextRequest) {
+function hasSupabaseAuthCookie(request: NextRequest) {
+  return request.cookies.getAll().some(({ name, value }) =>
+    Boolean(value) && /^sb-[^-]+-auth-token(?:\.\d+)?$/.test(name),
+  );
+}
+
+export function updateSession(request: NextRequest) {
   // Do not pass the full request back through NextResponse.next({ request }).
   // Next.js serializes overridden request headers into x-middleware-* headers;
   // repeatedly doing that with auth cookies can grow the response beyond
   // Vercel's 32 KB middleware header limit.
   const response = NextResponse.next();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) return response;
-
   const publicPaths = [
     "/login",
     "/reset-password",
@@ -29,18 +29,16 @@ export async function updateSession(request: NextRequest) {
   // login and password recovery pages.
   if (isPublic) return response;
 
-  const supabase = createServerClient(url, key, {
-    cookies: {
-      getAll: () => request.cookies.getAll(),
-      setAll: (cookies: Array<{ name: string; value: string; options: CookieOptions }>) => {
-        cookies.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-      },
-    },
-  });
-
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
+  // Routing middleware must return immediately and must never depend on a
+  // remote Supabase Auth request. When Auth is slow or temporarily
+  // unavailable, awaiting getUser() here blocks every page and API route until
+  // Vercel terminates the middleware with MIDDLEWARE_INVOCATION_TIMEOUT.
+  //
+  // This check is only a fast navigation guard. Every protected API and server
+  // mutation still validates the user with requireUser(), while database
+  // access remains protected by Supabase RLS. A stale or forged cookie can
+  // therefore never grant access to protected data.
+  if (!hasSupabaseAuthCookie(request)) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", request.nextUrl.pathname);

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Copy, ExternalLink, Mail, MapPin, MessageCircle, Phone, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, Globe2, Languages, Mail, MapPin, MessageCircle, Phone, ShieldCheck } from "lucide-react";
 
 export type EvidenceDisplayItem = {
   id: string;
@@ -119,6 +119,10 @@ function compactExcerpt(value?: string | null) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 320);
 }
 
+function translateTextUrl(value: string) {
+  return `https://translate.google.com/?sl=auto&tl=zh-CN&text=${encodeURIComponent(value)}&op=translate`;
+}
+
 function evidenceFact(item: EvidenceDisplayItem) {
   return String(item.normalized_fact || item.content || "").trim();
 }
@@ -202,7 +206,7 @@ export function VerifiedContactsSection({ contacts, preferredValue }: { contacts
   const verifiedPreferred = contacts.find((item) => item.value_raw === preferredValue);
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI新发现并已核实的联系方式</h3><p className="mt-1 text-sm text-slate-500">同类信息已合并去重；号码和邮箱可复制，商家与社媒链接可直接打开。</p></div>
+      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI已核验的联系方式</h3><p className="mt-1 text-sm text-slate-500">原始联系方式会标注核验来源；仅将不同的新联系方式写回扩展字段，号码统一按国际格式去重。</p></div>
       {verifiedPreferred ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">推荐优先：{verifiedPreferred.value_raw}</span> : null}
     </div>
     <div className="grid gap-3 p-4 lg:grid-cols-2">
@@ -215,8 +219,10 @@ export function VerifiedContactsSection({ contacts, preferredValue }: { contacts
           {values.map((contact) => {
             const href = contactLinkHref(contact);
             const label = channelLabels[contact.source_channel || ""] || contact.source_page_title || "已核实公开页面";
+            const statusLabel = contact.verification_status === "MATCHED_ORIGINAL" ? "原始信息已核验" : "AI新增";
             return <div key={contact.id} title={`来源：${label}`} className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white py-1.5 pl-2.5 pr-1.5 text-slate-700 shadow-[0_1px_1px_rgba(15,23,42,0.03)] transition hover:border-blue-300 hover:bg-blue-50/50">
               {href ? <a href={href} target="_blank" rel="noreferrer" className="min-w-0 break-all font-medium text-blue-700 hover:underline">{contact.value_raw}</a> : <span className="min-w-0 break-all font-medium">{contact.value_raw}</span>}
+              <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">{statusLabel}</span>
               <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">来源：{label}</span>
               {href ? <ExternalLink size={12} className="shrink-0 text-blue-500" /> : null}
               <button type="button" aria-label={`复制${contactLabels[type] || "联系方式"}`} title="复制" onClick={() => void navigator.clipboard.writeText(contact.value_raw)} className="shrink-0 rounded p-1 text-slate-400 hover:bg-white hover:text-blue-600"><Copy size={13} /></button>
@@ -254,7 +260,16 @@ export function GroupedEvidenceSection({ evidence, compact = false }: { evidence
                 <ol className="space-y-2.5">
                   {sourceItems.map((item, index) => <li key={item.id} className="grid grid-cols-[24px_1fr] gap-2 text-sm leading-6 text-slate-700"><span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full bg-blue-50 text-[11px] font-semibold text-blue-700">{index + 1}</span><p>{evidenceFact(item)}</p></li>)}
                 </ol>
-                {!compact && source.excerpts.length ? <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600"><span className="font-medium">来源原文：</span>{source.excerpts.join(" … ")}</div> : null}
+                {!compact && source.excerpts.length ? <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-slate-700">来源原文</span>
+                    <span className="flex items-center gap-1.5">
+                      {source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" title="打开原始证据页面" className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 font-medium text-blue-700 hover:border-blue-300"><Globe2 size={12}/>核对原文</a> : null}
+                      <a href={translateTextUrl(source.excerpts.join(" … "))} target="_blank" rel="noreferrer" title="将此段原文翻译为中文" className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 font-medium text-blue-700 hover:border-blue-300"><Languages size={12}/>翻译中文</a>
+                    </span>
+                  </div>
+                  <p className="break-words">{source.excerpts.join(" … ")}</p>
+                </div> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {group.sources.length === 1 && source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700">核对来源<ExternalLink size={12} /></a> : null}
                   {sourceMedia.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700">关键原图/视频 {index + 1}<ExternalLink size={12} /></a>)}

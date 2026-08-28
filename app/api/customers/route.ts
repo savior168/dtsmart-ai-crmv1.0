@@ -35,6 +35,35 @@ const writableFields = [
   "owner_id",
 ] as const;
 
+// The customer list must not download the full CRM/AI payload for every row.
+// Long AI summaries and compatibility columns are only needed by the detail
+// page; selecting the table fields explicitly keeps list responses small and
+// makes sorting/pagination noticeably faster as the customer base grows.
+const customerListFields = [
+  "id",
+  "company_name",
+  "contact_name",
+  "country",
+  "phone",
+  "email",
+  "website",
+  "google_url",
+  "industry",
+  "category",
+  "source",
+  "ai_score",
+  "ai_level",
+  "status",
+  "followup_status",
+  "owner_id",
+  "last_contact_time",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+  "website_email",
+  "website_phone",
+].join(",");
+
 function clean(body: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(writableFields.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
 }
@@ -85,7 +114,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: industries, count: industries.length });
     }
 
-    let query = supabase.from("customers").select(idsOnly ? "id,status" : "*", { count: "exact" });
+    let query = supabase.from("customers").select(idsOnly ? "id,status" : customerListFields, { count: "exact" });
     // Older production databases may not have the additive followup_status
     // column yet. Probe once so filtering never turns into a generic reload
     // error; until migration is applied, legacy rows are treated as 待联系.

@@ -35,7 +35,7 @@ function normalizedContact(type:string,value?:string|null){
   try{const url=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);url.hash="";url.hostname=url.hostname.toLowerCase().replace(/^www\./,"");url.pathname=url.pathname.replace(/\/+$/,"")||"/";return url.toString().replace(/\/$/,"").toLowerCase()}catch{return raw.toLowerCase().replace(/\/$/,"")}
 }
 
-function aiDiscoveredContacts(data:Data){
+function aiVerifiedContacts(data:Data){
   const originalPhones=[data.customer.phone,data.customer.whatsapp].map((item)=>normalizedContact("PHONE",item)).filter(Boolean);
   const originalByType:Record<string,Set<string>>={
     EMAIL:new Set([normalizedContact("EMAIL",data.customer.email)].filter(Boolean)),
@@ -48,10 +48,10 @@ function aiDiscoveredContacts(data:Data){
     TIKTOK:new Set([normalizedContact("TIKTOK",data.customer.tiktok_url)].filter(Boolean)),
   };
   return (data.verified_contacts||[]).filter((contact)=>{
-    if(contact.verification_status!=="NEW_VERIFIED")return false;
+    if(!["MATCHED_ORIGINAL","NEW_VERIFIED"].includes(String(contact.verification_status)))return false;
     const type=contact.type.toUpperCase();
     const normalized=normalizedContact(type,contact.value_normalized||contact.value_raw);
-    return Boolean(normalized)&&!originalByType[type]?.has(normalized);
+    return Boolean(normalized)&&(contact.verification_status==="MATCHED_ORIGINAL"||!originalByType[type]?.has(normalized));
   });
 }
 
@@ -67,7 +67,7 @@ function CustomerAiAnalysis({data}:{data:Data}){
       <Info title="跟进建议" content={result?.followup_suggestion||data.customer.followup_suggestion}/>
       {(result?.company_scale_evidence||data.customer.company_scale_evidence)?<Info title="可核验采购/规模记录" content={result?.company_scale_evidence||data.customer.company_scale_evidence}/>:null}
     </div>
-    <VerifiedContactsSection contacts={aiDiscoveredContacts(data)} />
+    <VerifiedContactsSection contacts={aiVerifiedContacts(data)} />
     <GroupedEvidenceSection evidence={facts} compact/>
   </div>
 }

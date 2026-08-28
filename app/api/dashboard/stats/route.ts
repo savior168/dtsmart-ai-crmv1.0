@@ -58,8 +58,10 @@ export async function GET(request: NextRequest) {
     const country = request.nextUrl.searchParams.get("country")?.trim() || "";
     const aiLevel = request.nextUrl.searchParams.get("ai_level")?.trim() || "";
 
-    const profileResult = await supabase.from("users").select("name,email,role").eq("id", user.id).single();
-    if (profileResult.error) throw new Error(profileResult.error.message);
+    // Profile and customer reads are independent. Start the small profile read
+    // immediately instead of adding another full network round trip after the
+    // customer query has finished.
+    const profilePromise = supabase.from("users").select("name,email,role").eq("id", user.id).single().then((result) => result);
     const sourceCustomers: DashboardCustomer[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await supabase.from("customers")
@@ -74,6 +76,8 @@ export async function GET(request: NextRequest) {
       sourceCustomers.push(...((page.data || []) as DashboardCustomer[]));
       if ((page.data || []).length < 1000) break;
     }
+    const profileResult = await profilePromise;
+    if (profileResult.error) throw new Error(profileResult.error.message);
     const countries = Array.from(new Set(sourceCustomers.map((item) => item.country?.trim()).filter((item): item is string => Boolean(item)))).sort((a, b) => a.localeCompare(b, "zh-CN"));
     const countryNeedle = country.toLowerCase();
     const customers = sourceCustomers.filter((item) => (!countryNeedle || String(item.country || "").toLowerCase().includes(countryNeedle)) && (!aiLevel || item.ai_level === aiLevel));

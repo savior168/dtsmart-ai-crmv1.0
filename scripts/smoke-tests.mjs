@@ -52,7 +52,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.28\.6/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.08\.28\.7/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
@@ -173,7 +173,7 @@ assert.match(customerDetail, /<CountryLabel value=\{customer\.country\}/, "客�
 assert.match(customerDetail, /editBasicOnly/, "客户详情编辑必须启用仅原始资料模式");
 assert.match(customerDetail, /AI分析结果（只读）/, "客户详情必须明确标注AI分析数据只读");
 assert.doesNotMatch(customerDetail, /销售判断摘要/, "客户详情不得保留重复的销售判断摘要横幅");
-assert.match(customerDetail, /verification_status!=="NEW_VERIFIED"/, "客户详情只能展示AI新发现并已核验的联系方式");
+assert.match(customerDetail, /\["MATCHED_ORIGINAL","NEW_VERIFIED"\]/, "客户详情必须区分原始已核验和AI新发现的联系方式");
 assert.match(customerDetail, /function cleanAiText[\s\S]*事实边界/, "客户详情必须清理历史结果中的模板化事实边界废话");
 assert.doesNotMatch(taskRunner, /事实边界[：:]未核验的信息不会写成既定事实/, "新分析结果不得继续生成模板化事实边界废话");
 assert.match(customersView, /options=industries[\s\S]*全部所属行业/, "客户列表必须加载并展示动态所属行业筛选");
