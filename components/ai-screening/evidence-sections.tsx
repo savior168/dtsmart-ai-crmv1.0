@@ -151,7 +151,7 @@ export function VerifiedContactsSection({ contacts, preferredValue }: { contacts
   const verifiedPreferred = contacts.find((item) => item.value_raw === preferredValue);
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI核验发现的联系方式</h3><p className="mt-1 text-sm text-slate-500">同类信息已合并去重；号码和邮箱可复制，商家与社媒链接可直接打开。</p></div>
+      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI新发现并已核实的联系方式</h3><p className="mt-1 text-sm text-slate-500">同类信息已合并去重；号码和邮箱可复制，商家与社媒链接可直接打开。</p></div>
       {verifiedPreferred ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">推荐优先：{verifiedPreferred.value_raw}</span> : null}
     </div>
     <div className="grid gap-3 p-4 lg:grid-cols-2">

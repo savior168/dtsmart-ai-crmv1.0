@@ -842,7 +842,7 @@ function salesSummaryFields(params: {
     scope,
     reason: conclusion,
     relevance: `• 已证实：${serviceText}。\n• 与我方业务交集：${directFit}`,
-    value: `• 可开发依据：${value}\n• 事实边界：未核验的信息不会写成既定事实。`,
+    value: `• 可开发依据：${value}`,
     followup: `• 联系入口：${params.contactChannels.length ? `优先通过${params.contactChannels.join("或")}` : "使用已核验公开联系方式"}。\n• 沟通内容：引用已核验的“${serviceText}”业务，确认常用配件、月度用量、采购渠道和报价需求。`,
   };
 }

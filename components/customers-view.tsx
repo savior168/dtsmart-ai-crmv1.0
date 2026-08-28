@@ -189,6 +189,8 @@ export function CustomersView() {
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [industryOptions, setIndustryOptions] = useState<string[]>([]);
   const [status, setStatus] = useState("");
   const [followupStatus, setFollowupStatus] = useState("");
   const [level, setLevel] = useState("");
@@ -251,6 +253,7 @@ export function CustomersView() {
     setWorkspace(tab === "protection" || tab === "conflicts" ? tab : "list");
     setSearch(params.get("search") || "");
     setCountry(params.get("country") || "");
+    setIndustry(params.get("industry") || "");
     setStatus(params.get("status") || "");
     setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
@@ -283,6 +286,7 @@ export function CustomersView() {
       pageSize: String(pageSize),
       search,
       country,
+      industry,
       status,
       ai_level: level,
       target,
@@ -311,6 +315,7 @@ export function CustomersView() {
     pageSize,
     search,
     country,
+    industry,
     status,
     level,
     target,
@@ -327,6 +332,7 @@ export function CustomersView() {
   useEffect(() => {
     void Promise.all([
       fetch("/api/customers?page=1&pageSize=1&ai_status=all&deleted=false").then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
+      fetch("/api/customers?options=industries").then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
       fetch("/api/customers/protection").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? body.data?.length ?? 0))),
       fetch("/api/customer-conflicts").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? body.data?.length ?? 0))),
     ]).catch(() => undefined);
@@ -360,6 +366,7 @@ export function CustomersView() {
       [
         search ? { key: "search", label: `关键词：${search}` } : null,
         country ? { key: "country", label: `国家/地区：${country}` } : null,
+        industry ? { key: "industry", label: `所属行业：${industry}` } : null,
         level ? { key: "level", label: `AI等级：${level}` } : null,
         status
           ? {
@@ -376,11 +383,12 @@ export function CustomersView() {
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, country, level, status, target, followupStatus, aiFilter],
+    [search, country, industry, level, status, target, followupStatus, aiFilter],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
     if (key === "country") setCountry("");
+    if (key === "industry") setIndustry("");
     if (key === "level") setLevel("");
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
@@ -391,6 +399,7 @@ export function CustomersView() {
   function reset() {
     setSearch("");
     setCountry("");
+    setIndustry("");
     setStatus("");
     setLevel("");
     setTarget("");
@@ -467,7 +476,7 @@ export function CustomersView() {
     setSelectingAll(true);
     setError("");
     const params = new URLSearchParams({
-      page: "1", pageSize: "1000", ids_only: "true", search, country, status,
+      page: "1", pageSize: "1000", ids_only: "true", search, country, industry, status,
       followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
       deleted: "false", sort, direction,
     });
@@ -514,7 +523,7 @@ export function CustomersView() {
     setError("");
     const exportRows: Customer[] = [];
     const params = new URLSearchParams({
-      pageSize: "500", search, country, status, ai_level: level, target,
+      pageSize: "500", search, country, industry, status, ai_level: level, target,
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
     try {
@@ -635,6 +644,18 @@ export function CustomersView() {
                 size={16}
               />
             </label>
+            <select
+              value={industry}
+              onChange={(event) => {
+                setIndustry(event.target.value);
+                setPage(1);
+              }}
+              className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              aria-label="所属行业"
+            >
+              <option value="">全部所属行业</option>
+              {industryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
             <select
               value={status}
               onChange={(event) => {

@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
     const country = request.nextUrl.searchParams.get("country")?.trim();
     const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
     const industry = request.nextUrl.searchParams.get("industry");
+    const options = request.nextUrl.searchParams.get("options");
     const aiPending = request.nextUrl.searchParams.get("ai_pending") === "true";
     const aiDone = request.nextUrl.searchParams.get("ai_done") === "true";
     // The customer workbench defaults to scored records; callers can opt into
@@ -61,6 +62,28 @@ export async function GET(request: NextRequest) {
     const aiFailed = request.nextUrl.searchParams.get("ai_failed") === "true";
     const sort = request.nextUrl.searchParams.get("sort") || "created_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
+
+    const activeCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+    if (options === "industries") {
+      const values: string[] = [];
+      for (let from = 0; ; from += 1000) {
+        const pageQuery = await supabase.from("customers")
+          .select("industry")
+          .is("deleted_at", null)
+          .eq("owner_id", user.id)
+          .neq("status", "RELEASED")
+          .or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`)
+          .not("industry", "is", null)
+          .neq("industry", "")
+          .order("industry", { ascending: true })
+          .range(from, from + 999);
+        if (pageQuery.error) throw pageQuery.error;
+        values.push(...(pageQuery.data || []).map((item) => String(item.industry || "").trim()).filter(Boolean));
+        if ((pageQuery.data || []).length < 1000) break;
+      }
+      const industries = Array.from(new Set(values)).sort((left, right) => left.localeCompare(right, "zh-CN"));
+      return NextResponse.json({ data: industries, count: industries.length });
+    }
 
     let query = supabase.from("customers").select(idsOnly ? "id,status" : "*", { count: "exact" });
     // Older production databases may not have the additive followup_status
@@ -77,7 +100,6 @@ export async function GET(request: NextRequest) {
     query = query.is("deleted_at", null);
     // 客户列表只展示当前用户仍持有且尚未释放的客户；历史释放/到期客户
     // 由保护到期页统一展示，避免跨销售数据混入日常工作列表。
-    const activeCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
     query = query.eq("owner_id", user.id).neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
@@ -100,7 +122,7 @@ export async function GET(request: NextRequest) {
     }
     if (ownerId === "unclaimed") query = query.is("owner_id", null);
     else if (ownerId) query = query.eq("owner_id", ownerId);
-    if (industry) query = query.ilike("industry", `%${industry}%`);
+    if (industry) query = query.eq("industry", industry);
     // ai_score exists in every supported schema and is the stable completion flag.
     if (aiStatus === "pending" || aiPending) query = query.is("ai_score", null);
     else if (aiStatus === "done" || aiDone) query = query.not("ai_score", "is", null);

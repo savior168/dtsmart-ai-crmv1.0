@@ -21,15 +21,40 @@ type Tab = typeof tabs[number];
 
 function value(input?:string|number|null){return input===undefined||input===null||input===""?"-":String(input)}
 function href(input?:string|null){if(!input)return "";return /^https?:\/\//i.test(input)?input:`https://${input}`}
+function cleanAiText(input?:string|null){return String(input||"").split("\n").filter((line)=>!/事实边界[：:]\s*未核验的信息不会写成既定事实/.test(line)).join("\n").trim()}
 function Row({label,children}:{label:string;children:ReactNode}){return <div className="grid grid-cols-[110px_1fr] gap-3 border-b border-slate-100 py-3 text-sm"><dt className="text-slate-500">{label}</dt><dd className="min-w-0 break-words font-medium text-slate-800">{children}</dd></div>}
-function Info({title,content}:{title:string;content?:string|null}){return <section className="rounded-xl border bg-white p-5"><h3 className="font-semibold">{title}</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{content||"暂无数据"}</p></section>}
+function Info({title,content}:{title:string;content?:string|null}){const cleaned=cleanAiText(content);return <section className="rounded-xl border bg-white p-5"><h3 className="font-semibold">{title}</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{cleaned||"暂无数据"}</p></section>}
 function Empty({text}:{text:string}){return <div className="grid min-h-52 place-items-center p-5 text-slate-400"><div className="text-center"><CalendarClock className="mx-auto mb-2"/><p>{text}</p></div></div>}
+
+function normalizedContact(type:string,value?:string|null){
+  const raw=String(value||"").trim();
+  if(!raw)return "";
+  if(type==="EMAIL")return raw.toLowerCase();
+  if(type==="PHONE"||type==="WHATSAPP")return raw.replace(/\D/g,"");
+  return raw.toLowerCase().replace(/\/$/,"");
+}
+
+function aiDiscoveredContacts(data:Data){
+  const originalByType:Record<string,Set<string>>={
+    EMAIL:new Set([normalizedContact("EMAIL",data.customer.email)].filter(Boolean)),
+    PHONE:new Set([normalizedContact("PHONE",data.customer.phone)].filter(Boolean)),
+    WHATSAPP:new Set([
+      normalizedContact("WHATSAPP",data.customer.whatsapp),
+      normalizedContact("WHATSAPP",data.customer.phone),
+    ].filter(Boolean)),
+  };
+  return (data.verified_contacts||[]).filter((contact)=>{
+    if(contact.verification_status!=="NEW_VERIFIED")return false;
+    const type=contact.type.toUpperCase();
+    const normalized=normalizedContact(type,contact.value_normalized||contact.value_raw);
+    return Boolean(normalized)&&!originalByType[type]?.has(normalized);
+  });
+}
 
 function CustomerAiAnalysis({data}:{data:Data}){
   const result=data.ai_result;
   const facts=(data.ai_facts||[]).filter(item=>{const text=item.normalized_fact||item.content||"";return /[\u3400-\u9fff]/.test(text)&&!/未保存|未提炼|请重新执行|读取失败|未能取得|GOOGLE_MAPS_API_KEY|fetch failed/i.test(text)&&/^https?:\/\//i.test(item.source_url||"")});
   return <div className="space-y-4 p-5">
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3"><div><b className="text-sm text-slate-800">销售判断摘要</b><p className="mt-1 text-xs text-slate-500">本页保留最重要结论、证据和可联系入口；完整分析过程在核验页查看。</p></div><Link href={`/ai-screening/customers/${data.customer.id}/evidence${result?.task_id?`?task=${result.task_id}`:""}`} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">查看完整AI分析依据<ExternalLink size={14}/></Link></div>
     <div className="grid gap-4 md:grid-cols-2">
       <Info title="分析摘要" content={result?.ai_reason||result?.summary||data.customer.ai_reason}/>
       <Info title="经营范围" content={result?.business_scope||data.customer.business_scope}/>
@@ -38,7 +63,7 @@ function CustomerAiAnalysis({data}:{data:Data}){
       <Info title="跟进建议" content={result?.followup_suggestion||data.customer.followup_suggestion}/>
       {(result?.company_scale_evidence||data.customer.company_scale_evidence)?<Info title="可核验采购/规模记录" content={result?.company_scale_evidence||data.customer.company_scale_evidence}/>:null}
     </div>
-    <VerifiedContactsSection contacts={data.verified_contacts||[]} />
+    <VerifiedContactsSection contacts={aiDiscoveredContacts(data)} />
     <GroupedEvidenceSection evidence={facts} compact/>
   </div>
 }
@@ -55,11 +80,9 @@ export function CustomerCrmDetailView({customerId}:{customerId:string}){
       <Link href="/customers" className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 font-medium text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600">
         <ArrowLeft size={16}/><span>返回客户列表</span>
       </Link>
-      <span aria-hidden="true" className="text-slate-300">/</span>
-      <span className="truncate text-slate-500" title={customer.company_name}>{customer.company_name}</span>
     </nav>
     <section className="rounded-xl border bg-white shadow-sm">
-      <header className="flex flex-wrap items-center justify-between gap-5 border-b p-5"><div><h1 className="text-2xl font-bold">{customer.company_name}</h1><div className="mt-3 flex flex-wrap items-center gap-2 text-sm"><span className="rounded bg-slate-100 px-2 py-1"><CountryLabel value={customer.country}/></span><span className="rounded bg-emerald-50 px-2 py-1 text-emerald-700">AI评分 {scoreLabel}</span><span className="rounded bg-blue-50 px-2 py-1 text-blue-700">AI等级 {gradeLabel}</span><span className="rounded bg-violet-50 px-2 py-1 text-violet-700">{CUSTOMER_STATUS_LABELS[customer.status]}</span></div></div><div className="flex flex-wrap items-center gap-3"><div className="border-r pr-5 text-center"><small className="text-slate-500">保护剩余</small><b className={`mt-1 block text-2xl ${effective.status==="ACTIVE"?"text-emerald-600":"text-slate-500"}`}>{protectionText}</b></div>{data.can_edit?<button onClick={()=>setEditing(true)} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm hover:border-blue-300 hover:bg-blue-50"><Pencil size={16}/>编辑客户</button>:<span className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500">只读资料</span>}<button onClick={()=>setTab("跟进记录")} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"><MessageSquarePlus size={16}/>新增跟进</button></div></header>
+      <header className="flex flex-wrap items-center justify-between gap-5 border-b p-5"><div><h1 className="text-2xl font-bold">{customer.company_name}</h1><div className="mt-3 flex flex-wrap items-center gap-2 text-sm"><span className="rounded bg-slate-100 px-2 py-1"><CountryLabel value={customer.country}/></span><span className="rounded bg-emerald-50 px-2 py-1 text-emerald-700">AI评分 {scoreLabel}</span><span className="rounded bg-blue-50 px-2 py-1 text-blue-700">AI等级 {gradeLabel}</span><span className="rounded bg-violet-50 px-2 py-1 text-violet-700">{CUSTOMER_STATUS_LABELS[customer.status]}</span></div></div><div className="flex flex-wrap items-center gap-3"><div className="border-r pr-5 text-center"><small className="text-slate-500">保护剩余</small><b className={`mt-1 block text-2xl ${effective.status==="ACTIVE"?"text-emerald-600":"text-slate-500"}`}>{protectionText}</b></div><Link href={`/ai-screening/customers/${customer.id}/evidence${data.ai_result?.task_id?`?task=${data.ai_result.task_id}`:""}`} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100">查看AI分析依据<ExternalLink size={15}/></Link>{data.can_edit?<button onClick={()=>setEditing(true)} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm hover:border-blue-300 hover:bg-blue-50"><Pencil size={16}/>编辑客户</button>:<span className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500">只读资料</span>}<button onClick={()=>setTab("跟进记录")} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"><MessageSquarePlus size={16}/>新增跟进</button></div></header>
       <nav className="flex gap-7 overflow-x-auto border-b px-5 text-sm">{tabs.map(item=><button key={item} onClick={()=>setTab(item)} className={`whitespace-nowrap py-3 ${tab===item?"border-b-2 border-blue-600 font-medium text-blue-600":"text-slate-500"}`}>{item}</button>)}</nav>
       {error?<div className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
       {tab==="资料"?<div className="grid gap-5 p-5 xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-xl border p-5"><h2 className="font-semibold">客户基本信息</h2><dl className="mt-3 grid gap-x-8 md:grid-cols-2"><Row label="客户名称">{value(customer.company_name)}</Row><Row label="联系人">{value(customer.contact_name)}</Row><Row label="国家/地区"><CountryLabel value={customer.country}/></Row><Row label="AI判定行业">{value(customer.industry||customer.category)}</Row><Row label="原始电话">{value(customer.phone)}</Row><Row label="原始邮箱">{value(customer.email)}</Row><Row label="官网电话">{value(customer.website_phone)}</Row><Row label="官网邮箱">{value(customer.website_email)}</Row><Row label="官网网址">{href(customer.website)?<a href={href(customer.website)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 break-all text-blue-600">{customer.website}<ExternalLink size={13} className="shrink-0"/></a>:"-"}</Row><Row label="Google Maps">{href(customer.google_url)?<a href={href(customer.google_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600">查看地图<ExternalLink size={13}/></a>:"-"}</Row><Row label="地址">{value(customer.address)}</Row><Row label="数据来源">{value(customer.source)}</Row><Row label="创建时间">{new Date(customer.created_at).toLocaleString("zh-CN")}</Row><Row label="更新时间">{customer.updated_at?new Date(customer.updated_at).toLocaleString("zh-CN"):"-"}</Row></dl></section><section className="rounded-xl border p-5"><h2 className="font-semibold">AI分析结果（只读）</h2><div className="mt-4 grid grid-cols-3 gap-3">{[["AI评分",scoreLabel],["AI等级",gradeLabel],["目标客户",targetLabel]].map(([label,item])=><div key={label} className="rounded-lg bg-slate-50 p-3 text-center"><small className="text-slate-500">{label}</small><b className="mt-1 block text-xl text-blue-600">{item}</b></div>)}</div><p className="mt-4 text-sm leading-7 text-slate-600">{customer.ai_reason||"尚未完成AI筛选"}</p><div className="mt-4 rounded-lg bg-violet-50 p-3 text-sm text-violet-800"><b>跟进建议</b><p className="mt-1 leading-6">{customer.followup_suggestion||"暂无建议"}</p></div></section></div>:null}

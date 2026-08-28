@@ -33,6 +33,8 @@ assert.doesNotMatch(customerApi, /query\s*=\s*query\.or\(`owner_id\.eq\.\$\{user
 assert.match(customerApi, /ai_score.*null/i, "AI待筛选查询必须包含未评分条件");
 assert.match(customerApi, /customer_conflicts/, "手动新增的跨用户重复客户必须进入冲突队列");
 assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨归属人重复标记");
+assert.match(customerApi, /options === "industries"[\s\S]*new Set\(values\)/, "所属行业筛选项必须从当前用户全部客户中动态去重生成");
+assert.match(customerApi, /if \(industry\) query = query\.eq\("industry", industry\)/, "所属行业筛选必须精确匹配所选行业");
 
 const aiApi = read("app/api/ai/analyze/route.ts");
 assert.match(aiApi, /start\(aiScreeningWorkflow/, "保存并筛选必须进入持久化AI任务，不能绕过证据与写回流程");
@@ -169,6 +171,11 @@ assert.match(customerDetail, /href="\/customers"[\s\S]*返回客户列表/, "客
 assert.match(customerDetail, /<CountryLabel value=\{customer\.country\}/, "客户详情必须把国家代码转换为国旗和中文国家名称");
 assert.match(customerDetail, /editBasicOnly/, "客户详情编辑必须启用仅原始资料模式");
 assert.match(customerDetail, /AI分析结果（只读）/, "客户详情必须明确标注AI分析数据只读");
+assert.doesNotMatch(customerDetail, /销售判断摘要/, "客户详情不得保留重复的销售判断摘要横幅");
+assert.match(customerDetail, /verification_status!=="NEW_VERIFIED"/, "客户详情只能展示AI新发现并已核验的联系方式");
+assert.match(customerDetail, /function cleanAiText[\s\S]*事实边界/, "客户详情必须清理历史结果中的模板化事实边界废话");
+assert.doesNotMatch(taskRunner, /事实边界[：:]未核验的信息不会写成既定事实/, "新分析结果不得继续生成模板化事实边界废话");
+assert.match(customersView, /options=industries[\s\S]*全部所属行业/, "客户列表必须加载并展示动态所属行业筛选");
 const customerDetailApi = read("app/api/customers/[id]/crm/route.ts");
 assert.match(customerDetailApi, /DEFAULT_90_DAYS[\s\S]*remaining_days/, "没有显式保护记录时必须按归属日起计算默认90天保护期");
 const customerUpdateApi = read("app/api/customers/[id]/route.ts");
