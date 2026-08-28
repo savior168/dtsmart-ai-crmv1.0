@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.28.5";
+const ANALYSIS_VERSION = "2026.08.28.6";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -183,6 +183,14 @@ function effectiveWebsite(customer: CustomerRow) {
 
 const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia)\./i;
 
+function isBenignIdentityMismatch(signal: string) {
+  return /电话与原始记录不同|电话.*可能.*更新号码/.test(signal);
+}
+
+function hasCriticalIdentityMismatch(signals?: string[]) {
+  return (signals || []).some((signal) => !isBenignIdentityMismatch(signal));
+}
+
 function websiteHost(value?: string | null) {
   try {
     return new URL(/^https?:\/\//i.test(String(value || "")) ? String(value) : `https://${value}`).hostname
@@ -201,7 +209,7 @@ export function verifiedOfficialWebsiteFromGoogle(records: ChannelRecord[]) {
   if (!candidate || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return null;
   const confidence = Number(google?.identity_confidence || 0);
   const strongSignals = (google?.match_signals || []).filter((signal) => /名称|地址|电话|官网|域名|具体Google商家入口|Place ID/.test(signal));
-  if (google?.identity_status !== "MATCHED" || confidence < 90 || strongSignals.length < 2 || (google?.mismatch_signals || []).length) return null;
+  if (google?.identity_status !== "MATCHED" || confidence < 90 || strongSignals.length < 2 || hasCriticalIdentityMismatch(google?.mismatch_signals)) return null;
   return candidate;
 }
 
@@ -285,7 +293,7 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   const googleMismatchSignals = google?.mismatch_signals || [];
   const exactGoogleSignals = googleMatchSignals.filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口/.test(signal)).length;
   const normalizedGoogleStatus: IdentityStatus | null = google?.identity_status
-    ? (google.identity_status === "AMBIGUOUS" && googleConfidence >= 90 && exactGoogleSignals >= 2 && googleMismatchSignals.length === 0
+    ? (google.identity_status === "AMBIGUOUS" && googleConfidence >= 90 && exactGoogleSignals >= 2 && !hasCriticalIdentityMismatch(googleMismatchSignals)
       ? "MATCHED"
       : google.identity_status as IdentityStatus)
     : null;
@@ -451,7 +459,7 @@ export function discoveredPublicChannelUrls(customer: CustomerRow, records: Chan
     && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status || ""))
     && Number(google.identity_confidence || 0) >= 85
     && googleStrongSignals.length >= 2
-    && !(google.mismatch_signals || []).length,
+    && !hasCriticalIdentityMismatch(google.mismatch_signals),
   );
   if (googleEntityVerified) add(google?.website);
 
@@ -525,7 +533,7 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
       const googleIdentity: IdentityStatus = item.identity_status === "MATCHED"
         && Number(item.identity_confidence || 0) >= 90
         && strongSignals.length >= 2
-        && !(item.mismatch_signals || []).length
+        && !hasCriticalIdentityMismatch(item.mismatch_signals)
         ? "MATCHED"
         : "AMBIGUOUS";
       if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name, googleIdentity);
@@ -864,37 +872,78 @@ function verifiedFactLabels(text: string) {
   return VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(text)).map((item) => item.label);
 }
 
-function conciseDeterministicFact(candidate: { channel: string; text: string }, industry: CustomerAnalysis["industry_type"]) {
+type DeterministicCandidate = {
+  channel: string;
+  url: string;
+  title: string;
+  text: string;
+  confidence: number;
+  originalExcerpt: string;
+};
+
+function compactBusinessExcerpt(value: string) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const chunks = normalized
+    .split(/(?<=[.!?。！？])\s+|[；|]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 12)
+    .map((item) => ({
+      text: item,
+      score: verifiedFactLabels(item).length * 10
+        + (/repair|fix|replacement|parts?|accessor|wholesale|distribut|napraw|serwis|repar|维修|更换|配件|批发|分销/i.test(item) ? 4 : 0),
+    }))
+    .sort((left, right) => right.score - left.score || left.text.length - right.text.length);
+  const selected: string[] = [];
+  for (const item of chunks) {
+    if (item.score <= 0 || selected.some((existing) => existing.includes(item.text) || item.text.includes(existing))) continue;
+    selected.push(item.text.slice(0, 220));
+    if (selected.length >= 2 || selected.join("；").length >= 360) break;
+  }
+  return (selected.length ? selected.join("；") : normalized.slice(0, 320)).slice(0, 420);
+}
+
+function candidateSourceName(candidate: Pick<DeterministicCandidate, "channel" | "title">) {
+  const title = String(candidate.title || "").replace(/\s+/g, " ").trim().slice(0, 90);
+  if (candidate.channel === "google_maps") return `Google商家“${title || "商家主页"}”`;
+  if (candidate.channel === "website") return `企业官网“${title || "官网页面"}”`;
+  return `${AI_CHANNEL_LABELS[candidate.channel as AiChannel] || "公开来源"}${title ? `“${title}”` : ""}`;
+}
+
+function labelsForIndustry(candidate: Pick<DeterministicCandidate, "text">, industry: CustomerAnalysis["industry_type"]) {
   let labels = [...new Set(verifiedFactLabels(candidate.text))];
   if (industry === "软件或IT服务") labels = labels.filter((item) => /IT|软件|云服务|网络托管/.test(item));
   if (industry === "运营商营业厅") labels = labels.filter((item) => /手机合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|运营商/.test(item));
   if (industry === "其他" && labels.some((item) => /食品/.test(item))) labels = labels.filter((item) => /食品/.test(item));
   if (industry === "其他" && labels.some((item) => /铁路|电气/.test(item))) labels = labels.filter((item) => /铁路|电气/.test(item));
-  labels = labels.slice(0, 6);
-  const source = candidate.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字";
-  if (labels.length) return `${source}明确列出：${labels.join("、")}。`;
+  return labels.slice(0, 6);
+}
+
+function conciseDeterministicFact(candidate: DeterministicCandidate, industry: CustomerAnalysis["industry_type"]) {
+  const labels = labelsForIndustry(candidate, industry);
+  const source = candidateSourceName(candidate);
+  if (labels.length) return `${source}的公开内容直接出现与以下业务对应的文字：${labels.join("、")}。`;
   // This branch is used only for a matched non-target rule whose concrete
   // source words are already preserved as original_excerpt. It deliberately
   // avoids claiming a service that was not extracted.
-  return `${source}显示其经营内容属于“${industry}”；具体原文已随本条证据保存，可通过来源链接核验。`;
-}
-
-function sourceConclusion(channel: string, labels: string[]) {
-  const source = channel === "google_maps" ? "Google商家" : channel === "website" ? "官网" : AI_CHANNEL_LABELS[channel as AiChannel] || "公开来源";
-  return `${source}明确显示：${labels.join("、")}。`;
+  return `${source}显示其经营内容属于“${industry}”；关键原文已随本条证据保存，可通过来源链接核验。`;
 }
 
 function salesSummaryFields(params: {
   industry: CustomerAnalysis["industry_type"];
   target: boolean;
-  candidates: Array<{ channel: string; text: string }>;
+  candidates: DeterministicCandidate[];
   contactChannels: string[];
 }) {
-  const sourceFacts = params.candidates
-    .map((candidate) => ({ channel: candidate.channel, labels: [...new Set(verifiedFactLabels(candidate.text))].slice(0, 6) }))
-    .filter((item) => item.labels.length);
+  const sourceFacts = params.candidates.map((candidate) => ({
+    channel: candidate.channel,
+    source: candidateSourceName(candidate),
+    labels: labelsForIndustry(candidate, params.industry),
+    excerpt: compactBusinessExcerpt(candidate.originalExcerpt || candidate.text),
+  })).filter((item) => item.labels.length);
   const allLabels = [...new Set(sourceFacts.flatMap((item) => item.labels))];
-  const sourceConclusions = sourceFacts.map((item) => `• ${sourceConclusion(item.channel, item.labels)}`);
+  const sourceConclusions = sourceFacts.map((item) => `• ${item.source}：${item.labels.join("、")}；关键原文：“${item.excerpt}”。`);
+  const sourceNames = sourceFacts.map((item) => item.source).join("、");
   const serviceText = allLabels.length ? allLabels.join("、") : params.industry;
   const repairParts = allLabels.filter((label) => /屏幕|玻璃|电池|充电口|接口|主板|板级|键盘|触控板|维修配件|配件销售/.test(label));
   const wholesaleFacts = allLabels.filter((label) => /批发|分销|进口/.test(label));
@@ -905,8 +954,8 @@ function salesSummaryFields(params: {
     return {
       scope,
       reason: conclusion,
-      relevance: `• 已证实：${serviceText}。\n• 目标业务匹配：现有来源没有显示手机或电脑维修配件、相关配件批发分销或采购事实。`,
-      value: "• 开发判断：当前证据不支持列入手机、电脑配件销售开发名单。\n• 后续处理：仅在出现新的目标业务证据后重新分析。",
+      relevance: `${sourceConclusions.join("\n")}\n• 目标业务匹配：以上已核验经营内容未显示手机或电脑维修配件、相关配件批发分销或采购事实。`,
+      value: `• 证据来源：${sourceNames}。\n• 已核验经营内容：${serviceText}。\n• 开发判断：当前来源证据不支持列入手机、电脑配件销售开发名单。`,
       followup: "• 当前建议：无需常规销售跟进。\n• 核验方式：保留并直接打开来源页面；经营范围发生变化后再重新筛选。",
     };
   }
@@ -924,8 +973,8 @@ function salesSummaryFields(params: {
   return {
     scope,
     reason: conclusion,
-    relevance: `• 已证实：${serviceText}。\n• 与我方业务交集：${directFit}`,
-    value: `• 可开发依据：${value}`,
+    relevance: `${sourceConclusions.join("\n")}\n• 与我方业务交集：${directFit}`,
+    value: `• 证据来源：${sourceNames}。\n• 已核验经营内容：${serviceText}。\n• 可开发依据：${value}`,
     followup: `• 联系入口：${params.contactChannels.length ? `优先通过${params.contactChannels.join("或")}` : "使用已核验公开联系方式"}。\n• 沟通内容：引用已核验的“${serviceText}”业务，确认常用配件、月度用量、采购渠道和报价需求。`,
   };
 }
@@ -969,28 +1018,28 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     };
   }
 
-  const candidates: Array<{ channel: string; url: string; title: string; text: string; confidence: number; originalExcerpt: string }> = [];
+  const candidates: DeterministicCandidate[] = [];
   if (google?.name && /^https?:\/\//i.test(googleUrl) && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) {
     candidates.push({
       channel: "google_maps",
       url: googleUrl,
-      title: "Google商家分类",
+      title: google.name,
       // 名称不得单独推断行业；只有同一已匹配主体的公开说明/评论同时
       // 明确维修或配件活动时，名称中的设备类型才可作为组合证据。
       text: [...(google.types || []), google.description, ...(google.reviews || [])].filter(Boolean).join("；"),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
-      originalExcerpt: [google.description, ...(google.reviews || [])].filter(Boolean).join("；").slice(0, 1600),
+      originalExcerpt: compactBusinessExcerpt([google.description, ...(google.reviews || [])].filter(Boolean).join("；")),
     });
   }
   if (website?.reachable && /^https?:\/\//i.test(website.url)) {
     candidates.push({
       channel: "website",
       url: website.url,
-      title: "企业官网业务说明",
+      title: website.title || "官网页面",
       // 结构化企业名称也是定位线索，不是行业证据。只使用官网业务描述、类型和标题。
       text: [website.title, website.description, ...(website.structured_types || []), ...(website.structured_descriptions || []), ...(website.headings || []), website.text_excerpt?.slice(0, 1600)].filter(Boolean).join("；").slice(0, 4000),
       confidence: 92,
-      originalExcerpt: [website.title, website.description, ...(website.structured_descriptions || []), website.text_excerpt].filter(Boolean).join("；").slice(0, 1600),
+      originalExcerpt: compactBusinessExcerpt([website.title, website.description, ...(website.structured_descriptions || []), website.text_excerpt].filter(Boolean).join("；")),
     });
   }
   const matches = candidates.flatMap((candidate) => RULE_INDUSTRIES
