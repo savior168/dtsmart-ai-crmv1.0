@@ -58,6 +58,12 @@ export type CustomerEvidence = {
 
 type FetchOptions = { signal?: AbortSignal; timeoutMs?: number };
 
+const BROWSER_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 function requestSignal(options: FetchOptions, fallbackMs: number) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || fallbackMs);
@@ -72,6 +78,34 @@ function normalizeUrl(url?: string | null) {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
   return `https://${value}`;
+}
+
+/**
+ * Some public business sites block only one hostname variant (usually `www`)
+ * while their canonical bare domain remains accessible. Retry only the same
+ * host with protocol/www normalization; never broaden to another domain.
+ */
+export function websiteUrlCandidates(url?: string | null) {
+  const normalized = safePublicUrl(url);
+  if (!normalized) return [];
+  try {
+    const original = new URL(normalized);
+    const hosts = original.hostname.startsWith("www.")
+      ? [original.hostname, original.hostname.slice(4)]
+      : [original.hostname, `www.${original.hostname}`];
+    const candidates = [
+      original.toString(),
+      ...hosts.map((host) => {
+        const candidate = new URL(original.toString());
+        candidate.protocol = "https:";
+        candidate.hostname = host;
+        return candidate.toString();
+      }),
+    ];
+    return unique(candidates.map((candidate) => safePublicUrl(candidate) || ""));
+  } catch {
+    return [normalized];
+  }
 }
 
 function compactText(value: string) {
@@ -99,7 +133,11 @@ function unique(values: string[]) {
   return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
 }
 
-const BUSINESS_MEDIA_TERMS = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|repair|service|screen|display|battery|accessor|parts|wholesale|store|shop|workshop|technician|smartphone|telefon|kom[oó]rk|napraw|serwis|komputer|reparaci|m[oó]vil|ordenador|inform[aá]tic|r[eé]paration|t[eé]l[eé]phone|ordinateur|riparazione|cellulare|维修|修理|手机|电脑|配件|屏幕|电池|门店|店铺|产品)/i;
+// Only direct, visually verifiable target-business terms qualify a website
+// image for AI inspection. Generic words such as shop/store/product are not
+// enough: they frequently select hero banners, device adverts or ordinary
+// storefront photos that do not prove repair/parts activity.
+const DIRECT_BUSINESS_MEDIA_TERMS = /(?:phone[\s_-]*repair|mobile[\s_-]*repair|iphone[\s_-]*repair|ipad[\s_-]*repair|macbook[\s_-]*repair|computer[\s_-]*repair|laptop[\s_-]*repair|screen[\s_-]*(?:repair|replacement)|battery[\s_-]*(?:repair|replacement)|charging[\s_-]*port|motherboard[\s_-]*repair|repair[\s_-]*(?:bench|workshop|parts?)|spare[\s_-]*parts?|replacement[\s_-]*parts?|internal[\s_-]*parts?|wholesale[\s_-]*(?:phone|mobile|computer|repair|parts?)|telefon[^\s_-]*[\s_-]*(?:reparatur|napraw)|napraw[^\s_-]*[\s_-]*(?:telefon|kom[oó]rk|komputer|laptop)|serwis[\s_-]*(?:telefon|kom[oó]rk|komputer|laptop)|reparaci[oó]n[\s_-]*(?:de[\s_-]*)?(?:m[oó]vil|tel[eé]fono|ordenador|computadora)|r[eé]paration[\s_-]*(?:de[\s_-]*)?(?:t[eé]l[eé]phone|mobile|ordinateur)|riparazione[\s_-]*(?:telefono|cellulare|computer)|手机[\s_-]*(?:维修|修理)|电脑[\s_-]*(?:维修|修理)|屏幕[\s_-]*(?:更换|维修)|电池[\s_-]*(?:更换|维修)|充电口[\s_-]*(?:更换|维修)|主板[\s_-]*(?:更换|维修)|维修[\s_-]*(?:工作台|内配件|零件|配件)|内配件[\s_-]*(?:货架|陈列|批发))/i;
 const DECORATIVE_MEDIA_TERMS = /(?:logo|icon|avatar|favicon|sprite|placeholder|spinner|loader|tracking|pixel|badge|payment|flag|emoji|newsletter|cookie|banner-ad)/i;
 
 function originalMediaUrl(raw: string, baseUrl: string) {
@@ -145,29 +183,47 @@ function uniqueOriginalMedia(values: string[], baseUrl: string, limit: number) {
   return [...output.values()];
 }
 
-function extractRelevantWebsiteImages(html: string, baseUrl: string) {
-  const pageContext = [
-    firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
-    firstMatch(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i),
-  ].filter(Boolean).join(" ");
+function largestSrcsetCandidate(srcset: string) {
+  return srcset.split(",")
+    .map((item) => {
+      const [raw = "", descriptor = ""] = item.trim().split(/\s+/);
+      const numeric = Number.parseFloat(descriptor);
+      const weight = /w$/i.test(descriptor) ? numeric : /x$/i.test(descriptor) ? numeric * 1000 : 0;
+      return { raw, weight: Number.isFinite(weight) ? weight : 0 };
+    })
+    .filter((item) => item.raw)
+    .sort((a, b) => b.weight - a.weight)[0]?.raw || "";
+}
+
+function explicitImageDimension(tag: string, name: "width" | "height") {
+  const raw = tag.match(new RegExp(`\\b${name}=["']?(\\d+)`, "i"))?.[1];
+  return raw ? Number.parseInt(raw, 10) : 0;
+}
+
+export function extractRelevantWebsiteImages(html: string, baseUrl: string) {
   const ranked = [...html.matchAll(/<img\b[^>]*>/gi)].flatMap((match, index) => {
     const tag = match[0];
     const alt = decodeHtmlAttribute(tag.match(/\balt=["']([^"']*)["']/i)?.[1] || "");
     const title = decodeHtmlAttribute(tag.match(/\btitle=["']([^"']*)["']/i)?.[1] || "");
     const srcset = tag.match(/\bsrcset=["']([^"']+)["']/i)?.[1] || "";
-    const srcsetCandidates = srcset.split(",").map((item) => item.trim().split(/\s+/)[0]).filter(Boolean);
-    const raw = srcsetCandidates.at(-1)
+    const raw = largestSrcsetCandidate(srcset)
       || tag.match(/\b(?:data-src|data-lazy-src|src)=["']([^"']+)["']/i)?.[1]
       || "";
     const context = `${alt} ${title} ${raw}`;
     if (!raw || DECORATIVE_MEDIA_TERMS.test(context)) return [];
-    const score = (BUSINESS_MEDIA_TERMS.test(context) ? 100 : 0)
-      + (BUSINESS_MEDIA_TERMS.test(pageContext) ? 20 : 0)
+    const width = explicitImageDimension(tag, "width");
+    const height = explicitImageDimension(tag, "height");
+    // Explicitly tiny assets are icons/thumbnails even if their filename
+    // happens to contain a business keyword. Unknown dimensions are retained
+    // because responsive sites commonly omit width/height from the HTML.
+    if ((width > 0 && width < 480) || (height > 0 && height < 320)) return [];
+    const score = (DIRECT_BUSINESS_MEDIA_TERMS.test(context) ? 100 : 0)
+      + (width >= 1200 || height >= 800 ? 15 : 0)
       - index / 100;
     return [{ raw, score }];
   }).sort((a, b) => b.score - a.score);
-  // Only media carrying direct business context is retained as a key evidence
-  // attachment. Generic hero/decorative images are deliberately excluded.
+  // Keep only direct business media. The returned URL is canonicalized to the
+  // largest/original variant so evidence pages never persist a blurry thumb.
   return uniqueOriginalMedia(ranked.filter((item) => item.score >= 100).map((item) => item.raw), baseUrl, 12);
 }
 
@@ -199,8 +255,20 @@ function extractStructuredBusinessData(html: string) {
   return { types: unique(types).slice(0, 24), names: unique(names).slice(0, 12), descriptions: unique(descriptions).slice(0, 12) };
 }
 
+function decodeCloudflareEmail(encoded: string) {
+  if (!/^[0-9a-f]{4,}$/i.test(encoded) || encoded.length % 2 !== 0) return "";
+  const key = Number.parseInt(encoded.slice(0, 2), 16);
+  let value = "";
+  for (let index = 2; index < encoded.length; index += 2) value += String.fromCharCode(Number.parseInt(encoded.slice(index, index + 2), 16) ^ key);
+  return value;
+}
+
 function extractEmails(text: string) {
-  return unique((text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map((email) => email.toLowerCase()));
+  const decoded = decodeHtmlAttribute(text);
+  const direct = decoded.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  const mailto = [...decoded.matchAll(/href=["']mailto:([^"'?#]+)["']/gi)].map((match) => decodeURIComponent(match[1]));
+  const cloudflare = [...decoded.matchAll(/data-cfemail=["']([0-9a-f]+)["']/gi)].map((match) => decodeCloudflareEmail(match[1]));
+  return unique([...direct, ...mailto, ...cloudflare].map((email) => email.trim().toLowerCase()).filter((email) => /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email))).slice(0, 20);
 }
 
 function safePublicUrl(url?: string | null) {
@@ -337,13 +405,17 @@ function extractPhones(html: string) {
   const candidates = [
     ...[...html.matchAll(/href=["']tel:([^"'?#]+)["']/gi)].map((match) => decodeURIComponent(match[1]).replace(/^\/\//, "")),
     ...[...html.matchAll(/["'](?:telephone|phone)["']\s*:\s*["']([^"']+)["']/gi)].map((match) => match[1]),
-    ...[...labeledText.matchAll(/(?:电话|联系电话|联系电话号码|tel(?:ephone)?|phone|teléfono|telefono)\s*[:：]?\s*(\+?\d[\d\s\-().]{5,}\d)/gi)].map((match) => match[1]),
+      ...[...labeledText.matchAll(/(?:电话|联系电话|联系电话号码|tel(?:ephone)?|phone|mobile|mobil|handy|telefon(?:nummer)?|téléphone|teléfono|telefono|telefone)\s*[:：]?\s*(\+?\d[\d\s\-().]{5,}\d)/gi)].map((match) => match[1]),
   ];
   return unique(candidates.map((phone) => phone.replace(/\s+/g, " ").trim()).filter(isPlausiblePhone)).slice(0, 12);
 }
 
 function extractWhatsapps(text: string) {
-  return unique([...text.matchAll(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp:\/\/send\?phone=)(\+?\d{7,18})/gi)].map((match) => match[1]));
+  const decoded = decodeHtmlAttribute(text);
+  const values = [...decoded.matchAll(/(?:wa\.me\/|api\.whatsapp\.com\/send\?[^"'\s>]*phone=|whatsapp:\/\/send\?[^"'\s>]*phone=)([^&"'\s<>]+)/gi)]
+    .map((match) => decodeURIComponent(match[1]).replace(/[^+\d]/g, ""))
+    .filter((value) => value.replace(/\D/g, "").length >= 7);
+  return unique(values).slice(0, 12);
 }
 
 function extractSocialUrls(html: string, baseUrl: string) {
@@ -356,7 +428,7 @@ function extractSocialUrls(html: string, baseUrl: string) {
     .slice(0, 20);
 }
 
-export async function collectWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
+async function collectWebsiteEvidenceOnce(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
   const normalized = safePublicUrl(url);
   if (!normalized) return undefined;
 
@@ -368,16 +440,13 @@ export async function collectWebsiteEvidence(url?: string | null, options: Fetch
     }
     const response = await fetchPublic(normalized, {
       signal: request.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation",
-        Accept: "text/html,application/xhtml+xml",
-      },
+      headers: BROWSER_HEADERS,
     });
     const contentType = response.headers.get("content-type") || "";
     if (!response.ok || !contentType.includes("text/html")) {
       return { url: normalized, reachable: false, headings: [], image_alts: [], image_urls: [], emails: [], phones: [], error: `HTTP ${response.status}` };
     }
-    const html = await readTextLimited(response);
+    const html = await readTextLimited(response, 700_000);
     const structured = extractStructuredBusinessData(html);
     const visibleText = compactText(html).slice(0, 6000);
     if (/(?:log in|sign in|登录后继续|cookie settings|accept all cookies)/i.test(`${firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i) || ""} ${visibleText}`)
@@ -429,7 +498,7 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
   try {
     const response = await fetchPublic(url, {
       signal: request.signal,
-      headers: { "User-Agent": "Mozilla/5.0 DTSmart-AI-CRM/1.0 customer validation", Accept: "text/html,application/xhtml+xml" },
+      headers: BROWSER_HEADERS,
     });
     if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
     const html = await readTextLimited(response);
@@ -449,14 +518,19 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
         const candidate = new URL(item.url);
         const depth = candidate.pathname.split("/").filter(Boolean).length;
         const label = `${candidate.pathname} ${item.text}`;
+        // Prefer service/category pages over individual product detail pages.
+        // Detail pages otherwise crowd out About, Services and Contact pages
+        // while adding little company-level evidence.
+        const detailPagePenalty = /\/(?:product|item|sku)\//i.test(candidate.pathname) ? 80 : 0;
         const score = (keywords.test(label) ? 100 : 0)
           + (depth <= 1 ? 18 : depth === 2 ? 8 : 0)
           + (item.text.length >= 2 && item.text.length <= 40 ? 5 : 0)
-          - Math.min(12, item.index / 12);
+          - Math.min(12, item.index / 12)
+          - detailPagePenalty;
         return { ...item, score };
       })
       .sort((a, b) => b.score - a.score || a.index - b.index);
-    return [...new Set(links.map((item) => item.url))].slice(0, 4);
+    return [...new Set(links.map((item) => item.url))].slice(0, 6);
   } catch {
     return [];
   } finally {
@@ -500,6 +574,18 @@ function googlePlaceIdFromUrl(value?: string | null) {
   } catch {
     return "";
   }
+}
+
+export async function collectWebsiteEvidence(url?: string | null, options: FetchOptions = {}): Promise<WebsiteEvidence | undefined> {
+  const candidates = websiteUrlCandidates(url);
+  if (!candidates.length) return undefined;
+  let last: WebsiteEvidence | undefined;
+  for (const candidate of candidates) {
+    last = await collectWebsiteEvidenceOnce(candidate, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) });
+    if (last?.reachable) return last;
+    if (options.signal?.aborted) break;
+  }
+  return last;
 }
 
 function decodeHtmlAttribute(value: string) {
@@ -930,7 +1016,11 @@ export async function collectGooglePlaceEvidence(input: {
       const photoResponses = await Promise.all(result.photos.slice(0, 2).map(async (photo) => {
         if (!photo.name) return "";
         try {
-          const photoResponse = await fetchWithRetry(`https://places.googleapis.com/v1/${photo.name}/media?maxHeightPx=1200&maxWidthPx=1200&skipHttpRedirect=true`, {
+          // 2400px preserves readable storefront wording and repair details
+          // while avoiding the bandwidth and model latency of unconstrained
+          // originals. The returned URI remains the highest-quality evidence
+          // asset retained by this task, never a Maps thumbnail.
+          const photoResponse = await fetchWithRetry(`https://places.googleapis.com/v1/${photo.name}/media?maxHeightPx=2400&maxWidthPx=2400&skipHttpRedirect=true`, {
             signal: request.signal,
             headers: { "X-Goog-Api-Key": apiKey },
           });

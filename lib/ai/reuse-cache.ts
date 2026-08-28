@@ -6,8 +6,8 @@ import type { AiStrategy } from "@/lib/ai/task-types";
 // Bump both versions whenever the evidence gate or writeback contract changes.
 // This deliberately invalidates older cache rows that could be reused before
 // their evidence/customer writeback had completed.
-export const AI_RULE_VERSION = "2026.08.28.2";
-export const AI_EVIDENCE_SCHEMA_VERSION = "2026.08.28.2";
+export const AI_RULE_VERSION = "2026.08.28.5";
+export const AI_EVIDENCE_SCHEMA_VERSION = "2026.08.28.5";
 
 function isUuid(value: unknown) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));

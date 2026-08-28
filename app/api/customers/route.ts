@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
     const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
-    const industry = request.nextUrl.searchParams.get("industry");
+    const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const options = request.nextUrl.searchParams.get("options");
     const aiPending = request.nextUrl.searchParams.get("ai_pending") === "true";
     const aiDone = request.nextUrl.searchParams.get("ai_done") === "true";
@@ -122,7 +122,8 @@ export async function GET(request: NextRequest) {
     }
     if (ownerId === "unclaimed") query = query.is("owner_id", null);
     else if (ownerId) query = query.eq("owner_id", ownerId);
-    if (industry) query = query.eq("industry", industry);
+    if (industries.length === 1) query = query.eq("industry", industries[0]);
+    else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
     // ai_score exists in every supported schema and is the stable completion flag.
     if (aiStatus === "pending" || aiPending) query = query.is("ai_score", null);
     else if (aiStatus === "done" || aiDone) query = query.not("ai_score", "is", null);

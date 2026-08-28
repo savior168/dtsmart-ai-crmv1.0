@@ -15,7 +15,8 @@ type AuditLog = { id:string; action:string; created_at:string };
 type AiFact = EvidenceDisplayItem;
 type AiResult = { id?:string|null; task_id?:string|null; ai_reason?:string|null; summary?:string|null; business_relevance?:string|null; business_scope?:string|null; company_scale_evidence?:string|null; customer_value?:string|null; followup_suggestion?:string|null };
 type VerifiedContact = VerifiedContactDisplayItem;
-type Data = { customer:Customer; can_edit:boolean; effective_protection:EffectiveProtection; followups:Followup[]; claims:Claim[]; audit_logs:AuditLog[]; ai_result?:AiResult|null; ai_facts?:AiFact[]; verified_contacts?:VerifiedContact[] };
+type CustomerDetailCustomer = Customer & { facebook_url?:string|null; instagram_url?:string|null; linkedin_url?:string|null; tiktok_url?:string|null };
+type Data = { customer:CustomerDetailCustomer; can_edit:boolean; effective_protection:EffectiveProtection; followups:Followup[]; claims:Claim[]; audit_logs:AuditLog[]; ai_result?:AiResult|null; ai_facts?:AiFact[]; verified_contacts?:VerifiedContact[] };
 const tabs = ["资料","AI分析","跟进记录","报价记录","操作日志"] as const;
 type Tab = typeof tabs[number];
 
@@ -31,7 +32,7 @@ function normalizedContact(type:string,value?:string|null){
   if(!raw)return "";
   if(type==="EMAIL")return raw.toLowerCase();
   if(type==="PHONE"||type==="WHATSAPP")return raw.replace(/\D/g,"");
-  return raw.toLowerCase().replace(/\/$/,"");
+  try{const url=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);url.hash="";url.hostname=url.hostname.toLowerCase().replace(/^www\./,"");url.pathname=url.pathname.replace(/\/+$/,"")||"/";return url.toString().replace(/\/$/,"").toLowerCase()}catch{return raw.toLowerCase().replace(/\/$/,"")}
 }
 
 function aiDiscoveredContacts(data:Data){
@@ -41,6 +42,10 @@ function aiDiscoveredContacts(data:Data){
     PHONE:new Set(originalPhones),
     WHATSAPP:new Set(originalPhones),
     OTHER:new Set([data.customer.website,data.customer.google_url].map((item)=>normalizedContact("OTHER",item)).filter(Boolean)),
+    FACEBOOK:new Set([normalizedContact("FACEBOOK",data.customer.facebook_url)].filter(Boolean)),
+    INSTAGRAM:new Set([normalizedContact("INSTAGRAM",data.customer.instagram_url)].filter(Boolean)),
+    LINKEDIN:new Set([normalizedContact("LINKEDIN",data.customer.linkedin_url)].filter(Boolean)),
+    TIKTOK:new Set([normalizedContact("TIKTOK",data.customer.tiktok_url)].filter(Boolean)),
   };
   return (data.verified_contacts||[]).filter((contact)=>{
     if(contact.verification_status!=="NEW_VERIFIED")return false;

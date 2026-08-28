@@ -34,7 +34,8 @@ assert.match(customerApi, /ai_score.*null/i, "AI待筛选查询必须包含未�
 assert.match(customerApi, /customer_conflicts/, "手动新增的跨用户重复客户必须进入冲突队列");
 assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨归属人重复标记");
 assert.match(customerApi, /options === "industries"[\s\S]*new Set\(values\)/, "所属行业筛选项必须从当前用户全部客户中动态去重生成");
-assert.match(customerApi, /if \(industry\) query = query\.eq\("industry", industry\)/, "所属行业筛选必须精确匹配所选行业");
+assert.match(customerApi, /searchParams\.getAll\("industry"\)/, "所属行业筛选必须读取全部多选值");
+assert.match(customerApi, /industries\.length === 1[\s\S]*\.eq\("industry", industries\[0\]\)[\s\S]*industries\.length > 1[\s\S]*\.in\("industry"/, "所属行业筛选必须对单选和多选执行精确查询");
 
 const aiApi = read("app/api/ai/analyze/route.ts");
 assert.match(aiApi, /start\(aiScreeningWorkflow/, "保存并筛选必须进入持久化AI任务，不能绕过证据与写回流程");
@@ -51,7 +52,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.28\.2/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.08\.28\.5/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
@@ -176,6 +177,10 @@ assert.match(customerDetail, /verification_status!=="NEW_VERIFIED"/, "客户详�
 assert.match(customerDetail, /function cleanAiText[\s\S]*事实边界/, "客户详情必须清理历史结果中的模板化事实边界废话");
 assert.doesNotMatch(taskRunner, /事实边界[：:]未核验的信息不会写成既定事实/, "新分析结果不得继续生成模板化事实边界废话");
 assert.match(customersView, /options=industries[\s\S]*全部所属行业/, "客户列表必须加载并展示动态所属行业筛选");
+assert.match(customersView, /aria-label="所属行业多选"[\s\S]*type="checkbox"/, "所属行业必须支持多选");
+assert.match(customersView, /industries\.forEach\(\(industry\) => params\.append\("industry", industry\)\)/, "列表、全选和导出必须传递全部行业条件");
+assert.ok(customersView.indexOf('value={target}') < customersView.indexOf('value={status}'), "客户阶段筛选必须紧跟目标客户筛选之后");
+assert.ok(customersView.indexOf('value={status}') < customersView.indexOf('onClick={reset}'), "重置按钮必须与筛选条件位于同一筛选行末尾");
 const customerDetailApi = read("app/api/customers/[id]/crm/route.ts");
 assert.match(customerDetailApi, /DEFAULT_90_DAYS[\s\S]*remaining_days/, "没有显式保护记录时必须按归属日起计算默认90天保护期");
 const customerUpdateApi = read("app/api/customers/[id]/route.ts");

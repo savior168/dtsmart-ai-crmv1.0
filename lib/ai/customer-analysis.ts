@@ -117,7 +117,8 @@ A级高价值客户包括两类：一类是配件进口商、批发商、代理/
 EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任务标签只表示数据如何进入系统，绝不是进口商、批发商或任何行业属性证据，严禁用于行业归类和评分。
 客户名称、原始地址、原始电话、原始邮箱、原始行业、分类、标签、搜索关键词、数据来源和原始网址全部只是定位线索LOCATOR_HINT，不是VERIFIED_EVIDENCE。它们不得进入支持性证据、不得增加评分、不得单独决定行业或有效/无效。
 手机成品零售、SIM卡或套餐销售不能证明手机维修；手机壳、保护膜、耳机、数据线、充电器只能证明外配件；维修店不能自动判为批发商。维修店需要换屏、换电池、尾插维修、维修预约、维修报价、近期维修评论或官方维修案例等明确证据。批发、进口或分销需要wholesale、B2B、MOQ、bulk price、trade account、distributor、dealer、reseller、向维修店供货、批量目录或身份匹配的海关记录。
-Google商家分类“手机维修服务”“电子产品维修”等只能作为行业定位线索，不能单独证明真实维修能力或配件采购价值。必须再取得至少一项直接佐证：商家描述或近期评论明确提到维修行为/更换部件；官网明确列出屏幕、电池、键盘、充电口、主板等硬件维修；或商家/官网图片清楚展示拆机设备、维修工作台、内配件陈列或真实维修作业。普通门头、品牌Logo、整机陈列、模糊图片不能作为维修能力证据。
+Google商家分类“手机维修服务”“电子产品维修”等只能作为行业定位线索，不能单独证明真实维修能力或配件采购价值。必须再取得至少一项直接佐证：商家描述或近期评论明确提到维修行为/更换部件；官网明确列出屏幕、电池、键盘、充电口、主板等硬件维修；或商家/官网图片提供可以直接复核的维修事实。
+图片证据实行硬门槛：只有画面清楚展示以下任一事实才可进入行业判断和评分：(1) 完整门店或门头，并能清晰读到手机/电脑维修、Phone Repair、Computer Repair等业务文字；(2) 真实拆机、部件更换或维修操作；(3) 清楚可辨的维修工作台以及正在维修的手机/电脑；(4) 清楚可辨的手机/电脑内配件货架或陈列，能够识别屏幕总成、电池、充电口、排线、摄像头、主板等维修配件。仅有图片URL、图片数量、普通门头、Logo、人物、地图、整机陈列、手机壳/耳机等外配件、宣传海报、模糊或无法辨认的画面，一律不得作为目标行业证据、不得增加评分。图片事实必须明确写出实际看到了什么，并使用图片所属的真实来源页面作为source_url；不确定时忽略该图片，严禁猜测。
 没有真实采购证据时只能写“采购能力待销售核验”，不得声称已有采购能力、采购规模或进口记录。无法确认所属行业时必须归类为“其他”，不得为了填满字段强行分类。
 行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、已关闭、其他。无法确认时必须选择“其他”。
 评分：85-100为A，70-84为B，60-69为C，0-59为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度，也不能用固定行业模板打出相同分数。必须分别评估：业务匹配度、经营规模和采购潜力、真实采购事实、经营活跃度、证据完整性、可联系性与矛盾风险。进入A级不强制要求规模或采购记录：Google商家页与企业官网等至少两个独立来源若主体一致，分别给出直接、可核验且相互印证的目标业务事实，明确涉及屏幕、电池、键盘、充电口、主板等内配件使用或维修场景，证据链完整且没有关键矛盾，即使是单店维修企业也可以评为85-89分的A级。规模、连锁、高业务量、海关记录或近期采购事实用于进一步提高A级内的分值，而不是进入A级的必要条件。大型连锁手机配件批发/分销企业若多渠道证据闭环，并有身份匹配的近期海关采购或大额采购事实，应评为A中的高分。单一Google分类、企业名称关键词、资料字段齐全或联系方式齐全都不能单独提高价值等级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
@@ -262,6 +263,31 @@ function cleanEvidenceText(value: string) {
     .slice(0, 480);
 }
 
+function hasVisualInputs(input: CustomerAnalysisInput) {
+  return Boolean(
+    input.evidence?.google_place?.image_urls?.some((url) => /^https?:\/\//i.test(url))
+    || input.evidence?.website?.image_urls?.some((url) => /^https?:\/\//i.test(url))
+    || input.evidence?.website?.pages?.some((page) => page.image_urls?.some((url) => /^https?:\/\//i.test(url)))
+    || Object.values(input.evidence?.public_channels || {}).some((channel) =>
+      channel.image_urls?.some((url) => /^https?:\/\//i.test(url))
+      || channel.pages?.some((page) => page.image_urls?.some((url) => /^https?:\/\//i.test(url)))),
+  );
+}
+
+function isDirectVisualBusinessFact(item: CustomerAnalysis["evidence_summaries"][number], input: CustomerAnalysisInput) {
+  const text = `${item.title_zh} ${item.fact_zh}`;
+  if (!/(?:图片|照片|画面|门店|门头|货架|陈列|工作台|拆机|维修操作|视觉)/.test(text)) return true;
+  if (!hasVisualInputs(input)) return false;
+  const explicitRepairSign = /(?:门店|门头|招牌|标牌|店铺).{0,40}(?:手机|电脑|iPhone|MacBook|Phone|Computer).{0,25}(?:维修|Repair|Service)/i.test(text)
+    || /(?:Phone|Computer).{0,20}Repair.{0,40}(?:门店|门头|招牌|标牌|店铺)/i.test(text);
+  const repairAction = /(?:真实|清楚|清晰|画面).{0,30}(?:拆机|部件更换|更换屏幕|更换电池|维修操作|正在维修)/.test(text)
+    || /(?:拆机|部件更换|更换屏幕|更换电池|维修操作|正在维修).{0,30}(?:图片|照片|画面)/.test(text);
+  const repairBench = /(?:维修工作台|拆机工作台).{0,40}(?:手机|电脑|iPhone|MacBook|屏幕|电池|主板|维修)/i.test(text);
+  const internalPartsShelf = /(?:内配件|维修配件|屏幕总成|LCD|OLED|电池|充电口|尾插|排线|摄像头|主板).{0,40}(?:货架|陈列|展示)/i.test(text)
+    || /(?:货架|陈列|展示).{0,40}(?:内配件|维修配件|屏幕总成|LCD|OLED|电池|充电口|尾插|排线|摄像头|主板)/i.test(text);
+  return explicitRepairSign || repairAction || repairBench || internalPartsShelf;
+}
+
 /** Enforces evidence-to-conclusion consistency after the model response. */
 export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: Omit<CustomerAnalysis, "usage">, additionalAllowedUrls: string[] = []): Omit<CustomerAnalysis, "usage"> {
   const allowedUrls = allowedEvidenceUrls(input);
@@ -269,6 +295,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const seenEvidence = new Set<string>();
   const evidence = [...(Array.isArray(analysis.evidence_summaries) ? analysis.evidence_summaries : []), ...structuredGoogleEvidence(input)]
     .filter((item) => item && hasChinese(item.fact_zh) && hasChinese(item.title_zh) && sameOrChildUrl(item.source_url, allowedUrls))
+    .filter((item) => isDirectVisualBusinessFact(item, input))
     .map((item) => {
       const fact = cleanEvidenceText(item.fact_zh);
       return {
@@ -513,7 +540,10 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
     ...(input.evidence?.google_place?.image_urls || []),
     ...(input.evidence?.website?.image_urls || []),
     ...((input.evidence?.website?.pages || []).flatMap((page) => page.image_urls || [])),
-  ].filter((value, index, all) => /^https?:\/\//i.test(value) && all.indexOf(value) === index)
+  ].filter((value, index, all) => /^https?:\/\//i.test(value)
+      && !/(?:logo|icon|avatar|favicon|sprite|placeholder|thumbnail|thumb|badge|banner-ad)/i.test(value)
+      && !/\.svg(?:\?|$)/i.test(value)
+      && all.indexOf(value) === index)
     .slice(0, options.tier === "deep" || options.tier === "escalation" ? 2 : 1);
   const promptInput = structuredClone(input);
   if (promptInput.evidence?.google_place) promptInput.evidence.google_place.image_urls = [];
@@ -523,7 +553,10 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   }
   const userContent: Array<Record<string, unknown>> = [
     { type: "input_text", text: JSON.stringify(promptInput) },
-    ...visualUrls.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
+    // Only one or two pre-filtered key photos are inspected. High detail is
+    // required to read storefront repair wording and distinguish genuine
+    // internal repair parts from generic device/accessory displays.
+    ...visualUrls.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "high" })),
   ];
   let response: Response;
   try {

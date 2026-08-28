@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.28.2";
+const ANALYSIS_VERSION = "2026.08.28.5";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -421,6 +421,76 @@ function contactTypeForUrl(value?: string | null): ContactType {
   return "OTHER";
 }
 
+function aiChannelForPublicUrl(value?: string | null): AiChannel | null {
+  const url = String(value || "").toLowerCase();
+  if (/linkedin\.com/.test(url)) return "linkedin";
+  if (/facebook\.com/.test(url)) return "facebook";
+  if (/instagram\.com/.test(url)) return "instagram";
+  if (/tiktok\.com/.test(url)) return "tiktok";
+  return null;
+}
+
+/**
+ * Public profiles discovered by a verified Google entity or verified official
+ * website belong in the current task's evidence queue. They remain social
+ * sources (never official websites), and are ignored when the parent entity is
+ * ambiguous or conflicted.
+ */
+export function discoveredPublicChannelUrls(customer: CustomerRow, records: ChannelRecord[]) {
+  const discovered: Partial<Record<AiChannel, string>> = {};
+  const add = (value?: string | null) => {
+    const channel = aiChannelForPublicUrl(value);
+    if (channel && value && !discovered[channel]) discovered[channel] = value;
+  };
+
+  const googleRecord = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
+  const google = googleRecord?.evidence as GooglePlaceEvidence | undefined;
+  const googleStrongSignals = (google?.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
+  const googleEntityVerified = Boolean(
+    google
+    && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status || ""))
+    && Number(google.identity_confidence || 0) >= 85
+    && googleStrongSignals.length >= 2
+    && !(google.mismatch_signals || []).length,
+  );
+  if (googleEntityVerified) add(google?.website);
+
+  for (const record of records) {
+    if (record.channel !== "website" || record.status !== "COLLECTED" || !record.evidence) continue;
+    if (!websiteRecordMatchesEntity(customer, records, record)) continue;
+    const website = record.evidence as WebsiteEvidence;
+    for (const value of website.social_urls || []) add(value);
+    for (const page of website.pages || []) for (const value of page.social_urls || []) add(value);
+  }
+  return discovered;
+}
+
+function customerWithDiscoveredPublicChannels(customer: CustomerRow, records: ChannelRecord[]): CustomerRow {
+  const urls = discoveredPublicChannelUrls(customer, records);
+  return {
+    ...customer,
+    linkedin_url: customer.linkedin_url || urls.linkedin || null,
+    facebook_url: customer.facebook_url || urls.facebook || null,
+    instagram_url: customer.instagram_url || urls.instagram || null,
+    tiktok_url: customer.tiktok_url || urls.tiktok || null,
+  };
+}
+
+function publicChannelRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], record: ChannelRecord) {
+  if (!["linkedin", "facebook", "instagram", "tiktok"].includes(record.channel) || !record.source_url) return false;
+  const expected = discoveredPublicChannelUrls(customer, records)[record.channel];
+  if (!expected) return false;
+  try {
+    const normalize = (value: string) => {
+      const url = new URL(value);
+      return `${url.hostname.replace(/^www\./, "").toLowerCase()}${url.pathname.replace(/\/$/, "").toLowerCase()}`;
+    };
+    return normalize(expected) === normalize(record.source_url);
+  } catch {
+    return expected === record.source_url;
+  }
+}
+
 function originalValuesForType(customer: CustomerRow, type: ContactType) {
   if (type === "EMAIL") return splitContacts(customer.email);
   // Phone and WhatsApp are the same numbering namespace. A number already
@@ -464,7 +534,10 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
       continue;
     }
     const item = record.evidence as WebsiteEvidence;
-    const recordIdentity: IdentityStatus = websiteRecordMatchesEntity(customer, records, record) ? "MATCHED" : "AMBIGUOUS";
+    const recordIdentity: IdentityStatus = websiteRecordMatchesEntity(customer, records, record)
+      || publicChannelRecordMatchesEntity(customer, records, record)
+      ? "MATCHED"
+      : "AMBIGUOUS";
     const pages = [{ url: item.url, title: item.title, emails: item.emails, phones: item.phones, whatsapps: item.whatsapps || [], social_urls: item.social_urls || [] }, ...(item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }))];
     for (const page of pages) {
       for (const email of page.emails || []) add("EMAIL", email, record.channel, page.url, page.title, recordIdentity);
@@ -1091,7 +1164,10 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
-    return { channel, status: failed ? "FAILED" : "COLLECTED", source_url: url, evidence, error: evidence.error || null };
+    const resolvedSourceUrl = channel === "website" && "url" in evidence && evidence.url
+      ? evidence.url
+      : url;
+    return { channel, status: failed ? "FAILED" : "COLLECTED", source_url: resolvedSourceUrl, evidence, error: evidence.error || null };
   } catch (error) {
     if (signal.aborted) throw new Error("CUSTOMER_ANALYSIS_CANCELLED");
     return { channel, status: "FAILED", source_url: url, error: error instanceof Error ? error.message : "渠道读取失败" };
@@ -1459,10 +1535,15 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     });
     analysis = deterministicAnalysis(customer, records);
     if (!analysis) {
-      const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !primaryChannels.includes(channel) && Boolean(channelUrl(customer, channel)) && !records.some((item) => item.channel === channel));
+      // Google Places and the verified official website can reveal public
+      // profiles that were absent from the imported customer row. Include
+      // those profiles in this same run instead of merely writing their URL
+      // back after the analysis has already finished.
+      const expandedCustomer = customerWithDiscoveredPublicChannels(customer, records);
+      const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !primaryChannels.includes(channel) && Boolean(channelUrl(expandedCustomer, channel)) && !records.some((item) => item.channel === channel));
       for (let index = 0; index < secondaryChannels.length && !analysis; index += 2) {
         const batch = secondaryChannels.slice(index, index + 2);
-        const secondary = await Promise.all(batch.map((channel) => collectChannel(customer, channel, analysisController.signal)));
+        const secondary = await Promise.all(batch.map((channel) => collectChannel(expandedCustomer, channel, analysisController.signal)));
         records.push(...secondary);
         await saveCheckpoint(input.taskItemId, records, batch[batch.length - 1]);
         analysis = deterministicAnalysis(customer, records);

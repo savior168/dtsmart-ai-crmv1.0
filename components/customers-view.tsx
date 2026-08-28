@@ -189,8 +189,9 @@ export function CustomersView() {
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("");
-  const [industry, setIndustry] = useState("");
+  const [industries, setIndustries] = useState<string[]>([]);
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
+  const [industryOpen, setIndustryOpen] = useState(false);
   const [status, setStatus] = useState("");
   const [followupStatus, setFollowupStatus] = useState("");
   const [level, setLevel] = useState("");
@@ -218,6 +219,7 @@ export function CustomersView() {
   const [permissionOpen, setPermissionOpen] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const newRef = useRef<HTMLDivElement>(null);
+  const industryRef = useRef<HTMLDivElement>(null);
   const orderedColumns = useMemo(() => {
     const byKey = new Map(columns.map((column) => [column.key, column]));
     const ordered = draft.map((key) => byKey.get(key)).filter((column): column is (typeof columns)[number] => Boolean(column));
@@ -253,7 +255,7 @@ export function CustomersView() {
     setWorkspace(tab === "protection" || tab === "conflicts" ? tab : "list");
     setSearch(params.get("search") || "");
     setCountry(params.get("country") || "");
-    setIndustry(params.get("industry") || "");
+    setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setStatus(params.get("status") || "");
     setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
@@ -273,6 +275,8 @@ export function CustomersView() {
         setFieldOpen(false);
       if (newRef.current && !newRef.current.contains(targetNode))
         setNewOpen(false);
+      if (industryRef.current && !industryRef.current.contains(targetNode))
+        setIndustryOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -286,7 +290,6 @@ export function CustomersView() {
       pageSize: String(pageSize),
       search,
       country,
-      industry,
       status,
       ai_level: level,
       target,
@@ -296,6 +299,7 @@ export function CustomersView() {
       sort,
       direction,
     });
+    industries.forEach((industry) => params.append("industry", industry));
     try {
       const response = await fetch(`/api/customers?${params}`);
       const body = await response.json().catch(() => ({}));
@@ -315,7 +319,7 @@ export function CustomersView() {
     pageSize,
     search,
     country,
-    industry,
+    industries,
     status,
     level,
     target,
@@ -366,7 +370,7 @@ export function CustomersView() {
       [
         search ? { key: "search", label: `关键词：${search}` } : null,
         country ? { key: "country", label: `国家/地区：${country}` } : null,
-        industry ? { key: "industry", label: `所属行业：${industry}` } : null,
+        industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
         level ? { key: "level", label: `AI等级：${level}` } : null,
         status
           ? {
@@ -383,12 +387,12 @@ export function CustomersView() {
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, country, industry, level, status, target, followupStatus, aiFilter],
+    [search, country, industries, level, status, target, followupStatus, aiFilter],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
     if (key === "country") setCountry("");
-    if (key === "industry") setIndustry("");
+    if (key === "industry") setIndustries([]);
     if (key === "level") setLevel("");
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
@@ -399,7 +403,7 @@ export function CustomersView() {
   function reset() {
     setSearch("");
     setCountry("");
-    setIndustry("");
+    setIndustries([]);
     setStatus("");
     setLevel("");
     setTarget("");
@@ -476,10 +480,11 @@ export function CustomersView() {
     setSelectingAll(true);
     setError("");
     const params = new URLSearchParams({
-      page: "1", pageSize: "1000", ids_only: "true", search, country, industry, status,
+      page: "1", pageSize: "1000", ids_only: "true", search, country, status,
       followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
       deleted: "false", sort, direction,
     });
+    industries.forEach((industry) => params.append("industry", industry));
     try {
       const ids = new Set<string>();
       const protectedIds = new Set<string>();
@@ -523,9 +528,10 @@ export function CustomersView() {
     setError("");
     const exportRows: Customer[] = [];
     const params = new URLSearchParams({
-      pageSize: "500", search, country, industry, status, ai_level: level, target,
+      pageSize: "500", search, country, status, ai_level: level, target,
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
+    industries.forEach((industry) => params.append("industry", industry));
     try {
       let currentPage = 1;
       let total = 0;
@@ -612,7 +618,7 @@ export function CustomersView() {
         </nav>
         {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
             <label className="relative min-w-[300px] flex-1">
               <Search
                 className="absolute left-3 top-2.5 text-slate-400"
@@ -644,33 +650,15 @@ export function CustomersView() {
                 size={16}
               />
             </label>
-            <select
-              value={industry}
-              onChange={(event) => {
-                setIndustry(event.target.value);
-                setPage(1);
-              }}
-              className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              aria-label="所属行业"
-            >
-              <option value="">全部所属行业</option>
-              {industryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <select
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
-                setPage(1);
-              }}
-              className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
-            >
-              <option value="">全部客户阶段</option>
-              {(["UNCLAIMED", "CLAIMED", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
-                <option key={key} value={key}>
-                  {stageLabels[key]}
-                </option>
-              ))}
-            </select>
+            <div ref={industryRef} className="relative min-w-40">
+              <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                <span className="max-w-32 truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
+              </button>
+              {industryOpen ? <div role="listbox" aria-label="所属行业多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                <button type="button" onClick={() => { setIndustries([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空行业选择</button>
+                {industryOptions.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item)} onChange={() => { setIndustries((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]); setPage(1); }} /><span className="min-w-0 break-words">{item}</span></label>)}
+              </div> : null}
+            </div>
             <select
               value={level}
               onChange={(event) => {
@@ -695,6 +683,19 @@ export function CustomersView() {
               <option value="">全部目标客户</option>
               <option value="valid">有效目标</option>
               <option value="invalid">无效目标</option>
+            </select>
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
+              className="min-w-36 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+            >
+              <option value="">全部客户阶段</option>
+              {(["UNCLAIMED", "CLAIMED", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
+                <option key={key} value={key}>{stageLabels[key]}</option>
+              ))}
             </select>
             <select
               value={followupStatus}
