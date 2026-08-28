@@ -86,6 +86,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     const contacts = await admin.from("customer_contacts")
       .select("id,type,value_raw,value_normalized,source_channel,exact_source_url,source_page_title,captured_at,identity_match_status,verification_status,contact_status")
       .eq("customer_id", customerId)
+      .in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED"])
       .order("captured_at", { ascending: false });
     if (contacts.error) throw contacts.error;
     return NextResponse.json({

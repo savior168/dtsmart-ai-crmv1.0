@@ -528,7 +528,32 @@ function addressIdentityScore(left?: string | null, right?: string | null) {
   return Math.min(1, ratio + (postalMatch ? 0.25 : 0) + (streetNumberMatch ? 0.15 : 0));
 }
 
-function nameSimilarity(left?: string | null, right?: string | null) {
+const BUSINESS_NAME_GENERIC_TOKENS = new Set([
+  "service", "services", "serwis", "repair", "repairs", "reparatur", "reparasjon", "naprawa",
+  "fix", "care", "clinic", "klinik", "store", "shop", "center", "centre", "tech", "technology",
+  "solutions", "mobile", "mobil", "phone", "smartphone", "handy", "telefon", "gsm", "computer",
+  "computers", "laptop", "notebook", "pc", "iphone", "ipad", "macbook", "apple", "ltd", "limited",
+  "gmbh", "sarl", "company", "co",
+]);
+
+function canonicalBusinessConcepts(value?: string | null) {
+  const text = String(value || "").normalize("NFKD").toLowerCase();
+  const concepts = new Set<string>();
+  if (/(?:repair|reparatur|reparasjon|reparaci|repara[cç]|r[eé]paration|riparazione|napraw|serwis|fix|维修|修理)/i.test(text)) concepts.add("repair");
+  if (/(?:phone|mobile|mobil|smartphone|handy|telefon|gsm|iphone|ipad|m[oó]vil|celular|手机|平板)/i.test(text)) concepts.add("mobile");
+  if (/(?:computer|laptop|notebook|macbook|\bpc\b|komputer|ordenador|ordinateur|电脑|笔记本)/i.test(text)) concepts.add("computer");
+  if (/(?:accessor|parts?|spare|screen|battery|akcesoria|cz[eę][sś]ci|配件|屏幕|电池)/i.test(text)) concepts.add("parts");
+  return concepts;
+}
+
+function distinctiveBusinessTokens(value?: string | null) {
+  return [...normalizedWords(value)].filter((token) => {
+    if (BUSINESS_NAME_GENERIC_TOKENS.has(token)) return false;
+    return ![...canonicalBusinessConcepts(token)].length;
+  });
+}
+
+export function nameSimilarity(left?: string | null, right?: string | null) {
   const compactLeft = String(left || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const compactRight = String(right || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (!compactLeft || !compactRight) return 0;
@@ -543,7 +568,19 @@ function nameSimilarity(left?: string | null, right?: string | null) {
   // Token containment is useful only for a sufficiently specific (3+ token)
   // business name. Two generic shared words such as "doctor" and "iphone"
   // must not make a different nearby business an automatic identity match.
-  return Math.min(a.size, b.size) >= 3 ? Math.max(jaccardLike, overlap / Math.min(a.size, b.size)) : jaccardLike;
+  const lexical = Math.min(a.size, b.size) >= 3 ? Math.max(jaccardLike, overlap / Math.min(a.size, b.size)) : jaccardLike;
+  const leftConcepts = canonicalBusinessConcepts(left);
+  const rightConcepts = canonicalBusinessConcepts(right);
+  const sharedConcepts = [...leftConcepts].filter((item) => rightConcepts.has(item));
+  const leftDistinctive = distinctiveBusinessTokens(left);
+  const rightDistinctive = new Set(distinctiveBusinessTokens(right));
+  const sharedDistinctive = leftDistinctive.filter((item) => rightDistinctive.has(item));
+  // Multilingual reordered names such as "Mobilreparasjon Lillehammer" and
+  // "Lillehammer Mobile Repair" identify the same entity. Require both a
+  // distinctive brand/location token and two translated business concepts so
+  // generic names like "Phone Repair" never become automatic matches.
+  const semantic = sharedConcepts.length >= 2 && sharedDistinctive.length >= 1 ? 0.92 : 0;
+  return Math.max(lexical, semantic);
 }
 
 function nestedStrings(value: unknown, output: string[] = []): string[] {

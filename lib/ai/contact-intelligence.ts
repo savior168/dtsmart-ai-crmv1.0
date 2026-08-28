@@ -127,7 +127,13 @@ export function reconcileContacts(candidates: ContactCandidate[]) {
     const purpose = item.type === "EMAIL" && /(?:sales|purchase|procurement|wholesale|trade)@/i.test(item.valueNormalized) ? 15 : item.type === "WHATSAPP" ? 10 : 5;
     return source + status + purpose;
   };
-  const preferred = values.filter((item) => !["INVALID", "STALE"].includes(item.verificationStatus)).sort((a, b) => rank(b) - rank(a))[0] || null;
+  // Only a contact that either matches the customer's original value or was
+  // found on a strictly matched official entity can be recommended. An
+  // ambiguous Google candidate is useful for audit, but must never become the
+  // sales team's preferred contact.
+  const preferred = values
+    .filter((item) => ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(item.verificationStatus))
+    .sort((a, b) => rank(b) - rank(a))[0] || null;
   return { contacts: values, preferred };
 }
 

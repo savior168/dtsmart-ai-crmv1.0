@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
-  hasDirectTargetBusinessEvidence,
   isComputerHardwareRepairEvidence,
   scoreToLevel,
   type CustomerAnalysis,
@@ -434,8 +433,8 @@ function originalValuesForType(customer: CustomerRow, type: ContactType) {
 
 function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
   const candidates: ContactCandidate[] = [];
-  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null) => {
-    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus, originalValues: originalValuesForType(customer, type) });
+  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null, candidateIdentity = identityStatus) => {
+    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus: candidateIdentity, originalValues: originalValuesForType(customer, type) });
     if (candidate) candidates.push(candidate);
   };
   for (const record of records) {
@@ -443,21 +442,29 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
     if (record.channel === "google_maps") {
       const item = record.evidence as GooglePlaceEvidence;
       const url = item.verified_google_maps_url || record.source_url || customer.google_url || "";
-      if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name);
-      for (const email of item.emails || []) add("EMAIL", email, "google_maps", url, item.name);
-      if (item.website) add(contactTypeForUrl(item.website), item.website, "google_maps", url, item.name);
+      const strongSignals = (item.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
+      const googleIdentity: IdentityStatus = item.identity_status === "MATCHED"
+        && Number(item.identity_confidence || 0) >= 90
+        && strongSignals.length >= 2
+        && !(item.mismatch_signals || []).length
+        ? "MATCHED"
+        : "AMBIGUOUS";
+      if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name, googleIdentity);
+      for (const email of item.emails || []) add("EMAIL", email, "google_maps", url, item.name, googleIdentity);
+      if (item.website) add(contactTypeForUrl(item.website), item.website, "google_maps", url, item.name, googleIdentity);
       continue;
     }
     const item = record.evidence as WebsiteEvidence;
+    const recordIdentity: IdentityStatus = websiteRecordMatchesEntity(customer, records, record) ? "MATCHED" : "AMBIGUOUS";
     const pages = [{ url: item.url, title: item.title, emails: item.emails, phones: item.phones, whatsapps: item.whatsapps || [], social_urls: item.social_urls || [] }, ...(item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }))];
     for (const page of pages) {
-      for (const email of page.emails || []) add("EMAIL", email, record.channel, page.url, page.title);
-      for (const phone of page.phones || []) add("PHONE", phone, record.channel, page.url, page.title);
-      for (const whatsapp of page.whatsapps || []) add("WHATSAPP", whatsapp, record.channel, page.url, page.title);
-      for (const socialUrl of page.social_urls || []) add(contactTypeForUrl(socialUrl), socialUrl, record.channel, page.url, page.title);
+      for (const email of page.emails || []) add("EMAIL", email, record.channel, page.url, page.title, recordIdentity);
+      for (const phone of page.phones || []) add("PHONE", phone, record.channel, page.url, page.title, recordIdentity);
+      for (const whatsapp of page.whatsapps || []) add("WHATSAPP", whatsapp, record.channel, page.url, page.title, recordIdentity);
+      for (const socialUrl of page.social_urls || []) add(contactTypeForUrl(socialUrl), socialUrl, record.channel, page.url, page.title, recordIdentity);
     }
     if (["facebook", "instagram", "linkedin", "tiktok"].includes(record.channel) && record.source_url) {
-      add(contactTypeForUrl(record.source_url), record.source_url, record.channel, record.source_url, item.title);
+      add(contactTypeForUrl(record.source_url), record.source_url, record.channel, record.source_url, item.title, recordIdentity);
     }
   }
   return reconcileContacts(candidates);
@@ -623,23 +630,9 @@ function deterministicScore(input: {
   google?: GooglePlaceEvidence;
 }) {
   const googleBusinessText = (evidence: GooglePlaceEvidence) => {
-    const publicFacts = [evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
-    // A business name is an identity signal, not sufficient industry evidence.
-    // It may participate only when the same, strongly matched Google entity
-    // also has an independent public description/review stating a repair or
-    // parts activity. This covers cases such as "PhonenPhone" + "speedy
-    // repair" without allowing a keyword-only imported name to inflate score.
-    const nameHasDevice = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|pc|handy|telefon|smartfon|m[oó]vil|celular|手机|电脑)/i.test(evidence.name || "");
-    const factsHaveActivity = /(?:repair|fix|service|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|配件|parts?|accessor)/i.test(publicFacts);
-    const exactSignals = (evidence.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal)).length;
-    const explicitActivityName = evidence.identity_status === "MATCHED"
-      && Number(evidence.identity_confidence || 0) >= 90
-      && exactSignals >= 2
-      && !(evidence.mismatch_signals || []).length
-      && hasDirectTargetBusinessEvidence(verifiedFactLabels(evidence.name || "").join("；"))
-      ? evidence.name || ""
-      : "";
-    return [...(evidence.types || []), evidence.description, ...(evidence.reviews || []), explicitActivityName || (nameHasDevice && factsHaveActivity ? evidence.name : "")].filter(Boolean).join("；");
+    // The business name is an entity locator only. Industry and score must be
+    // supported by Google categories, editorial text, reviews or media facts.
+    return [...(evidence.types || []), evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
   };
   const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
@@ -836,30 +829,16 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   }
 
   const candidates: Array<{ channel: string; url: string; title: string; text: string; confidence: number; originalExcerpt: string }> = [];
-  let googleCorroboratedName = "";
   if (google?.name && /^https?:\/\//i.test(googleUrl) && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) {
-    const publicFacts = [google.description, ...(google.reviews || [])].filter(Boolean).join("；");
-    const nameHasDevice = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|pc|handy|telefon|smartfon|m[oó]vil|celular|手机|电脑)/i.test(google.name);
-    const factsHaveActivity = /(?:repair|fix|service|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|配件|parts?|accessor)/i.test(publicFacts);
-    const exactSignals = (google.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal)).length;
-    const explicitNameFacts = verifiedFactLabels(google.name).filter((label) => hasDirectTargetBusinessEvidence(label));
-    const explicitActivityName = google.identity_status === "MATCHED"
-      && Number(google.identity_confidence || 0) >= 90
-      && exactSignals >= 2
-      && !(google.mismatch_signals || []).length
-      && explicitNameFacts.length
-      ? google.name
-      : "";
-    googleCorroboratedName = explicitActivityName || (nameHasDevice && factsHaveActivity ? google.name : "");
     candidates.push({
       channel: "google_maps",
       url: googleUrl,
       title: "Google商家分类",
       // 名称不得单独推断行业；只有同一已匹配主体的公开说明/评论同时
       // 明确维修或配件活动时，名称中的设备类型才可作为组合证据。
-      text: [...(google.types || []), google.description, ...(google.reviews || []), googleCorroboratedName].filter(Boolean).join("；"),
+      text: [...(google.types || []), google.description, ...(google.reviews || [])].filter(Boolean).join("；"),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
-      originalExcerpt: [explicitActivityName, google.description, ...(google.reviews || [])].filter(Boolean).join("；").slice(0, 1600),
+      originalExcerpt: [google.description, ...(google.reviews || [])].filter(Boolean).join("；").slice(0, 1600),
     });
   }
   if (website?.reachable && /^https?:\/\//i.test(website.url)) {
@@ -879,7 +858,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       if (candidate.channel !== "google_maps" || !rule.target) return true;
       // Google 分类只负责定位候选主体。目标客户分类还需要商家描述、
       // 评论或部件级服务事实佐证；否则交给后续视觉/模型核验。
-      const corroborationText = [google?.description, ...(google?.reviews || []), googleCorroboratedName].filter(Boolean).join("；");
+      const corroborationText = [google?.description, ...(google?.reviews || [])].filter(Boolean).join("；");
       return ruleIsSupported(rule, corroborationText)
         || /(?:换屏|屏幕更换|玻璃更换|换电池|电池更换|尾插|充电口|主板|拆机|维修作业|screen replacement|battery replacement|charging port|motherboard|wymian\w* (?:szyb|wyświetlacz|bater))/i.test(corroborationText);
     })
