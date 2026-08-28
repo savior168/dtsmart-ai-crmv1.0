@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
+  hasDirectTargetBusinessEvidence,
   isComputerHardwareRepairEvidence,
   scoreToLevel,
   type CustomerAnalysis,
@@ -211,7 +212,16 @@ export function verifiedOfficialWebsiteFromGoogle(records: ChannelRecord[]) {
  */
 export function websiteRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], websiteRecord: ChannelRecord) {
   if (websiteRecord.status !== "COLLECTED" || !websiteRecord.evidence) return false;
-  const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  const googleCandidate = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  // An ambiguous or rejected Places candidate is only a search diagnostic. It
+  // must never enter the model prompt as if it were the customer's business.
+  // Legacy rows without an identity status remain readable, while every new
+  // collector result has to be MATCHED/LIKELY_MATCHED before it can influence
+  // industry, score or contacts.
+  const google = googleCandidate && (!googleCandidate.identity_status
+    || ["MATCHED", "LIKELY_MATCHED"].includes(String(googleCandidate.identity_status)))
+    ? googleCandidate
+    : undefined;
   const website = websiteRecord.evidence as WebsiteEvidence;
   const host = websiteHost(website.url);
   if (!website.reachable || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return false;
@@ -536,7 +546,11 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
     if (item.channel === "google_maps") continue;
     publicChannels[item.channel] = compactWebsite(item.evidence as WebsiteEvidence);
   }
-  const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  const googleCandidate = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  const google = googleCandidate && (!googleCandidate.identity_status
+    || ["MATCHED", "LIKELY_MATCHED"].includes(String(googleCandidate.identity_status)))
+    ? googleCandidate
+    : undefined;
   return {
     website: (() => { const value = records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined; return value ? compactWebsite(value) : undefined; })(),
     google_place: google ? withoutEmpty({
@@ -571,6 +585,7 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
       const item = record.evidence as GooglePlaceEvidence;
+      if (item.identity_status && !["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status))) return false;
       return Boolean(item.name || item.types?.length || item.formatted_address || item.phone || item.reviews?.length);
     }
     const item = record.evidence as WebsiteEvidence;
@@ -616,7 +631,15 @@ function deterministicScore(input: {
     // repair" without allowing a keyword-only imported name to inflate score.
     const nameHasDevice = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|pc|handy|telefon|smartfon|m[oó]vil|celular|手机|电脑)/i.test(evidence.name || "");
     const factsHaveActivity = /(?:repair|fix|service|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|配件|parts?|accessor)/i.test(publicFacts);
-    return [...(evidence.types || []), evidence.description, ...(evidence.reviews || []), nameHasDevice && factsHaveActivity ? evidence.name : ""].filter(Boolean).join("；");
+    const exactSignals = (evidence.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal)).length;
+    const explicitActivityName = evidence.identity_status === "MATCHED"
+      && Number(evidence.identity_confidence || 0) >= 90
+      && exactSignals >= 2
+      && !(evidence.mismatch_signals || []).length
+      && hasDirectTargetBusinessEvidence(verifiedFactLabels(evidence.name || "").join("；"))
+      ? evidence.name || ""
+      : "";
+    return [...(evidence.types || []), evidence.description, ...(evidence.reviews || []), explicitActivityName || (nameHasDevice && factsHaveActivity ? evidence.name : "")].filter(Boolean).join("；");
   };
   const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
@@ -818,7 +841,16 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     const publicFacts = [google.description, ...(google.reviews || [])].filter(Boolean).join("；");
     const nameHasDevice = /(?:phone|mobile|iphone|ipad|macbook|computer|laptop|pc|handy|telefon|smartfon|m[oó]vil|celular|手机|电脑)/i.test(google.name);
     const factsHaveActivity = /(?:repair|fix|service|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|配件|parts?|accessor)/i.test(publicFacts);
-    googleCorroboratedName = nameHasDevice && factsHaveActivity ? google.name : "";
+    const exactSignals = (google.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal)).length;
+    const explicitNameFacts = verifiedFactLabels(google.name).filter((label) => hasDirectTargetBusinessEvidence(label));
+    const explicitActivityName = google.identity_status === "MATCHED"
+      && Number(google.identity_confidence || 0) >= 90
+      && exactSignals >= 2
+      && !(google.mismatch_signals || []).length
+      && explicitNameFacts.length
+      ? google.name
+      : "";
+    googleCorroboratedName = explicitActivityName || (nameHasDevice && factsHaveActivity ? google.name : "");
     candidates.push({
       channel: "google_maps",
       url: googleUrl,
@@ -827,7 +859,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       // 明确维修或配件活动时，名称中的设备类型才可作为组合证据。
       text: [...(google.types || []), google.description, ...(google.reviews || []), googleCorroboratedName].filter(Boolean).join("；"),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
-      originalExcerpt: [google.description, ...(google.reviews || [])].filter(Boolean).join("；").slice(0, 1600),
+      originalExcerpt: [explicitActivityName, google.description, ...(google.reviews || [])].filter(Boolean).join("；").slice(0, 1600),
     });
   }
   if (website?.reachable && /^https?:\/\//i.test(website.url)) {

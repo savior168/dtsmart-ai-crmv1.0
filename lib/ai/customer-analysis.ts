@@ -85,6 +85,12 @@ export function isItSupportWithoutHardwareRepair(text: string) {
   return IT_SUPPORT_EVIDENCE_PATTERN.test(text) && !isComputerHardwareRepairEvidence(text);
 }
 
+const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
+
+export function hasDirectTargetBusinessEvidence(text: string) {
+  return DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN.test(text);
+}
+
 function responseText(payload: Record<string, unknown>): string {
   if (typeof payload.output_text === "string" && payload.output_text.trim()) return payload.output_text;
   const chunks: string[] = [];
@@ -326,7 +332,11 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|已关闭|其他)$/.test(analysis.industry_type);
   const computerRepairClaim = analysis.industry_type === "电脑维修店";
   const verifiedComputerHardwareRepair = isComputerHardwareRepairEvidence(supportingText);
-  const itSupportOnly = isItSupportWithoutHardwareRepair(allEvidenceText);
+  // Mixed businesses can legitimately offer IT/network support and device
+  // hardware repair at the same time. A generic IT-support fact must never
+  // erase an independently verified repair/parts/wholesale fact.
+  const itSupportOnly = !hasDirectTargetBusinessEvidence(supportingText)
+    && isItSupportWithoutHardwareRepair(allEvidenceText);
   const breakdown = analysis.score_breakdown || {} as CustomerAnalysis["score_breakdown"];
   const metric = (key: keyof CustomerAnalysis["score_breakdown"]) => Math.max(0, Math.min(100, Number(breakdown[key]) || 0));
   const businessFit = Math.max(metric("mobile_parts_match"), metric("macbook_parts_match"), metric("repair_business_match"), metric("wholesale_import_distribution"));
@@ -361,6 +371,13 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   }
   if (!verifiedBuyingRole && !verifiedChain && !repairOrRetail) score = Math.min(score, 69);
   if ((verifiedBuyingRole || verifiedChain) && !verifiedProductFit) score = Math.min(score, 49);
+  if (verifiedBuyingRole && verifiedProductFit && hasStrongDirectEvidence) {
+    // A verified official source explicitly offering relevant parts wholesale,
+    // distribution or import is a target fact even when no second source or
+    // procurement record is available yet.
+    score = Math.max(score, 65);
+    confidence = Math.max(confidence, 70);
+  }
   // Computer support, network/NAS setup and generic troubleshooting are not
   // hardware repair. A model may not promote them into the target band unless
   // the saved evidence explicitly names hardware repair or part replacement.

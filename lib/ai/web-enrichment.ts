@@ -838,7 +838,8 @@ export async function collectGooglePlaceEvidence(input: {
     // higher-cost evidence request for every customer.
     const genericPlaceTypes = new Set(["service", "point_of_interest", "establishment"]);
     const hasSpecificPlaceType = (top.item.types || []).some((type) => !genericPlaceTypes.has(type));
-    const needsBusinessClarification = top.score >= 70 && !hasSpecificPlaceType;
+    const targetAdjacentPlaceType = (top.item.types || []).some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor|store)/i.test(type));
+    const needsBusinessClarification = top.score >= 70 && (!hasSpecificPlaceType || targetAdjacentPlaceType);
     const needsContactEnrichment = !input.phone || !input.website || top.score < 70;
     if (top.item.id && (needsContactEnrichment || needsBusinessClarification)) {
       const enrichmentFields = [

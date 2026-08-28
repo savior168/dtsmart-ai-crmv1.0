@@ -105,6 +105,7 @@ export function evaluateEvidenceGate(input: {
   const negativeEnough = sufficient(negative);
   const strongPositive = positive.some((item) => evidenceStrengthFor(item) === "STRONG_DIRECT");
   const strongNegative = negative.some((item) => evidenceStrengthFor(item) === "STRONG_DIRECT");
+  const permanentClosure = negative.some((item) => /(?:永久关闭|永久停业|已永久关闭)/.test(item.fact));
   // MATCHED already means the collector found a strong exact-name, domain,
   // phone or address chain. Requiring 90 again rejected exact public entities
   // whose raw score was 80-89, even when an official page supplied direct
@@ -123,11 +124,16 @@ export function evaluateEvidenceGate(input: {
   // definitive decision. The 82-point cross-source threshold applies only to
   // indirect/corroborating evidence; applying it to direct facts forced clear
   // repair shops and clear non-target businesses into manual review.
-  if (input.explicitRejectEvidence && negativeEnough && input.decisionConfidence >= (strongNegative ? 60 : industryThreshold)) {
+  // A matched Google business status of permanently closed is definitive on
+  // its own; requiring a second source would keep a closed business active.
+  if (permanentClosure && input.decisionConfidence >= 60) {
     return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业，且存在明确的非目标或停业证据。", sufficient: true, evidenceIds };
   }
   if (strongPositive && input.score >= 60 && input.industry !== "UNKNOWN" && input.industryConfidence >= 60 && input.decisionConfidence >= 60) {
     return { automationStatus: "AUTO_DEVELOP", reason: "已确认同一企业，且直接经营证据明确符合目标业务。", sufficient: true, evidenceIds };
+  }
+  if (input.explicitRejectEvidence && negativeEnough && input.decisionConfidence >= (strongNegative ? 60 : industryThreshold)) {
+    return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业，且存在明确的非目标经营证据。", sufficient: true, evidenceIds };
   }
   if (!positiveEnough || input.industry === "UNKNOWN" || input.industryConfidence < industryThreshold || input.decisionConfidence < industryThreshold) {
     return { automationStatus: "AUTO_HOLD", reason: "外部证据或行业置信度不足，不能自动判为有效或无效。", sufficient: false, evidenceIds };
