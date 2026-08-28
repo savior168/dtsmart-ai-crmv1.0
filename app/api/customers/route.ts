@@ -54,7 +54,6 @@ const customerListFields = [
   "ai_score",
   "ai_level",
   "status",
-  "followup_status",
   "owner_id",
   "last_contact_time",
   "created_at",
@@ -164,7 +163,12 @@ export async function GET(request: NextRequest) {
     if (target === "valid") query = query.gte("ai_score", 60);
     if (target === "invalid") query = query.lt("ai_score", 60);
 
-    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "followup_status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
+    // `followup_status` was added by a compatibility migration and is still
+    // absent from some production databases. Do not request or sort by that
+    // optional column in the base list query: legacy rows are rendered as
+    // “待联系” by the client and the filter probe above safely handles
+    // migrated databases without taking the whole customer list down.
+    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
     const sortField = allowedSort.has(sort) ? sort : "created_at";
     const from = (page - 1) * pageSize;
     const rangeEnd = from + pageSize - 1;

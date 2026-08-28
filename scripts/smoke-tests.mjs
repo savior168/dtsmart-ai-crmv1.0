@@ -36,6 +36,8 @@ assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨�
 assert.match(customerApi, /options === "industries"[\s\S]*new Set\(values\)/, "所属行业筛选项必须从当前用户全部客户中动态去重生成");
 assert.match(customerApi, /searchParams\.getAll\("industry"\)/, "所属行业筛选必须读取全部多选值");
 assert.match(customerApi, /industries\.length === 1[\s\S]*\.eq\("industry", industries\[0\]\)[\s\S]*industries\.length > 1[\s\S]*\.in\("industry"/, "所属行业筛选必须对单选和多选执行精确查询");
+const customerListProjection = customerApi.match(/const customerListFields = \[([\s\S]*?)\]\.join/)?.[1] || "";
+assert.doesNotMatch(customerListProjection, /"followup_status"/, "兼容迁移未上线时，客户列表不得强制请求可选 followup_status 列");
 
 const aiApi = read("app/api/ai/analyze/route.ts");
 assert.match(aiApi, /start\(aiScreeningWorkflow/, "保存并筛选必须进入持久化AI任务，不能绕过证据与写回流程");
