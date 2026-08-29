@@ -337,8 +337,8 @@ export function CustomersView() {
     void Promise.all([
       fetch("/api/customers?page=1&pageSize=1&ai_status=all&deleted=false").then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
       fetch("/api/customers?options=industries").then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
-      fetch("/api/customers/protection").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? body.data?.length ?? 0))),
-      fetch("/api/customer-conflicts").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? body.data?.length ?? 0))),
+      fetch("/api/customers/protection?summary=1").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? 0))),
+      fetch("/api/customer-conflicts?summary=1").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
     ]).catch(() => undefined);
   }, []);
   const pages = Math.max(1, Math.ceil(count / pageSize));
@@ -1058,6 +1058,7 @@ export function CustomersView() {
                       <div className="flex items-center gap-1 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}
+                        prefetch={false}
                         onClick={(event) => event.stopPropagation()}
                         className="inline-grid h-8 w-8 place-items-center rounded-lg border border-blue-100 text-blue-600 hover:bg-blue-50"
                         title="编辑客户"
@@ -1215,6 +1216,7 @@ export function CustomersView() {
             </div>
             <Link
               href={`/customers/${detail.id}`}
+              prefetch={false}
               className="mt-6 block rounded-lg bg-blue-600 px-4 py-3 text-center text-sm font-medium text-white"
             >
               查看完整详情

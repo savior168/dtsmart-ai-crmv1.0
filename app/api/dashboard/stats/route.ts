@@ -50,6 +50,37 @@ export async function GET(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser();
     const now = new Date();
+    if (request.nextUrl.searchParams.get("summary") === "1") {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const tomorrow = new Date(todayStart);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const protectionEnd = new Date(todayStart);
+      protectionEnd.setDate(protectionEnd.getDate() + 8);
+      const [followups, protections] = await Promise.all([
+        supabase
+          .from("followups")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .gte("next_follow_date", todayStart.toISOString())
+          .lt("next_follow_date", tomorrow.toISOString()),
+        supabase
+          .from("customer_protection")
+          .select("id", { count: "exact", head: true })
+          .eq("owner_id", user.id)
+          .eq("status", "ACTIVE")
+          .not("expire_date", "is", null)
+          .gte("expire_date", todayStart.toISOString())
+          .lt("expire_date", protectionEnd.toISOString()),
+      ]);
+      if (followups.error) throw new Error(followups.error.message);
+      if (protections.error) throw new Error(protections.error.message);
+      return NextResponse.json({
+        totals: {
+          today_followups: followups.count || 0,
+          expiring_protection: protections.count || 0,
+        },
+      }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
+    }
     const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
     const fromDate = validDate(request.nextUrl.searchParams.get("from"), defaultFrom);
     const toDate = validDate(request.nextUrl.searchParams.get("to"), now);

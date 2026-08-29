@@ -1,22 +1,26 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type CustomerRow = Record<string, unknown> & { id: string; created_at?: string };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { user } = await requireUser();
     const admin = createAdminClient();
     const now = new Date();
     const cutoff = new Date(now.getTime() - 90 * 86400000).toISOString();
-    const protections = await admin.from("customer_protection").select("id,customer_id,type,start_date,expire_date,status").eq("owner_id", user.id).or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`);
+    const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
+    const [protections, claims, expired] = await Promise.all([
+      admin.from("customer_protection").select("id,customer_id,type,start_date,expire_date,status").eq("owner_id", user.id).or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`),
+      admin.from("customer_claims").select("id,customer_id,created_at,released_at,release_reason").eq("user_id", user.id).eq("action", "RELEASE").order("created_at", { ascending: false }),
+      admin.from("customers").select(summaryOnly ? "id" : "*").eq("owner_id", user.id).is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)"),
+    ]);
     if (protections.error) throw protections.error;
-    const claims = await admin.from("customer_claims").select("id,customer_id,created_at,released_at,release_reason").eq("user_id", user.id).eq("action", "RELEASE").order("created_at", { ascending: false });
     if (claims.error) throw claims.error;
-    const expired = await admin.from("customers").select("*").eq("owner_id", user.id).is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
     if (expired.error) throw expired.error;
     const customerIds = Array.from(new Set([...(protections.data || []).map((item) => item.customer_id), ...(claims.data || []).map((item) => item.customer_id), ...(expired.data || []).map((item) => item.id)]));
+    if (summaryOnly) return NextResponse.json({ count: customerIds.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     const customers: CustomerRow[] = [];
     for (let offset = 0; offset < customerIds.length; offset += 200) {
       const page = await admin.from("customers").select("*").in("id", customerIds.slice(offset, offset + 200));

@@ -46,9 +46,10 @@ async function withOwner(rows: ConflictRow[]) {
 }
 
 /** Returns the importer's own basic-field snapshot from the conflict queue. */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser();
+    const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
     const { data, error } = await supabase
       .from("customer_conflicts")
       .select("id,customer_id,conflict_type,status,details,created_at")
@@ -56,6 +57,7 @@ export async function GET() {
       .order("created_at", { ascending: false });
     if (!error) {
       const unique = dedupeConflicts((data || []) as ConflictRow[]);
+      if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
       return NextResponse.json({ data: await withOwner(unique), count: unique.length });
     }
     // Compatibility fallback for production before the optional migration is
@@ -71,6 +73,7 @@ export async function GET() {
       conflict_type: "CROSS_OWNER_DUPLICATE", status: "OPEN", details: ((item.content as Record<string, unknown>)?.details || item.content || {}) as Record<string, unknown>, created_at: item.created_at,
     }));
     const unique = dedupeConflicts(fallbackRows as ConflictRow[]);
+    if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     return NextResponse.json({ data: await withOwner(unique), count: unique.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "冲突客户加载失败" }, { status: 400 });

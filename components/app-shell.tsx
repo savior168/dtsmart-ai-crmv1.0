@@ -335,7 +335,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div
         className={`flex h-[76px] items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-4"}`}
       >
-        <Link href="/" className="flex min-w-0 items-center gap-2.5">
+        <Link href="/" prefetch={false} className="flex min-w-0 items-center gap-2.5">
           <Image
             src="/dtsmart-tradeos-logo.png"
             width={40}
@@ -364,6 +364,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               title={collapsed ? item.label : undefined}
               className={`flex items-center rounded-lg transition ${collapsed ? "justify-center px-2 py-3" : "gap-4 px-4 py-3"} ${selected ? sidebarDark ? "bg-blue-600 font-semibold text-white" : "bg-gradient-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-sm shadow-blue-200" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}
             >
@@ -472,6 +473,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </h1>
           <Link
             href="/followups"
+            prefetch={false}
             aria-label="通知"
             title="查看待办提醒"
             className="relative grid h-10 w-10 place-items-center rounded-full text-slate-800 hover:bg-slate-100"

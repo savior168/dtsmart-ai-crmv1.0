@@ -4,7 +4,6 @@ import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
-import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -56,6 +55,7 @@ export async function GET(request: NextRequest) {
     const todayStart = `${today}T00:00:00.000Z`;
     const ownedTaskIds = all.map((item) => item.id);
     const countItems = async (statusValue: string, since?: string, retryableOnly = false) => {
+      if (!ownedTaskIds.length) return 0;
       let total = 0;
       for (let offset = 0; offset < ownedTaskIds.length; offset += 100) {
         let itemQuery = admin.from("ai_screening_task_items")
@@ -70,41 +70,37 @@ export async function GET(request: NextRequest) {
       }
       return total;
     };
-    const retryableCount = await countItems("FAILED", undefined, true);
-    const todayCompletedCount = await countItems("COMPLETED", todayStart);
-    const todayFailedCount = await countItems("FAILED", todayStart);
-    let todayCost = 0;
-    for (let idOffset = 0; idOffset < ownedTaskIds.length; idOffset += 100) {
-      const idBatch = ownedTaskIds.slice(idOffset, idOffset + 100);
-      for (let rowOffset = 0; ; rowOffset += 1000) {
-        const calls = await admin.from("ai_screening_model_calls").select("cost_usd").in("task_id", idBatch).gte("created_at", todayStart).range(rowOffset, rowOffset + 999);
-        if (calls.error) throw calls.error;
-        const rows = calls.data || [];
-        todayCost += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
-        if (rows.length < 1000) break;
+    const todayCostPromise = (async () => {
+      let total = 0;
+      for (let idOffset = 0; idOffset < ownedTaskIds.length; idOffset += 100) {
+        const idBatch = ownedTaskIds.slice(idOffset, idOffset + 100);
+        for (let rowOffset = 0; ; rowOffset += 1000) {
+          const calls = await admin.from("ai_screening_model_calls").select("cost_usd").in("task_id", idBatch).gte("created_at", todayStart).range(rowOffset, rowOffset + 999);
+          if (calls.error) throw calls.error;
+          const rows = calls.data || [];
+          total += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
+          if (rows.length < 1000) break;
+        }
       }
-    }
-    const reservedCustomerIds = await getReservedAiCustomerIds(user.id);
-    let pendingCustomerCount = 0;
-    let eligibleCustomerCount = 0;
-    for (let offset = 0; ; offset += 1000) {
-      const pending = await supabase
-        .from("customers")
-        .select("id")
-        .is("deleted_at", null)
-        .is("ai_score", null)
-        .range(offset, offset + 999);
-      if (pending.error) throw pending.error;
-      for (const customer of pending.data || []) {
-        pendingCustomerCount += 1;
-        if (!reservedCustomerIds.has(customer.id)) eligibleCustomerCount += 1;
-      }
-      if (!pending.data || pending.data.length < 1000) break;
-    }
+      return total;
+    })();
+    const pendingCustomersPromise = supabase
+      .from("customers")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .is("ai_score", null);
+    const [retryableCount, todayCompletedCount, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
+      countItems("FAILED", undefined, true),
+      countItems("COMPLETED", todayStart),
+      countItems("FAILED", todayStart),
+      todayCostPromise,
+      pendingCustomersPromise,
+    ]);
+    if (pendingCustomers.error) throw pendingCustomers.error;
+    const pendingCustomerCount = pendingCustomers.count || 0;
     return NextResponse.json({
       data: result.data || [], count: result.count || 0, counts,
       pending_customers: pendingCustomerCount,
-      available_customers: eligibleCustomerCount,
       today_cost: todayCost,
       today_completed_customers: todayCompletedCount,
       today_failed_customers: todayFailedCount,

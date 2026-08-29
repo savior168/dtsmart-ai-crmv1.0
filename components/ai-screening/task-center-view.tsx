@@ -1,10 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import NextLink from "next/link";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { Activity, BarChart3, CalendarRange, ChevronRight, Plus, RefreshCw, RotateCcw, Target, Users } from "lucide-react";
 import type { AiTask } from "@/components/ai-screening/types";
 import { ConfirmDialog, ErrorState, Loading, PageHeader, Pagination, StatusBadge, StrategyBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, panel, primaryButton, input, useToast } from "@/components/ai-screening/ui";
+
+function Link(props: ComponentProps<typeof NextLink>) {
+  return <NextLink prefetch={false} {...props} />;
+}
 
 type ResponseBody = {
   data: AiTask[]; count: number; counts: Record<string, number>; pending_customers: number; today_cost: number; today_completed_customers: number; today_failed_customers: number; retry_customers: number;
@@ -57,8 +61,22 @@ export function TaskCenterView() {
     setData(body); setError("");
   }, [page, pageSize, status, search, dateFrom, dateTo]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { const timer = setInterval(() => void load(true), 8000); return () => clearInterval(timer); }, [load]);
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") void load(true); };
+    const timer = window.setInterval(refresh, 20000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [load]);
+  useEffect(() => {
+    if (!Number(data?.counts?.active || 0)) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, [data?.counts?.active]);
 
   async function runAction() {
     if (!pendingAction) return;

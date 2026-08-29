@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import {
   BellRing,
   Bot,
@@ -23,6 +23,10 @@ import {
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
+
+function Link(props: ComponentProps<typeof NextLink>) {
+  return <NextLink prefetch={false} {...props} />;
+}
 
 type GradeRow = { grade: string; count: number; percentage: number };
 type FunnelRow = { label: string; value: number; percentage: number };
