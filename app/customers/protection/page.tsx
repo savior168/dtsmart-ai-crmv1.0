@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState, type ComponentProps } from "react";
+import NextLink from "next/link";
 import { CalendarClock, LoaderCircle, RefreshCw } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
+
+function Link(props: ComponentProps<typeof NextLink>) { return <NextLink prefetch={false} {...props}/>; }
 
 type Item = { id:string; customer_id:string; expire_date:string; type:string; customer?: { id:string; company_name:string; country:string|null; ai_level:string|null; ai_score:number|null } };
 export default function ProtectionPage() {

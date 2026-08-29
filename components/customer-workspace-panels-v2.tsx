@@ -1,10 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import NextLink from "next/link";
+import type { ComponentProps } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, LoaderCircle, Pencil, RefreshCw, Search, UserPlus } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import { FOLLOWUP_STAGE_LABELS, type FollowupStage } from "@/lib/types";
+
+function Link(props: ComponentProps<typeof NextLink>) { return <NextLink prefetch={false} {...props}/>; }
 
 type CustomerData = Record<string, unknown> & { id?: string };
 type Protection = { id: string; customer_id: string; expire_date?: string; status?: string; release_type?: "MANUAL" | "AUTO"; customer?: CustomerData };

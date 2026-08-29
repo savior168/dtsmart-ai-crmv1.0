@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import NextLink from "next/link";
+import { useEffect, useState, type ComponentProps } from "react";
 import { CalendarClock, LoaderCircle, Phone, RefreshCw } from "lucide-react";
+
+function Link(props: ComponentProps<typeof NextLink>) { return <NextLink prefetch={false} {...props}/>; }
 
 type Item={id:string;customer_id:string;type:string;content:string;next_follow_date:string|null;created_at:string;customer?:{company_name:string;country:string|null;ai_level:string|null;ai_score:number|null;status:string}};
 const typeLabel:Record<string,string>={EMAIL:"邮件",WHATSAPP:"WhatsApp",PHONE:"电话",LINKEDIN:"LinkedIn",OTHER:"其他"};
