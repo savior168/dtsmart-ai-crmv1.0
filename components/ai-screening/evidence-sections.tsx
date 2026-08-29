@@ -155,7 +155,16 @@ function contactMatchesOriginal(contact: VerifiedContactDisplayItem, customer?: 
 }
 
 function sourceLabelForContact(contact: VerifiedContactDisplayItem) {
+  const type = effectiveContactType(contact);
   const discovery = channelLabels[String(contact.source_channel || "").toLowerCase()] || contact.source_page_title || "已核实公开页面";
+  // 社媒主页属于联系方式/公开入口，而不是发现它的页面本身的经营事实。
+  // 例如 Google 商家页指向 YouTube 时，应显示为“YouTube（由谷歌地图商家页发现）”。
+  if (["FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK", "YOUTUBE"].includes(type)) {
+    const platform = contactLabels[type] || type;
+    return contact.verification_status === "MATCHED_ORIGINAL"
+      ? `${platform}（由${discovery}核验）`
+      : `${platform}（由${discovery}发现）`;
+  }
   return contact.verification_status === "MATCHED_ORIGINAL" ? discovery : `${discovery}发现`;
 }
 
