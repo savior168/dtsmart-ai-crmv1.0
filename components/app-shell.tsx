@@ -23,7 +23,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 
@@ -248,11 +248,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<"light" | "dark">("light");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [profile, setProfile] = useState({
-    name: "当前用户",
-    email: "",
-    avatar_url: "",
-  });
+  const [profile, setProfile] = useState<{
+    name: string;
+    email: string;
+    avatar_url: string;
+  } | null>(null);
   const [noticeCount, setNoticeCount] = useState(0);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageTitleOverride, setPageTitleOverride] = useState("");
@@ -260,16 +260,28 @@ export function AppShell({ children }: { children: ReactNode }) {
     null,
   );
   const profileRef = useRef<HTMLDivElement>(null);
-  const loadProfile = () =>
-    fetch("/api/users/me", { cache: "no-store", headers: { "x-dtsmart-profile": "current-session" } })
-      .then(async (response) => ({ ok: response.ok, body: await response.json() }))
-      .then(({ ok, body }) => {
-        if (!ok) return setProfile({ name: "当前用户", email: "", avatar_url: "" });
-        setProfile({ name: body.name || "当前用户", email: body.email || "", avatar_url: body.avatar_url || "" });
-      })
-      .catch(() => undefined);
+  const profileRequestRef = useRef(0);
+  const loadProfile = useCallback(async () => {
+    const requestId = ++profileRequestRef.current;
+    try {
+      const response = await fetch("/api/users/me", {
+        cache: "no-store",
+        headers: { "x-dtsmart-profile": "current-session" },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (requestId !== profileRequestRef.current) return;
+      if (!response.ok) {
+        setProfile(null);
+        return;
+      }
+      const email = String(body.email || "").trim();
+      const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
+      setProfile({ name, email, avatar_url: String(body.avatar_url || "") });
+    } catch {
+      // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
+    }
+  }, []);
   useEffect(() => {
-    void loadProfile();
     fetch("/api/dashboard/stats?summary=1")
       .then((response) => response.json())
       .then((body) =>
@@ -283,8 +295,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const refresh = () => void loadProfile();
     window.addEventListener("dtsmart-profile-updated", refresh);
-    return () => window.removeEventListener("dtsmart-profile-updated", refresh);
-  }, []);
+    window.addEventListener("dtsmart-auth-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("dtsmart-profile-updated", refresh);
+      window.removeEventListener("dtsmart-auth-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [loadProfile]);
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
     setSidebarMode(saved === "dark" ? "dark" : "light");
@@ -293,7 +311,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     setMobileOpen(false);
     setPageTitleOverride("");
     setProfileOpen(false);
-  }, [path]);
+    if (path === "/login" || path === "/reset-password") {
+      profileRequestRef.current += 1;
+      setProfile(null);
+    } else {
+      void loadProfile();
+    }
+  }, [loadProfile, path]);
   useEffect(() => {
     const updateTitle = (event: Event) => setPageTitleOverride(String((event as CustomEvent<string>).detail || ""));
     window.addEventListener("dtsmart-page-title", updateTitle);
@@ -324,7 +348,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     localStorage.clear();
     sessionStorage.clear();
-    setProfile({ name: "当前用户", email: "", avatar_url: "" });
+    profileRequestRef.current += 1;
+    setProfile(null);
     setProfileOpen(false);
     setModal(null);
     router.replace("/login");
@@ -489,12 +514,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div ref={profileRef} className="relative">
             <button
               type="button"
-              title={`欢迎您，${profile.name}`}
-              onClick={() => setProfileOpen((value) => !value)}
+              title={profile ? `欢迎您，${profile.name}` : "正在读取当前登录用户"}
+              aria-label={profile ? `当前用户：${profile.name}` : "正在读取当前登录用户"}
+              disabled={!profile}
+              onClick={() => profile && setProfileOpen((value) => !value)}
               className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition hover:bg-slate-50"
             >
-              <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-blue-100 font-semibold text-blue-700 ring-2 ring-slate-100">
-                {profile.avatar_url ? (
+              <span className={`grid h-9 w-9 place-items-center overflow-hidden rounded-full ring-2 ring-slate-100 ${profile ? "bg-blue-100 font-semibold text-blue-700" : "animate-pulse bg-slate-200"}`}>
+                {profile?.avatar_url ? (
                   <Image
                     unoptimized
                     width={36}
@@ -503,19 +530,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                     alt="用户头像"
                     className="h-full w-full object-cover"
                   />
-                ) : (
-                  (profile.name || "用").slice(0, 1)
-                )}
+                ) : profile ? profile.name.slice(0, 1) : null}
               </span>
-              <span className="hidden max-w-24 truncate text-sm font-medium text-slate-800 sm:block">
-                {profile.name}
-              </span>
-              <ChevronDown
-                size={15}
-                className="hidden text-slate-500 sm:block"
-              />
+              {profile ? <>
+                <span className="hidden max-w-24 truncate text-sm font-medium text-slate-800 sm:block">{profile.name}</span>
+                <ChevronDown size={15} className="hidden text-slate-500 sm:block" />
+              </> : <span className="hidden h-4 w-16 animate-pulse rounded bg-slate-200 sm:block" aria-hidden="true" />}
             </button>
-            {profileOpen ? (
+            {profileOpen && profile ? (
               <div className="absolute right-0 mt-3 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                 <div className="border-b border-slate-100 px-4 py-3">
                   <b className="block text-sm">欢迎您，{profile.name}</b>
@@ -570,7 +592,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="crm-content min-h-[calc(100vh-64px)]">{children}</div>
       </div>
-      {modal ? (
+      {modal && profile ? (
         <ProfileModal
           type={modal}
           close={() => setModal(null)}

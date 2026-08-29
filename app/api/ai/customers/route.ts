@@ -115,7 +115,9 @@ export async function GET(request: NextRequest) {
       }
     }
     const batches = [...batchCounts.values()]
-      .filter((item) => !item.legacy && (item.success_count || 0) > 0)
+      // 历史客户可能只有导入文件名、尚未回填 import_task_id。只要该批次
+      // 仍有当前用户可筛选的客户，就必须作为可选批次返回，不能静默隐藏。
+      .filter((item) => item.pending_count > 0)
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
     return NextResponse.json({ data, count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches });
   } catch (error) {

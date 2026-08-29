@@ -137,6 +137,7 @@ export function PasswordAuthForm() {
   }
   function goToApp() {
     const next = params.get("next");
+    window.dispatchEvent(new CustomEvent("dtsmart-auth-changed"));
     router.replace(
       next?.startsWith("/") && !next.startsWith("//") ? next : "/",
     );

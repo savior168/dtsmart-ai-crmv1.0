@@ -22,6 +22,8 @@ export type Customer = {
   company_scale_evidence?: string | null;
   category: string | null;
   source: string | null;
+  source_batch?: string | null;
+  source_batch_id?: string | null;
   tags: string[];
   rating?: number | null;
   ai_score: number | null;

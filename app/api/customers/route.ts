@@ -51,6 +51,8 @@ const customerListFields = [
   "industry",
   "category",
   "source",
+  "source_batch",
+  "source_batch_id",
   "ai_score",
   "ai_level",
   "status",
@@ -62,6 +64,10 @@ const customerListFields = [
   "website_email",
   "website_phone",
 ].join(",");
+
+function postgrestInValue(value: string) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
 
 function clean(body: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(writableFields.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
@@ -81,6 +87,7 @@ export async function GET(request: NextRequest) {
     const country = request.nextUrl.searchParams.get("country")?.trim();
     const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
+    const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
     const options = request.nextUrl.searchParams.get("options");
     const aiPending = request.nextUrl.searchParams.get("ai_pending") === "true";
     const aiDone = request.nextUrl.searchParams.get("ai_done") === "true";
@@ -111,6 +118,58 @@ export async function GET(request: NextRequest) {
       }
       const industries = Array.from(new Set(values)).sort((left, right) => left.localeCompare(right, "zh-CN"));
       return NextResponse.json({ data: industries, count: industries.length });
+    }
+    if (options === "batches") {
+      const grouped = new Map<string, { id: string; filename: string; created_at: string | null; customer_count: number; success_count: number | null; legacy: boolean }>();
+      for (let from = 0; ; from += 1000) {
+        const pageQuery = await supabase.from("customers")
+          .select("source_batch_id,source_batch,created_at")
+          .is("deleted_at", null)
+          .eq("owner_id", user.id)
+          .neq("status", "RELEASED")
+          .or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`)
+          .not("source_batch", "is", null)
+          .neq("source_batch", "")
+          .order("created_at", { ascending: false })
+          .range(from, from + 999);
+        if (pageQuery.error) throw pageQuery.error;
+        for (const row of pageQuery.data || []) {
+          const filename = String(row.source_batch || "").trim();
+          if (!filename) continue;
+          const linkedId = String(row.source_batch_id || "").trim();
+          const id = linkedId || `legacy:${filename}`;
+          const current = grouped.get(id);
+          grouped.set(id, {
+            id,
+            filename,
+            created_at: current?.created_at || String(row.created_at || "") || null,
+            customer_count: (current?.customer_count || 0) + 1,
+            success_count: current?.success_count ?? null,
+            legacy: !linkedId,
+          });
+        }
+        if ((pageQuery.data || []).length < 1000) break;
+      }
+      const taskIds = [...grouped.values()].filter((item) => !item.legacy).map((item) => item.id);
+      const admin = createAdminClient();
+      for (let offset = 0; offset < taskIds.length; offset += 200) {
+        const tasks = await admin.from("import_tasks")
+          .select("id,filename,success_count,created_at")
+          .eq("created_by", user.id)
+          .in("id", taskIds.slice(offset, offset + 200));
+        if (tasks.error) throw tasks.error;
+        for (const task of tasks.data || []) {
+          const current = grouped.get(task.id);
+          if (current) grouped.set(task.id, {
+            ...current,
+            filename: task.filename || current.filename,
+            success_count: task.success_count ?? current.success_count,
+            created_at: task.created_at || current.created_at,
+          });
+        }
+      }
+      const data = [...grouped.values()].sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+      return NextResponse.json({ data, count: data.length });
     }
 
     let query = supabase.from("customers").select(idsOnly ? "id,status" : customerListFields, { count: "exact" });
@@ -152,6 +211,16 @@ export async function GET(request: NextRequest) {
     else if (ownerId) query = query.eq("owner_id", ownerId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
+    if (sourceBatches.length) {
+      const linkedIds = sourceBatches.filter((value) => !value.startsWith("legacy:"));
+      const legacyNames = sourceBatches.filter((value) => value.startsWith("legacy:")).map((value) => value.slice(7));
+      const conditions: string[] = [];
+      if (linkedIds.length) conditions.push(`source_batch_id.in.(${linkedIds.map(postgrestInValue).join(",")})`);
+      if (legacyNames.length) conditions.push(`source_batch.in.(${legacyNames.map(postgrestInValue).join(",")})`);
+      if (conditions.length === 1 && linkedIds.length) query = query.in("source_batch_id", linkedIds);
+      else if (conditions.length === 1) query = query.in("source_batch", legacyNames);
+      else if (conditions.length) query = query.or(conditions.join(","));
+    }
     // ai_score exists in every supported schema and is the stable completion flag.
     if (aiStatus === "pending" || aiPending) query = query.is("ai_score", null);
     else if (aiStatus === "done" || aiDone) query = query.not("ai_score", "is", null);

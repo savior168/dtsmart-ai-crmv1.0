@@ -23,6 +23,7 @@ import {
 import type { Customer, CustomerStatus } from "@/lib/types";
 import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/lib/types";
 import { CountryLabel } from "@/components/country-label";
+import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/import-batch-multi-select";
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
@@ -192,6 +193,8 @@ export function CustomersView() {
   const [industries, setIndustries] = useState<string[]>([]);
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
   const [industryOpen, setIndustryOpen] = useState(false);
+  const [sourceBatches, setSourceBatches] = useState<string[]>([]);
+  const [batchOptions, setBatchOptions] = useState<ImportBatchOption[]>([]);
   const [status, setStatus] = useState("");
   const [followupStatus, setFollowupStatus] = useState("");
   const [level, setLevel] = useState("");
@@ -256,6 +259,7 @@ export function CustomersView() {
     setSearch(params.get("search") || "");
     setCountry(params.get("country") || "");
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
+    setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
     setStatus(params.get("status") || "");
     setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
@@ -300,6 +304,7 @@ export function CustomersView() {
       direction,
     });
     industries.forEach((industry) => params.append("industry", industry));
+    sourceBatches.forEach((batch) => params.append("source_batch", batch));
     try {
       const response = await fetch(`/api/customers?${params}`);
       const body = await response.json().catch(() => ({}));
@@ -320,6 +325,7 @@ export function CustomersView() {
     search,
     country,
     industries,
+    sourceBatches,
     status,
     level,
     target,
@@ -337,6 +343,7 @@ export function CustomersView() {
     void Promise.all([
       fetch("/api/customers?page=1&pageSize=1&ai_status=all&deleted=false").then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
       fetch("/api/customers?options=industries").then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
+      fetch("/api/customers?options=batches").then((response) => response.json()).then((body) => setBatchOptions(Array.isArray(body.data) ? body.data : [])),
       fetch("/api/customers/protection?summary=1").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? 0))),
       fetch("/api/customer-conflicts?summary=1").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
     ]).catch(() => undefined);
@@ -371,6 +378,7 @@ export function CustomersView() {
         search ? { key: "search", label: `关键词：${search}` } : null,
         country ? { key: "country", label: `国家/地区：${country}` } : null,
         industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
+        sourceBatches.length ? { key: "sourceBatches", label: `导入批次：已选 ${sourceBatches.length} 个` } : null,
         level ? { key: "level", label: `AI等级：${level}` } : null,
         status
           ? {
@@ -387,12 +395,13 @@ export function CustomersView() {
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, country, industries, level, status, target, followupStatus, aiFilter],
+    [search, country, industries, sourceBatches, level, status, target, followupStatus, aiFilter],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
     if (key === "country") setCountry("");
     if (key === "industry") setIndustries([]);
+    if (key === "sourceBatches") setSourceBatches([]);
     if (key === "level") setLevel("");
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
@@ -404,6 +413,7 @@ export function CustomersView() {
     setSearch("");
     setCountry("");
     setIndustries([]);
+    setSourceBatches([]);
     setStatus("");
     setLevel("");
     setTarget("");
@@ -485,6 +495,7 @@ export function CustomersView() {
       deleted: "false", sort, direction,
     });
     industries.forEach((industry) => params.append("industry", industry));
+    sourceBatches.forEach((batch) => params.append("source_batch", batch));
     try {
       const ids = new Set<string>();
       const protectedIds = new Set<string>();
@@ -532,6 +543,7 @@ export function CustomersView() {
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
     industries.forEach((industry) => params.append("industry", industry));
+    sourceBatches.forEach((batch) => params.append("source_batch", batch));
     try {
       let currentPage = 1;
       let total = 0;
@@ -659,6 +671,19 @@ export function CustomersView() {
                 {industryOptions.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item)} onChange={() => { setIndustries((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]); setPage(1); }} /><span className="min-w-0 break-words">{item}</span></label>)}
               </div> : null}
             </div>
+            <ImportBatchMultiSelect
+              className="min-w-48"
+              options={batchOptions}
+              value={sourceBatches}
+              onChange={(next) => {
+                setSourceBatches(next);
+                setPage(1);
+                setSelected(new Set());
+                setProtectedSelected(new Set());
+              }}
+              placeholder="全部导入批次"
+              emptyText="当前客户列表暂无导入批次"
+            />
             <select
               value={level}
               onChange={(event) => {
