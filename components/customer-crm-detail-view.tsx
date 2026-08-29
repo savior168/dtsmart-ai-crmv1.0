@@ -28,34 +28,6 @@ function Row({label,children}:{label:string;children:ReactNode}){return <div cla
 function Info({title,content}:{title:string;content?:string|null}){const cleaned=cleanAiText(content);return <section className="rounded-xl border bg-white p-5"><h3 className="font-semibold">{title}</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">{cleaned||"暂无数据"}</p></section>}
 function Empty({text}:{text:string}){return <div className="grid min-h-52 place-items-center p-5 text-slate-400"><div className="text-center"><CalendarClock className="mx-auto mb-2"/><p>{text}</p></div></div>}
 
-function normalizedContact(type:string,value?:string|null){
-  const raw=String(value||"").trim();
-  if(!raw)return "";
-  if(type==="EMAIL")return raw.toLowerCase();
-  if(type==="PHONE"||type==="WHATSAPP")return raw.replace(/\D/g,"");
-  try{const url=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);url.hash="";url.hostname=url.hostname.toLowerCase().replace(/^www\./,"");url.pathname=url.pathname.replace(/\/+$/,"")||"/";return url.toString().replace(/\/$/,"").toLowerCase()}catch{return raw.toLowerCase().replace(/\/$/,"")}
-}
-
-function aiVerifiedContacts(data:Data){
-  const originalPhones=[data.customer.phone,data.customer.whatsapp].map((item)=>normalizedContact("PHONE",item)).filter(Boolean);
-  const originalByType:Record<string,Set<string>>={
-    EMAIL:new Set([normalizedContact("EMAIL",data.customer.email)].filter(Boolean)),
-    PHONE:new Set(originalPhones),
-    WHATSAPP:new Set(originalPhones),
-    OTHER:new Set([data.customer.website,data.customer.google_url].map((item)=>normalizedContact("OTHER",item)).filter(Boolean)),
-    FACEBOOK:new Set([normalizedContact("FACEBOOK",data.customer.facebook_url)].filter(Boolean)),
-    INSTAGRAM:new Set([normalizedContact("INSTAGRAM",data.customer.instagram_url)].filter(Boolean)),
-    LINKEDIN:new Set([normalizedContact("LINKEDIN",data.customer.linkedin_url)].filter(Boolean)),
-    TIKTOK:new Set([normalizedContact("TIKTOK",data.customer.tiktok_url)].filter(Boolean)),
-  };
-  return (data.verified_contacts||[]).filter((contact)=>{
-    if(!["MATCHED_ORIGINAL","NEW_VERIFIED"].includes(String(contact.verification_status)))return false;
-    const type=contact.type.toUpperCase();
-    const normalized=normalizedContact(type,contact.value_normalized||contact.value_raw);
-    return Boolean(normalized)&&(contact.verification_status==="MATCHED_ORIGINAL"||!originalByType[type]?.has(normalized));
-  });
-}
-
 function CustomerAiAnalysis({data}:{data:Data}){
   const result=data.ai_result;
   const facts=(data.ai_facts||[]).filter(item=>{const text=item.normalized_fact||item.content||"";return /[\u3400-\u9fff]/.test(text)&&!/未保存|未提炼|请重新执行|读取失败|未能取得|GOOGLE_MAPS_API_KEY|fetch failed/i.test(text)&&/^https?:\/\//i.test(item.source_url||"")});
@@ -68,7 +40,7 @@ function CustomerAiAnalysis({data}:{data:Data}){
       <Info title="跟进建议" content={result?.followup_suggestion||data.customer.followup_suggestion}/>
       {(result?.company_scale_evidence||data.customer.company_scale_evidence)?<Info title="可核验采购/规模记录" content={result?.company_scale_evidence||data.customer.company_scale_evidence}/>:null}
     </div>
-    <VerifiedContactsSection contacts={aiVerifiedContacts(data)} />
+    <VerifiedContactsSection contacts={data.verified_contacts||[]} customer={data.customer} evidence={facts}/>
     <GroupedEvidenceSection evidence={facts} compact/>
   </div>
 }

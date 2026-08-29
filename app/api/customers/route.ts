@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(claimed, { status: 200 });
       }
     }
-    const payload: Record<string, unknown> = { ...clean(body), status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id };
+    const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id };
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
     delete payload.website_email;

@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
         delete item.ai_screening_done;
         delete item.website_email;
         delete item.website_phone;
-        accepted.push({ row: { ...item, source_channel: "新增&导入", source_batch: fileName, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id }, fileName, rowNumber });
+        accepted.push({ row: { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id }, fileName, rowNumber });
       } catch (reason) {
         invalid += 1;
         const message = reason instanceof Error ? reason.message : "数据格式错误";
@@ -156,8 +156,8 @@ export async function POST(request: NextRequest) {
       // schema-cache lag cannot reject the entire import batch. The customer
       // list/API treats a missing value as WAITING_CONTACT until the migration
       // is applied, preserving the required default workflow state.
-      if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
-        const legacyChunk = chunkRows.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; return legacyRow; });
+      if (error && /(followup_status|source_batch_id).*(column|schema cache)|column.*(followup_status|source_batch_id)/i.test(error.message)) {
+        const legacyChunk = chunkRows.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; delete legacyRow.source_batch_id; return legacyRow; });
         ({ data, error } = await supabase.from("customers").insert(legacyChunk).select("id"));
       }
       if (error?.code === "23505") {
@@ -165,9 +165,10 @@ export async function POST(request: NextRequest) {
         // 准确区分重复行与其他失败行，避免整批误报失败。
         for (const item of chunk) {
           let single = await supabase.from("customers").insert(item.row).select("id").single();
-          if (single.error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(single.error.message)) {
+          if (single.error && /(followup_status|source_batch_id).*(column|schema cache)|column.*(followup_status|source_batch_id)/i.test(single.error.message)) {
             const legacyRow = { ...item.row };
             delete legacyRow.followup_status;
+            delete legacyRow.source_batch_id;
             single = await supabase.from("customers").insert(legacyRow).select("id").single();
           }
           if (single.error?.code === "23505") {

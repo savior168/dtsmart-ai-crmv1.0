@@ -4,17 +4,22 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { mapCustomerForAi } from "@/lib/ai/semantic-fields";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
-function sourcePattern(value: string) {
-  const patterns: Record<string, string> = {
-    "新增&导入": "EXCEL_IMPORT,MANUAL,IMPORT",
-    "海关数据": "CUSTOMS,海关",
-    "Google Map": "GOOGLE_MAPS,GOOGLE MAP",
-    Facebook: "FACEBOOK",
-    Instagram: "INSTAGRAM",
-    LinkedIn: "LINKEDIN",
-    其他: "OTHER",
-  };
-  return patterns[value] || value;
+type MappedCustomer = ReturnType<typeof mapCustomerForAi>;
+
+function sourceKind(row: MappedCustomer) {
+  const source = `${row.source_channel || ""} ${row.source || ""}`.toLowerCase();
+  if (row.source_batch_id || row.source_batch || /(batch_import|excel_import|\bimport\b|批量导入|新增&导入)/i.test(source)) return "BATCH_IMPORT";
+  if (/(manual_create|\bmanual\b|手动新增)/i.test(source) || (!row.source_channel && !row.source_batch)) return "MANUAL";
+  if (/(customs|海关)/i.test(source)) return "海关数据";
+  if (/(google[_ ]?maps?)/i.test(source)) return "Google Map";
+  if (/facebook/i.test(source)) return "Facebook";
+  if (/instagram/i.test(source)) return "Instagram";
+  if (/linkedin/i.test(source)) return "LinkedIn";
+  return "其他";
+}
+
+function batchFilterKey(row: MappedCustomer) {
+  return row.source_batch_id || (row.source_batch ? `legacy:${row.source_batch}` : "");
 }
 
 export async function GET(request: NextRequest) {
@@ -26,7 +31,7 @@ export async function GET(request: NextRequest) {
     const search = params.get("search")?.trim() || "";
     const country = params.get("country")?.trim() || "";
     const sourceChannel = params.get("source_channel")?.trim() || "";
-    const sourceBatch = params.get("source_batch")?.trim() || "";
+    const sourceBatches = params.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
     const from = params.get("date_from")?.trim() || "";
     const to = params.get("date_to")?.trim() || "";
     const idsOnly = params.get("ids") === "all";
@@ -34,11 +39,8 @@ export async function GET(request: NextRequest) {
 
     const excluded = await getReservedAiCustomerIds(user.id);
 
-    const normalizedSourcePatterns = sourcePattern(sourceChannel).split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
     const buildQuery = (start: number, end: number) => {
-      let query = supabase.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
-      if (from) query = query.gte("created_at", `${from}T00:00:00`);
-      if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
+      const query = supabase.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
       return query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(start, end);
     };
 
@@ -46,11 +48,10 @@ export async function GET(request: NextRequest) {
       const needle = search.toLowerCase();
       if (needle && ![row.company_name, row.contact_name, row.email, row.phone].some((value) => String(value || "").toLowerCase().includes(needle))) return false;
       if (country && !String(row.country || "").toLowerCase().includes(country.toLowerCase())) return false;
-      if (normalizedSourcePatterns.length) {
-        const sourceText = String(row.source || "").toLowerCase();
-        if (!normalizedSourcePatterns.some((pattern) => sourceText.includes(pattern))) return false;
-      }
-      if (sourceBatch && !String(row.source_batch || "").toLowerCase().includes(sourceBatch.toLowerCase())) return false;
+      if (sourceChannel && sourceKind(row) !== sourceChannel) return false;
+      if (sourceBatches.length && !sourceBatches.includes(batchFilterKey(row))) return false;
+      if (from && String(row.created_at || "") < `${from}T00:00:00`) return false;
+      if (to && String(row.created_at || "") > `${to}T23:59:59.999`) return false;
       return true;
     };
 
@@ -72,22 +73,51 @@ export async function GET(request: NextRequest) {
 
     // Fetch the complete filtered result before pagination so the count and
     // "select all results" semantics stay exact after active-task exclusion.
-    const collected: Array<Record<string, unknown>> = [];
+    const eligible: MappedCustomer[] = [];
     for (let offset = 0; ; offset += 1000) {
       const result = await buildQuery(offset, offset + 999);
       if (result.error) throw result.error;
       for (const item of result.data || []) {
         const mapped = mapCustomerForAi(item as Record<string, unknown>);
-        if (!excluded.has(mapped.id) && matchesFilters(mapped)) collected.push(mapped as unknown as Record<string, unknown>);
+        if (!excluded.has(mapped.id)) eligible.push(mapped);
       }
       if (!result.data || result.data.length < 1000) break;
     }
+    const collected = eligible.filter(matchesFilters) as unknown as Array<Record<string, unknown>>;
     const eligibleCount = collected.length;
     const start = (page - 1) * pageSize;
     const data = collected.slice(start, start + pageSize);
 
-    const taskRows = await admin.from("import_tasks").select("id,filename,created_at").eq("created_by", user.id).order("created_at", { ascending: false }).limit(200);
-    return NextResponse.json({ data, count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches: taskRows.data || [] });
+    const batchCounts = new Map<string, { id: string; filename: string; pending_count: number; success_count: number | null; created_at: string | null; legacy: boolean }>();
+    for (const item of eligible) {
+      if (sourceKind(item) !== "BATCH_IMPORT" || !item.source_batch) continue;
+      const id = batchFilterKey(item);
+      if (!id) continue;
+      const current = batchCounts.get(id);
+      batchCounts.set(id, {
+        id,
+        filename: item.source_batch,
+        pending_count: (current?.pending_count || 0) + 1,
+        success_count: current?.success_count ?? null,
+        created_at: current?.created_at || item.created_at || null,
+        legacy: !item.source_batch_id,
+      });
+    }
+    const taskIds = [...batchCounts.values()].filter((item) => !item.legacy).map((item) => item.id);
+    if (taskIds.length) {
+      for (let offset = 0; offset < taskIds.length; offset += 200) {
+        const taskRows = await admin.from("import_tasks").select("id,filename,success_count,created_at").eq("created_by", user.id).gt("success_count", 0).in("id", taskIds.slice(offset, offset + 200));
+        if (taskRows.error) throw taskRows.error;
+        for (const task of taskRows.data || []) {
+          const current = batchCounts.get(task.id);
+          if (current) batchCounts.set(task.id, { ...current, filename: task.filename || current.filename, success_count: task.success_count ?? current.success_count, created_at: task.created_at || current.created_at });
+        }
+      }
+    }
+    const batches = [...batchCounts.values()]
+      .filter((item) => !item.legacy && (item.success_count || 0) > 0)
+      .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+    return NextResponse.json({ data, count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches });
   } catch (error) {
     const message = error instanceof Error ? error.message : "待筛选客户查询失败";
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录会话已失效，请重新登录" : message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

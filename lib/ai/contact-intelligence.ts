@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { countryInfo } from "../countries";
 import type { IdentityStatus } from "./evidence-policy";
 
-export type ContactType = "PHONE" | "EMAIL" | "WHATSAPP" | "CONTACT_FORM" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "TIKTOK" | "OTHER";
+export type ContactType = "PHONE" | "EMAIL" | "WHATSAPP" | "CONTACT_FORM" | "WEBSITE" | "GOOGLE_MAPS" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "TIKTOK" | "YOUTUBE" | "OTHER";
 export type ContactVerification = "ORIGINAL" | "MATCHED_ORIGINAL" | "NEW_VERIFIED" | "CONFLICTING_VERIFIED" | "UNVERIFIED" | "STALE" | "INVALID";
 
 export type ContactCandidate = {
@@ -101,7 +101,7 @@ export function normalizePublicContactUrl(value?: string | null) {
 function normalizeByType(type: ContactType, value: string, country?: string | null) {
   if (type === "EMAIL") return normalizeEmailStrict(value);
   if (type === "PHONE" || type === "WHATSAPP") return normalizePhoneInternational(value, country);
-  if (["FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK", "OTHER", "CONTACT_FORM"].includes(type)) return normalizePublicContactUrl(value);
+  if (["WEBSITE", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK", "YOUTUBE", "OTHER", "CONTACT_FORM"].includes(type)) return normalizePublicContactUrl(value);
   return String(value || "").trim();
 }
 

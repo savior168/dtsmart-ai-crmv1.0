@@ -392,17 +392,17 @@ export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: C
     const originalExcerpt = [...new Set([summary.original_excerpt, recordBusinessText(source)].map((item) => String(item || "").trim()).filter(Boolean))]
       .join("；").slice(0, 4000);
     const labels = [...new Set(verifiedFactLabels(originalExcerpt))];
-    // Keep every verified operating fact as an individual, clickable evidence
-    // row. This applies equally to target and non-target businesses: users
-    // should see what the source actually proved, never a generic template.
-    if (labels.length) return labels.slice(0, 10).map((label, index) => ({
+    // One source page is one auditable evidence record. Its distinct business
+    // facts are compacted into that record instead of repeating the same page,
+    // excerpt and generic wording as many separate rows.
+    if (labels.length) return [{
       ...summary,
-      title_zh: `${summary.channel === "google_maps" ? "Google商家" : "企业官网"}经营事实${labels.length > 1 ? ` ${index + 1}` : ""}`,
-      fact_zh: `${summary.channel === "google_maps" ? "Google商家公开说明或评论" : "企业官网公开业务文字"}明确显示：${label}。`,
-      evidence_type: NON_TARGET_FACT_LABEL.test(label) ? "矛盾" as const : "支持" as const,
+      title_zh: `${summary.channel === "google_maps" ? "Google商家页" : summary.channel === "website" ? "企业官网" : AI_CHANNEL_LABELS[summary.channel as AiChannel] || "公开渠道"}已核验经营事实`,
+      fact_zh: `已核验经营内容：${labels.slice(0, 10).join("、")}。`,
+      evidence_type: labels.every((label) => NON_TARGET_FACT_LABEL.test(label)) ? "矛盾" as const : "支持" as const,
       confidence: Math.max(70, summary.confidence),
       original_excerpt: originalExcerpt,
-    }));
+    }];
     return { ...summary, original_excerpt: originalExcerpt || summary.original_excerpt };
   });
   const seen = new Set<string>();
@@ -421,12 +421,14 @@ export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: C
 
 function contactTypeForUrl(value?: string | null): ContactType {
   const url = String(value || "").toLowerCase();
+  if (/google\.[^/]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/.test(url)) return "GOOGLE_MAPS";
   if (/facebook\.com/.test(url)) return "FACEBOOK";
   if (/instagram\.com/.test(url)) return "INSTAGRAM";
   if (/linkedin\.com/.test(url)) return "LINKEDIN";
   if (/tiktok\.com/.test(url)) return "TIKTOK";
+  if (/youtube\.com|youtu\.be/.test(url)) return "YOUTUBE";
   if (/wa\.me|whatsapp\.com/.test(url)) return "WHATSAPP";
-  return "OTHER";
+  return "WEBSITE";
 }
 
 function aiChannelForPublicUrl(value?: string | null): AiChannel | null {
@@ -511,9 +513,10 @@ function originalValuesForType(customer: CustomerRow, type: ContactType) {
   if (type === "INSTAGRAM") return splitContacts(customer.instagram_url);
   if (type === "LINKEDIN") return splitContacts(customer.linkedin_url);
   if (type === "TIKTOK") return splitContacts(customer.tiktok_url);
+  if (type === "WEBSITE") return splitContacts(customer.website);
+  if (type === "GOOGLE_MAPS") return splitContacts(customer.google_url);
+  if (type === "YOUTUBE") return [];
   return [
-    ...splitContacts(customer.website),
-    ...splitContacts(customer.google_url),
     ...(customer.other_public_urls || []),
   ];
 }
@@ -538,6 +541,7 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
         : "AMBIGUOUS";
       if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name, googleIdentity);
       for (const email of item.emails || []) add("EMAIL", email, "google_maps", url, item.name, googleIdentity);
+      if (url) add("GOOGLE_MAPS", url, "google_maps", url, item.name, googleIdentity);
       if (item.website) add(contactTypeForUrl(item.website), item.website, "google_maps", url, item.name, googleIdentity);
       continue;
     }
@@ -547,6 +551,7 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
       ? "MATCHED"
       : "AMBIGUOUS";
     const pages = [{ url: item.url, title: item.title, emails: item.emails, phones: item.phones, whatsapps: item.whatsapps || [], social_urls: item.social_urls || [] }, ...(item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }))];
+    if (record.channel === "website" && item.url) add("WEBSITE", item.url, "website", item.url, item.title, recordIdentity);
     for (const page of pages) {
       for (const email of page.emails || []) add("EMAIL", email, record.channel, page.url, page.title, recordIdentity);
       for (const phone of page.phones || []) add("PHONE", phone, record.channel, page.url, page.title, recordIdentity);
@@ -924,7 +929,7 @@ function labelsForIndustry(candidate: Pick<DeterministicCandidate, "text">, indu
 function conciseDeterministicFact(candidate: DeterministicCandidate, industry: CustomerAnalysis["industry_type"]) {
   const labels = labelsForIndustry(candidate, industry);
   const source = candidateSourceName(candidate);
-  if (labels.length) return `${source}的公开内容直接出现与以下业务对应的文字：${labels.join("、")}。`;
+  if (labels.length) return `${source}已核验经营内容：${labels.join("、")}。`;
   // This branch is used only for a matched non-target rule whose concrete
   // source words are already preserved as original_excerpt. It deliberately
   // avoids claiming a service that was not extracted.
@@ -940,27 +945,27 @@ function salesSummaryFields(params: {
   const sourceFacts = params.candidates.map((candidate) => ({
     channel: candidate.channel,
     source: candidateSourceName(candidate),
-    labels: labelsForIndustry(candidate, params.industry),
+    labels: [...new Set(verifiedFactLabels(candidate.text))].slice(0, 8),
   })).filter((item) => item.labels.length);
   const allLabels = [...new Set(sourceFacts.flatMap((item) => item.labels))];
   // Sales-facing conclusions contain Chinese verified facts only. The exact
   // foreign-language excerpt remains attached to the evidence record together
   // with its source URL, where users can expand and verify it on demand.
-  const sourceConclusions = sourceFacts.map((item) => `• ${item.source}：已核验${item.labels.join("、")}。`);
-  const sourceNames = sourceFacts.map((item) => item.source).join("、");
+  const sourceConclusions = sourceFacts.map((item) => `• ${item.source}：${item.labels.join("、")}。`);
+  const sourceNames = sourceFacts.map((item) => item.source).join("、") || "本次已保存的可核验公开页面";
   const serviceText = allLabels.length ? allLabels.join("、") : params.industry;
   const repairParts = allLabels.filter((label) => /屏幕|玻璃|电池|充电口|接口|主板|板级|键盘|触控板|维修配件|配件销售/.test(label));
   const wholesaleFacts = allLabels.filter((label) => /批发|分销|进口/.test(label));
-  const conclusion = `${sourceConclusions.join("\n")}\n• 行业判断：根据以上可核验事实，归类为“${params.industry}”。`;
-  const scope = sourceConclusions.join("\n");
+  const conclusion = `${sourceConclusions.join("\n")}\n• 综合行业归类：${params.industry}。`;
+  const scope = `• 主营行业：${params.industry}。\n${sourceConclusions.join("\n")}`;
 
   if (!params.target) {
     return {
       scope,
       reason: conclusion,
-      relevance: `${sourceConclusions.join("\n")}\n• 目标业务匹配：以上已核验经营内容未显示手机或电脑维修配件、相关配件批发分销或采购事实。`,
-      value: `• 证据来源：${sourceNames}。\n• 已核验经营内容：${serviceText}。\n• 开发判断：当前来源证据不支持列入手机、电脑配件销售开发名单。`,
-      followup: "• 当前建议：无需常规销售跟进。\n• 核验方式：保留并直接打开来源页面；经营范围发生变化后再重新筛选。",
+      relevance: `${sourceConclusions.join("\n")}\n• 与我方业务交集：当前已核验内容未出现手机或电脑维修配件、相关配件批发分销或真实采购事实。`,
+      value: `• 已核验来源：${sourceNames}。\n• 已核验经营内容：${serviceText}。\n• 销售优先级：当前证据不支持进入手机、电脑配件常规开发名单。`,
+      followup: "• 建议：暂不安排常规销售跟进。\n• 后续条件：若官网、Google商家页或其他官方渠道出现维修配件、批发分销或采购事实，再重新筛选。",
     };
   }
 
@@ -978,7 +983,7 @@ function salesSummaryFields(params: {
     scope,
     reason: conclusion,
     relevance: `${sourceConclusions.join("\n")}\n• 与我方业务交集：${directFit}`,
-    value: `• 证据来源：${sourceNames}。\n• 已核验经营内容：${serviceText}。\n• 可开发依据：${value}`,
+    value: `• 已核验来源：${sourceNames}。\n• 已核验经营内容：${serviceText}。\n• 可开发依据：${value}`,
     followup: `• 联系入口：${params.contactChannels.length ? `优先通过${params.contactChannels.join("或")}` : "使用已核验公开联系方式"}。\n• 沟通内容：引用已核验的“${serviceText}”业务，确认常用配件、月度用量、采购渠道和报价需求。`,
   };
 }
