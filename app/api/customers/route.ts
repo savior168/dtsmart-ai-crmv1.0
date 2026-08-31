@@ -192,7 +192,17 @@ export async function GET(request: NextRequest) {
     // the original production schema while migration catches up.
     if (search) {
       const pattern = postgrestContains(search);
-      query = query.or(`company_name.ilike.${pattern},contact_name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`);
+      const countryPatterns = countrySearchTokens(search)
+        .map((item) => item.replace(/[(),]/g, " ").trim())
+        .filter(Boolean)
+        .map((item) => `country.ilike.${postgrestContains(item)}`);
+      query = query.or([
+        `company_name.ilike.${pattern}`,
+        `contact_name.ilike.${pattern}`,
+        `email.ilike.${pattern}`,
+        `phone.ilike.${pattern}`,
+        ...countryPatterns,
+      ].join(","));
     }
     if (status === "CLAIMED") query = query.in("status", ["CLAIMED", "FOLLOWING"]);
     else if (status) query = query.eq("status", status);

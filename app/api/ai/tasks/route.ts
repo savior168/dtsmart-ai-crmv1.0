@@ -70,39 +70,43 @@ export async function GET(request: NextRequest) {
       }
       return total;
     };
+    // Cost and completed-customer cards read the immutable audit ledgers. They
+    // therefore remain stable after a task or CRM customer is physically deleted.
     const todayCostPromise = (async () => {
       let total = 0;
-      for (let idOffset = 0; idOffset < ownedTaskIds.length; idOffset += 100) {
-        const idBatch = ownedTaskIds.slice(idOffset, idOffset + 100);
-        for (let rowOffset = 0; ; rowOffset += 1000) {
-          const calls = await admin.from("ai_screening_model_calls").select("cost_usd").in("task_id", idBatch).gte("created_at", todayStart).range(rowOffset, rowOffset + 999);
-          if (calls.error) throw calls.error;
-          const rows = calls.data || [];
-          total += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
-          if (rows.length < 1000) break;
-        }
+      for (let rowOffset = 0; ; rowOffset += 1000) {
+        const calls = await admin.from("ai_screening_usage_ledger").select("cost_usd").eq("user_id", user.id).gte("occurred_at", todayStart).range(rowOffset, rowOffset + 999);
+        if (calls.error) throw calls.error;
+        const rows = calls.data || [];
+        total += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
+        if (rows.length < 1000) break;
       }
       return total;
     })();
+    const todayCompletedPromise = admin.from("ai_screening_completion_ledger")
+      .select("source_task_item_id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("completed_at", todayStart);
     const pendingCustomersPromise = supabase
       .from("customers")
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null)
       .is("ai_score", null);
-    const [retryableCount, todayCompletedCount, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
+    const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
       countItems("FAILED", undefined, true),
-      countItems("COMPLETED", todayStart),
+      todayCompletedPromise,
       countItems("FAILED", todayStart),
       todayCostPromise,
       pendingCustomersPromise,
     ]);
     if (pendingCustomers.error) throw pendingCustomers.error;
+    if (todayCompleted.error) throw todayCompleted.error;
     const pendingCustomerCount = pendingCustomers.count || 0;
     return NextResponse.json({
       data: result.data || [], count: result.count || 0, counts,
       pending_customers: pendingCustomerCount,
       today_cost: todayCost,
-      today_completed_customers: todayCompletedCount,
+      today_completed_customers: todayCompleted.count || 0,
       today_failed_customers: todayFailedCount,
       retry_customers: retryableCount,
     });

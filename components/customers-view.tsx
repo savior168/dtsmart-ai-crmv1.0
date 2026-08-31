@@ -25,6 +25,7 @@ import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/li
 import { CountryLabel } from "@/components/country-label";
 import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/import-batch-multi-select";
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
+import { csvCell, customerListText, customerProtectionText, type CustomerExportColumn } from "@/lib/customer-export";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -44,24 +45,7 @@ const stageClass: Record<CustomerStatus, string> = {
   DEAL: "bg-emerald-50 text-emerald-700",
   RELEASED: "bg-slate-100 text-slate-500",
 };
-type ColumnKey =
-  | "company_name"
-  | "contact_name"
-  | "country"
-  | "ai_score"
-  | "status"
-  | "followup_status"
-  | "protection"
-  | "last_contact_time"
-  | "owner"
-  | "phone"
-  | "email"
-  | "website_email"
-  | "website_phone"
-  | "website"
-  | "google_url"
-  | "source"
-  | "updated_at";
+type ColumnKey = CustomerExportColumn;
 const columns: { key: ColumnKey; label: string; locked?: boolean }[] = [
   { key: "company_name", label: "客户名称" },
   { key: "contact_name", label: "联系人" },
@@ -126,14 +110,6 @@ function Website({ value, kind = "website" }: { value?: string | null; kind?: "w
     </a>
   );
 }
-function completePhone(value?: string | null) {
-  const raw = String(value || "").trim();
-  const match = raw.match(/^(\+?\d{1,4})\s+(.+)$/);
-  if (!match) return raw || "-";
-  const prefix = match[1].replace(/\D/g, "");
-  const remainder = match[2].replace(/\D/g, "");
-  return remainder.startsWith(prefix) ? match[2].trim() : raw;
-}
 function Score({ customer }: { customer: Customer }) {
   return customer.ai_score == null ? (
     <span className="text-slate-400">未筛选</span>
@@ -146,36 +122,14 @@ function Score({ customer }: { customer: Customer }) {
   );
 }
 function ProtectionRemaining({ customer }: { customer: Customer }) {
-  const createdAt = new Date(customer.created_at).getTime();
-  if (!Number.isFinite(createdAt)) return <span className="text-slate-400">-</span>;
-  const expiresAt = createdAt + 90 * 24 * 60 * 60 * 1000;
-  const days = Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
-  if (days <= 0) return <span className="text-slate-400">已到期</span>;
-  return <span className={days <= 7 ? "font-medium text-rose-600" : days <= 30 ? "font-medium text-amber-600" : "text-emerald-600"}>剩余 {days} 天</span>;
+  const text = customerProtectionText(customer);
+  const days = Number(text.match(/\d+/)?.[0] || 0);
+  if (!days) return <span className="text-slate-400">{text}</span>;
+  return <span className={days <= 7 ? "font-medium text-rose-600" : days <= 30 ? "font-medium text-amber-600" : "text-emerald-600"}>{text}</span>;
 }
 function value(customer: Customer, key: ColumnKey) {
-  if (key === "company_name") return customer.company_name || "-";
-  if (key === "country") return customer.country || "-";
-  if (key === "status") return stageLabels[customer.status] || customer.status;
-  if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[customer.followup_status as FollowupStage] || "待联系";
   if (key === "protection") return <ProtectionRemaining customer={customer} />;
-  if (key === "owner") return customer.owner?.name || customer.owner_id || "-";
-  if (key === "contact_name") return customer.contact_name || "-";
-  if (key === "phone") return completePhone(customer.phone);
-  if (key === "email") return customer.email || "-";
-  if (key === "website_email") return customer.website_email || "-";
-  if (key === "website_phone") return customer.website_phone || "-";
-  if (key === "source")
-    return customer.source === "EXCEL_IMPORT"
-      ? "Excel导入"
-      : customer.source || "-";
-  if (key === "last_contact_time" || key === "updated_at")
-    return customer[key]
-      ? new Date(String(customer[key]))
-          .toLocaleString("zh-CN", { hour12: false })
-          .replace(/\//g, "-")
-      : "未跟进";
-  return "";
+  return customerListText(customer, key);
 }
 
 export function CustomersView() {
@@ -189,7 +143,6 @@ export function CustomersView() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
-  const [country, setCountry] = useState("");
   const [industries, setIndustries] = useState<string[]>([]);
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
   const [industryOpen, setIndustryOpen] = useState(false);
@@ -256,8 +209,8 @@ export function CustomersView() {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     setWorkspace(tab === "protection" || tab === "conflicts" ? tab : "list");
-    setSearch(params.get("search") || "");
-    setCountry(params.get("country") || "");
+    // 旧链接中的独立国家条件自动并入统一关键词框，保证历史收藏链接仍可用。
+    setSearch(params.get("search") || params.get("country") || "");
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
     setStatus(params.get("status") || "");
@@ -293,7 +246,6 @@ export function CustomersView() {
       page: String(page),
       pageSize: String(pageSize),
       search,
-      country,
       status,
       ai_level: level,
       target,
@@ -323,7 +275,6 @@ export function CustomersView() {
     page,
     pageSize,
     search,
-    country,
     industries,
     sourceBatches,
     status,
@@ -376,7 +327,6 @@ export function CustomersView() {
     () =>
       [
         search ? { key: "search", label: `关键词：${search}` } : null,
-        country ? { key: "country", label: `国家/地区：${country}` } : null,
         industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
         sourceBatches.length ? { key: "sourceBatches", label: `导入批次：已选 ${sourceBatches.length} 个` } : null,
         level ? { key: "level", label: `AI等级：${level}` } : null,
@@ -395,11 +345,10 @@ export function CustomersView() {
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, country, industries, sourceBatches, level, status, target, followupStatus, aiFilter],
+    [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
-    if (key === "country") setCountry("");
     if (key === "industry") setIndustries([]);
     if (key === "sourceBatches") setSourceBatches([]);
     if (key === "level") setLevel("");
@@ -411,7 +360,6 @@ export function CustomersView() {
   }
   function reset() {
     setSearch("");
-    setCountry("");
     setIndustries([]);
     setSourceBatches([]);
     setStatus("");
@@ -490,7 +438,7 @@ export function CustomersView() {
     setSelectingAll(true);
     setError("");
     const params = new URLSearchParams({
-      page: "1", pageSize: "1000", ids_only: "true", search, country, status,
+      page: "1", pageSize: "1000", ids_only: "true", search, status,
       followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
       deleted: "false", sort, direction,
     });
@@ -539,7 +487,7 @@ export function CustomersView() {
     setError("");
     const exportRows: Customer[] = [];
     const params = new URLSearchParams({
-      pageSize: "500", search, country, status, ai_level: level, target,
+      pageSize: "500", search, status, ai_level: level, target,
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
     industries.forEach((industry) => params.append("industry", industry));
@@ -561,23 +509,10 @@ export function CustomersView() {
     const header = fields.map(
       (key) => columns.find((item) => item.key === key)?.label || key,
     );
-    const lines = exportRows.map((row) =>
-      fields
-        .map((key) =>
-          JSON.stringify(
-            key === "ai_score"
-              ? row.ai_score == null
-                ? "未筛选"
-                : `${row.ai_level || "-"}-${row.ai_score}`
-              : key === "website" || key === "google_url"
-                ? row[key] || ""
-                : value(row, key),
-          ),
-        )
-        .join(","),
-    );
+    const exportedAt = Date.now();
+    const lines = exportRows.map((row) => fields.map((key) => csvCell(customerListText(row, key, exportedAt))).join(","));
     const blob = new Blob(
-      ["\ufeff" + header.join(",") + "\n" + lines.join("\n")],
+      ["\ufeff" + header.map(csvCell).join(",") + "\n" + lines.join("\n")],
       { type: "text/csv;charset=utf-8" },
     );
     const anchor = document.createElement("a");
@@ -631,7 +566,7 @@ export function CustomersView() {
         {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
-            <label className="relative min-w-[300px] flex-1">
+            <label className="relative min-w-[320px] flex-[1.4]">
               <Search
                 className="absolute left-3 top-2.5 text-slate-400"
                 size={17}
@@ -643,23 +578,8 @@ export function CustomersView() {
                   setPage(1);
                 }}
                 onKeyDown={(event) => event.key === "Enter" && void load()}
-                placeholder="搜索客户、联系人、电话或邮箱"
+                placeholder="搜索客户、联系人、电话、邮箱或国家/地区"
                 className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="relative min-w-40">
-              <input
-                value={country}
-                onChange={(event) => {
-                  setCountry(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="国家/地区（代码或中文，多个用逗号）"
-                className="w-full rounded-lg border border-slate-200 py-2.5 pl-3 pr-8 text-sm outline-none focus:border-blue-500"
-              />
-              <Search
-                className="absolute right-3 top-2.5 text-slate-400"
-                size={16}
               />
             </label>
             <div ref={industryRef} className="relative min-w-40">

@@ -2,10 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-type ModelCall = {
-  id: string; task_id: string; customer_id: string; channel: string; model: string | null;
+type UsageCall = {
+  source_call_id: string; task_id: string; task_name: string; task_number: string | null;
+  task_status: string | null; task_total_count: number; task_created_at: string | null;
+  customer_id: string; channel: string; model: string | null;
   input_tokens: number; cached_input_tokens: number; output_tokens: number; total_tokens: number;
-  cost_usd: number; status: string; duration_ms: number | null; error_message: string | null; created_at: string;
+  cost_usd: number; call_status: string; duration_ms: number | null; error_message: string | null; occurred_at: string;
+};
+
+type Completion = {
+  source_task_item_id: string; task_id: string; task_name: string; task_number: string | null;
+  task_status: string | null; task_total_count: number; task_created_at: string | null;
+  customer_id: string; completed_at: string;
+};
+
+type TaskUsage = {
+  id: string; name: string; task_number: string | null; status: string | null;
+  total_count: number; processed_count: number; model_call_count: number;
+  input_tokens: number; cached_input_tokens: number; output_tokens: number;
+  total_tokens: number; total_cost_usd: number; created_at: string | null; task_exists: boolean;
 };
 
 export async function GET(request: NextRequest) {
@@ -21,69 +36,103 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";
     const admin = createAdminClient();
+    const start = `${from}T00:00:00.000Z`;
+    const end = `${to}T23:59:59.999Z`;
 
-    let taskQuery = admin.from("ai_screening_tasks").select("id,name,task_number,status,total_count,processed_count,input_tokens,cached_input_tokens,output_tokens,total_tokens,total_cost_usd,created_at,updated_at").eq("user_id", user.id);
-    if (status) taskQuery = taskQuery.eq("status", status);
-    if (taskId) taskQuery = taskQuery.eq("id", taskId);
-    const taskResult = await taskQuery.order("updated_at", { ascending: false }).order("created_at", { ascending: false });
-    if (taskResult.error) throw taskResult.error;
-    const ownedTasks = taskResult.data || [];
-    const taskIds = ownedTasks.map((item) => item.id);
-    const allCalls: ModelCall[] = [];
-    for (let idOffset = 0; idOffset < taskIds.length; idOffset += 100) {
-      const idBatch = taskIds.slice(idOffset, idOffset + 100);
-      for (let rowOffset = 0; ; rowOffset += 1000) {
-        const calls = await admin.from("ai_screening_model_calls")
-          .select("id,task_id,customer_id,channel,model,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,status,duration_ms,error_message,created_at")
-          .in("task_id", idBatch)
-          .gte("created_at", `${from}T00:00:00.000Z`)
-          .lte("created_at", `${to}T23:59:59.999Z`)
-          .order("created_at", { ascending: false })
-          .range(rowOffset, rowOffset + 999);
-        if (calls.error) throw calls.error;
-        const rows = (calls.data || []) as ModelCall[];
-        allCalls.push(...rows);
-        if (rows.length < 1000) break;
-      }
+    const calls: UsageCall[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      let query = admin.from("ai_screening_usage_ledger")
+        .select("source_call_id,task_id,task_name,task_number,task_status,task_total_count,task_created_at,customer_id,channel,model,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,call_status,duration_ms,error_message,occurred_at")
+        .eq("user_id", user.id).gte("occurred_at", start).lte("occurred_at", end);
+      if (taskId) query = query.eq("task_id", taskId);
+      const result = await query.order("occurred_at", { ascending: false }).range(offset, offset + 999);
+      if (result.error) throw result.error;
+      const rows = (result.data || []) as UsageCall[];
+      calls.push(...rows);
+      if (rows.length < 1000) break;
     }
 
-    const models = [...new Set(allCalls.map((call) => call.model).filter((value): value is string => Boolean(value)))].sort();
-    const filteredCalls = model ? allCalls.filter((call) => call.model === model) : allCalls;
-    const taskCalls = new Map<string, ModelCall[]>();
-    for (const call of filteredCalls) taskCalls.set(call.task_id, [...(taskCalls.get(call.task_id) || []), call]);
-    const taskRows = ownedTasks.filter((task) => taskCalls.has(task.id)).map((task) => {
-      const calls = taskCalls.get(task.id) || [];
-      return {
-        ...task,
-        processed_count: new Set(calls.map((call) => call.customer_id)).size,
-        model_call_count: calls.length,
-        input_tokens: calls.reduce((sum, call) => sum + Number(call.input_tokens || 0), 0),
-        cached_input_tokens: calls.reduce((sum, call) => sum + Number(call.cached_input_tokens || 0), 0),
-        output_tokens: calls.reduce((sum, call) => sum + Number(call.output_tokens || 0), 0),
-        total_tokens: calls.reduce((sum, call) => sum + Number(call.total_tokens || 0), 0),
-        total_cost_usd: calls.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0),
+    const completions: Completion[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      let query = admin.from("ai_screening_completion_ledger")
+        .select("source_task_item_id,task_id,task_name,task_number,task_status,task_total_count,task_created_at,customer_id,completed_at")
+        .eq("user_id", user.id).gte("completed_at", start).lte("completed_at", end);
+      if (taskId) query = query.eq("task_id", taskId);
+      const result = await query.order("completed_at", { ascending: false }).range(offset, offset + 999);
+      if (result.error) throw result.error;
+      const rows = (result.data || []) as Completion[];
+      completions.push(...rows);
+      if (rows.length < 1000) break;
+    }
+
+    const models = [...new Set(calls.map((call) => call.model).filter((value): value is string => Boolean(value)))].sort();
+    const filteredCalls = model ? calls.filter((call) => call.model === model) : calls;
+    const allowedTaskIds = model ? new Set(filteredCalls.map((call) => call.task_id)) : null;
+    const filteredCompletions = allowedTaskIds ? completions.filter((item) => allowedTaskIds.has(item.task_id)) : completions;
+    const taskMap = new Map<string, TaskUsage>();
+    const ensureTask = (row: UsageCall | Completion) => {
+      const current = taskMap.get(row.task_id);
+      if (current) return current;
+      const created: TaskUsage = {
+        id: row.task_id, name: row.task_name || "已删除的AI筛选任务", task_number: row.task_number,
+        status: row.task_status, total_count: Number(row.task_total_count || 0), processed_count: 0,
+        model_call_count: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0,
+        total_tokens: 0, total_cost_usd: 0, created_at: row.task_created_at, task_exists: false,
       };
-    });
-    const totals = {
-      processed: new Set(filteredCalls.map((call) => call.customer_id)).size,
-      input: filteredCalls.reduce((sum, call) => sum + Number(call.input_tokens || 0), 0),
-      cached: filteredCalls.reduce((sum, call) => sum + Number(call.cached_input_tokens || 0), 0),
-      output: filteredCalls.reduce((sum, call) => sum + Number(call.output_tokens || 0), 0),
-      tokens: filteredCalls.reduce((sum, call) => sum + Number(call.total_tokens || 0), 0),
-      cost: filteredCalls.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0),
+      taskMap.set(row.task_id, created);
+      return created;
     };
-    const dailyMap = new Map<string, { date: string; tokens: number; cost: number; customers: Set<string> }>();
+    for (const completion of filteredCompletions) ensureTask(completion).processed_count += 1;
     for (const call of filteredCalls) {
-      const date = String(call.created_at).slice(0, 10);
-      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, customers: new Set<string>() };
+      const task = ensureTask(call);
+      task.model_call_count += 1;
+      task.input_tokens += Number(call.input_tokens || 0);
+      task.cached_input_tokens += Number(call.cached_input_tokens || 0);
+      task.output_tokens += Number(call.output_tokens || 0);
+      task.total_tokens += Number(call.total_tokens || 0);
+      task.total_cost_usd += Number(call.cost_usd || 0);
+    }
+
+    const taskIds = [...taskMap.keys()];
+    const existing = new Set<string>();
+    for (let offset = 0; offset < taskIds.length; offset += 200) {
+      const result = await admin.from("ai_screening_tasks").select("id").eq("user_id", user.id).in("id", taskIds.slice(offset, offset + 200));
+      if (result.error) throw result.error;
+      for (const row of result.data || []) existing.add(row.id);
+    }
+    for (const id of existing) {
+      const task = taskMap.get(id);
+      if (task) task.task_exists = true;
+    }
+
+    const allTaskRows = [...taskMap.values()]
+      .filter((task) => !status || task.status === status)
+      .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+    const totalsResult = await admin.rpc("ai_screening_usage_totals", { p_user_id: user.id });
+    if (totalsResult.error) throw totalsResult.error;
+    const historical = Array.isArray(totalsResult.data) ? totalsResult.data[0] : totalsResult.data;
+    const totals = {
+      processed: Number(historical?.processed || 0), input: Number(historical?.input_tokens || 0),
+      cached: Number(historical?.cached_input_tokens || 0), output: Number(historical?.output_tokens || 0),
+      tokens: Number(historical?.total_tokens || 0), cost: Number(historical?.cost_usd || 0),
+    };
+    const dailyMap = new Map<string, { date: string; tokens: number; cost: number; processed: number }>();
+    for (const call of filteredCalls) {
+      const date = call.occurred_at.slice(0, 10);
+      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, processed: 0 };
       current.tokens += Number(call.total_tokens || 0);
       current.cost += Number(call.cost_usd || 0);
-      current.customers.add(call.customer_id);
       dailyMap.set(date, current);
     }
-    const daily = [...dailyMap.values()].map((item) => ({ date: item.date, tokens: item.tokens, cost: item.cost, processed: item.customers.size })).sort((a, b) => a.date.localeCompare(b.date));
-    const count = taskRows.length;
-    const tasks = returnAll ? taskRows : taskRows.slice((page - 1) * pageSize, page * pageSize);
+    for (const completion of filteredCompletions) {
+      const date = completion.completed_at.slice(0, 10);
+      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, processed: 0 };
+      current.processed += 1;
+      dailyMap.set(date, current);
+    }
+    const daily = [...dailyMap.values()].sort((left, right) => left.date.localeCompare(right.date));
+    const count = allTaskRows.length;
+    const tasks = returnAll ? allTaskRows : allTaskRows.slice((page - 1) * pageSize, page * pageSize);
     return NextResponse.json({ tasks, count, page, pageSize, models, totals, daily });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选用量查询失败";

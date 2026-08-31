@@ -36,6 +36,7 @@ assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨�
 assert.match(customerApi, /options === "industries"[\s\S]*new Set\(values\)/, "所属行业筛选项必须从当前用户全部客户中动态去重生成");
 assert.match(customerApi, /searchParams\.getAll\("industry"\)/, "所属行业筛选必须读取全部多选值");
 assert.match(customerApi, /industries\.length === 1[\s\S]*\.eq\("industry", industries\[0\]\)[\s\S]*industries\.length > 1[\s\S]*\.in\("industry"/, "所属行业筛选必须对单选和多选执行精确查询");
+assert.match(customerApi, /countrySearchTokens\(search\)[\s\S]*country\.ilike/, "统一客户关键词必须同时支持国家代码和国家名称");
 const customerListProjection = customerApi.match(/const customerListFields = \[([\s\S]*?)\]\.join/)?.[1] || "";
 assert.doesNotMatch(customerListProjection, /"followup_status"/, "兼容迁移未上线时，客户列表不得强制请求可选 followup_status 列");
 
@@ -107,6 +108,10 @@ assert.doesNotMatch(taskDetail, /查看原因并重试/, "任务详情失败操�
 assert.match(taskDetail, /aiErrorMessageZh/, "任务详情失败原因必须转换为中文显示");
 const taskItemsApi = read("app/api/ai/tasks/[id]/items/route.ts");
 assert.match(taskItemsApi, /ai_screening_results[\s\S]*score,grade,target_decision/, "任务详情必须关联本任务分析结果而不是只读客户当前评分");
+for (const filter of ["industry", "target", "grade"]) {
+  assert.match(taskItemsApi, new RegExp(`params\\.get\\("${filter}"\\)`), `任务客户接口缺少筛选条件：${filter}`);
+}
+assert.match(taskDetail, /全部所属行业[\s\S]*全部目标客户[\s\S]*全部AI等级[\s\S]*查询[\s\S]*重置/, "任务详情必须在同一筛选行提供行业、目标客户、AI等级、查询和重置");
 const failureView = read("components/ai-screening/failures-view.tsx");
 assert.match(failureView, /flex min-h-9 items-center/, "待重试页面操作入口必须垂直对齐");
 assert.match(failureView, /aiErrorCodeLabel/, "待重试页面错误代码必须使用中文名称");
@@ -130,6 +135,8 @@ assert.match(resultsView, /查看分析依据/, "结果与报告必须能进入�
 assert.match(resultsView, /全部任务/, "今日完成客户必须可按所属任务筛选");
 const strategiesPage = read("app/ai-screening/strategies/page.tsx");
 assert.match(strategiesPage, /返回任务中心/, "分析策略说明必须有返回任务中心出口");
+assert.match(createTaskView, /官网与Google商家并行[\s\S]*最多调用1次快速模型/, "智能分析说明必须与服务端证据优先和单次快速模型逻辑一致");
+assert.match(createTaskView, /矛盾时最多再核验1次/, "深度分析说明必须与服务端最多一次升级核验逻辑一致");
 
 const importView = read("components/import-view.tsx");
 assert.match(importView, /async function isReadableImportFile/, "文件夹导入必须验证真实文件内容");
@@ -201,6 +208,11 @@ assert.match(customersView, /aria-label="所属行业多选"[\s\S]*type="checkbo
 assert.match(customersView, /industries\.forEach\(\(industry\) => params\.append\("industry", industry\)\)/, "列表、全选和导出必须传递全部行业条件");
 assert.ok(customersView.indexOf('value={target}') < customersView.indexOf('value={status}'), "客户阶段筛选必须紧跟目标客户筛选之后");
 assert.ok(customersView.indexOf('value={status}') < customersView.indexOf('onClick={reset}'), "重置按钮必须与筛选条件位于同一筛选行末尾");
+assert.match(customersView, /搜索客户、联系人、电话、邮箱或国家\/地区/, "客户列表必须合并客户与国家关键词筛选框");
+assert.doesNotMatch(customersView, /JSON\.stringify\([\s\S]{0,200}value\(row, key\)/, "客户导出不得序列化React页面组件");
+const customerExport = read("lib/customer-export.ts");
+assert.match(customerExport, /customerProtectionText[\s\S]*剩余 \$\{days\} 天/, "客户导出必须使用与页面一致的保护期纯文本");
+assert.match(customerExport, /countryInfo\(customer\.country\)\.name/, "客户导出国家地区必须输出页面对应的国家名称");
 const customerDetailApi = read("app/api/customers/[id]/crm/route.ts");
 assert.match(customerDetailApi, /DEFAULT_90_DAYS[\s\S]*remaining_days/, "没有显式保护记录时必须按归属日起计算默认90天保护期");
 const customerUpdateApi = read("app/api/customers/[id]/route.ts");
@@ -241,5 +253,10 @@ assert.match(semanticFields, /AI_CUSTOMER_FIELD_CANDIDATES/, "AI筛选必须使�
 assert.match(semanticFields, /customer_name[\s\S]*company_name/, "AI字段映射必须兼容历史客户名称字段");
 assert.match(taskRunner, /saveCheckpoint/, "AI筛选必须在每个渠道后保存断点");
 assert.match(taskRunner, /saveModelCall/, "AI筛选必须记录每次OpenAI调用的Token和费用");
+const immutableMetrics = read("supabase/migrations/202608310001_ai_screening_immutable_metrics.sql");
+assert.match(immutableMetrics, /deliberately have no task\/customer foreign[\s\S]*ai_screening_usage_ledger/i, "AI用量必须保存到不依赖任务和客户生命周期的审计账本");
+assert.match(immutableMetrics, /ai_screening_completion_ledger[\s\S]*capture_ai_screening_completion_ledger/, "完成客户统计必须写入独立历史账本");
+const usageApi = read("app/api/ai/usage/route.ts");
+assert.match(usageApi, /ai_screening_usage_ledger[\s\S]*ai_screening_completion_ledger/, "AI用量接口必须从独立用量和完成账本读取");
 
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");

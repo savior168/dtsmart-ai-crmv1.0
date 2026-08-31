@@ -12,7 +12,7 @@ export type TaskItem = {
   pipeline_stage?: string | null; result_id?: string | null; error_context?: Record<string, unknown> | null;
   total_tokens: number; cost_usd: number; updated_at: string;
   result?: { id: string; score?: number | null; grade?: string | null; target_decision?: string | null } | null;
-  customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; ai_score?: number | null; ai_level?: string | null } | null;
+  customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; industry?: string | null; is_target_customer?: boolean | null; ai_score?: number | null; ai_level?: string | null } | null;
 };
 
 export type AiResult = {
