@@ -204,6 +204,7 @@ assert.match(conflictApi, /current\.filter\(\(item\) => item\.submitter_ids\?\.i
 assert.match(conflictApi, /if \(!tableAvailable\)[\s\S]*audit_logs/, "正式冲突表可用时不得把历史审计事件重复计入当前冲突客户");
 assert.match(conflictApi, /ownerByCustomer[\s\S]*ownerByCustomer\.get\(item\.customer_id\) !== item\.reported_by[\s\S]*aggregateOpenConflicts\(currentRows\)/, "已删除客户及已转归提交人的历史冲突不得继续计入当前冲突客户");
 assert.match(conflictApi, /IN_QUERY_BATCH_SIZE = 100[\s\S]*for \(const customerIdBatch of batches/, "冲突详情必须分批查询，避免大量客户ID导致请求过长");
+assert.match(conflictApi, /ACCOUNT_DISABLED: "账号已停用，请联系系统管理员"[\s\S]*authErrorStatus\(message\)/, "冲突接口不得把账号状态错误伪装成业务加载500错误");
 const protectionApi = read("app/api/customers/protection/route.ts");
 assert.match(protectionApi, /requestedOwnerId[\s\S]*\.eq\("owner_id", scopeUserId\)/, "保护到期必须按服务端归属人范围查询");
 assert.match(protectionApi, /requirePermission\("customers\.view"\)/, "保护到期必须在服务端校验客户查看权限");
@@ -211,6 +212,7 @@ const workspacePanels = read("components/customer-workspace-panels-v2.tsx");
 assert.match(workspacePanels, /UserScopeSelect[\s\S]*customers\/protection\?\$\{params\}/, "保护到期页面必须提供生效的归属人筛选");
 assert.match(workspacePanels, /customer-conflicts\?\$\{params\}[\s\S]*filterLabel="冲突提交人"/, "冲突客户页面必须提供生效且语义清楚的冲突提交人筛选");
 assert.match(workspacePanels, /"当前归属人","冲突提交人"[\s\S]*row\.submitters/, "冲突列表必须显示当前归属人和完整冲突提交人");
+assert.match(workspacePanels, /共 \{row\.submitters\?\.length\} 位提交人[\s\S]*formatDate\(user\.submitted_at\)/, "多个冲突提交人必须可展开并按人显示提交时间");
 assert.doesNotMatch(workspacePanels, /认领客户|立即认领|submissionHistory/, "系统没有公海或认领交互");
 const adminAuditApi = read("app/api/admin/audit/route.ts");
 const adminPanels = read("components/admin-settings-panels.tsx");

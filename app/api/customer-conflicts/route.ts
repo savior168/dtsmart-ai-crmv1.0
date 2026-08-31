@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
@@ -13,6 +13,7 @@ type ConflictRow = {
   created_at: string;
   source: "table" | "audit";
   submitter_ids?: string[];
+  submitter_events?: Array<{ id: string; created_at: string }>;
 };
 
 type ConflictCustomer = {
@@ -60,10 +61,17 @@ function aggregateOpenConflicts(rows: ConflictRow[]) {
     const key = customerConflictKey(item);
     const current = grouped.get(key);
     if (!current) {
-      grouped.set(key, { ...item, submitter_ids: item.reported_by ? [item.reported_by] : [] });
+      grouped.set(key, {
+        ...item,
+        submitter_ids: item.reported_by ? [item.reported_by] : [],
+        submitter_events: item.reported_by ? [{ id: item.reported_by, created_at: item.created_at }] : [],
+      });
       continue;
     }
-    if (item.reported_by && !current.submitter_ids?.includes(item.reported_by)) current.submitter_ids = [...(current.submitter_ids || []), item.reported_by];
+    if (item.reported_by && !current.submitter_ids?.includes(item.reported_by)) {
+      current.submitter_ids = [...(current.submitter_ids || []), item.reported_by];
+      current.submitter_events = [...(current.submitter_events || []), { id: item.reported_by, created_at: item.created_at }];
+    }
   }
   return [...grouped.values()];
 }
@@ -102,7 +110,10 @@ async function enrichConflicts(rows: ConflictRow[], loadedCustomers?: ConflictCu
   return rows.map((item) => {
     const customer = item.customer_id ? customerById.get(item.customer_id) : null;
     const owner = customer?.owner_id ? userById.get(customer.owner_id) || { id: customer.owner_id, name: "已归属其他用户" } : null;
-    const submitters = (item.submitter_ids || []).map((id) => userById.get(id) || { id, name: "未设置用户名" });
+    const eventBySubmitter = new Map((item.submitter_events || []).map((event) => [event.id, event.created_at]));
+    const submitters = (item.submitter_ids || [])
+      .map((id) => ({ ...(userById.get(id) || { id, name: "未设置用户名" }), submitted_at: eventBySubmitter.get(id) || item.created_at }))
+      .sort((a, b) => String(b.submitted_at).localeCompare(String(a.submitted_at)));
     const expiry = item.customer_id ? expiryByCustomer.get(item.customer_id) : null;
     const fallbackExpiry = customer?.created_at ? new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString() : null;
     const protectionDays = expiry || fallbackExpiry ? Math.max(0, Math.ceil((new Date(String(expiry || fallbackExpiry)).getTime() - Date.now()) / 86400000)) : 0;
@@ -174,7 +185,19 @@ export async function GET(request: NextRequest) {
     const scopedCustomerIds = new Set(scoped.map((item) => item.customer_id).filter(Boolean));
     return NextResponse.json({ data: await enrichConflicts(scoped, customers.filter((item) => scopedCustomerIds.has(item.id))), count: scoped.length });
   } catch (error) {
-    console.error("冲突客户加载失败", error);
-    return NextResponse.json({ error: "冲突客户加载失败，请稍后重试" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "冲突客户加载失败";
+    const authMessages: Record<string, string> = {
+      UNAUTHORIZED: "登录已失效，请重新登录",
+      SESSION_REVOKED: "当前会话已失效，请重新登录",
+      FORBIDDEN: "当前账号没有查看冲突客户的权限",
+      ACCOUNT_PENDING: "账号尚未审核通过",
+      ACCOUNT_REJECTED: "账号申请未通过",
+      ACCOUNT_DISABLED: "账号已停用，请联系系统管理员",
+      ACCOUNT_LOCKED: "账号已锁定，请联系系统管理员",
+      PASSWORD_CHANGE_REQUIRED: "请先修改管理员分配的临时密码",
+    };
+    const status = authMessages[message] ? authErrorStatus(message) : 500;
+    if (status === 500) console.error("冲突客户加载失败", error);
+    return NextResponse.json({ error: authMessages[message] || "冲突客户加载失败，请稍后重试" }, { status });
   }
 }
