@@ -200,7 +200,10 @@ assert.match(conflictApi, /requestedOwnerId[\s\S]*submitter_ids\?\.includes\(sco
 assert.match(conflictApi, /latestByReporter[\s\S]*grouped/, "冲突客户必须先按提交人去重再按客户主体聚合");
 assert.match(conflictApi, /requirePermission\("customers\.view"\)/, "冲突列表必须在服务端校验客户查看权限");
 assert.match(conflictApi, /aggregateOpenConflicts\([\s\S]*submitter_ids/, "冲突列表必须按客户聚合全部冲突提交人");
-assert.match(conflictApi, /unique\.filter\(\(item\) => item\.submitter_ids\?\.includes\(scopeUserId\)\)/, "提交人筛选只能筛选客户行，不能截断完整提交人列表");
+assert.match(conflictApi, /current\.filter\(\(item\) => item\.submitter_ids\?\.includes\(scopeUserId\)\)/, "提交人筛选只能筛选当前客户行，不能截断完整提交人列表");
+assert.match(conflictApi, /if \(!tableAvailable\)[\s\S]*audit_logs/, "正式冲突表可用时不得把历史审计事件重复计入当前冲突客户");
+assert.match(conflictApi, /ownerByCustomer[\s\S]*ownerByCustomer\.get\(item\.customer_id\) !== item\.reported_by[\s\S]*aggregateOpenConflicts\(currentRows\)/, "已删除客户及已转归提交人的历史冲突不得继续计入当前冲突客户");
+assert.match(conflictApi, /IN_QUERY_BATCH_SIZE = 100[\s\S]*for \(const customerIdBatch of batches/, "冲突详情必须分批查询，避免大量客户ID导致请求过长");
 const protectionApi = read("app/api/customers/protection/route.ts");
 assert.match(protectionApi, /requestedOwnerId[\s\S]*\.eq\("owner_id", scopeUserId\)/, "保护到期必须按服务端归属人范围查询");
 assert.match(protectionApi, /requirePermission\("customers\.view"\)/, "保护到期必须在服务端校验客户查看权限");

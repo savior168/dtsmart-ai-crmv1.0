@@ -15,6 +15,21 @@ type ConflictRow = {
   submitter_ids?: string[];
 };
 
+type ConflictCustomer = {
+  id: string;
+  owner_id: string | null;
+  created_at: string;
+  status: string;
+};
+
+const IN_QUERY_BATCH_SIZE = 100;
+
+function batches<T>(items: T[], size = IN_QUERY_BATCH_SIZE) {
+  const result: T[][] = [];
+  for (let offset = 0; offset < items.length; offset += size) result.push(items.slice(offset, offset + size));
+  return result;
+}
+
 function customerConflictKey(item: ConflictRow) {
   if (item.customer_id) return `customer:${item.customer_id}`;
   const submitted = item.details?.submitted;
@@ -53,14 +68,21 @@ function aggregateOpenConflicts(rows: ConflictRow[]) {
   return [...grouped.values()];
 }
 
-async function enrichConflicts(rows: ConflictRow[]) {
+async function loadConflictCustomers(customerIds: string[]) {
+  const admin = createAdminClient();
+  const customers: ConflictCustomer[] = [];
+  for (const customerIdBatch of batches(Array.from(new Set(customerIds)))) {
+    const result = await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIdBatch);
+    if (result.error) throw result.error;
+    customers.push(...(result.data || []));
+  }
+  return customers;
+}
+
+async function enrichConflicts(rows: ConflictRow[], loadedCustomers?: ConflictCustomer[]) {
   const admin = createAdminClient();
   const customerIds = Array.from(new Set(rows.map((item) => item.customer_id).filter((id): id is string => Boolean(id))));
-  const customersResult = customerIds.length
-    ? await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIds)
-    : { data: [], error: null };
-  if (customersResult.error) throw customersResult.error;
-  const customers = customersResult.data || [];
+  const customers = loadedCustomers || await loadConflictCustomers(customerIds);
   const userIds = Array.from(new Set([
     ...customers.map((item) => item.owner_id),
     ...rows.flatMap((item) => item.submitter_ids || (item.reported_by ? [item.reported_by] : [])),
@@ -69,12 +91,14 @@ async function enrichConflicts(rows: ConflictRow[]) {
   if (users.error) throw users.error;
   const userById = new Map((users.data || []).map((item) => [item.id, { id: item.id, name: String(item.name || "").trim() || item.email || "未设置用户名" }]));
   const customerById = new Map(customers.map((item) => [item.id, item]));
-  const protections = customerIds.length
-    ? await admin.from("customer_protection").select("customer_id,expire_date,status").in("customer_id", customerIds).eq("status", "ACTIVE").order("expire_date", { ascending: false })
-    : { data: [], error: null };
-  if (protections.error) throw protections.error;
+  const protectionRows: Array<{ customer_id: string; expire_date: string | null; status: string }> = [];
+  for (const customerIdBatch of batches(customerIds)) {
+    const result = await admin.from("customer_protection").select("customer_id,expire_date,status").in("customer_id", customerIdBatch).eq("status", "ACTIVE").order("expire_date", { ascending: false });
+    if (result.error) throw result.error;
+    protectionRows.push(...(result.data || []));
+  }
   const expiryByCustomer = new Map<string, string | null>();
-  for (const item of protections.data || []) if (!expiryByCustomer.has(item.customer_id)) expiryByCustomer.set(item.customer_id, item.expire_date);
+  for (const item of protectionRows) if (!expiryByCustomer.has(item.customer_id)) expiryByCustomer.set(item.customer_id, item.expire_date);
   return rows.map((item) => {
     const customer = item.customer_id ? customerById.get(item.customer_id) : null;
     const owner = customer?.owner_id ? userById.get(customer.owner_id) || { id: customer.owner_id, name: "已归属其他用户" } : null;
@@ -103,37 +127,54 @@ export async function GET(request: NextRequest) {
       if ((page.data || []).length < 1000) break;
     }
 
-    // 旧生产库缺少冲突表RLS策略时会降级写入审计表。必须始终合并，
-    // 否则冲突表“可查询但为空”时会把真实冲突全部漏掉。
+    // 审计记录是不可变的历史提交事件，其中可能包含已经物理删除的客户。
+    // 正式冲突表可用时只能以正式表作为当前队列，不能把历史事件次数
+    // 重新当成当前冲突客户数。仅在旧库确实无法读取冲突表时降级使用审计。
     const auditRows: ConflictRow[] = [];
-    for (let from = 0; ; from += 1000) {
-      const query = admin.from("audit_logs").select("id,target_id,user_id,content,created_at").eq("action", "CUSTOMER_CONFLICT_DETECTED").order("created_at", { ascending: false }).range(from, from + 999);
-      const page = await query;
-      if (page.error) throw page.error;
-      auditRows.push(...(page.data || []).map((item) => {
-        const content = item.content && typeof item.content === "object" ? item.content as Record<string, unknown> : {};
-        const details = content.details && typeof content.details === "object" ? content.details as Record<string, unknown> : content;
-        return {
-          id: `audit-${item.id}`,
-          customer_id: item.target_id,
-          reported_by: String(content.reported_by || item.user_id || "") || null,
-          conflict_type: String(content.conflict_type || "CROSS_OWNER_DUPLICATE"),
-          status: String(content.status || "OPEN"),
-          details,
-          created_at: item.created_at,
-          source: "audit" as const,
-        };
-      }));
-      if ((page.data || []).length < 1000) break;
+    if (!tableAvailable) {
+      for (let from = 0; ; from += 1000) {
+        const query = admin.from("audit_logs").select("id,target_id,user_id,content,created_at").eq("action", "CUSTOMER_CONFLICT_DETECTED").order("created_at", { ascending: false }).range(from, from + 999);
+        const page = await query;
+        if (page.error) throw page.error;
+        auditRows.push(...(page.data || []).map((item) => {
+          const content = item.content && typeof item.content === "object" ? item.content as Record<string, unknown> : {};
+          const details = content.details && typeof content.details === "object" ? content.details as Record<string, unknown> : content;
+          return {
+            id: `audit-${item.id}`,
+            customer_id: item.target_id,
+            reported_by: String(content.reported_by || item.user_id || "") || null,
+            conflict_type: String(content.conflict_type || "CROSS_OWNER_DUPLICATE"),
+            status: String(content.status || "OPEN"),
+            details,
+            created_at: item.created_at,
+            source: "audit" as const,
+          };
+        }));
+        if ((page.data || []).length < 1000) break;
+      }
     }
     if (!tableAvailable && !auditRows.length) throw new Error("冲突客户存储暂不可用");
-    const unique = aggregateOpenConflicts([...tableRows, ...auditRows]);
+    const sourceRows = tableAvailable ? tableRows : auditRows;
+    const customers = await loadConflictCustomers(sourceRows.map((item) => item.customer_id).filter((id): id is string => Boolean(id)));
+    const ownerByCustomer = new Map(customers.map((item) => [item.id, item.owner_id]));
+    // 客户物理删除后历史审计仍需保留追溯，但绝不能继续出现在当前
+    // 冲突队列；客户后来转归该提交人后，双方已不再冲突，也应实时排除。
+    // 先过滤再聚合，确保最终一行保留的也是仍然有效的冲突提交快照。
+    const currentRows = sourceRows.filter((item) => Boolean(
+      item.customer_id
+      && item.reported_by
+      && ownerByCustomer.has(item.customer_id)
+      && ownerByCustomer.get(item.customer_id) !== item.reported_by
+    ));
+    const current = aggregateOpenConflicts(currentRows);
     // The submitter filter determines whether a customer row is included; it
     // must not truncate the row's complete submitter list.
-    const scoped = scopeUserId ? unique.filter((item) => item.submitter_ids?.includes(scopeUserId)) : unique;
+    const scoped = scopeUserId ? current.filter((item) => item.submitter_ids?.includes(scopeUserId)) : current;
     if (summaryOnly) return NextResponse.json({ count: scoped.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
-    return NextResponse.json({ data: await enrichConflicts(scoped), count: scoped.length });
+    const scopedCustomerIds = new Set(scoped.map((item) => item.customer_id).filter(Boolean));
+    return NextResponse.json({ data: await enrichConflicts(scoped, customers.filter((item) => scopedCustomerIds.has(item.id))), count: scoped.length });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "冲突客户加载失败" }, { status: 400 });
+    console.error("冲突客户加载失败", error);
+    return NextResponse.json({ error: "冲突客户加载失败，请稍后重试" }, { status: 500 });
   }
 }
