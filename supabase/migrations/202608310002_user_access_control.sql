@@ -39,9 +39,12 @@ begin
   if not exists (select 1 from public.users where lower(email) = 'zzccxry@gmail.com') then
     raise exception '无法初始化系统管理员：账号 zzccxry@gmail.com 不存在';
   end if;
-  update public.users set role = 'SALES' where lower(email) <> 'zzccxry@gmail.com';
+  update public.users set role = 'SALES'
+  where lower(email) not in ('zzccxry@gmail.com', '3041624715@qq.com');
   update public.users set role = 'ADMIN', status = 'ACTIVE', reviewed_at = coalesce(reviewed_at, now()), review_reason = null
   where lower(email) = 'zzccxry@gmail.com';
+  update public.users set role = 'SUPERVISOR', status = 'ACTIVE', reviewed_at = coalesce(reviewed_at, now()), review_reason = null
+  where lower(email) = '3041624715@qq.com';
 end $$;
 
 -- Every new registration starts as a sales account. The users.status default
