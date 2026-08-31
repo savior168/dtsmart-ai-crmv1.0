@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requestedOwnerId, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type CustomerRow = Record<string, unknown> & { id: string; created_at?: string };
 
 export async function GET(request: NextRequest) {
   try {
-    const { user } = await requireUser();
+    const { account } = await requireUser();
     const admin = createAdminClient();
+    const scopeUserId = requestedOwnerId(request, account);
     const now = new Date();
     const cutoff = new Date(now.getTime() - 90 * 86400000).toISOString();
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
-    const [protections, claims, expired] = await Promise.all([
-      admin.from("customer_protection").select("id,customer_id,type,start_date,expire_date,status").eq("owner_id", user.id).or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`),
-      admin.from("customer_claims").select("id,customer_id,created_at,released_at,release_reason").eq("user_id", user.id).eq("action", "RELEASE").order("created_at", { ascending: false }),
-      admin.from("customers").select(summaryOnly ? "id" : "*").eq("owner_id", user.id).is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)"),
-    ]);
+    let protectionsQuery = admin.from("customer_protection").select("id,customer_id,type,start_date,expire_date,status").or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`);
+    let claimsQuery = admin.from("customer_claims").select("id,customer_id,created_at,released_at,release_reason").eq("action", "RELEASE").order("created_at", { ascending: false });
+    let expiredQuery = admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
+    if (scopeUserId) {
+      protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
+      claimsQuery = claimsQuery.eq("user_id", scopeUserId);
+      expiredQuery = expiredQuery.eq("owner_id", scopeUserId);
+    }
+    const [protections, claims, expired] = await Promise.all([protectionsQuery, claimsQuery, expiredQuery]);
     if (protections.error) throw protections.error;
     if (claims.error) throw claims.error;
     if (expired.error) throw expired.error;

@@ -1,5 +1,6 @@
 export type AiTask = {
   id: string; task_number: string; name: string; strategy: "SMART" | "DEEP"; strategy_version: string;
+  user_id?: string; owner?: { id: string; name?: string | null; email?: string | null } | null;
   status: string; total_count: number; success_count: number; failed_count: number; processed_count: number; pending_count: number;
   total_tokens: number; total_cost_usd: number; created_at: string; updated_at?: string | null;
   started_at?: string | null; completed_at?: string | null; finished_at?: string | null; elapsed_ms?: number | null;
@@ -28,6 +29,7 @@ export type AiResult = {
   primary_industry?: string|null; identity_status?: string|null; identity_confidence?:number|null; industry_confidence?:number|null; decision_confidence?:number|null;
   preferred_contact_type?:string|null; preferred_contact_value?:string|null; preferred_contact_source_url?:string|null; preferred_contact_reason?:string|null; preferred_contact_confidence?:number|null;
   customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; website?: string | null; google_url?: string | null } | null;
-  task?: { id: string; name: string; task_number: string } | null;
+  task?: { id: string; name: string; task_number: string; user_id?: string } | null;
+  owner?: { id: string; name?: string | null; email?: string | null } | null;
 };
 

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import type { AiStrategy } from "@/lib/ai/task-types";
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const search = params.get("search")?.trim() || "";
     const step = params.get("step") || "";
     const retry = params.get("retry") || "";
-    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
+    const scopeUserId = requestedOwnerId(request, account);
     const admin = createAdminClient();
     let tasksQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,user_id");
     if (scopeUserId) tasksQuery = tasksQuery.eq("user_id", scopeUserId);

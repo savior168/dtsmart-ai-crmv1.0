@@ -89,15 +89,26 @@ function ProfileModal({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState(profile.avatar_url);
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => setValue((current) => ({ ...current, name: profile.name, avatar_url: profile.avatar_url })), [profile]);
+  const previewObjectUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    setValue((current) => ({ ...current, name: profile.name, avatar_url: profile.avatar_url }));
+    if (!avatarFile) setAvatarPreview(profile.avatar_url);
+  }, [avatarFile, profile.avatar_url, profile.name]);
+  useEffect(() => () => {
+    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
+  }, []);
   function selectAvatar(file?: File) {
     setMessage("");
     if (!file) return;
     const validationError = validateAvatar(file);
     if (validationError) return setMessage(validationError);
+    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
+    const previewUrl = URL.createObjectURL(file);
+    previewObjectUrlRef.current = previewUrl;
     setAvatarFile(file);
-    setValue((current) => ({ ...current, avatar_url: URL.createObjectURL(file) }));
+    setAvatarPreview(previewUrl);
   }
   async function submit() {
     setMessage("");
@@ -170,7 +181,7 @@ function ProfileModal({
               />
               <button type="button" onClick={() => inputRef.current?.click()} className="group flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-blue-200 bg-gradient-to-b from-blue-50 to-white px-6 py-7 transition hover:border-blue-400 hover:bg-blue-50">
                 <span className="grid h-28 w-28 place-items-center overflow-hidden rounded-full border-4 border-white bg-blue-100 text-3xl font-bold text-blue-600 shadow-lg">
-                  {value.avatar_url ? <Image unoptimized width={112} height={112} src={value.avatar_url} alt="头像预览" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}
+                  {avatarPreview ? <Image unoptimized width={112} height={112} src={avatarPreview} alt="头像预览" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}
                 </span>
                 <span className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm group-hover:bg-blue-700"><UploadCloud size={17}/>选择头像图片</span>
                 <small className="mt-2 text-slate-500">支持 JPG、PNG、WebP，文件不超过 5MB</small>

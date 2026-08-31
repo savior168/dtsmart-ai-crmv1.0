@@ -173,7 +173,7 @@ const importApi = read("app/api/import/route.ts");
 assert.match(importApi, /for \(let from = 0; ; from \+= 1000\)/, "导入去重必须分页读取全部现有客户，不能设置固定上限");
 assert.match(importApi, /error\?\.code === "23505"/, "导入必须处理数据库并发唯一冲突");
 assert.match(importApi, /客户已存在于我的客户列表，保留最先导入的数据/, "本人已有客户必须计入导入失败并保留最早记录");
-assert.match(importApi, /status: "conflict", reason: "客户已归属其他销售员"/, "其他归属人的重复客户必须计入冲突客户");
+assert.match(importApi, /status: "conflict", reason: "客户已归属其他用户"/, "其他归属人的重复客户必须计入冲突客户");
 assert.match(importApi, /owner_name:/, "冲突导入结果必须返回当前归属人");
 assert.match(importApi, /source_batch_id: taskId \|\| null/, "导入客户必须保存唯一导入任务ID，不能只依赖文件名");
 const aiCreateTask = read("components/ai-screening/create-task-view.tsx");
@@ -193,7 +193,7 @@ assert.match(aiCustomerApi, /item\.pending_count > 0/, "批次列表必须保留
 assert.match(importTaskLinkMigration, /source_batch_id uuid references public\.import_tasks\(id\)/, "迁移必须建立客户到导入任务的唯一关联");
 const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /withOwner/, "冲突列表必须返回当前归属人信息");
-assert.match(conflictApi, /\.eq\("reported_by", user\.id\)/, "冲突列表必须显式限定为当前用户提交的数据");
+assert.match(conflictApi, /requestedOwnerId[\s\S]*\.eq\("reported_by", scopeUserId\)/, "冲突列表必须按服务端数据范围限定归属用户");
 assert.match(conflictApi, /dedupeConflicts/, "冲突客户汇总必须去重");
 const permanentDelete = read("lib/customers/soft-delete.ts");
 assert.match(permanentDelete, /offset \+= 200/, "批量永久删除必须分批处理，避免大批量ID被截断");
@@ -206,6 +206,25 @@ const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");
 assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
 const customersView = read("components/customers-view.tsx");
+const currentUserAuth = read("lib/auth/current-user.ts");
+const userScopeSelect = read("components/user-scope-select.tsx");
+assert.match(currentUserAuth, /role === "SUPERVISOR"\) return requested \|\| account\.id/, "主管服务端默认必须只读取自己的数据");
+assert.match(currentUserAuth, /requested\.toLowerCase\(\) === "all"/, "主管和系统管理员必须能够主动选择全部用户数据");
+assert.match(userScopeSelect, /role === "SUPERVISOR" \? body\.profile\.id : "all"/, "主管前端默认必须选中自己，系统管理员默认全部");
+assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
+assert.match(customersView, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
+assert.doesNotMatch(customersView, /负责人/, "客户列表不得混用负责人和归属人口径");
+for (const [name, source] of Object.entries({
+  customersView,
+  taskCenter,
+  followupsView: read("components/followups-view.tsx"),
+  manualSetup: read("supabase/manual_setup.sql"),
+  accessControlMigration: read("supabase/migrations/202608310002_user_access_control.sql"),
+  claimProtectionMigration: read("supabase/migrations/202608120003_claim_protection_crm.sql"),
+})) {
+  assert.doesNotMatch(source, /负责人/, `${name} 不得混用负责人和归属人口径`);
+}
+assert.match(taskCenter, /show_owner[\s\S]*归属人/, "主管和系统管理员的AI任务列表必须显示归属人");
 assert.doesNotMatch(customersView, />\s*跟进待办/, "客户管理页签不得保留跟进待办");
 assert.match(customersView, /CustomerProtectionPanel/, "保护到期必须在客户管理同页切换");
 assert.match(customersView, /CustomerConflictsPanel/, "冲突客户必须在客户管理同页切换");

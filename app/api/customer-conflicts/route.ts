@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requestedOwnerId, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
@@ -48,13 +48,16 @@ async function withOwner(rows: ConflictRow[]) {
 /** Returns the importer's own basic-field snapshot from the conflict queue. */
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { account } = await requireUser();
+    const admin = createAdminClient();
+    const scopeUserId = requestedOwnerId(request, account);
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
-    const { data, error } = await supabase
+    let conflictsQuery = admin
       .from("customer_conflicts")
       .select("id,customer_id,conflict_type,status,details,created_at")
-      .eq("reported_by", user.id)
       .order("created_at", { ascending: false });
+    if (scopeUserId) conflictsQuery = conflictsQuery.eq("reported_by", scopeUserId);
+    const { data, error } = await conflictsQuery;
     if (!error) {
       const unique = dedupeConflicts((data || []) as ConflictRow[]);
       if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
@@ -62,11 +65,12 @@ export async function GET(request: NextRequest) {
     }
     // Compatibility fallback for production before the optional migration is
     // applied. The snapshot is still scoped by audit_logs RLS to its importer.
-    const fallback = await supabase.from("audit_logs")
+    let fallbackQuery = admin.from("audit_logs")
       .select("target_id,content,created_at")
-      .eq("user_id", user.id)
       .eq("action", "CUSTOMER_CONFLICT_DETECTED")
       .order("created_at", { ascending: false });
+    if (scopeUserId) fallbackQuery = fallbackQuery.eq("user_id", scopeUserId);
+    const fallback = await fallbackQuery;
     if (fallback.error) throw fallback.error;
     const fallbackRows = (fallback.data || []).map((item) => ({
       id: `${item.target_id}-${item.created_at}`, customer_id: item.target_id,

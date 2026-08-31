@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { canManageAll } from "@/lib/auth/permissions";
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
-    const ownerId = request.nextUrl.searchParams.get("owner_id")?.trim();
+    const scopeUserId = requestedOwnerId(request, account);
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
     const options = request.nextUrl.searchParams.get("options");
@@ -111,8 +111,7 @@ export async function GET(request: NextRequest) {
           .not("industry", "is", null)
           .neq("industry", "")
           .order("industry", { ascending: true });
-        if (!canManageAll(account.role)) pageQueryBuilder = pageQueryBuilder.eq("owner_id", user.id);
-        else if (ownerId && ownerId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", ownerId);
+        if (scopeUserId && scopeUserId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
         const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
         values.push(...(pageQuery.data || []).map((item) => String(item.industry || "").trim()).filter(Boolean));
@@ -132,8 +131,7 @@ export async function GET(request: NextRequest) {
           .not("source_batch", "is", null)
           .neq("source_batch", "")
           .order("created_at", { ascending: false });
-        if (!canManageAll(account.role)) pageQueryBuilder = pageQueryBuilder.eq("owner_id", user.id);
-        else if (ownerId && ownerId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", ownerId);
+        if (scopeUserId && scopeUserId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
         const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
         for (const row of pageQuery.data || []) {
@@ -159,8 +157,8 @@ export async function GET(request: NextRequest) {
         let tasksQuery = admin.from("import_tasks")
           .select("id,filename,success_count,created_at")
           .in("id", taskIds.slice(offset, offset + 200));
-        if (!canManageAll(account.role)) tasksQuery = tasksQuery.eq("created_by", user.id);
-        else if (ownerId && ownerId !== "unclaimed") tasksQuery = tasksQuery.eq("created_by", ownerId);
+        if (account.role === "SALES") tasksQuery = tasksQuery.eq("created_by", user.id);
+        else if (scopeUserId && scopeUserId !== "unclaimed") tasksQuery = tasksQuery.eq("created_by", scopeUserId);
         const tasks = await tasksQuery;
         if (tasks.error) throw tasks.error;
         for (const task of tasks.data || []) {
@@ -192,7 +190,6 @@ export async function GET(request: NextRequest) {
     query = query.is("deleted_at", null);
     // 客户列表只展示当前用户仍持有且尚未释放的客户；历史释放/到期客户
     // 由保护到期页统一展示，避免跨销售数据混入日常工作列表。
-    if (!canManageAll(account.role)) query = query.eq("owner_id", user.id);
     query = query.neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
@@ -223,8 +220,8 @@ export async function GET(request: NextRequest) {
       const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
       if (filters.length) query = query.or(Array.from(new Set(filters)).map((item) => `country.ilike.%${item}%`).join(","));
     }
-    if (canManageAll(account.role) && ownerId === "unclaimed") query = query.is("owner_id", null);
-    else if (canManageAll(account.role) && ownerId) query = query.eq("owner_id", ownerId);
+    if (canManageAll(account.role) && scopeUserId === "unclaimed") query = query.is("owner_id", null);
+    else if (canManageAll(account.role) && scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
     if (sourceBatches.length) {
@@ -306,7 +303,7 @@ export async function POST(request: NextRequest) {
           const { error: auditError } = await supabase.from("audit_logs").insert({ user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer", target_id: duplicateId, content: conflict });
           if (auditError) throw new Error(`冲突客户记录创建失败：${auditError.message}`);
         }
-        return NextResponse.json({ conflict: true, status: "CONFLICT", message: "客户已归属其他销售员，已加入冲突客户列表" }, { status: 201 });
+        return NextResponse.json({ conflict: true, status: "CONFLICT", message: "客户已归属其他用户，已加入冲突客户列表" }, { status: 201 });
       }
       if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
       if (duplicate && !duplicate.owner_id) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
@@ -12,7 +12,7 @@ function taskNumber() {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user, account } = await requirePermission("ai.manage");
+    const { supabase, account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const selectionMode = params.get("selection_mode") || "";
     const from = params.get("date_from") || "";
     const to = params.get("date_to") || "";
-    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
+    const scopeUserId = requestedOwnerId(request, account);
     const admin = createAdminClient();
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" });
     if (scopeUserId) query = query.eq("user_id", scopeUserId);
@@ -33,6 +33,11 @@ export async function GET(request: NextRequest) {
     if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
     const result = await query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
+    const ownerIds = Array.from(new Set((result.data || []).map((task) => String(task.user_id || "")).filter(Boolean)));
+    const owners = ownerIds.length ? await admin.from("users").select("id,name,email").in("id", ownerIds) : { data: [], error: null };
+    if (owners.error) throw owners.error;
+    const ownerById = new Map((owners.data || []).map((owner) => [owner.id, owner]));
+    const taskRows = (result.data || []).map((task) => ({ ...task, owner: ownerById.get(task.user_id) || null }));
     const all: Array<{ id: string; status: string; total_count: number; success_count: number; failed_count: number; total_tokens: number; total_cost_usd: number; created_at: string }> = [];
     for (let offset = 0; ; offset += 1000) {
       let statsQuery = admin.from("ai_screening_tasks")
@@ -96,7 +101,7 @@ export async function GET(request: NextRequest) {
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null)
       .is("ai_score", null);
-    if (scopeUserId) pendingCustomersQuery = pendingCustomersQuery.eq("owner_id", scopeUserId);
+    if (account.role !== "SALES" && scopeUserId) pendingCustomersQuery = pendingCustomersQuery.eq("owner_id", scopeUserId);
     const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
       countItems("FAILED", undefined, true),
       todayCompletedQuery,
@@ -108,7 +113,7 @@ export async function GET(request: NextRequest) {
     if (todayCompleted.error) throw todayCompleted.error;
     const pendingCustomerCount = pendingCustomers.count || 0;
     return NextResponse.json({
-      data: result.data || [], count: result.count || 0, counts,
+      data: taskRows, count: result.count || 0, counts, show_owner: account.role !== "SALES",
       pending_customers: pendingCustomerCount,
       today_cost: todayCost,
       today_completed_customers: todayCompleted.count || 0,

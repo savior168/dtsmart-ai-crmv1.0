@@ -77,7 +77,11 @@ export async function requirePermission(permission: string) {
 
 export function requestedOwnerId(request: Request, account: CurrentAccount) {
   if (account.role === "SALES") return account.id;
-  const requested = new URL(request.url).searchParams.get("user_id")?.trim();
+  const requested = new URL(request.url).searchParams.get("user_id")?.trim() || "";
+  if (requested.toLowerCase() === "all") return null;
+  // 主管进入业务页面时默认只看自己的数据，只有主动选择具体用户或
+  // “全部归属人”后才扩大范围；系统管理员仍默认查看全部数据。
+  if (account.role === "SUPERVISOR") return requested || account.id;
   return requested || null;
 }
 

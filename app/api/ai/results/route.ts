@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const taskId = params.get("task_id") || "";
     const today = params.get("today") === "true";
@@ -15,11 +15,11 @@ export async function GET(request: NextRequest) {
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
     const returnAll = params.get("all") === "true";
-    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
+    const scopeUserId = requestedOwnerId(request, account);
     const admin = createAdminClient();
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {
-      let ownedQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at").order("updated_at", { ascending: false }).order("created_at", { ascending: false });
+      let ownedQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at,user_id").order("updated_at", { ascending: false }).order("created_at", { ascending: false });
       if (scopeUserId) ownedQuery = ownedQuery.eq("user_id", scopeUserId);
       const owned = await ownedQuery.range(offset, offset + 999);
       if (owned.error) throw owned.error;
@@ -27,9 +27,14 @@ export async function GET(request: NextRequest) {
       ownedTasks.push(...rows);
       if (rows.length < 1000) break;
     }
+    const ownerIds = Array.from(new Set(ownedTasks.map((task) => String(task.user_id || "")).filter(Boolean)));
+    const owners = ownerIds.length ? await admin.from("users").select("id,name,email").in("id", ownerIds) : { data: [], error: null };
+    if (owners.error) throw owners.error;
+    const ownerById = new Map((owners.data || []).map((owner) => [owner.id, owner]));
+    const taskRows = ownedTasks.map((task) => ({ ...task, owner: ownerById.get(String(task.user_id || "")) || null }));
     let taskIds = ownedTasks.map((item) => String(item.id));
     if (taskId) taskIds = taskIds.filter((id) => id === taskId);
-    if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: ownedTasks, summary: { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, grades: {} } });
+    if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: taskRows, show_owner: account.role !== "SALES", summary: { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, grades: {} } });
     const safeSearch = search.replace(/[,%()]/g," ").trim();
     const buildResultQuery = () => {
       let query = admin.from("ai_screening_results").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks!inner(id,name,task_number,user_id)", { count: "exact" });
@@ -92,7 +97,11 @@ export async function GET(request: NextRequest) {
     const failed = await failedQuery;
     if (failed.error) throw failed.error;
     summary.failed = failed.count || 0;
-    return NextResponse.json({ data: resultData, count: resultCount, tasks: ownedTasks, summary, page, pageSize });
+    const data = (resultData as Array<Record<string, unknown>>).map((row) => {
+      const task = Array.isArray(row.task) ? row.task[0] : row.task as Record<string, unknown> | null;
+      return { ...row, owner: task ? ownerById.get(String(task.user_id || "")) || null : null };
+    });
+    return NextResponse.json({ data, count: resultCount, tasks: taskRows, show_owner: account.role !== "SALES", summary, page, pageSize });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI结果查询失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

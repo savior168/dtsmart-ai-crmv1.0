@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
               status: "OPEN",
               details: { submitted: { company_name: item.company_name || null, contact_name: item.contact_name || null, country: item.country || null, phone: item.phone || null, email: item.email || null, website: item.website || null, google_url: item.google_url || null, address: item.address || null, industry: item.industry || null, category: item.category || null, source: item.source || null, tags: item.tags || [] }, matched_customer_id: duplicateOf.id },
             });
-            results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他销售员", owner_name: ownerNames.get(String(duplicateOf.owner_id)) || String(duplicateOf.owner_id) });
+            results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他用户", owner_name: ownerNames.get(String(duplicateOf.owner_id)) || String(duplicateOf.owner_id) });
           } else if (!duplicateOf.owner_id) {
             claimIds.push(String(duplicateOf.id));
             results.push({ file_name: fileName, row_number: rowNumber, status: "success", reason: "客户已存在且无归属人，已自动认领" });
@@ -211,9 +211,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: Request) {
   try {
-    const { supabase, user, account } = await requirePermission("imports.manage");
-    const requested = new URL(request.url).searchParams.get("user_id")?.trim();
-    const scopeUserId = account.role === "SALES" ? user.id : requested || null;
+    const { supabase, account } = await requirePermission("imports.manage");
+    const scopeUserId = requestedOwnerId(request, account);
     let query = supabase.from("import_tasks").select("id,filename,total_count,success_count,duplicate_count,failed_count,created_at,created_by");
     if (scopeUserId) query = query.eq("created_by", scopeUserId);
     const { data, error } = await query.order("created_at", { ascending: false }).limit(100);

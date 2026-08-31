@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 
 type DashboardCustomer = {
   id: string;
@@ -49,7 +49,7 @@ function activityText(action: string, customerName: string, content: unknown) {
 export async function GET(request: NextRequest) {
   try {
     const { supabase, user, account } = await requirePermission("dashboard.view");
-    const scopeUserId = account.role === "SALES" ? user.id : request.nextUrl.searchParams.get("user_id")?.trim() || null;
+    const scopeUserId = requestedOwnerId(request, account);
     const now = new Date();
     if (request.nextUrl.searchParams.get("summary") === "1") {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());

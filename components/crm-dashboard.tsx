@@ -23,6 +23,7 @@ import {
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
+import { UserScopeSelect } from "@/components/user-scope-select";
 
 function Link(props: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={false} {...props} />;
@@ -141,6 +142,7 @@ export function CrmDashboard() {
   const [from, setFrom] = useState(() => localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
   const [to, setTo] = useState(() => localDate(now));
   const [country, setCountry] = useState("");
+  const [scopeUserId, setScopeUserId] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -150,6 +152,7 @@ export function CrmDashboard() {
   const load = useCallback(async () => {
     setLoading(true); setError("");
     const params = new URLSearchParams({ from, to, country });
+    if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       const response = await fetch(`/api/dashboard/stats?${params}`);
       const body = await response.json().catch(() => ({}));
@@ -161,13 +164,13 @@ export function CrmDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [country, from, to]);
+  }, [country, from, scopeUserId, to]);
 
   useEffect(() => { void load(); }, [load]);
 
   function reset() {
     setFrom(localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
-    setTo(localDate(now)); setCountry("");
+    setTo(localDate(now)); setCountry(""); setScopeUserId("");
   }
 
   const cards = data ? [
@@ -195,6 +198,7 @@ export function CrmDashboard() {
         <section className="mb-4 flex flex-wrap items-center gap-3">
           <label className="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm"><input aria-label="开始日期" type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="w-[132px] border-0 bg-transparent outline-none" /><span className="px-2 text-slate-400">~</span><input aria-label="结束日期" type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="w-[132px] border-0 bg-transparent outline-none" /></label>
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
+          <UserScopeSelect value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
         </section>
 

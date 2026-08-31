@@ -55,7 +55,7 @@ const columns: { key: ColumnKey; label: string; locked?: boolean }[] = [
   { key: "followup_status", label: "跟进状态" },
   { key: "protection", label: "保护期剩余" },
   { key: "last_contact_time", label: "最近跟进" },
-  { key: "owner", label: "负责人" },
+  { key: "owner", label: "归属人" },
   { key: "phone", label: "联系电话" },
   { key: "email", label: "邮箱" },
   { key: "website_email", label: "官网邮箱" },
@@ -83,7 +83,7 @@ const defaults: ColumnKey[] = [
 const columnKeys = new Set<ColumnKey>(columns.map((column) => column.key));
 function normalizeSavedColumns(value: unknown): ColumnKey[] {
   const saved = Array.isArray(value) ? value.filter((key): key is ColumnKey => typeof key === "string" && columnKeys.has(key as ColumnKey)) : [];
-  // 负责人属于冲突客户视图，不是客户列表默认字段；保护期剩余必须可见。
+  // 归属人属于跨用户管理字段，普通销售员不默认显示；保护期剩余必须可见。
   const withoutOwner = saved.filter((key) => key !== "owner");
   if (!withoutOwner.includes("protection")) withoutOwner.splice(Math.min(5, withoutOwner.length), 0, "protection");
   return withoutOwner.length ? withoutOwner : defaults;
@@ -153,6 +153,9 @@ export function CustomersView() {
   const [level, setLevel] = useState("");
   const [target, setTarget] = useState("");
   const [scopeUserId, setScopeUserId] = useState("");
+  const [defaultScopeUserId, setDefaultScopeUserId] = useState("");
+  const [scopeReady, setScopeReady] = useState(false);
+  const [currentRole, setCurrentRole] = useState("");
   const [userOptions, setUserOptions] = useState<Array<{id:string;name:string;email:string}>>([]);
   const [canViewAll, setCanViewAll] = useState(false);
   // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
@@ -243,7 +246,7 @@ export function CustomersView() {
     return () => document.removeEventListener("mousedown", close);
   }, []);
   const load = useCallback(async () => {
-    if (workspace !== "list") return;
+    if (workspace !== "list" || !scopeReady) return;
     setLoading(true);
     setError("");
     const params = new URLSearchParams({
@@ -291,6 +294,7 @@ export function CustomersView() {
     direction,
     workspace,
     scopeUserId,
+    scopeReady,
   ]);
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -298,21 +302,33 @@ export function CustomersView() {
   }, [load]);
   useEffect(() => {
     fetch("/api/users/options").then((response) => response.json()).then((body) => {
-      const elevated = body?.profile?.role === "ADMIN" || body?.profile?.role === "SUPERVISOR";
+      const role = String(body?.profile?.role || "SALES");
+      const elevated = role === "ADMIN" || role === "SUPERVISOR";
+      const fallback = role === "SUPERVISOR" ? String(body?.profile?.id || "") : role === "ADMIN" ? "all" : "";
+      const requested = new URLSearchParams(window.location.search).get("user_id") || fallback;
+      setCurrentRole(role);
+      setDefaultScopeUserId(fallback);
+      setScopeUserId(requested);
       setCanViewAll(elevated);
       setUserOptions(elevated && Array.isArray(body.users) ? body.users : []);
-    }).catch(() => undefined);
+      if (elevated) {
+        setFields((current) => current.includes("owner") ? current : [...current, "owner"]);
+        setDraft((current) => current.includes("owner") ? current : [...current, "owner"]);
+      }
+      setScopeReady(true);
+    }).catch(() => setScopeReady(true));
   }, []);
   useEffect(() => {
+    if (!scopeReady) return;
     const scope = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
     void Promise.all([
       fetch(`/api/customers?page=1&pageSize=1&ai_status=all&deleted=false${scope}`).then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
       fetch(`/api/customers?options=industries${scope}`).then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
       fetch(`/api/customers?options=batches${scope}`).then((response) => response.json()).then((body) => setBatchOptions(Array.isArray(body.data) ? body.data : [])),
-      fetch("/api/customers/protection?summary=1").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? 0))),
-      fetch("/api/customer-conflicts?summary=1").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
+      fetch(`/api/customers/protection?summary=1${scope}`).then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? 0))),
+      fetch(`/api/customer-conflicts?summary=1${scope}`).then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
     ]).catch(() => undefined);
-  }, [scopeUserId]);
+  }, [scopeReady, scopeUserId]);
   const pages = Math.max(1, Math.ceil(count / pageSize));
   const numbers = useMemo(
     () =>
@@ -358,9 +374,9 @@ export function CustomersView() {
           : null,
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
-        scopeUserId ? { key: "scopeUserId", label: `负责人：${userOptions.find((item) => item.id === scopeUserId)?.name || "指定用户"}` } : null,
+        canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name || "我的数据"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions],
+    [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
@@ -371,7 +387,7 @@ export function CustomersView() {
     if (key === "target") setTarget("");
     if (key === "followupStatus") setFollowupStatus("");
     if (key === "aiFilter") setAiFilter("done");
-    if (key === "scopeUserId") setScopeUserId("");
+    if (key === "scopeUserId") setScopeUserId(defaultScopeUserId);
     setPage(1);
   }
   function reset() {
@@ -383,7 +399,7 @@ export function CustomersView() {
     setTarget("");
     setFollowupStatus("");
     setAiFilter("done");
-    setScopeUserId("");
+    setScopeUserId(defaultScopeUserId);
     setPage(1);
     setSelected(new Set());
     setProtectedSelected(new Set());
@@ -559,8 +575,13 @@ export function CustomersView() {
           </span>
         </div>
         <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-700">
-          <ShieldCheck className="mr-2 inline-block align-[-3px] text-blue-600" size={17} strokeWidth={2} />当前数据范围：当前用户 ·
-          系统按登录权限自动确定 · 客户数已按主体去重
+          <ShieldCheck className="mr-2 inline-block align-[-3px] text-blue-600" size={17} strokeWidth={2} />
+          当前数据范围：{!canViewAll
+            ? "我的客户"
+            : scopeUserId === "all"
+              ? "全部用户"
+              : `${userOptions.find((item) => item.id === scopeUserId)?.name || "我的"}的客户`} ·
+          {currentRole === "SUPERVISOR" ? "主管默认查看本人，可主动切换指定用户" : currentRole === "ADMIN" ? "系统管理员可切换指定用户" : "系统按登录权限自动确定"} · 客户数已按主体去重
           <button type="button" onClick={() => setPermissionOpen(true)} className="float-right text-blue-600 hover:underline">
             查看权限说明 ⓘ
           </button>
@@ -584,8 +605,8 @@ export function CustomersView() {
         </nav>
         {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
-            <label className="relative min-w-[320px] flex-[1.4]">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <label className="relative min-w-[260px] flex-[1.4_1_320px]">
               <Search
                 className="absolute left-3 top-2.5 text-slate-400"
                 size={17}
@@ -601,7 +622,7 @@ export function CustomersView() {
                 className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500"
               />
             </label>
-            <div ref={industryRef} className="relative min-w-40">
+            <div ref={industryRef} className="relative min-w-[138px] flex-1">
               <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
                 <span className="max-w-32 truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
               </button>
@@ -611,7 +632,7 @@ export function CustomersView() {
               </div> : null}
             </div>
             <ImportBatchMultiSelect
-              className="min-w-48"
+              className="min-w-[176px] flex-[1.2]"
               options={batchOptions}
               value={sourceBatches}
               onChange={(next) => {
@@ -629,7 +650,7 @@ export function CustomersView() {
                 setLevel(event.target.value);
                 setPage(1);
               }}
-              className="min-w-36 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+              className="min-w-[118px] flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
             >
               <option value="">全部AI等级</option>
               {["A", "B", "C", "D"].map((item) => (
@@ -642,7 +663,7 @@ export function CustomersView() {
                 setTarget(event.target.value);
                 setPage(1);
               }}
-              className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+              className="min-w-[132px] flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
             >
               <option value="">全部目标客户</option>
               <option value="valid">有效目标</option>
@@ -654,7 +675,7 @@ export function CustomersView() {
                 setStatus(event.target.value);
                 setPage(1);
               }}
-              className="min-w-36 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+              className="min-w-[126px] flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
             >
               <option value="">全部客户阶段</option>
               {(["UNCLAIMED", "CLAIMED", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
@@ -669,7 +690,7 @@ export function CustomersView() {
                 setSelected(new Set());
                 setProtectedSelected(new Set());
               }}
-              className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="min-w-[132px] flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               aria-label="跟进状态"
             >
               <option value="">全部跟进状态</option>
@@ -678,17 +699,17 @@ export function CustomersView() {
             <select
               value={aiFilter}
               onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "all"); setPage(1); setSelected(new Set()); setProtectedSelected(new Set()); }}
-              className="min-w-36 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-700"
+              className="min-w-[126px] flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-700"
               aria-label="AI筛选状态"
             >
               <option value="done">AI已筛选</option>
               <option value="pending">AI未筛选</option>
               <option value="all">全部AI状态</option>
             </select>
-            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setPage(1); setSelected(new Set()); }} className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="负责人"><option value="">全部负责人</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.name || item.email}</option>)}</select> : null}
+            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setPage(1); setSelected(new Set()); }} className="min-w-[132px] flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="归属人"><option value="all">全部归属人</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId && currentRole === "SUPERVISOR" ? `${item.name || item.email}（我的数据）` : item.name || item.email}</option>)}</select> : null}
             <button
               onClick={reset}
-              className="min-w-36 rounded-lg border border-slate-200 px-4 py-2.5 text-sm hover:bg-slate-50"
+              className="min-w-24 flex-none rounded-lg border border-slate-200 px-4 py-2.5 text-sm hover:bg-slate-50"
             >
               重置
             </button>
@@ -808,6 +829,7 @@ export function CustomersView() {
                         <input
                           type="checkbox"
                           checked={draft.includes(column.key)}
+                          disabled={canViewAll && column.key === "owner"}
                           onChange={() =>
                             setDraft((current) =>
                               current.includes(column.key)
@@ -832,17 +854,19 @@ export function CustomersView() {
                       全选
                     </button>
                     <button
-                      onClick={() => setDraft(defaults)}
+                      onClick={() => setDraft(canViewAll ? [...defaults, "owner"] : defaults)}
                       className="text-blue-600"
                     >
                       恢复默认
                     </button>
                     <button
                       onClick={() => {
-                        setFields(draft.length ? draft : defaults);
+                        const selectedFields = draft.length ? draft : defaults;
+                        const visibleFields = canViewAll && !selectedFields.includes("owner") ? [...selectedFields, "owner" as const] : selectedFields;
+                        setFields(visibleFields);
                         localStorage.setItem(
                           "customer-columns-v5",
-                          JSON.stringify(draft.length ? draft : defaults),
+                          JSON.stringify(visibleFields),
                         );
                         setFieldOpen(false);
                       }}
@@ -1004,6 +1028,10 @@ export function CustomersView() {
                           <CountryLabel value={row.country} />
                         ) : key === "ai_score" ? (
                           <Score customer={row} />
+                        ) : key === "owner" ? (
+                          <span className="block truncate" title={userOptions.find((item) => item.id === row.owner_id)?.name || row.owner_id || "未分配"}>
+                            {userOptions.find((item) => item.id === row.owner_id)?.name || userOptions.find((item) => item.id === row.owner_id)?.email || "未分配"}
+                          </span>
                         ) : key === "status" ? (
                           <span
                             className={`rounded-md px-2 py-1 text-xs ${stageClass[row.status]}`}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type UsageCall = {
@@ -25,14 +25,14 @@ type TaskUsage = {
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const from = params.get("from") || new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
     const to = params.get("to") || new Date().toISOString().slice(0, 10);
     const model = params.get("model")?.trim() || "";
     const status = params.get("status")?.trim() || "";
     const taskId = params.get("task_id")?.trim() || "";
-    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
+    const scopeUserId = requestedOwnerId(request, account);
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";
