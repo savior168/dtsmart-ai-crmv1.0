@@ -374,7 +374,7 @@ export function CustomersView() {
           : null,
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
-        canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name || "我的数据"}` } : null,
+        canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
     [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
@@ -580,7 +580,7 @@ export function CustomersView() {
             ? "我的客户"
             : scopeUserId === "all"
               ? "全部用户"
-              : `${userOptions.find((item) => item.id === scopeUserId)?.name || "我的"}的客户`} ·
+              : `${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}的客户`} ·
           {currentRole === "SUPERVISOR" ? "主管默认查看本人，可主动切换指定用户" : currentRole === "ADMIN" ? "系统管理员可切换指定用户" : "系统按登录权限自动确定"} · 客户数已按主体去重
           <button type="button" onClick={() => setPermissionOpen(true)} className="float-right text-blue-600 hover:underline">
             查看权限说明 ⓘ
@@ -631,7 +631,7 @@ export function CustomersView() {
                 {industryOptions.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item)} onChange={() => { setIndustries((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]); setPage(1); }} /><span className="min-w-0 break-words">{item}</span></label>)}
               </div> : null}
             </div>
-            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="min-w-[190px] flex-[1.1] rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name || item.email}（我的客户）` : `归属人：${item.name || item.email}`}</option>)}</select> : null}
+            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="min-w-[190px] flex-[1.1] rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
             <ImportBatchMultiSelect
               className="min-w-[176px] flex-[1.2]"
               options={batchOptions}
@@ -1029,8 +1029,8 @@ export function CustomersView() {
                         ) : key === "ai_score" ? (
                           <Score customer={row} />
                         ) : key === "owner" ? (
-                          <span className="block truncate" title={userOptions.find((item) => item.id === row.owner_id)?.name || row.owner_id || "未分配"}>
-                            {userOptions.find((item) => item.id === row.owner_id)?.name || userOptions.find((item) => item.id === row.owner_id)?.email || "未分配"}
+                          <span className="block truncate" title={userOptions.find((item) => item.id === row.owner_id)?.name?.trim() || userOptions.find((item) => item.id === row.owner_id)?.email || "未分配"}>
+                            {userOptions.find((item) => item.id === row.owner_id)?.name?.trim() || userOptions.find((item) => item.id === row.owner_id)?.email || "未分配"}
                           </span>
                         ) : key === "status" ? (
                           <span

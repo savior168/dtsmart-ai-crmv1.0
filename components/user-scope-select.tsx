@@ -59,7 +59,7 @@ export function UserScopeSelect({
   return (
     <select aria-label="按归属人筛选" value={value} onChange={(event) => onChange(event.target.value)} className={className}>
       <option value="all">{filterLabel}：{allLabel}</option>
-      {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}
+      {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}
     </select>
   );
 }
