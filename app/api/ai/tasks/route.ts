@@ -12,7 +12,7 @@ function taskNumber() {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("ai.manage");
+    const { supabase, account } = await requirePermission("ai.tasks.view");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const selectionMode = params.get("selection_mode") || "";
     const from = params.get("date_from") || "";
     const to = params.get("date_to") || "";
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" });
     if (scopeUserId) query = query.eq("user_id", scopeUserId);
@@ -101,7 +101,9 @@ export async function GET(request: NextRequest) {
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null)
       .is("ai_score", null);
-    if (account.role !== "SALES" && scopeUserId) pendingCustomersQuery = pendingCustomersQuery.eq("owner_id", scopeUserId);
+    // 所有角色使用同一归属人口径：销售员固定本人；主管和系统管理员
+    // 默认本人，只有主动切换归属人后才查询对应用户或全部用户。
+    if (scopeUserId) pendingCustomersQuery = pendingCustomersQuery.eq("owner_id", scopeUserId);
     const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
       countItems("FAILED", undefined, true),
       todayCompletedQuery,
@@ -128,7 +130,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("ai.manage");
+    const { supabase, user } = await requirePermission("ai.tasks.create");
     const body = await request.json() as {
       name?: string; strategy?: AiStrategy; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
@@ -143,7 +145,7 @@ export async function POST(request: NextRequest) {
     const allowedIds: string[] = [];
     for (let offset = 0; offset < requestedIds.length; offset += 200) {
       const ids = requestedIds.slice(offset, offset + 200);
-      const allowed = await supabase.from("customers").select("id").in("id", ids).is("deleted_at", null).is("ai_score", null);
+      const allowed = await supabase.from("customers").select("id").in("id", ids).eq("owner_id", user.id).is("deleted_at", null).is("ai_score", null);
       if (allowed.error) throw allowed.error;
       allowedIds.push(...(allowed.data || []).map((item) => item.id));
     }

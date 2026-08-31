@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 
 // Only user-entered source data is editable here. AI conclusions, verified
@@ -13,9 +13,11 @@ const writable = [
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase } = await requireUser();
+    const { supabase, user, account } = await requirePermission("customers.view");
     const { id } = await context.params;
-    const { data, error } = await supabase.from("customers").select("*").eq("id", id).single();
+    let query = supabase.from("customers").select("*").eq("id", id);
+    if (!hasPermission(account, "customers.data_all")) query = query.or(`owner_id.eq.${user.id},created_by.eq.${user.id}`);
+    const { data, error } = await query.single();
     if (error) throw error;
     return NextResponse.json(data);
   } catch (error) {
@@ -25,13 +27,13 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user, account } = await requireUser();
+    const { supabase, user, account } = await requirePermission("customers.edit");
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
     const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,created_by,company_name,country").eq("id", id).single();
     if (customerError) throw customerError;
-    const canEdit = account.role === "ADMIN" || account.role === "SUPERVISOR" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
+    const canEdit = hasPermission(account, "customers.data_all") || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
     if (!canEdit) return NextResponse.json({ error: "只有当前归属人或管理员可以编辑客户原始资料" }, { status: 403 });
     if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
     if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
@@ -47,9 +49,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
 export async function DELETE(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user, account } = await requirePermission("customers.delete");
     const { id } = await context.params;
-    const result = await permanentlyDeleteCustomers({ supabase, userId: user.id, ids: [id] });
+    const result = await permanentlyDeleteCustomers({ supabase, userId: user.id, ids: [id], allowAll: hasPermission(account, "customers.data_all") });
     if (!result.successIds.length) {
       return NextResponse.json({ error: result.failures[0]?.error || "删除未生效，请刷新后重试" }, { status: 400 });
     }

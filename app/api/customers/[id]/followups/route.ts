@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { FOLLOWUP_TYPES } from "@/lib/types";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("followups.create");
     const { id } = await context.params;
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });

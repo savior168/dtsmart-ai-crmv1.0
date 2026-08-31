@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRun, start } from "workflow/api";
-import { requirePermission, type CurrentAccount } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission, type CurrentAccount } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import type { AiStrategy } from "@/lib/ai/task-types";
@@ -8,7 +8,7 @@ import type { AiStrategy } from "@/lib/ai/task-types";
 async function ownedTask(id: string, account: CurrentAccount) {
   const admin = createAdminClient();
   let query = admin.from("ai_screening_tasks").select("*").eq("id", id);
-  if (account.role === "SALES") query = query.eq("user_id", account.id);
+  if (!hasPermission(account, "ai.data_all")) query = query.eq("user_id", account.id);
   const result = await query.single();
   if (result.error || !result.data) throw result.error || new Error("任务不存在或无权访问");
   return result.data;
@@ -29,7 +29,7 @@ async function cancelWorkflowRun(runId?: string | null) {
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.tasks.view");
     const { id } = await context.params;
     const task = await ownedTask(id, account);
     return NextResponse.json({ task });
@@ -41,7 +41,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { user, account } = await requirePermission("ai.tasks.control");
     const { id } = await context.params;
     const body = await request.json() as {
       action?: "pause" | "resume" | "cancel" | "retry" | "edit";
@@ -140,13 +140,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { user, account } = await requirePermission("ai.tasks.delete");
     const { id } = await context.params;
     const task = await ownedTask(id, account);
     if (!['CANCELLED', 'FAILED'].includes(task.status)) return NextResponse.json({ error: "只有已取消或执行失败的任务可以删除" }, { status: 409 });
     const admin = createAdminClient();
     let removeQuery = admin.from("ai_screening_tasks").delete().eq("id", id).in("status", ['CANCELLED', 'FAILED']);
-    if (account.role === "SALES") removeQuery = removeQuery.eq("user_id", user.id);
+    if (!hasPermission(account, "ai.data_all")) removeQuery = removeQuery.eq("user_id", user.id);
     const removed = await removeQuery;
     if (removed.error) throw removed.error;
     await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_DELETE", target_type: "ai_screening_task", target_id: id, content: { task_number: task.task_number, status: task.status } });

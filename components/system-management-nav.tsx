@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileClock, KeyRound, ShieldCheck, UsersRound } from "lucide-react";
+import { FileClock, KeyRound, UsersRound } from "lucide-react";
 
 const items = [
-  { href: "/settings/users", label: "用户管理", icon: UsersRound },
-  { href: "/settings/roles", label: "角色权限", icon: ShieldCheck },
+  { href: "/settings/users", label: "用户与权限", icon: UsersRound },
   { href: "/settings/audit", label: "操作日志", icon: FileClock },
   { href: "/settings/security", label: "安全设置", icon: KeyRound },
 ];

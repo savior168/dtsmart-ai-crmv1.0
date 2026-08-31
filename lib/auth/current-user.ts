@@ -36,11 +36,21 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
   if (accountError || !data) throw new Error("ACCOUNT_NOT_FOUND");
   const role = normalizeRole(data.role);
   const cachedPermissions = permissionCache.get(role);
-  let permissions = cachedPermissions && cachedPermissions.expires > Date.now() ? cachedPermissions.values : [];
-  if (!permissions.length && role !== "ADMIN") {
+  let rolePermissions = cachedPermissions && cachedPermissions.expires > Date.now() ? cachedPermissions.values : [];
+  if (!rolePermissions.length && role !== "ADMIN") {
     const { data: permissionRows } = await admin.from("role_permission_settings").select("permission_code,enabled").eq("role_code", role);
-    permissions = (permissionRows || []).filter((item) => item.enabled).map((item) => String(item.permission_code));
-    permissionCache.set(role, { expires: Date.now() + 30000, values: permissions });
+    rolePermissions = (permissionRows || []).filter((item) => item.enabled).map((item) => String(item.permission_code));
+    permissionCache.set(role, { expires: Date.now() + 15000, values: rolePermissions });
+  }
+  let permissions = rolePermissions;
+  if (role !== "ADMIN") {
+    // 显式拒绝优先于角色默认与显式允许；表尚未迁移时保持角色权限，避免部署顺序造成登录中断。
+    const overrides = await admin.from("user_permission_overrides").select("permission_code,effect").eq("user_id", user.id);
+    if (!overrides.error) {
+      const denied = new Set((overrides.data || []).filter((item) => item.effect === "DENY").map((item) => String(item.permission_code)));
+      const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
+      permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
+    }
   }
   const account: CurrentAccount = {
     id: data.id,
@@ -75,14 +85,22 @@ export async function requirePermission(permission: string) {
   return context;
 }
 
-export function requestedOwnerId(request: Request, account: CurrentAccount) {
-  if (account.role === "SALES") return account.id;
+export function hasPermission(account: CurrentAccount, permission: string) {
+  return account.role === "ADMIN" || account.permissions.includes(permission);
+}
+
+export function requestedOwnerId(request: Request, account: CurrentAccount, dataPermission: string) {
+  if (!hasPermission(account, dataPermission)) return account.id;
   const requested = new URL(request.url).searchParams.get("user_id")?.trim() || "";
   if (requested.toLowerCase() === "all") return null;
-  // 主管进入业务页面时默认只看自己的数据，只有主动选择具体用户或
-  // “全部归属人”后才扩大范围；系统管理员仍默认查看全部数据。
-  if (account.role === "SUPERVISOR") return requested || account.id;
-  return requested || null;
+  // 拥有全部数据权限只代表可以主动扩大范围。主管和系统管理员进入
+  // 任何业务页面时也默认查看本人数据，避免默认混入其他销售数据。
+  return requested || account.id;
+}
+
+export function clearPermissionCache(role?: UserRole) {
+  if (role) permissionCache.delete(role);
+  else permissionCache.clear();
 }
 
 export function authErrorStatus(message: string) {

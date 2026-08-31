@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 
@@ -16,7 +16,7 @@ function taskNumber() {
  * retry or validated customer writeback. */
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("ai.tasks.create");
     const body = await request.json() as { customer_id?: string };
     if (!body.customer_id) return NextResponse.json({ error: "缺少客户编号" }, { status: 400 });
     const visible = await supabase.from("customers").select("id,company_name,ai_score")

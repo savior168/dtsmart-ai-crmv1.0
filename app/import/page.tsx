@@ -1,2 +1,3 @@
 import { ImportView } from "@/components/import-view";
-export default function ImportPage(){return <ImportView/>}
+import { protectPage } from "@/lib/auth/page-access";
+export default async function ImportPage(){await protectPage("imports.view");return <ImportView/>}

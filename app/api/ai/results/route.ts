@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.results.view");
     const params = request.nextUrl.searchParams;
     const taskId = params.get("task_id") || "";
     const today = params.get("today") === "true";
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
     const returnAll = params.get("all") === "true";
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { user } = await requirePermission("ai.manage");
+    const { user, account } = await requirePermission("ai.results.review");
     const body = await request.json() as {
       result_ids?: string[]; result_id?: string; target_decision?: "VALID" | "INVALID" | "REVIEW";
       grade?: "A" | "B" | "C" | "D"; score?: number; manual_review_note?: string;
@@ -123,7 +123,7 @@ export async function PATCH(request: NextRequest) {
     if (owned.error) throw owned.error;
     const permitted = (owned.data || []).filter((row) => {
       const task = Array.isArray(row.task) ? row.task[0] : row.task;
-      return task?.user_id === user.id;
+      return hasPermission(account, "ai.data_all") || task?.user_id === user.id;
     });
     if (permitted.length !== resultIds.length) return NextResponse.json({ error: "部分分析结果不存在或无权修改" }, { status: 403 });
     const update: Record<string, unknown> = {

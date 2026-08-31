@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
   try {
     const { user, account } = await requirePermission("customers.view");
     const admin = createAdminClient();
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
     let conflictsQuery = admin
       .from("customer_conflicts")
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("customers.manage");
+    const { supabase, user } = await requirePermission("customers.claim");
     const { customer_id } = await request.json();
     if (!customer_id) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
     const conflict = await createAdminClient().from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", customer_id).limit(1).maybeSingle();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mapCustomerForAi } from "@/lib/ai/semantic-fields";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
@@ -24,7 +24,7 @@ function batchFilterKey(row: MappedCustomer) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("ai.tasks.create");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(200, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     const excluded = await getReservedAiCustomerIds(user.id);
 
     const buildQuery = (start: number, end: number) => {
-      const query = supabase.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
+      const query = supabase.from("customers").select("*", { count: "exact" }).eq("owner_id", user.id).is("deleted_at", null).is("ai_score", null);
       return query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(start, end);
     };
 

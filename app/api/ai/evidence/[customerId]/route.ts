@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
 
@@ -71,9 +71,11 @@ function normalizeEvidence(row: Record<string, unknown>) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ customerId: string }> }) {
   try {
-    const { supabase, user, account } = await requirePermission("ai.manage");
+    const { supabase, user, account } = await requirePermission("ai.results.view");
     const { customerId } = await context.params;
-    const visible = await supabase.from("customers").select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId).single();
+    let visibleQuery = supabase.from("customers").select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId);
+    if (!hasPermission(account, "ai.data_all")) visibleQuery = visibleQuery.or(`owner_id.eq.${user.id},created_by.eq.${user.id}`);
+    const visible = await visibleQuery.single();
     if (visible.error || !visible.data) throw visible.error || new Error("客户不存在或无权访问");
     const admin = createAdminClient();
     const requestedTaskId = request.nextUrl.searchParams.get("task")?.trim() || "";
@@ -82,7 +84,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     const result = await resultQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (result.error) throw result.error;
     const task = result.data ? (Array.isArray(result.data.task) ? result.data.task[0] : result.data.task) : null;
-    if (task && account.role === "SALES" && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
+    if (task && !hasPermission(account, "ai.data_all") && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
     const evidence = result.data ? await admin.from("ai_screening_evidence").select("*").eq("result_id", result.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     const contacts = await admin.from("customer_contacts")

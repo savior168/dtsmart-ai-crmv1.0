@@ -25,14 +25,14 @@ type TaskUsage = {
 
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.usage.view");
     const params = request.nextUrl.searchParams;
     const from = params.get("from") || new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
     const to = params.get("to") || new Date().toISOString().slice(0, 10);
     const model = params.get("model")?.trim() || "";
     const status = params.get("status")?.trim() || "";
     const taskId = params.get("task_id")?.trim() || "";
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "ai.usage.view_all");
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";
@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
     const daily = [...dailyMap.values()].sort((left, right) => left.date.localeCompare(right.date));
     const count = allTaskRows.length;
     const tasks = returnAll ? allTaskRows : allTaskRows.slice((page - 1) * pageSize, page * pageSize);
-    return NextResponse.json({ tasks, count, page, pageSize, models, totals, daily });
+    return NextResponse.json({ tasks, count, page, pageSize, models, totals, daily, show_owner: account.role !== "SALES" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选用量查询失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

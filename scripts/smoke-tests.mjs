@@ -179,6 +179,7 @@ assert.match(importApi, /source_batch_id: taskId \|\| null/, "导入客户必须
 const aiCreateTask = read("components/ai-screening/create-task-view.tsx");
 const importBatchSelector = read("components/import-batch-multi-select.tsx");
 const aiCustomerApi = read("app/api/ai/customers/route.ts");
+const aiTaskApi = read("app/api/ai/tasks/route.ts");
 const importTaskLinkMigration = read("supabase/migrations/202608290001_customer_import_task_link.sql");
 assert.match(aiCreateTask, /value="MANUAL">手动新增/, "AI筛选来源必须区分手动新增");
 assert.match(aiCreateTask, /value="BATCH_IMPORT">批量导入/, "AI筛选来源必须区分批量导入");
@@ -190,6 +191,8 @@ assert.match(importBatchSelector, /aria-selected=\{checked\}/, "批次多选必�
 assert.match(aiCustomerApi, /params\.getAll\("source_batch"\)/, "待筛选接口必须接受多个导入任务ID");
 assert.match(aiCustomerApi, /sourceBatches\.includes\(batchFilterKey\(row\)\)/, "待筛选接口必须按唯一批次ID取并集");
 assert.match(aiCustomerApi, /item\.pending_count > 0/, "批次列表必须保留仍含待筛选客户的历史批次");
+assert.match(aiCustomerApi, /\.eq\("owner_id", user\.id\)/, "创建AI任务的待筛选客户和批次必须固定为当前登录用户");
+assert.match(aiTaskApi, /\.in\("id", ids\)\.eq\("owner_id", user\.id\)/, "提交AI任务时必须再次拒绝其他归属人的客户");
 assert.match(importTaskLinkMigration, /source_batch_id uuid references public\.import_tasks\(id\)/, "迁移必须建立客户到导入任务的唯一关联");
 const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /withOwner/, "冲突列表必须返回当前归属人信息");
@@ -202,7 +205,7 @@ assert.match(protectionApi, /requestedOwnerId[\s\S]*\.eq\("owner_id", scopeUserI
 assert.match(protectionApi, /requirePermission\("customers\.view"\)/, "保护到期必须在服务端校验客户查看权限");
 const workspacePanels = read("components/customer-workspace-panels-v2.tsx");
 assert.match(workspacePanels, /UserScopeSelect[\s\S]*customers\/protection\?\$\{params\}/, "保护到期页面必须提供生效的归属人筛选");
-assert.match(workspacePanels, /customer-conflicts\?\$\{params\}[\s\S]*全部提交人/, "冲突客户页面必须提供生效的提交人筛选");
+assert.match(workspacePanels, /customer-conflicts\?\$\{params\}[\s\S]*filterLabel="提交人"/, "冲突客户页面必须提供生效且语义清楚的提交人筛选");
 const adminAuditApi = read("app/api/admin/audit/route.ts");
 const adminPanels = read("components/admin-settings-panels.tsx");
 assert.match(adminAuditApi, /target_user:[\s\S]*target_type === "user"/, "系统操作日志必须返回目标账号信息");
@@ -211,6 +214,7 @@ assert.doesNotMatch(adminPanels, /JSON\.stringify\(row\.content/, "系统操作�
 const permanentDelete = read("lib/customers/soft-delete.ts");
 assert.match(permanentDelete, /offset \+= 200/, "批量永久删除必须分批处理，避免大批量ID被截断");
 assert.match(permanentDelete, /customer\.owner_id === userId/, "销售只能永久删除当前归属自己的客户");
+assert.match(permanentDelete, /allowAll \|\| customer\.owner_id === userId/, "跨用户物理删除必须服从最终生效的数据范围权限");
 assert.match(permanentDelete, /\.from\("customers"\)[\s\S]*?\.delete\(\)/, "客户删除必须从数据库物理删除");
 assert.match(permanentDelete, /\["QUOTE", "DEAL"\]/, "报价中和成交客户必须禁止删除");
 assert.equal(existsSync(resolve(root, "app/api/customers/[id]/restore/route.ts")), false, "永久删除模式不得保留客户恢复接口");
@@ -221,11 +225,15 @@ assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单
 const customersView = read("components/customers-view.tsx");
 const currentUserAuth = read("lib/auth/current-user.ts");
 const userScopeSelect = read("components/user-scope-select.tsx");
-assert.match(currentUserAuth, /role === "SUPERVISOR"\) return requested \|\| account\.id/, "主管服务端默认必须只读取自己的数据");
+assert.match(currentUserAuth, /return requested \|\| account\.id/, "主管和系统管理员服务端默认必须只读取自己的数据");
 assert.match(currentUserAuth, /requested\.toLowerCase\(\) === "all"/, "主管和系统管理员必须能够主动选择全部用户数据");
-assert.match(userScopeSelect, /role === "SUPERVISOR" \? body\.profile\.id : "all"/, "主管前端默认必须选中自己，系统管理员默认全部");
+assert.match(userScopeSelect, /onChangeRef\.current\(body\.profile\.id\)/, "主管和系统管理员前端默认必须选中自己");
+assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
 assert.match(customersView, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
+assert.ok(customersView.indexOf('aria-label="归属人"') < customersView.indexOf('<ImportBatchMultiSelect'), "客户列表归属人筛选必须位于导入批次前面");
+assert.match(customersView, /setScopeUserId\(event\.target\.value\); setSourceBatches\(\[\]\)/, "切换归属人时必须清空旧归属人的批次选择");
+assert.match(customersView, /options=batches\$\{scope\}/, "客户列表导入批次必须随归属人重新加载");
 assert.doesNotMatch(customersView, /负责人/, "客户列表不得混用负责人和归属人口径");
 for (const [name, source] of Object.entries({
   customersView,

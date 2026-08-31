@@ -301,10 +301,10 @@ export function CustomersView() {
     return () => clearTimeout(timer);
   }, [load]);
   useEffect(() => {
-    fetch("/api/users/options").then((response) => response.json()).then((body) => {
+    fetch("/api/users/options?permission=customers.data_all").then((response) => response.json()).then((body) => {
       const role = String(body?.profile?.role || "SALES");
-      const elevated = role === "ADMIN" || role === "SUPERVISOR";
-      const fallback = role === "SUPERVISOR" ? String(body?.profile?.id || "") : role === "ADMIN" ? "all" : "";
+      const elevated = Boolean(body?.can_select_owner);
+      const fallback = String(body?.profile?.id || "");
       const requested = new URLSearchParams(window.location.search).get("user_id") || fallback;
       setCurrentRole(role);
       setDefaultScopeUserId(fallback);
@@ -631,6 +631,7 @@ export function CustomersView() {
                 {industryOptions.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item)} onChange={() => { setIndustries((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]); setPage(1); }} /><span className="min-w-0 break-words">{item}</span></label>)}
               </div> : null}
             </div>
+            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="min-w-[190px] flex-[1.1] rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name || item.email}（我的客户）` : `归属人：${item.name || item.email}`}</option>)}</select> : null}
             <ImportBatchMultiSelect
               className="min-w-[176px] flex-[1.2]"
               options={batchOptions}
@@ -706,7 +707,6 @@ export function CustomersView() {
               <option value="pending">AI未筛选</option>
               <option value="all">全部AI状态</option>
             </select>
-            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setPage(1); setSelected(new Set()); }} className="min-w-[132px] flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="归属人"><option value="all">全部归属人</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId && currentRole === "SUPERVISOR" ? `${item.name || item.email}（我的数据）` : item.name || item.email}</option>)}</select> : null}
             <button
               onClick={reset}
               className="min-w-24 flex-none rounded-lg border border-slate-200 px-4 py-2.5 text-sm hover:bg-slate-50"

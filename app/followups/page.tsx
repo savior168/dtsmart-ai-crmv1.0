@@ -1,2 +1,3 @@
 import { FollowupsView } from "@/components/followups-view";
-export default function FollowupsPage(){return <FollowupsView/>}
+import { protectPage } from "@/lib/auth/page-access";
+export default async function FollowupsPage(){await protectPage("followups.view");return <FollowupsView/>}

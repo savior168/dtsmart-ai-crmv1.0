@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
-import { canManageAll } from "@/lib/auth/permissions";
+import { hasPermission, requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -76,7 +75,7 @@ function clean(body: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user, account } = await requirePermission("customers.view");
+    const { supabase, account } = await requirePermission("customers.view");
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
     const pageSize = Math.min(idsOnly ? 1000 : 500, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
@@ -86,7 +85,7 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
     const options = request.nextUrl.searchParams.get("options");
@@ -157,8 +156,7 @@ export async function GET(request: NextRequest) {
         let tasksQuery = admin.from("import_tasks")
           .select("id,filename,success_count,created_at")
           .in("id", taskIds.slice(offset, offset + 200));
-        if (account.role === "SALES") tasksQuery = tasksQuery.eq("created_by", user.id);
-        else if (scopeUserId && scopeUserId !== "unclaimed") tasksQuery = tasksQuery.eq("created_by", scopeUserId);
+        if (scopeUserId && scopeUserId !== "unclaimed") tasksQuery = tasksQuery.eq("created_by", scopeUserId);
         const tasks = await tasksQuery;
         if (tasks.error) throw tasks.error;
         for (const task of tasks.data || []) {
@@ -220,8 +218,8 @@ export async function GET(request: NextRequest) {
       const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
       if (filters.length) query = query.or(Array.from(new Set(filters)).map((item) => `country.ilike.%${item}%`).join(","));
     }
-    if (canManageAll(account.role) && scopeUserId === "unclaimed") query = query.is("owner_id", null);
-    else if (canManageAll(account.role) && scopeUserId) query = query.eq("owner_id", scopeUserId);
+    if (hasPermission(account, "customers.data_all") && scopeUserId === "unclaimed") query = query.is("owner_id", null);
+    else if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
     if (sourceBatches.length) {
@@ -264,7 +262,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("customers.manage");
+    const { supabase, user } = await requirePermission("customers.create");
     const admin = createAdminClient();
     const body = await request.json();
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });

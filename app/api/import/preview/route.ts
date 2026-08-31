@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
@@ -12,7 +12,7 @@ type Row = {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = await requireUser();
+    const { user } = await requirePermission("imports.create");
     const admin = createAdminClient();
     const payload = (await request.json()) as { rows?: Row[] };
     const rows = Array.isArray(payload.rows) ? payload.rows : [];

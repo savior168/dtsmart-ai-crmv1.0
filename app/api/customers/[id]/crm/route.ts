@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows, normalizeEmailStrict, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
 
@@ -18,10 +18,10 @@ function cleanStoredDiscoveredValues(value: unknown, type: "EMAIL" | "PHONE", co
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user, account } = await requireUser();
+    const { supabase, user, account } = await requirePermission("customers.view");
     const { id } = await context.params;
     const [customerResult, profileResult, followupsResult, claimsResult, protectionResult, aiEvidenceResult, auditLogsResult] = await Promise.all([
-      account.role === "SALES" ? supabase.from("customers").select("*").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single() : supabase.from("customers").select("*").eq("id", id).single(),
+      hasPermission(account, "customers.data_all") ? supabase.from("customers").select("*").eq("id", id).single() : supabase.from("customers").select("*").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single(),
       supabase.from("users").select("id,name,email,role,department_id").eq("id", user.id).single(),
       supabase.from("followups").select("*,creator:users(name,email)").eq("customer_id", id).order("created_at", { ascending: false }),
       supabase.from("customer_claims").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
@@ -80,7 +80,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       remaining_days: remainingDays,
       permanent,
     };
-    const canEdit = ["ADMIN","SUPERVISOR"].includes(profileResult.data.role) || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
+    const canEdit = hasPermission(account, "customers.edit") && (hasPermission(account, "customers.data_all") || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id));
     const customerForDisplay = {
       ...customer,
       website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),

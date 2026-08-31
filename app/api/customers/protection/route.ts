@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
     const now = new Date();
     const cutoff = new Date(now.getTime() - 90 * 86400000).toISOString();
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";

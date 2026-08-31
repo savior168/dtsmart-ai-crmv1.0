@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { user, account } = await requirePermission("ai.tasks.view");
     const { id } = await context.params;
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const search = params.get("search")?.trim() || "";
     const admin = createAdminClient();
     let taskQuery = admin.from("ai_screening_tasks").select("id").eq("id", id);
-    if (account.role === "SALES") taskQuery = taskQuery.eq("user_id", user.id);
+    if (!hasPermission(account, "ai.data_all")) taskQuery = taskQuery.eq("user_id", user.id);
     const task = await taskQuery.single();
     if (task.error) throw task.error;
     if (options === "industries") {

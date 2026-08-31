@@ -1,2 +1,2 @@
-import { UserManagementPanel } from "@/components/admin-settings-panels";
-export default function UsersSettingsPage() { return <UserManagementPanel />; }
+import { UserAccessManagementPanel } from "@/components/admin-settings-panels";
+export default function UsersSettingsPage() { return <UserAccessManagementPanel />; }

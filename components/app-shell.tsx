@@ -30,11 +30,11 @@ import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
   { label: "客户管理", href: "/customers", icon: UsersRound, permission: "customers.view" },
-  { label: "数据导入", href: "/import", icon: FileSpreadsheet, permission: "imports.manage" },
-  { label: "AI筛选", href: "/ai-screening", icon: Bot, permission: "ai.manage" },
-  { label: "跟进管理", href: "/followups", icon: MessageSquareText, permission: "followups.manage" },
+  { label: "数据导入", href: "/import", icon: FileSpreadsheet, permission: "imports.view" },
+  { label: "AI筛选", href: "/ai-screening", icon: Bot, permission: "ai.tasks.view" },
+  { label: "跟进管理", href: "/followups", icon: MessageSquareText, permission: "followups.view" },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
-  { label: "系统管理", href: "/settings", icon: Settings, permission: "system.manage", adminOnly: true },
+  { label: "系统管理", href: "/settings", icon: Settings, permission: "system.users.view", adminOnly: true },
 ] as const;
 
 const pageTitles: Array<[RegExp, string]> = [

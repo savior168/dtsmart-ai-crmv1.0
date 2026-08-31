@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import type { AiStrategy } from "@/lib/ai/task-types";
 
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requirePermission("ai.manage");
+    const { account } = await requirePermission("ai.results.view");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const search = params.get("search")?.trim() || "";
     const step = params.get("step") || "";
     const retry = params.get("retry") || "";
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     let tasksQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,user_id");
     if (scopeUserId) tasksQuery = tasksQuery.eq("user_id", scopeUserId);
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user, account } = await requirePermission("ai.manage");
+    const { user, account } = await requirePermission("ai.tasks.control");
     const body = await request.json() as { item_ids?: string[]; task_id?: string };
     const admin = createAdminClient();
     type RetryRow = { id: string; task_id: string; task: { id: string; user_id: string; strategy: string } | Array<{ id: string; user_id: string; strategy: string }> };
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         .eq("retryable", true)
         .lt("attempt_count", 3);
       if (body.task_id) query = query.eq("task_id", body.task_id);
-      if (account.role === "SALES") query = query.eq("task.user_id", user.id);
+      if (!hasPermission(account, "ai.data_all")) query = query.eq("task.user_id", user.id);
       if (ids?.length) query = query.in("id", ids);
       const result = ids?.length ? await query : await query.range(from, from + 999);
       if (result.error) throw result.error;
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const groups = new Map<string, { strategy: AiStrategy; ids: string[] }>();
     for (const item of failedRows) {
       const task = Array.isArray(item.task) ? item.task[0] : item.task;
-      if (!task || (account.role === "SALES" && task.user_id !== user.id)) continue;
+      if (!task || (!hasPermission(account, "ai.data_all") && task.user_id !== user.id)) continue;
       const current = groups.get(item.task_id) || { strategy: task.strategy as AiStrategy, ids: [] };
       current.ids.push(item.id);
       groups.set(item.task_id, current);

@@ -3,10 +3,10 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 
 export async function GET(request: Request) {
   try {
-    const { supabase, account } = await requirePermission("followups.manage");
+    const { supabase, account } = await requirePermission("followups.view");
     const params = new URL(request.url).searchParams;
     const scope = params.get("scope") || "today";
-    const scopeUserId = requestedOwnerId(request, account);
+    const scopeUserId = requestedOwnerId(request, account, "followups.data_all");
     const now = new Date(); const start = new Date(now); start.setHours(0,0,0,0); const end = new Date(start); end.setDate(end.getDate()+1);
     let query = supabase.from("followups").select("id,customer_id,user_id,type,content,attachment,next_follow_date,created_at,customer:customers(id,company_name,country,ai_level,ai_score,status,owner_id)").order("next_follow_date", { ascending: true, nullsFirst: false }).limit(200);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);

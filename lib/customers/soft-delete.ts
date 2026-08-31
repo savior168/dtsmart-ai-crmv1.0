@@ -9,10 +9,12 @@ export async function permanentlyDeleteCustomers({
   supabase: _supabase,
   userId,
   ids,
+  allowAll = false,
 }: {
   supabase: UserSupabase;
   userId: string;
   ids: string[];
+  allowAll?: boolean;
 }) {
   void _supabase;
   const uniqueIds = [...new Set(ids)].filter(Boolean);
@@ -21,8 +23,6 @@ export async function permanentlyDeleteCustomers({
   // 读取和写入都通过服务端管理客户端完成，避免大批量操作被 RLS
   // 的可见行分页或策略差异截断；授权仍由这里按当前用户严格判定。
   const admin = createAdminClient();
-  const { data: profile, error: profileError } = await admin.from("users").select("role").eq("id", userId).maybeSingle();
-  if (profileError) throw profileError;
   const visible: Array<{ id: string; owner_id: string | null; status: string }> = [];
   for (let offset = 0; offset < uniqueIds.length; offset += 200) {
     const page = await admin.from("customers")
@@ -33,11 +33,10 @@ export async function permanentlyDeleteCustomers({
     visible.push(...(page.data || []));
   }
 
-  const elevated = profile?.role === "ADMIN" || profile?.role === "SUPERVISOR";
   const visibleById = new Map((visible || []).map((customer) => [customer.id, customer]));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
-    return Boolean(customer && !["QUOTE", "DEAL"].includes(customer.status) && (elevated || customer.owner_id === userId));
+    return Boolean(customer && !["QUOTE", "DEAL"].includes(customer.status) && (allowAll || customer.owner_id === userId));
   });
   const failures: Failure[] = uniqueIds
     .filter((id) => !allowedIds.includes(id))

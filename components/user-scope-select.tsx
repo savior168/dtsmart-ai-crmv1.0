@@ -9,11 +9,15 @@ export function UserScopeSelect({
   onChange,
   className = "h-10 min-w-48 rounded-lg border border-slate-200 bg-white px-3 text-sm",
   allLabel = "全部归属人",
+  filterLabel = "归属人",
+  permission,
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
   allLabel?: string;
+  filterLabel?: string;
+  permission: string;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [elevated, setElevated] = useState(false);
@@ -27,34 +31,35 @@ export function UserScopeSelect({
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/users/options", { cache: "no-store" })
+    void fetch(`/api/users/options?permission=${encodeURIComponent(permission)}`, { cache: "no-store" })
       .then((response) => response.json().then((body) => ({ response, body })))
       .then(({ response, body }) => {
         if (!active || !response.ok) return;
-        const elevated = body.profile?.role === "ADMIN" || body.profile?.role === "SUPERVISOR";
+        const elevated = Boolean(body.can_select_owner);
         setElevated(elevated);
         setLoaded(true);
         setUsers(Array.isArray(body.users) ? body.users : []);
-        setDefaultValue(body.profile.role === "SUPERVISOR" ? body.profile.id : elevated ? "all" : "");
+        setDefaultValue(body.profile.id || "");
         if (elevated && !valueRef.current) {
-          // 主管默认仅查看自己的数据；管理员默认查看全部。两者都可
-          // 通过下拉框主动切换为指定归属人或全部归属人。
-          onChangeRef.current(body.profile.role === "SUPERVISOR" ? body.profile.id : "all");
+          // 主管和系统管理员也默认查看自己的数据；只有主动选择时才扩大范围。
+          onChangeRef.current(body.profile.id);
         }
       })
       .catch(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, []);
+  }, [permission]);
 
   useEffect(() => {
     if (loaded && elevated && !value && defaultValue) onChangeRef.current(defaultValue);
   }, [defaultValue, elevated, loaded, value]);
 
-  if (!loaded) return <span className={`${className} inline-flex items-center text-slate-400`}>正在加载…</span>;
+  // 普通销售员没有跨用户数据权限，不渲染归属人筛选控件，也避免
+  // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
+  if (!loaded || !elevated) return null;
   return (
-    <select aria-label="按归属人筛选" value={value} disabled={!elevated} onChange={(event) => onChange(event.target.value)} className={className}>
-      <option value={elevated ? "all" : ""}>{elevated ? allLabel : "我的数据"}</option>
-      {users.map((user) => <option key={user.id} value={user.id}>{user.name || user.email} · {user.email}</option>)}
+    <select aria-label="按归属人筛选" value={value} onChange={(event) => onChange(event.target.value)} className={className}>
+      <option value="all">{filterLabel}：{allLabel}</option>
+      {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}
     </select>
   );
 }
