@@ -32,7 +32,7 @@ export default async function SupabaseTestPage() {
           <Database size={28} aria-hidden="true" />
         </div>
         <p className="mt-5 text-xs font-medium uppercase tracking-[.22em] text-indigo-400">
-          DTSmart AI 获客 CRM
+          智客云 AI 客户分析与管理系统
         </p>
         <h1 className="mt-2 text-2xl font-semibold">Supabase 连接检测</h1>
         <div

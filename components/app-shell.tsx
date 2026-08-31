@@ -335,7 +335,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
   if (path === "/login" || path === "/reset-password") return <>{children}</>;
-  const title = pageTitleOverride || pageTitles.find(([pattern]) => pattern.test(path))?.[1] || "DTSmart TradeOS";
+  const title = pageTitleOverride || pageTitles.find(([pattern]) => pattern.test(path))?.[1] || "智客云";
   const titleParts = title.split(" / ");
   const effectiveWidth = collapsed ? 76 : sidebarWidth;
   const sidebarDark = sidebarMode === "dark";
@@ -362,20 +362,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         <Link href="/" prefetch={false} className="flex min-w-0 items-center gap-2.5">
           <Image
-            src="/dtsmart-tradeos-logo.png"
+            src="/zhikeyun-logo.svg"
             width={40}
             height={40}
             priority
-            alt="DTSmart TradeOS Logo"
-            className="h-10 w-10 shrink-0 rounded-xl object-cover shadow-sm"
+            alt="智客云 Logo"
+            className="h-10 w-10 shrink-0 rounded-xl shadow-sm"
           />
           {!collapsed ? (
             <span className="min-w-0">
               <b className={`block whitespace-nowrap text-[15px] font-bold leading-5 tracking-tight ${sidebarDark ? "text-white" : "text-slate-950"}`}>
-                DTSmart TradeOS
+                智客云
               </b>
               <small className={`block whitespace-nowrap text-[12px] ${sidebarDark ? "text-slate-400" : "text-slate-500"}`}>
-                精准识客&amp;高效转化
+                真实识别&amp;精准转化
               </small>
             </span>
           ) : null}
