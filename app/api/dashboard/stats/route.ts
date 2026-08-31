@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 
 type DashboardCustomer = {
   id: string;
@@ -48,7 +48,8 @@ function activityText(action: string, customerName: string, content: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user, account } = await requirePermission("dashboard.view");
+    const scopeUserId = account.role === "SALES" ? user.id : request.nextUrl.searchParams.get("user_id")?.trim() || null;
     const now = new Date();
     if (request.nextUrl.searchParams.get("summary") === "1") {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -56,22 +57,20 @@ export async function GET(request: NextRequest) {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const protectionEnd = new Date(todayStart);
       protectionEnd.setDate(protectionEnd.getDate() + 8);
-      const [followups, protections] = await Promise.all([
-        supabase
+      let followupsQuery = supabase
           .from("followups")
           .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
           .gte("next_follow_date", todayStart.toISOString())
-          .lt("next_follow_date", tomorrow.toISOString()),
-        supabase
+          .lt("next_follow_date", tomorrow.toISOString());
+      let protectionsQuery = supabase
           .from("customer_protection")
           .select("id", { count: "exact", head: true })
-          .eq("owner_id", user.id)
           .eq("status", "ACTIVE")
           .not("expire_date", "is", null)
           .gte("expire_date", todayStart.toISOString())
-          .lt("expire_date", protectionEnd.toISOString()),
-      ]);
+          .lt("expire_date", protectionEnd.toISOString());
+      if (scopeUserId) { followupsQuery = followupsQuery.eq("user_id", scopeUserId); protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId); }
+      const [followups, protections] = await Promise.all([followupsQuery, protectionsQuery]);
       if (followups.error) throw new Error(followups.error.message);
       if (protections.error) throw new Error(protections.error.message);
       return NextResponse.json({
@@ -95,14 +94,14 @@ export async function GET(request: NextRequest) {
     const profilePromise = supabase.from("users").select("name,email,role").eq("id", user.id).single().then((result) => result);
     const sourceCustomers: DashboardCustomer[] = [];
     for (let from = 0; ; from += 1000) {
-      const page = await supabase.from("customers")
+      let customersQuery = supabase.from("customers")
         .select("id,company_name,country,ai_level,ai_score,status,created_at,updated_at,last_contact_time")
-        .eq("owner_id", user.id)
         .is("deleted_at", null)
         .gte("created_at", fromDate.toISOString())
         .lt("created_at", exclusiveTo.toISOString())
-        .order("created_at", { ascending: false })
-        .range(from, from + 999);
+        .order("created_at", { ascending: false });
+      if (scopeUserId) customersQuery = customersQuery.eq("owner_id", scopeUserId);
+      const page = await customersQuery.range(from, from + 999);
       if (page.error) throw new Error(page.error.message);
       sourceCustomers.push(...((page.data || []) as DashboardCustomer[]));
       if ((page.data || []).length < 1000) break;
@@ -167,7 +166,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       profile: profileResult.data,
-      scope: "SELF",
+      scope: scopeUserId || "ALL",
       range: { from: dateKey(fromDate), to: dateKey(toDate) },
       filters: { countries },
       totals,

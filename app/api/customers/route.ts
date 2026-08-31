@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { canManageAll } from "@/lib/auth/permissions";
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -75,7 +76,7 @@ function clean(body: Record<string, unknown>): Record<string, unknown> {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user, account } = await requirePermission("customers.view");
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
     const pageSize = Math.min(idsOnly ? 1000 : 500, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
@@ -102,16 +103,17 @@ export async function GET(request: NextRequest) {
     if (options === "industries") {
       const values: string[] = [];
       for (let from = 0; ; from += 1000) {
-        const pageQuery = await supabase.from("customers")
+        let pageQueryBuilder = supabase.from("customers")
           .select("industry")
           .is("deleted_at", null)
-          .eq("owner_id", user.id)
           .neq("status", "RELEASED")
           .or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`)
           .not("industry", "is", null)
           .neq("industry", "")
-          .order("industry", { ascending: true })
-          .range(from, from + 999);
+          .order("industry", { ascending: true });
+        if (!canManageAll(account.role)) pageQueryBuilder = pageQueryBuilder.eq("owner_id", user.id);
+        else if (ownerId && ownerId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", ownerId);
+        const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
         values.push(...(pageQuery.data || []).map((item) => String(item.industry || "").trim()).filter(Boolean));
         if ((pageQuery.data || []).length < 1000) break;
@@ -122,16 +124,17 @@ export async function GET(request: NextRequest) {
     if (options === "batches") {
       const grouped = new Map<string, { id: string; filename: string; created_at: string | null; customer_count: number; success_count: number | null; legacy: boolean }>();
       for (let from = 0; ; from += 1000) {
-        const pageQuery = await supabase.from("customers")
+        let pageQueryBuilder = supabase.from("customers")
           .select("source_batch_id,source_batch,created_at")
           .is("deleted_at", null)
-          .eq("owner_id", user.id)
           .neq("status", "RELEASED")
           .or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`)
           .not("source_batch", "is", null)
           .neq("source_batch", "")
-          .order("created_at", { ascending: false })
-          .range(from, from + 999);
+          .order("created_at", { ascending: false });
+        if (!canManageAll(account.role)) pageQueryBuilder = pageQueryBuilder.eq("owner_id", user.id);
+        else if (ownerId && ownerId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", ownerId);
+        const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
         for (const row of pageQuery.data || []) {
           const filename = String(row.source_batch || "").trim();
@@ -153,10 +156,12 @@ export async function GET(request: NextRequest) {
       const taskIds = [...grouped.values()].filter((item) => !item.legacy).map((item) => item.id);
       const admin = createAdminClient();
       for (let offset = 0; offset < taskIds.length; offset += 200) {
-        const tasks = await admin.from("import_tasks")
+        let tasksQuery = admin.from("import_tasks")
           .select("id,filename,success_count,created_at")
-          .eq("created_by", user.id)
           .in("id", taskIds.slice(offset, offset + 200));
+        if (!canManageAll(account.role)) tasksQuery = tasksQuery.eq("created_by", user.id);
+        else if (ownerId && ownerId !== "unclaimed") tasksQuery = tasksQuery.eq("created_by", ownerId);
+        const tasks = await tasksQuery;
         if (tasks.error) throw tasks.error;
         for (const task of tasks.data || []) {
           const current = grouped.get(task.id);
@@ -187,7 +192,8 @@ export async function GET(request: NextRequest) {
     query = query.is("deleted_at", null);
     // 客户列表只展示当前用户仍持有且尚未释放的客户；历史释放/到期客户
     // 由保护到期页统一展示，避免跨销售数据混入日常工作列表。
-    query = query.eq("owner_id", user.id).neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
+    if (!canManageAll(account.role)) query = query.eq("owner_id", user.id);
+    query = query.neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) {
@@ -217,8 +223,8 @@ export async function GET(request: NextRequest) {
       const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
       if (filters.length) query = query.or(Array.from(new Set(filters)).map((item) => `country.ilike.%${item}%`).join(","));
     }
-    if (ownerId === "unclaimed") query = query.is("owner_id", null);
-    else if (ownerId) query = query.eq("owner_id", ownerId);
+    if (canManageAll(account.role) && ownerId === "unclaimed") query = query.is("owner_id", null);
+    else if (canManageAll(account.role) && ownerId) query = query.eq("owner_id", ownerId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
     if (sourceBatches.length) {
@@ -261,7 +267,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("customers.manage");
     const admin = createAdminClient();
     const body = await request.json();
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });

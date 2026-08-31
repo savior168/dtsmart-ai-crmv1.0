@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type UsageCall = {
@@ -25,13 +25,14 @@ type TaskUsage = {
 
 export async function GET(request: NextRequest) {
   try {
-    const { user } = await requireUser();
+    const { user, account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const from = params.get("from") || new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
     const to = params.get("to") || new Date().toISOString().slice(0, 10);
     const model = params.get("model")?.trim() || "";
     const status = params.get("status")?.trim() || "";
     const taskId = params.get("task_id")?.trim() || "";
+    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";
@@ -43,7 +44,8 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; ; offset += 1000) {
       let query = admin.from("ai_screening_usage_ledger")
         .select("source_call_id,task_id,task_name,task_number,task_status,task_total_count,task_created_at,customer_id,channel,model,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,call_status,duration_ms,error_message,occurred_at")
-        .eq("user_id", user.id).gte("occurred_at", start).lte("occurred_at", end);
+        .gte("occurred_at", start).lte("occurred_at", end);
+      if (scopeUserId) query = query.eq("user_id", scopeUserId);
       if (taskId) query = query.eq("task_id", taskId);
       const result = await query.order("occurred_at", { ascending: false }).range(offset, offset + 999);
       if (result.error) throw result.error;
@@ -56,7 +58,8 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; ; offset += 1000) {
       let query = admin.from("ai_screening_completion_ledger")
         .select("source_task_item_id,task_id,task_name,task_number,task_status,task_total_count,task_created_at,customer_id,completed_at")
-        .eq("user_id", user.id).gte("completed_at", start).lte("completed_at", end);
+        .gte("completed_at", start).lte("completed_at", end);
+      if (scopeUserId) query = query.eq("user_id", scopeUserId);
       if (taskId) query = query.eq("task_id", taskId);
       const result = await query.order("completed_at", { ascending: false }).range(offset, offset + 999);
       if (result.error) throw result.error;
@@ -96,7 +99,9 @@ export async function GET(request: NextRequest) {
     const taskIds = [...taskMap.keys()];
     const existing = new Set<string>();
     for (let offset = 0; offset < taskIds.length; offset += 200) {
-      const result = await admin.from("ai_screening_tasks").select("id").eq("user_id", user.id).in("id", taskIds.slice(offset, offset + 200));
+      let existingQuery = admin.from("ai_screening_tasks").select("id").in("id", taskIds.slice(offset, offset + 200));
+      if (scopeUserId) existingQuery = existingQuery.eq("user_id", scopeUserId);
+      const result = await existingQuery;
       if (result.error) throw result.error;
       for (const row of result.data || []) existing.add(row.id);
     }
@@ -108,7 +113,7 @@ export async function GET(request: NextRequest) {
     const allTaskRows = [...taskMap.values()]
       .filter((task) => !status || task.status === status)
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
-    const totalsResult = await admin.rpc("ai_screening_usage_totals", { p_user_id: user.id });
+    const totalsResult = await admin.rpc("ai_screening_usage_totals", { p_user_id: scopeUserId });
     if (totalsResult.error) throw totalsResult.error;
     const historical = Array.isArray(totalsResult.data) ? totalsResult.data[0] : totalsResult.data;
     const totals = {

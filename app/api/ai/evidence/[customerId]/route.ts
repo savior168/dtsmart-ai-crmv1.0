@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
 
@@ -71,7 +71,7 @@ function normalizeEvidence(row: Record<string, unknown>) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ customerId: string }> }) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user, account } = await requirePermission("ai.manage");
     const { customerId } = await context.params;
     const visible = await supabase.from("customers").select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId).single();
     if (visible.error || !visible.data) throw visible.error || new Error("客户不存在或无权访问");
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     const result = await resultQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (result.error) throw result.error;
     const task = result.data ? (Array.isArray(result.data.task) ? result.data.task[0] : result.data.task) : null;
-    if (task && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
+    if (task && account.role === "SALES" && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
     const evidence = result.data ? await admin.from("ai_screening_evidence").select("*").eq("result_id", result.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     const contacts = await admin.from("customer_contacts")

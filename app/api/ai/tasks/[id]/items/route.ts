@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user } = await requireUser();
+    const { user, account } = await requirePermission("ai.manage");
     const { id } = await context.params;
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
@@ -18,7 +18,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const options = params.get("options") || "";
     const search = params.get("search")?.trim() || "";
     const admin = createAdminClient();
-    const task = await admin.from("ai_screening_tasks").select("id").eq("id", id).eq("user_id", user.id).single();
+    let taskQuery = admin.from("ai_screening_tasks").select("id").eq("id", id);
+    if (account.role === "SALES") taskQuery = taskQuery.eq("user_id", user.id);
+    const task = await taskQuery.single();
     if (task.error) throw task.error;
     if (options === "industries") {
       const values: string[] = [];

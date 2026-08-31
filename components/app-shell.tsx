@@ -28,13 +28,13 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 
 const menu = [
-  { label: "工作台", href: "/", icon: LayoutDashboard },
-  { label: "客户管理", href: "/customers", icon: UsersRound },
-  { label: "数据导入", href: "/import", icon: FileSpreadsheet },
-  { label: "AI筛选", href: "/ai-screening", icon: Bot },
-  { label: "跟进管理", href: "/followups", icon: MessageSquareText },
-  { label: "报表中心", href: "/reports", icon: BarChart3 },
-  { label: "系统设置", href: "/settings", icon: Settings },
+  { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
+  { label: "客户管理", href: "/customers", icon: UsersRound, permission: "customers.view" },
+  { label: "数据导入", href: "/import", icon: FileSpreadsheet, permission: "imports.manage" },
+  { label: "AI筛选", href: "/ai-screening", icon: Bot, permission: "ai.manage" },
+  { label: "跟进管理", href: "/followups", icon: MessageSquareText, permission: "followups.manage" },
+  { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
+  { label: "系统管理", href: "/settings", icon: Settings, permission: "system.manage", adminOnly: true },
 ] as const;
 
 const pageTitles: Array<[RegExp, string]> = [
@@ -54,7 +54,12 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/ai-screening\/customers\/[^/]+\/evidence$/, "AI筛选 / 任务详情 / 客户分析依据"],
   [/^\/followups$/, "跟进管理中心"],
   [/^\/reports$/, "报表中心"],
-  [/^\/settings$/, "系统设置与个人资料"],
+  [/^\/profile$/, "个人中心 / 账号资料"],
+  [/^\/settings\/users$/, "系统管理 / 用户管理"],
+  [/^\/settings\/roles$/, "系统管理 / 角色权限"],
+  [/^\/settings\/audit$/, "系统管理 / 操作日志"],
+  [/^\/settings\/security$/, "系统管理 / 安全设置"],
+  [/^\/settings$/, "系统管理"],
 ];
 
 function isActive(path: string, href: string) {
@@ -252,14 +257,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     name: string;
     email: string;
     avatar_url: string;
+    role: "ADMIN" | "SUPERVISOR" | "SALES";
+    must_change_password: boolean;
+    permissions: string[];
   } | null>(null);
   const [noticeCount, setNoticeCount] = useState(0);
+  const [notices, setNotices] = useState<Array<{id:string;title:string;content:string|null;href:string|null;read_at:string|null;created_at:string}>>([]);
+  const [noticeOpen, setNoticeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageTitleOverride, setPageTitleOverride] = useState("");
   const [modal, setModal] = useState<"avatar" | "name" | "password" | null>(
     null,
   );
   const profileRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const profileRequestRef = useRef(0);
   const loadProfile = useCallback(async () => {
     const requestId = ++profileRequestRef.current;
@@ -276,22 +287,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const email = String(body.email || "").trim();
       const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
-      setProfile({ name, email, avatar_url: String(body.avatar_url || "") });
+      setProfile({ name, email, avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
     } catch {
       // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
     }
   }, []);
-  useEffect(() => {
-    fetch("/api/dashboard/stats?summary=1")
-      .then((response) => response.json())
-      .then((body) =>
-        setNoticeCount(
-          Number(body?.totals?.today_followups || 0) +
-            Number(body?.totals?.expiring_protection || 0),
-        ),
-      )
-      .catch(() => undefined);
-  }, []);
+  const loadNotices = useCallback(async () => {
+    try { const response = await fetch("/api/notifications", { cache:"no-store" }); const body = await response.json(); if(response.ok){setNotices(body.data||[]);setNoticeCount(Number(body.unread||0));} } catch { /* 保留已加载通知 */ }
+  },[]);
   useEffect(() => {
     const refresh = () => void loadProfile();
     window.addEventListener("dtsmart-profile-updated", refresh);
@@ -303,6 +306,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", refresh);
     };
   }, [loadProfile]);
+  useEffect(() => { const refresh=()=>void loadNotices(); refresh(); window.addEventListener("focus",refresh); const timer=window.setInterval(refresh,60000); return()=>{window.removeEventListener("focus",refresh);window.clearInterval(timer);}; },[loadNotices]);
+  useEffect(() => { if(profile?.must_change_password && path !== "/profile") router.replace("/profile?password=required"); },[path,profile?.must_change_password,router]);
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
     setSidebarMode(saved === "dark" ? "dark" : "light");
@@ -311,6 +316,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setMobileOpen(false);
     setPageTitleOverride("");
     setProfileOpen(false);
+    setNoticeOpen(false);
     if (path === "/login" || path === "/reset-password") {
       profileRequestRef.current += 1;
       setProfile(null);
@@ -330,6 +336,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         !profileRef.current.contains(event.target as Node)
       )
         setProfileOpen(false);
+      if (noticeRef.current && !noticeRef.current.contains(event.target as Node)) setNoticeOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -382,7 +389,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
       </div>
       <nav className="h-[calc(100vh-196px)] space-y-2 overflow-y-auto px-3 py-4">
-        {menu.map((item) => {
+        {menu.filter((item) => profile?.role === "ADMIN" || (!(("adminOnly" in item) && item.adminOnly) && profile?.permissions.includes(item.permission))).map((item) => {
           const Icon = item.icon;
           const selected = isActive(path, item.href);
           return (
@@ -496,11 +503,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               title
             )}
           </h1>
-          <Link
-            href="/followups"
-            prefetch={false}
+          <div ref={noticeRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setNoticeOpen(value=>!value)}
             aria-label="通知"
-            title="查看待办提醒"
+            title="查看系统通知"
             className="relative grid h-10 w-10 place-items-center rounded-full text-slate-800 hover:bg-slate-100"
           >
             <Bell size={22} strokeWidth={1.8} />
@@ -509,7 +517,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {Math.min(noticeCount, 99)}
               </span>
             ) : null}
-          </Link>
+          </button>
+          {noticeOpen?<div className="absolute right-0 mt-3 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><b className="text-sm">系统通知</b>{noticeCount?<button type="button" onClick={async()=>{await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:"{}"});void loadNotices();}} className="text-xs font-medium text-blue-600">全部已读</button>:null}</div><div className="max-h-96 overflow-y-auto">{notices.map(item=><button key={item.id} type="button" onClick={async()=>{if(!item.read_at)await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id})});setNoticeOpen(false);void loadNotices();if(item.href)router.push(item.href);}} className={`block w-full border-b px-4 py-3 text-left hover:bg-slate-50 ${item.read_at?"bg-white":"bg-blue-50/60"}`}><span className="flex items-center justify-between gap-3"><b className="text-sm">{item.title}</b>{!item.read_at?<i className="h-2 w-2 shrink-0 rounded-full bg-blue-600"/>:null}</span><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.content}</p><time className="mt-1 block text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("zh-CN")}</time></button>)}{!notices.length?<p className="py-10 text-center text-sm text-slate-400">暂无系统通知</p>:null}</div></div>:null}
+          </div>
           <ThemeSwitcher />
           <div ref={profileRef} className="relative">
             <button
@@ -556,6 +566,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <UserRound size={15} />
                   修改头像
                 </button>
+                <Link href="/profile" prefetch={false} onClick={()=>setProfileOpen(false)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"><UserRound size={15}/>个人中心</Link>
                 <button
                   type="button"
                   onClick={() => {

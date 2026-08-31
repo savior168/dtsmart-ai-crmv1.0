@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requireUser({ allowPasswordChange: true });
     const body = await request.json();
     const oldPassword = String(body.old_password || "");
     const newPassword = String(body.new_password || "");
@@ -19,6 +19,12 @@ export async function POST(request: NextRequest) {
     if (verifyError) return NextResponse.json({ error: "原密码验证失败" }, { status: 400 });
     const { error: updateError } = await createAdminClient().auth.admin.updateUserById(user.id, { password: newPassword });
     if (updateError) throw updateError;
+    await createAdminClient().from("users").update({
+      must_change_password: false,
+      temporary_password_expires_at: null,
+      force_logout_at: null,
+      password_reset_at: new Date().toISOString(),
+    }).eq("id", user.id);
     await writeAudit(supabase, user.id, "USER_PASSWORD_UPDATE", "user", user.id, {});
     return NextResponse.json({ ok: true, message: "登录密码已同步更新" });
   } catch (error) {

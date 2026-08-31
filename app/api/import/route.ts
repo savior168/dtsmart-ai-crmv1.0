@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
@@ -22,7 +22,7 @@ function identity(row: Row) { return { lookupKeys: customerLookupIdentityKeys(ro
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("imports.manage");
     const admin = createAdminClient();
     const payload = await request.json() as { filename?: string; rows?: Row[] };
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
@@ -209,10 +209,14 @@ export async function POST(request: NextRequest) {
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "导入失败，请稍后重试" }, { status: 400 }); }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const { supabase, user } = await requireUser();
-    const { data, error } = await supabase.from("import_tasks").select("id,filename,total_count,success_count,duplicate_count,failed_count,created_at").eq("created_by", user.id).order("created_at", { ascending: false }).limit(20);
+    const { supabase, user, account } = await requirePermission("imports.manage");
+    const requested = new URL(request.url).searchParams.get("user_id")?.trim();
+    const scopeUserId = account.role === "SALES" ? user.id : requested || null;
+    let query = supabase.from("import_tasks").select("id,filename,total_count,success_count,duplicate_count,failed_count,created_at,created_by");
+    if (scopeUserId) query = query.eq("created_by", scopeUserId);
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(100);
     if (error) throw error;
     return NextResponse.json({ tasks: data || [] });
   } catch (error) {

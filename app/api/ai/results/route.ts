@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
-    const { user } = await requireUser();
+    const { user, account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const taskId = params.get("task_id") || "";
     const today = params.get("today") === "true";
@@ -15,10 +15,13 @@ export async function GET(request: NextRequest) {
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
     const returnAll = params.get("all") === "true";
+    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
     const admin = createAdminClient();
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {
-      const owned = await admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(offset, offset + 999);
+      let ownedQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at").order("updated_at", { ascending: false }).order("created_at", { ascending: false });
+      if (scopeUserId) ownedQuery = ownedQuery.eq("user_id", scopeUserId);
+      const owned = await ownedQuery.range(offset, offset + 999);
       if (owned.error) throw owned.error;
       const rows = owned.data || [];
       ownedTasks.push(...rows);
@@ -29,7 +32,8 @@ export async function GET(request: NextRequest) {
     if (!taskIds.length) return NextResponse.json({ data: [], count: 0, tasks: ownedTasks, summary: { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, grades: {} } });
     const safeSearch = search.replace(/[,%()]/g," ").trim();
     const buildResultQuery = () => {
-      let query = admin.from("ai_screening_results").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks!inner(id,name,task_number,user_id)", { count: "exact" }).eq("task.user_id", user.id);
+      let query = admin.from("ai_screening_results").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks!inner(id,name,task_number,user_id)", { count: "exact" });
+      if (scopeUserId) query = query.eq("task.user_id", scopeUserId);
       if (taskId) query = query.eq("task_id", taskId);
       if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
       if (grade) query = query.eq("grade", grade);
@@ -58,7 +62,8 @@ export async function GET(request: NextRequest) {
     }
     const summaryItems: Array<{ grade: string | null; target_decision: string | null; total_tokens: number | null; cost_usd: number | string | null; evidence_sufficiency: string | null; early_stop_reason: string | null; completed_at: string | null }> = [];
     for (let offset = 0; ; offset += 1000) {
-      let summaryQuery = admin.from("ai_screening_results").select("grade,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)").eq("task.user_id", user.id);
+      let summaryQuery = admin.from("ai_screening_results").select("grade,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)");
+      if (scopeUserId) summaryQuery = summaryQuery.eq("task.user_id", scopeUserId);
       if (taskId) summaryQuery = summaryQuery.eq("task_id", taskId);
       if (today) summaryQuery = summaryQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
       const summaryRows = await summaryQuery.range(offset, offset + 999);
@@ -80,7 +85,8 @@ export async function GET(request: NextRequest) {
       grades[item.grade || "-"] = (grades[item.grade || "-"] || 0) + 1;
       return value;
     }, { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, sufficient: 0, early_stopped: 0, grades });
-    let failedQuery = admin.from("ai_screening_task_items").select("id,task:ai_screening_tasks!inner(user_id)", { count: "exact", head: true }).eq("task.user_id", user.id).eq("status", "FAILED");
+    let failedQuery = admin.from("ai_screening_task_items").select("id,task:ai_screening_tasks!inner(user_id)", { count: "exact", head: true }).eq("status", "FAILED");
+    if (scopeUserId) failedQuery = failedQuery.eq("task.user_id", scopeUserId);
     if (taskId) failedQuery = failedQuery.eq("task_id", taskId);
     if (today) failedQuery = failedQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
     const failed = await failedQuery;
@@ -95,7 +101,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { user } = await requireUser();
+    const { user } = await requirePermission("ai.manage");
     const body = await request.json() as {
       result_ids?: string[]; result_id?: string; target_decision?: "VALID" | "INVALID" | "REVIEW";
       grade?: "A" | "B" | "C" | "D"; score?: number; manual_review_note?: string;

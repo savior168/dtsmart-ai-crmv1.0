@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRun, start } from "workflow/api";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission, type CurrentAccount } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import type { AiStrategy } from "@/lib/ai/task-types";
 
-async function ownedTask(id: string, userId: string) {
+async function ownedTask(id: string, account: CurrentAccount) {
   const admin = createAdminClient();
-  const result = await admin.from("ai_screening_tasks").select("*").eq("id", id).eq("user_id", userId).single();
+  let query = admin.from("ai_screening_tasks").select("*").eq("id", id);
+  if (account.role === "SALES") query = query.eq("user_id", account.id);
+  const result = await query.single();
   if (result.error || !result.data) throw result.error || new Error("任务不存在或无权访问");
   return result.data;
 }
@@ -27,9 +29,9 @@ async function cancelWorkflowRun(runId?: string | null) {
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user } = await requireUser();
+    const { account } = await requirePermission("ai.manage");
     const { id } = await context.params;
-    const task = await ownedTask(id, user.id);
+    const task = await ownedTask(id, account);
     return NextResponse.json({ task });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务查询失败";
@@ -39,13 +41,13 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user } = await requireUser();
+    const { user, account } = await requirePermission("ai.manage");
     const { id } = await context.params;
     const body = await request.json() as {
       action?: "pause" | "resume" | "cancel" | "retry" | "edit";
       name?: string; scheduled_at?: string | null; notification_mode?: string;
     };
-    const task = await ownedTask(id, user.id);
+    const task = await ownedTask(id, account);
     const admin = createAdminClient();
     if (body.action === "pause") {
       if (!["RUNNING", "PAUSING"].includes(task.status)) return NextResponse.json({ error: "只有执行中的任务可以停止" }, { status: 409 });
@@ -138,12 +140,14 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user } = await requireUser();
+    const { user, account } = await requirePermission("ai.manage");
     const { id } = await context.params;
-    const task = await ownedTask(id, user.id);
+    const task = await ownedTask(id, account);
     if (!['CANCELLED', 'FAILED'].includes(task.status)) return NextResponse.json({ error: "只有已取消或执行失败的任务可以删除" }, { status: 409 });
     const admin = createAdminClient();
-    const removed = await admin.from("ai_screening_tasks").delete().eq("id", id).eq("user_id", user.id).in("status", ['CANCELLED', 'FAILED']);
+    let removeQuery = admin.from("ai_screening_tasks").delete().eq("id", id).in("status", ['CANCELLED', 'FAILED']);
+    if (account.role === "SALES") removeQuery = removeQuery.eq("user_id", user.id);
+    const removed = await removeQuery;
     if (removed.error) throw removed.error;
     await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_DELETE", target_type: "ai_screening_task", target_id: id, content: { task_number: task.task_number, status: task.status } });
     return NextResponse.json({ success: true });

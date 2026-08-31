@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { requireUser } from "@/lib/auth/current-user";
+import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
@@ -12,7 +12,7 @@ function taskNumber() {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user, account } = await requirePermission("ai.manage");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -21,8 +21,10 @@ export async function GET(request: NextRequest) {
     const selectionMode = params.get("selection_mode") || "";
     const from = params.get("date_from") || "";
     const to = params.get("date_to") || "";
+    const scopeUserId = account.role === "SALES" ? user.id : params.get("user_id")?.trim() || null;
     const admin = createAdminClient();
-    let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).eq("user_id", user.id);
+    let query = admin.from("ai_screening_tasks").select("*", { count: "exact" });
+    if (scopeUserId) query = query.eq("user_id", scopeUserId);
     if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
     else if (status) query = query.eq("status", status);
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
@@ -33,11 +35,11 @@ export async function GET(request: NextRequest) {
     if (result.error) throw result.error;
     const all: Array<{ id: string; status: string; total_count: number; success_count: number; failed_count: number; total_tokens: number; total_cost_usd: number; created_at: string }> = [];
     for (let offset = 0; ; offset += 1000) {
-      const stats = await admin.from("ai_screening_tasks")
+      let statsQuery = admin.from("ai_screening_tasks")
         .select("id,status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at")
-        .eq("user_id", user.id)
-        .order("updated_at", { ascending: false })
-        .range(offset, offset + 999);
+        .order("updated_at", { ascending: false });
+      if (scopeUserId) statsQuery = statsQuery.eq("user_id", scopeUserId);
+      const stats = await statsQuery.range(offset, offset + 999);
       if (stats.error) throw stats.error;
       const rows = stats.data || [];
       all.push(...rows);
@@ -75,7 +77,9 @@ export async function GET(request: NextRequest) {
     const todayCostPromise = (async () => {
       let total = 0;
       for (let rowOffset = 0; ; rowOffset += 1000) {
-        const calls = await admin.from("ai_screening_usage_ledger").select("cost_usd").eq("user_id", user.id).gte("occurred_at", todayStart).range(rowOffset, rowOffset + 999);
+        let callsQuery = admin.from("ai_screening_usage_ledger").select("cost_usd").gte("occurred_at", todayStart);
+        if (scopeUserId) callsQuery = callsQuery.eq("user_id", scopeUserId);
+        const calls = await callsQuery.range(rowOffset, rowOffset + 999);
         if (calls.error) throw calls.error;
         const rows = calls.data || [];
         total += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
@@ -83,21 +87,22 @@ export async function GET(request: NextRequest) {
       }
       return total;
     })();
-    const todayCompletedPromise = admin.from("ai_screening_completion_ledger")
+    let todayCompletedQuery = admin.from("ai_screening_completion_ledger")
       .select("source_task_item_id", { count: "exact", head: true })
-      .eq("user_id", user.id)
       .gte("completed_at", todayStart);
-    const pendingCustomersPromise = supabase
+    if (scopeUserId) todayCompletedQuery = todayCompletedQuery.eq("user_id", scopeUserId);
+    let pendingCustomersQuery = supabase
       .from("customers")
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null)
       .is("ai_score", null);
+    if (scopeUserId) pendingCustomersQuery = pendingCustomersQuery.eq("owner_id", scopeUserId);
     const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
       countItems("FAILED", undefined, true),
-      todayCompletedPromise,
+      todayCompletedQuery,
       countItems("FAILED", todayStart),
       todayCostPromise,
-      pendingCustomersPromise,
+      pendingCustomersQuery,
     ]);
     if (pendingCustomers.error) throw pendingCustomers.error;
     if (todayCompleted.error) throw todayCompleted.error;
@@ -118,7 +123,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("ai.manage");
     const body = await request.json() as {
       name?: string; strategy?: AiStrategy; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;

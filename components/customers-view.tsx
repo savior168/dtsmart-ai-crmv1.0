@@ -152,6 +152,9 @@ export function CustomersView() {
   const [followupStatus, setFollowupStatus] = useState("");
   const [level, setLevel] = useState("");
   const [target, setTarget] = useState("");
+  const [scopeUserId, setScopeUserId] = useState("");
+  const [userOptions, setUserOptions] = useState<Array<{id:string;name:string;email:string}>>([]);
+  const [canViewAll, setCanViewAll] = useState(false);
   // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
   // 个明确筛选项切换，避免过去用 boolean=false 表示“全部”造成歧义。
   const [aiFilter, setAiFilter] = useState<"done" | "pending" | "all">("done");
@@ -217,6 +220,7 @@ export function CustomersView() {
     setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
     setTarget(params.get("target") || "");
+    setScopeUserId(params.get("user_id") || "");
     setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "all" ? "all" : "done");
     setSort(params.get("sort") || "updated_at");
     setDirection(params.get("direction") === "asc" ? "asc" : "desc");
@@ -255,6 +259,7 @@ export function CustomersView() {
       sort,
       direction,
     });
+    if (scopeUserId) params.set("user_id", scopeUserId);
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
     try {
@@ -285,20 +290,29 @@ export function CustomersView() {
     sort,
     direction,
     workspace,
+    scopeUserId,
   ]);
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
     return () => clearTimeout(timer);
   }, [load]);
   useEffect(() => {
+    fetch("/api/users/options").then((response) => response.json()).then((body) => {
+      const elevated = body?.profile?.role === "ADMIN" || body?.profile?.role === "SUPERVISOR";
+      setCanViewAll(elevated);
+      setUserOptions(elevated && Array.isArray(body.users) ? body.users : []);
+    }).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    const scope = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
     void Promise.all([
-      fetch("/api/customers?page=1&pageSize=1&ai_status=all&deleted=false").then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
-      fetch("/api/customers?options=industries").then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
-      fetch("/api/customers?options=batches").then((response) => response.json()).then((body) => setBatchOptions(Array.isArray(body.data) ? body.data : [])),
+      fetch(`/api/customers?page=1&pageSize=1&ai_status=all&deleted=false${scope}`).then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
+      fetch(`/api/customers?options=industries${scope}`).then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
+      fetch(`/api/customers?options=batches${scope}`).then((response) => response.json()).then((body) => setBatchOptions(Array.isArray(body.data) ? body.data : [])),
       fetch("/api/customers/protection?summary=1").then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? 0))),
       fetch("/api/customer-conflicts?summary=1").then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
     ]).catch(() => undefined);
-  }, []);
+  }, [scopeUserId]);
   const pages = Math.max(1, Math.ceil(count / pageSize));
   const numbers = useMemo(
     () =>
@@ -344,8 +358,9 @@ export function CustomersView() {
           : null,
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
+        scopeUserId ? { key: "scopeUserId", label: `负责人：${userOptions.find((item) => item.id === scopeUserId)?.name || "指定用户"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter],
+    [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
@@ -356,6 +371,7 @@ export function CustomersView() {
     if (key === "target") setTarget("");
     if (key === "followupStatus") setFollowupStatus("");
     if (key === "aiFilter") setAiFilter("done");
+    if (key === "scopeUserId") setScopeUserId("");
     setPage(1);
   }
   function reset() {
@@ -367,6 +383,7 @@ export function CustomersView() {
     setTarget("");
     setFollowupStatus("");
     setAiFilter("done");
+    setScopeUserId("");
     setPage(1);
     setSelected(new Set());
     setProtectedSelected(new Set());
@@ -444,6 +461,7 @@ export function CustomersView() {
     });
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
+    if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       const ids = new Set<string>();
       const protectedIds = new Set<string>();
@@ -492,6 +510,7 @@ export function CustomersView() {
     });
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
+    if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       let currentPage = 1;
       let total = 0;
@@ -666,6 +685,7 @@ export function CustomersView() {
               <option value="pending">AI未筛选</option>
               <option value="all">全部AI状态</option>
             </select>
+            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setPage(1); setSelected(new Set()); }} className="min-w-40 rounded-lg border border-slate-200 px-3 py-2.5 text-sm" aria-label="负责人"><option value="">全部负责人</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.name || item.email}</option>)}</select> : null}
             <button
               onClick={reset}
               className="min-w-36 rounded-lg border border-slate-200 px-4 py-2.5 text-sm hover:bg-slate-50"

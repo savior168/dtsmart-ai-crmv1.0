@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { classifyIdentifier, findUserByUsername, isUsername } from "@/lib/auth/identifiers";
+import { classifyIdentifier, isUsername, listAuthUsers, normalizePhone } from "@/lib/auth/identifiers";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { CAPTCHA_COOKIE, verifyCaptcha } from "@/lib/auth/captcha";
 
 function loginError(message?: string) {
@@ -18,17 +19,39 @@ export async function POST(request: NextRequest) {
     if (!identifier || !password) return NextResponse.json({ error: "请输入账号和密码" }, { status: 400 });
     const captcha = await verifyCaptcha(body.captcha);
     if (!captcha.ok) return NextResponse.json({ error: captcha.error }, { status: 400 });
-
     const classified = classifyIdentifier(identifier);
+    const authUsers = await listAuthUsers();
+    const matchedUser = authUsers.find((item) => {
+      if (classified.type === "email") return item.email?.toLowerCase() === classified.value;
+      if (classified.type === "phone") return normalizePhone(item.phone || "") === classified.value;
+      const username = String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase();
+      return username === classified.value;
+    });
+    if (!matchedUser) return NextResponse.json({ error: "账号或密码错误，请检查后重试" }, { status: 401 });
+    const admin = createAdminClient();
+    const { data: account, error: accountError } = await admin.from("users")
+      .select("id,status,failed_login_attempts,locked_until,must_change_password,temporary_password_expires_at")
+      .eq("id", matchedUser.id)
+      .maybeSingle();
+    if (accountError || !account) return NextResponse.json({ error: "账号资料异常，请联系系统管理员" }, { status: 403 });
+    const statusMessages: Record<string, string> = {
+      PENDING: "注册申请正在等待系统管理员审核，暂时无法登录",
+      REJECTED: "注册申请未通过审核，请联系系统管理员",
+      DISABLED: "账号已停用，请联系系统管理员",
+      LOCKED: "账号已锁定，请联系系统管理员解锁",
+    };
+    if (account.status !== "ACTIVE") return NextResponse.json({ error: statusMessages[account.status] || "账号当前不可用，请联系系统管理员" }, { status: 403 });
+    if (account.must_change_password && account.temporary_password_expires_at && Date.parse(account.temporary_password_expires_at) < Date.now()) return NextResponse.json({ error: "临时密码已过期，请联系系统管理员重新生成" }, { status: 403 });
+    if (account.locked_until && Date.parse(account.locked_until) > Date.now()) {
+      return NextResponse.json({ error: `登录失败次数过多，请在 ${new Date(account.locked_until).toLocaleString("zh-CN")} 后重试` }, { status: 423 });
+    }
     let credentials: { email: string; password: string } | { phone: string; password: string };
     if (classified.type === "email") credentials = { email: classified.value, password };
     else if (classified.type === "phone") credentials = { phone: classified.value, password };
     else {
       if (!isUsername(identifier)) return NextResponse.json({ error: "请输入有效的用户名、邮箱或国际格式手机号" }, { status: 400 });
-      const user = await findUserByUsername(identifier);
-      if (!user) return NextResponse.json({ error: "账号或密码错误，请检查后重试" }, { status: 401 });
-      if (user.email) credentials = { email: user.email, password };
-      else if (user.phone) credentials = { phone: user.phone, password };
+      if (matchedUser.email) credentials = { email: matchedUser.email, password };
+      else if (matchedUser.phone) credentials = { phone: matchedUser.phone, password };
       else return NextResponse.json({ error: "该账号尚未绑定可登录的邮箱或手机号" }, { status: 400 });
     }
 
@@ -52,7 +75,16 @@ export async function POST(request: NextRequest) {
       },
     });
     const { data, error } = await supabase.auth.signInWithPassword(credentials);
-    if (error || !data.user) return NextResponse.json({ error: loginError(error?.message) }, { status: 401 });
+    if (error || !data.user) {
+      const { data: settings } = await admin.from("system_security_settings").select("max_failed_login_attempts,lock_minutes").eq("id", true).maybeSingle();
+      const attempts = Number(account.failed_login_attempts || 0) + 1;
+      const maxAttempts = Number(settings?.max_failed_login_attempts || 5);
+      const update: Record<string, unknown> = { failed_login_attempts: attempts };
+      if (attempts >= maxAttempts) update.locked_until = new Date(Date.now() + Number(settings?.lock_minutes || 15) * 60000).toISOString();
+      await admin.from("users").update(update).eq("id", account.id);
+      return NextResponse.json({ error: attempts >= maxAttempts ? "登录失败次数过多，账号已临时锁定" : loginError(error?.message) }, { status: 401 });
+    }
+    await admin.from("users").update({ failed_login_attempts: 0, locked_until: null, last_login_at: new Date().toISOString() }).eq("id", account.id);
     response.cookies.delete(CAPTCHA_COOKIE);
     return response;
   } catch (error) {

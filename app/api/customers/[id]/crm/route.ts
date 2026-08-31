@@ -18,10 +18,10 @@ function cleanStoredDiscoveredValues(value: unknown, type: "EMAIL" | "PHONE", co
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user, account } = await requireUser();
     const { id } = await context.params;
     const [customerResult, profileResult, followupsResult, claimsResult, protectionResult, aiEvidenceResult, auditLogsResult] = await Promise.all([
-      supabase.from("customers").select("*").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single(),
+      account.role === "SALES" ? supabase.from("customers").select("*").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single() : supabase.from("customers").select("*").eq("id", id).single(),
       supabase.from("users").select("id,name,email,role,department_id").eq("id", user.id).single(),
       supabase.from("followups").select("*,creator:users(name,email)").eq("customer_id", id).order("created_at", { ascending: false }),
       supabase.from("customer_claims").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
@@ -43,7 +43,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       .eq("customer_id", id)
       .in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED"])
       .order("captured_at", { ascending: false });
-    const usersPromise = profileResult.data.role === "ADMIN"
+    const usersPromise = ["ADMIN","SUPERVISOR"].includes(profileResult.data.role)
       ? supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name")
       : Promise.resolve({ data: [], error: null });
     const [latestAi, verifiedContacts, usersResult] = await Promise.all([latestAiPromise, verifiedContactsPromise, usersPromise]);
@@ -80,7 +80,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       remaining_days: remainingDays,
       permanent,
     };
-    const canEdit = profileResult.data.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
+    const canEdit = ["ADMIN","SUPERVISOR"].includes(profileResult.data.role) || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
     const customerForDisplay = {
       ...customer,
       website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),

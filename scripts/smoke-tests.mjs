@@ -22,6 +22,10 @@ const requiredRoutes = [
   "app/followups/page.tsx",
   "app/reports/page.tsx",
   "app/settings/page.tsx",
+  "app/settings/users/page.tsx",
+  "app/settings/roles/page.tsx",
+  "app/settings/audit/page.tsx",
+  "app/settings/security/page.tsx",
 ];
 
 for (const route of requiredRoutes) {
@@ -111,6 +115,19 @@ assert.match(taskItemsApi, /ai_screening_results[\s\S]*score,grade,target_decisi
 for (const filter of ["industry", "target", "grade"]) {
   assert.match(taskItemsApi, new RegExp(`params\\.get\\("${filter}"\\)`), `任务客户接口缺少筛选条件：${filter}`);
 }
+
+const loginApi = read("app/api/auth/password-login/route.ts");
+const registerApi = read("app/api/auth/register/route.ts");
+const authForm = read("components/password-auth-form.tsx");
+const permissionMigration = read("supabase/migrations/202608310002_user_access_control.sql");
+assert.match(loginApi, /verifyCaptcha\(body\.captcha\)/, "登录必须由服务端校验图形验证码");
+assert.match(registerApi, /verifyCaptcha\(body\.captcha\)/, "注册必须由服务端校验图形验证码");
+assert.match(authForm, /setInterval\(refreshCaptcha, 10000\)/, "登录注册验证码必须每10秒自动刷新");
+assert.match(authForm, /<CaptchaField[\s\S]*mode === "register"[\s\S]*<CaptchaField/, "登录与注册表单都必须显示图形验证码");
+assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用户必须固定为待审核销售员");
+assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");
+assert.match(permissionMigration, /zzccxry@gmail\.com[\s\S]*role = 'SALES'[\s\S]*role = 'ADMIN'/, "权限迁移必须把指定账号设为唯一系统管理员、其余账号设为销售员");
+assert.match(permissionMigration, /必须保留至少一名|current_user_is_admin/, "权限系统必须具备系统管理员保护规则");
 assert.match(taskDetail, /全部所属行业[\s\S]*全部目标客户[\s\S]*全部AI等级[\s\S]*查询[\s\S]*重置/, "任务详情必须在同一筛选行提供行业、目标客户、AI等级、查询和重置");
 const failureView = read("components/ai-screening/failures-view.tsx");
 assert.match(failureView, /flex min-h-9 items-center/, "待重试页面操作入口必须垂直对齐");

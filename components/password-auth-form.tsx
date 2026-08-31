@@ -114,7 +114,6 @@ export function PasswordAuthForm() {
     password: "",
     confirmPassword: "",
   });
-  const [resetEmail, setResetEmail] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
@@ -126,7 +125,7 @@ export function PasswordAuthForm() {
     setCaptchaVersion((value) => value + 1);
   }
   useEffect(() => {
-    const timer = window.setInterval(refreshCaptcha, 110000);
+    const timer = window.setInterval(refreshCaptcha, 10000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -134,6 +133,7 @@ export function PasswordAuthForm() {
     setMode(next);
     setError("");
     setNotice("");
+    refreshCaptcha();
   }
   function goToApp() {
     const next = params.get("next");
@@ -168,33 +168,15 @@ export function PasswordAuthForm() {
       return setError("两次输入的密码不一致");
     setLoading(true);
     try {
-      await postJson("/api/auth/register", { ...register, captcha });
-      await postJson("/api/auth/password-login", {
-        identifier: register.email,
-        password: register.password,
-        captcha,
-      });
-      goToApp();
+      const result = await postJson("/api/auth/register", { ...register, captcha });
+      setMode("login");
+      setNotice(result.message || "注册申请已提交，请等待系统管理员审核");
+      setIdentifier(register.email);
+      setRegister({ username: "", email: "", phone: "", password: "", confirmPassword: "" });
+      refreshCaptcha();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "注册失败");
       refreshCaptcha();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function submitForgot(event: FormEvent) {
-    event.preventDefault();
-    setError("");
-    setNotice("");
-    setLoading(true);
-    try {
-      const result = await postJson("/api/auth/reset-password", {
-        email: resetEmail,
-      });
-      setNotice(result.message || "重置邮件已发送，请检查收件箱");
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "重置邮件发送失败");
     } finally {
       setLoading(false);
     }
@@ -328,20 +310,20 @@ export function PasswordAuthForm() {
               size={16}
               className="mt-0.5 shrink-0 text-emerald-500"
             />
-            注册不再依赖不稳定的短信验证码。邮箱用于登录和安全重置密码，手机号可作为绑定登录标识。
+            注册后账号进入待审核状态。系统管理员审核通过后方可登录，手机号仅作为可选登录标识。
           </p>
           <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} />
           <Feedback error={error} notice={notice} />
           <PrimaryButton
             loading={loading}
-            label="创建账号并登录"
-            loadingLabel="正在创建账号…"
+            label="提交注册申请"
+            loadingLabel="正在提交申请…"
           />
         </form>
       ) : null}
 
       {mode === "forgot" ? (
-        <form onSubmit={submitForgot} className="mt-6 space-y-4">
+        <section className="mt-6 space-y-4">
           <button
             type="button"
             onClick={() => switchMode("login")}
@@ -352,27 +334,13 @@ export function PasswordAuthForm() {
           <div>
             <h3 className="text-xl font-bold text-slate-900">重置登录密码</h3>
             <p className="mt-1 text-sm text-slate-500">
-              输入绑定邮箱，系统会发送安全重置链接。
+              为保护企业数据，本系统不使用邮件或短信验证码重置密码。
             </p>
           </div>
-          <Field label="绑定邮箱" icon={Mail}>
-            <input
-              required
-              type="email"
-              autoComplete="email"
-              value={resetEmail}
-              onChange={(event) => setResetEmail(event.target.value)}
-              placeholder="name@company.com"
-              className={inputClass}
-            />
-          </Field>
-          <Feedback error={error} notice={notice} />
-          <PrimaryButton
-            loading={loading}
-            label="发送重置邮件"
-            loadingLabel="正在发送…"
-          />
-        </form>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-4 text-sm leading-6 text-blue-800">
+            请联系系统管理员重置密码。管理员会提供一次性临时密码，登录后系统将要求您立即修改。
+          </div>
+        </section>
       ) : null}
       <p className="mt-6 text-center text-xs leading-5 text-slate-400">
         系统使用 Supabase Auth 加密会话保护账号和企业数据。
@@ -382,7 +350,10 @@ export function PasswordAuthForm() {
 }
 
 function CaptchaField({ value, onChange, version, refresh }: { value: string; onChange: (value: string) => void; version: number; refresh: () => void }) {
-  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className="mt-1.5 block text-xs text-slate-400">验证码约每 2 分钟自动刷新，也可点击图片手动刷新。</span></label>;
+  // A regular img is intentional: the browser must receive the captcha cookie
+  // from this request, which the Next.js image optimizer would not forward.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className="mt-1.5 block text-xs text-slate-400">验证码含随机干扰，每 10 秒自动刷新，也可点击图片手动刷新。</span></label>;
 }
 
 function Feedback({ error, notice }: { error: string; notice: string }) {

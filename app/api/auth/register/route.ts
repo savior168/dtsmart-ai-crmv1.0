@@ -13,7 +13,6 @@ export async function POST(request: NextRequest) {
     const phone = body.phone ? normalizePhone(String(body.phone)) : "";
     const captcha = await verifyCaptcha(body.captcha);
     if (!captcha.ok) return NextResponse.json({ error: captcha.error }, { status: 400 });
-
     if (!isUsername(username)) return NextResponse.json({ error: "用户名需为 1-15 位中文、字母、数字、下划线或短横线" }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "密码至少需要 8 位" }, { status: 400 });
     if (!isEmail(email)) return NextResponse.json({ error: "请输入有效邮箱地址" }, { status: 400 });
@@ -40,11 +39,31 @@ export async function POST(request: NextRequest) {
     if (error || !data.user) throw error || new Error("创建用户失败");
     createdUserId = data.user.id;
 
-    const { error: profileError } = await admin.from("users").upsert({ id: data.user.id, name: username, email, role: "SALES", status: "ACTIVE" });
+    const { error: profileError } = await admin.from("users").upsert({
+      id: data.user.id,
+      name: username,
+      email,
+      role: "SALES",
+      status: "PENDING",
+      reviewed_by: null,
+      reviewed_at: null,
+      review_reason: null,
+    });
     if (profileError) throw profileError;
     const { error: extendedProfileError } = await admin.from("profiles").upsert({ id: data.user.id, name: username, email, phone: phone || null });
     if (extendedProfileError && extendedProfileError.code !== "42P01") throw extendedProfileError;
-    return NextResponse.json({ ok: true, message: "账号创建成功" }, { status: 201 });
+    const { data: admins } = await admin.from("users").select("id").eq("role", "ADMIN").eq("status", "ACTIVE");
+    if (admins?.length) {
+      await admin.from("system_notifications").insert(admins.map((item) => ({
+        recipient_id: item.id,
+        type: "REGISTRATION_REVIEW",
+        title: "新用户注册待审核",
+        content: `${username}（${email}）提交了注册申请`,
+        href: `/settings/users?status=PENDING&review=${data.user.id}`,
+        metadata: { user_id: data.user.id, username, email },
+      })));
+    }
+    return NextResponse.json({ ok: true, message: "注册申请已提交，请等待系统管理员审核。审核通过后即可登录。" }, { status: 201 });
   } catch (error) {
     console.error("[auth/register]", error);
     if (createdUserId) await createAdminClient().auth.admin.deleteUser(createdUserId).catch(() => undefined);

@@ -33,7 +33,7 @@ export async function permanentlyDeleteCustomers({
     visible.push(...(page.data || []));
   }
 
-  const elevated = profile?.role === "ADMIN" || profile?.role === "MANAGER";
+  const elevated = profile?.role === "ADMIN" || profile?.role === "SUPERVISOR";
   const visibleById = new Map((visible || []).map((customer) => [customer.id, customer]));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
