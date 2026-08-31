@@ -80,7 +80,21 @@ export async function PATCH(request: NextRequest) {
     if (id === user.id && ["REJECT", "DISABLE", "FORCE_LOGOUT"].includes(action)) return NextResponse.json({ error: "不能对当前登录账号执行该操作" }, { status: 400 });
     const { error } = await admin.from("users").update(update).eq("id", id);
     if (error) throw error;
-    await admin.from("audit_logs").insert({ user_id: user.id, action: `ADMIN_USER_${action}`, target_type: "user", target_id: id, content: { reason, previous_role: target.role, previous_status: target.status, next_role: update.role, next_status: update.status } });
+    await admin.from("audit_logs").insert({
+      user_id: user.id,
+      action: `ADMIN_USER_${action}`,
+      target_type: "user",
+      target_id: id,
+      content: {
+        target_name: target.name,
+        target_email: target.email,
+        reason,
+        previous_role: target.role,
+        previous_status: target.status,
+        next_role: update.role,
+        next_status: update.status,
+      },
+    });
     return NextResponse.json({ ok: true, message: "账号状态已更新" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "账号操作失败";
@@ -107,7 +121,13 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const { error } = await admin.from("users").update({ must_change_password: true, temporary_password_expires_at: expiresAt, password_reset_by: user.id, password_reset_at: now, force_logout_at: now, failed_login_attempts: 0, locked_until: null }).eq("id", id);
     if (error) throw error;
-    await admin.from("audit_logs").insert({ user_id: user.id, action: "ADMIN_USER_PASSWORD_RESET", target_type: "user", target_id: id, content: { reason, expires_at: expiresAt } });
+    await admin.from("audit_logs").insert({
+      user_id: user.id,
+      action: "ADMIN_USER_PASSWORD_RESET",
+      target_type: "user",
+      target_id: id,
+      content: { target_name: target.name, target_email: target.email, reason, expires_at: expiresAt },
+    });
     return NextResponse.json({ ok: true, temporary_password: password, expires_at: expiresAt, message: "临时密码已生成，仅本次显示" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "密码重置失败";

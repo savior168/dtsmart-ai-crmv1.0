@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requireUser } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type CustomerRow = Record<string, unknown> & { id: string; created_at?: string };
 
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requireUser();
+    const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
     const scopeUserId = requestedOwnerId(request, account);
     const now = new Date();
     const cutoff = new Date(now.getTime() - 90 * 86400000).toISOString();
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
-    let protectionsQuery = admin.from("customer_protection").select("id,customer_id,type,start_date,expire_date,status").or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`);
-    let claimsQuery = admin.from("customer_claims").select("id,customer_id,created_at,released_at,release_reason").eq("action", "RELEASE").order("created_at", { ascending: false });
+    let protectionsQuery = admin.from("customer_protection").select("id,customer_id,owner_id,type,start_date,expire_date,status").or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`);
+    let claimsQuery = admin.from("customer_claims").select("id,customer_id,user_id,created_at,released_at,release_reason").eq("action", "RELEASE").order("created_at", { ascending: false });
     let expiredQuery = admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
     if (scopeUserId) {
       protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
@@ -32,19 +32,29 @@ export async function GET(request: NextRequest) {
       if (page.error) throw page.error;
       customers.push(...((page.data || []) as CustomerRow[]));
     }
+    const ownerIds = Array.from(new Set([
+      ...customers.map((customer) => String(customer.owner_id || "")),
+      ...(protections.data || []).map((item) => String(item.owner_id || "")),
+      ...(claims.data || []).map((item) => String(item.user_id || "")),
+    ].filter(Boolean)));
+    const owners = ownerIds.length ? await admin.from("users").select("id,name,email").in("id", ownerIds) : { data: [], error: null };
+    if (owners.error) throw owners.error;
+    const ownerById = new Map((owners.data || []).map((owner) => [owner.id, owner]));
     const customerById = new Map(customers.map((customer) => [customer.id, customer]));
     const byCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) {
       const customer = customerById.get(item.customer_id); if (!customer) continue;
-      byCustomer.set(item.customer_id, { ...item, release_type: item.status === "RELEASED" ? "MANUAL" : "AUTO", customer });
+      const ownerId = String(customer.owner_id || item.owner_id || "");
+      byCustomer.set(item.customer_id, { ...item, release_type: item.status === "RELEASED" ? "MANUAL" : "AUTO", customer: { ...customer, owner: ownerById.get(ownerId) || null } });
     }
     for (const item of claims.data || []) {
       const customer = customerById.get(item.customer_id); if (!customer) continue;
-      byCustomer.set(item.customer_id, { id: item.id, customer_id: item.customer_id, expire_date: item.released_at || item.created_at, status: "RELEASED", release_type: "MANUAL", release_reason: item.release_reason, customer });
+      const ownerId = String(customer.owner_id || item.user_id || "");
+      byCustomer.set(item.customer_id, { id: item.id, customer_id: item.customer_id, expire_date: item.released_at || item.created_at, status: "RELEASED", release_type: "MANUAL", release_reason: item.release_reason, customer: { ...customer, owner: ownerById.get(ownerId) || null } });
     }
     for (const customer of expired.data || []) {
       if (byCustomer.has(customer.id)) continue;
-      byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, expire_date: new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString(), status: "EXPIRED", release_type: "AUTO", customer });
+      byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, expire_date: new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString(), status: "EXPIRED", release_type: "AUTO", customer: { ...customer, owner: ownerById.get(String(customer.owner_id || "")) || null } });
     }
     const data = Array.from(byCustomer.values()).sort((a, b) => String(b.expire_date || "").localeCompare(String(a.expire_date || "")));
     return NextResponse.json({ data, count: data.length });

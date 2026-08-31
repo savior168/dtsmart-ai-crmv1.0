@@ -1216,7 +1216,9 @@ export function CustomersView() {
             </Link>
           </aside>
         )}
-        </> : workspace === "protection" ? <CustomerProtectionPanel onCount={setProtectionCount} /> : <CustomerConflictsPanel onCount={setConflictCount} />}
+        </> : workspace === "protection"
+          ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />
+          : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />}
       </div>
     </main>
   );

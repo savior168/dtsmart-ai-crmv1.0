@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requireUser } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
-type ConflictRow = { id: string; customer_id: string | null; conflict_type: string; status: string; details: Record<string, unknown>; created_at: string };
+type ConflictRow = { id: string; customer_id: string | null; reported_by: string | null; conflict_type: string; status: string; details: Record<string, unknown>; created_at: string };
 
 function dedupeConflicts(rows: ConflictRow[]) {
   const seenCustomers = new Set<string>();
@@ -21,7 +21,7 @@ function dedupeConflicts(rows: ConflictRow[]) {
   });
 }
 
-async function withOwner(rows: ConflictRow[]) {
+async function withOwner(rows: ConflictRow[], actorId: string) {
   const admin = createAdminClient();
   const customerIds = Array.from(new Set(rows.map((item) => item.customer_id).filter((id): id is string => Boolean(id))));
   if (!customerIds.length) return rows.map((item) => ({ ...item, owner: null }));
@@ -41,44 +41,45 @@ async function withOwner(rows: ConflictRow[]) {
     const expiry = item.customer_id ? expiryByCustomer.get(item.customer_id) : null;
     const fallbackExpiry = customer?.created_at ? new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString() : null;
     const protectionDays = expiry || fallbackExpiry ? Math.max(0, Math.ceil((new Date(String(expiry || fallbackExpiry)).getTime() - Date.now()) / 86400000)) : 0;
-    return { ...item, owner: item.customer_id ? customerOwner.get(item.customer_id) || null : null, protection_days: protectionDays };
+    const owner = item.customer_id ? customerOwner.get(item.customer_id) || null : null;
+    return { ...item, owner, protection_days: protectionDays, can_claim: item.reported_by === actorId && !owner };
   });
 }
 
 /** Returns the importer's own basic-field snapshot from the conflict queue. */
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requireUser();
+    const { user, account } = await requirePermission("customers.view");
     const admin = createAdminClient();
     const scopeUserId = requestedOwnerId(request, account);
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
     let conflictsQuery = admin
       .from("customer_conflicts")
-      .select("id,customer_id,conflict_type,status,details,created_at")
+      .select("id,customer_id,reported_by,conflict_type,status,details,created_at")
       .order("created_at", { ascending: false });
     if (scopeUserId) conflictsQuery = conflictsQuery.eq("reported_by", scopeUserId);
     const { data, error } = await conflictsQuery;
     if (!error) {
       const unique = dedupeConflicts((data || []) as ConflictRow[]);
       if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
-      return NextResponse.json({ data: await withOwner(unique), count: unique.length });
+      return NextResponse.json({ data: await withOwner(unique, user.id), count: unique.length });
     }
     // Compatibility fallback for production before the optional migration is
     // applied. The snapshot is still scoped by audit_logs RLS to its importer.
     let fallbackQuery = admin.from("audit_logs")
-      .select("target_id,content,created_at")
+      .select("target_id,user_id,content,created_at")
       .eq("action", "CUSTOMER_CONFLICT_DETECTED")
       .order("created_at", { ascending: false });
     if (scopeUserId) fallbackQuery = fallbackQuery.eq("user_id", scopeUserId);
     const fallback = await fallbackQuery;
     if (fallback.error) throw fallback.error;
     const fallbackRows = (fallback.data || []).map((item) => ({
-      id: `${item.target_id}-${item.created_at}`, customer_id: item.target_id,
+      id: `${item.target_id}-${item.created_at}`, customer_id: item.target_id, reported_by: item.user_id,
       conflict_type: "CROSS_OWNER_DUPLICATE", status: "OPEN", details: ((item.content as Record<string, unknown>)?.details || item.content || {}) as Record<string, unknown>, created_at: item.created_at,
     }));
     const unique = dedupeConflicts(fallbackRows as ConflictRow[]);
     if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
-    return NextResponse.json({ data: await withOwner(unique), count: unique.length });
+    return NextResponse.json({ data: await withOwner(unique, user.id), count: unique.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "冲突客户加载失败" }, { status: 400 });
   }
@@ -86,7 +87,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser();
+    const { supabase, user } = await requirePermission("customers.manage");
     const { customer_id } = await request.json();
     if (!customer_id) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
     const conflict = await createAdminClient().from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", customer_id).limit(1).maybeSingle();

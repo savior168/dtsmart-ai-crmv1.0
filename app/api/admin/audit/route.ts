@@ -17,10 +17,22 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * pageSize;
     const { data, count, error } = await query.order("created_at", { ascending: false }).range(from, from + pageSize - 1);
     if (error) throw error;
-    const userIds = [...new Set((data || []).map((item) => item.user_id).filter(Boolean))];
-    const { data: users } = userIds.length ? await admin.from("users").select("id,name,email").in("id", userIds) : { data: [] };
+    const userIds = [...new Set((data || []).flatMap((item) => [
+      item.user_id,
+      item.target_type === "user" ? item.target_id : null,
+    ]).filter(Boolean))];
+    const { data: users } = userIds.length ? await admin.from("users").select("id,name,email,role,status").in("id", userIds) : { data: [] };
     const userMap = new Map((users || []).map((item) => [item.id, item]));
-    return NextResponse.json({ data: (data || []).map((item) => ({ ...item, user: userMap.get(item.user_id) || null })), count: count || 0, page, pageSize });
+    return NextResponse.json({
+      data: (data || []).map((item) => ({
+        ...item,
+        user: userMap.get(item.user_id) || null,
+        target_user: item.target_type === "user" ? userMap.get(item.target_id) || null : null,
+      })),
+      count: count || 0,
+      page,
+      pageSize,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "日志加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
