@@ -219,6 +219,7 @@ for (const [name, source] of Object.entries({
   taskCenter,
   followupsView: read("components/followups-view.tsx"),
   manualSetup: read("supabase/manual_setup.sql"),
+  finalDatabaseSetup: read("supabase/FINAL_DATABASE_SETUP.sql"),
   accessControlMigration: read("supabase/migrations/202608310002_user_access_control.sql"),
   claimProtectionMigration: read("supabase/migrations/202608120003_claim_protection_crm.sql"),
 })) {

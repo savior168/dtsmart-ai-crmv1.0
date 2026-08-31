@@ -347,7 +347,7 @@ begin
   select * into actor from public.users where id = auth.uid() and status = 'ACTIVE';
   select * into target from public.customers where id = p_customer_id and deleted_at is null for update;
   if actor.id is null or target.id is null then raise exception '用户或客户不存在'; end if;
-  if target.owner_id is null then raise exception '客户当前没有负责人'; end if;
+  if target.owner_id is null then raise exception '客户当前没有归属人'; end if;
   if target.owner_id <> actor.id and actor.role <> 'ADMIN' then raise exception '只能释放自己的客户'; end if;
   if nullif(trim(p_reason), '') is null then raise exception '请填写释放原因'; end if;
 
