@@ -27,22 +27,64 @@ async function withOwner(rows: ConflictRow[], actorId: string) {
   if (!customerIds.length) return rows.map((item) => ({ ...item, owner: null }));
   const { data: customers, error } = await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIds);
   if (error) throw error;
-  const ownerIds = Array.from(new Set((customers || []).map((item) => item.owner_id).filter((id): id is string => Boolean(id))));
-  const users = ownerIds.length ? await admin.from("users").select("id,name").in("id", ownerIds) : { data: [], error: null };
+  const historyResult = await admin
+    .from("customer_conflicts")
+    .select("id,customer_id,reported_by,created_at")
+    .in("customer_id", customerIds)
+    .order("created_at", { ascending: false });
+  let historyRows = historyResult.error
+    ? rows.map((item) => ({ id: item.id, customer_id: item.customer_id, reported_by: item.reported_by, created_at: item.created_at }))
+    : historyResult.data || [];
+  if (historyResult.error) {
+    const auditHistory = await admin
+      .from("audit_logs")
+      .select("id,target_id,user_id,created_at")
+      .eq("action", "CUSTOMER_CONFLICT_DETECTED")
+      .in("target_id", customerIds)
+      .order("created_at", { ascending: false });
+    if (!auditHistory.error && auditHistory.data?.length) {
+      historyRows = auditHistory.data.map((item) => ({ id: item.id, customer_id: item.target_id, reported_by: item.user_id, created_at: item.created_at }));
+    }
+  }
+  const userIds = Array.from(new Set([
+    ...(customers || []).map((item) => item.owner_id),
+    ...historyRows.map((item) => item.reported_by),
+  ].filter((id): id is string => Boolean(id))));
+  const users = userIds.length ? await admin.from("users").select("id,name,email").in("id", userIds) : { data: [], error: null };
   if (users.error) throw users.error;
-  const ownerById = new Map((users.data || []).map((item) => [item.id, { id: item.id, name: item.name || "未命名用户" }]));
+  const userNameById = new Map((users.data || []).map((item) => [item.id, String(item.name || "").trim() || item.email || "未设置用户名"]));
+  const ownerById = new Map((users.data || []).map((item) => [item.id, { id: item.id, name: userNameById.get(item.id) || "未设置用户名" }]));
   const customerOwner = new Map((customers || []).map((item) => [item.id, ownerById.get(item.owner_id) || (item.owner_id ? { id: item.owner_id, name: "已归属其他用户" } : null)]));
   const protections = await admin.from("customer_protection").select("customer_id,expire_date,status").in("customer_id", customerIds).eq("status", "ACTIVE").order("expire_date", { ascending: false });
   if (protections.error) throw protections.error;
   const expiryByCustomer = new Map((protections.data || []).map((item) => [item.customer_id, item.expire_date]));
   const customerById = new Map((customers || []).map((item) => [item.id, item]));
+  const historyByCustomer = new Map<string, Array<{ id: string; user_id: string | null; user_name: string; submitted_at: string }>>();
+  historyRows.forEach((history) => {
+    if (!history.customer_id) return;
+    const current = historyByCustomer.get(history.customer_id) || [];
+    current.push({
+      id: String(history.id),
+      user_id: history.reported_by || null,
+      user_name: history.reported_by ? userNameById.get(history.reported_by) || "未设置用户名" : "未知提交人",
+      submitted_at: history.created_at,
+    });
+    historyByCustomer.set(history.customer_id, current);
+  });
   return rows.map((item) => {
     const customer = item.customer_id ? customerById.get(item.customer_id) : null;
     const expiry = item.customer_id ? expiryByCustomer.get(item.customer_id) : null;
     const fallbackExpiry = customer?.created_at ? new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString() : null;
     const protectionDays = expiry || fallbackExpiry ? Math.max(0, Math.ceil((new Date(String(expiry || fallbackExpiry)).getTime() - Date.now()) / 86400000)) : 0;
     const owner = item.customer_id ? customerOwner.get(item.customer_id) || null : null;
-    return { ...item, owner, protection_days: protectionDays, can_claim: item.reported_by === actorId && !owner };
+    const submissionHistory = item.customer_id ? historyByCustomer.get(item.customer_id) || [] : [];
+    return {
+      ...item,
+      owner,
+      protection_days: protectionDays,
+      can_claim: submissionHistory.some((history) => history.user_id === actorId) && !owner,
+      submission_history: submissionHistory,
+    };
   });
 }
 

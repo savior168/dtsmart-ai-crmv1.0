@@ -199,13 +199,15 @@ assert.match(conflictApi, /withOwner/, "冲突列表必须返回当前归属人�
 assert.match(conflictApi, /requestedOwnerId[\s\S]*\.eq\("reported_by", scopeUserId\)/, "冲突列表必须按服务端数据范围限定归属用户");
 assert.match(conflictApi, /dedupeConflicts/, "冲突客户汇总必须去重");
 assert.match(conflictApi, /requirePermission\("customers\.view"\)/, "冲突列表必须在服务端校验客户查看权限");
-assert.match(conflictApi, /can_claim:[\s\S]*reported_by === actorId/, "跨用户查看冲突时只允许冲突提交人认领");
+assert.match(conflictApi, /can_claim:[\s\S]*history\.user_id === actorId/, "跨用户查看冲突时只允许历史冲突提交人认领");
+assert.match(conflictApi, /\.in\("customer_id", customerIds\)[\s\S]*submission_history/, "冲突列表必须聚合同一客户的全部历史提交记录");
 const protectionApi = read("app/api/customers/protection/route.ts");
 assert.match(protectionApi, /requestedOwnerId[\s\S]*\.eq\("owner_id", scopeUserId\)/, "保护到期必须按服务端归属人范围查询");
 assert.match(protectionApi, /requirePermission\("customers\.view"\)/, "保护到期必须在服务端校验客户查看权限");
 const workspacePanels = read("components/customer-workspace-panels-v2.tsx");
 assert.match(workspacePanels, /UserScopeSelect[\s\S]*customers\/protection\?\$\{params\}/, "保护到期页面必须提供生效的归属人筛选");
 assert.match(workspacePanels, /customer-conflicts\?\$\{params\}[\s\S]*filterLabel="提交人"/, "冲突客户页面必须提供生效且语义清楚的提交人筛选");
+assert.match(workspacePanels, /当前归属人","冲突提交历史"[\s\S]*<details[\s\S]*submissionHistory/, "冲突列表必须显示当前归属人并可展开倒序提交历史");
 const adminAuditApi = read("app/api/admin/audit/route.ts");
 const adminPanels = read("components/admin-settings-panels.tsx");
 assert.match(adminAuditApi, /target_user:[\s\S]*target_type === "user"/, "系统操作日志必须返回目标账号信息");
@@ -266,6 +268,8 @@ assert.match(customersView, /aria-label="所属行业多选"[\s\S]*type="checkbo
 assert.match(customersView, /industries\.forEach\(\(industry\) => params\.append\("industry", industry\)\)/, "列表、全选和导出必须传递全部行业条件");
 assert.ok(customersView.indexOf('value={target}') < customersView.indexOf('value={status}'), "客户阶段筛选必须紧跟目标客户筛选之后");
 assert.ok(customersView.indexOf('value={status}') < customersView.indexOf('onClick={reset}'), "重置按钮必须与筛选条件位于同一筛选行末尾");
+assert.match(customersView, /onClick=\{reset\}[\s\S]*xl:col-start-\[10\]/, "客户列表重置按钮必须固定在筛选栏最后且不得溢出");
+assert.match(customersView, /if \(defaultScopeUserId\) setScopeUserId\(defaultScopeUserId\)/, "切换保护到期或冲突客户时必须默认恢复本人数据范围");
 assert.match(customersView, /搜索客户、联系人、电话、邮箱或国家\/地区/, "客户列表必须合并客户与国家关键词筛选框");
 assert.doesNotMatch(customersView, /JSON\.stringify\([\s\S]{0,200}value\(row, key\)/, "客户导出不得序列化React页面组件");
 const customerExport = read("lib/customer-export.ts");
