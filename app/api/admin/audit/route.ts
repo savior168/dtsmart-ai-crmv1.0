@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, authErrorStatus } from "@/lib/auth/current-user";
+import { requirePermission, authErrorStatus } from "@/lib/auth/current-user";
 import { AUDIT_CATEGORIES, AUDIT_CATEGORY_ACTIONS, IMPORTANT_AUDIT_ACTIONS, auditCategoryOf, type AuditCategory } from "@/lib/audit-log";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAdmin();
+    const { account } = await requirePermission("system.audit.view");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(300, Math.max(10, Number(params.get("pageSize") || 10)));
     const requestedCategory = params.get("category")?.trim().toUpperCase() || "";
     const category = AUDIT_CATEGORIES.includes(requestedCategory as AuditCategory) ? requestedCategory as AuditCategory : null;
-    const userId = params.get("user_id")?.trim() || "";
+    const requestedUserId = params.get("user_id")?.trim() || "";
+    // 操作日志的查看权限不代表跨用户数据权限。非系统管理员即使篡改
+    // 查询参数，也只能读取自己产生的日志。
+    const userId = account.role === "ADMIN" ? requestedUserId : account.id;
     const result = params.get("result")?.trim() || "";
     const dateFrom = params.get("from")?.trim() || "";
     const dateTo = params.get("to")?.trim() || "";
@@ -41,6 +44,7 @@ export async function GET(request: NextRequest) {
       count: count || 0,
       page,
       pageSize,
+      can_filter_users: account.role === "ADMIN",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "日志加载失败";

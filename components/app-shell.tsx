@@ -34,8 +34,14 @@ const menu = [
   { label: "AI筛选", href: "/ai-screening", icon: Bot, permission: "ai.tasks.view" },
   { label: "跟进管理", href: "/followups", icon: MessageSquareText, permission: "followups.view" },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
-  { label: "系统管理", href: "/settings", icon: Settings, permission: "system.users.view", adminOnly: true },
+  { label: "系统管理", href: "/settings", icon: Settings, permissions: ["system.users.view", "system.audit.view", "system.security.view"] },
 ] as const;
+
+const roleLabels = {
+  ADMIN: "系统管理员",
+  SUPERVISOR: "主管",
+  SALES: "销售员",
+} as const;
 
 const pageTitles: Array<[RegExp, string]> = [
   [/^\/$/, "工作台 / 数据总览"],
@@ -400,7 +406,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
       </div>
       <nav className="h-[calc(100vh-196px)] space-y-2 overflow-y-auto px-3 py-4">
-        {menu.filter((item) => profile?.role === "ADMIN" || (!(("adminOnly" in item) && item.adminOnly) && profile?.permissions.includes(item.permission))).map((item) => {
+        {menu.filter((item) => profile?.role === "ADMIN" || ("permissions" in item ? item.permissions.some((permission) => profile?.permissions.includes(permission)) : profile?.permissions.includes(item.permission))).map((item) => {
           const Icon = item.icon;
           const selected = isActive(path, item.href);
           return (
@@ -535,8 +541,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div ref={profileRef} className="relative">
             <button
               type="button"
-              title={profile ? `欢迎您，${profile.name}` : "正在读取当前登录用户"}
-              aria-label={profile ? `当前用户：${profile.name}` : "正在读取当前登录用户"}
+              title={profile ? `欢迎您，${profile.name}（${roleLabels[profile.role]}）` : "正在读取当前登录用户"}
+              aria-label={profile ? `当前用户：${profile.name}，${roleLabels[profile.role]}` : "正在读取当前登录用户"}
               disabled={!profile}
               onClick={() => profile && setProfileOpen((value) => !value)}
               className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition hover:bg-slate-50"
@@ -561,7 +567,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {profileOpen && profile ? (
               <div className="absolute right-0 mt-3 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                 <div className="border-b border-slate-100 px-4 py-3">
-                  <b className="block text-sm">欢迎您，{profile.name}</b>
+                  <b className="block text-sm">欢迎您，{profile.name}（{roleLabels[profile.role]}）</b>
                   <p className="mt-1 truncate text-xs text-slate-500">
                     {profile.email}
                   </p>

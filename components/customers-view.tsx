@@ -339,6 +339,7 @@ export function CustomersView() {
     [page, pages],
   );
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
+  const crossUserReadOnly = canViewAll && scopeUserId !== defaultScopeUserId;
   function switchWorkspace(next: CustomerWorkspace) {
     setWorkspace(next);
     // 每个客户工作区首次进入都以本人为默认范围；主管和系统管理员
@@ -471,6 +472,7 @@ export function CustomersView() {
     await load();
   }
   async function selectAllResults() {
+    if (crossUserReadOnly) return notify("跨用户数据仅供查看，不能批量操作", "error");
     setSelectingAll(true);
     setError("");
     const params = new URLSearchParams({
@@ -884,14 +886,14 @@ export function CustomersView() {
             <button
               type="button"
               onClick={() => void selectAllResults()}
-              disabled={selectingAll || !count}
+              disabled={crossUserReadOnly || selectingAll || !count}
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {selectingAll ? "正在全选..." : "全选筛选结果"}
             </button>
             <span className="ml-auto text-sm text-slate-600">已选择 {selected.size} 项</span>
             <button
-              disabled={!selected.size}
+              disabled={crossUserReadOnly || !selected.size}
               onClick={() => setBulkOpen((value) => !value)}
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -899,7 +901,7 @@ export function CustomersView() {
               批量更新阶段
             </button>
             <button
-              disabled={!selected.size || [...selected].every((id) => protectedSelected.has(id))}
+              disabled={crossUserReadOnly || !selected.size || [...selected].every((id) => protectedSelected.has(id))}
               onClick={() => {
                 const eligible = [...selected].filter((id) => !protectedSelected.has(id));
                 if (!eligible.length) return notify("报价中和成交客户不允许删除", "error");
@@ -942,6 +944,7 @@ export function CustomersView() {
                   <th className="sticky left-0 z-30 w-12 bg-[#eef5fb] px-4 py-3">
                     <input
                       type="checkbox"
+                      disabled={crossUserReadOnly}
                       checked={allPage}
                       onChange={() =>
                         setSelected((current) => {
@@ -994,6 +997,7 @@ export function CustomersView() {
                     <td className="sticky left-0 z-10 bg-white px-4 py-3">
                       <input
                         type="checkbox"
+                        disabled={crossUserReadOnly}
                         checked={selected.has(row.id)}
                         onClick={(event) => event.stopPropagation()}
                         onChange={() =>
@@ -1057,13 +1061,13 @@ export function CustomersView() {
                         prefetch={false}
                         onClick={(event) => event.stopPropagation()}
                         className="inline-grid h-8 w-8 place-items-center rounded-lg border border-blue-100 text-blue-600 hover:bg-blue-50"
-                        title="编辑客户"
-                        aria-label={`编辑${row.company_name}`}
+                        title={crossUserReadOnly ? "查看客户详情（跨用户数据只读）" : "编辑客户"}
+                        aria-label={`${crossUserReadOnly ? "查看" : "编辑"}${row.company_name}`}
                       >
                         <Pencil size={17} />
                       </Link>
-                      {(row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
-                      {!(["QUOTE", "DEAL"] as string[]).includes(row.status) ? (
+                      {!crossUserReadOnly && (row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
+                      {!crossUserReadOnly && !(["QUOTE", "DEAL"] as string[]).includes(row.status) ? (
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1153,7 +1157,7 @@ export function CustomersView() {
               <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
                 <p className="rounded-lg bg-blue-50 p-3"><b className="text-slate-900">我的客户：</b>当前归属自己的客户可查看、编辑、跟进、释放；报价中和成交客户不可删除。</p>
                 <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">冲突客户：</b>非归属人仅可查看自己新增或导入的基础字段和当前归属人，不能查看 AI 证据、跟进记录或修改客户。</p>
-                <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">管理员：</b>可按系统权限查看和管理全部客户；所有关键操作写入审计日志。</p>
+                <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">主管和系统管理员：</b>可按归属人查看全部销售数据，但其他用户的数据始终只读，不能编辑、删除、释放、续期或批量修改。</p>
                 <p className="text-xs text-slate-400">最终可见范围由 Supabase RLS 与服务端权限共同校验，前端隐藏不代替服务端权限控制。</p>
               </div>
               <button type="button" onClick={() => setPermissionOpen(false)} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">我知道了</button>

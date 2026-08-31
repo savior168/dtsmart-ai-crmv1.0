@@ -9,12 +9,10 @@ export async function permanentlyDeleteCustomers({
   supabase: _supabase,
   userId,
   ids,
-  allowAll = false,
 }: {
   supabase: UserSupabase;
   userId: string;
   ids: string[];
-  allowAll?: boolean;
 }) {
   void _supabase;
   const uniqueIds = [...new Set(ids)].filter(Boolean);
@@ -36,7 +34,7 @@ export async function permanentlyDeleteCustomers({
   const visibleById = new Map((visible || []).map((customer) => [customer.id, customer]));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
-    return Boolean(customer && !["QUOTE", "DEAL"].includes(customer.status) && (allowAll || customer.owner_id === userId));
+    return Boolean(customer && !["QUOTE", "DEAL"].includes(customer.status) && customer.owner_id === userId);
   });
   const failures: Failure[] = uniqueIds
     .filter((id) => !allowedIds.includes(id))

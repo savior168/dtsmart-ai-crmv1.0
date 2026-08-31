@@ -3,141 +3,137 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
-type ConflictRow = { id: string; customer_id: string | null; reported_by: string | null; conflict_type: string; status: string; details: Record<string, unknown>; created_at: string };
+type ConflictRow = {
+  id: string;
+  customer_id: string | null;
+  reported_by: string | null;
+  conflict_type: string;
+  status: string;
+  details: Record<string, unknown>;
+  created_at: string;
+  source: "table" | "audit";
+  submitter_ids?: string[];
+};
 
-function dedupeConflicts(rows: ConflictRow[]) {
-  const seenCustomers = new Set<string>();
-  const seenIdentities = new Set<string>();
-  return rows.filter((item) => {
-    const submitted = item.details?.submitted;
-    const identity = submitted && typeof submitted === "object"
-      ? customerLookupIdentityKeys(submitted as { company_name?: unknown; phone?: unknown; email?: unknown; website?: unknown; google_url?: unknown })
-      : [];
-    const customerKey = item.customer_id ? `customer:${item.customer_id}` : "";
-    if ((customerKey && seenCustomers.has(customerKey)) || identity.some((key) => seenIdentities.has(key))) return false;
-    if (customerKey) seenCustomers.add(customerKey);
-    identity.forEach((key) => seenIdentities.add(key));
-    return true;
-  });
+function customerConflictKey(item: ConflictRow) {
+  if (item.customer_id) return `customer:${item.customer_id}`;
+  const submitted = item.details?.submitted;
+  const identity = submitted && typeof submitted === "object"
+    ? customerLookupIdentityKeys(submitted as { company_name?: unknown; phone?: unknown; email?: unknown; website?: unknown; google_url?: unknown })[0]
+    : "";
+  return `identity:${identity || item.id}`;
 }
 
-async function withOwner(rows: ConflictRow[], actorId: string) {
+function reporterConflictKey(item: ConflictRow) {
+  return `${item.reported_by || "unknown"}|${customerConflictKey(item)}`;
+}
+
+function aggregateOpenConflicts(rows: ConflictRow[]) {
+  const sorted = [...rows].sort((a, b) => {
+    const time = String(b.created_at).localeCompare(String(a.created_at));
+    if (time) return time;
+    return a.source === b.source ? 0 : a.source === "table" ? -1 : 1;
+  });
+  const latestByReporter = new Map<string, ConflictRow>();
+  for (const item of sorted) {
+    const key = reporterConflictKey(item);
+    if (!latestByReporter.has(key)) latestByReporter.set(key, item);
+  }
+  const grouped = new Map<string, ConflictRow>();
+  for (const item of latestByReporter.values()) {
+    if (item.status !== "OPEN") continue;
+    const key = customerConflictKey(item);
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, { ...item, submitter_ids: item.reported_by ? [item.reported_by] : [] });
+      continue;
+    }
+    if (item.reported_by && !current.submitter_ids?.includes(item.reported_by)) current.submitter_ids = [...(current.submitter_ids || []), item.reported_by];
+  }
+  return [...grouped.values()];
+}
+
+async function enrichConflicts(rows: ConflictRow[]) {
   const admin = createAdminClient();
   const customerIds = Array.from(new Set(rows.map((item) => item.customer_id).filter((id): id is string => Boolean(id))));
-  if (!customerIds.length) return rows.map((item) => ({ ...item, owner: null }));
-  const { data: customers, error } = await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIds);
-  if (error) throw error;
-  const historyResult = await admin
-    .from("customer_conflicts")
-    .select("id,customer_id,reported_by,created_at")
-    .in("customer_id", customerIds)
-    .order("created_at", { ascending: false });
-  let historyRows = historyResult.error
-    ? rows.map((item) => ({ id: item.id, customer_id: item.customer_id, reported_by: item.reported_by, created_at: item.created_at }))
-    : historyResult.data || [];
-  if (historyResult.error) {
-    const auditHistory = await admin
-      .from("audit_logs")
-      .select("id,target_id,user_id,created_at")
-      .eq("action", "CUSTOMER_CONFLICT_DETECTED")
-      .in("target_id", customerIds)
-      .order("created_at", { ascending: false });
-    if (!auditHistory.error && auditHistory.data?.length) {
-      historyRows = auditHistory.data.map((item) => ({ id: item.id, customer_id: item.target_id, reported_by: item.user_id, created_at: item.created_at }));
-    }
-  }
+  const customersResult = customerIds.length
+    ? await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIds)
+    : { data: [], error: null };
+  if (customersResult.error) throw customersResult.error;
+  const customers = customersResult.data || [];
   const userIds = Array.from(new Set([
-    ...(customers || []).map((item) => item.owner_id),
-    ...historyRows.map((item) => item.reported_by),
+    ...customers.map((item) => item.owner_id),
+    ...rows.flatMap((item) => item.submitter_ids || (item.reported_by ? [item.reported_by] : [])),
   ].filter((id): id is string => Boolean(id))));
   const users = userIds.length ? await admin.from("users").select("id,name,email").in("id", userIds) : { data: [], error: null };
   if (users.error) throw users.error;
-  const userNameById = new Map((users.data || []).map((item) => [item.id, String(item.name || "").trim() || item.email || "未设置用户名"]));
-  const ownerById = new Map((users.data || []).map((item) => [item.id, { id: item.id, name: userNameById.get(item.id) || "未设置用户名" }]));
-  const customerOwner = new Map((customers || []).map((item) => [item.id, ownerById.get(item.owner_id) || (item.owner_id ? { id: item.owner_id, name: "已归属其他用户" } : null)]));
-  const protections = await admin.from("customer_protection").select("customer_id,expire_date,status").in("customer_id", customerIds).eq("status", "ACTIVE").order("expire_date", { ascending: false });
+  const userById = new Map((users.data || []).map((item) => [item.id, { id: item.id, name: String(item.name || "").trim() || item.email || "未设置用户名" }]));
+  const customerById = new Map(customers.map((item) => [item.id, item]));
+  const protections = customerIds.length
+    ? await admin.from("customer_protection").select("customer_id,expire_date,status").in("customer_id", customerIds).eq("status", "ACTIVE").order("expire_date", { ascending: false })
+    : { data: [], error: null };
   if (protections.error) throw protections.error;
-  const expiryByCustomer = new Map((protections.data || []).map((item) => [item.customer_id, item.expire_date]));
-  const customerById = new Map((customers || []).map((item) => [item.id, item]));
-  const historyByCustomer = new Map<string, Array<{ id: string; user_id: string | null; user_name: string; submitted_at: string }>>();
-  historyRows.forEach((history) => {
-    if (!history.customer_id) return;
-    const current = historyByCustomer.get(history.customer_id) || [];
-    current.push({
-      id: String(history.id),
-      user_id: history.reported_by || null,
-      user_name: history.reported_by ? userNameById.get(history.reported_by) || "未设置用户名" : "未知提交人",
-      submitted_at: history.created_at,
-    });
-    historyByCustomer.set(history.customer_id, current);
-  });
+  const expiryByCustomer = new Map<string, string | null>();
+  for (const item of protections.data || []) if (!expiryByCustomer.has(item.customer_id)) expiryByCustomer.set(item.customer_id, item.expire_date);
   return rows.map((item) => {
     const customer = item.customer_id ? customerById.get(item.customer_id) : null;
+    const owner = customer?.owner_id ? userById.get(customer.owner_id) || { id: customer.owner_id, name: "已归属其他用户" } : null;
+    const submitters = (item.submitter_ids || []).map((id) => userById.get(id) || { id, name: "未设置用户名" });
     const expiry = item.customer_id ? expiryByCustomer.get(item.customer_id) : null;
     const fallbackExpiry = customer?.created_at ? new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString() : null;
     const protectionDays = expiry || fallbackExpiry ? Math.max(0, Math.ceil((new Date(String(expiry || fallbackExpiry)).getTime() - Date.now()) / 86400000)) : 0;
-    const owner = item.customer_id ? customerOwner.get(item.customer_id) || null : null;
-    const submissionHistory = item.customer_id ? historyByCustomer.get(item.customer_id) || [] : [];
-    return {
-      ...item,
-      owner,
-      protection_days: protectionDays,
-      can_claim: submissionHistory.some((history) => history.user_id === actorId) && !owner,
-      submission_history: submissionHistory,
-    };
+    return { ...item, owner, submitters, protection_days: protectionDays };
   });
 }
 
-/** Returns the importer's own basic-field snapshot from the conflict queue. */
+/** 冲突记录按提交人授权；同一客户的多个提交人聚合在一行。 */
 export async function GET(request: NextRequest) {
   try {
-    const { user, account } = await requirePermission("customers.view");
+    const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
     const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
-    let conflictsQuery = admin
-      .from("customer_conflicts")
-      .select("id,customer_id,reported_by,conflict_type,status,details,created_at")
-      .order("created_at", { ascending: false });
-    if (scopeUserId) conflictsQuery = conflictsQuery.eq("reported_by", scopeUserId);
-    const { data, error } = await conflictsQuery;
-    if (!error) {
-      const unique = dedupeConflicts((data || []) as ConflictRow[]);
-      if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
-      return NextResponse.json({ data: await withOwner(unique, user.id), count: unique.length });
+    const tableRows: ConflictRow[] = [];
+    let tableAvailable = true;
+    for (let from = 0; ; from += 1000) {
+      const query = admin.from("customer_conflicts").select("id,customer_id,reported_by,conflict_type,status,details,created_at").order("created_at", { ascending: false }).range(from, from + 999);
+      const page = await query;
+      if (page.error) { tableAvailable = false; break; }
+      tableRows.push(...(page.data || []).map((item) => ({ ...item, details: (item.details || {}) as Record<string, unknown>, source: "table" as const })));
+      if ((page.data || []).length < 1000) break;
     }
-    // Compatibility fallback for production before the optional migration is
-    // applied. The snapshot is still scoped by audit_logs RLS to its importer.
-    let fallbackQuery = admin.from("audit_logs")
-      .select("target_id,user_id,content,created_at")
-      .eq("action", "CUSTOMER_CONFLICT_DETECTED")
-      .order("created_at", { ascending: false });
-    if (scopeUserId) fallbackQuery = fallbackQuery.eq("user_id", scopeUserId);
-    const fallback = await fallbackQuery;
-    if (fallback.error) throw fallback.error;
-    const fallbackRows = (fallback.data || []).map((item) => ({
-      id: `${item.target_id}-${item.created_at}`, customer_id: item.target_id, reported_by: item.user_id,
-      conflict_type: "CROSS_OWNER_DUPLICATE", status: "OPEN", details: ((item.content as Record<string, unknown>)?.details || item.content || {}) as Record<string, unknown>, created_at: item.created_at,
-    }));
-    const unique = dedupeConflicts(fallbackRows as ConflictRow[]);
-    if (summaryOnly) return NextResponse.json({ count: unique.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
-    return NextResponse.json({ data: await withOwner(unique, user.id), count: unique.length });
+
+    // 旧生产库缺少冲突表RLS策略时会降级写入审计表。必须始终合并，
+    // 否则冲突表“可查询但为空”时会把真实冲突全部漏掉。
+    const auditRows: ConflictRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const query = admin.from("audit_logs").select("id,target_id,user_id,content,created_at").eq("action", "CUSTOMER_CONFLICT_DETECTED").order("created_at", { ascending: false }).range(from, from + 999);
+      const page = await query;
+      if (page.error) throw page.error;
+      auditRows.push(...(page.data || []).map((item) => {
+        const content = item.content && typeof item.content === "object" ? item.content as Record<string, unknown> : {};
+        const details = content.details && typeof content.details === "object" ? content.details as Record<string, unknown> : content;
+        return {
+          id: `audit-${item.id}`,
+          customer_id: item.target_id,
+          reported_by: String(content.reported_by || item.user_id || "") || null,
+          conflict_type: String(content.conflict_type || "CROSS_OWNER_DUPLICATE"),
+          status: String(content.status || "OPEN"),
+          details,
+          created_at: item.created_at,
+          source: "audit" as const,
+        };
+      }));
+      if ((page.data || []).length < 1000) break;
+    }
+    if (!tableAvailable && !auditRows.length) throw new Error("冲突客户存储暂不可用");
+    const unique = aggregateOpenConflicts([...tableRows, ...auditRows]);
+    // The submitter filter determines whether a customer row is included; it
+    // must not truncate the row's complete submitter list.
+    const scoped = scopeUserId ? unique.filter((item) => item.submitter_ids?.includes(scopeUserId)) : unique;
+    if (summaryOnly) return NextResponse.json({ count: scoped.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
+    return NextResponse.json({ data: await enrichConflicts(scoped), count: scoped.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "冲突客户加载失败" }, { status: 400 });
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const { supabase, user } = await requirePermission("customers.claim");
-    const { customer_id } = await request.json();
-    if (!customer_id) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
-    const conflict = await createAdminClient().from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", customer_id).limit(1).maybeSingle();
-    if (conflict.error || !conflict.data) return NextResponse.json({ error: "该客户不在您的冲突记录中" }, { status: 403 });
-    const { data, error } = await supabase.rpc("claim_customer", { p_customer_id: customer_id });
-    if (error) throw error;
-    return NextResponse.json({ ok: true, data, message: "客户认领成功" });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "客户认领失败" }, { status: 400 });
   }
 }

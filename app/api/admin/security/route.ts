@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, authErrorStatus } from "@/lib/auth/current-user";
+import { hasPermission, requireAdmin, requirePermission, authErrorStatus } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
   try {
-    await requireAdmin();
+    const { account } = await requirePermission("system.security.view");
     const { data, error } = await createAdminClient().from("system_security_settings").select("max_failed_login_attempts,lock_minutes,temporary_password_hours,updated_at").eq("id", true).single();
     if (error) throw error;
-    return NextResponse.json(data);
+    return NextResponse.json({ ...data, can_manage: hasPermission(account, "system.security.manage") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "安全设置加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });

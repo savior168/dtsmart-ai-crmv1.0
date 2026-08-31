@@ -1,2 +1,3 @@
 import { SecuritySettingsPanel } from "@/components/admin-settings-panels";
-export default function SecuritySettingsPage() { return <SecuritySettingsPanel />; }
+import { requirePermission } from "@/lib/auth/current-user";
+export default async function SecuritySettingsPage() { await requirePermission("system.security.view"); return <SecuritySettingsPanel />; }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { user, account } = await requirePermission("ai.results.review");
+    const { user } = await requirePermission("ai.results.review");
     const body = await request.json() as {
       result_ids?: string[]; result_id?: string; target_decision?: "VALID" | "INVALID" | "REVIEW";
       grade?: "A" | "B" | "C" | "D"; score?: number; manual_review_note?: string;
@@ -123,9 +123,9 @@ export async function PATCH(request: NextRequest) {
     if (owned.error) throw owned.error;
     const permitted = (owned.data || []).filter((row) => {
       const task = Array.isArray(row.task) ? row.task[0] : row.task;
-      return hasPermission(account, "ai.data_all") || task?.user_id === user.id;
+      return task?.user_id === user.id;
     });
-    if (permitted.length !== resultIds.length) return NextResponse.json({ error: "部分分析结果不存在或无权修改" }, { status: 403 });
+    if (permitted.length !== resultIds.length) return NextResponse.json({ error: "其他用户的AI分析结果仅供查看，不能人工修改" }, { status: 403 });
     const update: Record<string, unknown> = {
       manual_review_status: "REVIEWED",
       manual_review_note: body.manual_review_note?.trim() || null,

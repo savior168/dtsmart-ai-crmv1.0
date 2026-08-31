@@ -285,7 +285,16 @@ export async function POST(request: NextRequest) {
       const duplicate = submittedKeys.map((key) => existingByKey.get(key)).find(Boolean);
       const duplicateId = typeof duplicate?.id === "string" ? duplicate.id : null;
       if (duplicate && !duplicateId) throw new Error("重复客户记录缺少有效ID");
-      if (duplicate?.owner_id && duplicate.owner_id !== user.id) {
+      if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
+      if (duplicate) {
+        const transfer = await supabase.rpc("take_over_expired_customer", { p_customer_id: duplicateId, p_source: "MANUAL_CREATE" });
+        if (transfer.error) throw new Error(`客户归属校验失败：${transfer.error.message}`);
+        const outcome = transfer.data && typeof transfer.data === "object" ? transfer.data as { transferred?: boolean; reason?: string } : {};
+        if (outcome.transferred) {
+          const transferred = await admin.from("customers").select("*").eq("id", duplicateId).single();
+          if (transferred.error) throw transferred.error;
+          return NextResponse.json(transferred.data, { status: 200 });
+        }
         const conflict = {
           customer_id: duplicateId,
           reported_by: user.id,
@@ -293,22 +302,16 @@ export async function POST(request: NextRequest) {
           status: "OPEN",
           details: { source: "MANUAL_CREATE", submitted: clean(body), matched_customer_id: duplicateId },
         };
-        const prior = await supabase.from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", duplicateId).eq("status", "OPEN").limit(1).maybeSingle();
+        const prior = await admin.from("customer_conflicts").select("id").eq("reported_by", user.id).eq("customer_id", duplicateId).eq("status", "OPEN").limit(1).maybeSingle();
         const { error: conflictError } = prior.data
           ? { error: null }
-          : await supabase.from("customer_conflicts").insert(conflict);
+          : await admin.from("customer_conflicts").insert(conflict);
         if (conflictError && conflictError.code !== "23505") {
           const { error: auditError } = await supabase.from("audit_logs").insert({ user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer", target_id: duplicateId, content: conflict });
           if (auditError) throw new Error(`冲突客户记录创建失败：${auditError.message}`);
         }
-        return NextResponse.json({ conflict: true, status: "CONFLICT", message: "客户已归属其他用户，已加入冲突客户列表" }, { status: 201 });
-      }
-      if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
-      if (duplicate && !duplicate.owner_id) {
-        const { data: claimed, error: claimError } = await admin.from("customers").update({ owner_id: user.id, status: "CLAIMED" }).eq("id", duplicateId).is("owner_id", null).select().single();
-        if (claimError) throw claimError;
-        await writeAudit(supabase, user.id, "CUSTOMER_AUTO_CLAIM", "customer", duplicateId, { source: "MANUAL_CREATE" });
-        return NextResponse.json(claimed, { status: 200 });
+        const message = outcome.reason === "PERMANENT_PROTECTION" ? "已成交客户永久保护，已加入冲突客户列表" : "客户仍在保护期或7天宽限期，已加入冲突客户列表";
+        return NextResponse.json({ conflict: true, status: "CONFLICT", message }, { status: 201 });
       }
     }
     const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id };

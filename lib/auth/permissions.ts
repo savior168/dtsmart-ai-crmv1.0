@@ -30,8 +30,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "customers.delete", label: "删除客户", group: "客户管理", description: "单条或批量物理删除客户", kind: "ACTION" },
   { code: "customers.export", label: "导出客户", group: "客户管理", description: "导出当前查询范围的客户数据", kind: "ACTION" },
   { code: "customers.batch_edit", label: "批量更新客户", group: "客户管理", description: "批量更新客户阶段等字段", kind: "ACTION" },
-  { code: "customers.claim", label: "认领客户", group: "客户管理", description: "认领无归属客户或冲突客户", kind: "ACTION" },
   { code: "customers.release", label: "释放客户", group: "客户管理", description: "释放本人名下客户", kind: "ACTION" },
+  { code: "customers.renew", label: "客户保护续期", group: "客户管理", description: "为本人仍持有且处于宽限期的客户续期45天", kind: "ACTION" },
   { code: "customers.assign", label: "分配客户", group: "客户管理", description: "将客户分配或转移给其他归属人", kind: "ACTION" },
   { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户管理", description: "查看客户AI结论与可核验证据", kind: "ACTION" },
 
@@ -61,8 +61,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "system.users.manage", label: "管理用户账号", group: "系统管理", description: "审核、启停、改角色、重置密码", kind: "ACTION", core: true },
   { code: "system.roles.view", label: "查看权限配置", group: "系统管理", description: "查看角色与用户权限", kind: "PAGE", core: true },
   { code: "system.roles.manage", label: "配置角色与用户权限", group: "系统管理", description: "调整角色默认权限和用户覆盖权限", kind: "ACTION", core: true },
-  { code: "system.audit.view", label: "查看操作日志", group: "系统管理", description: "查看系统关键操作审计记录", kind: "PAGE", core: true },
-  { code: "system.security.view", label: "查看安全设置", group: "系统管理", description: "查看登录与密码安全策略", kind: "PAGE", core: true },
+  { code: "system.audit.view", label: "查看操作日志", group: "系统管理", description: "查看本人产生的系统关键操作记录；系统管理员可切换操作人", kind: "PAGE" },
+  { code: "system.security.view", label: "查看安全设置", group: "系统管理", description: "只读查看登录与密码安全策略", kind: "PAGE" },
   { code: "system.security.manage", label: "修改安全设置", group: "系统管理", description: "修改登录锁定与临时密码策略", kind: "ACTION", core: true },
 ];
 

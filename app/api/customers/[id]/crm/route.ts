@@ -80,7 +80,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       remaining_days: remainingDays,
       permanent,
     };
-    const canEdit = hasPermission(account, "customers.edit") && (hasPermission(account, "customers.data_all") || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id));
+    const canEdit = hasPermission(account, "customers.edit") && (customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id));
     const customerForDisplay = {
       ...customer,
       website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),

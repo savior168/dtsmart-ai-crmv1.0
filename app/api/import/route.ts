@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const errors: string[] = [];
     const results: ImportResult[] = [];
     const conflicts: Record<string, unknown>[] = [];
-    const claimIds: string[] = [];
+    const transferCandidates: Array<{ customer: Record<string, unknown>; submitted: Row; fileName: string; rowNumber: number }> = [];
     rows.forEach((raw, index) => {
       const item = { ...raw };
       const importMeta = item.import_meta && typeof item.import_meta === "object" ? item.import_meta : {};
@@ -81,18 +81,8 @@ export async function POST(request: NextRequest) {
           // A duplicate never creates a second customer. When it belongs to
           // another salesperson, retain the importer's original basic fields
           // in the conflict queue for read-only review.
-          if (duplicateOf.owner_id && duplicateOf.owner_id !== user.id) {
-            conflicts.push({
-              customer_id: duplicateOf.id,
-              reported_by: user.id,
-              conflict_type: "CROSS_OWNER_DUPLICATE",
-              status: "OPEN",
-              details: { submitted: { company_name: item.company_name || null, contact_name: item.contact_name || null, country: item.country || null, phone: item.phone || null, email: item.email || null, website: item.website || null, google_url: item.google_url || null, address: item.address || null, industry: item.industry || null, category: item.category || null, source: item.source || null, tags: item.tags || [] }, matched_customer_id: duplicateOf.id },
-            });
-            results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "客户已归属其他用户", owner_name: ownerNames.get(String(duplicateOf.owner_id)) || String(duplicateOf.owner_id) });
-          } else if (!duplicateOf.owner_id) {
-            claimIds.push(String(duplicateOf.id));
-            results.push({ file_name: fileName, row_number: rowNumber, status: "success", reason: "客户已存在且无归属人，已自动认领" });
+          if (duplicateOf.owner_id !== user.id) {
+            transferCandidates.push({ customer: duplicateOf, submitted: item, fileName, rowNumber });
           } else {
             failed += 1;
             const reason = "客户已存在于我的客户列表，保留最先导入的数据";
@@ -116,22 +106,56 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    if (claimIds.length) {
-      const { error: claimError } = await admin
-        .from("customers")
-        .update({ owner_id: user.id, status: "CLAIMED" })
-        .in("id", Array.from(new Set(claimIds)))
-        .is("owner_id", null);
-      if (claimError) throw new Error(`自动认领客户失败：${claimError.message}`);
+    let transferredCount = 0;
+    const firstCandidateByCustomer = new Map<string, typeof transferCandidates[number]>();
+    transferCandidates.forEach((candidate) => {
+      const id = String(candidate.customer.id || "");
+      if (id && !firstCandidateByCustomer.has(id)) firstCandidateByCustomer.set(id, candidate);
+    });
+    const transferOutcome = new Map<string, { transferred: boolean; reason?: string }>();
+    const uniqueCandidates = [...firstCandidateByCustomer.entries()];
+    for (let offset = 0; offset < uniqueCandidates.length; offset += 20) {
+      await Promise.all(uniqueCandidates.slice(offset, offset + 20).map(async ([customerId]) => {
+        const outcome = await supabase.rpc("take_over_expired_customer", { p_customer_id: customerId, p_source: "BATCH_IMPORT" });
+        if (outcome.error) throw new Error(`客户归属校验失败：${outcome.error.message}`);
+        const value = outcome.data && typeof outcome.data === "object" ? outcome.data as { transferred?: boolean; reason?: string } : {};
+        transferOutcome.set(customerId, { transferred: Boolean(value.transferred), reason: value.reason });
+      }));
+    }
+    const successfulTransferIds = new Set<string>();
+    for (const candidate of transferCandidates) {
+      const customerId = String(candidate.customer.id || "");
+      const outcome = transferOutcome.get(customerId);
+      if (outcome?.transferred && !successfulTransferIds.has(customerId)) {
+        successfulTransferIds.add(customerId);
+        transferredCount += 1;
+        results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "success", reason: "原保护期及宽限期已结束，客户已自动转归当前用户" });
+        continue;
+      }
+      if (outcome?.transferred) {
+        duplicate += 1;
+        results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "duplicate", reason: "本次导入文件中存在相同客户" });
+        continue;
+      }
+      conflicts.push({
+        customer_id: customerId,
+        reported_by: user.id,
+        conflict_type: "CROSS_OWNER_DUPLICATE",
+        status: "OPEN",
+        details: { submitted: { company_name: candidate.submitted.company_name || null, contact_name: candidate.submitted.contact_name || null, country: candidate.submitted.country || null, phone: candidate.submitted.phone || null, email: candidate.submitted.email || null, website: candidate.submitted.website || null, google_url: candidate.submitted.google_url || null, address: candidate.submitted.address || null, industry: candidate.submitted.industry || null, category: candidate.submitted.category || null, source: candidate.submitted.source || null, tags: candidate.submitted.tags || [] }, matched_customer_id: customerId },
+      });
+      results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "conflict", reason: outcome?.reason === "PERMANENT_PROTECTION" ? "已成交客户永久保护，归属保持不变" : "客户仍在保护期或7天宽限期，归属保持不变", owner_name: ownerNames.get(String(candidate.customer.owner_id)) || String(candidate.customer.owner_id || "") });
     }
 
     if (conflicts.length) {
       const conflictIds = Array.from(new Set(conflicts.map((item) => String(item.customer_id))));
-      const prior = await supabase.from("customer_conflicts").select("customer_id").eq("reported_by", user.id).eq("status", "OPEN").in("customer_id", conflictIds);
+      // 已完成登录和imports.create权限校验，冲突队列由服务端写入。
+      // 旧生产库曾因冲突表启用RLS却缺少策略，用户会话写入全部失败。
+      const prior = await admin.from("customer_conflicts").select("customer_id").eq("reported_by", user.id).eq("status", "OPEN").in("customer_id", conflictIds);
       const priorIds = new Set((prior.data || []).map((item) => String(item.customer_id)));
       const newConflicts = conflicts.filter((item) => !priorIds.has(String(item.customer_id)));
       const { error: conflictError } = newConflicts.length
-        ? await supabase.from("customer_conflicts").insert(newConflicts)
+        ? await admin.from("customer_conflicts").insert(newConflicts)
         : { error: null };
       // Production databases upgraded from the original schema may not yet
       // have the optional conflict table. Never lose a valid import because
@@ -145,7 +169,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let success = 0;
+    let success = transferredCount;
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);
       const chunkRows = chunk.map((item) => item.row);
