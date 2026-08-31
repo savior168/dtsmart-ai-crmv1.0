@@ -146,7 +146,6 @@ export async function POST(request: NextRequest) {
     }
 
     let success = 0;
-    const auditRows: Record<string, unknown>[] = [];
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);
       const chunkRows = chunk.map((item) => item.row);
@@ -183,7 +182,6 @@ export async function POST(request: NextRequest) {
           } else {
             success += 1;
             results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "success" });
-            auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: single.data.id, content: { filename: item.fileName, row_number: item.rowNumber }, created_at: new Date().toISOString() });
           }
         }
         continue;
@@ -198,13 +196,19 @@ export async function POST(request: NextRequest) {
       }
       success += data?.length || chunk.length;
       chunk.forEach((item) => results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "success" }));
-      (data || []).forEach((item, index) => auditRows.push({ user_id: user.id, action: "CUSTOMER_IMPORT", target_type: "customer", target_id: item.id, content: { filename: chunk[index]?.fileName || payload.filename || "批量导入", row_number: chunk[index]?.rowNumber || null }, created_at: new Date().toISOString() }));
       if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
     }
-    if (auditRows.length) await supabase.from("audit_logs").insert(auditRows);
     const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length, error_count: invalid, failed_count: failed };
     if (taskId) await supabase.from("import_tasks").update({ total_count: stats.total_count, success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
-    if (taskId) await supabase.from("audit_logs").insert({ user_id: user.id, action: "IMPORT_COMPLETE", target_type: "import_task", target_id: taskId, content: stats, created_at: new Date().toISOString() });
+    await supabase.from("audit_logs").insert({
+      user_id: user.id,
+      action: "IMPORT_COMPLETE",
+      target_type: "import_task",
+      target_id: taskId,
+      content: { filename: payload.filename || "批量导入", ...stats },
+      result: failed + invalid > 0 ? "部分成功" : "成功",
+      created_at: new Date().toISOString(),
+    });
     return NextResponse.json({ ...stats, errors, results, task_id: taskId });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "导入失败，请稍后重试" }, { status: 400 }); }
 }

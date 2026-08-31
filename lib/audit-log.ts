@@ -1,0 +1,78 @@
+export const AUDIT_CATEGORIES = ["ACCOUNT", "PERMISSION", "SECURITY", "CUSTOMER", "IMPORT", "AI", "FOLLOWUP"] as const;
+
+export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
+
+export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
+  ACCOUNT: "账号管理",
+  PERMISSION: "角色与权限",
+  SECURITY: "安全设置",
+  CUSTOMER: "客户数据",
+  IMPORT: "数据导入",
+  AI: "AI筛选",
+  FOLLOWUP: "跟进管理",
+};
+
+export const AUDIT_ACTION_LABELS: Record<string, string> = {
+  ADMIN_USER_APPROVE: "通过注册审核",
+  ADMIN_USER_REJECT: "拒绝注册申请",
+  ADMIN_USER_ACTIVATE: "启用账号",
+  ADMIN_USER_DISABLE: "停用账号",
+  ADMIN_USER_UNLOCK: "解锁账号",
+  ADMIN_USER_UPDATE_ROLE: "修改账号角色",
+  ADMIN_USER_FORCE_LOGOUT: "强制退出账号",
+  ADMIN_USER_PASSWORD_RESET: "管理员重置密码",
+  USER_PROFILE_UPDATE: "修改个人资料",
+  USER_PASSWORD_UPDATE: "修改登录密码",
+  ADMIN_USER_PERMISSION_UPDATE: "修改用户权限",
+  ADMIN_ROLE_PERMISSION_UPDATE: "修改角色默认权限",
+  ADMIN_SECURITY_SETTINGS_UPDATE: "修改安全设置",
+  CUSTOMER_CREATE: "新增客户",
+  CUSTOMER_UPDATE: "编辑客户资料",
+  CUSTOMER_DELETE: "物理删除客户",
+  CUSTOMER_AUTO_CLAIM: "自动认领客户",
+  CUSTOMER_CONFLICT_DETECTED: "检测到冲突客户",
+  CUSTOMER_CLAIM: "认领客户",
+  CUSTOMER_RELEASE: "释放客户",
+  CUSTOMER_ASSIGN: "转移客户归属",
+  CUSTOMER_STAGE: "修改客户阶段",
+  IMPORT_COMPLETE: "完成数据导入",
+  AI_TASK_CREATE: "创建AI筛选任务",
+  AI_TASK_PAUSE: "停止AI筛选任务",
+  AI_TASK_RESUME: "继续AI筛选任务",
+  AI_TASK_RETRY: "重试AI筛选任务",
+  AI_TASK_EDIT: "编辑AI筛选任务",
+  AI_TASK_CANCEL: "取消AI筛选任务",
+  AI_TASK_DELETE: "删除AI筛选任务",
+  AI_RESULT_MANUAL_REVIEW: "人工复核AI结果",
+  FOLLOWUP_CREATE: "新增跟进记录",
+};
+
+export const AUDIT_CATEGORY_ACTIONS: Record<AuditCategory, string[]> = {
+  ACCOUNT: [
+    "ADMIN_USER_APPROVE", "ADMIN_USER_REJECT", "ADMIN_USER_ACTIVATE", "ADMIN_USER_DISABLE",
+    "ADMIN_USER_UNLOCK", "ADMIN_USER_UPDATE_ROLE", "ADMIN_USER_FORCE_LOGOUT",
+    "ADMIN_USER_PASSWORD_RESET", "USER_PROFILE_UPDATE", "USER_PASSWORD_UPDATE",
+  ],
+  PERMISSION: ["ADMIN_USER_PERMISSION_UPDATE", "ADMIN_ROLE_PERMISSION_UPDATE"],
+  SECURITY: ["ADMIN_SECURITY_SETTINGS_UPDATE"],
+  CUSTOMER: [
+    "CUSTOMER_CREATE", "CUSTOMER_UPDATE", "CUSTOMER_DELETE", "CUSTOMER_AUTO_CLAIM",
+    "CUSTOMER_CONFLICT_DETECTED", "CUSTOMER_CLAIM", "CUSTOMER_RELEASE", "CUSTOMER_ASSIGN", "CUSTOMER_STAGE",
+  ],
+  IMPORT: ["IMPORT_COMPLETE"],
+  AI: [
+    "AI_TASK_CREATE", "AI_TASK_PAUSE", "AI_TASK_RESUME", "AI_TASK_RETRY",
+    "AI_TASK_EDIT", "AI_TASK_CANCEL", "AI_TASK_DELETE", "AI_RESULT_MANUAL_REVIEW",
+  ],
+  FOLLOWUP: ["FOLLOWUP_CREATE"],
+};
+
+export const IMPORTANT_AUDIT_ACTIONS = AUDIT_CATEGORIES.flatMap((category) => AUDIT_CATEGORY_ACTIONS[category]);
+
+export function auditActionLabel(action: string) {
+  return AUDIT_ACTION_LABELS[action] || "其他重要操作";
+}
+
+export function auditCategoryOf(action: string): AuditCategory | null {
+  return AUDIT_CATEGORIES.find((category) => AUDIT_CATEGORY_ACTIONS[category].includes(action)) || null;
+}

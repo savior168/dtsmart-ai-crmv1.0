@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clipboard, LoaderCircle, LockKeyhole, RefreshCw, Search, Settings2, ShieldCheck, UserCheck, UserRoundCog, UserX, X } from "lucide-react";
-import { ROLE_LABELS, STATUS_LABELS, type AccountStatus, type PermissionDefinition, type UserRole } from "@/lib/auth/permissions";
+import { PERMISSION_CATALOG, ROLE_LABELS, STATUS_LABELS, type AccountStatus, type PermissionDefinition, type UserRole } from "@/lib/auth/permissions";
+import { AUDIT_CATEGORIES, AUDIT_CATEGORY_LABELS, auditActionLabel, type AuditCategory } from "@/lib/audit-log";
 
 type UserRow = { id:string; name:string; email:string; role:UserRole; status:AccountStatus; created_at:string; reviewed_at:string|null; review_reason:string|null; last_login_at:string|null; must_change_password:boolean; locked_until:string|null };
 type UserAction = "APPROVE"|"REJECT"|"ACTIVATE"|"DISABLE"|"UNLOCK"|"UPDATE_ROLE"|"FORCE_LOGOUT"|"RESET_PASSWORD";
@@ -139,11 +140,9 @@ export function RolePermissionPanel(){
 function RoleCard({icon,title,text}:{icon:React.ReactNode;title:string;text:string}){return <article className="rounded-xl border bg-white p-4"><div className="flex items-center gap-2 font-semibold text-slate-900"><span className="text-blue-600">{icon}</span>{title}</div><p className="mt-2 text-sm leading-6 text-slate-500">{text}</p></article>}
 
 type AuditUser = { id:string; name:string|null; email:string; role?:UserRole; status?:AccountStatus };
-type AuditRow = { id:string; user_id:string|null; action:string; target_type:string; target_id:string|null; content?:Record<string,unknown>|null; result?:string|null; created_at:string; user?:AuditUser|null; target_user?:AuditUser|null };
+type AuditRow = { id:string; user_id:string|null; action:string; category:AuditCategory|null; target_type:string; target_id:string|null; content?:Record<string,unknown>|null; result?:string|null; created_at:string; user?:AuditUser|null; target_user?:AuditUser|null };
 
-const auditActionLabels:Record<string,string>={
-  ADMIN_USER_APPROVE:"通过注册申请",ADMIN_USER_REJECT:"拒绝注册申请",ADMIN_USER_ACTIVATE:"启用账号",ADMIN_USER_DISABLE:"停用账号",ADMIN_USER_UNLOCK:"解锁账号",ADMIN_USER_UPDATE_ROLE:"修改账号角色",ADMIN_USER_FORCE_LOGOUT:"强制退出账号",ADMIN_USER_PASSWORD_RESET:"重置账号密码",ADMIN_ROLE_PERMISSION_UPDATE:"修改角色权限",ADMIN_SECURITY_SETTINGS_UPDATE:"修改安全设置",
-};
+const permissionLabelMap=new Map(PERMISSION_CATALOG.map(item=>[item.code,item.label]));
 
 function auditUserName(user?:AuditUser|null,fallback?:unknown){return user?.name||user?.email||String(fallback||"未知账号");}
 function auditValue(value:unknown){return value===null||value===undefined||value===""?"—":String(value);}
@@ -151,11 +150,16 @@ function auditRole(value:unknown){const key=String(value||"") as UserRole;return
 function auditStatus(value:unknown){const key=String(value||"") as AccountStatus;return STATUS_LABELS[key]||auditValue(value);}
 function auditSummary(row:AuditRow){
   const actor=auditUserName(row.user,row.user_id);
-  const action=auditActionLabels[row.action]||row.action;
+  const action=auditActionLabel(row.action);
   const content=row.content||{};
-  if(row.target_type==="user")return `${actor} 对账号 ${auditUserName(row.target_user,content.target_name||content.target_email||row.target_id)} 执行了“${action}”`;
-  if(row.action==="ADMIN_ROLE_PERMISSION_UPDATE")return `${actor} 修改了“${auditRole(content.role)}”的功能权限`;
+  const target=auditUserName(row.target_user,content.target_name||content.target_email||row.target_id);
+  if(row.action==="ADMIN_USER_PERMISSION_UPDATE")return `${actor} 将账号 ${target} 的“${permissionLabelMap.get(String(content.permission||""))||"功能权限"}”设置为${content.effect==="DENY"?"禁止":content.effect==="ALLOW"?"允许":"跟随角色"}`;
+  if(row.target_type==="user")return `${actor} 对账号 ${target} 执行了“${action}”`;
+  if(row.action==="ADMIN_ROLE_PERMISSION_UPDATE")return `${actor} 将“${auditRole(content.role)}”的“${permissionLabelMap.get(String(content.permission||""))||"功能权限"}”${content.enabled?"开启":"关闭"}`;
   if(row.action==="ADMIN_SECURITY_SETTINGS_UPDATE")return `${actor} 修改了系统安全设置`;
+  if(row.action==="IMPORT_COMPLETE")return `${actor} 完成数据导入“${auditValue(content.filename)}”`;
+  if(row.action.startsWith("AI_TASK_"))return `${actor} 执行了“${action}”${content.task_number?`（${content.task_number}）`:""}`;
+  if(row.target_type==="customer")return `${actor} 执行了“${action}”${content.company_name?`（${content.company_name}）`:""}`;
   return `${actor} 执行了“${action}”`;
 }
 function auditDetailLines(row:AuditRow){
@@ -163,21 +167,21 @@ function auditDetailLines(row:AuditRow){
   if(content.reason)lines.push(`操作原因：${content.reason}`);
   if(content.previous_role||content.next_role)lines.push(`角色变化：${auditRole(content.previous_role)} → ${auditRole(content.next_role)}`);
   if(content.previous_status||content.next_status)lines.push(`状态变化：${auditStatus(content.previous_status)} → ${auditStatus(content.next_status)}`);
-  if(content.permission)lines.push(`权限：${content.permission}；结果：${content.enabled?"启用":"停用"}`);
+  if(row.action==="IMPORT_COMPLETE")lines.push(`总计 ${auditValue(content.total_count)} 条；成功 ${auditValue(content.success_count)} 条；重复 ${auditValue(content.duplicate_count)} 条；冲突 ${auditValue(content.conflict_count)} 条；失败 ${auditValue(content.failed_count)} 条`);
   if(content.expires_at)lines.push(`临时密码有效期至：${formatDate(String(content.expires_at))}`);
-  if(row.result)lines.push(`执行结果：${row.result}`);
-  return lines.length?lines:["执行成功"];
+  lines.push(`执行结果：${row.result||"成功"}`);
+  return lines;
 }
 
 export function AuditLogPanel(){
-  const [rows,setRows]=useState<AuditRow[]>([]);const [count,setCount]=useState(0);const [page,setPage]=useState(1);const [action,setAction]=useState("");const [loading,setLoading]=useState(true);const [error,setError]=useState("");
-  const load=useCallback(async()=>{setLoading(true);setError("");try{const params=new URLSearchParams({page:String(page),pageSize:"20"});if(action)params.set("action",action);const body=await api(`/api/admin/audit?${params}`);setRows(body.data||[]);setCount(body.count||0);}catch(e){setError(e instanceof Error?e.message:"加载失败");}finally{setLoading(false);}},[action,page]);
+  const [rows,setRows]=useState<AuditRow[]>([]);const [count,setCount]=useState(0);const [page,setPage]=useState(1);const [category,setCategory]=useState("");const [loading,setLoading]=useState(true);const [error,setError]=useState("");
+  const load=useCallback(async()=>{setLoading(true);setError("");try{const params=new URLSearchParams({page:String(page),pageSize:"20"});if(category)params.set("category",category);const body=await api(`/api/admin/audit?${params}`);setRows(body.data||[]);setCount(body.count||0);}catch(e){setError(e instanceof Error?e.message:"加载失败");}finally{setLoading(false);}},[category,page]);
   useEffect(()=>{void load();},[load]);
   return <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
-    <div className="flex flex-col gap-3 border-b p-5 md:flex-row md:items-end md:justify-between"><div><h3 className="text-lg font-semibold">操作日志</h3><p className="mt-1 text-sm text-slate-500">明确记录谁在什么时间、对哪个账号或系统配置、执行了什么操作及执行结果。</p></div><form onSubmit={e=>{e.preventDefault();setPage(1);void load();}} className="flex gap-2"><input value={action} onChange={e=>setAction(e.target.value)} placeholder="搜索操作类型" className={fieldClass}/><button className="rounded-lg bg-blue-600 px-4 text-sm text-white">查询</button></form></div>
+    <div className="flex flex-col gap-3 border-b p-5 md:flex-row md:items-end md:justify-between"><div><h3 className="text-lg font-semibold">操作日志</h3><p className="mt-1 text-sm text-slate-500">仅记录账号、权限、安全、客户关键变更、导入结果、AI任务和跟进等重要操作。</p></div><div className="flex gap-2"><select value={category} onChange={e=>{setCategory(e.target.value);setPage(1);}} className={fieldClass}><option value="">全部操作类型</option>{AUDIT_CATEGORIES.map(item=><option key={item} value={item}>{AUDIT_CATEGORY_LABELS[item]}</option>)}</select>{category?<button type="button" onClick={()=>{setCategory("");setPage(1);}} className="rounded-lg border px-4 text-sm text-slate-600 hover:bg-slate-50">重置</button>:null}</div></div>
     {error?<p className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
-    <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-5 py-3 font-medium">时间</th><th className="px-4 py-3 font-medium">操作人</th><th className="px-4 py-3 font-medium">操作记录</th><th className="px-4 py-3 font-medium">目标账号 / 对象</th><th className="px-5 py-3 font-medium">原因与结果</th></tr></thead><tbody className="divide-y">
-      {loading?<tr><td colSpan={5} className="py-16 text-center text-slate-400">正在加载…</td></tr>:rows.map(row=><tr key={row.id} className="align-top hover:bg-slate-50/60"><td className="whitespace-nowrap px-5 py-4 text-slate-600">{formatDate(row.created_at)}</td><td className="px-4 py-4"><b>{auditUserName(row.user,row.user_id)}</b><small className="block text-slate-400">{row.user?.email||row.user_id||"—"}</small></td><td className="max-w-md px-4 py-4"><b className="leading-6 text-slate-900">{auditSummary(row)}</b><span className="mt-1 block text-xs text-blue-700">{auditActionLabels[row.action]||row.action}</span></td><td className="px-4 py-4 text-slate-700">{row.target_type==="user"?<><b className="block">{auditUserName(row.target_user,row.content?.target_name||row.content?.target_email||row.target_id)}</b><small className="block text-slate-400">{row.target_user?.email||String(row.content?.target_email||row.target_id||"—")}</small></>:<><b className="block">{row.target_type||"系统"}</b><small className="block text-slate-400">{row.target_id||"全局配置"}</small></>}</td><td className="max-w-sm px-5 py-4 text-slate-600">{auditDetailLines(row).map((line,index)=><p key={`${row.id}-${index}`} className="leading-6">{line}</p>)}</td></tr>)}
+    <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-5 py-3 font-medium">时间</th><th className="px-4 py-3 font-medium">操作类型</th><th className="px-4 py-3 font-medium">操作人</th><th className="px-4 py-3 font-medium">操作记录</th><th className="px-5 py-3 font-medium">原因与结果</th></tr></thead><tbody className="divide-y">
+      {loading?<tr><td colSpan={5} className="py-16 text-center text-slate-400">正在加载…</td></tr>:rows.map(row=><tr key={row.id} className="align-top hover:bg-slate-50/60"><td className="whitespace-nowrap px-5 py-4 text-slate-600">{formatDate(row.created_at)}</td><td className="whitespace-nowrap px-4 py-4"><span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{row.category?AUDIT_CATEGORY_LABELS[row.category]:"重要操作"}</span><small className="mt-2 block text-slate-500">{auditActionLabel(row.action)}</small></td><td className="px-4 py-4"><b>{auditUserName(row.user,row.user_id)}</b><small className="block text-slate-400">{row.user?.email||row.user_id||"—"}</small></td><td className="max-w-lg px-4 py-4"><b className="leading-6 text-slate-900">{auditSummary(row)}</b></td><td className="max-w-sm px-5 py-4 text-slate-600">{auditDetailLines(row).map((line,index)=><p key={`${row.id}-${index}`} className="leading-6">{line}</p>)}</td></tr>)}
       {!loading&&!rows.length?<tr><td colSpan={5} className="py-16 text-center text-slate-400">暂无日志</td></tr>:null}
     </tbody></table></div>
     <div className="flex items-center justify-between border-t p-4 text-sm text-slate-500"><span>共 {count} 条</span><div className="flex gap-2"><button disabled={page<=1} onClick={()=>setPage(v=>v-1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">上一页</button><button disabled={page*20>=count} onClick={()=>setPage(v=>v+1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">下一页</button></div></div>

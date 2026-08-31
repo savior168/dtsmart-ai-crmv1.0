@@ -210,9 +210,16 @@ assert.match(workspacePanels, /customer-conflicts\?\$\{params\}[\s\S]*filterLabe
 assert.match(workspacePanels, /当前归属人","冲突提交历史"[\s\S]*<details[\s\S]*submissionHistory/, "冲突列表必须显示当前归属人并可展开倒序提交历史");
 const adminAuditApi = read("app/api/admin/audit/route.ts");
 const adminPanels = read("components/admin-settings-panels.tsx");
+const auditPolicy = read("lib/audit-log.ts");
 assert.match(adminAuditApi, /target_user:[\s\S]*target_type === "user"/, "系统操作日志必须返回目标账号信息");
+assert.match(adminAuditApi, /\.in\("action", category \? AUDIT_CATEGORY_ACTIONS\[category\] : IMPORTANT_AUDIT_ACTIONS\)/, "系统操作日志必须只查询白名单内的重要操作");
 assert.match(adminPanels, /auditSummary[\s\S]*对账号[\s\S]*执行了/, "系统操作日志必须明确显示谁对哪个账号做了什么");
 assert.doesNotMatch(adminPanels, /JSON\.stringify\(row\.content/, "系统操作日志不得继续直接展示原始JSON");
+assert.doesNotMatch(adminPanels, /目标账号 \/ 对象/, "目标账号不得单独占据重复列");
+assert.match(adminPanels, /AUDIT_CATEGORY_LABELS[\s\S]*全部操作类型/, "操作日志必须支持中文操作类型分类筛选");
+assert.match(auditPolicy, /ADMIN_USER_PERMISSION_UPDATE: "修改用户权限"/, "用户权限日志不得显示内部英文操作码");
+assert.doesNotMatch(importApi, /CUSTOMER_IMPORT/, "批量导入不得再按客户逐条写操作日志");
+assert.match(importApi, /action: "IMPORT_COMPLETE"[\s\S]*filename:[\s\S]*\.\.\.stats/, "每次导入只保留一条任务级汇总日志");
 assert.match(adminPanels, /<nav className="relative z-20[^"]*min-h-\[58px\][^"]*flex-wrap[^"]*bg-white/, "用户权限模块页签必须完整显示且不能被权限表头遮挡");
 const permanentDelete = read("lib/customers/soft-delete.ts");
 assert.match(permanentDelete, /offset \+= 200/, "批量永久删除必须分批处理，避免大批量ID被截断");
