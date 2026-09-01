@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { canWriteOwnedRecord, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { FOLLOWUP_TYPES } from "@/lib/types";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requirePermission("followups.create");
+    const { supabase, user, account } = await requirePermission("followups.create");
     const { id } = await context.params;
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });
     if (!String(body.content || "").trim()) return NextResponse.json({ error: "请填写跟进内容" }, { status: 400 });
-    const { data: customer, error: customerError } = await supabase.from("customers").select("id,status,owner_id").eq("id", id).or(`owner_id.eq.${user.id},created_by.eq.${user.id}`).single();
+    const admin = createAdminClient();
+    const { data: customer, error: customerError } = await admin.from("customers").select("id,status,owner_id,created_by").eq("id", id).is("deleted_at", null).single();
     if (customerError) throw customerError;
-    const { data, error } = await supabase.from("followups").insert({
+    const effectiveOwner = customer.owner_id || customer.created_by;
+    if (!canWriteOwnedRecord(account, effectiveOwner)) {
+      return NextResponse.json({ error: "其他用户的客户和跟进数据仅供查看，不能新增跟进" }, { status: 403 });
+    }
+    const { data, error } = await admin.from("followups").insert({
       customer_id: id,
       user_id: user.id,
       type: body.type,
@@ -20,7 +26,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       next_follow_date: body.next_follow_date || null,
     }).select("*,creator:users(name,email)").single();
     if (error) throw error;
-    await supabase.from("customers").update({ last_contact_time: new Date().toISOString() }).eq("id", id);
+    await admin.from("customers").update({ last_contact_time: new Date().toISOString() }).eq("id", id);
     if (customer.status === "CLAIMED") {
       const { error: stageError } = await supabase.rpc("set_customer_stage", { p_customer_id: id, p_status: "FOLLOWING" });
       if (stageError) throw stageError;

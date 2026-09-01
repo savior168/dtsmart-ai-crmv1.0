@@ -46,7 +46,13 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const usersPromise = ["ADMIN","SUPERVISOR"].includes(profileResult.data.role)
       ? supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name")
       : Promise.resolve({ data: [], error: null });
-    const [latestAi, verifiedContacts, usersResult] = await Promise.all([latestAiPromise, verifiedContactsPromise, usersPromise]);
+    const [latestAi, verifiedContacts, usersResult, attachmentsResult, quotesResult] = await Promise.all([
+      latestAiPromise,
+      verifiedContactsPromise,
+      usersPromise,
+      admin.from("attachments").select("id,followup_id,quote_id,filename,mime_type,size_bytes,created_at").eq("customer_id", id).order("created_at", { ascending: false }),
+      admin.from("quotes").select("id,quote_number,status,currency,total_amount,valid_until,created_at,updated_at").eq("customer_id", id).order("updated_at", { ascending: false }),
+    ]);
     if (latestAi.error) throw latestAi.error;
     if (verifiedContacts.error) throw verifiedContacts.error;
     const evidence = latestAi.data
@@ -80,13 +86,13 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       remaining_days: remainingDays,
       permanent,
     };
-    const canEdit = hasPermission(account, "customers.edit") && (customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id));
+    const canEdit = hasPermission(account, "customers.edit") && (account.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id));
     const customerForDisplay = {
       ...customer,
       website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),
       website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]),
     };
-    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
+    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

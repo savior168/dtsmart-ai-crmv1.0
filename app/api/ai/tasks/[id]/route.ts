@@ -48,7 +48,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       name?: string; scheduled_at?: string | null; notification_mode?: string;
     };
     const task = await ownedTask(id, account);
-    if (task.user_id !== user.id) return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能控制或修改" }, { status: 403 });
+    if (task.user_id !== user.id && account.role !== "ADMIN") return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能控制或修改" }, { status: 403 });
     const admin = createAdminClient();
     if (body.action === "pause") {
       if (!["RUNNING", "PAUSING"].includes(task.status)) return NextResponse.json({ error: "只有执行中的任务可以停止" }, { status: 409 });
@@ -144,10 +144,11 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     const { user, account } = await requirePermission("ai.tasks.delete");
     const { id } = await context.params;
     const task = await ownedTask(id, account);
-    if (task.user_id !== user.id) return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能删除" }, { status: 403 });
+    if (task.user_id !== user.id && account.role !== "ADMIN") return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能删除" }, { status: 403 });
     if (!['CANCELLED', 'FAILED'].includes(task.status)) return NextResponse.json({ error: "只有已取消或执行失败的任务可以删除" }, { status: 409 });
     const admin = createAdminClient();
-    const removeQuery = admin.from("ai_screening_tasks").delete().eq("id", id).eq("user_id", user.id).in("status", ['CANCELLED', 'FAILED']);
+    let removeQuery = admin.from("ai_screening_tasks").delete().eq("id", id).in("status", ['CANCELLED', 'FAILED']);
+    if (account.role !== "ADMIN") removeQuery = removeQuery.eq("user_id", user.id);
     const removed = await removeQuery;
     if (removed.error) throw removed.error;
     await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_DELETE", target_type: "ai_screening_task", target_id: id, content: { task_number: task.task_number, status: task.status } });

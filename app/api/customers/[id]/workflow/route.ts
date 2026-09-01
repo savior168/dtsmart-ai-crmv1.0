@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { canWriteOwnedRecord, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type WorkflowBody = { action?: "RELEASE" | "ASSIGN" | "STAGE"; reason?: string; user_id?: string; status?: string };
@@ -9,11 +9,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const { id } = await context.params;
     const body = (await request.json()) as WorkflowBody;
     const permission = body.action === "RELEASE" ? "customers.release" : body.action === "ASSIGN" ? "customers.assign" : "customers.edit";
-    const { supabase, user } = await requirePermission(permission);
+    const { supabase, user, account } = await requirePermission(permission);
     const customer = await createAdminClient().from("customers").select("owner_id").eq("id", id).maybeSingle();
     if (customer.error) throw customer.error;
     const assigningUnowned = body.action === "ASSIGN" && customer.data?.owner_id == null;
-    if (!customer.data || (!assigningUnowned && customer.data.owner_id !== user.id)) {
+    if (!customer.data || (!assigningUnowned && !canWriteOwnedRecord(account, customer.data.owner_id))) {
       return NextResponse.json({ error: "只能操作归属自己的客户；跨用户数据仅供查看" }, { status: 403 });
     }
     let rpc: string;

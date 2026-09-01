@@ -56,7 +56,8 @@ export type CustomerEvidence = {
   public_channels?: Record<string, WebsiteEvidence>;
 };
 
-type FetchOptions = { signal?: AbortSignal; timeoutMs?: number };
+export type ExternalApiCall = { provider:"GOOGLE_PLACES";operation:string;sku:string;requestId?:string;unitPriceUsd:number|null;status:number };
+type FetchOptions = { signal?: AbortSignal; timeoutMs?: number; onApiCall?:(call:ExternalApiCall)=>void|Promise<void> };
 
 const BROWSER_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -921,7 +922,8 @@ export async function collectGooglePlaceEvidence(input: {
   }
 
   // Cost-controlled Places API (New) flow:
-  // 1. Search only for Place IDs (currently an unlimited free SKU).
+  // 1. Search only for Place IDs to minimize fields, latency and billable SKU
+  //    cost. Never assume it is free: monthly caps and account pricing vary.
   // 2. Read the minimum Pro fields for the top-ranked candidate and only try a
   //    second/third candidate when identity matching is still ambiguous.
   // 3. Read Enterprise contact fields only after the entity is matched and the
@@ -956,11 +958,22 @@ export async function collectGooglePlaceEvidence(input: {
       "X-Goog-FieldMask": fieldMask,
     });
     const detailUrl = (placeId: string) => `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`;
+    const configuredRate = (name: string) => {
+      const raw = process.env[name];
+      if (raw === undefined || raw.trim() === "") return null;
+      const value = Number(raw);
+      return Number.isFinite(value) && value >= 0 ? value : null;
+    };
+    const reportCall = async (operation:string,sku:string,status:number,rateEnv:string,response:Response) => {
+      try { await options.onApiCall?.({ provider:"GOOGLE_PLACES",operation,sku,status,unitPriceUsd:configuredRate(rateEnv),requestId:response.headers.get("x-request-id")||response.headers.get("x-goog-request-id")||undefined }); } catch { /* 费用留痕失败不应破坏客户证据采集，调用方另行记录系统告警。 */ }
+    };
     const readDetail = async (placeId: string, fieldMask: string): Promise<PlaceDetail | null> => {
       const response = await fetchWithRetry(detailUrl(placeId), {
         signal: request.signal,
         headers: placesHeaders(fieldMask),
       });
+      const enterprise = /internationalPhoneNumber|reviews|rating|websiteUri/.test(fieldMask);
+      await reportCall(enterprise?"商家详情与联系方式":"商家基础详情",enterprise?"PLACES_DETAILS_ENTERPRISE":"PLACES_DETAILS_PRO",response.status,enterprise?"GOOGLE_PLACES_ENTERPRISE_USD_PER_REQUEST":"GOOGLE_PLACES_PRO_USD_PER_REQUEST",response);
       if (!response.ok) return null;
       return await response.json() as PlaceDetail;
     };
@@ -974,6 +987,7 @@ export async function collectGooglePlaceEvidence(input: {
         headers: placesHeaders("places.id"),
         body: JSON.stringify({ textQuery: query, pageSize: 3, languageCode: "zh-CN" }),
       });
+      await reportCall("名称地址文本搜索","PLACES_TEXT_SEARCH_ID_ONLY",searchResponse.status,"GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST",searchResponse);
       const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
       candidateIds = (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
       if (!searchResponse.ok || !candidateIds.length) {
@@ -1116,6 +1130,7 @@ export async function collectGooglePlaceEvidence(input: {
             signal: request.signal,
             headers: { "X-Goog-Api-Key": apiKey },
           });
+          await reportCall("高清商家图片","PLACES_PHOTO_MEDIA",photoResponse.status,"GOOGLE_PLACES_PHOTO_USD_PER_REQUEST",photoResponse);
           if (!photoResponse.ok) return "";
           const payload = await photoResponse.json() as { photoUri?: string };
           return /^https?:\/\//i.test(payload.photoUri || "") ? payload.photoUri || "" : "";

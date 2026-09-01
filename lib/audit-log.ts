@@ -1,4 +1,4 @@
-export const AUDIT_CATEGORIES = ["ACCOUNT", "PERMISSION", "SECURITY", "CUSTOMER", "IMPORT", "AI", "FOLLOWUP"] as const;
+export const AUDIT_CATEGORIES = ["ACCOUNT", "PERMISSION", "SECURITY", "CUSTOMER", "IMPORT", "AI", "FOLLOWUP", "COST"] as const;
 
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
 
@@ -10,6 +10,7 @@ export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
   IMPORT: "数据导入",
   AI: "AI筛选",
   FOLLOWUP: "跟进管理",
+  COST: "费用管理",
 };
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -45,6 +46,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   AI_TASK_DELETE: "删除AI筛选任务",
   AI_RESULT_MANUAL_REVIEW: "人工复核AI结果",
   FOLLOWUP_CREATE: "新增跟进记录",
+  COST_ACCOUNTING_PERIOD_RESET: "重置正式费用统计周期",
 };
 
 export const AUDIT_CATEGORY_ACTIONS: Record<AuditCategory, string[]> = {
@@ -65,6 +67,7 @@ export const AUDIT_CATEGORY_ACTIONS: Record<AuditCategory, string[]> = {
     "AI_TASK_EDIT", "AI_TASK_CANCEL", "AI_TASK_DELETE", "AI_RESULT_MANUAL_REVIEW",
   ],
   FOLLOWUP: ["FOLLOWUP_CREATE"],
+  COST: ["COST_ACCOUNTING_PERIOD_RESET"],
 };
 
 export const IMPORTANT_AUDIT_ACTIONS = AUDIT_CATEGORIES.flatMap((category) => AUDIT_CATEGORY_ACTIONS[category]);

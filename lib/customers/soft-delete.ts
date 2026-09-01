@@ -9,10 +9,12 @@ export async function permanentlyDeleteCustomers({
   supabase: _supabase,
   userId,
   ids,
+  allowAll = false,
 }: {
   supabase: UserSupabase;
   userId: string;
   ids: string[];
+  allowAll?: boolean;
 }) {
   void _supabase;
   const uniqueIds = [...new Set(ids)].filter(Boolean);
@@ -34,11 +36,11 @@ export async function permanentlyDeleteCustomers({
   const visibleById = new Map((visible || []).map((customer) => [customer.id, customer]));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
-    return Boolean(customer && !["QUOTE", "DEAL"].includes(customer.status) && customer.owner_id === userId);
+    return Boolean(customer && (allowAll || (!["QUOTE", "DEAL"].includes(customer.status) && customer.owner_id === userId)));
   });
   const failures: Failure[] = uniqueIds
     .filter((id) => !allowedIds.includes(id))
-    .map((id) => ({ id, ok: false, error: ["QUOTE", "DEAL"].includes(visibleById.get(id)?.status || "") ? "报价中和成交客户不允许删除" : "客户不存在、已删除或您没有删除权限" }));
+    .map((id) => ({ id, ok: false, error: ["QUOTE", "DEAL"].includes(visibleById.get(id)?.status || "") ? "报价中和成交客户仅系统管理员可删除" : "客户不存在、已删除或您没有删除权限" }));
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
   // Legacy compatibility tables created before ON DELETE CASCADE must be

@@ -1,0 +1,123 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CircleDollarSign, Coins, Cpu, FileDown, LoaderCircle, RefreshCw, RotateCcw } from "lucide-react";
+
+type CostPeriod = "official" | "test" | "all";
+type ProviderRow = { provider: string; service: string; request_count: number; total_usd: number; estimated_usd: number };
+type CostRow = {
+  id: string; provider: string; service: string; operation: string; model_or_sku: string | null;
+  input_tokens: number; cached_input_tokens: number; output_tokens: number; amount_usd: number;
+  amount_type: "FREE" | "ESTIMATED" | "FINAL"; pricing_snapshot?: { pricing_configured?: boolean } | null;
+  occurred_at: string; user?: { name?: string | null; email?: string | null } | null;
+};
+type Payload = {
+  data: CostRow[]; count: number; page: number; page_size: number; period: CostPeriod;
+  accounting_start_at: string; settings_updated_at: string; effective_from: string; effective_to: string;
+  summary: {
+    total_usd: number; request_count: number; input_tokens: number; cached_input_tokens: number;
+    output_tokens: number; estimated_usd: number; final_usd: number; unknown_pricing_count: number;
+    providers: ProviderRow[];
+  };
+};
+
+const money = (value: unknown) => `$${Number(value || 0).toFixed(4)}`;
+const chinaDate = (value: string) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+const inputDate = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+
+function amountLabel(row: CostRow) {
+  if (row.amount_type === "FINAL") return "账单已确认";
+  if (row.amount_type === "FREE") return "明确免费";
+  if (row.pricing_snapshot?.pricing_configured === false) return "单价待配置";
+  return "按价目预估";
+}
+
+export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [period, setPeriod] = useState<CostPeriod>("official");
+  const [provider, setProvider] = useState("");
+  const [page, setPage] = useState(1);
+  const [payload, setPayload] = useState<Payload | null>(null);
+  const [accountingDate, setAccountingDate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const query = useMemo(() => {
+    const value = new URLSearchParams({ to, period, page: String(page), page_size: "20" });
+    if (from) value.set("from", from);
+    if (provider) value.set("provider", provider);
+    return value;
+  }, [from, page, period, provider, to]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    const response = await fetch(`/api/cost-center?${query}`, { cache: "no-store" });
+    const body = await response.json().catch(() => ({}));
+    setLoading(false);
+    if (!response.ok) { setError(body.error || "费用数据加载失败"); return; }
+    setPayload(body);
+    setAccountingDate(inputDate(body.accounting_start_at));
+  }, [query]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function saveAccountingStart(action: "SET_DATE" | "RESET_NOW") {
+    if (action === "RESET_NOW" && !window.confirm("确认清空正式期统计吗？历史调用记录不会删除，只会归入“历史测试期”。")) return;
+    setSaving(true); setError("");
+    const response = await fetch("/api/cost-center", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action === "RESET_NOW" ? { action } : { action, accounting_start_date: accountingDate }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) { setError(body.error || "费用统计周期更新失败"); return; }
+    setFrom(""); setPeriod("official"); setPage(1);
+    await load();
+  }
+
+  const summary = payload?.summary;
+  const exportQuery = new URLSearchParams({ to, period });
+  if (from) exportQuery.set("from", from);
+  if (provider) exportQuery.set("provider", provider);
+  const scopeLabel = period === "official" ? "正式期" : period === "test" ? "历史测试期" : "全部记录";
+
+  const content = <div className="mx-auto max-w-[1640px]">
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div><h1 className="text-2xl font-bold">费用中心</h1><p className="mt-1 text-sm text-slate-500">独立保存全部 API 调用费用；删除客户或分析任务不会改变历史账本。</p></div>
+      <div className="flex gap-2"><a href={`/api/cost-center/export?${exportQuery}`} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm text-blue-700"><FileDown size={16}/>导出当前明细</a><button onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button></div>
+    </div>
+
+    <section className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><b className="text-sm text-slate-800">正式费用统计起点</b><p className="mt-1 text-xs leading-5 text-slate-600">起点之前的调用归入历史测试期。调整或清空统计不会删除任何真实调用记录。</p></div>
+        <div className="flex flex-wrap items-end gap-2"><label className="text-xs text-slate-600">开始日期<input type="date" value={accountingDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setAccountingDate(event.target.value)} className="ml-2 h-9 rounded-lg border bg-white px-3 text-sm"/></label><button disabled={saving || !accountingDate} onClick={() => void saveAccountingStart("SET_DATE")} className="h-9 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">保存开始日期</button><button disabled={saving} onClick={() => void saveAccountingStart("RESET_NOW")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 text-sm text-amber-700 disabled:opacity-50"><RotateCcw size={15}/>清空正式期统计</button></div>
+      </div>
+      {payload ? <p className="mt-2 text-xs text-slate-500">当前起点：{chinaDate(payload.accounting_start_at)}{payload.settings_updated_at ? ` · 最近调整：${chinaDate(payload.settings_updated_at)}` : ""}</p> : null}
+    </section>
+
+    <section className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border bg-white p-4">
+      <label className="text-sm">统计范围<select value={period} onChange={(event) => { setPeriod(event.target.value as CostPeriod); setPage(1); }} className="ml-2 h-10 rounded-lg border px-3"><option value="official">正式期</option><option value="test">历史测试期</option><option value="all">全部记录</option></select></label>
+      <label className="text-sm">开始日期<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className="ml-2 h-10 rounded-lg border px-3"/></label>
+      <label className="text-sm">结束日期<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1); }} className="ml-2 h-10 rounded-lg border px-3"/></label>
+      <label className="text-sm">服务商<select value={provider} onChange={(event) => { setProvider(event.target.value); setPage(1); }} className="ml-2 h-10 rounded-lg border px-3"><option value="">全部服务商</option><option value="OPENAI">OpenAI</option><option value="GOOGLE_PLACES">Google Places</option></select></label>
+      <button type="button" onClick={() => { setFrom(""); setTo(new Date().toISOString().slice(0, 10)); setProvider(""); setPeriod("official"); setPage(1); }} className="h-10 rounded-lg border bg-white px-4 text-sm">重置筛选</button>
+    </section>
+    <p className="mt-2 text-xs text-slate-500">当前查看：{scopeLabel}{payload ? ` · 实际查询 ${chinaDate(payload.effective_from)} 至 ${chinaDate(payload.effective_to)}` : ""}</p>
+    {Number(summary?.unknown_pricing_count || 0) > 0 ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">有 {summary?.unknown_pricing_count} 次调用尚未配置计费单价，因此暂不计入金额；这不代表接口免费。配置价目后需与平台账单对账。</p> : null}
+    {error ? <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
+    {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div> : payload ? <>
+      <section className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
+        ["总费用", money(summary?.total_usd), CircleDollarSign], ["已确认费用", money(summary?.final_usd), Coins],
+        ["预估待对账", money(summary?.estimated_usd), Cpu], ["接口调用", `${Number(summary?.request_count || 0).toLocaleString("zh-CN")} 次`, RefreshCw],
+      ].map(([label, value, Icon]) => <article key={String(label)} className="rounded-xl border bg-white p-5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-blue-600"><Icon size={18}/></span><small className="mt-3 block text-slate-500">{String(label)}</small><b className="mt-1 block text-2xl">{String(value)}</b></article>)}</section>
+      <section className="mt-4 grid gap-3 lg:grid-cols-3">{(summary?.providers || []).map((row) => <article key={`${row.provider}-${row.service}`} className="rounded-xl border bg-white p-4"><b>{row.provider} · {row.service}</b><div className="mt-3 flex justify-between text-sm"><span>{Number(row.request_count).toLocaleString("zh-CN")} 次调用</span><span className="font-semibold text-blue-700">{money(row.total_usd)}</span></div>{Number(row.estimated_usd) > 0 ? <p className="mt-2 text-xs text-amber-700">其中 {money(row.estimated_usd)} 为按价目快照估算，需与平台账单对账。</p> : null}</article>)}</section>
+      <section className="mt-4 overflow-hidden rounded-xl border bg-white">
+        <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-slate-50"><tr>{["发生时间", "服务商/服务", "操作", "模型或计费项", "Token/数量", "费用性质", "金额", "调用人"].map((header) => <th key={header} className="px-4 py-3 font-medium text-slate-600">{header}</th>)}</tr></thead><tbody>{payload.data.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{chinaDate(row.occurred_at)}</td><td className="px-4 py-3"><b>{row.provider}</b><small className="block text-slate-500">{row.service}</small></td><td className="px-4 py-3">{row.operation}</td><td className="px-4 py-3">{row.model_or_sku || "—"}</td><td className="px-4 py-3">{row.input_tokens + row.output_tokens ? `${(row.input_tokens + row.output_tokens).toLocaleString("zh-CN")} Token` : "1 次"}</td><td className="px-4 py-3">{amountLabel(row)}</td><td className="px-4 py-3 font-semibold">{row.pricing_snapshot?.pricing_configured === false ? "待配置" : money(row.amount_usd)}</td><td className="px-4 py-3">{row.user?.name || row.user?.email || "系统"}</td></tr>)}</tbody></table>{!payload.data.length ? <div className="p-12 text-center text-slate-400">当前条件下暂无费用记录</div> : null}</div>
+        <footer className="flex items-center justify-between border-t p-4 text-sm"><span>共 {payload.count.toLocaleString("zh-CN")} 条</span><div className="flex gap-2"><button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border px-3 py-1.5 disabled:opacity-40">上一页</button><button disabled={page * 20 >= payload.count} onClick={() => setPage(page + 1)} className="rounded-lg border px-3 py-1.5 disabled:opacity-40">下一页</button></div></footer>
+      </section>
+    </> : null}
+  </div>;
+  return embedded ? content : <main className="p-4 lg:p-6">{content}</main>;
+}

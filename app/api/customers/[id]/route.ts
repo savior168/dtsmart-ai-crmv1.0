@@ -27,13 +27,13 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requirePermission("customers.edit");
+    const { supabase, user, account } = await requirePermission("customers.edit");
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
     const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,created_by,company_name,country").eq("id", id).single();
     if (customerError) throw customerError;
-    const canEdit = customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
+    const canEdit = account.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id);
     if (!canEdit) return NextResponse.json({ error: "只能编辑归属自己的客户原始资料；跨用户数据仅供查看" }, { status: 403 });
     if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
     if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
@@ -49,9 +49,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
 export async function DELETE(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requirePermission("customers.delete");
+    const { supabase, user, account } = await requirePermission("customers.delete");
     const { id } = await context.params;
-    const result = await permanentlyDeleteCustomers({ supabase, userId: user.id, ids: [id] });
+    const result = await permanentlyDeleteCustomers({ supabase, userId: user.id, ids: [id], allowAll: account.role === "ADMIN" });
     if (!result.successIds.length) {
       return NextResponse.json({ error: result.failures[0]?.error || "删除未生效，请刷新后重试" }, { status: 400 });
     }

@@ -4,6 +4,8 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 type DashboardCustomer = {
   id: string;
   company_name: string;
+  phone: string | null;
+  email: string | null;
   country: string | null;
   ai_level: string | null;
   ai_score: number | null;
@@ -95,7 +97,7 @@ export async function GET(request: NextRequest) {
     const sourceCustomers: DashboardCustomer[] = [];
     for (let from = 0; ; from += 1000) {
       let customersQuery = supabase.from("customers")
-        .select("id,company_name,country,ai_level,ai_score,status,created_at,updated_at,last_contact_time")
+        .select("id,company_name,phone,email,country,ai_level,ai_score,status,created_at,updated_at,last_contact_time")
         .is("deleted_at", null)
         .gte("created_at", fromDate.toISOString())
         .lt("created_at", exclusiveTo.toISOString())
@@ -144,7 +146,7 @@ export async function GET(request: NextRequest) {
     protectionRows.forEach((item) => { const expires = new Date(String(item.expire_date)); const days = Math.max(0, Math.ceil((expires.getTime() - todayStart.getTime()) / 86400000)); const current = protectionByCustomer.get(item.customer_id); if (!current || expires.getTime() < new Date(current.expire_date).getTime()) protectionByCustomer.set(item.customer_id, { expire_date: String(item.expire_date), days }); });
     const dueByCustomer = new Map<string, DashboardFollowup>();
     ((followupResult.data || []) as DashboardFollowup[]).forEach((item) => { const customer = customerMap.get(item.customer_id); if (!customer || !["CLAIMED", "FOLLOWING", "QUOTE"].includes(customer.status) || dueByCustomer.has(item.customer_id)) return; dueByCustomer.set(item.customer_id, item); });
-    const allFollowups = Array.from(dueByCustomer.values()).map((item) => { const customer = customerMap.get(item.customer_id)!; const protection = protectionByCustomer.get(item.customer_id); return { id: item.id, customer_id: item.customer_id, customer_name: customer.company_name, country: customer.country, ai_level: customer.ai_level, last_followup: customer.last_contact_time, followup_time: item.next_follow_date, type: item.type, status: customer.status, protection_days: protection?.days ?? null }; }).sort((a, b) => (a.protection_days ?? Number.MAX_SAFE_INTEGER) - (b.protection_days ?? Number.MAX_SAFE_INTEGER));
+    const allFollowups = Array.from(dueByCustomer.values()).map((item) => { const customer = customerMap.get(item.customer_id)!; const protection = protectionByCustomer.get(item.customer_id); return { id: item.id, customer_id: item.customer_id, customer_name: customer.company_name, phone: customer.phone, email: customer.email, country: customer.country, ai_level: customer.ai_level, last_followup: customer.last_contact_time, followup_time: item.next_follow_date, type: item.type, status: customer.status, protection_days: protection?.days ?? null }; }).sort((a, b) => (a.protection_days ?? Number.MAX_SAFE_INTEGER) - (b.protection_days ?? Number.MAX_SAFE_INTEGER));
     const protections = protectionRows.map((item) => { const customer = customerMap.get(item.customer_id)!; const expires = new Date(String(item.expire_date)); const days = Math.max(0, Math.ceil((expires.getTime() - todayStart.getTime()) / 86400000)); return { id: item.id, customer_id: item.customer_id, customer_name: customer.company_name, country: customer.country, expires_at: item.expire_date, days }; }).sort((a, b) => a.days - b.days).slice(0, 20);
     const followups = allFollowups.slice(0, 5);
     const activities = (auditResult.data || []).filter((item) => !item.target_id || customerMap.has(item.target_id)).slice(0, 5).map((item) => { const customerName = item.target_id ? customerMap.get(item.target_id)?.company_name || "客户" : "客户"; return { id: item.id, action: item.action, text: activityText(item.action, customerName, item.content), created_at: item.created_at }; });

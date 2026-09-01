@@ -80,6 +80,10 @@ export async function PATCH(request: NextRequest) {
     if (id === user.id && ["REJECT", "DISABLE", "FORCE_LOGOUT"].includes(action)) return NextResponse.json({ error: "不能对当前登录账号执行该操作" }, { status: 400 });
     const { error } = await admin.from("users").update(update).eq("id", id);
     if (error) throw error;
+    if (["APPROVE", "REJECT"].includes(action)) {
+      await admin.from("system_notifications").update({ action_status: "RESOLVED" })
+        .eq("entity_type", "user").eq("entity_id", id).eq("type", "REGISTRATION_REVIEW");
+    }
     await admin.from("audit_logs").insert({
       user_id: user.id,
       action: `ADMIN_USER_${action}`,

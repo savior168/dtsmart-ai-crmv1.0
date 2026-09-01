@@ -19,8 +19,11 @@ export async function POST(request: NextRequest) {
     const { supabase, user } = await requirePermission("ai.tasks.create");
     const body = await request.json() as { customer_id?: string };
     if (!body.customer_id) return NextResponse.json({ error: "缺少客户编号" }, { status: 400 });
+    // This compatibility write endpoint must not reuse the supervisor's
+    // cross-user read scope. Supervisors may inspect another salesperson's
+    // customer, but only the current owner may start analysis for it.
     const visible = await supabase.from("customers").select("id,company_name,ai_score")
-      .eq("id", body.customer_id).is("deleted_at", null).maybeSingle();
+      .eq("id", body.customer_id).eq("owner_id", user.id).is("deleted_at", null).maybeSingle();
     if (visible.error || !visible.data) throw visible.error || new Error("客户不存在或无权访问");
     if (visible.data.ai_score !== null) return NextResponse.json({ error: "该客户已经完成AI筛选" }, { status: 409 });
 

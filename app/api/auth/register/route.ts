@@ -57,9 +57,14 @@ export async function POST(request: NextRequest) {
       await admin.from("system_notifications").insert(admins.map((item) => ({
         recipient_id: item.id,
         type: "REGISTRATION_REVIEW",
+        category: "ACCOUNT",
         title: "新用户注册待审核",
         content: `${username}（${email}）提交了注册申请`,
         href: `/settings/users?status=PENDING&review=${data.user.id}`,
+        entity_type: "user",
+        entity_id: data.user.id,
+        dedupe_key: `registration-review:${data.user.id}`,
+        action_status: "PENDING",
         metadata: { user_id: data.user.id, username, email },
       })));
     }

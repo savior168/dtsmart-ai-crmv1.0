@@ -12,5 +12,6 @@
 /.pnpm-store
 /outputs
 /work
+/.tmp/
 /.swc
 /supabase/.temp/

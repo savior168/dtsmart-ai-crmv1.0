@@ -1206,7 +1206,7 @@ function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
   return customer.other_public_urls?.[0] || null;
 }
 
-async function collectChannel(customer: CustomerRow, channel: AiChannel, signal: AbortSignal): Promise<ChannelRecord> {
+async function collectChannel(customer: CustomerRow, channel: AiChannel, signal: AbortSignal, costContext?:{taskId:string;customerId:string;userId:string|null}): Promise<ChannelRecord> {
   const url = channelUrl(customer, channel);
   if (channel !== "google_maps" && !url) return { channel, status: "SKIPPED", source_url: null, error: "客户档案没有该渠道网址" };
   if (channel === "google_maps" && !customer.google_url && !customer.company_name) return { channel, status: "SKIPPED", error: "客户档案没有Google商家信息" };
@@ -1214,7 +1214,7 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id }, { signal, timeoutMs: 12_000 })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id }, { signal, timeoutMs: 12_000, onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?(call.unitPriceUsd??0):0;await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_configured:call.unitPriceUsd!==null,billable_assumption:likelyBillable},metadata:{http_status:call.status},occurred_at:new Date().toISOString()})} })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
@@ -1519,6 +1519,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   const analysisController = new AbortController();
   const customer = await readCustomer(input.customerId);
   const admin = createAdminClient();
+  const taskOwnerResult = await admin.from("ai_screening_tasks").select("user_id").eq("id", input.taskId).maybeSingle();
+  if (taskOwnerResult.error) throw taskOwnerResult.error;
+  const costContext = { taskId: input.taskId, customerId: input.customerId, userId: taskOwnerResult.data?.user_id || null };
   await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_LOADED", startedAt: started });
   const reusable = await findReusableAnalysis(customer, input.strategy);
   if (reusable) {
@@ -1541,7 +1544,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const primaryChannels = ["website", "google_maps"] as AiChannel[];
     const pendingChannels = primaryChannels.filter((channel) => !records.some((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status)));
     if (pendingChannels.length) {
-      const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, analysisController.signal)));
+      const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, analysisController.signal, costContext)));
       for (const current of collected) {
         const index = records.findIndex((item) => item.channel === current.channel);
         if (index >= 0) records[index] = current; else records.push(current);
@@ -1566,7 +1569,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
 
     const googleWebsite = verifiedOfficialWebsiteFromGoogle(records);
     if (googleWebsite && !currentWebsiteVerified) {
-      const candidate = await collectChannel({ ...customer, website: googleWebsite }, "website", analysisController.signal);
+      const candidate = await collectChannel({ ...customer, website: googleWebsite }, "website", analysisController.signal, costContext);
       if (websiteRecordMatchesEntity(customer, records, candidate)) {
         discoveredOfficialWebsite = googleWebsite;
         // 原网址无法证明主体时，使用Google具体商家绑定且经页面二次核验的官网。
@@ -1597,7 +1600,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !primaryChannels.includes(channel) && Boolean(channelUrl(expandedCustomer, channel)) && !records.some((item) => item.channel === channel));
       for (let index = 0; index < secondaryChannels.length && !analysis; index += 2) {
         const batch = secondaryChannels.slice(index, index + 2);
-        const secondary = await Promise.all(batch.map((channel) => collectChannel(expandedCustomer, channel, analysisController.signal)));
+        const secondary = await Promise.all(batch.map((channel) => collectChannel(expandedCustomer, channel, analysisController.signal, costContext)));
         records.push(...secondary);
         await saveCheckpoint(input.taskItemId, records, batch[batch.length - 1]);
         analysis = deterministicAnalysis(customer, records);

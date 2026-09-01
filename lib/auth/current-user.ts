@@ -89,6 +89,15 @@ export function hasPermission(account: CurrentAccount, permission: string) {
   return account.role === "ADMIN" || account.permissions.includes(permission);
 }
 
+/**
+ * Cross-user DATA permissions are read-only. A business record is writable
+ * only by its owner, while the system administrator keeps the explicit
+ * platform-wide maintenance override.
+ */
+export function canWriteOwnedRecord(account: CurrentAccount, ownerId: string | null | undefined) {
+  return account.role === "ADMIN" || ownerId === account.id;
+}
+
 export function requestedOwnerId(request: Request, account: CurrentAccount, dataPermission: string) {
   if (!hasPermission(account, dataPermission)) return account.id;
   const requested = new URL(request.url).searchParams.get("user_id")?.trim() || "";

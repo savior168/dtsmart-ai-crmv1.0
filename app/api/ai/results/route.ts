@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { user } = await requirePermission("ai.results.review");
+    const { user, account } = await requirePermission("ai.results.review");
     const body = await request.json() as {
       result_ids?: string[]; result_id?: string; target_decision?: "VALID" | "INVALID" | "REVIEW";
       grade?: "A" | "B" | "C" | "D"; score?: number; manual_review_note?: string;
@@ -123,7 +123,7 @@ export async function PATCH(request: NextRequest) {
     if (owned.error) throw owned.error;
     const permitted = (owned.data || []).filter((row) => {
       const task = Array.isArray(row.task) ? row.task[0] : row.task;
-      return task?.user_id === user.id;
+      return account.role === "ADMIN" || task?.user_id === user.id;
     });
     if (permitted.length !== resultIds.length) return NextResponse.json({ error: "其他用户的AI分析结果仅供查看，不能人工修改" }, { status: 403 });
     const update: Record<string, unknown> = {

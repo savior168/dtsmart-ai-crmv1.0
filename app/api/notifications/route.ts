@@ -1,29 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser, authErrorStatus } from "@/lib/auth/current-user";
+import { authErrorStatus, requireUser } from "@/lib/auth/current-user";
 
-export async function GET() {
+const fields = "id,type,category,title,content,href,entity_type,entity_id,read_at,archived_at,action_status,deliver_at,created_at";
+
+export async function GET(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser({ allowPasswordChange: true });
-    const { data, error } = await supabase.from("system_notifications").select("id,type,title,content,href,read_at,created_at").eq("recipient_id", user.id).order("created_at", { ascending: false }).limit(30);
-    if (error) throw error;
-    return NextResponse.json({ data: data || [], unread: (data || []).filter((item) => !item.read_at).length });
+    const params = request.nextUrl.searchParams;
+    const page = Math.max(1, Number(params.get("page") || 1));
+    const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 30)));
+    const status = params.get("status") || (params.get("unread") === "true" ? "unread" : "active");
+    const now = new Date().toISOString();
+    let query = supabase.from("system_notifications").select(fields, { count: "exact" })
+      .eq("recipient_id", user.id).lte("deliver_at", now).order("deliver_at", { ascending: false })
+      .range((page - 1) * pageSize, page * pageSize - 1);
+    if (status === "unread") query = query.is("read_at", null).is("archived_at", null);
+    else if (status === "pending") query = query.eq("action_status", "PENDING").is("archived_at", null);
+    else if (status === "archived") query = query.not("archived_at", "is", null);
+    else if (status !== "all") query = query.is("archived_at", null);
+    const [rows, unreadResult, pendingResult] = await Promise.all([
+      query,
+      supabase.from("system_notifications").select("id", { count: "exact", head: true }).eq("recipient_id", user.id).lte("deliver_at", now).is("read_at", null).is("archived_at", null),
+      supabase.from("system_notifications").select("id", { count: "exact", head: true }).eq("recipient_id", user.id).lte("deliver_at", now).eq("action_status", "PENDING").is("archived_at", null),
+    ]);
+    if (rows.error) throw rows.error;
+    return NextResponse.json({ data: rows.data || [], count: rows.count || 0, unread: unreadResult.count || 0, pending: pendingResult.count || 0, page, page_size: pageSize, status });
   } catch (error) {
     const message = error instanceof Error ? error.message : "通知加载失败";
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
     const { supabase, user } = await requireUser({ allowPasswordChange: true });
-    const body = await request.json();
-    let query = supabase.from("system_notifications").update({ read_at: new Date().toISOString() }).eq("recipient_id", user.id).is("read_at", null);
-    if (body.id) query = query.eq("id", String(body.id));
+    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" };
+    const action = body.action || (body.id ? "READ" : "READ_ALL");
+    const now = new Date().toISOString();
+    let query = supabase.from("system_notifications").update(
+      action === "ARCHIVE" ? { archived_at: now, read_at: now }
+        : action === "RESTORE" ? { archived_at: null }
+          : action === "RESOLVE" ? { action_status: "RESOLVED", read_at: now }
+            : { read_at: now },
+    ).eq("recipient_id", user.id);
+    if (action === "READ_ALL") query = query.is("read_at", null).is("archived_at", null).lte("deliver_at", now);
+    else {
+      if (!body.id) return NextResponse.json({ error: "缺少通知编号" }, { status: 400 });
+      query = query.eq("id", body.id);
+    }
     const { error } = await query;
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "通知更新失败";
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }

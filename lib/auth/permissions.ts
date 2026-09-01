@@ -1,10 +1,10 @@
-export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES"] as const;
+export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "WAREHOUSE"] as const;
 export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "LOCKED"] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
-export type PermissionGroup = "工作台" | "客户管理" | "数据导入" | "AI筛选" | "跟进管理" | "报表中心" | "系统管理";
+export type PermissionGroup = "工作台" | "客户管理" | "数据导入" | "AI筛选" | "跟进管理" | "报价管理" | "备货管理" | "报表中心" | "费用中心" | "站内通知" | "系统管理";
 
 export type PermissionDefinition = {
   code: string;
@@ -52,10 +52,30 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "followups.view", label: "查看跟进管理", group: "跟进管理", description: "进入跟进管理并查看计划", kind: "PAGE" },
   { code: "followups.data_all", label: "查看全部跟进数据", group: "跟进管理", description: "可按归属人查看全部跟进记录", kind: "DATA" },
   { code: "followups.create", label: "新增跟进记录", group: "跟进管理", description: "为有权访问的客户新增跟进", kind: "ACTION" },
+  { code: "followups.edit", label: "修改本人跟进记录", group: "跟进管理", description: "修改本人创建的跟进内容与附件", kind: "ACTION" },
+  { code: "followups.export", label: "导出跟进记录", group: "跟进管理", description: "导出当前筛选范围内的跟进记录", kind: "ACTION" },
+
+  { code: "quotes.view", label: "查看报价管理", group: "报价管理", description: "查看权限范围内的报价单", kind: "PAGE" },
+  { code: "quotes.data_all", label: "查看全部报价", group: "报价管理", description: "可按归属人只读查看全部报价", kind: "DATA" },
+  { code: "quotes.create", label: "创建报价单", group: "报价管理", description: "为本人客户创建报价单", kind: "ACTION" },
+  { code: "quotes.edit", label: "编辑本人报价", group: "报价管理", description: "编辑本人尚未确认的报价单", kind: "ACTION" },
+  { code: "quotes.confirm", label: "确认本人报价", group: "报价管理", description: "标记客户已确认并自动生成备货单", kind: "ACTION" },
+  { code: "quotes.export", label: "导出报价单", group: "报价管理", description: "按标准PI模板导出报价Excel", kind: "ACTION" },
+  { code: "quotes.cancel", label: "取消本人报价", group: "报价管理", description: "取消本人未确认的报价单", kind: "ACTION" },
+
+  { code: "stock.view", label: "查看备货管理", group: "备货管理", description: "查看允许范围内的备货单", kind: "PAGE" },
+  { code: "stock.data_all", label: "查看全部备货单", group: "备货管理", description: "按归属人查看全部备货进度", kind: "DATA" },
+  { code: "stock.update", label: "更新备货状态", group: "备货管理", description: "仓库员更新备货状态与备注", kind: "ACTION" },
+  { code: "stock.export", label: "导出备货单", group: "备货管理", description: "按仓库模板导出备货Excel", kind: "ACTION" },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },
   { code: "reports.export", label: "导出报表", group: "报表中心", description: "导出允许范围内的报表", kind: "ACTION" },
+
+  { code: "costs.view", label: "查看费用中心", group: "费用中心", description: "查看全部第三方API费用及明细", kind: "PAGE", core: true },
+  { code: "costs.export", label: "导出费用明细", group: "费用中心", description: "导出统一API费用台账", kind: "ACTION", core: true },
+
+  { code: "notifications.view", label: "查看站内通知", group: "站内通知", description: "查看并处理发送给本人的业务通知", kind: "PAGE" },
 
   { code: "system.users.view", label: "查看用户管理", group: "系统管理", description: "查看账号与审核状态", kind: "PAGE", core: true },
   { code: "system.users.manage", label: "管理用户账号", group: "系统管理", description: "审核、启停、改角色、重置密码", kind: "ACTION", core: true },
@@ -101,6 +121,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: "系统管理员",
   SUPERVISOR: "主管",
   SALES: "销售员",
+  WAREHOUSE: "仓库员",
 };
 
 export const STATUS_LABELS: Record<AccountStatus, string> = {

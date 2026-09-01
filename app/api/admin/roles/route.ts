@@ -25,11 +25,11 @@ export async function PATCH(request: NextRequest) {
     if (!USER_ROLES.includes(role as never) || !isKnownPermission(permission)) return NextResponse.json({ error: "权限参数无效" }, { status: 400 });
     if (role === "ADMIN") return NextResponse.json({ error: "系统管理员核心权限不可关闭" }, { status: 400 });
     if (CORE_PERMISSION_CODES.has(permission)) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
-    if (role === "SALES" && enabled && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") return NextResponse.json({ error: "销售员不能获得跨用户数据权限" }, { status: 400 });
+    if (["SALES","WAREHOUSE"].includes(role) && enabled && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") return NextResponse.json({ error: "销售员或仓库员不能获得跨用户数据权限" }, { status: 400 });
     const admin = createAdminClient();
     const { error } = await admin.from("role_permission_settings").upsert({ role_code: role, permission_code: permission, enabled, updated_by: user.id, updated_at: new Date().toISOString() });
     if (error) throw error;
-    clearPermissionCache(role as "SUPERVISOR" | "SALES");
+    clearPermissionCache(role as "SUPERVISOR" | "SALES" | "WAREHOUSE");
     await admin.from("audit_logs").insert({ user_id: user.id, action: "ADMIN_ROLE_PERMISSION_UPDATE", target_type: "role", target_id: null, content: { role, permission, enabled } });
     return NextResponse.json({ ok: true });
   } catch (error) {

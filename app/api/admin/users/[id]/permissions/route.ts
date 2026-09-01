@@ -50,8 +50,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { data: target, error: targetError } = await admin.from("users").select("id,name,email,role").eq("id", id).maybeSingle();
     if (targetError || !target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (normalizeRole(target.role) === "ADMIN") return NextResponse.json({ error: "系统管理员固定拥有全部权限" }, { status: 400 });
-    if (normalizeRole(target.role) === "SALES" && effect === "ALLOW" && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") {
-      return NextResponse.json({ error: "销售员不能获得跨用户数据权限" }, { status: 400 });
+    if (["SALES","WAREHOUSE"].includes(normalizeRole(target.role)) && effect === "ALLOW" && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") {
+      return NextResponse.json({ error: "销售员或仓库员不能获得跨用户数据权限" }, { status: 400 });
     }
     if (effect === "INHERIT") {
       const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).eq("permission_code", permission);

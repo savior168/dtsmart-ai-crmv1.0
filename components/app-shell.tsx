@@ -6,14 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Bell,
-  Bot,
+  Boxes,
   ChevronDown,
   ChevronLeft,
-  FileSpreadsheet,
   LayoutDashboard,
   LogOut,
   Menu,
-  MessageSquareText,
   Moon,
   Settings,
   Sparkles,
@@ -29,25 +27,46 @@ import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
-  { label: "客户管理", href: "/customers", icon: UsersRound, permission: "customers.view" },
-  { label: "数据导入", href: "/import", icon: FileSpreadsheet, permission: "imports.view" },
-  { label: "AI筛选", href: "/ai-screening", icon: Bot, permission: "ai.tasks.view" },
-  { label: "跟进管理", href: "/followups", icon: MessageSquareText, permission: "followups.view" },
+  {
+    label: "客户中心", icon: UsersRound, defaultHref: "/customers", children: [
+      { label: "客户库", href: "/customers", permission: "customers.view" },
+      { label: "跟进管理", href: "/followups", permission: "followups.view" },
+      { label: "报价管理", href: "/quotes", permission: "quotes.view" },
+    ],
+  },
+  {
+    label: "获客与筛选", icon: Sparkles, defaultHref: "/import", children: [
+      { label: "AI获客", href: "/ai-acquisition", permission: "imports.view", disabled: true },
+      { label: "数据导入", href: "/import", permission: "imports.view" },
+      { label: "AI筛选", href: "/ai-screening", permission: "ai.tasks.view" },
+    ],
+  },
+  { label: "备货管理", href: "/stock-orders", icon: Boxes, permission: "stock.view" },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
-  { label: "系统管理", href: "/settings", icon: Settings, permissions: ["system.users.view", "system.audit.view", "system.security.view"] },
+  {
+    label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
+      { label: "用户与权限", href: "/settings/users", permission: "system.users.view" },
+      { label: "操作日志", href: "/settings/audit", permission: "system.audit.view" },
+      { label: "安全设置", href: "/settings/security", permission: "system.security.view" },
+      { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
+    ],
+  },
 ] as const;
 
 const roleLabels = {
   ADMIN: "系统管理员",
   SUPERVISOR: "主管",
   SALES: "销售员",
+  WAREHOUSE: "仓库员",
 } as const;
+
+type ShellNotice = { id:string; type:string; title:string; content:string|null; href:string|null; read_at:string|null; action_status:"INFO"|"PENDING"|"RESOLVED"; created_at:string };
 
 const pageTitles: Array<[RegExp, string]> = [
   [/^\/$/, "工作台 / 数据总览"],
   [/^\/customers\/new$/, "客户管理 / 新增客户"],
   [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"],
-  [/^\/customers$/, "客户管理 / 客户列表"],
+  [/^\/customers$/, "客户中心 / 客户库"],
   [/^\/import$/, "数据导入"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
@@ -58,8 +77,15 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/ai-screening\/failures$/, "AI筛选 / 待重试客户"],
   [/^\/ai-screening\/usage$/, "AI筛选 / 任务中心 / AI筛选用量与费用"],
   [/^\/ai-screening\/customers\/[^/]+\/evidence$/, "AI筛选 / 任务详情 / 客户分析依据"],
-  [/^\/followups$/, "跟进管理中心"],
+  [/^\/followups$/, "客户中心 / 跟进管理"],
+  [/^\/quotes\/new$/, "客户中心 / 报价管理 / 创建报价单"],
+  [/^\/quotes\/[^/]+$/, "客户中心 / 报价管理 / 报价详情"],
+  [/^\/quotes$/, "客户中心 / 报价管理"],
+  [/^\/stock-orders\/[^/]+$/, "备货管理 / 备货详情"],
+  [/^\/stock-orders$/, "备货管理"],
   [/^\/reports$/, "报表中心"],
+  [/^\/settings\/costs$/, "系统管理 / 费用中心"],
+  [/^\/notifications$/, "站内通知"],
   [/^\/profile$/, "个人中心 / 账号资料"],
   [/^\/settings\/users$/, "系统管理 / 用户管理"],
   [/^\/settings\/roles$/, "系统管理 / 角色权限"],
@@ -270,16 +296,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<"light" | "dark">("light");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(["客户中心", "获客与筛选"]));
   const [profile, setProfile] = useState<{
     name: string;
     email: string;
     avatar_url: string;
-    role: "ADMIN" | "SUPERVISOR" | "SALES";
+    role: "ADMIN" | "SUPERVISOR" | "SALES" | "WAREHOUSE";
     must_change_password: boolean;
     permissions: string[];
   } | null>(null);
   const [noticeCount, setNoticeCount] = useState(0);
-  const [notices, setNotices] = useState<Array<{id:string;title:string;content:string|null;href:string|null;read_at:string|null;created_at:string}>>([]);
+  const [notices, setNotices] = useState<ShellNotice[]>([]);
+  const [toastNotices, setToastNotices] = useState<ShellNotice[]>([]);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageTitleOverride, setPageTitleOverride] = useState("");
@@ -304,14 +332,33 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const email = String(body.email || "").trim();
       const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
-      setProfile({ name, email, avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
+      setProfile({ name, email, avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
     } catch {
       // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
     }
   }, []);
   const loadNotices = useCallback(async () => {
-    try { const response = await fetch("/api/notifications", { cache:"no-store" }); const body = await response.json(); if(response.ok){setNotices(body.data||[]);setNoticeCount(Number(body.unread||0));} } catch { /* 保留已加载通知 */ }
+    try {
+      const response = await fetch("/api/notifications?status=active&page_size=30", { cache:"no-store" });
+      const body = await response.json();
+      if(response.ok){
+        const next=(body.data||[]) as ShellNotice[];
+        setNotices(next);setNoticeCount(Number(body.unread||0));
+        const storageKey="dtsmart-notification-toasts";
+        const shown=new Set<string>(JSON.parse(window.sessionStorage.getItem(storageKey)||"[]"));
+        const incoming=next.filter(item=>!item.read_at&&!shown.has(item.id)).slice(0,3);
+        if(incoming.length){
+          incoming.forEach(item=>shown.add(item.id));
+          window.sessionStorage.setItem(storageKey,JSON.stringify([...shown].slice(-200)));
+          setToastNotices(current=>[...incoming,...current.filter(item=>!incoming.some(nextItem=>nextItem.id===item.id))].slice(0,3));
+        }
+      }
+    } catch { /* 保留已加载通知 */ }
   },[]);
+  const openNotice = useCallback(async (item:ShellNotice) => {
+    if(!item.read_at)await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id,action:"READ"})});
+    setToastNotices(current=>current.filter(notice=>notice.id!==item.id));setNoticeOpen(false);void loadNotices();if(item.href)router.push(item.href);
+  },[loadNotices,router]);
   useEffect(() => {
     const refresh = () => void loadProfile();
     window.addEventListener("dtsmart-profile-updated", refresh);
@@ -323,7 +370,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", refresh);
     };
   }, [loadProfile]);
-  useEffect(() => { const refresh=()=>void loadNotices(); refresh(); window.addEventListener("focus",refresh); const timer=window.setInterval(refresh,60000); return()=>{window.removeEventListener("focus",refresh);window.clearInterval(timer);}; },[loadNotices]);
+  const canLoadNotices = Boolean(profile) && path !== "/login" && path !== "/reset-password";
+  useEffect(() => {
+    if (!canLoadNotices) {
+      setNotices([]); setNoticeCount(0); setToastNotices([]);
+      return;
+    }
+    const refresh = () => void loadNotices();
+    refresh();
+    window.addEventListener("focus", refresh);
+    const timer = window.setInterval(refresh, 60000);
+    return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
+  }, [canLoadNotices, loadNotices]);
   useEffect(() => { if(profile?.must_change_password && path !== "/profile") router.replace("/profile?password=required"); },[path,profile?.must_change_password,router]);
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
@@ -363,6 +421,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const titleParts = title.split(" / ");
   const effectiveWidth = collapsed ? 76 : sidebarWidth;
   const sidebarDark = sidebarMode === "dark";
+  const canSeePermission = (permission: string) => profile?.role === "ADMIN" || Boolean(profile?.permissions.includes(permission));
   function toggleSidebarMode() {
     const next = sidebarDark ? "light" : "dark";
     setSidebarMode(next);
@@ -406,23 +465,25 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
       </div>
       <nav className="h-[calc(100vh-196px)] space-y-2 overflow-y-auto px-3 py-4">
-        {menu.filter((item) => profile?.role === "ADMIN" || ("permissions" in item ? item.permissions.some((permission) => profile?.permissions.includes(permission)) : profile?.permissions.includes(item.permission))).map((item) => {
+        {menu.map((item) => {
           const Icon = item.icon;
+          if ("children" in item) {
+            const children = item.children.filter((child) => canSeePermission(child.permission));
+            if (!children.length) return null;
+            const selected = children.some((child) => !("disabled" in child && child.disabled) && isActive(path, child.href));
+            const expanded = !collapsed && (expandedGroups.has(item.label) || selected);
+            if (collapsed) return <Link key={item.label} href={children.find((child) => !("disabled" in child && child.disabled))?.href || item.defaultHref} prefetch={false} title={item.label} className={`flex items-center justify-center rounded-lg px-2 py-3 transition ${selected ? "bg-blue-600 text-white" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className="sr-only">{item.label}</span></Link>;
+            return <div key={item.label} className="space-y-1">
+              <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => { const next = new Set(current); if (next.has(item.label)) next.delete(item.label); else next.add(item.label); return next; })} className={`flex w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition ${selected ? sidebarDark ? "bg-slate-800 font-semibold text-white" : "bg-blue-50 font-semibold text-blue-700" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}>
+                <Icon size={21} strokeWidth={1.8}/><span className="min-w-0 flex-1 text-[15px]">{item.label}</span><ChevronDown size={16} className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}/>
+              </button>
+              {expanded ? <div className={`space-y-1 border-l ${sidebarDark ? "border-slate-700" : "border-slate-200"} ml-7 pl-3`}>{children.map((child) => { if ("disabled" in child && child.disabled) return <div key={child.href} aria-disabled="true" title="该功能已预留，本期暂不开发" className={`flex cursor-not-allowed items-center justify-between rounded-lg px-3 py-2.5 text-[14px] ${sidebarDark ? "text-slate-600" : "text-slate-400"}`}><span>{child.label}</span><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">规划中</small></div>; const childSelected = isActive(path, child.href); return <Link key={child.href} href={child.href} prefetch={false} className={`block rounded-lg px-3 py-2.5 text-[14px] transition ${childSelected ? sidebarDark ? "bg-blue-600 font-semibold text-white" : "bg-blue-600 font-semibold text-white shadow-sm" : sidebarDark ? "text-slate-400 hover:bg-slate-800 hover:text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}>{child.label}</Link>; })}</div> : null}
+            </div>;
+          }
+          const permitted = canSeePermission(item.permission);
+          if (!permitted) return null;
           const selected = isActive(path, item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              prefetch={false}
-              title={collapsed ? item.label : undefined}
-              className={`flex items-center rounded-lg transition ${collapsed ? "justify-center px-2 py-3" : "gap-4 px-4 py-3"} ${selected ? sidebarDark ? "bg-blue-600 font-semibold text-white" : "bg-gradient-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-sm shadow-blue-200" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}
-            >
-              <Icon size={21} strokeWidth={1.8} />
-              <span className={collapsed ? "sr-only" : "text-[15px]"}>
-                {item.label}
-              </span>
-            </Link>
-          );
+          return <Link key={item.href} href={item.href} prefetch={false} title={collapsed ? item.label : undefined} className={`flex items-center rounded-lg transition ${collapsed ? "justify-center px-2 py-3" : "gap-4 px-4 py-3"} ${selected ? sidebarDark ? "bg-blue-600 font-semibold text-white" : "bg-gradient-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-sm shadow-blue-200" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className={collapsed ? "sr-only" : "text-[15px]"}>{item.label}</span></Link>;
         })}
       </nav>
       <button
@@ -535,7 +596,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </span>
             ) : null}
           </button>
-          {noticeOpen?<div className="absolute right-0 mt-3 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><b className="text-sm">系统通知</b>{noticeCount?<button type="button" onClick={async()=>{await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:"{}"});void loadNotices();}} className="text-xs font-medium text-blue-600">全部已读</button>:null}</div><div className="max-h-96 overflow-y-auto">{notices.map(item=><button key={item.id} type="button" onClick={async()=>{if(!item.read_at)await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id})});setNoticeOpen(false);void loadNotices();if(item.href)router.push(item.href);}} className={`block w-full border-b px-4 py-3 text-left hover:bg-slate-50 ${item.read_at?"bg-white":"bg-blue-50/60"}`}><span className="flex items-center justify-between gap-3"><b className="text-sm">{item.title}</b>{!item.read_at?<i className="h-2 w-2 shrink-0 rounded-full bg-blue-600"/>:null}</span><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.content}</p><time className="mt-1 block text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("zh-CN")}</time></button>)}{!notices.length?<p className="py-10 text-center text-sm text-slate-400">暂无系统通知</p>:null}</div></div>:null}
+          {noticeOpen?<div className="absolute right-0 mt-3 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><b className="text-sm">系统通知</b>{noticeCount?<button type="button" onClick={async()=>{await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"READ_ALL"})});void loadNotices();}} className="text-xs font-medium text-blue-600">全部已读</button>:null}</div><div className="max-h-96 overflow-y-auto">{notices.map(item=><button key={item.id} type="button" onClick={()=>void openNotice(item)} className={`block w-full border-b px-4 py-3 text-left hover:bg-slate-50 ${item.read_at?"bg-white":"bg-blue-50/60"}`}><span className="flex items-center justify-between gap-3"><b className="text-sm">{item.title}</b><span className="flex items-center gap-2">{item.action_status==="PENDING"?<small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small>:null}{!item.read_at?<i className="h-2 w-2 shrink-0 rounded-full bg-blue-600"/>:null}</span></span><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.content}</p><time className="mt-1 block text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("zh-CN")}</time></button>)}{!notices.length?<p className="py-10 text-center text-sm text-slate-400">暂无系统通知</p>:null}</div><Link href="/notifications" onClick={()=>setNoticeOpen(false)} className="block border-t px-4 py-3 text-center text-sm font-medium text-blue-600">查看全部通知</Link></div>:null}
           </div>
           <ThemeSwitcher />
           <div ref={profileRef} className="relative">
@@ -620,6 +681,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="crm-content min-h-[calc(100vh-64px)]">{children}</div>
       </div>
+      {toastNotices.length?<aside aria-live="polite" className="fixed bottom-5 right-5 z-[70] flex w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3">{toastNotices.map(item=><article key={item.id} className="rounded-xl border border-blue-100 bg-white p-4 shadow-2xl"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600"><Bell size={18}/></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="text-sm">{item.title}</b>{item.action_status==="PENDING"?<small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small>:null}</div><p className="mt-1 text-xs leading-5 text-slate-600">{item.content}</p><div className="mt-3 flex gap-2">{item.href?<button type="button" onClick={()=>void openNotice(item)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white">立即查看</button>:null}<button type="button" onClick={()=>setToastNotices(current=>current.filter(notice=>notice.id!==item.id))} className="rounded-lg border px-3 py-1.5 text-xs text-slate-600">稍后处理</button></div></div><button type="button" aria-label="关闭通知" onClick={()=>setToastNotices(current=>current.filter(notice=>notice.id!==item.id))} className="text-slate-400"><X size={17}/></button></div></article>)}</aside>:null}
       {modal && profile ? (
         <ProfileModal
           type={modal}

@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = await requirePermission("ai.tasks.control");
+    const { user, account } = await requirePermission("ai.tasks.control");
     const body = await request.json() as { item_ids?: string[]; task_id?: string };
     const admin = createAdminClient();
     type RetryRow = { id: string; task_id: string; task: { id: string; user_id: string; strategy: string } | Array<{ id: string; user_id: string; strategy: string }> };
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         .eq("retryable", true)
         .lt("attempt_count", 3);
       if (body.task_id) query = query.eq("task_id", body.task_id);
-      query = query.eq("task.user_id", user.id);
+      if (account.role !== "ADMIN") query = query.eq("task.user_id", user.id);
       if (ids?.length) query = query.in("id", ids);
       const result = ids?.length ? await query : await query.range(from, from + 999);
       if (result.error) throw result.error;
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const groups = new Map<string, { strategy: AiStrategy; ids: string[] }>();
     for (const item of failedRows) {
       const task = Array.isArray(item.task) ? item.task[0] : item.task;
-      if (!task || task.user_id !== user.id) continue;
+      if (!task || (task.user_id !== user.id && account.role !== "ADMIN")) continue;
       const current = groups.get(item.task_id) || { strategy: task.strategy as AiStrategy, ids: [] };
       current.ids.push(item.id);
       groups.set(item.task_id, current);

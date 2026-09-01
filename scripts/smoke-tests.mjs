@@ -247,9 +247,10 @@ assert.match(adminPanels, /<nav className="relative z-20[^"]*min-h-\[58px\][^"]*
 const permanentDelete = read("lib/customers/soft-delete.ts");
 assert.match(permanentDelete, /offset \+= 200/, "批量永久删除必须分批处理，避免大批量ID被截断");
 assert.match(permanentDelete, /customer\.owner_id === userId/, "销售只能永久删除当前归属自己的客户");
-assert.doesNotMatch(permanentDelete, /allowAll/, "主管和系统管理员不得借助跨用户查看权限删除他人客户");
+assert.match(permanentDelete, /allowAll \|\|[\s\S]*customer\.owner_id === userId/, "只有显式系统管理员维护模式可以跨归属删除，主管仍只能删除本人客户");
+assert.match(read("app/api/customers/batch/route.ts"), /allowAll: account\.role === "ADMIN"/, "批量删除的跨归属维护权限只能授予系统管理员");
 assert.match(permanentDelete, /\.from\("customers"\)[\s\S]*?\.delete\(\)/, "客户删除必须从数据库物理删除");
-assert.match(permanentDelete, /\["QUOTE", "DEAL"\]/, "报价中和成交客户必须禁止删除");
+assert.match(permanentDelete, /allowAll \|\| \(!\["QUOTE", "DEAL"\]/, "报价中和成交客户只允许系统管理员执行维护删除");
 assert.equal(existsSync(resolve(root, "app/api/customers/[id]/restore/route.ts")), false, "永久删除模式不得保留客户恢复接口");
 
 const appShell = read("components/app-shell.tsx");
