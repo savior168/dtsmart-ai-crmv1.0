@@ -28,12 +28,16 @@ const singleCustomerAnalysis = read("app/api/ai/analyze/route.ts");
 assert.match(singleCustomerAnalysis, /\.eq\("id", body\.customer_id\)\.eq\("owner_id", user\.id\)/, "单客户AI筛选必须限定当前归属人，主管不得替他人发起分析");
 const quoteDetail = read("app/api/quotes/[id]/route.ts");
 assert.match(quoteDetail, /quote\.owner_id === account\.id \|\| account\.role === "ADMIN"/, "报价写按钮必须只开放给归属人或系统管理员");
+assert.match(quoteDetail, /can_attach:[\s\S]*\["DRAFT","GENERATED","SENT"\]/, "报价发送后必须允许补充客户确认凭证");
+const attachmentDetail = read("app/api/attachments/[id]/route.ts");
+assert.match(attachmentDetail, /报价发送后附件作为业务凭证保留，不能删除/, "已发送报价的附件必须作为业务凭证保留");
 const stockApi = read("app/api/stock-orders/[id]/route.ts");
 assert.match(stockApi, /\["WAREHOUSE","ADMIN"\]\.includes\(account\.role\)/, "备货状态只能由仓库员或系统管理员更新");
 assert.doesNotMatch(stockApi, /unit_price|total_amount|phone|email,address/, "仓库接口不得返回销售价格、客户联系方式或利润数据");
 
 const migration = read("supabase/migrations/202609010001_sales_quote_stock_cost_center.sql");
 const orderMigration = read("supabase/migrations/202609010002_sales_order_workflow.sql");
+const lifecycleMigration = read("supabase/migrations/202609010003_document_lifecycle_guardrails.sql");
 assert.match(migration, /target\.owner_id<>actor\.id and actor\.role<>'ADMIN'[\s\S]*只能修改归属自己的报价单/, "数据库报价修改必须拒绝主管修改他人报价");
 assert.match(migration, /target\.owner_id <> actor\.id and actor\.role<>'ADMIN'[\s\S]*只有报价归属销售员或系统管理员可以确认客户/, "客户确认必须由报价归属销售员或系统管理员执行");
 assert.match(migration, /actor\.role not in \('WAREHOUSE','ADMIN'\)/, "数据库备货状态只允许仓库员或系统管理员更新");
@@ -52,6 +56,7 @@ assert.match(orderMigration,/add column if not exists sales_order_id uuid refere
 assert.match(orderMigration,/created_order\.destination_country,'DRAFT'[\s\S]*等待销售员完善备货信息/,"确认报价后应先创建待完善备货单而不是直接通知仓库");
 assert.match(orderMigration,/submit_stock_order[\s\S]*status='WAITING'[\s\S]*STOCK_ORDER_CREATED/,"只有销售员完善备货信息后才提交并通知仓库");
 assert.match(orderMigration,/previous='WAITING'[\s\S]*previous='PREPARING'[\s\S]*previous='SHORTAGE'/,"备货状态必须按允许状态机流转");
+assert.match(lifecycleMigration,/target\.status in \('CONFIRMED','SUPERSEDED'\)[\s\S]*报价已进入后续业务流程，不能取消/, "已进入后续流程的报价不得被越权取消");
 
 const menu = read("components/app-shell.tsx");
 assert.match(menu, /label: "客户中心"[\s\S]*客户库[\s\S]*客户导入[\s\S]*跟进管理/, "客户中心必须归类客户库、客户导入和跟进管理");
