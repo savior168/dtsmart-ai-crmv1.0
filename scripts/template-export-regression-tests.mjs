@@ -35,6 +35,7 @@ const quoteBuffer = await buildQuoteWorkbook({
 
 const stockBuffer = await buildStockWorkbook({
   stock_number: "BH-TEST-001",
+  order_number: "ORDER-TEST-001",
   quote_number: "PI-TEST-001",
   customer_short_name: "Demo",
   destination_country: "DE",
@@ -67,7 +68,7 @@ assert.ok(quote.B19.s, "报价产品行样式必须保留");
 assert.ok(containsMedia(quoteBuffer), "报价单必须保留企业 Logo");
 
 const stock = firstSheet(stockBuffer);
-assert.equal(stock.G3.v, "BH-TEST-001");
+assert.equal(stock.G3.v, "ORDER-TEST-001");
 assert.equal(stock.C13.v, "Screen 1");
 assert.equal(stock.C24.v, "Screen 12");
 assert.equal(stock.B11.f, "SUM(K13:K999)");

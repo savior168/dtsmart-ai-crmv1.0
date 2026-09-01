@@ -8,11 +8,12 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const { supabase } = await requirePermission("stock.export");
     const { id } = await context.params;
     const [{ data: order, error }, { data: items, error: itemError }] = await Promise.all([
-      supabase.from("stock_orders").select("stock_number,quote_number,customer_short_name,destination_country,stocking_requirements,status_note,expected_ready_at,created_at,salesperson:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).single(),
+      supabase.from("stock_orders").select("stock_number,quote_number,order_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,salesperson:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).single(),
       supabase.from("stock_order_items").select("line_number,item_name,brand,model,quality,description,description_zh,procurement_cost,quantity,preparation_requirement").eq("stock_order_id", id).order("line_number"),
     ]);
     if (error) throw error;
     if (itemError) throw itemError;
+    if(order.status==="DRAFT")throw new Error("请先完善备货信息并提交仓库，再导出标准备货单");
     const buffer = await buildStockWorkbook(order as never, (items || []) as never);
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

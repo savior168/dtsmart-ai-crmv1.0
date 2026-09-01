@@ -7,6 +7,7 @@ const read = (path) => readFileSync(resolve(root, path), "utf8");
 
 for (const path of [
   "app/quotes/page.tsx", "app/quotes/new/page.tsx", "app/quotes/[id]/page.tsx",
+  "app/orders/page.tsx", "app/orders/[id]/page.tsx",
   "app/stock-orders/page.tsx", "app/stock-orders/[id]/page.tsx",
   "app/notifications/page.tsx", "app/settings/costs/page.tsx",
   "app/api/quotes/[id]/confirm/route.ts", "app/api/stock-orders/[id]/status/route.ts",
@@ -32,6 +33,7 @@ assert.match(stockApi, /\["WAREHOUSE","ADMIN"\]\.includes\(account\.role\)/, "�
 assert.doesNotMatch(stockApi, /unit_price|total_amount|phone|email,address/, "仓库接口不得返回销售价格、客户联系方式或利润数据");
 
 const migration = read("supabase/migrations/202609010001_sales_quote_stock_cost_center.sql");
+const orderMigration = read("supabase/migrations/202609010002_sales_order_workflow.sql");
 assert.match(migration, /target\.owner_id<>actor\.id and actor\.role<>'ADMIN'[\s\S]*只能修改归属自己的报价单/, "数据库报价修改必须拒绝主管修改他人报价");
 assert.match(migration, /target\.owner_id <> actor\.id and actor\.role<>'ADMIN'[\s\S]*只有报价归属销售员或系统管理员可以确认客户/, "客户确认必须由报价归属销售员或系统管理员执行");
 assert.match(migration, /actor\.role not in \('WAREHOUSE','ADMIN'\)/, "数据库备货状态只允许仓库员或系统管理员更新");
@@ -45,9 +47,16 @@ assert.match(migration, /billing ledger is append-only[\s\S]*cost_center_setting
 assert.match(migration, /supervisors can act on their own customers only/, "迁移必须明确主管跨用户只读边界");
 assert.match(migration, /public\.current_user_is_admin\(\) or coalesce\(owner_user_id,owner_id,created_by\)=auth\.uid\(\)/, "客户RLS必须只允许归属人或系统管理员写入");
 assert.doesNotMatch(migration, /'WAREHOUSE','system\.audit\.view'/, "仓库员菜单只保留工作台、备货和安全设置");
+assert.match(orderMigration,/order_number text not null unique[\s\S]*quote_id uuid not null unique references public\.quotes/,"销售订单必须有用户填写的唯一订单号并唯一关联报价单");
+assert.match(orderMigration,/add column if not exists sales_order_id uuid references public\.sales_orders[\s\S]*add column if not exists order_number text[\s\S]*alter column sales_order_id set not null[\s\S]*alter column order_number set not null/,"备货单必须同时绑定订单ID和订单号");
+assert.match(orderMigration,/created_order\.destination_country,'DRAFT'[\s\S]*等待销售员完善备货信息/,"确认报价后应先创建待完善备货单而不是直接通知仓库");
+assert.match(orderMigration,/submit_stock_order[\s\S]*status='WAITING'[\s\S]*STOCK_ORDER_CREATED/,"只有销售员完善备货信息后才提交并通知仓库");
+assert.match(orderMigration,/previous='WAITING'[\s\S]*previous='PREPARING'[\s\S]*previous='SHORTAGE'/,"备货状态必须按允许状态机流转");
 
 const menu = read("components/app-shell.tsx");
-assert.match(menu, /label: "客户中心"[\s\S]*客户库[\s\S]*跟进管理[\s\S]*报价管理/, "客户中心必须按二级菜单组织闭环功能");
+assert.match(menu, /label: "客户中心"[\s\S]*客户库[\s\S]*客户导入[\s\S]*跟进管理/, "客户中心必须归类客户库、客户导入和跟进管理");
+assert.match(menu, /label: "销售管理"[\s\S]*报价单[\s\S]*销售订单/, "报价单与销售订单必须归入销售管理");
+assert.match(menu, /label: "仓库管理"[\s\S]*stock\.view/, "备货单必须归入仓库管理");
 assert.match(menu, /label: "AI获客"[\s\S]*disabled: true/, "AI获客本期只能预留，不能伪装成已开发功能");
 assert.match(menu, /label: "系统管理"[\s\S]*用户与权限[\s\S]*操作日志[\s\S]*安全设置[\s\S]*费用中心/, "系统管理必须使用清晰二级菜单");
 
@@ -63,7 +72,11 @@ assert.match(shell, /canLoadNotices = Boolean\(profile\)[\s\S]*if \(!canLoadNoti
 const notifications = read("components/notifications-view.tsx");
 assert.match(notifications, /未读[\s\S]*待处理[\s\S]*已归档[\s\S]*标记已处理/, "通知中心必须同时管理阅读与业务处理状态");
 const quoteForm = read("components/quote-form.tsx");
-assert.match(quoteForm, /api\/quotes\/template[\s\S]*下载导入模板[\s\S]*导入产品明细/, "报价创建必须支持标准模板下载和产品明细导入");
+assert.match(quoteForm, /api\/quotes\/template[\s\S]*下载导入模板[\s\S]*导入Excel[\s\S]*粘贴表格/, "报价创建必须支持模板、Excel导入和剪贴板粘贴");
+assert.doesNotMatch(quoteForm,/\["序号","产品","品牌","型号","质量","描述（客户）","中文质量\/描述（仓库）"/,"报价产品表不得混入仓库专用列");
+assert.match(quoteForm,/订单编号（必填）[\s\S]*确认并创建订单/,"客户确认时必须由销售员填写订单编号");
+const costApi=read("app/api/cost-center/route.ts");
+assert.doesNotMatch(costApi,/user:users\(name,email\)/,"无外键费用账本不得使用PostgREST嵌套用户关联");
 const reportView = read("components/sales-reports-view.tsx");
 assert.match(reportView, /breakdowns[\s\S]*trend/, "报表中心必须使用真实数据库聚合结果");
 assert.doesNotMatch(reportView, /\[35,\s*29,\s*21,\s*15\]|\[82,\s*70,\s*61,\s*48,\s*41\]/, "报表中心不得保留静态演示数据");

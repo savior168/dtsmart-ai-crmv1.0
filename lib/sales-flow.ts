@@ -1,7 +1,15 @@
 import type { QuoteItem, QuoteStatus, StockOrderStatus } from "@/lib/types";
+import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
 
-export const QUOTE_EDITABLE_STATUSES: QuoteStatus[] = ["DRAFT", "GENERATED", "SENT"];
+export const QUOTE_EDITABLE_STATUSES: QuoteStatus[] = ["DRAFT", "GENERATED"];
 export const STOCK_TERMINAL_STATUSES: StockOrderStatus[] = ["READY", "CANCELLED"];
+export const STOCK_TRANSITIONS: Record<StockOrderStatus, StockOrderStatus[]> = {
+  DRAFT: ["WAITING", "CANCELLED"],
+  WAITING: ["PREPARING", "SHORTAGE", "CANCELLED"],
+  PREPARING: ["READY", "SHORTAGE", "CANCELLED"],
+  SHORTAGE: ["PREPARING", "CANCELLED"],
+  READY: [], CANCELLED: [],
+};
 
 function text(value: unknown, max = 1000) {
   return String(value ?? "").trim().slice(0, max);
@@ -28,16 +36,15 @@ export function normalizeQuoteItems(value: unknown): QuoteItem[] {
       model: text(item.model, 160),
       quality: text(item.quality, 160),
       description: text(item.description, 1000),
-      description_zh: text(item.description_zh, 1000) || null,
+      description_zh: null,
       quantity: positive(item.quantity),
       unit_price: nonNegative(item.unit_price),
-      procurement_cost: nonNegative(item.procurement_cost),
-      preparation_requirement: text(item.preparation_requirement, 1000) || null,
+      procurement_cost: 0,
+      preparation_requirement: null,
     };
     if (!normalized.item_name) throw new Error(`第 ${index + 1} 行缺少产品名称`);
     if (normalized.quantity <= 0) throw new Error(`第 ${index + 1} 行数量必须大于0`);
     if (normalized.unit_price < 0) throw new Error(`第 ${index + 1} 行销售单价不正确`);
-    if (normalized.procurement_cost < 0) throw new Error(`第 ${index + 1} 行采购成本不正确`);
     return normalized;
   });
   if (!rows.length) throw new Error("请至少添加一条产品明细");
@@ -56,16 +63,18 @@ export function cleanQuotePayload(body: Record<string, unknown>) {
   const items = normalizeQuoteItems(body.items);
   const shippingCost = nonNegative(body.shipping_cost);
   if (shippingCost < 0) throw new Error("运费不正确");
+  const currency = text(body.currency, 8).toUpperCase() || "USD";
+  if (!QUOTE_CURRENCY_CODES.has(currency)) throw new Error("请选择系统支持的报价币种");
   return {
     items,
     customer_id: text(body.customer_id, 80),
-    currency: text(body.currency, 8).toUpperCase() || "USD",
+    currency,
     valid_until: text(body.valid_until, 10) || null,
     payment_method: text(body.payment_method, 300) || null,
     delivery_date: text(body.delivery_date, 10) || null,
     customer_short_name: text(body.customer_short_name, 200) || null,
     destination_country: text(body.destination_country, 100) || null,
-    stocking_requirements: text(body.stocking_requirements, 3000) || null,
+    stocking_requirements: null,
     shipping_cost: shippingCost,
     notes: text(body.notes, 3000) || null,
   };

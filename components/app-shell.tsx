@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bell,
   Boxes,
+  ClipboardList,
   ChevronDown,
   ChevronLeft,
   LayoutDashboard,
@@ -30,18 +31,23 @@ const menu = [
   {
     label: "客户中心", icon: UsersRound, defaultHref: "/customers", children: [
       { label: "客户库", href: "/customers", permission: "customers.view" },
+      { label: "客户导入", href: "/import", permission: "imports.view" },
       { label: "跟进管理", href: "/followups", permission: "followups.view" },
-      { label: "报价管理", href: "/quotes", permission: "quotes.view" },
     ],
   },
   {
-    label: "获客与筛选", icon: Sparkles, defaultHref: "/import", children: [
+    label: "AI获客与筛选", icon: Sparkles, defaultHref: "/ai-screening", children: [
       { label: "AI获客", href: "/ai-acquisition", permission: "imports.view", disabled: true },
-      { label: "数据导入", href: "/import", permission: "imports.view" },
       { label: "AI筛选", href: "/ai-screening", permission: "ai.tasks.view" },
     ],
   },
-  { label: "备货管理", href: "/stock-orders", icon: Boxes, permission: "stock.view" },
+  {
+    label: "销售管理", icon: ClipboardList, defaultHref: "/quotes", children: [
+      { label: "报价单", href: "/quotes", permission: "quotes.view" },
+      { label: "销售订单", href: "/orders", permission: "orders.view" },
+    ],
+  },
+  { label: "仓库管理", href: "/stock-orders", icon: Boxes, permission: "stock.view" },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
   {
     label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
@@ -67,7 +73,7 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/customers\/new$/, "客户管理 / 新增客户"],
   [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"],
   [/^\/customers$/, "客户中心 / 客户库"],
-  [/^\/import$/, "数据导入"],
+  [/^\/import$/, "客户中心 / 客户导入"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
   [/^\/ai-screening\/strategies$/, "AI筛选 / 任务中心 / 策略说明"],
@@ -78,11 +84,14 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/ai-screening\/usage$/, "AI筛选 / 任务中心 / AI筛选用量与费用"],
   [/^\/ai-screening\/customers\/[^/]+\/evidence$/, "AI筛选 / 任务详情 / 客户分析依据"],
   [/^\/followups$/, "客户中心 / 跟进管理"],
-  [/^\/quotes\/new$/, "客户中心 / 报价管理 / 创建报价单"],
-  [/^\/quotes\/[^/]+$/, "客户中心 / 报价管理 / 报价详情"],
-  [/^\/quotes$/, "客户中心 / 报价管理"],
-  [/^\/stock-orders\/[^/]+$/, "备货管理 / 备货详情"],
-  [/^\/stock-orders$/, "备货管理"],
+  [/^\/quotes\/new$/, "销售管理 / 报价单 / 创建报价单"],
+  [/^\/quotes\/[^/]+\/print$/, "销售管理 / 报价单 / 打印预览"],
+  [/^\/quotes\/[^/]+$/, "销售管理 / 报价单 / 报价详情"],
+  [/^\/quotes$/, "销售管理 / 报价单"],
+  [/^\/orders\/[^/]+$/, "销售管理 / 销售订单 / 订单详情"],
+  [/^\/orders$/, "销售管理 / 销售订单"],
+  [/^\/stock-orders\/[^/]+$/, "仓库管理 / 备货单详情"],
+  [/^\/stock-orders$/, "仓库管理 / 备货单"],
   [/^\/reports$/, "报表中心"],
   [/^\/settings\/costs$/, "系统管理 / 费用中心"],
   [/^\/notifications$/, "站内通知"],

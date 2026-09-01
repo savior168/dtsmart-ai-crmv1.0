@@ -4,7 +4,7 @@ export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "L
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
-export type PermissionGroup = "工作台" | "客户管理" | "数据导入" | "AI筛选" | "跟进管理" | "报价管理" | "备货管理" | "报表中心" | "费用中心" | "站内通知" | "系统管理";
+export type PermissionGroup = "工作台" | "客户管理" | "数据导入" | "AI筛选" | "跟进管理" | "报价管理" | "订单管理" | "备货管理" | "报表中心" | "费用中心" | "站内通知" | "系统管理";
 
 export type PermissionDefinition = {
   code: string;
@@ -59,13 +59,21 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "quotes.data_all", label: "查看全部报价", group: "报价管理", description: "可按归属人只读查看全部报价", kind: "DATA" },
   { code: "quotes.create", label: "创建报价单", group: "报价管理", description: "为本人客户创建报价单", kind: "ACTION" },
   { code: "quotes.edit", label: "编辑本人报价", group: "报价管理", description: "编辑本人尚未确认的报价单", kind: "ACTION" },
-  { code: "quotes.confirm", label: "确认本人报价", group: "报价管理", description: "标记客户已确认并自动生成备货单", kind: "ACTION" },
+  { code: "quotes.confirm", label: "确认本人报价", group: "报价管理", description: "记录客户确认并创建销售订单和待完善备货单", kind: "ACTION" },
   { code: "quotes.export", label: "导出报价单", group: "报价管理", description: "按标准PI模板导出报价Excel", kind: "ACTION" },
   { code: "quotes.cancel", label: "取消本人报价", group: "报价管理", description: "取消本人未确认的报价单", kind: "ACTION" },
+
+  { code: "orders.view", label: "查看销售订单", group: "订单管理", description: "查看报价确认后形成的销售订单快照", kind: "PAGE" },
+  { code: "orders.data_all", label: "查看全部销售订单", group: "订单管理", description: "主管只读查看全部销售订单", kind: "DATA" },
+  { code: "orders.edit", label: "修改本人订单说明", group: "订单管理", description: "修改本人未结束订单的交付日期和确认说明", kind: "ACTION" },
+  { code: "orders.cancel", label: "取消本人订单", group: "订单管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
+  { code: "orders.export", label: "导出销售订单", group: "订单管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
   { code: "stock.view", label: "查看备货管理", group: "备货管理", description: "查看允许范围内的备货单", kind: "PAGE" },
   { code: "stock.data_all", label: "查看全部备货单", group: "备货管理", description: "按归属人查看全部备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "备货管理", description: "仓库员更新备货状态与备注", kind: "ACTION" },
+  { code: "stock.prepare", label: "完善备货信息", group: "备货管理", description: "订单归属销售员填写仓库中文描述、采购成本和理货要求", kind: "ACTION" },
+  { code: "stock.submit", label: "提交备货单", group: "备货管理", description: "订单归属销售员将已完善备货单提交仓库", kind: "ACTION" },
   { code: "stock.export", label: "导出备货单", group: "备货管理", description: "按仓库模板导出备货Excel", kind: "ACTION" },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },

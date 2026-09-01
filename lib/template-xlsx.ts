@@ -29,6 +29,7 @@ type QuoteExportData = {
 
 type StockExportData = {
   stock_number: string;
+  order_number: string;
   quote_number: string;
   customer_short_name: string;
   destination_country?: string | null;
@@ -182,7 +183,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: QuoteIte
   let xml = opened.xml;
   const values: Array<[string, unknown]> = [
     ["B3", stock.salesperson?.name || stock.salesperson?.email || ""], ["E3", stock.created_at.slice(0, 10)],
-    ["G3", stock.stock_number], ["H3", stock.customer_short_name], ["K3", stock.destination_country || ""],
+    ["G3", stock.order_number], ["H3", stock.customer_short_name], ["K3", stock.destination_country || ""],
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["B4", stock.status_note || ""],
     ["H4", stock.stocking_requirements || "常规理货"], ["B8", ""], ["B9", ""],
   ];

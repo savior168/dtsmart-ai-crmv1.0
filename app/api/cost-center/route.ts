@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { costPeriodRange, normalizeCostPeriod } from "@/lib/cost-center";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
       });
     }
     let rowsQuery = supabase.from("api_cost_ledger")
-      .select("id,user_id,customer_id,task_id,provider,service,operation,model_or_sku,quantity,unit,input_tokens,cached_input_tokens,output_tokens,amount_usd,amount_type,pricing_snapshot,metadata,occurred_at,user:users(name,email)", { count: "exact" })
+      .select("id,user_id,customer_id,task_id,provider,service,operation,model_or_sku,quantity,unit,input_tokens,cached_input_tokens,output_tokens,amount_usd,amount_type,pricing_snapshot,metadata,occurred_at", { count: "exact" })
       .gte("occurred_at", from).lt("occurred_at", to).order("occurred_at", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
     const provider = params.get("provider")?.trim();
@@ -40,8 +41,13 @@ export async function GET(request: NextRequest) {
     ]);
     if (error) throw error;
     if (summary.error) throw summary.error;
+    const rows = data || [];
+    const userIds = [...new Set(rows.map((row) => row.user_id).filter((value): value is string => Boolean(value)))];
+    const users = userIds.length ? await createAdminClient().from("users").select("id,name,email").in("id", userIds) : { data: [], error: null };
+    if (users.error) throw users.error;
+    const userMap = new Map((users.data || []).map((user) => [user.id, { name: user.name, email: user.email }]));
     return NextResponse.json({
-      data: data || [], count: count || 0, page, page_size: pageSize, period,
+      data: rows.map((row) => ({ ...row, user: row.user_id ? userMap.get(row.user_id) || { name: "历史账号", email: null } : null })), count: count || 0, page, page_size: pageSize, period,
       accounting_start_at: settings.data.accounting_start_at,
       settings_updated_at: settings.data.updated_at,
       effective_from: from, effective_to: to,
