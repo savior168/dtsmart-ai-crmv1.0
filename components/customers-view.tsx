@@ -229,7 +229,7 @@ export function CustomersView() {
     setDirection(params.get("direction") === "asc" ? "asc" : "desc");
   }, []);
   useEffect(() => {
-    const label = workspace === "protection" ? "保护到期" : workspace === "conflicts" ? "冲突客户" : "客户列表";
+    const label = workspace === "protection" ? "保护到期与续期" : workspace === "conflicts" ? "冲突客户" : "我的客户";
     window.dispatchEvent(new CustomEvent("dtsmart-page-title", { detail: `客户管理 / ${label}` }));
   }, [workspace]);
   useEffect(() => {
@@ -446,6 +446,13 @@ export function CustomersView() {
   }
   async function updateStage(nextStatus: string) {
     if (!selected.size) return;
+    let reason = "";
+    if (protectedSelected.size && nextStatus) {
+      const input = window.prompt("所选客户包含报价中或已成交客户。请填写本次阶段变更的真实原因，系统将保留操作记录：", "");
+      if (input === null) return;
+      reason = input.trim();
+      if (!reason) return notify("报价中或已成交客户变更阶段必须填写原因", "error");
+    }
     const response = await fetch("/api/customers/batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -453,6 +460,7 @@ export function CustomersView() {
         ids: [...selected],
         action: "STAGE",
         status: nextStatus,
+        reason,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -593,10 +601,10 @@ export function CustomersView() {
         </div>
         <nav className="mt-5 flex items-center gap-9 border-b border-slate-200 text-sm">
           <button type="button" onClick={() => switchWorkspace("list")} className={`border-b-2 pb-3 ${workspace === "list" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
-            客户列表
+            我的客户
           </button>
           <button type="button" onClick={() => switchWorkspace("protection")} className={`border-b-2 pb-3 ${workspace === "protection" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
-            保护到期{" "}
+            保护到期与续期{" "}
             <b className="ml-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs text-white">
               {protectionCount}
             </b>
@@ -901,11 +909,9 @@ export function CustomersView() {
               批量更新阶段
             </button>
             <button
-              disabled={crossUserReadOnly || !selected.size || [...selected].every((id) => protectedSelected.has(id))}
+              disabled={crossUserReadOnly || !selected.size}
               onClick={() => {
-                const eligible = [...selected].filter((id) => !protectedSelected.has(id));
-                if (!eligible.length) return notify("报价中和成交客户不允许删除", "error");
-                setDeleteIds(eligible);
+                setDeleteIds([...selected]);
               }}
               className="inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2.5 text-sm text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -919,8 +925,8 @@ export function CustomersView() {
                 className="rounded-lg border border-blue-300 px-3 py-2.5 text-sm"
               >
                 <option value="">选择客户阶段</option>
-                <option value="UNCLAIMED">新客户</option>
                 <option value="CLAIMED">意向客户</option>
+                <option value="FOLLOWING">跟进中</option>
                 <option value="QUOTE">报价中</option>
                 <option value="DEAL">成交客户</option>
                 <option value="RELEASED">无效客户</option>
@@ -1067,7 +1073,7 @@ export function CustomersView() {
                         <Pencil size={17} />
                       </Link>
                       {!crossUserReadOnly && (row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
-                      {!crossUserReadOnly && !(["QUOTE", "DEAL"] as string[]).includes(row.status) ? (
+                      {!crossUserReadOnly ? (
                       <button
                         onClick={(event) => {
                           event.stopPropagation();

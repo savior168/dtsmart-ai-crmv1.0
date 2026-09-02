@@ -80,13 +80,18 @@ export async function PATCH(request: NextRequest) {
       if (!USER_ROLES.includes(requestedRole as never)) return NextResponse.json({ error: "角色无效" }, { status: 400 });
       const role = normalizeRole(requestedRole);
       await protectLastAdmin(target, role, undefined);
-      Object.assign(update, { role, review_reason: reason || null });
+      Object.assign(update, { role, manager_id: role === "SALES" ? target.manager_id : null, review_reason: reason || null });
     } else if (action === "UPDATE_MANAGER") {
-      if (target.role !== "SALES") return NextResponse.json({ error: "只有销售员需要设置直属上级" }, { status: 400 });
       const managerId = String(body.manager_id || "");
-      const { data: manager } = await admin.from("users").select("id,name,email,role,status").eq("id", managerId).maybeSingle();
-      if (!manager || manager.role !== "SUPERVISOR" || manager.status !== "ACTIVE") return NextResponse.json({ error: "请选择已启用的主管作为直属上级" }, { status: 400 });
-      Object.assign(update, { manager_id: manager.id, review_reason: reason || null });
+      if (!managerId) {
+        if (target.role === "SALES") return NextResponse.json({ error: "销售员必须设置一名已启用的主管" }, { status: 400 });
+        Object.assign(update, { manager_id: null, review_reason: reason || null });
+      } else {
+        if (managerId === target.id) return NextResponse.json({ error: "用户不能设置自己为上级" }, { status: 400 });
+        const { data: manager } = await admin.from("users").select("id,name,email,role,status").eq("id", managerId).maybeSingle();
+        if (!manager || manager.role !== "SUPERVISOR" || manager.status !== "ACTIVE") return NextResponse.json({ error: "请选择已启用的主管作为上级" }, { status: 400 });
+        Object.assign(update, { manager_id: manager.id, review_reason: reason || null });
+      }
     } else if (action === "FORCE_LOGOUT") Object.assign(update, { force_logout_at: new Date().toISOString(), review_reason: reason || "管理员强制退出" });
     else return NextResponse.json({ error: "不支持的操作" }, { status: 400 });
     if (id === user.id && ["REJECT", "DISABLE", "DEPART", "FORCE_LOGOUT"].includes(action)) return NextResponse.json({ error: "不能对当前登录账号执行该操作" }, { status: 400 });

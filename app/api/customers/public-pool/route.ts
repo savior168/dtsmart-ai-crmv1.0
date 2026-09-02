@@ -32,9 +32,43 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
+    const country = params.get("country")?.trim() || "";
+    const industry = params.get("industry")?.trim() || "";
+    const aiLevel = params.get("ai_level")?.trim().toUpperCase() || "";
+    const target = params.get("target")?.trim() || "";
+    const customerStatus = params.get("status")?.trim().toUpperCase() || "";
+    const ownerId = params.get("owner_id")?.trim() || "";
     const allowed = new Set(["available", "claimed", "pending"]);
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
+    const elevated = account.role === "ADMIN" || account.role === "SUPERVISOR";
+    if (ownerId && !elevated) return NextResponse.json({ error: "当前角色不能按他人归属筛选" }, { status: 403 });
+
+    if (params.get("options") === "1") {
+      const optionRows: Array<{ country: string | null; industry: string | null; owner_id: string | null }> = [];
+      for (let offset = 0; offset < 20000; offset += 1000) {
+        let optionQuery = admin.from("customers").select("country,industry,owner_id").is("deleted_at", null);
+        if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").is("owner_id", null);
+        if (tab === "claimed") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").not("owner_id", "is", null);
+        if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").is("owner_id", null);
+        const optionPage = await optionQuery.order("updated_at", { ascending: false }).range(offset, offset + 999);
+        if (optionPage.error) throw optionPage.error;
+        const pageRows = optionPage.data || [];
+        optionRows.push(...pageRows);
+        if (pageRows.length < 1000) break;
+      }
+      const ownerIds = [...new Set(optionRows.map((item) => item.owner_id).filter(Boolean))] as string[];
+      const owners = elevated && ownerIds.length
+        ? await admin.from("users").select("id,name,email").in("id", ownerIds).order("name")
+        : { data: [], error: null };
+      if (owners.error) throw owners.error;
+      const unique = (values: Array<string | null>) => [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right, "zh-CN"));
+      return NextResponse.json({
+        countries: unique(optionRows.map((item) => item.country)),
+        industries: unique(optionRows.map((item) => item.industry)),
+        owners: owners.data || [],
+      }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
+    }
 
     let query = admin.from("customers").select(
       "id,company_name,country,address,industry,category,phone,email,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,updated_at",
@@ -47,6 +81,14 @@ export async function GET(request: NextRequest) {
       const pattern = postgrestContains(search.replace(/[(),]/g, " "));
       query = query.or(`company_name.ilike.${pattern},country.ilike.${pattern},industry.ilike.${pattern}`);
     }
+    if (country) query = query.eq("country", country);
+    if (industry) query = query.eq("industry", industry);
+    if (["A", "B", "C", "D"].includes(aiLevel)) query = query.eq("ai_level", aiLevel);
+    if (target === "valid") query = query.eq("is_target_customer", true);
+    if (target === "invalid") query = query.eq("is_target_customer", false);
+    if (target === "pending") query = query.is("is_target_customer", null);
+    if (["UNCLAIMED", "CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
+    if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
     const from = (page - 1) * pageSize;
     const result = await query.order("updated_at", { ascending: false }).range(from, from + pageSize - 1);
     if (result.error) throw result.error;
@@ -62,7 +104,6 @@ export async function GET(request: NextRequest) {
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
     const protectionByCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
-    const elevated = account.role === "ADMIN" || account.role === "SUPERVISOR";
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const full = tab !== "claimed" || own || elevated;

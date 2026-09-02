@@ -29,9 +29,9 @@ import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
   {
-    label: "客户中心", icon: UsersRound, defaultHref: "/customers", children: [
-      { label: "客户库", href: "/customers", permission: "customers.view" },
+    label: "客户中心", icon: UsersRound, defaultHref: "/customers/pool", children: [
       { label: "客户公海", href: "/customers/pool", permission: "customers.view" },
+      { label: "我的客户", href: "/customers", permission: "customers.view" },
       { label: "客户导入", href: "/import", permission: "imports.view" },
       { label: "跟进管理", href: "/followups", permission: "followups.view" },
     ],
@@ -53,9 +53,9 @@ const menu = [
   {
     label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
       { label: "用户与权限", href: "/settings/users", permission: "system.users.view" },
+      { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
       { label: "操作日志", href: "/settings/audit", permission: "system.audit.view" },
       { label: "安全设置", href: "/settings/security", permission: "system.security.view" },
-      { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
     ],
   },
 ] as const;
@@ -75,7 +75,7 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/customers\/pool$/, "客户中心 / 客户公海"],
   [/^\/customers\/protection$/, "客户中心 / 保护到期"],
   [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"],
-  [/^\/customers$/, "客户中心 / 客户库"],
+  [/^\/customers$/, "客户中心 / 我的客户"],
   [/^\/import$/, "客户中心 / 客户导入"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
@@ -107,6 +107,15 @@ const pageTitles: Array<[RegExp, string]> = [
 ];
 
 function isActive(path: string, href: string) {
+  if (href === "/customers") {
+    const belongsToAnotherCustomerWorkspace = [
+      "/customers/pool",
+      "/customers/protection",
+      "/customers/conflicts",
+    ].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    return !belongsToAnotherCustomerWorkspace &&
+      (path === "/customers" || path.startsWith("/customers/"));
+  }
   return href === "/"
     ? path === "/"
     : path === href || path.startsWith(`${href}/`);
@@ -456,7 +465,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <>
       <div
-        className={`flex h-[76px] items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-[19px]"}`}
+        className={`flex h-[76px] items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-6"}`}
       >
         <Link href="/" prefetch={false} className="flex min-w-0 items-center gap-2.5">
           <Image
@@ -487,18 +496,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             if (!children.length) return null;
             const selected = children.some((child) => !("disabled" in child && child.disabled) && isActive(path, child.href));
             const expanded = !collapsed && (expandedGroups.has(item.label) || selected);
-            if (collapsed) return <Link key={item.label} href={children.find((child) => !("disabled" in child && child.disabled))?.href || item.defaultHref} prefetch={false} title={item.label} className={`flex items-center justify-center rounded-lg px-2 py-3 transition ${selected ? "bg-blue-600 text-white" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className="sr-only">{item.label}</span></Link>;
+            if (collapsed) return <Link key={item.label} href={children.find((child) => !("disabled" in child && child.disabled))?.href || item.defaultHref} prefetch={false} title={item.label} className={`flex items-center justify-center rounded-lg px-2 py-3 transition ${selected ? sidebarDark ? "bg-slate-800 text-blue-300" : "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className="sr-only">{item.label}</span></Link>;
             return <div key={item.label} className="space-y-1">
               <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => { const next = new Set(current); if (next.has(item.label)) next.delete(item.label); else next.add(item.label); return next; })} className={`flex w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition ${selected ? sidebarDark ? "bg-slate-800 font-semibold text-white" : "bg-blue-50 font-semibold text-blue-700" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}>
                 <Icon size={21} strokeWidth={1.8}/><span className="min-w-0 flex-1 text-[15px]">{item.label}</span><ChevronDown size={16} className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}/>
               </button>
-              {expanded ? <div className={`space-y-1 border-l ${sidebarDark ? "border-slate-700" : "border-slate-200"} ml-7 pl-3`}>{children.map((child) => { if ("disabled" in child && child.disabled) return <div key={child.href} aria-disabled="true" title="该功能已预留，本期暂不开发" className={`flex cursor-not-allowed items-center justify-between rounded-lg px-3 py-2.5 text-[14px] ${sidebarDark ? "text-slate-600" : "text-slate-400"}`}><span>{child.label}</span><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">规划中</small></div>; const childSelected = isActive(path, child.href); return <Link key={child.href} href={child.href} prefetch={false} className={`block rounded-lg px-3 py-2.5 text-[14px] transition ${childSelected ? sidebarDark ? "bg-blue-600 font-semibold text-white" : "bg-blue-600 font-semibold text-white shadow-sm" : sidebarDark ? "text-slate-400 hover:bg-slate-800 hover:text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}>{child.label}</Link>; })}</div> : null}
+              {expanded ? <div className={`space-y-1 border-l ${sidebarDark ? "border-slate-700" : "border-slate-200"} ml-7 pl-3`}>{children.map((child) => { if ("disabled" in child && child.disabled) return <div key={child.href} aria-disabled="true" title="该功能已预留，本期暂不开发" className={`flex cursor-not-allowed items-center justify-between rounded-lg px-3 py-2.5 text-[14px] ${sidebarDark ? "text-slate-600" : "text-slate-400"}`}><span>{child.label}</span><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">规划中</small></div>; const childSelected = isActive(path, child.href); return <Link key={child.href} href={child.href} prefetch={false} aria-current={childSelected ? "page" : undefined} className={`block rounded-lg px-3 py-2.5 text-[14px] transition ${childSelected ? sidebarDark ? "bg-slate-800 font-semibold text-blue-300" : "bg-blue-50 font-semibold text-blue-700 ring-1 ring-inset ring-blue-100" : sidebarDark ? "text-slate-400 hover:bg-slate-800 hover:text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}>{child.label}</Link>; })}</div> : null}
             </div>;
           }
           const permitted = canSeePermission(item.permission);
           if (!permitted) return null;
           const selected = isActive(path, item.href);
-          return <Link key={item.href} href={item.href} prefetch={false} title={collapsed ? item.label : undefined} className={`flex items-center rounded-lg transition ${collapsed ? "justify-center px-2 py-3" : "gap-4 px-4 py-3"} ${selected ? sidebarDark ? "bg-blue-600 font-semibold text-white" : "bg-gradient-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-sm shadow-blue-200" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className={collapsed ? "sr-only" : "text-[15px]"}>{item.label}</span></Link>;
+          return <Link key={item.href} href={item.href} prefetch={false} aria-current={selected ? "page" : undefined} title={collapsed ? item.label : undefined} className={`flex items-center rounded-lg transition ${collapsed ? "justify-center px-2 py-3" : "gap-4 px-4 py-3"} ${selected ? sidebarDark ? "bg-slate-800 font-semibold text-blue-300" : "bg-blue-50 font-semibold text-blue-700 ring-1 ring-inset ring-blue-100" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className={collapsed ? "sr-only" : "text-[15px]"}>{item.label}</span></Link>;
         })}
       </nav>
       <button

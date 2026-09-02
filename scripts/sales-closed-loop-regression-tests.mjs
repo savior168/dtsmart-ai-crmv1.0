@@ -59,11 +59,11 @@ assert.match(orderMigration,/previous='WAITING'[\s\S]*previous='PREPARING'[\s\S]
 assert.match(lifecycleMigration,/target\.status in \('CONFIRMED','SUPERSEDED'\)[\s\S]*报价已进入后续业务流程，不能取消/, "已进入后续流程的报价不得被越权取消");
 
 const menu = read("components/app-shell.tsx");
-assert.match(menu, /label: "客户中心"[\s\S]*客户库[\s\S]*客户导入[\s\S]*跟进管理/, "客户中心必须归类客户库、客户导入和跟进管理");
+assert.match(menu, /label: "客户中心"[\s\S]*客户公海[\s\S]*我的客户[\s\S]*客户导入[\s\S]*跟进管理/, "客户中心必须按公海、我的客户、导入和跟进顺序归类");
 assert.match(menu, /label: "销售管理"[\s\S]*报价单[\s\S]*销售订单/, "报价单与销售订单必须归入销售管理");
 assert.match(menu, /label: "仓库管理"[\s\S]*stock\.view/, "备货单必须归入仓库管理");
 assert.match(menu, /label: "AI获客"[\s\S]*disabled: true/, "AI获客本期只能预留，不能伪装成已开发功能");
-assert.match(menu, /label: "系统管理"[\s\S]*用户与权限[\s\S]*操作日志[\s\S]*安全设置[\s\S]*费用中心/, "系统管理必须使用清晰二级菜单");
+assert.match(menu, /label: "系统管理"[\s\S]*用户与权限[\s\S]*费用中心[\s\S]*操作日志[\s\S]*安全设置/, "系统管理必须使用清晰二级菜单");
 
 const costView = read("components/cost-center-view.tsx");
 assert.match(costView, /单价待配置[\s\S]*这不代表接口免费/, "未配置第三方单价时不得错误显示为免费");

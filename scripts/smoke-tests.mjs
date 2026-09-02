@@ -250,7 +250,7 @@ assert.match(permanentDelete, /customer\.owner_id === userId/, "销售只能永�
 assert.match(permanentDelete, /allowAll \|\|[\s\S]*customer\.owner_id === userId/, "只有显式系统管理员维护模式可以跨归属删除，主管仍只能删除本人客户");
 assert.match(read("app/api/customers/batch/route.ts"), /allowAll: account\.role === "ADMIN"/, "批量删除的跨归属维护权限只能授予系统管理员");
 assert.match(permanentDelete, /\.from\("customers"\)[\s\S]*?\.delete\(\)/, "客户删除必须从数据库物理删除");
-assert.match(permanentDelete, /allowAll \|\| \(!\["QUOTE", "DEAL"\]/, "报价中和成交客户只允许系统管理员执行维护删除");
+assert.match(permanentDelete, /linkedIds\.has\(id\)[\s\S]*客户已有报价或订单记录/, "客户是否可删除必须以真实报价或订单关联为准，不能只看阶段标签");
 assert.equal(existsSync(resolve(root, "app/api/customers/[id]/restore/route.ts")), false, "永久删除模式不得保留客户恢复接口");
 
 const appShell = read("components/app-shell.tsx");

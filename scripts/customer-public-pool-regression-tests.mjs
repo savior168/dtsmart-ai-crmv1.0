@@ -8,6 +8,8 @@ const poolApi = read("app/api/customers/public-pool/route.ts");
 const userApi = read("app/api/admin/users/route.ts");
 const orderApi = read("app/api/orders/route.ts");
 const sidebar = read("components/app-shell.tsx");
+const managerRules = read("supabase/migrations/202609020003_user_manager_rules.sql");
+const lifecycleRules = read("supabase/migrations/202609020004_customer_document_stage_sync.sql");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -23,6 +25,9 @@ assert.match(poolApi, /own \|\| elevated/, "仅归属人或高级只读角色可
 assert.match(userApi, /historyCount > 0/, "存在业务历史的账号不得物理删除");
 assert.match(userApi, /action === "CREATE"/, "系统管理员应能新增用户");
 assert.match(userApi, /action === "UPDATE_MANAGER"/, "系统管理员应能修改销售直属上级");
+assert.match(managerRules, /update public\.users set manager_id=null where role='SUPERVISOR'/, "主管默认必须没有上级");
+assert.match(lifecycleRules, /quotes_promote_customer_stage[\s\S]*sales_orders_promote_customer_stage/, "报价和订单必须自动同步客户阶段");
+assert.match(poolApi, /params\.get\("options"\) === "1"[\s\S]*industries[\s\S]*owners/, "客户公海必须提供完整筛选选项");
 assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得使用存在双外键歧义的嵌套关系");
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");

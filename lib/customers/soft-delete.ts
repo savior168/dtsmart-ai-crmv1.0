@@ -34,13 +34,20 @@ export async function permanentlyDeleteCustomers({
   }
 
   const visibleById = new Map((visible || []).map((customer) => [customer.id, customer]));
+  const [quoteLinks, orderLinks] = await Promise.all([
+    admin.from("quotes").select("customer_id").in("customer_id", uniqueIds),
+    admin.from("sales_orders").select("customer_id").in("customer_id", uniqueIds),
+  ]);
+  if (quoteLinks.error && !/does not exist|schema cache/i.test(quoteLinks.error.message)) throw quoteLinks.error;
+  if (orderLinks.error && !/does not exist|schema cache/i.test(orderLinks.error.message)) throw orderLinks.error;
+  const linkedIds = new Set([...(quoteLinks.data || []), ...(orderLinks.data || [])].map((item) => item.customer_id));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
-    return Boolean(customer && (allowAll || (!["QUOTE", "DEAL"].includes(customer.status) && customer.owner_id === userId)));
+    return Boolean(customer && !linkedIds.has(id) && (allowAll || customer.owner_id === userId));
   });
   const failures: Failure[] = uniqueIds
     .filter((id) => !allowedIds.includes(id))
-    .map((id) => ({ id, ok: false, error: ["QUOTE", "DEAL"].includes(visibleById.get(id)?.status || "") ? "报价中和成交客户仅系统管理员可删除" : "客户不存在、已删除或您没有删除权限" }));
+    .map((id) => ({ id, ok: false, error: linkedIds.has(id) ? "客户已有报价或订单记录，为保证业务凭证完整不可物理删除；请通过客户阶段继续流转" : "客户不存在、已删除或您没有删除权限" }));
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
   // Legacy compatibility tables created before ON DELETE CASCADE must be
