@@ -310,11 +310,15 @@ export async function POST(request: NextRequest) {
           const { error: auditError } = await supabase.from("audit_logs").insert({ user_id: user.id, action: "CUSTOMER_CONFLICT_DETECTED", target_type: "customer", target_id: duplicateId, content: conflict });
           if (auditError) throw new Error(`冲突客户记录创建失败：${auditError.message}`);
         }
-        const message = outcome.reason === "PERMANENT_PROTECTION" ? "已成交客户永久保护，已加入冲突客户列表" : "客户仍在保护期或7天宽限期，已加入冲突客户列表";
+        const message = outcome.reason === "PUBLIC_POOL_AVAILABLE"
+          ? "该客户已存在于系统公海，请前往客户公海提交凭证认领"
+          : outcome.reason === "PERMANENT_PROTECTION"
+            ? "已成交客户永久保护，已加入冲突客户列表"
+            : "该客户已有归属或需管理员核对，已加入冲突客户列表";
         return NextResponse.json({ conflict: true, status: "CONFLICT", message }, { status: 201 });
       }
     }
-    const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id };
+    const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", assigned_via: "PRIVATE_CREATE" };
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
     delete payload.website_email;

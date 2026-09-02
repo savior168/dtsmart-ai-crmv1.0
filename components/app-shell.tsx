@@ -31,6 +31,7 @@ const menu = [
   {
     label: "客户中心", icon: UsersRound, defaultHref: "/customers", children: [
       { label: "客户库", href: "/customers", permission: "customers.view" },
+      { label: "客户公海", href: "/customers/pool", permission: "customers.view" },
       { label: "客户导入", href: "/import", permission: "imports.view" },
       { label: "跟进管理", href: "/followups", permission: "followups.view" },
     ],
@@ -71,6 +72,8 @@ type ShellNotice = { id:string; type:string; title:string; content:string|null; 
 const pageTitles: Array<[RegExp, string]> = [
   [/^\/$/, "工作台 / 数据总览"],
   [/^\/customers\/new$/, "客户管理 / 新增客户"],
+  [/^\/customers\/pool$/, "客户中心 / 客户公海"],
+  [/^\/customers\/protection$/, "客户中心 / 保护到期"],
   [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"],
   [/^\/customers$/, "客户中心 / 客户库"],
   [/^\/import$/, "客户中心 / 客户导入"],
@@ -301,7 +304,7 @@ function ProfileModal({
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [sidebarWidth, setSidebarWidth] = useState(248);
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<"light" | "dark">("light");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -395,6 +398,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
     setSidebarMode(saved === "dark" ? "dark" : "light");
+    const savedWidth = Number(window.localStorage.getItem("dtsmart-sidebar-width") || 248);
+    setSidebarWidth(Math.max(232, Math.min(320, savedWidth)));
+    setCollapsed(window.localStorage.getItem("dtsmart-sidebar-collapsed") === "1");
   }, []);
   useEffect(() => {
     setMobileOpen(false);
@@ -450,7 +456,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <>
       <div
-        className={`flex h-[76px] items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-4"}`}
+        className={`flex h-[76px] items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-[19px]"}`}
       >
         <Link href="/" prefetch={false} className="flex min-w-0 items-center gap-2.5">
           <Image
@@ -506,7 +512,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </button>
       <button
         type="button"
-        onClick={() => setCollapsed((value) => !value)}
+        onClick={() => setCollapsed((value) => { const next=!value;window.localStorage.setItem("dtsmart-sidebar-collapsed",next?"1":"0");return next; })}
+        aria-label={collapsed ? "展开左侧菜单" : "收起左侧菜单"}
+        title={collapsed ? "展开左侧菜单" : "收起左侧菜单"}
         className={`absolute bottom-0 left-0 right-0 flex h-[72px] items-center border-t transition ${sidebarDark ? "border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white" : "border-slate-100 text-slate-600 hover:bg-slate-50 hover:text-blue-700"} ${collapsed ? "justify-center" : "gap-4 px-7"}`}
       >
         <ChevronLeft
@@ -534,11 +542,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               const move = (moveEvent: MouseEvent) =>
                 setSidebarWidth(
                   Math.max(
-                    210,
-                    Math.min(300, initial + moveEvent.clientX - startX),
+                    232,
+                    Math.min(320, initial + moveEvent.clientX - startX),
                   ),
                 );
               const stop = () => {
+                setSidebarWidth((value) => { window.localStorage.setItem("dtsmart-sidebar-width",String(value)); return value; });
                 removeEventListener("mousemove", move);
                 removeEventListener("mouseup", stop);
               };
@@ -556,7 +565,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             event.target === event.currentTarget && setMobileOpen(false)
           }
         >
-          <aside className={`relative h-full w-[240px] shadow-2xl ${sidebarDark ? "bg-slate-950" : "bg-white"}`}>
+          <aside className={`relative h-full w-[272px] shadow-2xl ${sidebarDark ? "bg-slate-950" : "bg-white"}`}>
             {sidebar}
             <button
               type="button"

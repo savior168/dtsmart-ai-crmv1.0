@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       PENDING: "注册申请正在等待系统管理员审核，暂时无法登录",
       REJECTED: "注册申请未通过审核，请联系系统管理员",
       DISABLED: "账号已停用，请联系系统管理员",
+      DEPARTED: "账号已标记离职，无法继续登录",
       LOCKED: "账号已锁定，请联系系统管理员解锁",
     };
     if (account.status !== "ACTIVE") return NextResponse.json({ error: statusMessages[account.status] || "账号当前不可用，请联系系统管理员" }, { status: 403 });

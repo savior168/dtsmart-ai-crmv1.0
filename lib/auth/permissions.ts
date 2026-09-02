@@ -1,5 +1,5 @@
 export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "WAREHOUSE"] as const;
-export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "LOCKED"] as const;
+export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "DEPARTED", "LOCKED"] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
@@ -31,8 +31,11 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "customers.export", label: "导出客户", group: "客户管理", description: "导出当前查询范围的客户数据", kind: "ACTION" },
   { code: "customers.batch_edit", label: "批量更新客户", group: "客户管理", description: "批量更新客户阶段等字段", kind: "ACTION" },
   { code: "customers.release", label: "释放客户", group: "客户管理", description: "释放本人名下客户", kind: "ACTION" },
+  { code: "customers.claim", label: "认领公海客户", group: "客户管理", description: "凭真实联系记录认领尚未归属的公海客户", kind: "ACTION" },
   { code: "customers.renew", label: "客户保护续期", group: "客户管理", description: "为本人仍持有且处于宽限期的客户续期45天", kind: "ACTION" },
-  { code: "customers.assign", label: "分配客户", group: "客户管理", description: "将客户分配或转移给其他归属人", kind: "ACTION" },
+  { code: "customers.renew.review", label: "审核下属续期", group: "客户管理", description: "审核直属销售员第三次及之后的保护续期", kind: "ACTION" },
+  { code: "customers.assign", label: "分配公海客户", group: "客户管理", description: "仅分配尚未认领或离职待分配客户", kind: "ACTION", core: true },
+  { code: "customers.handover", label: "离职客户交接", group: "客户管理", description: "将停用或离职账号的客户整批释放或交接", kind: "ACTION", core: true },
   { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户管理", description: "查看客户AI结论与可核验证据", kind: "ACTION" },
 
   { code: "imports.view", label: "查看导入记录", group: "数据导入", description: "进入数据导入并查看导入批次", kind: "PAGE" },
@@ -137,6 +140,7 @@ export const STATUS_LABELS: Record<AccountStatus, string> = {
   ACTIVE: "已启用",
   REJECTED: "已拒绝",
   DISABLED: "已停用",
+  DEPARTED: "已离职",
   LOCKED: "已锁定",
 };
 

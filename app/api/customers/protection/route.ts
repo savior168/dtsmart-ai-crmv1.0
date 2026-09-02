@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { uploadWorkflowEvidence, validateWorkflowEvidence } from "@/lib/customer-workflow-evidence";
 
 type CustomerRow = Record<string, unknown> & { id: string; created_at?: string };
 
@@ -10,9 +11,11 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
     const now = new Date();
+    await admin.rpc("refresh_expired_public_customers");
+    const renewalWindowEnd = new Date(now.getTime() + 15 * 86400000).toISOString();
     const cutoff = new Date(now.getTime() - 90 * 86400000).toISOString();
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
-    let protectionsQuery = admin.from("customer_protection").select("id,customer_id,owner_id,type,start_date,expire_date,status,extension_count,last_extended_at").or(`status.eq.RELEASED,expire_date.lte.${now.toISOString()}`).order("start_date", { ascending: false });
+    let protectionsQuery = admin.from("customer_protection").select("id,customer_id,owner_id,type,start_date,expire_date,status,extension_count,last_extended_at").or(`status.eq.RELEASED,expire_date.lte.${renewalWindowEnd}`).order("start_date", { ascending: false });
     let claimsQuery = admin.from("customer_claims").select("id,customer_id,user_id,created_at,released_at,release_reason").eq("action", "RELEASE").order("created_at", { ascending: false });
     let expiredQuery = admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
     if (scopeUserId) {
@@ -48,17 +51,15 @@ export async function GET(request: NextRequest) {
       const currentOwnerId = String(customer.owner_id || "");
       const expiry = item.expire_date ? new Date(item.expire_date).getTime() : 0;
       const isOwnCurrentCustomer = currentOwnerId === account.id && item.owner_id === account.id;
-      const inGrace = expiry > 0 && now.getTime() >= expiry && now.getTime() <= expiry + 7 * 86400000;
-      const canRenew = item.status !== "RELEASED" && customer.status !== "DEAL" && isOwnCurrentCustomer && inGrace && Number(item.extension_count || 0) < 2;
+      const inRenewalWindow = expiry > 0 && now.getTime() >= expiry - 15 * 86400000 && now.getTime() <= expiry + 3 * 86400000;
+      const canRenew = item.status === "ACTIVE" && customer.status !== "DEAL" && isOwnCurrentCustomer && inRenewalWindow;
       const renewalBlockReason = currentOwnerId && currentOwnerId !== item.owner_id
         ? "客户已转归其他用户，不可续期"
         : account.id !== item.owner_id
           ? "跨用户数据仅供查看"
           : item.status === "RELEASED"
             ? "客户已主动释放"
-            : Number(item.extension_count || 0) >= 2
-              ? "本保护周期已续期2次"
-              : !inGrace ? "7天续期宽限期已结束" : null;
+            : !inRenewalWindow ? (now.getTime() < expiry - 15 * 86400000 ? "到期前15天开放续期" : "3天续期宽限期已结束") : null;
       byCustomer.set(item.customer_id, { ...item, release_type: item.status === "RELEASED" ? "MANUAL" : "AUTO", can_renew: canRenew, renewal_block_reason: renewalBlockReason, customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
     }
     const latestClaims = new Map<string, { id: string; customer_id: string; user_id: string; created_at: string; released_at?: string | null; release_reason?: string | null }>();
@@ -74,8 +75,8 @@ export async function GET(request: NextRequest) {
       if (byCustomer.has(customer.id)) continue;
       const expireDate = new Date(new Date(customer.created_at).getTime() + 90 * 86400000);
       const currentOwnerId = String(customer.owner_id || "");
-      const inGrace = now.getTime() <= expireDate.getTime() + 7 * 86400000;
-      byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, owner_id: currentOwnerId, expire_date: expireDate.toISOString(), status: "EXPIRED", release_type: "AUTO", extension_count: 0, can_renew: currentOwnerId === account.id && inGrace, renewal_block_reason: currentOwnerId !== account.id ? "跨用户数据仅供查看" : inGrace ? null : "7天续期宽限期已结束", customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
+      const inGrace = now.getTime() <= expireDate.getTime() + 3 * 86400000;
+      byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, owner_id: currentOwnerId, expire_date: expireDate.toISOString(), status: "EXPIRED", release_type: "AUTO", extension_count: 0, can_renew: currentOwnerId === account.id && inGrace, renewal_block_reason: currentOwnerId !== account.id ? "跨用户数据仅供查看" : inGrace ? null : "3天续期宽限期已结束", customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
     }
     const data = Array.from(byCustomer.values()).sort((a, b) => String(b.expire_date || "").localeCompare(String(a.expire_date || "")));
     return NextResponse.json({ data, count: data.length });
@@ -86,14 +87,29 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let uploaded: Awaited<ReturnType<typeof uploadWorkflowEvidence>> | null = null;
   try {
-    const { supabase } = await requirePermission("customers.renew");
-    const body = await request.json() as { customer_id?: string };
-    if (!body.customer_id) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
-    const renewed = await supabase.rpc("renew_customer_protection", { p_customer_id: body.customer_id });
+    const { supabase, user } = await requirePermission("customers.renew");
+    const form = await request.formData();
+    const customerId = String(form.get("customer_id") || "");
+    if (!customerId) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
+    const file = validateWorkflowEvidence(form.get("file"));
+    uploaded = await uploadWorkflowEvidence(user.id, "renewal", file);
+    const renewed = await supabase.rpc("submit_customer_protection_renewal", {
+      p_customer_id: customerId,
+      p_channel: String(form.get("channel") || ""),
+      p_result: String(form.get("result") || ""),
+      p_next_plan: String(form.get("next_plan") || ""),
+      p_storage_path: uploaded.storagePath,
+      p_filename: uploaded.filename,
+      p_mime_type: uploaded.mimeType,
+      p_size_bytes: uploaded.sizeBytes,
+    });
     if (renewed.error) throw renewed.error;
-    return NextResponse.json({ success: true, data: renewed.data, message: "保护期已续期45天" });
+    const pending = renewed.data?.status === "PENDING";
+    return NextResponse.json({ success: true, data: renewed.data, message: pending ? "续期申请已提交直属主管审核" : "续期已生效，保护期延长45天" });
   } catch (error) {
+    if (uploaded) await uploaded.cleanup();
     const message = error instanceof Error ? error.message : "客户保护续期失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
   }

@@ -12,6 +12,7 @@ export type CurrentAccount = {
   status: AccountStatus;
   must_change_password: boolean;
   force_logout_at: string | null;
+  manager_id: string | null;
   permissions: string[];
 };
 
@@ -30,7 +31,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
   if (error || !user) throw new Error("UNAUTHORIZED");
   const admin = createAdminClient();
   const { data, error: accountError } = await admin.from("users")
-    .select("id,name,email,role,status,must_change_password,force_logout_at")
+    .select("id,name,email,role,status,must_change_password,force_logout_at,manager_id")
     .eq("id", user.id)
     .maybeSingle();
   if (accountError || !data) throw new Error("ACCOUNT_NOT_FOUND");
@@ -60,6 +61,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     status: normalizeStatus(data.status),
     must_change_password: Boolean(data.must_change_password),
     force_logout_at: data.force_logout_at ? String(data.force_logout_at) : null,
+    manager_id: data.manager_id ? String(data.manager_id) : null,
     permissions,
   };
   if (account.status !== "ACTIVE") throw new Error(`ACCOUNT_${account.status}`);
