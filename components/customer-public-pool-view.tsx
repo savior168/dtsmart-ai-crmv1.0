@@ -40,7 +40,6 @@ import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
 import {
   CUSTOMER_LIST_COLUMNS,
-  CUSTOMER_LIST_COLUMN_STORAGE_KEY,
   CUSTOMER_LIST_DEFAULT_COLUMNS,
   customerListSortField,
   normalizeCustomerListColumns,
@@ -151,10 +150,16 @@ const formatDate = (value?: string | null) =>
 
 const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
+const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
+  available: ["company_name", "country", "industry", "ai_score", "phone", "email", "website", "google_url", "source"],
+  claimed: ["company_name", "country", "industry", "ai_score", "owner", "status", "followup_status", "protection", "last_contact_time"],
+  pending: ["company_name", "country", "industry", "ai_score", "phone", "email", "source", "updated_at"],
+};
 function poolText(row: PoolRow, key: CustomerListColumn) {
   if (key === "company_name") return row.company_name || "—";
   if (key === "contact_name") return row.contact_name || "—";
   if (key === "country") return row.country || "—";
+  if (key === "industry") return row.industry || "其他";
   if (key === "ai_score") return row.ai_score == null ? "未筛选" : `${row.ai_level || "—"} · ${row.ai_score}`;
   if (key === "status") return poolStageLabels[row.status] || row.status || "—";
   if (key === "followup_status") return followupLabels[row.followup_status || "WAITING_CONTACT"] || "待联系";
@@ -199,8 +204,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [ownerId, setOwnerId] = useState("");
   const [sort, setSort] = useState("updated_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
-  const [fields, setFields] = useState<CustomerListColumn[]>(CUSTOMER_LIST_DEFAULT_COLUMNS);
-  const [draftFields, setDraftFields] = useState<CustomerListColumn[]>(CUSTOMER_LIST_DEFAULT_COLUMNS);
+  const [fields, setFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
+  const [draftFields, setDraftFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -268,13 +273,14 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   ]);
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY) || localStorage.getItem("customer-columns-v5") || "null");
+      const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v1") || "null");
       const normalized = normalizeCustomerListColumns(saved);
-      setFields(normalized);
-      setDraftFields(normalized);
+      const next = saved ? normalized : POOL_DEFAULT_FIELDS.available;
+      setFields(next);
+      setDraftFields(next);
     } catch {
-      setFields(CUSTOMER_LIST_DEFAULT_COLUMNS);
-      setDraftFields(CUSTOMER_LIST_DEFAULT_COLUMNS);
+      setFields(POOL_DEFAULT_FIELDS.available);
+      setDraftFields(POOL_DEFAULT_FIELDS.available);
     }
   }, []);
   useEffect(() => {
@@ -318,6 +324,15 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setSelected(new Set());
     setOwnerId("");
     setCustomerStatus("");
+    if (value === "available" || value === "claimed" || value === "pending") {
+      let next = POOL_DEFAULT_FIELDS[value];
+      try {
+        const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v1`) || "null");
+        if (saved) next = normalizeCustomerListColumns(saved, value === "claimed");
+      } catch {}
+      setFields(next);
+      setDraftFields(next);
+    }
   }
   function resetFilters() {
     setQuery("");
@@ -588,7 +603,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
           />
         ) : null}
         {createOpen ? <AppDialog title="新增公海客户" description="仅系统管理员可执行；保存后客户无归属人并进入待认领列表。" onClose={() => setCreateOpen(false)} width="max-w-4xl"><CustomerForm destination="PUBLIC_POOL" onCancel={() => setCreateOpen(false)} onDone={() => { setCreateOpen(false); setToast("公海客户新增成功"); void load(); }}/></AppDialog> : null}
-        {fieldOpen ? <AppDialog title="字段显示设置" description="客户公海与我的客户共用同一套字段、默认顺序和排序规则。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
+        {fieldOpen ? <AppDialog title="字段显示设置" description="当前公海分类独立保存字段与顺序，不影响我的客户和其他公海分类。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复当前分类默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(`public-pool-columns-${tab}-v1`, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
         {deleteIds ? <PoolDeleteDialog customerIds={deleteIds} close={() => setDeleteIds(null)} saved={(message) => { setDeleteIds(null); setSelected(new Set()); setToast(message); void load(); }} /> : null}
         {toast ? (
           <div
@@ -642,11 +657,11 @@ function PoolTable({
   }
   return (
     <section className="mt-4 overflow-x-auto rounded-t-xl border bg-white shadow-sm">
-      <table className="w-full min-w-[1280px] table-fixed text-left text-sm">
+      <table className="w-full min-w-[1080px] table-fixed text-left text-sm">
         <thead className="bg-slate-50 text-slate-500">
           <tr>
             {selectable ? (
-              <th className="w-12 px-4 py-3">
+              <th className="sticky left-0 z-30 w-12 bg-slate-50 px-4 py-3">
                 <input
                   aria-label="全选本页"
                   type="checkbox"
@@ -659,15 +674,15 @@ function PoolTable({
                 />
               </th>
             ) : null}
-            {fields.map((field) => <th key={field} className={`${field === "company_name" ? "w-64" : "w-40"} px-4 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
-            <th className="w-36 px-4 py-3">操作</th>
+            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 w-56 bg-slate-50` : field === "country" || field === "ai_score" ? "w-28" : "w-36"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
+            <th className="sticky right-0 z-30 w-28 bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
           </tr>
         </thead>
         <tbody className="divide-y">
           {rows.map((row) => (
-            <tr key={row.id} className="hover:bg-blue-50/40">
+            <tr key={row.id} className="group hover:bg-blue-50/40">
               {selectable ? (
-                <td className="px-4 py-4">
+                <td className="sticky left-0 z-20 bg-white px-4 py-4 group-hover:bg-blue-50">
                   <input
                     aria-label={`选择${row.company_name}`}
                     type="checkbox"
@@ -676,8 +691,8 @@ function PoolTable({
                   />
                 </td>
               ) : null}
-              {fields.map((field) => <td key={field} className="max-w-64 overflow-hidden px-4 py-4 align-middle"><PoolValue row={row} field={field}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
-              <td className="px-4 py-4">
+              {fields.map((field) => <td key={field} className={`max-w-64 overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
+              <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center gap-2">
                 {row.can_claim ? (
                   <button

@@ -6,6 +6,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "company_name", label: "客户名称" },
   { key: "contact_name", label: "联系人" },
   { key: "country", label: "国家/地区" },
+  { key: "industry", label: "所属行业" },
   { key: "ai_score", label: "AI评分" },
   { key: "status", label: "客户阶段" },
   { key: "followup_status", label: "跟进状态" },
@@ -25,6 +26,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
 export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "company_name",
   "country",
+  "industry",
   "ai_score",
   "status",
   "followup_status",
@@ -38,7 +40,7 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "updated_at",
 ];
 
-export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v6";
+export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v7";
 
 const columnKeys = new Set<CustomerListColumn>(CUSTOMER_LIST_COLUMNS.map((column) => column.key));
 

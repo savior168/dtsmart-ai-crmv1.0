@@ -5,6 +5,7 @@ export type CustomerExportColumn =
   | "company_name"
   | "contact_name"
   | "country"
+  | "industry"
   | "ai_score"
   | "status"
   | "followup_status"
@@ -57,6 +58,7 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
   if (key === "company_name") return customer.company_name || "-";
   if (key === "contact_name") return customer.contact_name || "-";
   if (key === "country") return countryInfo(customer.country).name;
+  if (key === "industry") return customer.industry || customer.category || "其他";
   if (key === "ai_score") return customer.ai_score == null ? "未筛选" : `${customer.ai_level || "-"} · ${customer.ai_score}`;
   if (key === "status") return STAGE_LABELS[customer.status] || customer.status;
   if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[customer.followup_status as FollowupStage] || "待联系";
