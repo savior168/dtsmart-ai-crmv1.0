@@ -331,7 +331,7 @@ export async function POST(request: NextRequest) {
       }
     }
     const payload: Record<string, unknown> = publicPool
-      ? { ...clean(body), source: body.source || "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_PUBLIC_CREATE" }
+      ? { ...clean(body), source: body.source || "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
       : { ...clean(body), source: body.source || "MANUAL", status: "CLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
     delete payload.destination;
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。

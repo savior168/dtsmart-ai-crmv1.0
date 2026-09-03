@@ -19,6 +19,12 @@ const bounded = (value: unknown, min: number, max: number) => {
   return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : null;
 };
 function identity(row: Row) { return { lookupKeys: customerLookupIdentityKeys(row), indexKeys: customerIndexIdentityKeys(row) }; }
+function importErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  if (/customers_assigned_via_check/i.test(message)) return "客户归属来源不合法，请检查导入目标后重试";
+  if (/customers_acquisition_scope_check|customers_pool_status_check/i.test(message)) return "客户公海状态不合法，请检查导入目标后重试";
+  return message || "导入失败，请稍后重试";
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -103,7 +109,7 @@ export async function POST(request: NextRequest) {
         delete item.website_email;
         delete item.website_phone;
         accepted.push({ row: publicPool
-          ? { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_PUBLIC_IMPORT" }
+          ? { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
           : { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "CLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_IMPORT" }, fileName, rowNumber });
       } catch (reason) {
         invalid += 1;
@@ -208,8 +214,9 @@ export async function POST(request: NextRequest) {
             results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason });
           } else if (single.error) {
             failed += 1;
-            errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${single.error.message}`);
-            results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason: single.error.message });
+            const reason = importErrorMessage(single.error);
+            errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${reason}`);
+            results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason });
           } else {
             success += 1;
             results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "success" });
@@ -220,8 +227,9 @@ export async function POST(request: NextRequest) {
       if (error) {
         failed += chunk.length;
         chunk.forEach((item) => {
-          errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${error.message}`);
-          results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason: error.message });
+          const reason = importErrorMessage(error);
+          errors.push(`${item.fileName} 第 ${item.rowNumber} 行：${reason}`);
+          results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "failed", reason });
         });
         continue;
       }
@@ -241,7 +249,7 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString(),
     });
     return NextResponse.json({ ...stats, errors, results, task_id: taskId });
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "导入失败，请稍后重试" }, { status: 400 }); }
+  } catch (error) { return NextResponse.json({ error: importErrorMessage(error) }, { status: 400 }); }
 }
 
 export async function GET(request: Request) {

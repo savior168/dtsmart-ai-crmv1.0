@@ -66,7 +66,7 @@ assert.match(poolPage, /protectPage\("customers\.view"\)[\s\S]*initialRole=\{acc
 assert.doesNotMatch(poolView, /RefreshCw|>刷新<\//, "公海顶部不得堆叠无必要的刷新按钮");
 assert.match(poolApi, /export["\)]* === "1"[\s\S]*account\.role !== "ADMIN"/, "公海导出请求必须在服务端限制为系统管理员");
 assert.match(customersApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*status: "UNCLAIMED"[\s\S]*owner_id: null[\s\S]*pool_status: "AVAILABLE"/, "管理员新增公海客户必须生成无归属待认领记录");
-assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*ADMIN_PUBLIC_IMPORT/, "公海导入必须服务端鉴权并写入明确的公海来源");
+assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*assigned_via: "ADMIN_ASSIGN"/, "公海导入必须服务端鉴权并写入合法的管理员归属来源");
 assert.match(importPage, /destination === "public"[\s\S]*requireAdmin\(\)/, "公海导入页面本身必须仅系统管理员可进入");
 assert.match(importView, /destination[\s\S]*导入到客户公海[\s\S]*导入到我的客户/, "共用导入页必须清楚显示实际导入目标");
 assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客户原始来源由系统保留，不能修改/, "系统获客来源标记必须不可被前端篡改");
