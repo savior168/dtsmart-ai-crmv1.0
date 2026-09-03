@@ -4,6 +4,7 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
+import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("ai.tasks.create");
+    const { supabase, user, account } = await requirePermission("ai.tasks.create");
     const body = await request.json() as {
       name?: string; strategy?: AiStrategy; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
@@ -146,7 +147,9 @@ export async function POST(request: NextRequest) {
     const allowedIds: string[] = [];
     for (let offset = 0; offset < requestedIds.length; offset += 200) {
       const ids = requestedIds.slice(offset, offset + 200);
-      const allowed = await supabase.from("customers").select("id").in("id", ids).eq("owner_id", user.id).is("deleted_at", null).is("ai_score", null);
+      let allowedQuery = (account.role === "ADMIN" ? createAdminClient() : supabase).from("customers").select("id").in("id", ids).is("deleted_at", null).is("ai_score", null);
+      if (account.role !== "ADMIN") allowedQuery = allowedQuery.eq("owner_id", user.id);
+      const allowed = await allowedQuery;
       if (allowed.error) throw allowed.error;
       allowedIds.push(...(allowed.data || []).map((item) => item.id));
     }
@@ -157,17 +160,8 @@ export async function POST(request: NextRequest) {
       if (existing.error) throw existing.error;
       if (existing.data) return NextResponse.json({ task: existing.data, idempotent: true }, { status: 200 });
     }
-    const reserved=new Set<string>();
-    for(let offset=0;offset<allowedIds.length;offset+=200){
-      const rows=await admin.from("ai_screening_task_items")
-        .select("customer_id,task:ai_screening_tasks!inner(user_id,status)")
-        .eq("task.user_id",user.id)
-        .in("task.status",["QUEUED","RUNNING","PAUSING","PAUSED"])
-        .in("customer_id",allowedIds.slice(offset,offset+200))
-        .in("status",["PENDING","RUNNING"]);
-      if(rows.error)throw rows.error;
-      for(const row of rows.data||[])reserved.add(row.customer_id);
-    }
+    const allReserved = await getReservedAiCustomerIds(account.role === "ADMIN" ? null : user.id);
+    const reserved=new Set(allowedIds.filter((id)=>allReserved.has(id)));
     const eligibleIds=allowedIds.filter(id=>!reserved.has(id));
     if (!eligibleIds.length) return NextResponse.json({ error: "所选客户已完成AI筛选、已删除、无权访问或已加入其他活动任务" }, { status: 409 });
 

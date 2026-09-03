@@ -13,6 +13,7 @@ export type CustomerExportColumn =
   | "last_contact_time"
   | "owner"
   | "phone"
+  | "whatsapp"
   | "email"
   | "website_email"
   | "website_phone"
@@ -67,6 +68,7 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
   if (key === "updated_at") return dateTime(customer.updated_at);
   if (key === "owner") return customer.owner?.name || customer.owner_id || "-";
   if (key === "phone") return formatCustomerPhone(customer.phone);
+  if (key === "whatsapp") return formatCustomerPhone(customer.whatsapp);
   if (key === "email") return customer.email || "-";
   if (key === "website_email") return customer.website_email || "-";
   if (key === "website_phone") return customer.website_phone || "-";

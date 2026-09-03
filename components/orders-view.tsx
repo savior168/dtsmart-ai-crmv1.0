@@ -1,11 +1,13 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ClipboardList, LoaderCircle, Search } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { AppFilterBar, AppStatusBadge, appFieldClass } from "@/components/ui/app-list";
 import { AppPagination } from "@/components/ui/app-pagination";
+import { canOpenListRow } from "@/lib/ui/list-row-navigation";
 type StockLink = { id: string; stock_number: string; status: string };
 type Row = {
   id: string;
@@ -21,6 +23,7 @@ type Row = {
   stock?: StockLink | StockLink[] | null;
 };
 export function OrdersView() {
+  const router = useRouter();
   const [data, setData] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -142,7 +145,7 @@ export function OrdersView() {
                       ? row.stock[0]
                       : row.stock;
                     return (
-                      <tr key={row.id} className="group border-t hover:bg-blue-50/30">
+                      <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
                         <td className="px-4 py-3 font-semibold">
                           {row.order_number}
                         </td>

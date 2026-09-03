@@ -33,12 +33,15 @@ for (const path of [
 }
 
 assert.match(read("components/quote-form.tsx"), /AppDialog[\s\S]*记录客户确认并创建订单/, "报价确认必须使用统一弹框");
-assert.match(read("components/customer-crm-detail-view.tsx"), /AppDialog[\s\S]*变更客户阶段[\s\S]*变更跟进状态/, "客户阶段和跟进状态必须使用统一弹框单条修改");
+assert.match(read("components/customer-crm-detail-view.tsx"), /AppDialog[\s\S]*变更客户阶段/, "客户阶段必须使用统一弹框单条修改");
+assert.match(read("components/customer-crm-detail-view.tsx"), /跟进后状态：保持当前/, "跟进状态必须合并到单条跟进记录入口");
 assert.match(read("components/ai-screening/ui.tsx"), /AppPagination[\s\S]*SharedConfirmDialog/, "AI筛选必须复用统一分页和确认弹框");
 assert.match(read("components/customers-view.tsx"), /AppTabs[\s\S]*我的客户[\s\S]*保护到期与续期[\s\S]*冲突客户/, "我的客户与客户公海必须复用统一子页签组件");
 assert.match(read("components/ui/app-tabs.tsx"), /description\?: string[\s\S]*bg-blue-50[\s\S]*bottom-0/, "统一子页签必须用浅色激活态、业务说明和清晰指示条");
 assert.match(read("components/customers-view.tsx"), /保护到期与续期[\s\S]*countTone: "warning"[\s\S]*冲突客户[\s\S]*countTone: "danger"/, "保护到期与冲突数量必须使用不同的语义颜色");
-assert.match(read("components/ui/app-tabs.tsx"), /countTone\?: "warning" \| "danger"[\s\S]*bg-rose-50[\s\S]*bg-amber-50/, "统一子页签必须支持冲突色和预警色数量徽标");
+assert.match(read("components/ui/app-tabs.tsx"), /countTone\?: "success" \| "warning" \| "danger"[\s\S]*bg-rose-50[\s\S]*bg-amber-50[\s\S]*bg-emerald-50/, "统一子页签必须支持成功、冲突和预警语义数量徽标");
+assert.match(read("components/customers-view.tsx"), /label: "我的客户"[\s\S]*count: totalCustomerCount[\s\S]*countTone: "success"/, "我的客户总数必须移入页签并以绿色显示");
+assert.match(read("components/customer-public-pool-view.tsx"), /tabCounts[\s\S]*counts=1[\s\S]*countTone/, "客户公海有数据列表的子页签必须显示语义颜色数量");
 assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"ai_score"[\s\S]*customerIndustryDisplay\(row\)/, "待认领客户必须在客户名称下统一显示行业并优先展示AI判断");
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
 assert.match(read("components/customer-public-pool-view.tsx"), /selectAllResults[\s\S]*全选筛选结果[\s\S]*分配已选[\s\S]*删除已选/, "客户公海可操作列表必须在统一工具栏提供全选筛选结果和批量操作");

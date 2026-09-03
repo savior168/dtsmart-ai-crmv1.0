@@ -15,6 +15,11 @@ const writableFields = [
   "email",
   "website",
   "google_url",
+  "facebook_url",
+  "instagram_url",
+  "linkedin_url",
+  "tiktok_url",
+  "other_public_urls",
   "address",
   "industry",
   "category",
@@ -46,6 +51,7 @@ const customerListFields = [
   "contact_name",
   "country",
   "phone",
+  "whatsapp",
   "email",
   "website",
   "google_url",
@@ -54,6 +60,7 @@ const customerListFields = [
   "source",
   "source_batch",
   "source_batch_id",
+  "created_by",
   "ai_score",
   "ai_level",
   "ai_screening_done",
@@ -259,10 +266,15 @@ export async function GET(request: NextRequest) {
       ? rawRows.filter((item): item is Record<string, unknown> & { id: string } => Boolean(item && typeof item === "object" && "id" in item && typeof item.id === "string"))
       : [];
     if (!idsOnly && responseData.length) {
-      const followupRows = await supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id));
+      const creatorIds = [...new Set(responseData.map((item) => String(item.created_by || "")).filter(Boolean))];
+      const [followupRows, creators] = await Promise.all([
+        supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id)),
+        creatorIds.length ? createAdminClient().from("users").select("id,name,email").in("id", creatorIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      const creatorById = new Map((creators.data || []).map((item) => [item.id, item]));
       if (!followupRows.error) {
         const byId = new Map((followupRows.data || []).map((item) => [item.id, item.followup_status || "WAITING_CONTACT"]));
-        responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT" }));
+        responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT", creator: creatorById.get(String(item.created_by || "")) || null }));
       }
     }
     return NextResponse.json({ data: responseData, count: count || responseData.length || 0, page, pageSize });

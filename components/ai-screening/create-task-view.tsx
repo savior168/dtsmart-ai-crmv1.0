@@ -8,7 +8,7 @@ import { CountryLabel } from "@/components/country-label";
 import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/import-batch-multi-select";
 import { ErrorState, Loading, PageHeader, Pagination, button, input, panel, primaryButton, useToast } from "@/components/ai-screening/ui";
 
-type CustomerRow = { id: string; company_name: string; contact_name?: string | null; country?: string | null; phone?: string | null; email?: string | null; website?: string | null; google_url?: string | null; source?: string | null; source_batch?: string | null; created_at: string };
+type CustomerRow = { id: string; company_name: string; contact_name?: string | null; country?: string | null; phone?: string | null; email?: string | null; website?: string | null; google_url?: string | null; source?: string | null; source_batch?: string | null; created_at: string; owner?: { name?: string | null; email?: string | null } | null };
 type Batch = ImportBatchOption & { pending_count: number };
 type Filters = { search: string; country: string; source_channel: string; source_batches: string[]; date_from: string; date_to: string };
 const emptyFilters: Filters = { search: "", country: "", source_channel: "", source_batches: [], date_from: "", date_to: "" };

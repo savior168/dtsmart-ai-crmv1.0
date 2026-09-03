@@ -8,6 +8,7 @@ export const AI_FIELD_MAPPING_VERSION = "2026.08.24.2";
 
 export const AI_CUSTOMER_FIELD_CANDIDATES = {
   id: ["id"],
+  owner_id: ["owner_id"],
   company_name: ["company_name", "customer_name", "store_name", "shop_name", "name"],
   contact_name: ["contact_name", "primary_contact_name", "contact", "联系人"],
   country: ["country", "country_code", "region", "国家", "国家地区"],
@@ -67,6 +68,7 @@ function textArray(row: LooseRow, key: CustomerSemanticKey) {
 export function mapCustomerForAi(row: LooseRow) {
   return {
     id: text(row, "id") || "",
+    owner_id: text(row, "owner_id"),
     company_name: text(row, "company_name") || "未命名客户",
     contact_name: text(row, "contact_name"),
     country: text(row, "country"),

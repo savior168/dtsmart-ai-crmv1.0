@@ -192,7 +192,8 @@ assert.match(aiCustomerApi, /params\.getAll\("source_batch"\)/, "待筛选接口
 assert.match(aiCustomerApi, /sourceBatches\.includes\(batchFilterKey\(row\)\)/, "待筛选接口必须按唯一批次ID取并集");
 assert.match(aiCustomerApi, /item\.pending_count > 0/, "批次列表必须保留仍含待筛选客户的历史批次");
 assert.match(aiCustomerApi, /\.eq\("owner_id", user\.id\)/, "创建AI任务的待筛选客户和批次必须固定为当前登录用户");
-assert.match(aiTaskApi, /\.in\("id", ids\)\.eq\("owner_id", user\.id\)/, "提交AI任务时必须再次拒绝其他归属人的客户");
+assert.match(aiTaskApi, /account\.role === "ADMIN"[\s\S]*account\.role !== "ADMIN"[\s\S]*\.eq\("owner_id", user\.id\)/, "提交AI任务时销售员和主管必须拒绝其他归属人的客户，系统管理员允许全系统待筛选数据");
+assert.match(aiCustomerApi, /isAdmin \? admin : supabase[\s\S]*if \(!isAdmin\) query = query\.eq\("owner_id", user\.id\)/, "待筛选列表必须仅对系统管理员开放全系统范围");
 assert.match(importTaskLinkMigration, /source_batch_id uuid references public\.import_tasks\(id\)/, "迁移必须建立客户到导入任务的唯一关联");
 const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /owner, submitters, protection_days/, "冲突列表必须返回当前归属人和冲突提交人信息");

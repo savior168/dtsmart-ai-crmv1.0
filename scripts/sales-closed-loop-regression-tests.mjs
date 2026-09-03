@@ -93,9 +93,12 @@ assert.match(quoteForm, /api\/quotes\/template[\s\S]*下载导入模板[\s\S]*�
 assert.doesNotMatch(quoteForm,/\["序号","产品","品牌","型号","质量","描述（客户）","中文质量\/描述（仓库）"/,"报价产品表不得混入仓库专用列");
 assert.match(quoteForm,/订单编号（必填）[\s\S]*确认并创建订单/,"客户确认时必须由销售员填写订单编号");
 const customerWorkflow = read("app/api/customers/[id]/workflow/route.ts");
+const customerDetail = read("components/customer-crm-detail-view.tsx");
 const customerBatchWorkflow = read("app/api/customers/batch/route.ts");
 assert.match(customerWorkflow,/multipart\/form-data[\s\S]*action[\s\S]*STAGE[\s\S]*必须上传真实凭证/,"单客户页面必须支持有凭证的手工阶段修改");
 assert.match(customerBatchWorkflow,/客户阶段和跟进状态只支持单条手工修改，不能批量变更/,"批量操作不得修改客户阶段或跟进状态");
+assert.match(customerDetail,/FOLLOWUP_STATUS[\s\S]*跟进后状态：保持当前/,"新增跟进与跟进状态必须合并为一个简洁入口，且仅按用户明确选择更新");
+assert.doesNotMatch(customerDetail,/>跟进状态<\/button>|followupStatusOpen/,"客户详情不得重复提供独立跟进状态入口");
 const taskRoute = read("app/api/ai/tasks/[id]/route.ts");
 const taskListRoute = read("app/api/ai/tasks/route.ts");
 assert.match(taskRoute,/update\(\{ archived_at:[\s\S]*客户结果、证据及费用账本保留/,"终态AI任务删除必须是可追溯归档");

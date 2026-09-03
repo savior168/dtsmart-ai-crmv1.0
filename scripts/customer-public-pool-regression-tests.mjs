@@ -24,9 +24,13 @@ const importPage = read("app/import/page.tsx");
 const importView = read("components/import-view.tsx");
 const listFields = read("lib/customers/list-fields.ts");
 const supplementsMigration = read("supabase/migrations/202609030007_private_pool_supplements.sql");
+const supplementsWhatsappMigration = read("supabase/migrations/202609030009_private_pool_supplements_whatsapp.sql");
 const adminClaimMigration = read("supabase/migrations/202609030008_admin_public_customer_claim.sql");
 const privateSupplements = read("lib/customers/private-supplements.ts");
 const industryDisplay = read("lib/customers/industry-display.ts");
+const followupRuntimeContract = read("supabase/migrations/202609030010_followup_status_runtime_contract.sql");
+const customerForm = read("components/customer-form.tsx");
+const customerSocialEditor = read("components/customer-social-links-editor.tsx");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -92,10 +96,18 @@ assert.match(poolView, /我的补充资料[\s\S]*仅自己可见 · 不覆盖公
 assert.match(poolApi, /\["SALES", "SUPERVISOR", "ADMIN"\]\.includes\(account\.role\)/, "系统管理员必须显示公海认领操作");
 assert.match(adminClaimMigration, /actor\.role not in \('SALES','SUPERVISOR','ADMIN'\)/, "数据库认领函数必须允许系统管理员完成同一套凭证流程");
 assert.match(privateSupplements, /"contact_name", "phone", "whatsapp", "email"/, "公海私有补充资料必须包含 WhatsApp");
+assert.match(supplementsWhatsappMigration, /drop constraint if exists customer_private_supplements_field_name_check/, "补充资料字段约束升级必须兼容已部署数据库");
+assert.match(supplementsWhatsappMigration, /field_name in \('contact_name','phone','whatsapp','email','website','google_url','address'\)/, "数据库必须允许代码支持的全部个人补充资料字段");
 assert.match(importApi, /publicPool[\s\S]*duplicateOf\.owner_id[\s\S]*status: "conflict"/, "管理员向公海导入已归属客户时必须明确标记归属冲突");
 assert.match(importView, /savedSupplementCount[\s\S]*仅您可见的补充资料/, "导入结果必须明确提示实际保存的补充资料数量");
 assert.match(poolView, /我的补充 \{row\.my_supplements\.length\} 项/, "公海列表必须显示当前用户的私有补充资料标识");
 assert.match(poolView, /customerIndustryDisplay[\s\S]*原始类别：/, "公海与我的客户必须共用行业展示口径");
 assert.match(industryDisplay, /ai_screening_done[\s\S]*AI核验行业/, "行业展示必须区分AI核验结论和未核验原始类别");
+assert.match(followupRuntimeContract, /add column if not exists followup_status[\s\S]*customers_followup_status_check/, "跟进状态函数依赖的生产字段和合法值约束必须同步部署");
+assert.match(customerForm, /customer\?\.country\?countryInfo\(customer\.country\)\.name[\s\S]*countryInfo\(form\.country\)\.name/, "编辑客户必须显示并保存中文国家名称");
+assert.doesNotMatch(customerForm, /标签（用逗号分隔）|input\("tags"/, "客户编辑页不得保留无业务闭环的标签输入框");
+assert.match(customerSocialEditor, /Facebook[\s\S]*Instagram[\s\S]*TikTok[\s\S]*YouTube[\s\S]*LinkedIn/, "客户编辑必须支持主流社媒主页选择与增删");
+assert.match(customersApi, /created_by[\s\S]*creatorById[\s\S]*creator:/, "客户列表数据来源必须返回可追溯的新增或导入人");
+assert.match(poolApi, /created_by[\s\S]*creator:/, "客户公海数据来源必须返回可追溯的新增或导入人");
 
 console.log("customer public-pool regression tests passed");

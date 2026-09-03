@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { canOpenListRow } from "@/lib/ui/list-row-navigation";
 import {
   Download,
   ChevronDown,
@@ -37,6 +38,7 @@ import {
   normalizeCustomerListColumns,
 } from "@/lib/customers/list-fields";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
+import { customerSourceLabel } from "@/lib/customers/source-display";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -511,9 +513,6 @@ export function CustomersView() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <h1 className="text-2xl font-bold tracking-tight text-slate-950">我的客户</h1>
           <span className="text-base text-slate-500">统一管理、跟进和保护客户数据</span>
-          <span className="text-lg text-slate-600">
-            <b className="text-blue-600">{totalCustomerCount}</b> 家客户
-          </span>
         </div>
         <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-700">
           <ShieldCheck className="mr-2 inline-block align-[-3px] text-blue-600" size={17} strokeWidth={2} />
@@ -531,7 +530,7 @@ export function CustomersView() {
           <AppTabs
             value={workspace}
             items={[
-              { value: "list", label: "我的客户", description: "当前归属并由我维护的客户" },
+              { value: "list", label: "我的客户", description: "当前归属并由我维护的客户", count: totalCustomerCount, countTone: "success" },
               { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount, countTone: "warning" },
               { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount, countTone: "danger" },
             ]}
@@ -904,7 +903,7 @@ export function CustomersView() {
                 {rows.map((row) => (
                   <tr
                     key={row.id}
-                    onDoubleClick={() => router.push(`/customers/${row.id}`)}
+                    onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/customers/${row.id}`); }}
                     className="h-[72px] select-text border-t border-slate-100 hover:bg-blue-50/50"
                   >
                     <td className="sticky left-0 z-10 bg-white px-4 py-3">
@@ -962,6 +961,8 @@ export function CustomersView() {
                           <Website value={row.website} kind="website" />
                         ) : key === "google_url" ? (
                           <Website value={row.google_url} kind="map" />
+                        ) : key === "source" ? (
+                          <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={row.creator?.name||row.creator?.email||""}>由：{row.creator?.name||row.creator?.email||"未知用户"}</small></span>
                         ) : (
                           value(row, key)
                         )}

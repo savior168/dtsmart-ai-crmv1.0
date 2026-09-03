@@ -8,6 +8,7 @@ import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 const writable = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "address", "category", "tags", "notes",
+  "facebook_url", "instagram_url", "linkedin_url", "tiktok_url", "other_public_urls",
   "store_name", "product_image", "store_score", "review_count",
 ];
 

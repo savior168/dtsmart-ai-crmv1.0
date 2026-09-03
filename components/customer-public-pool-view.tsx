@@ -38,6 +38,8 @@ import {
 import { AppPagination } from "@/components/ui/app-pagination";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
+import { canOpenListRow } from "@/lib/ui/list-row-navigation";
+import { customerSourceLabel } from "@/lib/customers/source-display";
 import {
   CUSTOMER_LIST_COLUMNS,
   CUSTOMER_LIST_DEFAULT_COLUMNS,
@@ -79,6 +81,8 @@ type PoolRow = {
   business_scope: string | null;
   owner_id: string | null;
   owner: Owner | null;
+  created_by?: string | null;
+  creator?: Owner | null;
   pool_status: string | null;
   status: string;
   followup_status: string | null;
@@ -187,6 +191,7 @@ function PoolValue({ row, field }: { row: PoolRow; field: CustomerListColumn }) 
     return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className="mt-0.5 block truncate font-normal text-slate-500" title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <small className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 font-normal text-blue-700">我的补充 {row.my_supplements.length} 项</small> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
+  if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
   if (field === "website" || field === "google_url") {
     const raw = field === "website" ? row.website : row.google_url;
     const target = String(raw || "").trim();
@@ -202,6 +207,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [rows, setRows] = useState<PoolRow[]>([]);
   const [role, setRole] = useState<Role>(initialRole);
   const [count, setCount] = useState(0);
+  const [tabCounts, setTabCounts] = useState<Partial<Record<Tab, number>>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
@@ -307,6 +313,17 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   useEffect(() => {
     void load();
   }, [load]);
+  const loadTabCounts = useCallback(() => {
+    api("/api/customers/public-pool?counts=1")
+      .then((body) => setTabCounts(body || {}))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => { loadTabCounts(); }, [loadTabCounts]);
+  useEffect(() => {
+    if (["available", "claimed", "pending"].includes(tab)) {
+      setTabCounts((current) => ({ ...current, [tab]: count }));
+    }
+  }, [count, tab]);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       const targetNode = event.target as Node;
@@ -462,6 +479,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
               value,
               label: tabLabels[value],
               description: tabDescriptions[value],
+              count: value === "handover" ? undefined : tabCounts[value],
+              countTone: value === "available" ? "success" : value === "renewals" || value === "pending" ? "warning" : value === "history" ? "success" : undefined,
             }))}
             onChange={changeTab}
             label="客户公海分类"
@@ -712,7 +731,7 @@ function PoolTable({
         </thead>
         <tbody className="divide-y">
           {rows.map((row) => (
-            <tr key={row.id} className="group hover:bg-blue-50/40">
+            <tr key={row.id} onDoubleClick={event=>{if(row.can_open_customer&&canOpenListRow(event.target))window.location.assign(`/customers/${row.id}?from=pool`)}} className={`group hover:bg-blue-50/40 ${row.can_open_customer?"cursor-pointer":""}`}>
               {selectable ? (
                 <td className="sticky left-0 z-20 bg-white px-4 py-4 group-hover:bg-blue-50">
                   <input

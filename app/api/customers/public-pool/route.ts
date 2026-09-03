@@ -55,6 +55,32 @@ export async function GET(request: NextRequest) {
     const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
+    if (params.get("counts") === "1") {
+      const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
+      const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
+      const claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+      const pendingQuery = baseCount().eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
+      const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner:users!customer_protection_renewal_requests_owner_id_fkey(manager_id)").eq("status", "PENDING");
+      const historyQuery = account.role === "ADMIN"
+        ? admin.from("customer_assignment_batches").select("id", { count: "exact", head: true })
+        : Promise.resolve({ count: 0, error: null });
+      const [available, claimed, pending, renewals, history] = await Promise.all([availableQuery, claimedQuery, pendingQuery, renewalQuery, historyQuery]);
+      const failure = [available.error, claimed.error, pending.error, renewals.error, history.error].find(Boolean);
+      if (failure) throw failure;
+      const renewalRows = account.role === "SUPERVISOR"
+        ? (renewals.data || []).filter((item) => {
+            const owner = Array.isArray(item.owner) ? item.owner[0] : item.owner;
+            return owner?.manager_id === account.id;
+          })
+        : renewals.data || [];
+      return NextResponse.json({
+        available: available.count || 0,
+        claimed: claimed.count || 0,
+        pending: account.role === "ADMIN" ? pending.count || 0 : 0,
+        history: account.role === "ADMIN" ? history.count || 0 : 0,
+        renewals: ["ADMIN", "SUPERVISOR"].includes(account.role) ? renewalRows.length : 0,
+      }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
+    }
     const allowed = new Set(["available", "claimed", "pending"]);
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
@@ -93,7 +119,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -119,7 +145,7 @@ export async function GET(request: NextRequest) {
     const result = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, from + pageSize - 1);
     if (result.error) throw result.error;
     const rows = (result.data || []) as unknown as PoolDbRow[];
-    const ownerIds = [...new Set(rows.map((item) => item.owner_id).filter(Boolean))] as string[];
+    const ownerIds = [...new Set(rows.flatMap((item) => [item.owner_id, item.created_by]).filter(Boolean))] as string[];
     const customerIds = rows.map((item) => item.id);
     const [owners, protections, supplements] = await Promise.all([
       ownerIds.length ? admin.from("users").select("id,name,email").in("id", ownerIds) : Promise.resolve({ data: [], error: null }),
@@ -153,6 +179,7 @@ export async function GET(request: NextRequest) {
         google_url: full ? row.google_url : null,
         contact_masked: !full,
         owner: row.owner_id ? ownerById.get(row.owner_id) || null : null,
+        creator: row.created_by ? ownerById.get(String(row.created_by)) || null : null,
         protection: protectionByCustomer.get(row.id) || null,
         my_supplements: supplementsByCustomer.get(row.id) || [],
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),

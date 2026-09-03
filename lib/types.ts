@@ -11,6 +11,11 @@ export type Customer = {
   email: string | null;
   website: string | null;
   google_url: string | null;
+  facebook_url?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  tiktok_url?: string | null;
+  other_public_urls?: string[] | null;
   store_name?: string | null;
   product_image?: string | null;
   store_score?: number | null;
@@ -44,6 +49,7 @@ export type Customer = {
   owner_user_id?: string | null;
   department_id?: string | null;
   created_by?: string | null;
+  creator?: { name: string | null; email: string } | null;
   last_contact_time?: string | null;
   next_followup_at?: string | null;
   created_at: string;
