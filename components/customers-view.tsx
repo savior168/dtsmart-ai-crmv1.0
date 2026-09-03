@@ -26,6 +26,7 @@ import { CountryLabel } from "@/components/country-label";
 import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/import-batch-multi-select";
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
+import { AppTabs } from "@/components/ui/app-tabs";
 import { csvCell, customerListText, customerProtectionText, type CustomerExportColumn } from "@/lib/customer-export";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
@@ -566,23 +567,18 @@ export function CustomersView() {
             查看权限说明 ⓘ
           </button>
         </div>
-        <nav className="mt-5 flex items-center gap-9 border-b border-slate-200 text-sm">
-          <button type="button" onClick={() => switchWorkspace("list")} className={`border-b-2 pb-3 ${workspace === "list" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
-            我的客户
-          </button>
-          <button type="button" onClick={() => switchWorkspace("protection")} className={`border-b-2 pb-3 ${workspace === "protection" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
-            保护到期与续期{" "}
-            <b className="ml-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs text-white">
-              {protectionCount}
-            </b>
-          </button>
-          <button type="button" onClick={() => switchWorkspace("conflicts")} className={`border-b-2 pb-3 ${workspace === "conflicts" ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-slate-700 hover:text-blue-600"}`}>
-            冲突客户{" "}
-            <b className="ml-1 rounded-full bg-rose-500 px-2 py-0.5 text-xs text-white">
-              {conflictCount}
-            </b>
-          </button>
-        </nav>
+        <div className="mt-5">
+          <AppTabs
+            value={workspace}
+            items={[
+              { value: "list", label: "我的客户" },
+              { value: "protection", label: "保护到期与续期", count: protectionCount },
+              { value: "conflicts", label: "冲突客户", count: conflictCount },
+            ]}
+            onChange={switchWorkspace}
+            label="我的客户分类"
+          />
+        </div>
         {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(190px,1.5fr)_minmax(105px,.8fr)_minmax(140px,1fr)_minmax(130px,1fr)_minmax(90px,.7fr)_minmax(95px,.75fr)_minmax(100px,.8fr)_minmax(100px,.8fr)_minmax(90px,.7fr)_72px]">
