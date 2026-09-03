@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -21,7 +22,6 @@ import {
   MapPin,
   Paperclip,
   Plus,
-  RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
@@ -47,8 +47,9 @@ import {
   type CustomerListColumn,
 } from "@/lib/customers/list-fields";
 import { csvCell } from "@/lib/customer-export";
+import type { UserRole } from "@/lib/auth/permissions";
 
-type Role = "ADMIN" | "SUPERVISOR" | "SALES" | "WAREHOUSE";
+type Role = UserRole;
 type Tab =
   | "available"
   | "claimed"
@@ -184,10 +185,10 @@ function PoolValue({ row, field }: { row: PoolRow; field: CustomerListColumn }) 
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
 }
 
-export function CustomerPublicPoolView() {
+export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?: Role }) {
   const [tab, setTab] = useState<Tab>("available");
   const [rows, setRows] = useState<PoolRow[]>([]);
-  const [role, setRole] = useState<Role>("SALES");
+  const [role, setRole] = useState<Role>(initialRole);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -204,7 +205,9 @@ export function CustomerPublicPoolView() {
   const [draftFields, setDraftFields] = useState<CustomerListColumn[]>(CUSTOMER_LIST_DEFAULT_COLUMNS);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const newRef = useRef<HTMLDivElement>(null);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     countries: [],
     industries: [],
@@ -282,6 +285,14 @@ export function CustomerPublicPoolView() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      const targetNode = event.target as Node;
+      if (newRef.current && !newRef.current.contains(targetNode)) setNewOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
   useEffect(() => {
     if (!["available", "claimed", "pending"].includes(tab)) return;
     api(`/api/customers/public-pool?tab=${tab}&options=1`)
@@ -378,7 +389,7 @@ export function CustomerPublicPoolView() {
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1680px]">
-        <header className="flex flex-wrap items-end justify-between gap-4">
+        <header>
           <div>
             <h2 className="text-2xl font-bold">客户公海</h2>
             <p className="mt-2 text-sm text-slate-500">
@@ -387,15 +398,6 @@ export function CustomerPublicPoolView() {
             <p className="mt-1 text-xs text-slate-400">
               “认领记录”仅用于查询历史公海客户的当前归属，非归属销售员只能查看脱敏信息；它不是可再次认领的客户列表。
             </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {role === "ADMIN" ? <>
-              <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"><Plus size={16}/>新增公海客户</button>
-              <Link href="/import?destination=public" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium"><FileSpreadsheet size={16}/>批量导入</Link>
-              <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium disabled:opacity-50"><Download size={16}/>{exporting ? "正在导出…" : "导出数据"}</button>
-            </> : null}
-            <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><Settings2 size={16}/>字段设置</button>
-            <button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button>
           </div>
         </header>
         <div className="mt-5">
@@ -525,6 +527,23 @@ export function CustomerPublicPoolView() {
                   </button>
                 </div>
               ) : null}
+              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+                {role === "ADMIN" ? <div ref={newRef} className="relative">
+                  <button type="button" onClick={() => setNewOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">
+                    <Plus size={16} className="shrink-0" />
+                    <span className="leading-none">新增客户</span>
+                    <ChevronDown size={15} className={`ml-0.5 shrink-0 transition-transform ${newOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {newOpen ? <div className="absolute left-0 top-11 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <button type="button" onClick={() => { setNewOpen(false); setCreateOpen(true); }} className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-blue-50"><UserPlus size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">手动新增</span><small className="text-slate-500">新增后进入客户公海，暂不归属任何销售员</small></span></button>
+                    <Link href="/import?destination=public" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><FileSpreadsheet size={20} className="mt-0.5 shrink-0 text-emerald-600" /><span><span className="block text-sm font-medium">批量导入</span><small className="text-slate-500">导入后进入客户公海，暂不归属任何销售员</small></span></Link>
+                    <a href="/api/import/template" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><Download size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">下载导入模板</span><small className="text-slate-500">.csv · 含字段说明和示例数据</small></span></a>
+                    <div className="border-t px-3 py-2 text-xs text-slate-400">请使用系统最新模板，勿修改第一行字段名称</div>
+                  </div> : null}
+                </div> : null}
+                {role === "ADMIN" ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? "正在导出…" : "导出数据"}</button> : null}
+                <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />字段设置</button>
+              </div>
             </section>
             {error ? (
               <p className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">

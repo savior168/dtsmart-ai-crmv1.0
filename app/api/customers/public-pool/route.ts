@@ -3,6 +3,19 @@ import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/cu
 import { createAdminClient } from "@/lib/supabase/admin";
 import { postgrestContains } from "@/lib/postgrest-search";
 
+type PoolDbRow = Record<string, unknown> & {
+  id: string;
+  owner_id: string | null;
+  contact_name?: unknown;
+  phone?: unknown;
+  email?: unknown;
+  website_phone?: unknown;
+  website_email?: unknown;
+  address?: unknown;
+  website?: unknown;
+  google_url?: unknown;
+};
+
 function maskPhone(value: unknown) {
   const text = String(value || "").trim();
   if (!text) return null;
@@ -73,8 +86,13 @@ export async function GET(request: NextRequest) {
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
+    // Website contact and follow-up status are compatibility columns. Probe
+    // them together so older production schemas keep the public-pool usable.
+    const optionalProbe = await admin.from("customers").select("website_email,website_phone,followup_status").limit(1);
+    const hasOptionalFields = !optionalProbe.error;
+    const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      "id,company_name,contact_name,country,address,industry,category,phone,email,website_email,website_phone,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,followup_status,last_contact_time,created_at,updated_at",
+      `id,company_name,contact_name,country,address,industry,category,phone,email,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -92,12 +110,13 @@ export async function GET(request: NextRequest) {
     if (target === "pending") query = query.is("is_target_customer", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
-    const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website_email", "website_phone", "website", "google_url", "ai_score", "status", "followup_status", "last_contact_time", "owner_id", "source", "created_at", "updated_at"]);
+    const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website", "google_url", "ai_score", "status", "last_contact_time", "owner_id", "source", "created_at", "updated_at"]);
+    if (hasOptionalFields) ["website_email", "website_phone", "followup_status"].forEach((field) => allowedSort.add(field));
     const sortField = allowedSort.has(sort) ? sort : "updated_at";
     const from = (page - 1) * pageSize;
     const result = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, from + pageSize - 1);
     if (result.error) throw result.error;
-    const rows = result.data || [];
+    const rows = (result.data || []) as unknown as PoolDbRow[];
     const ownerIds = [...new Set(rows.map((item) => item.owner_id).filter(Boolean))] as string[];
     const customerIds = rows.map((item) => item.id);
     const [owners, protections] = await Promise.all([
@@ -112,13 +131,16 @@ export async function GET(request: NextRequest) {
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const full = tab !== "claimed" || own || elevated;
+      const websiteEmail = "website_email" in row ? row.website_email : null;
+      const websitePhone = "website_phone" in row ? row.website_phone : null;
       return {
         ...row,
+        followup_status: "followup_status" in row ? row.followup_status : "WAITING_CONTACT",
         contact_name: full ? row.contact_name : row.contact_name ? "****" : null,
         phone: full ? row.phone : maskPhone(row.phone),
         email: full ? row.email : maskEmail(row.email),
-        website_phone: full ? row.website_phone : maskPhone(row.website_phone),
-        website_email: full ? row.website_email : maskEmail(row.website_email),
+        website_phone: full ? websitePhone : maskPhone(websitePhone),
+        website_email: full ? websiteEmail : maskEmail(websiteEmail),
         address: full ? row.address : maskAddress(row.address),
         website: full ? row.website : null,
         google_url: full ? row.google_url : null,

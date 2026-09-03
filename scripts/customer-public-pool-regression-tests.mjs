@@ -8,6 +8,7 @@ const closedLoop = read("supabase/migrations/202609030001_customer_center_closed
 const poolApi = read("app/api/customers/public-pool/route.ts");
 const customersApi = read("app/api/customers/route.ts");
 const poolView = read("components/customer-public-pool-view.tsx");
+const poolPage = read("app/customers/pool/page.tsx");
 const poolDeleteApi = read("app/api/customers/public-pool/delete/route.ts");
 const permanentDelete = read("lib/customers/soft-delete.ts");
 const userApi = read("app/api/admin/users/route.ts");
@@ -37,6 +38,7 @@ assert.match(migration, /lower\(trim\(coalesce\(name,''\)\)\)='eva'/i, "销售�
 assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入审计日志");
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
 assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
+assert.match(poolApi, /optionalProbe[\s\S]*hasOptionalFields[\s\S]*optionalSelect/, "客户公海必须兼容尚未补齐可选联系字段的旧生产库");
 assert.match(poolApi, /own \|\| elevated/, "仅归属人或高级只读角色可打开完整客户详情");
 assert.match(userApi, /historyCount > 0/, "存在业务历史的账号不得物理删除");
 assert.match(userApi, /action === "CREATE"/, "系统管理员应能新增用户");
@@ -59,7 +61,9 @@ assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客�
 assert.doesNotMatch(sidebar, /label: "客户导入"/, "客户中心不得保留含义不清的独立客户导入二级菜单");
 assert.match(poolView, /CUSTOMER_LIST_COLUMNS[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS[\s\S]*customerListSortField/, "客户公海和我的客户必须共用字段及排序规则");
 assert.match(listFields, /CUSTOMER_LIST_COLUMN_STORAGE_KEY[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS/, "两张客户列表必须共享字段设置和默认顺序");
-assert.match(poolView, /role === "ADMIN"[\s\S]*新增公海客户[\s\S]*destination=public[\s\S]*导出数据/, "公海新增导入导出入口必须只向系统管理员显示");
+assert.match(poolView, /role === "ADMIN"[\s\S]*新增客户[\s\S]*手动新增[\s\S]*destination=public[\s\S]*导出数据/, "公海管理员必须使用与我的客户一致的新增、导入和导出操作布局");
+assert.match(poolPage, /protectPage\("customers\.view"\)[\s\S]*initialRole=\{account\.role\}/, "管理员操作入口不能依赖公海列表成功加载后才显示");
+assert.doesNotMatch(poolView, /RefreshCw|>刷新<\//, "公海顶部不得堆叠无必要的刷新按钮");
 assert.match(poolApi, /export["\)]* === "1"[\s\S]*account\.role !== "ADMIN"/, "公海导出请求必须在服务端限制为系统管理员");
 assert.match(customersApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*status: "UNCLAIMED"[\s\S]*owner_id: null[\s\S]*pool_status: "AVAILABLE"/, "管理员新增公海客户必须生成无归属待认领记录");
 assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*ADMIN_PUBLIC_IMPORT/, "公海导入必须服务端鉴权并写入明确的公海来源");
