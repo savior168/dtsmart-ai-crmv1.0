@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
     for (let offset = 0; offset < accepted.length; offset += 100) {
       const chunk = accepted.slice(offset, offset + 100);
       const chunkRows = chunk.map((item) => item.row);
-      let { data, error } = await supabase.from("customers").insert(chunkRows).select("id");
+      let { data, error } = await admin.from("customers").insert(chunkRows).select("id");
       // Some production projects were initialized before the followup_status
       // migration. Retry the same rows without that additive column so a
       // schema-cache lag cannot reject the entire import batch. The customer
@@ -188,18 +188,18 @@ export async function POST(request: NextRequest) {
       // is applied, preserving the required default workflow state.
       if (error && /(followup_status|source_batch_id).*(column|schema cache)|column.*(followup_status|source_batch_id)/i.test(error.message)) {
         const legacyChunk = chunkRows.map((row) => { const legacyRow = { ...row }; delete legacyRow.followup_status; delete legacyRow.source_batch_id; return legacyRow; });
-        ({ data, error } = await supabase.from("customers").insert(legacyChunk).select("id"));
+        ({ data, error } = await admin.from("customers").insert(legacyChunk).select("id"));
       }
       if (error?.code === "23505") {
         // 兼容已启用数据库唯一约束的环境：批量冲突时逐条重试，
         // 准确区分重复行与其他失败行，避免整批误报失败。
         for (const item of chunk) {
-          let single = await supabase.from("customers").insert(item.row).select("id").single();
+          let single = await admin.from("customers").insert(item.row).select("id").single();
           if (single.error && /(followup_status|source_batch_id).*(column|schema cache)|column.*(followup_status|source_batch_id)/i.test(single.error.message)) {
             const legacyRow = { ...item.row };
             delete legacyRow.followup_status;
             delete legacyRow.source_batch_id;
-            single = await supabase.from("customers").insert(legacyRow).select("id").single();
+            single = await admin.from("customers").insert(legacyRow).select("id").single();
           }
           if (single.error?.code === "23505") {
             failed += 1;
