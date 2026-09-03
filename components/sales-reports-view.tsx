@@ -6,7 +6,7 @@ import { UserScopeSelect } from "@/components/user-scope-select";
 import type { ReportCountRow, ReportTrendRow, SalesBreakdowns, SalesMetrics, SalesRankingRow } from "@/lib/reports/sales";
 
 type Report = { profile:{role:string}; totals:SalesMetrics; ranking:SalesRankingRow[]; breakdowns:SalesBreakdowns };
-const statusLabels:Record<string,string>={A:"A级",B:"B级",C:"C级",D:"D级",UNCLAIMED:"潜在客户",CLAIMED:"潜在客户",FOLLOWING:"意向客户",QUOTE:"报价中",DEAL:"已成交",RELEASED:"无效客户",DRAFT:"草稿",GENERATED:"已生成",SENT:"已发送",CONFIRMED:"客户已确认",EXPIRED:"已过期",CANCELLED:"已取消",WAITING:"待备货",PREPARING:"备货中",READY:"已备齐",SHORTAGE:"缺货异常",PHONE:"电话",EMAIL:"邮件",WHATSAPP:"WhatsApp",VISIT:"拜访",OTHER:"其他"};
+const statusLabels:Record<string,string>={A:"A级",B:"B级",C:"C级",D:"D级",UNCLAIMED:"待认领",CLAIMED:"潜在客户",FOLLOWING:"意向客户",QUOTE:"报价中",DEAL:"已成交",RELEASED:"无效客户",DRAFT:"草稿",GENERATED:"已生成",SENT:"已发送",CONFIRMED:"客户已确认",EXPIRED:"已过期",CANCELLED:"已取消",WAITING:"待备货",PREPARING:"备货中",READY:"已备齐",SHORTAGE:"缺货异常",PHONE:"电话",EMAIL:"邮件",WHATSAPP:"WhatsApp",VISIT:"拜访",OTHER:"其他"};
 const date=(value:Date)=>value.toISOString().slice(0,10);
 function range(kind:"today"|"week"|"month"){const end=new Date(),start=new Date(end);if(kind==="today")start.setHours(0,0,0,0);if(kind==="week")start.setDate(start.getDate()-((start.getDay()+6)%7));if(kind==="month")start.setDate(1);return{from:date(start),to:date(end)}}
 function label(value:string){return statusLabels[value]||value||"未知"}

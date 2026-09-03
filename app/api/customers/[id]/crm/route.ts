@@ -50,7 +50,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       latestAiPromise,
       verifiedContactsPromise,
       usersPromise,
-      admin.from("attachments").select("id,followup_id,quote_id,filename,mime_type,size_bytes,created_at").eq("customer_id", id).order("created_at", { ascending: false }),
+      admin.from("attachments").select("id,followup_id,quote_id,filename,mime_type,size_bytes,kind,created_at").eq("customer_id", id).order("created_at", { ascending: false }),
       admin.from("quotes").select("id,quote_number,status,currency,total_amount,valid_until,created_at,updated_at").eq("customer_id", id).order("updated_at", { ascending: false }),
     ]);
     if (latestAi.error) throw latestAi.error;
@@ -87,12 +87,14 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       permanent,
     };
     const canEdit = hasPermission(account, "customers.edit") && (account.role === "ADMIN" || customer.owner_id === user.id || (!customer.owner_id && customer.created_by === user.id));
+    const canChangeStage = hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || customer.owner_id === user.id);
+    const canSalesOperate = account.role !== "ADMIN" && customer.owner_id === user.id;
     const customerForDisplay = {
       ...customer,
       website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),
       website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]),
     };
-    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, effective_protection: effectiveProtection, followups: followupsResult.data, attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
+    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, can_change_stage: canChangeStage, can_sales_operate: canSalesOperate, effective_protection: effectiveProtection, followups: followupsResult.data, attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   UserPlus,
   X,
 } from "lucide-react";
@@ -95,7 +96,7 @@ type History = {
 
 const tabLabels: Record<Tab, string> = {
   available: "待认领客户",
-  claimed: "已认领客户",
+  claimed: "认领记录",
   pending: "待管理员分配",
   renewals: "续期审批",
   handover: "离职交接",
@@ -139,6 +140,7 @@ export function CustomerPublicPoolView() {
   const [claim, setClaim] = useState<PoolRow | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const load = useCallback(async () => {
     if (!["available", "claimed", "pending"].includes(tab)) {
       setLoading(false);
@@ -157,7 +159,7 @@ export function CustomerPublicPoolView() {
       if (industry) params.set("industry", industry);
       if (aiLevel) params.set("ai_level", aiLevel);
       if (target) params.set("target", target);
-      if (customerStatus) params.set("status", customerStatus);
+      if (customerStatus && tab === "claimed") params.set("status", customerStatus);
       if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
       const body = await api(`/api/customers/public-pool?${params}`);
       setRows(body.data || []);
@@ -214,6 +216,7 @@ export function CustomerPublicPoolView() {
     setError("");
     setSelected(new Set());
     setOwnerId("");
+    setCustomerStatus("");
   }
   function resetFilters() {
     setQuery("");
@@ -232,10 +235,10 @@ export function CustomerPublicPoolView() {
           <div>
             <h2 className="text-2xl font-bold">客户公海</h2>
             <p className="mt-2 text-sm text-slate-500">
-              公海客户公开可查；认领必须提交真实联系凭证。已认领客户仍可检索，但非归属销售员只能查看脱敏信息。
+              待认领客户没有归属人；销售员提交真实联系凭证后完成认领，并进入“我的客户”。
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              普通客户主动释放或保护到期未续期后进入待认领公海；存在进行中报价、订单或离职交接风险的客户进入管理员待处理队列。
+              “认领记录”仅用于查询历史公海客户的当前归属，非归属销售员只能查看脱敏信息；它不是可再次认领的客户列表。
             </p>
           </div>
           <button
@@ -314,19 +317,19 @@ export function CustomerPublicPoolView() {
                   <option value="invalid">无效目标</option>
                   <option value="pending">尚未判断</option>
                 </select>
-                <select
+                {tab === "claimed" ? <select
                   value={customerStatus}
                   onChange={(event) => setCustomerStatus(event.target.value)}
                   className={`${field} min-w-0`}
+                  aria-label="筛选已认领客户的当前阶段"
                 >
-                  <option value="">全部客户阶段</option>
-                  <option value="UNCLAIMED">潜在客户（未认领）</option>
-                  <option value="CLAIMED">潜在客户（已归属）</option>
+                  <option value="">全部已认领客户阶段</option>
+                  <option value="CLAIMED">潜在客户</option>
                   <option value="FOLLOWING">意向客户</option>
                   <option value="QUOTE">报价中</option>
                   <option value="DEAL">已成交</option>
                   <option value="RELEASED">无效客户</option>
-                </select>
+                </select> : <span className="hidden xl:block" aria-hidden="true" />}
                 {tab === "claimed" && ["ADMIN", "SUPERVISOR"].includes(role) ? (
                   <select
                     value={ownerId}
@@ -351,9 +354,9 @@ export function CustomerPublicPoolView() {
                   重置
                 </button>
               </div>
-              {role === "ADMIN" && ["available", "pending"].includes(tab) ? (
-                <div className="mt-3 flex justify-end">
-                  <button
+              {role === "ADMIN" ? (
+                <div className="mt-3 flex justify-end gap-2">
+                  {["available", "pending"].includes(tab) ? <button
                     disabled={!selected.size}
                     type="button"
                     onClick={() => setAssignOpen(true)}
@@ -361,6 +364,15 @@ export function CustomerPublicPoolView() {
                   >
                     <UserPlus size={16} />
                     分配已选 {selected.size} 家
+                  </button> : null}
+                  <button
+                    disabled={!selected.size}
+                    type="button"
+                    onClick={() => setDeleteIds([...selected])}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"
+                  >
+                    <Trash2 size={16} />
+                    删除已选 {selected.size} 家
                   </button>
                 </div>
               ) : null}
@@ -371,12 +383,13 @@ export function CustomerPublicPoolView() {
               </p>
             ) : null}
             <PoolTable
-              tab={tab}
               rows={rows}
               loading={loading}
+              canDelete={role === "ADMIN"}
               selected={selected}
               setSelected={setSelected}
               claim={setClaim}
+              remove={(row) => setDeleteIds([row.id])}
             />
             <AppPagination
               page={page}
@@ -420,6 +433,7 @@ export function CustomerPublicPoolView() {
             }}
           />
         ) : null}
+        {deleteIds ? <PoolDeleteDialog customerIds={deleteIds} close={() => setDeleteIds(null)} saved={(message) => { setDeleteIds(null); setSelected(new Set()); setToast(message); void load(); }} /> : null}
         {toast ? (
           <div
             role="status"
@@ -438,21 +452,23 @@ export function CustomerPublicPoolView() {
 }
 
 function PoolTable({
-  tab,
   rows,
   loading,
+  canDelete,
   selected,
   setSelected,
   claim,
+  remove,
 }: {
-  tab: Tab;
   rows: PoolRow[];
   loading: boolean;
+  canDelete: boolean;
   selected: Set<string>;
   setSelected: (value: Set<string>) => void;
   claim: (row: PoolRow) => void;
+  remove: (row: PoolRow) => void;
 }) {
-  const selectable = ["available", "pending"].includes(tab);
+  const selectable = canDelete;
   const all = rows.length > 0 && rows.every((row) => selected.has(row.id));
   function toggle(id: string) {
     const next = new Set(selected);
@@ -543,23 +559,26 @@ function PoolTable({
                 ) : null}
               </td>
               <td className="px-4 py-4">
+                <div className="flex items-center gap-2">
                 {row.can_claim ? (
                   <button
                     onClick={() => claim(row)}
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white"
+                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
                   >
-                    提交凭证并认领
+                    认领
                   </button>
                 ) : row.can_open_customer ? (
                   <Link
-                    href={`/customers/${row.id}`}
+                    href={`/customers/${row.id}?from=pool`}
                     className="text-blue-600 hover:underline"
                   >
-                    查看客户
+                    查看详情
                   </Link>
                 ) : (
                   <span className="text-xs text-slate-400">已被认领</span>
                 )}
+                {canDelete ? <button type="button" onClick={() => remove(row)} title="永久删除客户" aria-label={`永久删除${row.company_name}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-50"><Trash2 size={14}/></button> : null}
+                </div>
               </td>
             </tr>
           ))}
@@ -576,6 +595,14 @@ function PoolTable({
       ) : null}
     </section>
   );
+}
+
+function PoolDeleteDialog({customerIds,close,saved}:{customerIds:string[];close:()=>void;saved:(message:string)=>void}){
+  const [reason,setReason]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  async function submit(event:FormEvent){event.preventDefault();if(!reason.trim())return setError("请填写永久删除原因");setBusy(true);setError("");try{const body=await api("/api/customers/public-pool/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids:customerIds,reason:reason.trim()})});const success=Number(body.success_count||0);const failed=Number(body.failed_count||0);if(!success)throw new Error(body.results?.find?.((item:{error?:string})=>item.error)?.error||"所选客户均未删除");saved(failed?`已永久删除 ${success} 家，${failed} 家因存在业务单据未删除`:`已永久删除 ${success} 家客户`)}catch(caught){setError(caught instanceof Error?caught.message:"删除失败")}finally{setBusy(false)}}
+  return <AppDialog title="永久删除公海客户" description={`将永久删除所选 ${customerIds.length} 家客户。已有报价或订单的客户会被系统阻止删除。`} onClose={()=>!busy&&close()} width="max-w-md"><form onSubmit={submit}><div className="rounded-xl bg-rose-50 p-4 text-sm leading-6 text-rose-800">此操作不可恢复。系统不会根据AI低分自动删除，只有您明确选择并确认的客户才会被处理。</div><label className="mt-4 block"><span className="mb-1.5 block text-sm font-medium text-slate-700">删除原因</span><textarea required rows={4} maxLength={500} value={reason} onChange={event=>setReason(event.target.value)} placeholder="例如：重复测试数据、确认无效且无需保留" className="w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"/></label>{error?<p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}<SharedDialogActions busy={busy} onCancel={close} confirmLabel="确认永久删除" tone="danger"/></form></AppDialog>
 }
 
 function ClaimDialog({

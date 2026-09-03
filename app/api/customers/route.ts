@@ -205,8 +205,7 @@ export async function GET(request: NextRequest) {
         ...countryPatterns,
       ].join(","));
     }
-    if (status === "CLAIMED") query = query.in("status", ["CLAIMED", "FOLLOWING"]);
-    else if (status) query = query.eq("status", status);
+    if (status) query = query.eq("status", status);
     // Treat legacy null/empty values as the default first-contact state so
     // older records remain discoverable by the new filter without overwriting
     // statuses that a salesperson has already updated manually.
@@ -254,7 +253,20 @@ export async function GET(request: NextRequest) {
     const rangeEnd = from + pageSize - 1;
     const { data: allData, count, error } = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, rangeEnd);
     if (error) throw error;
-    return NextResponse.json({ data: allData || [], count: count || allData?.length || 0, page, pageSize });
+    // Supabase cannot infer a row type from the deliberately dynamic select
+    // list above, so validate the transport shape before narrowing it here.
+    const rawRows: unknown = allData || [];
+    let responseData = Array.isArray(rawRows)
+      ? rawRows.filter((item): item is Record<string, unknown> & { id: string } => Boolean(item && typeof item === "object" && "id" in item && typeof item.id === "string"))
+      : [];
+    if (!idsOnly && responseData.length) {
+      const followupRows = await supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id));
+      if (!followupRows.error) {
+        const byId = new Map((followupRows.data || []).map((item) => [item.id, item.followup_status || "WAITING_CONTACT"]));
+        responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT" }));
+      }
+    }
+    return NextResponse.json({ data: responseData, count: count || responseData.length || 0, page, pageSize });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "查询失败" }, { status: error instanceof Error && error.message === "UNAUTHORIZED" ? 401 : 400 });
   }
@@ -318,7 +330,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ conflict: true, status: "CONFLICT", message }, { status: 201 });
       }
     }
-    const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "UNCLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", assigned_via: "PRIVATE_CREATE" };
+    const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "CLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
     delete payload.website_email;

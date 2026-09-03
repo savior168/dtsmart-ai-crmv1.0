@@ -4,7 +4,8 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase } = await requirePermission("quotes.confirm");
+    const { supabase, account } = await requirePermission("quotes.confirm");
+    if (account.role === "ADMIN") return NextResponse.json({ error: "系统管理员负责系统维护，不执行销售确认" }, { status: 403 });
     const { id } = await context.params;
     const body = await request.json().catch(() => ({})) as { order_number?: string; method?: string; note?: string };
     const orderNumber = String(body.order_number || "").trim();

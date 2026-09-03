@@ -29,7 +29,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase } = await requirePermission("quotes.create");
+    const { supabase, account } = await requirePermission("quotes.create");
+    if (account.role === "ADMIN") return NextResponse.json({ error: "系统管理员负责系统维护，不创建销售报价" }, { status: 403 });
     const body = await request.json() as Record<string, unknown>;
     const payload = cleanQuotePayload(body);
     const status = ["DRAFT","GENERATED","SENT"].includes(String(body.status || "")) ? String(body.status) : "DRAFT";

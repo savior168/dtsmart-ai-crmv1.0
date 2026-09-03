@@ -48,9 +48,9 @@ export async function GET(request: NextRequest) {
       const optionRows: Array<{ country: string | null; industry: string | null; owner_id: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin.from("customers").select("country,industry,owner_id").is("deleted_at", null);
-        if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").is("owner_id", null);
-        if (tab === "claimed") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").not("owner_id", "is", null);
-        if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").is("owner_id", null);
+        if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
+        if (tab === "claimed") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+        if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
         const optionPage = await optionQuery.order("updated_at", { ascending: false }).range(offset, offset + 999);
         if (optionPage.error) throw optionPage.error;
         const pageRows = optionPage.data || [];
@@ -74,9 +74,9 @@ export async function GET(request: NextRequest) {
       "id,company_name,country,address,industry,category,phone,email,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,updated_at",
       { count: "exact" },
     ).is("deleted_at", null);
-    if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").is("owner_id", null);
-    if (tab === "claimed") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").not("owner_id", "is", null);
-    if (tab === "pending") query = query.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").is("owner_id", null);
+    if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
+    if (tab === "claimed") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+    if (tab === "pending") query = query.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
     if (search) {
       const pattern = postgrestContains(search.replace(/[(),]/g, " "));
       query = query.or(`company_name.ilike.${pattern},country.ilike.${pattern},industry.ilike.${pattern}`);
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
     if (target === "valid") query = query.eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("is_target_customer", false);
     if (target === "pending") query = query.is("is_target_customer", null);
-    if (["UNCLAIMED", "CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
+    if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
     const from = (page - 1) * pageSize;
     const result = await query.order("updated_at", { ascending: false }).range(from, from + pageSize - 1);

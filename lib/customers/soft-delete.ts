@@ -10,11 +10,13 @@ export async function permanentlyDeleteCustomers({
   userId,
   ids,
   allowAll = false,
+  reason,
 }: {
   supabase: UserSupabase;
   userId: string;
   ids: string[];
   allowAll?: boolean;
+  reason?: string;
 }) {
   void _supabase;
   const uniqueIds = [...new Set(ids)].filter(Boolean);
@@ -85,7 +87,7 @@ export async function permanentlyDeleteCustomers({
       action: "CUSTOMER_DELETE",
       target_type: "customer",
       target_id: id,
-      content: { permanent_delete: true, irreversible: true },
+      content: { permanent_delete: true, irreversible: true, reason: reason?.trim() || null },
     })));
     if (auditError) console.error("CUSTOMER_DELETE_AUDIT_ERROR", auditError.message);
   }

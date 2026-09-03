@@ -31,7 +31,7 @@ import { csvCell, customerListText, customerProtectionText, type CustomerExportC
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
 const stageLabels: Record<CustomerStatus, string> = {
-  UNCLAIMED: "潜在客户",
+  UNCLAIMED: "待认领",
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "报价中",
@@ -659,7 +659,7 @@ export function CustomersView() {
               className="h-10 min-w-0 w-full rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部客户阶段</option>
-              {(["UNCLAIMED", "CLAIMED", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
+              {(["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
                 <option key={key} value={key}>{stageLabels[key]}</option>
               ))}
             </select>

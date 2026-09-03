@@ -6,6 +6,7 @@ import { FOLLOWUP_TYPES } from "@/lib/types";
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { user, account, supabase } = await requirePermission("followups.create");
+    if (account.role === "ADMIN") return NextResponse.json({ error: "系统管理员负责系统维护，不参与销售跟进操作" }, { status: 403 });
     const { id } = await context.params;
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });

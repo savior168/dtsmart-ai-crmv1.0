@@ -12,7 +12,7 @@ type ConflictUser = { id: string; name: string; submitted_at?: string };
 type Conflict = { id: string; customer_id?: string; created_at: string; details?: { submitted?: CustomerData }; owner?: ConflictUser | null; submitters?: ConflictUser[]; protection_days?: number };
 type Row = { id: string; customerId?: string; company: string; country?: string; aiLevel?: string; aiScore?: number | null; stage?: string; followup?: string; protection?: string; releaseType?: string; lastContact?: string; phone?: string; email?: string; website?: string; google?: string; source?: string; updated?: string; owner?: string; submitters?: ConflictUser[]; canRenew?: boolean; renewalBlockReason?: string; extensionCount?: number };
 
-const stages: Record<string, string> = { UNCLAIMED: "潜在客户", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "无效客户" };
+const stages: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "无效客户" };
 const text = (value: unknown) => String(value || "-");
 const formatDate = (value: unknown) => value ? new Date(String(value)).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") : "-";
 function Country({ value }: { value: unknown }) { return <CountryLabel value={value} />; }

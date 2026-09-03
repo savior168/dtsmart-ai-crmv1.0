@@ -29,7 +29,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "customers.edit", label: "编辑客户", group: "客户管理", description: "编辑有权访问的客户基本资料", kind: "ACTION" },
   { code: "customers.delete", label: "删除客户", group: "客户管理", description: "单条或批量物理删除客户", kind: "ACTION" },
   { code: "customers.export", label: "导出客户", group: "客户管理", description: "导出当前查询范围的客户数据", kind: "ACTION" },
-  { code: "customers.batch_edit", label: "批量更新客户", group: "客户管理", description: "批量更新客户阶段等字段", kind: "ACTION" },
+  { code: "customers.batch_edit", label: "批量维护客户", group: "客户管理", description: "执行系统明确支持的非阶段批量维护操作；客户阶段只能单条修改", kind: "ACTION" },
   { code: "customers.release", label: "释放客户", group: "客户管理", description: "释放本人名下客户", kind: "ACTION" },
   { code: "customers.claim", label: "认领公海客户", group: "客户管理", description: "凭真实联系记录认领尚未归属的公海客户", kind: "ACTION" },
   { code: "customers.renew", label: "客户保护续期", group: "客户管理", description: "为本人仍持有且处于宽限期的客户续期45天", kind: "ACTION" },

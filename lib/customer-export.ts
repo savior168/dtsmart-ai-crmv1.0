@@ -21,7 +21,7 @@ export type CustomerExportColumn =
   | "updated_at";
 
 const STAGE_LABELS: Record<CustomerStatus, string> = {
-  UNCLAIMED: "潜在客户",
+  UNCLAIMED: "待认领",
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "报价中",

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: "客户阶段由真实跟进凭证、正式报价和销售订单自动更新，不支持批量手工修改" }, { status: 409 });
+    return NextResponse.json({ error: "客户阶段和跟进状态只支持单条手工修改，不能批量变更" }, { status: 409 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "批量操作失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
