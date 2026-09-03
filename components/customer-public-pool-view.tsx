@@ -675,23 +675,18 @@ function ClaimDialog({
         </label>
         <label className="block text-sm font-medium">
           真实联系结果
-          <textarea
-            required
-            value={result}
-            onChange={(e) => setResult(e.target.value)}
-            rows={3}
-            className="mt-2 w-full rounded-lg border p-3 text-sm"
-            placeholder="请记录对方是否回复、确认的需求或当前进展"
-          />
+          <select required value={result} onChange={(e) => setResult(e.target.value)} className={`${field} mt-2 w-full`}>
+            <option value="">请选择</option><option value="未回复">未回复</option><option value="已回复，待确认需求">已回复，待确认需求</option><option value="明确有需求">明确有需求</option><option value="明确无需求">明确无需求</option><option value="联系方式无效">联系方式无效</option>
+          </select>
         </label>
         <label className="block text-sm font-medium">
           下一步计划
           <textarea
-            required
             value={nextPlan}
             onChange={(e) => setNextPlan(e.target.value)}
             rows={2}
             className="mt-2 w-full rounded-lg border p-3 text-sm"
+            placeholder="可选；不填则系统标记为待首次跟进"
           />
         </label>
         <EvidenceInput file={file} setFile={setFile} />

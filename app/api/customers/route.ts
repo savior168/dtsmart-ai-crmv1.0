@@ -98,7 +98,6 @@ export async function GET(request: NextRequest) {
     const sort = request.nextUrl.searchParams.get("sort") || "created_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
-    const activeCutoff = new Date(Date.now() - 90 * 86400000).toISOString();
     if (options === "industries") {
       const values: string[] = [];
       for (let from = 0; ; from += 1000) {
@@ -106,7 +105,6 @@ export async function GET(request: NextRequest) {
           .select("industry")
           .is("deleted_at", null)
           .neq("status", "RELEASED")
-          .or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`)
           .not("industry", "is", null)
           .neq("industry", "")
           .order("industry", { ascending: true });
@@ -126,7 +124,6 @@ export async function GET(request: NextRequest) {
           .select("source_batch_id,source_batch,created_at")
           .is("deleted_at", null)
           .neq("status", "RELEASED")
-          .or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`)
           .not("source_batch", "is", null)
           .neq("source_batch", "")
           .order("created_at", { ascending: false });
@@ -186,9 +183,9 @@ export async function GET(request: NextRequest) {
     // again by creator/owner: doing so hides records that an administrator,
     // manager, or sales user is already permitted to see.
     query = query.is("deleted_at", null);
-    // 客户列表只展示当前用户仍持有且尚未释放的客户；历史释放/到期客户
-    // 由保护到期页统一展示，避免跨销售数据混入日常工作列表。
-    query = query.neq("status", "RELEASED").or(`status.in.(QUOTE,DEAL),created_at.gte.${activeCutoff}`);
+    // 客户列表以当前归属为准。客户的创建时间不能决定其是否仍属于
+    // 销售员，否则历史客户被重新认领后会从“我的客户”中消失。
+    query = query.neq("status", "RELEASED");
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) {

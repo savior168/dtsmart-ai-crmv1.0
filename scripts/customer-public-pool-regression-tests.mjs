@@ -6,6 +6,7 @@ const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 const migration = read("supabase/migrations/202609020001_customer_public_pool_workflow.sql");
 const closedLoop = read("supabase/migrations/202609030001_customer_center_closed_loop.sql");
 const poolApi = read("app/api/customers/public-pool/route.ts");
+const customersApi = read("app/api/customers/route.ts");
 const poolView = read("components/customer-public-pool-view.tsx");
 const poolDeleteApi = read("app/api/customers/public-pool/delete/route.ts");
 const permanentDelete = read("lib/customers/soft-delete.ts");
@@ -15,6 +16,8 @@ const sidebar = read("components/app-shell.tsx");
 const managerRules = read("supabase/migrations/202609020003_user_manager_rules.sql");
 const lifecycleRules = read("supabase/migrations/202609020004_customer_document_stage_sync.sql");
 const manualStatusRules = read("supabase/migrations/202609030002_restore_single_customer_stage_change.sql");
+const ownershipIntegrity = read("supabase/migrations/202609030003_customer_ownership_integrity.sql");
+const stageReleaseBoundary = read("supabase/migrations/202609030004_customer_stage_release_boundary.sql");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -49,5 +52,11 @@ assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");
 assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客户公海入口");
 assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客户原始来源由系统保留，不能修改/, "系统获客来源标记必须不可被前端篡改");
+assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customers from authenticated/, "客户归属字段不得允许前端直写绕过认领流程");
+assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customer_protection from authenticated/, "保护关系不得允许前端直写绕过流程");
+assert.match(ownershipIntegrity, /customers_owner_columns_match[\s\S]*owner_id is not distinct from owner_user_id/, "两个客户归属字段必须保持一致");
+assert.match(ownershipIntegrity, /customer_protection_one_active_customer_idx[\s\S]*where status='ACTIVE'/, "每个客户最多只能有一条有效保护关系");
+assert.match(stageReleaseBoundary, /target_status not in \('CLAIMED','FOLLOWING','QUOTE','DEAL'\)[\s\S]*释放客户必须使用释放流程/, "释放不得作为客户阶段修改");
+assert.doesNotMatch(customersApi, /activeCutoff/, "我的客户不得依赖客户创建时间决定当前归属可见性");
 
 console.log("customer public-pool regression tests passed");

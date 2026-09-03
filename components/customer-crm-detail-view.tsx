@@ -24,8 +24,8 @@ type QuoteRow={id:string;quote_number:string;status:string;currency:string;total
 type Data = { customer:CustomerDetailCustomer; profile:{id:string;role:string}; can_edit:boolean; can_change_stage:boolean; can_sales_operate:boolean; effective_protection:EffectiveProtection; followups:Followup[]; attachments:Attachment[]; quotes:QuoteRow[]; claims:Claim[]; audit_logs:AuditLog[]; ai_result?:AiResult|null; ai_facts?:AiFact[]; verified_contacts?:VerifiedContact[] };
 const tabs = ["资料","AI分析","跟进记录","报价记录","操作日志"] as const;
 type Tab = typeof tabs[number];
-type EditableStage = Exclude<CustomerStatus,"UNCLAIMED">;
-const editableStages: EditableStage[] = ["CLAIMED","FOLLOWING","QUOTE","DEAL","RELEASED"];
+type EditableStage = Exclude<CustomerStatus,"UNCLAIMED"|"RELEASED">;
+const editableStages: EditableStage[] = ["CLAIMED","FOLLOWING","QUOTE","DEAL"];
 
 function value(input?:string|number|null){return input===undefined||input===null||input===""?"-":String(input)}
 function href(input?:string|null){if(!input)return "";return /^https?:\/\//i.test(input)?input:`https://${input}`}
