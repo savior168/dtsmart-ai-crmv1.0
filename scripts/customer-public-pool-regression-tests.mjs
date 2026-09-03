@@ -73,6 +73,8 @@ assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客�
 assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customers from authenticated/, "客户归属字段不得允许前端直写绕过认领流程");
 assert.match(customersApi, /requirePermission\("customers\.create"\)[\s\S]*admin\.from\("customers"\)\.insert/, "新增客户必须先完成接口鉴权，再通过服务端写入以兼容归属安全策略");
 assert.match(importApi, /requirePermission\("imports\.create"\)[\s\S]*admin\.from\("customers"\)\.insert/, "批量导入必须先完成接口鉴权，再通过服务端写入以兼容归属安全策略");
+assert.match(importApi, /classifyExistingCustomer[\s\S]*PUBLIC_POOL_AVAILABLE[\s\S]*前往客户公海提交真实联系凭证认领/, "我的客户导入命中未认领公海客户时必须引导认领而非创建冲突");
+assert.match(customersApi, /classifyExistingCustomer[\s\S]*PUBLIC_POOL_AVAILABLE[\s\S]*action_url/, "我的客户手动新增命中未认领公海客户时必须返回可执行的认领入口");
 assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customer_protection from authenticated/, "保护关系不得允许前端直写绕过流程");
 assert.match(ownershipIntegrity, /customers_owner_columns_match[\s\S]*owner_id is not distinct from owner_user_id/, "两个客户归属字段必须保持一致");
 assert.match(ownershipIntegrity, /customer_protection_one_active_customer_idx[\s\S]*where status='ACTIVE'/, "每个客户最多只能有一条有效保护关系");

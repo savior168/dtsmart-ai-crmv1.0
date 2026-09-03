@@ -6,6 +6,28 @@ export type CustomerIdentityInput = {
   google_url?: unknown;
 };
 
+export type ExistingCustomerOwnership = {
+  owner_id?: unknown;
+  acquisition_scope?: unknown;
+  pool_status?: unknown;
+  status?: unknown;
+};
+
+export type ExistingCustomerDisposition =
+  | "OWN_CUSTOMER"
+  | "PUBLIC_POOL_AVAILABLE"
+  | "OTHER_OWNED_CUSTOMER"
+  | "UNOWNED_REVIEW_REQUIRED";
+
+/** Classifies an already identity-matched customer without changing ownership. */
+export function classifyExistingCustomer(customer: ExistingCustomerOwnership, currentUserId: string): ExistingCustomerDisposition {
+  const ownerId = String(customer.owner_id ?? "").trim();
+  if (ownerId && ownerId === currentUserId) return "OWN_CUSTOMER";
+  if (!ownerId && String(customer.acquisition_scope ?? "") === "PUBLIC_POOL" && String(customer.pool_status ?? "") === "AVAILABLE" && String(customer.status ?? "") === "UNCLAIMED") return "PUBLIC_POOL_AVAILABLE";
+  if (ownerId) return "OTHER_OWNED_CUSTOMER";
+  return "UNOWNED_REVIEW_REQUIRED";
+}
+
 export function normalizeIdentityText(value: unknown) {
   return String(value ?? "")
     .normalize("NFKC")

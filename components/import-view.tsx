@@ -33,6 +33,7 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   import_result?: "success" | "duplicate" | "error" | "conflict" | "failed";
   result_reason?: string;
   conflict_owner_name?: string;
+  action_url?: string;
 };
 
 function ImportCountry({ value }: { value?: string | null }) { return <CountryLabel value={value} />; }
@@ -511,6 +512,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
           import_result: String(result?.status || "success") as MappedRow["import_result"],
           result_reason: String(result?.reason || ""),
           conflict_owner_name: String(result?.owner_name || ""),
+          action_url: String(result?.action_url || ""),
         };
       });
       completedRows.push(
@@ -521,6 +523,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             import_result: "duplicate" as const,
             result_reason: item.reason,
             conflict_owner_name: item.row!.conflict_owner_name || "",
+            action_url: "",
           })),
       );
       const serverFailures = results
@@ -1018,6 +1021,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                     <td className="w-[190px] px-4 py-3 font-medium text-slate-800">
                       <span className="block truncate" title={row.company_name || ""}>{row.company_name || "-"}</span>
                       {row.import_result === "conflict" ? <span className="mt-1 block truncate text-xs font-semibold text-rose-600" title={`当前归属人：${row.conflict_owner_name || "已归属其他用户"}`}>当前归属人：{row.conflict_owner_name || "已归属其他用户"}</span> : null}
+                      {row.action_url ? <Link href={row.action_url} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">去公海认领<ExternalLink size={12}/></Link> : null}
                     </td>
                     <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>
                     <td className="w-[160px] whitespace-nowrap px-4 py-3">

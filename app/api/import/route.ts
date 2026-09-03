@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -10,6 +10,8 @@ type ImportResult = {
   status: "success" | "duplicate" | "error" | "conflict" | "failed";
   reason?: string;
   owner_name?: string;
+  existing_customer_id?: string;
+  action_url?: string;
 };
 const text = (value: unknown) => String(value || "").trim();
 const bounded = (value: unknown, min: number, max: number) => {
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
     const existing: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id,created_at,deleted_at")
+        .select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id,acquisition_scope,pool_status,status,created_at,deleted_at")
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
@@ -89,16 +91,19 @@ export async function POST(request: NextRequest) {
           // A duplicate never creates a second customer. When it belongs to
           // another salesperson, retain the importer's original basic fields
           // in the conflict queue for read-only review.
+          const disposition = classifyExistingCustomer(duplicateOf, user.id);
           if (publicPool) {
             duplicate += 1;
             results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: duplicateOf.owner_id ? "客户已存在且已有归属人，未重复加入公海" : "客户已存在于客户公海" });
-          } else if (duplicateOf.owner_id !== user.id) {
+          } else if (disposition === "PUBLIC_POOL_AVAILABLE") {
+            duplicate += 1;
+            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: "系统客户公海已有该客户，请前往客户公海提交真实联系凭证认领", existing_customer_id: String(duplicateOf.id), action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateOf.id))}` });
+          } else if (disposition === "OTHER_OWNED_CUSTOMER" || disposition === "UNOWNED_REVIEW_REQUIRED") {
             transferCandidates.push({ customer: duplicateOf, submitted: item, fileName, rowNumber });
           } else {
-            failed += 1;
+            duplicate += 1;
             const reason = "客户已存在于我的客户列表，保留最先导入的数据";
-            errors.push(`${fileName} 第 ${rowNumber} 行：${reason}`);
-            results.push({ file_name: fileName, row_number: rowNumber, status: "failed", reason });
+            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason, existing_customer_id: String(duplicateOf.id) });
           }
           return;
         }
@@ -150,6 +155,11 @@ export async function POST(request: NextRequest) {
         results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "duplicate", reason: "本次导入文件中存在相同客户" });
         continue;
       }
+      if (outcome?.reason === "PUBLIC_POOL_AVAILABLE") {
+        duplicate += 1;
+        results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "duplicate", reason: "系统客户公海已有该客户，请前往客户公海提交真实联系凭证认领", existing_customer_id: customerId, action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(customerId)}` });
+        continue;
+      }
       conflicts.push({
         customer_id: customerId,
         reported_by: user.id,
@@ -157,7 +167,7 @@ export async function POST(request: NextRequest) {
         status: "OPEN",
         details: { submitted: { company_name: candidate.submitted.company_name || null, contact_name: candidate.submitted.contact_name || null, country: candidate.submitted.country || null, phone: candidate.submitted.phone || null, email: candidate.submitted.email || null, website: candidate.submitted.website || null, google_url: candidate.submitted.google_url || null, address: candidate.submitted.address || null, industry: candidate.submitted.industry || null, category: candidate.submitted.category || null, source: candidate.submitted.source || null, tags: candidate.submitted.tags || [] }, matched_customer_id: customerId },
       });
-      results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "conflict", reason: outcome?.reason === "PERMANENT_PROTECTION" ? "已成交客户永久保护，归属保持不变" : "客户仍在保护期或7天宽限期，归属保持不变", owner_name: ownerNames.get(String(candidate.customer.owner_id)) || String(candidate.customer.owner_id || "") });
+      results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "conflict", reason: outcome?.reason === "PERMANENT_PROTECTION" ? "已成交客户永久保护，归属保持不变" : "客户仍在保护期或需管理员处理，归属保持不变", owner_name: ownerNames.get(String(candidate.customer.owner_id)) || String(candidate.customer.owner_id || ""), existing_customer_id: customerId });
     }
 
     if (conflicts.length) {

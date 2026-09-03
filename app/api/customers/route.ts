@@ -3,7 +3,7 @@ import { hasPermission, requestedOwnerId, requirePermission, writeAudit } from "
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 const writableFields = [
   "company_name",
@@ -284,7 +284,7 @@ export async function POST(request: NextRequest) {
       const possibleMatches: Record<string, unknown>[] = [];
       for (let from = 0; ; from += 1000) {
         const page = await admin.from("customers")
-          .select("id,company_name,phone,email,website,google_url,owner_id,created_at")
+          .select("id,company_name,phone,email,website,google_url,owner_id,acquisition_scope,pool_status,status,created_at")
           .order("created_at", { ascending: true })
           .range(from, from + 999);
         if (page.error) throw page.error;
@@ -296,8 +296,10 @@ export async function POST(request: NextRequest) {
       const duplicate = submittedKeys.map((key) => existingByKey.get(key)).find(Boolean);
       const duplicateId = typeof duplicate?.id === "string" ? duplicate.id : null;
       if (duplicate && !duplicateId) throw new Error("重复客户记录缺少有效ID");
-      if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
+      const disposition = duplicate ? classifyExistingCustomer(duplicate, user.id) : null;
+      if (disposition === "OWN_CUSTOMER") return NextResponse.json({ error: "该客户已存在于您的客户库中", status: "OWN_CUSTOMER", existing_customer_id: duplicateId, action_url: `/customers/${duplicateId}` }, { status: 409 });
       if (duplicate && publicPool) return NextResponse.json({ error: duplicate.owner_id ? "该客户已存在且已有归属人，不能重复加入公海" : "该客户已存在于客户公海" }, { status: 409 });
+      if (disposition === "PUBLIC_POOL_AVAILABLE") return NextResponse.json({ error: "系统客户公海已有该客户，请前往客户公海提交真实联系凭证认领", status: "PUBLIC_POOL_AVAILABLE", existing_customer_id: duplicateId, action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateId))}` }, { status: 409 });
       if (duplicate) {
         const transfer = await supabase.rpc("take_over_expired_customer", { p_customer_id: duplicateId, p_source: "MANUAL_CREATE" });
         if (transfer.error) throw new Error(`客户归属校验失败：${transfer.error.message}`);
@@ -307,6 +309,7 @@ export async function POST(request: NextRequest) {
           if (transferred.error) throw transferred.error;
           return NextResponse.json(transferred.data, { status: 200 });
         }
+        if (outcome.reason === "PUBLIC_POOL_AVAILABLE") return NextResponse.json({ error: "系统客户公海已有该客户，请前往客户公海提交真实联系凭证认领", status: "PUBLIC_POOL_AVAILABLE", existing_customer_id: duplicateId, action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateId))}` }, { status: 409 });
         const conflict = {
           customer_id: duplicateId,
           reported_by: user.id,

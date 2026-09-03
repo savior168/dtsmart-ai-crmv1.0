@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 type Row = {
   company_name?: string;
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const data: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,phone,email,website,google_url,owner_id")
+        .select("id,company_name,phone,email,website,google_url,owner_id,acquisition_scope,pool_status,status")
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
@@ -43,8 +43,10 @@ export async function POST(request: NextRequest) {
       const match = customerLookupIdentityKeys(row)
         .map((key) => existing.get(key))
         .find(Boolean);
-      if (match?.owner_id && match.owner_id !== user.id) conflictIds.add(String(match.id));
-      else if (match) existingDuplicates += 1;
+      if (!match) return;
+      const disposition = classifyExistingCustomer(match, user.id);
+      if (disposition === "OTHER_OWNED_CUSTOMER" || disposition === "UNOWNED_REVIEW_REQUIRED") conflictIds.add(String(match.id));
+      else existingDuplicates += 1;
     });
 
     return NextResponse.json({

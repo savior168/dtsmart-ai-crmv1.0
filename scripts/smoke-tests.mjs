@@ -172,8 +172,8 @@ assert.match(importView, /当前归属人/, "导入明细和冲突报告必须�
 const importApi = read("app/api/import/route.ts");
 assert.match(importApi, /for \(let from = 0; ; from \+= 1000\)/, "导入去重必须分页读取全部现有客户，不能设置固定上限");
 assert.match(importApi, /error\?\.code === "23505"/, "导入必须处理数据库并发唯一冲突");
-assert.match(importApi, /客户已存在于我的客户列表，保留最先导入的数据/, "本人已有客户必须计入导入失败并保留最早记录");
-assert.match(importApi, /status: "conflict"[\s\S]*客户仍在保护期或7天宽限期/, "其他归属人的受保护重复客户必须计入冲突客户");
+assert.match(importApi, /status: "duplicate"[\s\S]*客户已存在于我的客户列表，保留最先导入的数据/, "本人已有客户必须计入重复数据并保留最早记录");
+assert.match(importApi, /status: "conflict"[\s\S]*客户仍在保护期或需管理员处理/, "其他归属人的受保护重复客户必须计入冲突客户");
 assert.match(importApi, /owner_name:/, "冲突导入结果必须返回当前归属人");
 assert.match(importApi, /source_batch_id: taskId \|\| null/, "导入客户必须保存唯一导入任务ID，不能只依赖文件名");
 const aiCreateTask = read("components/ai-screening/create-task-view.tsx");
