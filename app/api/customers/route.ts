@@ -4,6 +4,7 @@ import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 
 const writableFields = [
   "company_name",
@@ -284,7 +285,7 @@ export async function POST(request: NextRequest) {
       const possibleMatches: Record<string, unknown>[] = [];
       for (let from = 0; ; from += 1000) {
         const page = await admin.from("customers")
-          .select("id,company_name,phone,email,website,google_url,owner_id,acquisition_scope,pool_status,status,created_at")
+          .select("id,company_name,contact_name,country,phone,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at")
           .order("created_at", { ascending: true })
           .range(from, from + 999);
         if (page.error) throw page.error;
@@ -299,7 +300,14 @@ export async function POST(request: NextRequest) {
       const disposition = duplicate ? classifyExistingCustomer(duplicate, user.id) : null;
       if (disposition === "OWN_CUSTOMER") return NextResponse.json({ error: "该客户已存在于您的客户库中", status: "OWN_CUSTOMER", existing_customer_id: duplicateId, action_url: `/customers/${duplicateId}` }, { status: 409 });
       if (duplicate && publicPool) return NextResponse.json({ error: duplicate.owner_id ? "该客户已存在且已有归属人，不能重复加入公海" : "该客户已存在于客户公海" }, { status: 409 });
-      if (disposition === "PUBLIC_POOL_AVAILABLE") return NextResponse.json({ error: "系统客户公海已有该客户，请前往客户公海提交真实联系凭证认领", status: "PUBLIC_POOL_AVAILABLE", existing_customer_id: duplicateId, action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateId))}` }, { status: 409 });
+      if (duplicate && disposition === "PUBLIC_POOL_AVAILABLE") {
+        const additions = buildPrivateSupplementRows(duplicate, body, { customerId: String(duplicateId), submittedBy: user.id, sourceType: "MANUAL_CREATE" });
+        if (additions.length) {
+          const saved = await admin.from("customer_private_supplements").upsert(additions, { onConflict: "customer_id,submitted_by,field_name,value_normalized", ignoreDuplicates: true });
+          if (saved.error) throw new Error(`个人补充资料保存失败：${saved.error.message}`);
+        }
+        return NextResponse.json({ error: additions.length ? `系统客户公海已有该客户；已去重保存 ${additions.length} 项我的补充资料，请前往认领` : "系统客户公海已有该客户，填写资料与公海主档重复，请前往认领", status: "PUBLIC_POOL_AVAILABLE", supplement_count: additions.length, existing_customer_id: duplicateId, action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateId))}` }, { status: 409 });
+      }
       if (duplicate) {
         const transfer = await supabase.rpc("take_over_expired_customer", { p_customer_id: duplicateId, p_source: "MANUAL_CREATE" });
         if (transfer.error) throw new Error(`客户归属校验失败：${transfer.error.message}`);

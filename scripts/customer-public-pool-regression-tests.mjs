@@ -23,6 +23,8 @@ const importApi = read("app/api/import/route.ts");
 const importPage = read("app/import/page.tsx");
 const importView = read("components/import-view.tsx");
 const listFields = read("lib/customers/list-fields.ts");
+const supplementsMigration = read("supabase/migrations/202609030007_private_pool_supplements.sql");
+const adminClaimMigration = read("supabase/migrations/202609030008_admin_public_customer_claim.sql");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -80,5 +82,12 @@ assert.match(ownershipIntegrity, /customers_owner_columns_match[\s\S]*owner_id i
 assert.match(ownershipIntegrity, /customer_protection_one_active_customer_idx[\s\S]*where status='ACTIVE'/, "每个客户最多只能有一条有效保护关系");
 assert.match(stageReleaseBoundary, /target_status not in \('CLAIMED','FOLLOWING','QUOTE','DEAL'\)[\s\S]*释放客户必须使用释放流程/, "释放不得作为客户阶段修改");
 assert.doesNotMatch(customersApi, /activeCutoff/, "我的客户不得依赖客户创建时间决定当前归属可见性");
+assert.match(supplementsMigration, /unique\(customer_id,submitted_by,field_name,value_normalized\)/, "个人补充资料必须按客户、提交人、字段和值去重");
+assert.match(supplementsMigration, /submitted_by=auth\.uid\(\)/, "个人补充资料只能由提交人读取");
+assert.match(importApi, /buildPrivateSupplementRows[\s\S]*customer_private_supplements[\s\S]*ignoreDuplicates/, "导入命中公海客户时必须保存去重后的个人补充资料");
+assert.match(poolApi, /eq\("submitted_by", account\.id\)/, "公海接口不得返回其他销售员的补充资料");
+assert.match(poolView, /我的补充资料[\s\S]*仅自己可见 · 不覆盖公海原资料/, "认领界面必须清楚区分私有补充资料与公海主档");
+assert.match(poolApi, /\["SALES", "SUPERVISOR", "ADMIN"\]\.includes\(account\.role\)/, "系统管理员必须显示公海认领操作");
+assert.match(adminClaimMigration, /actor\.role not in \('SALES','SUPERVISOR','ADMIN'\)/, "数据库认领函数必须允许系统管理员完成同一套凭证流程");
 
 console.log("customer public-pool regression tests passed");

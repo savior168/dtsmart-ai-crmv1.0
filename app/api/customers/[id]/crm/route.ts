@@ -46,15 +46,17 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const usersPromise = ["ADMIN","SUPERVISOR"].includes(profileResult.data.role)
       ? supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name")
       : Promise.resolve({ data: [], error: null });
-    const [latestAi, verifiedContacts, usersResult, attachmentsResult, quotesResult] = await Promise.all([
+    const [latestAi, verifiedContacts, usersResult, attachmentsResult, quotesResult, privateSupplementsResult] = await Promise.all([
       latestAiPromise,
       verifiedContactsPromise,
       usersPromise,
       admin.from("attachments").select("id,followup_id,quote_id,filename,mime_type,size_bytes,kind,created_at").eq("customer_id", id).order("created_at", { ascending: false }),
       admin.from("quotes").select("id,quote_number,status,currency,total_amount,valid_until,created_at,updated_at").eq("customer_id", id).order("updated_at", { ascending: false }),
+      admin.from("customer_private_supplements").select("id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("customer_id", id).eq("submitted_by", user.id).order("created_at", { ascending: false }),
     ]);
     if (latestAi.error) throw latestAi.error;
     if (verifiedContacts.error) throw verifiedContacts.error;
+    if (privateSupplementsResult.error) throw privateSupplementsResult.error;
     const evidence = latestAi.data
       ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,original_excerpt,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false })
       : { data: [], error: null };
@@ -94,7 +96,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]),
       website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]),
     };
-    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, can_change_stage: canChangeStage, can_sales_operate: canSalesOperate, effective_protection: effectiveProtection, followups: followupsResult.data, attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), users });
+    return NextResponse.json({ customer: customerForDisplay, profile: profileResult.data, can_edit: canEdit, can_change_stage: canChangeStage, can_sales_operate: canSalesOperate, effective_protection: effectiveProtection, followups: followupsResult.data, attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: claimsResult.data, audit_logs: auditLogsResult.data || [], protections: protectionResult.data, ai_evidence: aiEvidenceResult.data?.[0] || null, ai_result: latestAi.data || null, ai_facts: aiFacts, verified_contacts: dedupeVerifiedContactRows(verifiedContacts.data || []), private_supplements: privateSupplementsResult.data || [], users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

@@ -815,11 +815,17 @@ export function CustomersView() {
             </div>
             <button
               type="button"
-              onClick={() => void selectAllResults()}
+              onClick={() => {
+                if (count > 0 && selected.size >= count) {
+                  setSelected(new Set());
+                  setProtectedSelected(new Set());
+                  notify("已取消全选");
+                } else void selectAllResults();
+              }}
               disabled={crossUserReadOnly || selectingAll || !count}
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {selectingAll ? "正在全选..." : "全选筛选结果"}
+              {selectingAll ? "正在全选..." : count > 0 && selected.size >= count ? "取消全选" : "全选筛选结果"}
             </button>
             <span className="ml-auto text-sm text-slate-600">已选择 {selected.size} 项</span>
             <button

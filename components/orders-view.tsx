@@ -122,19 +122,18 @@ export function OrdersView() {
                   <tr>
                     {[
                       "订单编号",
-                      "报价编号",
                       "客户简称",
-                      ...(canViewAll ? ["归属人"] : []),
-                      "订单金额",
+                      "报价编号",
                       "订单状态",
+                      "订单金额",
                       "备货单",
+                      ...(canViewAll ? ["归属人"] : []),
                       "更新时间",
-                      "操作",
                     ].map((x) => (
                       <th key={x} className="px-4 py-3 font-medium">
                         {x}
                       </th>
-                    ))}
+                    ))}<th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -143,28 +142,28 @@ export function OrdersView() {
                       ? row.stock[0]
                       : row.stock;
                     return (
-                      <tr key={row.id} className="border-t">
+                      <tr key={row.id} className="group border-t hover:bg-blue-50/30">
                         <td className="px-4 py-3 font-semibold">
                           {row.order_number}
                         </td>
-                        <td className="px-4 py-3">{row.quote_number}</td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
+                        <td className="px-4 py-3">{row.quote_number}</td>
+                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
+                        <td className="px-4 py-3 font-semibold text-blue-700">
+                          {row.currency} {Number(row.total_amount).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3">
+                          {stock?.stock_number || "-"}
+                        </td>
                         {canViewAll ? (
                           <td className="px-4 py-3">
                             {row.owner?.name || row.owner?.email || "-"}
                           </td>
                         ) : null}
-                        <td className="px-4 py-3 font-semibold text-blue-700">
-                          {row.currency} {Number(row.total_amount).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
-                        <td className="px-4 py-3">
-                          {stock?.stock_number || "-"}
-                        </td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           {new Date(row.updated_at).toLocaleString("zh-CN")}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                           <Link
                             href={`/orders/${row.id}`}
                             className="text-blue-600"

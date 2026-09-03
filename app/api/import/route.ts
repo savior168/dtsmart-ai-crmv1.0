@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -12,6 +13,7 @@ type ImportResult = {
   owner_name?: string;
   existing_customer_id?: string;
   action_url?: string;
+  supplement_count?: number;
 };
 const text = (value: unknown) => String(value || "").trim();
 const bounded = (value: unknown, min: number, max: number) => {
@@ -70,6 +72,7 @@ export async function POST(request: NextRequest) {
     const results: ImportResult[] = [];
     const conflicts: Record<string, unknown>[] = [];
     const transferCandidates: Array<{ customer: Record<string, unknown>; submitted: Row; fileName: string; rowNumber: number }> = [];
+    const privateSupplements: Record<string, unknown>[] = [];
     rows.forEach((raw, index) => {
       const item = { ...raw };
       const importMeta = item.import_meta && typeof item.import_meta === "object" ? item.import_meta : {};
@@ -96,8 +99,10 @@ export async function POST(request: NextRequest) {
             duplicate += 1;
             results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: duplicateOf.owner_id ? "客户已存在且已有归属人，未重复加入公海" : "客户已存在于客户公海" });
           } else if (disposition === "PUBLIC_POOL_AVAILABLE") {
+            const additions = buildPrivateSupplementRows(duplicateOf, item, { customerId: String(duplicateOf.id), submittedBy: user.id, sourceType: "BATCH_IMPORT", sourceBatch: fileName, sourceBatchId: taskId, sourceRow: rowNumber });
+            privateSupplements.push(...additions);
             duplicate += 1;
-            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: "系统客户公海已有该客户，请前往客户公海提交真实联系凭证认领", existing_customer_id: String(duplicateOf.id), action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateOf.id))}` });
+            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: additions.length ? `系统客户公海已有该客户；已去重保存 ${additions.length} 项我的补充资料，请前往认领` : "系统客户公海已有该客户，导入资料与公海主档重复，请前往认领", supplement_count: additions.length, existing_customer_id: String(duplicateOf.id), action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateOf.id))}` });
           } else if (disposition === "OTHER_OWNED_CUSTOMER" || disposition === "UNOWNED_REVIEW_REQUIRED") {
             transferCandidates.push({ customer: duplicateOf, submitted: item, fileName, rowNumber });
           } else {
@@ -123,6 +128,12 @@ export async function POST(request: NextRequest) {
         results.push({ file_name: fileName, row_number: rowNumber, status: "error", reason: message });
       }
     });
+
+    if (privateSupplements.length) {
+      const uniqueSupplements = [...new Map(privateSupplements.map((item) => [`${item.customer_id}|${item.submitted_by}|${item.field_name}|${item.value_normalized}`, item])).values()];
+      const { error: supplementError } = await admin.from("customer_private_supplements").upsert(uniqueSupplements, { onConflict: "customer_id,submitted_by,field_name,value_normalized", ignoreDuplicates: true });
+      if (supplementError) throw new Error(`个人补充资料保存失败：${supplementError.message}`);
+    }
 
     let transferredCount = 0;
     const firstCandidateByCustomer = new Map<string, typeof transferCandidates[number]>();

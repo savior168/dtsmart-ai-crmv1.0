@@ -118,15 +118,19 @@ export async function GET(request: NextRequest) {
     const rows = (result.data || []) as unknown as PoolDbRow[];
     const ownerIds = [...new Set(rows.map((item) => item.owner_id).filter(Boolean))] as string[];
     const customerIds = rows.map((item) => item.id);
-    const [owners, protections] = await Promise.all([
+    const [owners, protections, supplements] = await Promise.all([
       ownerIds.length ? admin.from("users").select("id,name,email").in("id", ownerIds) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_protection").select("customer_id,owner_id,expire_date,status,extension_count,start_date").in("customer_id", customerIds).order("start_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      customerIds.length ? admin.from("customer_private_supplements").select("id,customer_id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("submitted_by", account.id).in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ]);
     if (owners.error) throw owners.error;
     if (protections.error) throw protections.error;
+    if (supplements.error) throw supplements.error;
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
     const protectionByCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
+    const supplementsByCustomer = new Map<string, Record<string, unknown>[]>();
+    for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const full = tab !== "claimed" || own || elevated;
@@ -146,7 +150,8 @@ export async function GET(request: NextRequest) {
         contact_masked: !full,
         owner: row.owner_id ? ownerById.get(row.owner_id) || null : null,
         protection: protectionByCustomer.get(row.id) || null,
-        can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR"].includes(account.role),
+        my_supplements: supplementsByCustomer.get(row.id) || [],
+        can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
         can_open_customer: own || elevated,
       };
     });
