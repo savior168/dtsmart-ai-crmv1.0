@@ -324,6 +324,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   // failed-import count cannot exceed the importable row count.
   const displayFailure = stats ? stats.failed_count : 0;
   const displayConflict = stats?.conflict_count ?? 0;
+  const publicPoolMatches = useMemo(() => rows.filter((row) => Boolean(row.action_url)), [rows]);
   const step = stats ? 3 : rows.length ? 2 : files.length ? 1 : 1;
 
   function downloadReport() {
@@ -880,6 +881,13 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             </button>
           </div>
         )}
+        {stats && publicPoolMatches.length ? (
+          <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            <Info size={18} className="shrink-0 text-blue-600" />
+            <span><b>{publicPoolMatches.length} 条客户已存在于客户公海</b>，系统未重复创建客户，也未将其记为归属冲突；请提交真实联系凭证后认领。</span>
+            <Link href="/customers/pool?tab=available" className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 font-medium text-blue-700 hover:bg-blue-100">前往客户公海认领<ExternalLink size={14}/></Link>
+          </div>
+        ) : null}
         <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
             <div>

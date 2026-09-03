@@ -210,6 +210,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [createOpen, setCreateOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     industries: [],
@@ -393,6 +394,33 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       setExporting(false);
     }
   }
+  async function selectAllResults() {
+    if (role !== "ADMIN" || selectingAll || !["available", "claimed", "pending"].includes(tab)) return;
+    setSelectingAll(true);
+    setError("");
+    try {
+      const ids: string[] = [];
+      for (let resultPage = 1; ; resultPage += 1) {
+        const params = new URLSearchParams({ tab, page: String(resultPage), page_size: "100", sort, direction });
+        if (query.trim()) params.set("q", query.trim());
+        if (industry) params.set("industry", industry);
+        if (aiLevel) params.set("ai_level", aiLevel);
+        if (target) params.set("target", target);
+        if (customerStatus && tab === "claimed") params.set("status", customerStatus);
+        if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
+        const body = await api(`/api/customers/public-pool?${params}`);
+        const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
+        ids.push(...pageRows.map((row) => row.id));
+        if (pageRows.length < 100 || ids.length >= Number(body.count || 0)) break;
+      }
+      setSelected(new Set(ids));
+      setToast(ids.length ? `已选择当前筛选结果 ${ids.length} 家客户` : "当前筛选条件下没有客户");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "全选当前筛选结果失败");
+    } finally {
+      setSelectingAll(false);
+    }
+  }
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1680px]">
@@ -502,28 +530,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   重置
                 </button>
               </div>
-              {role === "ADMIN" ? (
-                <div className="mt-3 flex justify-end gap-2">
-                  {["available", "pending"].includes(tab) ? <button
-                    disabled={!selected.size}
-                    type="button"
-                    onClick={() => setAssignOpen(true)}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-40"
-                  >
-                    <UserPlus size={16} />
-                    分配已选 {selected.size} 家
-                  </button> : null}
-                  <button
-                    disabled={!selected.size}
-                    type="button"
-                    onClick={() => setDeleteIds([...selected])}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"
-                  >
-                    <Trash2 size={16} />
-                    删除已选 {selected.size} 家
-                  </button>
-                </div>
-              ) : null}
               <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
                 {role === "ADMIN" ? <div ref={newRef} className="relative">
                   <button type="button" onClick={() => setNewOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">
@@ -540,6 +546,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 </div> : null}
                 {role === "ADMIN" ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? "正在导出…" : "导出数据"}</button> : null}
                 <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />字段设置</button>
+                {role === "ADMIN" ? <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  <button type="button" disabled={selectingAll || !count} onClick={() => void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "正在全选…" : "全选筛选结果"}</button>
+                  {selected.size ? <button type="button" onClick={() => setSelected(new Set())} className="h-10 rounded-lg border bg-white px-3 text-sm text-slate-600 hover:bg-slate-50">取消全选</button> : null}
+                  {["available", "pending"].includes(tab) ? <button disabled={!selected.size} type="button" onClick={() => setAssignOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"><UserPlus size={16}/>分配已选 {selected.size} 家</button> : null}
+                  <button disabled={!selected.size} type="button" onClick={() => setDeleteIds([...selected])} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"><Trash2 size={16}/>删除已选 {selected.size} 家</button>
+                </div> : null}
               </div>
             </section>
             {error ? (

@@ -41,6 +41,9 @@ assert.match(read("components/customers-view.tsx"), /保护到期与续期[\s\S]
 assert.match(read("components/ui/app-tabs.tsx"), /countTone\?: "warning" \| "danger"[\s\S]*bg-rose-50[\s\S]*bg-amber-50/, "统一子页签必须支持冲突色和预警色数量徽标");
 assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"industry",\s*"ai_score"/, "待认领客户必须优先显示身份、行业和AI判断");
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
+assert.match(read("components/customer-public-pool-view.tsx"), /selectAllResults[\s\S]*全选筛选结果[\s\S]*分配已选[\s\S]*删除已选/, "客户公海可操作列表必须在统一工具栏提供全选筛选结果和批量操作");
+assert.match(read("components/import-view.tsx"), /publicPoolMatches[\s\S]*条客户已存在于客户公海[\s\S]*前往客户公海认领/, "我的客户导入命中公海客户后必须提供醒目的认领引导");
+assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), /mt-3 flex justify-end gap-2[\s\S]*分配已选/, "客户公海批量操作不得独占一行造成工具栏错位");
 assert.match(read("components/app-shell.tsx"), /fromPool[\s\S]*href === "\/customers\/pool"/, "从公海进入客户详情后必须保持客户公海菜单选中");
 
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");
