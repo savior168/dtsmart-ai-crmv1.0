@@ -193,7 +193,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
-  const [country, setCountry] = useState("");
   const [industry, setIndustry] = useState("");
   const [aiLevel, setAiLevel] = useState("");
   const [target, setTarget] = useState("");
@@ -239,7 +238,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         page_size: String(pageSize),
       });
       if (query.trim()) params.set("q", query.trim());
-      if (country) params.set("country", country);
       if (industry) params.set("industry", industry);
       if (aiLevel) params.set("ai_level", aiLevel);
       if (target) params.set("target", target);
@@ -259,7 +257,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     }
   }, [
     aiLevel,
-    country,
     customerStatus,
     industry,
     ownerId,
@@ -309,7 +306,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, country, customerStatus, industry, ownerId, query, tab, target],
+    [aiLevel, customerStatus, industry, ownerId, query, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -327,7 +324,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }
   function resetFilters() {
     setQuery("");
-    setCountry("");
     setIndustry("");
     setAiLevel("");
     setTarget("");
@@ -360,7 +356,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (let exportPage = 1; ; exportPage += 1) {
         const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "100", sort, direction, export: "1" });
         if (query.trim()) params.set("q", query.trim());
-        if (country) params.set("country", country);
         if (industry) params.set("industry", industry);
         if (aiLevel) params.set("ai_level", aiLevel);
         if (target) params.set("target", target);
@@ -424,20 +419,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索客户名称、国家或行业"
+                    placeholder="搜索客户名称、国家/地区或行业"
                     className={`${field} w-full min-w-0 pl-9`}
                   />
                 </label>
-                <select
-                  value={country}
-                  onChange={(event) => setCountry(event.target.value)}
-                  className={`${field} min-w-0`}
-                >
-                  <option value="">全部国家/地区</option>
-                  {filterOptions.countries.map((value) => (
-                    <option key={value}>{value}</option>
-                  ))}
-                </select>
                 <select
                   value={industry}
                   onChange={(event) => setIndustry(event.target.value)}
