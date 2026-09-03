@@ -102,6 +102,14 @@ const tabLabels: Record<Tab, string> = {
   handover: "离职交接",
   history: "分配记录",
 };
+const tabDescriptions: Record<Tab, string> = {
+  available: "无归属，可提交真实联系凭证认领",
+  claimed: "查询历史归属，不属于可再次认领列表",
+  pending: "到期且有业务记录或账号停用的数据",
+  renewals: "审核销售员第三次及后续续期申请",
+  handover: "转移停用或离职账号的全部业务数据",
+  history: "追溯公海分配和离职交接批次",
+};
 const field =
   "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
 async function api(url: string, init?: RequestInit) {
@@ -256,6 +264,7 @@ export function CustomerPublicPoolView() {
             items={visibleTabs.map((value) => ({
               value,
               label: tabLabels[value],
+              description: tabDescriptions[value],
             }))}
             onChange={changeTab}
             label="客户公海分类"

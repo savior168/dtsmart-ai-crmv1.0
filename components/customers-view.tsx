@@ -571,9 +571,9 @@ export function CustomersView() {
           <AppTabs
             value={workspace}
             items={[
-              { value: "list", label: "我的客户" },
-              { value: "protection", label: "保护到期与续期", count: protectionCount },
-              { value: "conflicts", label: "冲突客户", count: conflictCount },
+              { value: "list", label: "我的客户", description: "当前归属并由我维护的客户" },
+              { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount },
+              { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount },
             ]}
             onChange={switchWorkspace}
             label="我的客户分类"
