@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizeRole, normalizeStatus, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
@@ -83,12 +83,15 @@ export async function requireAdmin(options: { allowPasswordChange?: boolean } = 
 
 export async function requirePermission(permission: string) {
   const context = await requireUser();
-  if (context.account.role !== "ADMIN" && !context.account.permissions.includes(permission)) throw new Error("FORBIDDEN");
+  if (!hasPermission(context.account, permission)) throw new Error("FORBIDDEN");
   return context;
 }
 
 export function hasPermission(account: CurrentAccount, permission: string) {
-  return account.role === "ADMIN" || account.permissions.includes(permission);
+  if (account.role === "ADMIN") return true;
+  if (!account.permissions.includes(permission)) return false;
+  const pagePermission = permissionPageCode(permission);
+  return pagePermission === permission || account.permissions.includes(pagePermission);
 }
 
 /**

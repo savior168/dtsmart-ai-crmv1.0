@@ -6,6 +6,10 @@ export function AppFilterBar({ children }: { children: ReactNode }) {
   return <section className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center">{children}</section>;
 }
 
+export function AppResetButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
+  return <button type="button" onClick={onClick} disabled={disabled} className="h-10 shrink-0 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">重置</button>;
+}
+
 type StatusTone = "neutral" | "info" | "success" | "warning" | "danger" | "violet";
 
 const tones: Record<StatusTone, string> = {

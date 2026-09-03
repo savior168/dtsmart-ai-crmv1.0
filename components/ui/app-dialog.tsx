@@ -26,12 +26,12 @@ export function AppDialog({ open = true, title, description, children, onClose, 
   </div>;
 }
 
-export function DialogActions({ busy = false, onCancel, confirmLabel = "确认", tone = "primary" }: {
-  busy?: boolean; onCancel: () => void; confirmLabel?: string; tone?: "primary" | "danger";
+export function DialogActions({ busy = false, disabled = false, onCancel, confirmLabel = "确认", tone = "primary" }: {
+  busy?: boolean; disabled?: boolean; onCancel: () => void; confirmLabel?: string; tone?: "primary" | "danger";
 }) {
   return <footer className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
     <button type="button" onClick={onCancel} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">取消</button>
-    <button disabled={busy} className={`h-10 rounded-lg px-5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${tone === "danger" ? "bg-rose-600 hover:bg-rose-700" : "bg-blue-600 hover:bg-blue-700"}`}>{busy ? "处理中…" : confirmLabel}</button>
+    <button disabled={busy||disabled} className={`h-10 rounded-lg px-5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${tone === "danger" ? "bg-rose-600 hover:bg-rose-700" : "bg-blue-600 hover:bg-blue-700"}`}>{busy ? "处理中…" : confirmLabel}</button>
   </footer>;
 }
 

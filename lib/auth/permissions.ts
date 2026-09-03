@@ -4,7 +4,7 @@ export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "D
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
-export type PermissionGroup = "工作台" | "客户管理" | "数据导入" | "AI筛选" | "跟进管理" | "报价管理" | "订单管理" | "备货管理" | "报表中心" | "费用中心" | "站内通知" | "系统管理";
+export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "销售管理" | "仓库管理" | "报表中心" | "站内通知" | "系统管理";
 
 export type PermissionDefinition = {
   code: string;
@@ -23,68 +23,68 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "dashboard.view", label: "查看工作台", group: "工作台", description: "进入工作台并查看业务概览", kind: "PAGE" },
   { code: "dashboard.data_all", label: "查看全部工作台数据", group: "工作台", description: "可切换归属人并查看全部销售数据", kind: "DATA" },
 
-  { code: "customers.view", label: "查看客户列表与详情", group: "客户管理", description: "进入客户管理并查看允许范围内的客户", kind: "PAGE" },
-  { code: "customers.data_all", label: "查看全部客户数据", group: "客户管理", description: "可按归属人查看全部客户", kind: "DATA" },
-  { code: "customers.create", label: "新增客户", group: "客户管理", description: "手动创建客户资料", kind: "ACTION" },
-  { code: "customers.edit", label: "编辑客户", group: "客户管理", description: "编辑有权访问的客户基本资料", kind: "ACTION" },
-  { code: "customers.delete", label: "删除客户", group: "客户管理", description: "单条或批量物理删除客户", kind: "ACTION" },
-  { code: "customers.export", label: "导出客户", group: "客户管理", description: "导出当前查询范围的客户数据", kind: "ACTION" },
-  { code: "customers.batch_edit", label: "批量维护客户", group: "客户管理", description: "执行系统明确支持的非阶段批量维护操作；客户阶段只能单条修改", kind: "ACTION" },
-  { code: "customers.release", label: "释放客户", group: "客户管理", description: "释放本人名下客户", kind: "ACTION" },
-  { code: "customers.claim", label: "认领公海客户", group: "客户管理", description: "凭真实联系记录认领尚未归属的公海客户", kind: "ACTION" },
-  { code: "customers.renew", label: "客户保护续期", group: "客户管理", description: "为本人仍持有且处于宽限期的客户续期45天", kind: "ACTION" },
-  { code: "customers.renew.review", label: "审核下属续期", group: "客户管理", description: "审核直属销售员第三次及之后的保护续期", kind: "ACTION" },
-  { code: "customers.assign", label: "分配公海客户", group: "客户管理", description: "仅分配尚未认领或离职待分配客户", kind: "ACTION", core: true },
-  { code: "customers.handover", label: "离职客户交接", group: "客户管理", description: "将停用或离职账号的客户整批释放或交接", kind: "ACTION", core: true },
-  { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户管理", description: "查看客户AI结论与可核验证据", kind: "ACTION" },
+  { code: "customers.view", label: "客户公海与我的客户", group: "客户中心", description: "进入客户公海、我的客户及客户详情", kind: "PAGE" },
+  { code: "customers.data_all", label: "查看全部客户数据", group: "客户中心", description: "可按归属人查看全部客户", kind: "DATA" },
+  { code: "customers.create", label: "新增客户", group: "客户中心", description: "手动创建客户资料", kind: "ACTION" },
+  { code: "customers.edit", label: "编辑客户", group: "客户中心", description: "编辑有权访问的客户基本资料", kind: "ACTION" },
+  { code: "customers.delete", label: "删除客户", group: "客户中心", description: "单条或批量物理删除客户", kind: "ACTION" },
+  { code: "customers.export", label: "导出客户", group: "客户中心", description: "导出当前查询范围的客户数据", kind: "ACTION" },
+  { code: "customers.batch_edit", label: "批量维护客户", group: "客户中心", description: "执行系统明确支持的非阶段批量维护操作；客户阶段只能单条修改", kind: "ACTION" },
+  { code: "customers.release", label: "释放客户", group: "客户中心", description: "释放本人名下客户", kind: "ACTION" },
+  { code: "customers.claim", label: "认领公海客户", group: "客户中心", description: "凭真实联系记录认领尚未归属的公海客户", kind: "ACTION" },
+  { code: "customers.renew", label: "客户保护续期", group: "客户中心", description: "为本人仍持有且处于宽限期的客户续期45天", kind: "ACTION" },
+  { code: "customers.renew.review", label: "审核下属续期", group: "客户中心", description: "审核直属销售员第三次及之后的保护续期", kind: "ACTION" },
+  { code: "customers.assign", label: "分配公海客户", group: "客户中心", description: "仅分配尚未认领或离职待分配客户", kind: "ACTION", core: true },
+  { code: "customers.handover", label: "离职客户交接", group: "客户中心", description: "将停用或离职账号的客户整批释放或交接", kind: "ACTION", core: true },
+  { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户中心", description: "查看客户AI结论与可核验证据", kind: "ACTION" },
 
-  { code: "imports.view", label: "查看导入记录", group: "数据导入", description: "进入数据导入并查看导入批次", kind: "PAGE" },
-  { code: "imports.create", label: "执行数据导入", group: "数据导入", description: "预览并提交客户文件导入", kind: "ACTION" },
-  { code: "imports.data_all", label: "查看全部导入记录", group: "数据导入", description: "查看所有归属人的导入批次", kind: "DATA" },
+  { code: "imports.view", label: "客户导入", group: "客户中心", description: "进入客户导入并查看导入批次", kind: "PAGE" },
+  { code: "imports.create", label: "执行数据导入", group: "客户中心", description: "预览并提交客户文件导入", kind: "ACTION" },
+  { code: "imports.data_all", label: "查看全部导入记录", group: "客户中心", description: "查看所有归属人的导入批次", kind: "DATA" },
 
-  { code: "ai.tasks.view", label: "查看AI筛选任务", group: "AI筛选", description: "进入AI筛选并查看任务详情", kind: "PAGE" },
-  { code: "ai.data_all", label: "查看全部AI筛选数据", group: "AI筛选", description: "可按归属人查看任务、结果与用量", kind: "DATA" },
-  { code: "ai.tasks.create", label: "创建AI筛选任务", group: "AI筛选", description: "选择客户并创建筛选任务", kind: "ACTION" },
-  { code: "ai.tasks.control", label: "控制AI筛选任务", group: "AI筛选", description: "停止、继续、取消或重试任务", kind: "ACTION" },
-  { code: "ai.tasks.delete", label: "删除AI筛选任务", group: "AI筛选", description: "删除本人有权管理的任务", kind: "ACTION" },
-  { code: "ai.results.view", label: "查看AI结果与依据", group: "AI筛选", description: "查看任务报告、客户结果和分析依据", kind: "ACTION" },
-  { code: "ai.results.review", label: "复核AI分析结果", group: "AI筛选", description: "人工修正目标判断、等级和评分", kind: "ACTION" },
-  { code: "ai.usage.view", label: "查看本人AI用量", group: "AI筛选", description: "查看允许范围内的AI用量与费用", kind: "ACTION" },
-  { code: "ai.usage.view_all", label: "查看全部AI用量", group: "AI筛选", description: "查看所有归属人的AI用量与费用", kind: "DATA" },
+  { code: "ai.tasks.view", label: "AI筛选", group: "AI获客与筛选", description: "进入AI筛选并查看任务详情", kind: "PAGE" },
+  { code: "ai.data_all", label: "查看全部AI筛选数据", group: "AI获客与筛选", description: "可按归属人查看任务、结果与用量", kind: "DATA" },
+  { code: "ai.tasks.create", label: "创建AI筛选任务", group: "AI获客与筛选", description: "选择客户并创建筛选任务", kind: "ACTION" },
+  { code: "ai.tasks.control", label: "控制AI筛选任务", group: "AI获客与筛选", description: "停止、继续、取消或重试任务", kind: "ACTION" },
+  { code: "ai.tasks.delete", label: "删除AI筛选任务", group: "AI获客与筛选", description: "删除本人有权管理的任务", kind: "ACTION" },
+  { code: "ai.results.view", label: "查看AI结果与依据", group: "AI获客与筛选", description: "查看任务报告、客户结果和分析依据", kind: "ACTION" },
+  { code: "ai.results.review", label: "复核AI分析结果", group: "AI获客与筛选", description: "人工修正目标判断、等级和评分", kind: "ACTION" },
+  { code: "ai.usage.view", label: "查看本人AI用量", group: "AI获客与筛选", description: "查看允许范围内的AI用量与费用", kind: "ACTION" },
+  { code: "ai.usage.view_all", label: "查看全部AI用量", group: "AI获客与筛选", description: "查看所有归属人的AI用量与费用", kind: "DATA" },
 
-  { code: "followups.view", label: "查看跟进管理", group: "跟进管理", description: "进入跟进管理并查看计划", kind: "PAGE" },
-  { code: "followups.data_all", label: "查看全部跟进数据", group: "跟进管理", description: "可按归属人查看全部跟进记录", kind: "DATA" },
-  { code: "followups.create", label: "新增跟进记录", group: "跟进管理", description: "为有权访问的客户新增跟进", kind: "ACTION" },
-  { code: "followups.edit", label: "修改本人跟进记录", group: "跟进管理", description: "修改本人创建的跟进内容与附件", kind: "ACTION" },
-  { code: "followups.export", label: "导出跟进记录", group: "跟进管理", description: "导出当前筛选范围内的跟进记录", kind: "ACTION" },
+  { code: "followups.view", label: "跟进管理", group: "客户中心", description: "进入跟进管理并查看计划", kind: "PAGE" },
+  { code: "followups.data_all", label: "查看全部跟进数据", group: "客户中心", description: "可按归属人查看全部跟进记录", kind: "DATA" },
+  { code: "followups.create", label: "新增跟进记录", group: "客户中心", description: "为有权访问的客户新增跟进", kind: "ACTION" },
+  { code: "followups.edit", label: "修改本人跟进记录", group: "客户中心", description: "修改本人创建的跟进内容与附件", kind: "ACTION" },
+  { code: "followups.export", label: "导出跟进记录", group: "客户中心", description: "导出当前筛选范围内的跟进记录", kind: "ACTION" },
 
-  { code: "quotes.view", label: "查看报价管理", group: "报价管理", description: "查看权限范围内的报价单", kind: "PAGE" },
-  { code: "quotes.data_all", label: "查看全部报价", group: "报价管理", description: "可按归属人只读查看全部报价", kind: "DATA" },
-  { code: "quotes.create", label: "创建报价单", group: "报价管理", description: "为本人客户创建报价单", kind: "ACTION" },
-  { code: "quotes.edit", label: "编辑本人报价", group: "报价管理", description: "编辑本人尚未确认的报价单", kind: "ACTION" },
-  { code: "quotes.confirm", label: "确认本人报价", group: "报价管理", description: "记录客户确认并创建销售订单和待完善备货单", kind: "ACTION" },
-  { code: "quotes.export", label: "导出报价单", group: "报价管理", description: "按标准PI模板导出报价Excel", kind: "ACTION" },
-  { code: "quotes.cancel", label: "取消本人报价", group: "报价管理", description: "取消本人未确认的报价单", kind: "ACTION" },
+  { code: "quotes.view", label: "报价单", group: "销售管理", description: "查看权限范围内的报价单", kind: "PAGE" },
+  { code: "quotes.data_all", label: "查看全部报价", group: "销售管理", description: "可按归属人只读查看全部报价", kind: "DATA" },
+  { code: "quotes.create", label: "创建报价单", group: "销售管理", description: "为本人客户创建报价单", kind: "ACTION" },
+  { code: "quotes.edit", label: "编辑本人报价", group: "销售管理", description: "编辑本人尚未确认的报价单", kind: "ACTION" },
+  { code: "quotes.confirm", label: "确认本人报价", group: "销售管理", description: "记录客户确认并创建销售订单和待完善备货单", kind: "ACTION" },
+  { code: "quotes.export", label: "导出报价单", group: "销售管理", description: "按标准PI模板导出报价Excel", kind: "ACTION" },
+  { code: "quotes.cancel", label: "取消本人报价", group: "销售管理", description: "取消本人未确认的报价单", kind: "ACTION" },
 
-  { code: "orders.view", label: "查看销售订单", group: "订单管理", description: "查看报价确认后形成的销售订单快照", kind: "PAGE" },
-  { code: "orders.data_all", label: "查看全部销售订单", group: "订单管理", description: "主管只读查看全部销售订单", kind: "DATA" },
-  { code: "orders.edit", label: "修改本人订单说明", group: "订单管理", description: "修改本人未结束订单的交付日期和确认说明", kind: "ACTION" },
-  { code: "orders.cancel", label: "取消本人订单", group: "订单管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
-  { code: "orders.export", label: "导出销售订单", group: "订单管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
+  { code: "orders.view", label: "销售订单", group: "销售管理", description: "查看报价确认后形成的销售订单快照", kind: "PAGE" },
+  { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "主管只读查看全部销售订单", kind: "DATA" },
+  { code: "orders.edit", label: "修改本人订单说明", group: "销售管理", description: "修改本人未结束订单的交付日期和确认说明", kind: "ACTION" },
+  { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
+  { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
-  { code: "stock.view", label: "查看备货管理", group: "备货管理", description: "查看允许范围内的备货单", kind: "PAGE" },
-  { code: "stock.data_all", label: "查看全部备货单", group: "备货管理", description: "按归属人查看全部备货进度", kind: "DATA" },
-  { code: "stock.update", label: "更新备货状态", group: "备货管理", description: "仓库员更新备货状态与备注", kind: "ACTION" },
-  { code: "stock.prepare", label: "完善备货信息", group: "备货管理", description: "订单归属销售员填写仓库中文描述、采购成本和理货要求", kind: "ACTION" },
-  { code: "stock.submit", label: "提交备货单", group: "备货管理", description: "订单归属销售员将已完善备货单提交仓库", kind: "ACTION" },
-  { code: "stock.export", label: "导出备货单", group: "备货管理", description: "按仓库模板导出备货Excel", kind: "ACTION" },
+  { code: "stock.view", label: "备货单", group: "仓库管理", description: "查看允许范围内的备货单", kind: "PAGE" },
+  { code: "stock.data_all", label: "查看全部备货单", group: "仓库管理", description: "按归属人查看全部备货进度", kind: "DATA" },
+  { code: "stock.update", label: "更新备货状态", group: "仓库管理", description: "仓库员更新备货状态与备注", kind: "ACTION" },
+  { code: "stock.prepare", label: "完善备货信息", group: "仓库管理", description: "订单归属销售员填写仓库中文描述、采购成本和理货要求", kind: "ACTION" },
+  { code: "stock.submit", label: "提交备货单", group: "仓库管理", description: "订单归属销售员将已完善备货单提交仓库", kind: "ACTION" },
+  { code: "stock.export", label: "导出备货单", group: "仓库管理", description: "按仓库模板导出备货Excel", kind: "ACTION" },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },
   { code: "reports.export", label: "导出报表", group: "报表中心", description: "导出允许范围内的报表", kind: "ACTION" },
 
-  { code: "costs.view", label: "查看费用中心", group: "费用中心", description: "查看全部第三方API费用及明细", kind: "PAGE", core: true },
-  { code: "costs.export", label: "导出费用明细", group: "费用中心", description: "导出统一API费用台账", kind: "ACTION", core: true },
+  { code: "costs.view", label: "费用中心", group: "系统管理", description: "查看全部第三方API费用及明细", kind: "PAGE", core: true },
+  { code: "costs.export", label: "导出费用明细", group: "系统管理", description: "导出统一API费用台账", kind: "ACTION", core: true },
 
   { code: "notifications.view", label: "查看站内通知", group: "站内通知", description: "查看并处理发送给本人的业务通知", kind: "PAGE" },
 
@@ -102,6 +102,31 @@ export const CORE_PERMISSION_CODES = new Set(PERMISSION_CATALOG.filter((item) =>
 
 export function isKnownPermission(code: string) {
   return PERMISSION_CODES.has(code);
+}
+
+/**
+ * Every data/action permission belongs to one visible page. Keeping this map
+ * beside the catalog makes the permission tree and server-side enforcement
+ * use the same hierarchy as the current sidebar.
+ */
+export function permissionPageCode(code: string) {
+  if (code.endsWith(".view") && PERMISSION_CATALOG.some((item) => item.code === code && item.kind === "PAGE")) return code;
+  if (code.startsWith("dashboard.")) return "dashboard.view";
+  if (code.startsWith("customers.")) return "customers.view";
+  if (code.startsWith("imports.")) return "imports.view";
+  if (code.startsWith("ai.")) return "ai.tasks.view";
+  if (code.startsWith("followups.")) return "followups.view";
+  if (code.startsWith("quotes.")) return "quotes.view";
+  if (code.startsWith("orders.")) return "orders.view";
+  if (code.startsWith("stock.")) return "stock.view";
+  if (code.startsWith("reports.")) return "reports.view";
+  if (code.startsWith("costs.")) return "costs.view";
+  if (code.startsWith("notifications.")) return "notifications.view";
+  if (code.startsWith("system.users.")) return "system.users.view";
+  if (code.startsWith("system.roles.")) return "system.roles.view";
+  if (code.startsWith("system.audit.")) return "system.audit.view";
+  if (code.startsWith("system.security.")) return "system.security.view";
+  return code;
 }
 
 export type UserProfile = {

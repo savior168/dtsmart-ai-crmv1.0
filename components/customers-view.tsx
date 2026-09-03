@@ -27,6 +27,7 @@ import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/imp
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
+import { AppPagination } from "@/components/ui/app-pagination";
 import { csvCell, customerListText, customerProtectionText, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
@@ -299,15 +300,6 @@ export function CustomersView() {
       fetch(`/api/customer-conflicts?summary=1${scope}`).then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
     ]).catch(() => undefined);
   }, [scopeReady, scopeUserId]);
-  const pages = Math.max(1, Math.ceil(count / pageSize));
-  const numbers = useMemo(
-    () =>
-      Array.from(
-        { length: Math.min(5, pages) },
-        (_, index) => Math.max(1, Math.min(page - 2, pages - 4)) + index,
-      ),
-    [page, pages],
-  );
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
   const crossUserReadOnly = canViewAll && scopeUserId !== defaultScopeUserId;
   function switchWorkspace(next: CustomerWorkspace) {
@@ -1017,35 +1009,8 @@ export function CustomersView() {
               </div>
             )}
           </div>
-          <footer className="flex flex-wrap items-center justify-between gap-4 border-t px-5 py-4 text-sm">
-            <span className="text-slate-600">共 <b className="text-slate-900">{count}</b> 家{selected.size ? <span className="ml-2 text-blue-600">，已勾选 {selected.size} 条</span> : null}</span>
-            <div className="flex items-center gap-2">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage((value) => value - 1)}
-                className="rounded-lg border px-3 py-2 disabled:opacity-40"
-              >
-                上一页
-              </button>
-              {numbers.map((number) => (
-                <button
-                  key={number}
-                  onClick={() => setPage(number)}
-                  className={`h-9 min-w-9 rounded-lg border ${number === page ? "border-blue-600 bg-blue-600 text-white" : ""}`}
-                >
-                  {number}
-                </button>
-              ))}
-              <button
-                disabled={page >= pages}
-                onClick={() => setPage((value) => value + 1)}
-                className="rounded-lg border px-3 py-2 disabled:opacity-40"
-              >
-                下一页
-              </button>
-            </div>
-            <div className="flex items-center gap-2"><label className="hidden text-slate-500 lg:block">跳转</label><input type="number" min={1} max={pages} defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const next = Number(event.currentTarget.value); if (Number.isFinite(next)) setPage(Math.min(pages, Math.max(1, next))); } }} className="h-9 w-16 rounded-lg border px-2 text-center" aria-label="跳转到指定页"/><span className="hidden text-slate-500 lg:block">/ {pages} 页</span><select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="rounded-lg border px-3 py-2" aria-label="每页显示数量">{[10, 20, 30, 50, 100, 200, 300, 500].map((size) => <option key={size} value={size}>{size} 条/页</option>)}</select></div>
-          </footer>
+          {selected.size ? <div className="border-t bg-blue-50/50 px-5 py-2 text-sm text-blue-700">已勾选 {selected.size} 条</div> : null}
+          <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="家客户" pageSizes={[10,20,30,50,100]} onPage={setPage} onPageSize={(size)=>{setPageSize(size);setPage(1)}}/>
         </section>
         {deleteIds && (
           <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/35 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="delete-customer-title" onMouseDown={(event) => event.target === event.currentTarget && !deleting && setDeleteIds(null)}>

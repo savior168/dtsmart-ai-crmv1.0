@@ -61,9 +61,9 @@ export async function GET(request: NextRequest) {
     if (ownerId && !elevated) return NextResponse.json({ error: "当前角色不能按他人归属筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionRows: Array<{ country: string | null; industry: string | null; owner_id: string | null }> = [];
+      const optionRows: Array<{ industry: string | null; owner_id: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
-        let optionQuery = admin.from("customers").select("country,industry,owner_id").is("deleted_at", null);
+        let optionQuery = admin.from("customers").select("industry,owner_id").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
         if (tab === "claimed") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
         if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -80,7 +80,6 @@ export async function GET(request: NextRequest) {
       if (owners.error) throw owners.error;
       const unique = (values: Array<string | null>) => [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right, "zh-CN"));
       return NextResponse.json({
-        countries: unique(optionRows.map((item) => item.country)),
         industries: unique(optionRows.map((item) => item.industry)),
         owners: owners.data || [],
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });

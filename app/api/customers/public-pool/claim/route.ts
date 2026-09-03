@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: result.data, message: "客户认领成功，90天保护期已经开始" });
   } catch (error) {
     if (uploaded) await uploaded.cleanup();
-    const message = error instanceof Error ? error.message : "客户认领失败";
+    const rawMessage = error instanceof Error ? error.message : "客户认领失败";
+    const message = /invalid key/i.test(rawMessage) ? "凭证文件名包含存储服务不支持的字符，请重新选择文件后重试" : rawMessage;
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }

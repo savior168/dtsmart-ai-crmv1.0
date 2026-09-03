@@ -9,7 +9,8 @@ const ALLOWED = new Set([
 ]);
 
 function safeName(value: string) {
-  return value.normalize("NFKC").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(-160) || "evidence";
+  const extension = value.toLowerCase().match(/\.(jpe?g|png|webp|pdf)$/)?.[0] || "";
+  return `evidence${extension === ".jpeg" ? ".jpg" : extension}`;
 }
 
 export function validateWorkflowEvidence(value: FormDataEntryValue | null) {

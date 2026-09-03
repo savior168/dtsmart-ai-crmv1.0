@@ -48,6 +48,7 @@ import {
 } from "@/lib/customers/list-fields";
 import { csvCell } from "@/lib/customer-export";
 import type { UserRole } from "@/lib/auth/permissions";
+import { appFieldClass } from "@/components/ui/app-list";
 
 type Role = UserRole;
 type Tab =
@@ -93,7 +94,6 @@ type AssignmentOptions = {
   inactive_users: Array<Owner & { status: string; customer_count: number }>;
 };
 type PoolFilterOptions = {
-  countries: string[];
   industries: string[];
   owners: Owner[];
 };
@@ -137,8 +137,7 @@ const tabDescriptions: Record<Tab, string> = {
   handover: "转移停用或离职账号的全部业务数据",
   history: "追溯公海分配和离职交接批次",
 };
-const field =
-  "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const field = appFieldClass;
 async function api(url: string, init?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...init });
   const body = await response.json().catch(() => ({}));
@@ -208,7 +207,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [exporting, setExporting] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
-    countries: [],
     industries: [],
     owners: [],
   });
@@ -295,13 +293,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     api(`/api/customers/public-pool?tab=${tab}&options=1`)
       .then((body) =>
         setFilterOptions({
-          countries: body.countries || [],
           industries: body.industries || [],
           owners: body.owners || [],
         }),
       )
       .catch(() =>
-        setFilterOptions({ countries: [], industries: [], owners: [] }),
+        setFilterOptions({ industries: [], owners: [] }),
       );
   }, [tab]);
   useEffect(
@@ -410,7 +407,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.7fr)_repeat(5,minmax(130px,1fr))_minmax(150px,1fr)_96px]">
+              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.8fr)_repeat(4,minmax(140px,1fr))_minmax(160px,1fr)_96px]">
                 <label className="relative min-w-0">
                   <Search
                     size={17}
@@ -420,13 +417,13 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="搜索客户名称、国家/地区或行业"
-                    className={`${field} w-full min-w-0 pl-9`}
+                    className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
                 <select
                   value={industry}
                   onChange={(event) => setIndustry(event.target.value)}
-                  className={`${field} min-w-0`}
+                  className={appFieldClass}
                 >
                   <option value="">全部所属行业</option>
                   {filterOptions.industries.map((value) => (
@@ -436,7 +433,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 <select
                   value={aiLevel}
                   onChange={(event) => setAiLevel(event.target.value)}
-                  className={`${field} min-w-0`}
+                  className={appFieldClass}
                 >
                   <option value="">全部AI等级</option>
                   {["A", "B", "C", "D"].map((value) => (
@@ -446,7 +443,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 <select
                   value={target}
                   onChange={(event) => setTarget(event.target.value)}
-                  className={`${field} min-w-0`}
+                  className={appFieldClass}
                 >
                   <option value="">全部目标判断</option>
                   <option value="valid">有效目标</option>
@@ -456,7 +453,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 {tab === "claimed" ? <select
                   value={customerStatus}
                   onChange={(event) => setCustomerStatus(event.target.value)}
-                  className={`${field} min-w-0`}
+                  className={appFieldClass}
                   aria-label="筛选已认领客户的当前阶段"
                 >
                   <option value="">全部已认领客户阶段</option>
@@ -470,7 +467,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <select
                     value={ownerId}
                     onChange={(event) => setOwnerId(event.target.value)}
-                    className={`${field} min-w-0`}
+                    className={appFieldClass}
                   >
                     <option value="">全部归属人</option>
                     {filterOptions.owners.map((value) => (
@@ -767,13 +764,13 @@ function ClaimDialog({
   }
   return (
     <Modal
-      title="提交凭证并认领客户"
-      subtitle={`${row.company_name} · 认领后开始90天保护期`}
+      title="认领客户"
+      subtitle={`${row.company_name} · 提交真实首次联系凭证后，开始90天保护期`}
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
         <label className="block text-sm font-medium">
-          首次联系渠道
+          首次联系渠道 <span className="text-rose-600">*</span>
           <select
             value={channel}
             onChange={(e) => setChannel(e.target.value)}
@@ -787,13 +784,13 @@ function ClaimDialog({
           </select>
         </label>
         <label className="block text-sm font-medium">
-          真实联系结果
+          真实联系结果 <span className="text-rose-600">*</span>
           <select required value={result} onChange={(e) => setResult(e.target.value)} className={`${field} mt-2 w-full`}>
             <option value="">请选择</option><option value="未回复">未回复</option><option value="已回复，待确认需求">已回复，待确认需求</option><option value="明确有需求">明确有需求</option><option value="明确无需求">明确无需求</option><option value="联系方式无效">联系方式无效</option>
           </select>
         </label>
         <label className="block text-sm font-medium">
-          下一步计划
+          下一步计划 <span className="font-normal text-slate-400">（选填）</span>
           <textarea
             value={nextPlan}
             onChange={(e) => setNextPlan(e.target.value)}
@@ -803,8 +800,9 @@ function ClaimDialog({
           />
         </label>
         <EvidenceInput file={file} setFile={setFile} />
+        {!result || !file ? <p className="text-xs text-amber-700">请先选择真实联系结果并上传联系凭证，才能确认认领。</p> : null}
         {error ? <ErrorText value={error} /> : null}
-        <DialogActions busy={busy} close={close} label="确认认领" />
+        <DialogActions busy={busy} disabled={!result||!file} close={close} label="确认认领" />
       </form>
     </Modal>
   );
@@ -1345,7 +1343,7 @@ function EvidenceInput({
     <label className="block rounded-xl border border-dashed p-4 text-sm">
       <span className="flex items-center gap-2 font-medium">
         <Paperclip size={17} />
-        真实联系凭证（必传）
+        真实联系凭证 <span className="text-rose-600">*</span>
       </span>
       <input
         required
@@ -1362,15 +1360,17 @@ function EvidenceInput({
 }
 function DialogActions({
   busy,
+  disabled = false,
   close,
   label,
 }: {
   busy: boolean;
+  disabled?: boolean;
   close: () => void;
   label: string;
 }) {
   return (
-    <SharedDialogActions busy={busy} onCancel={close} confirmLabel={label} />
+    <SharedDialogActions busy={busy} disabled={disabled} onCancel={close} confirmLabel={label} />
   );
 }
 function ErrorText({ value }: { value: string }) {
