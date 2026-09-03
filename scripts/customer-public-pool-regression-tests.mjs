@@ -25,6 +25,8 @@ const importView = read("components/import-view.tsx");
 const listFields = read("lib/customers/list-fields.ts");
 const supplementsMigration = read("supabase/migrations/202609030007_private_pool_supplements.sql");
 const adminClaimMigration = read("supabase/migrations/202609030008_admin_public_customer_claim.sql");
+const privateSupplements = read("lib/customers/private-supplements.ts");
+const industryDisplay = read("lib/customers/industry-display.ts");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -89,5 +91,11 @@ assert.match(poolApi, /eq\("submitted_by", account\.id\)/, "公海接口不得�
 assert.match(poolView, /我的补充资料[\s\S]*仅自己可见 · 不覆盖公海原资料/, "认领界面必须清楚区分私有补充资料与公海主档");
 assert.match(poolApi, /\["SALES", "SUPERVISOR", "ADMIN"\]\.includes\(account\.role\)/, "系统管理员必须显示公海认领操作");
 assert.match(adminClaimMigration, /actor\.role not in \('SALES','SUPERVISOR','ADMIN'\)/, "数据库认领函数必须允许系统管理员完成同一套凭证流程");
+assert.match(privateSupplements, /"contact_name", "phone", "whatsapp", "email"/, "公海私有补充资料必须包含 WhatsApp");
+assert.match(importApi, /publicPool[\s\S]*duplicateOf\.owner_id[\s\S]*status: "conflict"/, "管理员向公海导入已归属客户时必须明确标记归属冲突");
+assert.match(importView, /savedSupplementCount[\s\S]*仅您可见的补充资料/, "导入结果必须明确提示实际保存的补充资料数量");
+assert.match(poolView, /我的补充 \{row\.my_supplements\.length\} 项/, "公海列表必须显示当前用户的私有补充资料标识");
+assert.match(poolView, /customerIndustryDisplay[\s\S]*原始类别：/, "公海与我的客户必须共用行业展示口径");
+assert.match(industryDisplay, /ai_screening_done[\s\S]*AI核验行业/, "行业展示必须区分AI核验结论和未核验原始类别");
 
 console.log("customer public-pool regression tests passed");

@@ -36,6 +36,7 @@ import {
   customerListSortField,
   normalizeCustomerListColumns,
 } from "@/lib/customers/list-fields";
+import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -939,8 +940,8 @@ export function CustomersView() {
                         {key === "company_name" ? (
                           <span className="block truncate font-medium text-blue-600">
                             {row.company_name}
-                            <small className="block truncate text-xs font-normal text-slate-500">
-                              {row.industry || row.category || "-"}
+                            <small className="block truncate text-xs font-normal text-slate-500" title={customerIndustryDisplay(row).title}>
+                              {customerIndustryDisplay(row).verified ? "AI核验：" : "原始类别："}{customerIndustryDisplay(row).text}
                             </small>
                           </span>
                         ) : key === "country" ? (

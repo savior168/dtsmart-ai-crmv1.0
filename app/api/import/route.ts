@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     const existing: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,contact_name,country,phone,email,website,google_url,address,industry,category,source,tags,owner_id,acquisition_scope,pool_status,status,created_at,deleted_at")
+        .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,industry,category,source,tags,owner_id,acquisition_scope,pool_status,status,created_at,deleted_at")
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     const conflicts: Record<string, unknown>[] = [];
     const transferCandidates: Array<{ customer: Record<string, unknown>; submitted: Row; fileName: string; rowNumber: number }> = [];
     const privateSupplements: Record<string, unknown>[] = [];
+    let ownershipConflictCount = 0;
     rows.forEach((raw, index) => {
       const item = { ...raw };
       const importMeta = item.import_meta && typeof item.import_meta === "object" ? item.import_meta : {};
@@ -96,8 +97,13 @@ export async function POST(request: NextRequest) {
           // in the conflict queue for read-only review.
           const disposition = classifyExistingCustomer(duplicateOf, user.id);
           if (publicPool) {
-            duplicate += 1;
-            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: duplicateOf.owner_id ? "客户已存在且已有归属人，未重复加入公海" : "客户已存在于客户公海" });
+            if (duplicateOf.owner_id) {
+              ownershipConflictCount += 1;
+              results.push({ file_name: fileName, row_number: rowNumber, status: "conflict", reason: "系统已存在该客户且已有归属人，已阻止重复加入客户公海", owner_name: ownerNames.get(String(duplicateOf.owner_id)) || "已有归属人", existing_customer_id: String(duplicateOf.id) });
+            } else {
+              duplicate += 1;
+              results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: "系统客户公海已存在该客户，未重复创建", existing_customer_id: String(duplicateOf.id), action_url: `/customers/pool?tab=available&customer=${encodeURIComponent(String(duplicateOf.id))}` });
+            }
           } else if (disposition === "PUBLIC_POOL_AVAILABLE") {
             const additions = buildPrivateSupplementRows(duplicateOf, item, { customerId: String(duplicateOf.id), submittedBy: user.id, sourceType: "BATCH_IMPORT", sourceBatch: fileName, sourceBatchId: taskId, sourceRow: rowNumber });
             privateSupplements.push(...additions);
@@ -258,7 +264,7 @@ export async function POST(request: NextRequest) {
       chunk.forEach((item) => results.push({ file_name: item.fileName, row_number: item.rowNumber, status: "success" }));
       if (taskId) await supabase.from("import_tasks").update({ success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
     }
-    const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length, error_count: invalid, failed_count: failed };
+    const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length + ownershipConflictCount, error_count: invalid, failed_count: failed };
     if (taskId) await supabase.from("import_tasks").update({ total_count: stats.total_count, success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
     await supabase.from("audit_logs").insert({
       user_id: user.id,

@@ -8,6 +8,7 @@ type PoolDbRow = Record<string, unknown> & {
   owner_id: string | null;
   contact_name?: unknown;
   phone?: unknown;
+  whatsapp?: unknown;
   email?: unknown;
   website_phone?: unknown;
   website_email?: unknown;
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
     const target = params.get("target")?.trim() || "";
     const customerStatus = params.get("status")?.trim().toUpperCase() || "";
     const ownerId = params.get("owner_id")?.trim() || "";
+    const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
     const allowed = new Set(["available", "claimed", "pending"]);
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      `id,company_name,contact_name,country,address,industry,category,phone,email,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -109,6 +111,7 @@ export async function GET(request: NextRequest) {
     if (target === "pending") query = query.is("is_target_customer", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
+    if (customerId) query = query.eq("id", customerId);
     const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website", "google_url", "ai_score", "status", "last_contact_time", "owner_id", "source", "created_at", "updated_at"]);
     if (hasOptionalFields) ["website_email", "website_phone", "followup_status"].forEach((field) => allowedSort.add(field));
     const sortField = allowedSort.has(sort) ? sort : "updated_at";
@@ -141,6 +144,7 @@ export async function GET(request: NextRequest) {
         followup_status: "followup_status" in row ? row.followup_status : "WAITING_CONTACT",
         contact_name: full ? row.contact_name : row.contact_name ? "****" : null,
         phone: full ? row.phone : maskPhone(row.phone),
+        whatsapp: full ? row.whatsapp : maskPhone(row.whatsapp),
         email: full ? row.email : maskEmail(row.email),
         website_phone: full ? websitePhone : maskPhone(websitePhone),
         website_email: full ? websiteEmail : maskEmail(websiteEmail),

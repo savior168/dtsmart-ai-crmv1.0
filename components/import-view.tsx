@@ -34,6 +34,7 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   result_reason?: string;
   conflict_owner_name?: string;
   action_url?: string;
+  supplement_count?: number;
 };
 
 function ImportCountry({ value }: { value?: string | null }) { return <CountryLabel value={value} />; }
@@ -177,12 +178,14 @@ function Metric({
   tone,
   icon,
   href,
+  onClick,
 }: {
   label: string;
   value: number;
   tone: string;
   icon: React.ReactNode;
   href?: string;
+  onClick?: () => void;
 }) {
   const content = (
     <>
@@ -200,7 +203,9 @@ function Metric({
     </>
   );
   const className = "flex min-h-[84px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm";
-  return href ? <Link href={href} className={`${className} transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}>{content}</Link> : <div className={className}>{content}</div>;
+  if (href) return <Link href={href} className={`${className} transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}>{content}</Link>;
+  if (onClick) return <button type="button" onClick={onClick} className={`${className} text-left transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}>{content}</button>;
+  return <div className={className}>{content}</div>;
 }
 
 export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE" | "PUBLIC_POOL" }) {
@@ -226,6 +231,14 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const sessionRef = useRef<ImportSessionSnapshot>(initialSession);
+  const resultRef = useRef<HTMLElement>(null);
+
+  function showResult(filter: typeof detailFilter) {
+    if (!stats) return;
+    setDetailFilter(filter);
+    setPage(1);
+    window.requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 
   useEffect(() => {
     // A persisted number-only result has no matching preview rows after a full
@@ -325,6 +338,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   const displayFailure = stats ? stats.failed_count : 0;
   const displayConflict = stats?.conflict_count ?? 0;
   const publicPoolMatches = useMemo(() => rows.filter((row) => Boolean(row.action_url)), [rows]);
+  const savedSupplementCount = useMemo(() => publicPoolMatches.reduce((total, row) => total + Number(row.supplement_count || 0), 0), [publicPoolMatches]);
   const step = stats ? 3 : rows.length ? 2 : files.length ? 1 : 1;
 
   function downloadReport() {
@@ -514,6 +528,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
           result_reason: String(result?.reason || ""),
           conflict_owner_name: String(result?.owner_name || ""),
           action_url: String(result?.action_url || ""),
+          supplement_count: Number(result?.supplement_count || 0),
         };
       });
       completedRows.push(
@@ -525,7 +540,13 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             result_reason: item.reason,
             conflict_owner_name: item.row!.conflict_owner_name || "",
             action_url: "",
+            supplement_count: Number(item.row!.supplement_count || 0),
           })),
+      );
+      completedRows.push(
+        ...failed
+          .filter((item) => item.kind === "error" && item.row)
+          .map((item) => ({ ...item.row!, import_result: "failed" as const, result_reason: item.reason, conflict_owner_name: "", action_url: "", supplement_count: 0 })),
       );
       const serverFailures = results
         .filter((item: Record<string, unknown>) => item.status === "failed")
@@ -865,10 +886,11 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             value={displaySuccess}
             tone="bg-emerald-50 text-emerald-600"
             icon={<CheckCircle2 size={18} />}
+            onClick={() => showResult("success")}
           />
-          <Metric label="失败导入" value={displayFailure} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} />
-          <Metric label="重复数据" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} />
-          <Metric label="冲突客户" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} href="/customers?tab=conflicts" />
+          <Metric label="失败导入" value={displayFailure + (stats?.error_count || 0)} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} onClick={() => showResult("failed")} />
+          <Metric label="系统重复" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} onClick={() => showResult("duplicate")} />
+          <Metric label="归属冲突" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} onClick={() => showResult("conflict")} />
         </section>
         {error && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -884,11 +906,11 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
         {stats && publicPoolMatches.length ? (
           <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
             <Info size={18} className="shrink-0 text-blue-600" />
-            <span><b>{publicPoolMatches.length} 条客户已存在于客户公海</b>，系统未重复创建客户，也未将其记为归属冲突；请提交真实联系凭证后认领。</span>
+            <span><b>{publicPoolMatches.length} 条客户已存在于客户公海</b>，系统未重复创建客户，也未将其记为归属冲突；{savedSupplementCount > 0 ? `已去重保存 ${savedSupplementCount} 项仅您可见的补充资料。` : "导入资料与公海主档相同，没有新增补充项。"}</span>
             <Link href="/customers/pool?tab=available" className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 font-medium text-blue-700 hover:bg-blue-100">前往客户公海认领<ExternalLink size={14}/></Link>
           </div>
         ) : null}
-        <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <section ref={resultRef} className="mt-5 scroll-mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
             <div>
               <h2 className="text-lg font-semibold">
@@ -939,8 +961,8 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                   {[
                     ["all", "全部"],
                     ["success", "成功导入"],
-                    ["duplicate", "重复数据"],
-                    ["conflict", "冲突客户"],
+                    ["duplicate", "系统重复"],
+                    ["conflict", "归属冲突"],
                     ["failed", "导入失败"],
                   ].map(([key, label]) => (
                     <button

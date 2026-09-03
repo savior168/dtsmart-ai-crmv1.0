@@ -23,9 +23,9 @@ const writableFields = [
   "rating",
   "ai_score",
   "ai_level",
+  "ai_screening_done",
   "ai_reason",
   "is_target_customer",
-  "ai_screening_done",
   "website_email",
   "website_phone",
   "business_relevance",
@@ -56,6 +56,7 @@ const customerListFields = [
   "source_batch_id",
   "ai_score",
   "ai_level",
+  "ai_screening_done",
   "status",
   "owner_id",
   "last_contact_time",
@@ -285,7 +286,7 @@ export async function POST(request: NextRequest) {
       const possibleMatches: Record<string, unknown>[] = [];
       for (let from = 0; ; from += 1000) {
         const page = await admin.from("customers")
-          .select("id,company_name,contact_name,country,phone,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at")
+          .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at")
           .order("created_at", { ascending: true })
           .range(from, from + 999);
         if (page.error) throw page.error;

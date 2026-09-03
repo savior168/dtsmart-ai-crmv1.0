@@ -26,7 +26,6 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
 export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "company_name",
   "country",
-  "industry",
   "ai_score",
   "status",
   "followup_status",
@@ -40,7 +39,7 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "updated_at",
 ];
 
-export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v7";
+export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v8";
 
 const columnKeys = new Set<CustomerListColumn>(CUSTOMER_LIST_COLUMNS.map((column) => column.key));
 

@@ -166,7 +166,7 @@ assert.match(importView, /onClick=\{\(\) => void confirmImport\(\)\}/, "正式�
 const taskRuntime = read("components/task-runtime.tsx");
 assert.match(taskRuntime, /requestPath === "\/api\/import"/, "任务提示只能监听正式导入接口");
 assert.doesNotMatch(taskRuntime, /requestUrl\.includes\("\/api\/import"\).*isImport/, "不能把导入预览误判为正式导入");
-assert.match(importView, /href="\/customers\?tab=conflicts"/, "导入结果的冲突客户卡片必须切换到客户管理冲突页签");
+assert.match(importView, /label="归属冲突"[\s\S]*showResult\("conflict"\)/, "导入结果的归属冲突卡片必须定位到本次导入冲突明细");
 assert.match(importView, /成功导入[\s\S]*失败导入[\s\S]*重复数据[\s\S]*冲突客户/, "完整导入报告必须包含四类结果页签");
 assert.match(importView, /当前归属人/, "导入明细和冲突报告必须显示当前归属人");
 const importApi = read("app/api/import/route.ts");

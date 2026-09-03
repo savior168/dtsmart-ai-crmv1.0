@@ -48,6 +48,7 @@ import {
 import { csvCell } from "@/lib/customer-export";
 import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
+import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 
 type Role = UserRole;
 type Tab =
@@ -66,6 +67,7 @@ type PoolRow = {
   address: string | null;
   industry: string | null;
   phone: string | null;
+  whatsapp: string | null;
   email: string | null;
   website_email: string | null;
   website_phone: string | null;
@@ -73,6 +75,7 @@ type PoolRow = {
   google_url: string | null;
   ai_level: string | null;
   ai_score: number | null;
+  ai_screening_done?: boolean | null;
   business_scope: string | null;
   owner_id: string | null;
   owner: Owner | null;
@@ -152,15 +155,15 @@ const formatDate = (value?: string | null) =>
 const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
-  available: ["company_name", "country", "industry", "ai_score", "phone", "email", "website", "google_url", "source"],
-  claimed: ["company_name", "country", "industry", "ai_score", "owner", "status", "followup_status", "protection", "last_contact_time"],
-  pending: ["company_name", "country", "industry", "ai_score", "phone", "email", "source", "updated_at"],
+  available: ["company_name", "country", "ai_score", "phone", "email", "website", "google_url", "source"],
+  claimed: ["company_name", "country", "ai_score", "owner", "status", "followup_status", "protection", "last_contact_time"],
+  pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
 };
 function poolText(row: PoolRow, key: CustomerListColumn) {
   if (key === "company_name") return row.company_name || "—";
   if (key === "contact_name") return row.contact_name || "—";
   if (key === "country") return row.country || "—";
-  if (key === "industry") return row.industry || "其他";
+  if (key === "industry") return customerIndustryDisplay(row).text;
   if (key === "ai_score") return row.ai_score == null ? "未筛选" : `${row.ai_level || "—"} · ${row.ai_score}`;
   if (key === "status") return poolStageLabels[row.status] || row.status || "—";
   if (key === "followup_status") return followupLabels[row.followup_status || "WAITING_CONTACT"] || "待联系";
@@ -179,6 +182,10 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
 }
 
 function PoolValue({ row, field }: { row: PoolRow; field: CustomerListColumn }) {
+  if (field === "company_name") {
+    const industry = customerIndustryDisplay(row);
+    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className="mt-0.5 block truncate font-normal text-slate-500" title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <small className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 font-normal text-blue-700">我的补充 {row.my_supplements.length} 项</small> : null}</span>;
+  }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "website" || field === "google_url") {
     const raw = field === "website" ? row.website : row.google_url;
@@ -198,6 +205,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
+  const [focusedCustomerId, setFocusedCustomerId] = useState("");
   const [industry, setIndustry] = useState("");
   const [aiLevel, setAiLevel] = useState("");
   const [target, setTarget] = useState("");
@@ -243,6 +251,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         page_size: String(pageSize),
       });
       if (query.trim()) params.set("q", query.trim());
+      if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
       if (industry) params.set("industry", industry);
       if (aiLevel) params.set("ai_level", aiLevel);
       if (target) params.set("target", target);
@@ -272,10 +281,20 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     target,
     sort,
     direction,
+    focusedCustomerId,
   ]);
   useEffect(() => {
+    const customerId = new URLSearchParams(window.location.search).get("customer") || "";
+    if (customerId) setFocusedCustomerId(customerId);
+  }, []);
+  useEffect(() => {
+    if (!focusedCustomerId || claim) return;
+    const focused = rows.find((row) => row.id === focusedCustomerId);
+    if (focused?.can_claim) setClaim(focused);
+  }, [claim, focusedCustomerId, rows]);
+  useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v1") || "null");
+      const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v2") || "null");
       const normalized = normalizeCustomerListColumns(saved);
       const next = saved ? normalized : POOL_DEFAULT_FIELDS.available;
       setFields(next);
@@ -329,7 +348,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     if (value === "available" || value === "claimed" || value === "pending") {
       let next = POOL_DEFAULT_FIELDS[value];
       try {
-        const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v1`) || "null");
+        const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v2`) || "null");
         if (saved) next = normalizeCustomerListColumns(saved, value === "claimed");
       } catch {}
       setFields(next);
@@ -595,9 +614,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {claim ? (
           <ClaimDialog
             row={claim}
-            close={() => setClaim(null)}
+            close={() => { setClaim(null); setFocusedCustomerId(""); window.history.replaceState(null, "", "/customers/pool?tab=available"); }}
             saved={(message) => {
               setClaim(null);
+              setFocusedCustomerId("");
               setToast(message);
               void load();
             }}
@@ -615,7 +635,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
           />
         ) : null}
         {createOpen ? <AppDialog title="新增公海客户" description="仅系统管理员可执行；保存后客户无归属人并进入待认领列表。" onClose={() => setCreateOpen(false)} width="max-w-4xl"><CustomerForm destination="PUBLIC_POOL" onCancel={() => setCreateOpen(false)} onDone={() => { setCreateOpen(false); setToast("公海客户新增成功"); void load(); }}/></AppDialog> : null}
-        {fieldOpen ? <AppDialog title="字段显示设置" description="当前公海分类独立保存字段与顺序，不影响我的客户和其他公海分类。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复当前分类默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(`public-pool-columns-${tab}-v1`, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
+        {fieldOpen ? <AppDialog title="字段显示设置" description="当前公海分类独立保存字段与顺序，不影响我的客户和其他公海分类。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复当前分类默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(`public-pool-columns-${tab}-v2`, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
         {deleteIds ? <PoolDeleteDialog customerIds={deleteIds} close={() => setDeleteIds(null)} saved={(message) => { setDeleteIds(null); setSelected(new Set()); setToast(message); void load(); }} /> : null}
         {toast ? (
           <div
@@ -796,7 +816,7 @@ function ClaimDialog({
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
-        {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"联系人",phone:"电话",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
+        {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"联系人",phone:"电话",whatsapp:"WhatsApp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
         <label className="block text-sm font-medium">
           首次联系渠道 <span className="text-rose-600">*</span>
           <select
