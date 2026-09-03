@@ -271,9 +271,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("customers.create");
+    const { supabase, user, account } = await requirePermission("customers.create");
     const admin = createAdminClient();
     const body = await request.json();
+    const publicPool = body.destination === "PUBLIC_POOL";
+    if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
@@ -295,6 +297,7 @@ export async function POST(request: NextRequest) {
       const duplicateId = typeof duplicate?.id === "string" ? duplicate.id : null;
       if (duplicate && !duplicateId) throw new Error("重复客户记录缺少有效ID");
       if (duplicate?.owner_id === user.id) return NextResponse.json({ error: "该客户已存在于您的客户库中" }, { status: 409 });
+      if (duplicate && publicPool) return NextResponse.json({ error: duplicate.owner_id ? "该客户已存在且已有归属人，不能重复加入公海" : "该客户已存在于客户公海" }, { status: 409 });
       if (duplicate) {
         const transfer = await supabase.rpc("take_over_expired_customer", { p_customer_id: duplicateId, p_source: "MANUAL_CREATE" });
         if (transfer.error) throw new Error(`客户归属校验失败：${transfer.error.message}`);
@@ -327,7 +330,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ conflict: true, status: "CONFLICT", message }, { status: 201 });
       }
     }
-    const payload: Record<string, unknown> = { ...clean(body), source: body.source || "MANUAL", status: "CLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
+    const payload: Record<string, unknown> = publicPool
+      ? { ...clean(body), source: body.source || "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_PUBLIC_CREATE" }
+      : { ...clean(body), source: body.source || "MANUAL", status: "CLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
+    delete payload.destination;
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
     delete payload.website_email;
@@ -339,7 +345,7 @@ export async function POST(request: NextRequest) {
       ({ data, error } = await supabase.from("customers").insert(legacyPayload).select().single());
     }
     if (error) throw error;
-    await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name });
+    await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name, destination: publicPool ? "PUBLIC_POOL" : "PRIVATE" });
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "新增失败" }, { status: 400 });

@@ -202,7 +202,7 @@ export function CrmDashboard() {
           <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
           <span className="mx-1 hidden h-6 w-px bg-slate-200 xl:block" />
-          <Link href="/import" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UploadCloud size={16}/>导入客户</Link>
+          <Link href="/import?destination=private" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UploadCloud size={16}/>导入我的客户</Link>
           <Link href="/ai-screening/new" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><Sparkles size={16}/>创建AI筛选</Link>
           <Link href="/quotes/new" className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700"><FileText size={16}/>创建报价</Link>
         </section>

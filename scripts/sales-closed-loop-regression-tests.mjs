@@ -70,7 +70,8 @@ assert.match(manualStatusMigration,/change_customer_followup_status[\s\S]*WAITIN
 assert.doesNotMatch(closedLoopMigration,/stock_orders[\s\S]*desired:='DEAL'/,"备货状态不得控制客户成交阶段");
 
 const menu = read("components/app-shell.tsx");
-assert.match(menu, /label: "客户中心"[\s\S]*客户公海[\s\S]*我的客户[\s\S]*客户导入[\s\S]*跟进管理/, "客户中心必须按公海、我的客户、导入和跟进顺序归类");
+assert.match(menu, /label: "客户中心"[\s\S]*客户公海[\s\S]*我的客户[\s\S]*跟进管理/, "客户中心必须按公海、我的客户和跟进顺序归类");
+assert.doesNotMatch(menu, /label: "客户导入"/, "客户导入只能从目标客户列表进入，不能保留歧义二级菜单");
 assert.match(menu, /label: "销售管理"[\s\S]*报价单[\s\S]*销售订单/, "报价单与销售订单必须归入销售管理");
 assert.match(menu, /label: "仓库管理"[\s\S]*stock\.view/, "备货单必须归入仓库管理");
 assert.match(menu, /label: "AI获客"[\s\S]*disabled: true/, "AI获客本期只能预留，不能伪装成已开发功能");

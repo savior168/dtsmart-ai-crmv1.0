@@ -22,9 +22,11 @@ function identity(row: Row) { return { lookupKeys: customerLookupIdentityKeys(ro
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("imports.create");
+    const { supabase, user, account } = await requirePermission("imports.create");
     const admin = createAdminClient();
-    const payload = await request.json() as { filename?: string; rows?: Row[] };
+    const payload = await request.json() as { filename?: string; rows?: Row[]; destination?: string };
+    const publicPool = payload.destination === "PUBLIC_POOL";
+    if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以向客户公海导入数据" }, { status: 403 });
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: "没有可导入的数据" }, { status: 400 });
 
@@ -81,7 +83,10 @@ export async function POST(request: NextRequest) {
           // A duplicate never creates a second customer. When it belongs to
           // another salesperson, retain the importer's original basic fields
           // in the conflict queue for read-only review.
-          if (duplicateOf.owner_id !== user.id) {
+          if (publicPool) {
+            duplicate += 1;
+            results.push({ file_name: fileName, row_number: rowNumber, status: "duplicate", reason: duplicateOf.owner_id ? "客户已存在且已有归属人，未重复加入公海" : "客户已存在于客户公海" });
+          } else if (duplicateOf.owner_id !== user.id) {
             transferCandidates.push({ customer: duplicateOf, submitted: item, fileName, rowNumber });
           } else {
             failed += 1;
@@ -97,7 +102,9 @@ export async function POST(request: NextRequest) {
         delete item.ai_screening_done;
         delete item.website_email;
         delete item.website_phone;
-        accepted.push({ row: { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "CLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_IMPORT" }, fileName, rowNumber });
+        accepted.push({ row: publicPool
+          ? { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_PUBLIC_IMPORT" }
+          : { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "CLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_IMPORT" }, fileName, rowNumber });
       } catch (reason) {
         invalid += 1;
         const message = reason instanceof Error ? reason.message : "数据格式错误";
@@ -229,7 +236,7 @@ export async function POST(request: NextRequest) {
       action: "IMPORT_COMPLETE",
       target_type: "import_task",
       target_id: taskId,
-      content: { filename: payload.filename || "批量导入", ...stats },
+      content: { filename: payload.filename || "批量导入", destination: publicPool ? "PUBLIC_POOL" : "PRIVATE", ...stats },
       result: failed + invalid > 0 ? "部分成功" : "成功",
       created_at: new Date().toISOString(),
     });

@@ -10,12 +10,20 @@ import React, {
 } from "react";
 import {
   ArchiveRestore,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
+  Download,
   ExternalLink,
+  FileSpreadsheet,
+  Globe2,
   LoaderCircle,
+  MapPin,
   Paperclip,
+  Plus,
   RefreshCw,
   Search,
+  Settings2,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -29,6 +37,16 @@ import {
 } from "@/components/ui/app-dialog";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { AppTabs } from "@/components/ui/app-tabs";
+import { CustomerForm } from "@/components/customer-form";
+import {
+  CUSTOMER_LIST_COLUMNS,
+  CUSTOMER_LIST_COLUMN_STORAGE_KEY,
+  CUSTOMER_LIST_DEFAULT_COLUMNS,
+  customerListSortField,
+  normalizeCustomerListColumns,
+  type CustomerListColumn,
+} from "@/lib/customers/list-fields";
+import { csvCell } from "@/lib/customer-export";
 
 type Role = "ADMIN" | "SUPERVISOR" | "SALES" | "WAREHOUSE";
 type Tab =
@@ -42,11 +60,14 @@ type Owner = { id: string; name: string | null; email: string };
 type PoolRow = {
   id: string;
   company_name: string;
+  contact_name: string | null;
   country: string | null;
   address: string | null;
   industry: string | null;
   phone: string | null;
   email: string | null;
+  website_email: string | null;
+  website_phone: string | null;
   website: string | null;
   google_url: string | null;
   ai_level: string | null;
@@ -56,6 +77,11 @@ type PoolRow = {
   owner: Owner | null;
   pool_status: string | null;
   status: string;
+  followup_status: string | null;
+  last_contact_time: string | null;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
   contact_masked: boolean;
   can_claim: boolean;
   can_open_customer: boolean;
@@ -123,6 +149,41 @@ const displayUser = (user?: Owner | null) =>
 const formatDate = (value?: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
 
+const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
+const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
+function poolText(row: PoolRow, key: CustomerListColumn) {
+  if (key === "company_name") return row.company_name || "—";
+  if (key === "contact_name") return row.contact_name || "—";
+  if (key === "country") return row.country || "—";
+  if (key === "ai_score") return row.ai_score == null ? "未筛选" : `${row.ai_level || "—"} · ${row.ai_score}`;
+  if (key === "status") return poolStageLabels[row.status] || row.status || "—";
+  if (key === "followup_status") return followupLabels[row.followup_status || "WAITING_CONTACT"] || "待联系";
+  if (key === "protection") return row.protection?.expire_date ? `至 ${new Date(row.protection.expire_date).toLocaleDateString("zh-CN")}` : "—";
+  if (key === "last_contact_time") return formatDate(row.last_contact_time);
+  if (key === "owner") return displayUser(row.owner);
+  if (key === "phone") return row.phone || "—";
+  if (key === "email") return row.email || "—";
+  if (key === "website_email") return row.website_email || "—";
+  if (key === "website_phone") return row.website_phone || "—";
+  if (key === "website") return row.website || "—";
+  if (key === "google_url") return row.google_url || "—";
+  if (key === "source") return row.source === "EXCEL_IMPORT" ? "Excel导入" : row.source || "—";
+  if (key === "updated_at") return formatDate(row.updated_at);
+  return "—";
+}
+
+function PoolValue({ row, field }: { row: PoolRow; field: CustomerListColumn }) {
+  if (field === "country") return <CountryLabel value={row.country}/>;
+  if (field === "website" || field === "google_url") {
+    const raw = field === "website" ? row.website : row.google_url;
+    const target = String(raw || "").trim();
+    if (!target) return <span className="text-slate-400">—</span>;
+    const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
+    return <a href={url} target="_blank" rel="noreferrer" className="inline-flex max-w-40 items-center gap-1 truncate text-blue-600 hover:underline">{field === "website" ? <Globe2 size={13}/> : <MapPin size={13}/>}<span className="truncate">{target}</span></a>;
+  }
+  return <span className="line-clamp-2">{poolText(row, field)}</span>;
+}
+
 export function CustomerPublicPoolView() {
   const [tab, setTab] = useState<Tab>("available");
   const [rows, setRows] = useState<PoolRow[]>([]);
@@ -137,6 +198,13 @@ export function CustomerPublicPoolView() {
   const [target, setTarget] = useState("");
   const [customerStatus, setCustomerStatus] = useState("");
   const [ownerId, setOwnerId] = useState("");
+  const [sort, setSort] = useState("updated_at");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const [fields, setFields] = useState<CustomerListColumn[]>(CUSTOMER_LIST_DEFAULT_COLUMNS);
+  const [draftFields, setDraftFields] = useState<CustomerListColumn[]>(CUSTOMER_LIST_DEFAULT_COLUMNS);
+  const [fieldOpen, setFieldOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     countries: [],
     industries: [],
@@ -149,6 +217,11 @@ export function CustomerPublicPoolView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const orderedFieldOptions = useMemo(() => {
+    const ordered = draftFields.map((key) => CUSTOMER_LIST_COLUMNS.find((column) => column.key === key)).filter((column): column is (typeof CUSTOMER_LIST_COLUMNS)[number] => Boolean(column));
+    CUSTOMER_LIST_COLUMNS.forEach((column) => { if (!draftFields.includes(column.key)) ordered.push(column); });
+    return ordered;
+  }, [draftFields]);
   const load = useCallback(async () => {
     if (!["available", "claimed", "pending"].includes(tab)) {
       setLoading(false);
@@ -169,6 +242,8 @@ export function CustomerPublicPoolView() {
       if (target) params.set("target", target);
       if (customerStatus && tab === "claimed") params.set("status", customerStatus);
       if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
+      params.set("sort", sort);
+      params.set("direction", direction);
       const body = await api(`/api/customers/public-pool?${params}`);
       setRows(body.data || []);
       setCount(Number(body.count || 0));
@@ -190,7 +265,20 @@ export function CustomerPublicPoolView() {
     query,
     tab,
     target,
+    sort,
+    direction,
   ]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY) || localStorage.getItem("customer-columns-v5") || "null");
+      const normalized = normalizeCustomerListColumns(saved);
+      setFields(normalized);
+      setDraftFields(normalized);
+    } catch {
+      setFields(CUSTOMER_LIST_DEFAULT_COLUMNS);
+      setDraftFields(CUSTOMER_LIST_DEFAULT_COLUMNS);
+    }
+  }, []);
   useEffect(() => {
     void load();
   }, [load]);
@@ -236,6 +324,57 @@ export function CustomerPublicPoolView() {
     setOwnerId("");
     setPage(1);
   }
+  function changeSort(key: CustomerListColumn) {
+    const next = customerListSortField(key);
+    if (sort === next) setDirection((current) => current === "asc" ? "desc" : "asc");
+    else { setSort(next); setDirection("asc"); }
+    setPage(1);
+  }
+  function moveDraftField(key: CustomerListColumn, offset: -1 | 1) {
+    setDraftFields((current) => {
+      const index = current.indexOf(key);
+      const targetIndex = index + offset;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  }
+  async function exportData() {
+    if (role !== "ADMIN" || exporting || !["available", "claimed", "pending"].includes(tab)) return;
+    setExporting(true);
+    setError("");
+    try {
+      const exported: PoolRow[] = [];
+      for (let exportPage = 1; ; exportPage += 1) {
+        const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "100", sort, direction, export: "1" });
+        if (query.trim()) params.set("q", query.trim());
+        if (country) params.set("country", country);
+        if (industry) params.set("industry", industry);
+        if (aiLevel) params.set("ai_level", aiLevel);
+        if (target) params.set("target", target);
+        if (customerStatus && tab === "claimed") params.set("status", customerStatus);
+        if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
+        const body = await api(`/api/customers/public-pool?${params}`);
+        const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
+        exported.push(...pageRows);
+        if (pageRows.length < 100 || exported.length >= Number(body.count || 0)) break;
+      }
+      const headers = fields.map((key) => CUSTOMER_LIST_COLUMNS.find((column) => column.key === key)?.label || key);
+      const lines = [headers.map(csvCell).join(","), ...exported.map((row) => fields.map((key) => csvCell(poolText(row, key))).join(","))];
+      const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `客户公海-${tabLabels[tab]}-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setToast(`已导出当前筛选结果 ${exported.length} 条`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "导出失败");
+    } finally {
+      setExporting(false);
+    }
+  }
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1680px]">
@@ -249,14 +388,15 @@ export function CustomerPublicPoolView() {
               “认领记录”仅用于查询历史公海客户的当前归属，非归属销售员只能查看脱敏信息；它不是可再次认领的客户列表。
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"
-          >
-            <RefreshCw size={16} />
-            刷新
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {role === "ADMIN" ? <>
+              <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"><Plus size={16}/>新增公海客户</button>
+              <Link href="/import?destination=public" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium"><FileSpreadsheet size={16}/>批量导入</Link>
+              <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium disabled:opacity-50"><Download size={16}/>{exporting ? "正在导出…" : "导出数据"}</button>
+            </> : null}
+            <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><Settings2 size={16}/>字段设置</button>
+            <button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button>
+          </div>
         </header>
         <div className="mt-5">
           <AppTabs
@@ -394,6 +534,10 @@ export function CustomerPublicPoolView() {
             <PoolTable
               rows={rows}
               loading={loading}
+              fields={fields}
+              sort={sort}
+              direction={direction}
+              changeSort={changeSort}
               canDelete={role === "ADMIN"}
               selected={selected}
               setSelected={setSelected}
@@ -442,6 +586,8 @@ export function CustomerPublicPoolView() {
             }}
           />
         ) : null}
+        {createOpen ? <AppDialog title="新增公海客户" description="仅系统管理员可执行；保存后客户无归属人并进入待认领列表。" onClose={() => setCreateOpen(false)} width="max-w-4xl"><CustomerForm destination="PUBLIC_POOL" onCancel={() => setCreateOpen(false)} onDone={() => { setCreateOpen(false); setToast("公海客户新增成功"); void load(); }}/></AppDialog> : null}
+        {fieldOpen ? <AppDialog title="字段显示设置" description="客户公海与我的客户共用同一套字段、默认顺序和排序规则。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
         {deleteIds ? <PoolDeleteDialog customerIds={deleteIds} close={() => setDeleteIds(null)} saved={(message) => { setDeleteIds(null); setSelected(new Set()); setToast(message); void load(); }} /> : null}
         {toast ? (
           <div
@@ -463,6 +609,10 @@ export function CustomerPublicPoolView() {
 function PoolTable({
   rows,
   loading,
+  fields,
+  sort,
+  direction,
+  changeSort,
   canDelete,
   selected,
   setSelected,
@@ -471,6 +621,10 @@ function PoolTable({
 }: {
   rows: PoolRow[];
   loading: boolean;
+  fields: CustomerListColumn[];
+  sort: string;
+  direction: "asc" | "desc";
+  changeSort: (key: CustomerListColumn) => void;
   canDelete: boolean;
   selected: Set<string>;
   setSelected: (value: Set<string>) => void;
@@ -504,13 +658,7 @@ function PoolTable({
                 />
               </th>
             ) : null}
-            <th className="w-64 px-4 py-3">客户名称</th>
-            <th className="w-32 px-4 py-3">国家/地区</th>
-            <th className="w-40 px-4 py-3">所属行业</th>
-            <th className="w-40 px-4 py-3">电话</th>
-            <th className="w-52 px-4 py-3">邮箱</th>
-            <th className="w-32 px-4 py-3">AI等级</th>
-            <th className="w-40 px-4 py-3">归属人/保护期</th>
+            {fields.map((field) => <th key={field} className={`${field === "company_name" ? "w-64" : "w-40"} px-4 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
             <th className="w-36 px-4 py-3">操作</th>
           </tr>
         </thead>
@@ -527,46 +675,7 @@ function PoolTable({
                   />
                 </td>
               ) : null}
-              <td className="px-4 py-4">
-                <b className="block truncate" title={row.company_name}>
-                  {row.company_name}
-                </b>
-                {row.contact_masked ? (
-                  <small className="mt-1 block text-amber-600">
-                    敏感信息已隐藏
-                  </small>
-                ) : null}
-              </td>
-              <td className="px-4 py-4">
-                <CountryLabel value={row.country} />
-              </td>
-              <td className="px-4 py-4">
-                <span className="line-clamp-2">{row.industry || "其他"}</span>
-              </td>
-              <td className="px-4 py-4">{row.phone || "—"}</td>
-              <td className="px-4 py-4">
-                <span className="block truncate">{row.email || "—"}</span>
-              </td>
-              <td className="px-4 py-4">
-                {row.ai_level ? (
-                  <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                    {row.ai_level} · {row.ai_score ?? "—"}
-                  </span>
-                ) : (
-                  "待筛选"
-                )}
-              </td>
-              <td className="px-4 py-4">
-                <b className="block text-slate-700">{displayUser(row.owner)}</b>
-                {row.protection?.expire_date ? (
-                  <small className="mt-1 block text-slate-500">
-                    至{" "}
-                    {new Date(row.protection.expire_date).toLocaleDateString(
-                      "zh-CN",
-                    )}
-                  </small>
-                ) : null}
-              </td>
+              {fields.map((field) => <td key={field} className="max-w-64 overflow-hidden px-4 py-4 align-middle"><PoolValue row={row} field={field}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
               <td className="px-4 py-4">
                 <div className="flex items-center gap-2">
                 {row.can_claim ? (

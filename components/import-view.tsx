@@ -62,6 +62,7 @@ const IMPORT_TASK_KEY = "dtsmart-import-task";
 const IMPORT_TASK_EVENT = "dtsmart-task-update";
 
 type ImportSessionSnapshot = {
+  destination: "PRIVATE" | "PUBLIC_POOL";
   files: File[];
   rows: MappedRow[];
   failed: FailedRow[];
@@ -70,6 +71,7 @@ type ImportSessionSnapshot = {
 };
 
 let importSessionSnapshot: ImportSessionSnapshot = {
+  destination: "PRIVATE",
   files: [],
   rows: [],
   failed: [],
@@ -200,14 +202,15 @@ function Metric({
   return href ? <Link href={href} className={`${className} transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}>{content}</Link> : <div className={className}>{content}</div>;
 }
 
-export function ImportView() {
-  const [files, setFiles] = useState<File[]>(() => importSessionSnapshot.files);
-  const [rows, setRows] = useState<MappedRow[]>(() => importSessionSnapshot.rows);
-  const [failed, setFailed] = useState<FailedRow[]>(() => importSessionSnapshot.failed);
+export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE" | "PUBLIC_POOL" }) {
+  const initialSession = importSessionSnapshot.destination === destination ? importSessionSnapshot : { destination, files: [], rows: [], failed: [], stats: null, previewStats: { success_count: 0, conflict_count: 0 } };
+  const [files, setFiles] = useState<File[]>(() => initialSession.files);
+  const [rows, setRows] = useState<MappedRow[]>(() => initialSession.rows);
+  const [failed, setFailed] = useState<FailedRow[]>(() => initialSession.failed);
   const [busy, setBusy] = useState(false);
-  const [stats, setStats] = useState<Stats | null>(() => importSessionSnapshot.stats);
+  const [stats, setStats] = useState<Stats | null>(() => initialSession.stats);
   const [previewStats, setPreviewStats] = useState<PreviewStats>(
-    () => importSessionSnapshot.previewStats,
+    () => initialSession.previewStats,
   );
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
@@ -221,7 +224,7 @@ export function ImportView() {
   const [jumpPage, setJumpPage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const sessionRef = useRef<ImportSessionSnapshot>(importSessionSnapshot);
+  const sessionRef = useRef<ImportSessionSnapshot>(initialSession);
 
   useEffect(() => {
     // A persisted number-only result has no matching preview rows after a full
@@ -231,13 +234,13 @@ export function ImportView() {
     if (!importSessionSnapshot.rows.length) {
       window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
     }
-  }, []);
+  }, [destination]);
 
   useEffect(() => {
-    const snapshot = { files, rows, failed, stats, previewStats };
+    const snapshot = { destination, files, rows, failed, stats, previewStats };
     sessionRef.current = snapshot;
     importSessionSnapshot = snapshot;
-  }, [files, rows, failed, stats, previewStats]);
+  }, [destination, files, rows, failed, stats, previewStats]);
 
   useEffect(() => {
     const syncTaskState = () => {
@@ -271,6 +274,7 @@ export function ImportView() {
       const task = readImportTask();
       if (sessionRef.current.stats && task?.status !== "running") {
         importSessionSnapshot = {
+          destination,
           files: [],
           rows: [],
           failed: [],
@@ -280,7 +284,7 @@ export function ImportView() {
         window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
       }
     };
-  }, []);
+  }, [destination]);
 
   const filteredRows = useMemo(() => {
     const needle = detailSearch.trim().toLowerCase();
@@ -485,6 +489,7 @@ export function ImportView() {
             files.length === 1
               ? files[0].name
               : `批量导入${files.length}个文件`,
+          destination,
           rows: bodyRows,
         }),
       });
@@ -542,6 +547,7 @@ export function ImportView() {
       setFailed(completedFailures);
       setStats(completedStats);
       const completedSnapshot = {
+        destination,
         files,
         rows: completedRows,
         failed: completedFailures,
@@ -667,10 +673,10 @@ export function ImportView() {
       <div className="mx-auto max-w-[1600px]">
         <div className="mb-5 flex items-center justify-between">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            数据导入
+            {destination === "PUBLIC_POOL" ? "导入到客户公海" : "导入到我的客户"}
           </h1>
           <div className="text-sm text-slate-500">
-            支持 Excel、CSV 和文件夹批量导入
+            {destination === "PUBLIC_POOL" ? "仅系统管理员可执行；成功数据无归属人并进入待认领客户" : "成功数据默认归属当前用户；系统自动执行全库去重与归属校验"}
           </div>
         </div>
         <div className="mb-5 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm">

@@ -12,9 +12,10 @@ type Row = {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = await requirePermission("imports.create");
+    const { user, account } = await requirePermission("imports.create");
     const admin = createAdminClient();
-    const payload = (await request.json()) as { rows?: Row[] };
+    const payload = (await request.json()) as { rows?: Row[]; destination?: string };
+    if (payload.destination === "PUBLIC_POOL" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以向客户公海导入数据" }, { status: 403 });
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) {
       return NextResponse.json({ success_count: 0, conflict_count: 0 });

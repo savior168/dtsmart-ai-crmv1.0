@@ -18,6 +18,10 @@ const lifecycleRules = read("supabase/migrations/202609020004_customer_document_
 const manualStatusRules = read("supabase/migrations/202609030002_restore_single_customer_stage_change.sql");
 const ownershipIntegrity = read("supabase/migrations/202609030003_customer_ownership_integrity.sql");
 const stageReleaseBoundary = read("supabase/migrations/202609030004_customer_stage_release_boundary.sql");
+const importApi = read("app/api/import/route.ts");
+const importPage = read("app/import/page.tsx");
+const importView = read("components/import-view.tsx");
+const listFields = read("lib/customers/list-fields.ts");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -32,6 +36,7 @@ assert.match(manualStatusRules, /drop trigger if exists attachments_promote_evid
 assert.match(migration, /lower\(trim\(coalesce\(name,''\)\)\)='eva'/i, "销售员默认上级应优先 Eva");
 assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入审计日志");
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
+assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
 assert.match(poolApi, /own \|\| elevated/, "仅归属人或高级只读角色可打开完整客户详情");
 assert.match(userApi, /historyCount > 0/, "存在业务历史的账号不得物理删除");
 assert.match(userApi, /action === "CREATE"/, "系统管理员应能新增用户");
@@ -51,6 +56,15 @@ assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得�
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");
 assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客户公海入口");
+assert.doesNotMatch(sidebar, /label: "客户导入"/, "客户中心不得保留含义不清的独立客户导入二级菜单");
+assert.match(poolView, /CUSTOMER_LIST_COLUMNS[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS[\s\S]*customerListSortField/, "客户公海和我的客户必须共用字段及排序规则");
+assert.match(listFields, /CUSTOMER_LIST_COLUMN_STORAGE_KEY[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS/, "两张客户列表必须共享字段设置和默认顺序");
+assert.match(poolView, /role === "ADMIN"[\s\S]*新增公海客户[\s\S]*destination=public[\s\S]*导出数据/, "公海新增导入导出入口必须只向系统管理员显示");
+assert.match(poolApi, /export["\)]* === "1"[\s\S]*account\.role !== "ADMIN"/, "公海导出请求必须在服务端限制为系统管理员");
+assert.match(customersApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*status: "UNCLAIMED"[\s\S]*owner_id: null[\s\S]*pool_status: "AVAILABLE"/, "管理员新增公海客户必须生成无归属待认领记录");
+assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*ADMIN_PUBLIC_IMPORT/, "公海导入必须服务端鉴权并写入明确的公海来源");
+assert.match(importPage, /destination === "public"[\s\S]*requireAdmin\(\)/, "公海导入页面本身必须仅系统管理员可进入");
+assert.match(importView, /destination[\s\S]*导入到客户公海[\s\S]*导入到我的客户/, "共用导入页必须清楚显示实际导入目标");
 assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客户原始来源由系统保留，不能修改/, "系统获客来源标记必须不可被前端篡改");
 assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customers from authenticated/, "客户归属字段不得允许前端直写绕过认领流程");
 assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customer_protection from authenticated/, "保护关系不得允许前端直写绕过流程");

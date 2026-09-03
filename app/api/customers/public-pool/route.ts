@@ -38,10 +38,13 @@ export async function GET(request: NextRequest) {
     const target = params.get("target")?.trim() || "";
     const customerStatus = params.get("status")?.trim().toUpperCase() || "";
     const ownerId = params.get("owner_id")?.trim() || "";
+    const sort = params.get("sort") || "updated_at";
+    const direction = params.get("direction") === "asc" ? "asc" : "desc";
     const allowed = new Set(["available", "claimed", "pending"]);
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
     const elevated = account.role === "ADMIN" || account.role === "SUPERVISOR";
+    if (params.get("export") === "1" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以导出客户公海数据" }, { status: 403 });
     if (ownerId && !elevated) return NextResponse.json({ error: "当前角色不能按他人归属筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
@@ -71,7 +74,7 @@ export async function GET(request: NextRequest) {
     }
 
     let query = admin.from("customers").select(
-      "id,company_name,country,address,industry,category,phone,email,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,updated_at",
+      "id,company_name,contact_name,country,address,industry,category,phone,email,website_email,website_phone,website,google_url,ai_level,ai_score,is_target_customer,business_scope,source,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,followup_status,last_contact_time,created_at,updated_at",
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -89,8 +92,10 @@ export async function GET(request: NextRequest) {
     if (target === "pending") query = query.is("is_target_customer", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
+    const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website_email", "website_phone", "website", "google_url", "ai_score", "status", "followup_status", "last_contact_time", "owner_id", "source", "created_at", "updated_at"]);
+    const sortField = allowedSort.has(sort) ? sort : "updated_at";
     const from = (page - 1) * pageSize;
-    const result = await query.order("updated_at", { ascending: false }).range(from, from + pageSize - 1);
+    const result = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, from + pageSize - 1);
     if (result.error) throw result.error;
     const rows = result.data || [];
     const ownerIds = [...new Set(rows.map((item) => item.owner_id).filter(Boolean))] as string[];
@@ -109,8 +114,11 @@ export async function GET(request: NextRequest) {
       const full = tab !== "claimed" || own || elevated;
       return {
         ...row,
+        contact_name: full ? row.contact_name : row.contact_name ? "****" : null,
         phone: full ? row.phone : maskPhone(row.phone),
         email: full ? row.email : maskEmail(row.email),
+        website_phone: full ? row.website_phone : maskPhone(row.website_phone),
+        website_email: full ? row.website_email : maskEmail(row.website_email),
         address: full ? row.address : maskAddress(row.address),
         website: full ? row.website : null,
         google_url: full ? row.google_url : null,

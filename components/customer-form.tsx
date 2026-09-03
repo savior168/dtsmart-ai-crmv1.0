@@ -2,7 +2,7 @@
 import { useState, type FormEvent } from "react";
 import type { Customer } from "@/lib/types";
 
-export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = false, editBasicOnly = false }: { customer?: Customer | null; onDone: (customer?: Customer) => void; onCancel: () => void; analyzeAfterSave?: boolean; editBasicOnly?: boolean }) {
+export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = false, editBasicOnly = false, destination = "PRIVATE" }: { customer?: Customer | null; onDone: (customer?: Customer) => void; onCancel: () => void; analyzeAfterSave?: boolean; editBasicOnly?: boolean; destination?: "PRIVATE" | "PUBLIC_POOL" }) {
   const [form, setForm] = useState<Record<string,string>>({ company_name:customer?.company_name||"",contact_name:customer?.contact_name||"",country:customer?.country||"",phone:customer?.phone||"",whatsapp:customer?.whatsapp||"",email:customer?.email||"",website:customer?.website||"",google_url:customer?.google_url||"",address:customer?.address||"",industry:customer?.industry||"",category:customer?.category||"",source:customer?.source||"手动创建",tags:customer?.tags?.join(",")||"",status:customer?.status||"UNCLAIMED",followup_status:customer?.followup_status||"WAITING_CONTACT",notes:customer?.notes||"" });
   const [error,setError]=useState(""); const [saving,setSaving]=useState(false);
   const set=(key:string,value:string)=>setForm((current)=>({...current,[key]:value}));
@@ -11,7 +11,7 @@ export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = fa
     setSaving(true);
     setError("");
     try {
-      const allPayload:Record<string,string|string[]>={...form,tags:form.tags.split(/[,，]/).map((item)=>item.trim()).filter(Boolean)};
+      const allPayload:Record<string,string|string[]>={...form,destination,tags:form.tags.split(/[,，]/).map((item)=>item.trim()).filter(Boolean)};
       const basicKeys=["company_name","contact_name","country","phone","whatsapp","email","website","google_url","address","category","tags","notes"];
       const payload=editBasicOnly?Object.fromEntries(basicKeys.map((key)=>[key,allPayload[key]])):allPayload;
       const response=await fetch(customer?`/api/customers/${customer.id}`:"/api/customers",{method:customer?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});

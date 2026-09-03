@@ -32,7 +32,6 @@ const menu = [
     label: "客户中心", icon: UsersRound, defaultHref: "/customers/pool", children: [
       { label: "客户公海", href: "/customers/pool", permission: "customers.view" },
       { label: "我的客户", href: "/customers", permission: "customers.view" },
-      { label: "客户导入", href: "/import", permission: "imports.view" },
       { label: "跟进管理", href: "/followups", permission: "followups.view" },
     ],
   },
@@ -76,7 +75,7 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/customers\/protection$/, "客户中心 / 保护到期"],
   [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"],
   [/^\/customers$/, "客户中心 / 我的客户"],
-  [/^\/import$/, "客户中心 / 客户导入"],
+  [/^\/import$/, "客户中心 / 批量导入"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
   [/^\/ai-screening\/strategies$/, "AI筛选 / 任务中心 / 策略说明"],

@@ -258,6 +258,7 @@ assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须�
 assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
 assert.match(appShell, /欢迎您，\{profile\.name\}（\{roleLabels\[profile\.role\]\}）/, "右上角用户菜单必须显示当前用户名和中文角色");
 const customersView = read("components/customers-view.tsx");
+const customerListFields = read("lib/customers/list-fields.ts");
 const currentUserAuth = read("lib/auth/current-user.ts");
 const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /return requested \|\| account\.id/, "主管和系统管理员服务端默认必须只读取自己的数据");
@@ -265,7 +266,7 @@ assert.match(currentUserAuth, /requested\.toLowerCase\(\) === "all"/, "主管和
 assert.match(userScopeSelect, /onChangeRef\.current\(body\.profile\.id\)/, "主管和系统管理员前端默认必须选中自己");
 assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
-assert.match(customersView, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
+assert.match(customerListFields, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
 assert.ok(customersView.indexOf('aria-label="归属人"') < customersView.indexOf('<ImportBatchMultiSelect'), "客户列表归属人筛选必须位于导入批次前面");
 assert.match(customersView, /setScopeUserId\(event\.target\.value\); setSourceBatches\(\[\]\)/, "切换归属人时必须清空旧归属人的批次选择");
 assert.match(customersView, /options=batches\$\{scope\}/, "客户列表导入批次必须随归属人重新加载");

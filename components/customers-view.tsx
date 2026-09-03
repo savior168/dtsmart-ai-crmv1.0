@@ -28,6 +28,13 @@ import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/cu
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { csvCell, customerListText, customerProtectionText, type CustomerExportColumn } from "@/lib/customer-export";
+import {
+  CUSTOMER_LIST_COLUMNS,
+  CUSTOMER_LIST_COLUMN_STORAGE_KEY,
+  CUSTOMER_LIST_DEFAULT_COLUMNS,
+  customerListSortField,
+  normalizeCustomerListColumns,
+} from "@/lib/customers/list-fields";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -48,48 +55,8 @@ const stageClass: Record<CustomerStatus, string> = {
   RELEASED: "bg-slate-100 text-slate-500",
 };
 type ColumnKey = CustomerExportColumn;
-const columns: { key: ColumnKey; label: string; locked?: boolean }[] = [
-  { key: "company_name", label: "客户名称" },
-  { key: "contact_name", label: "联系人" },
-  { key: "country", label: "国家/地区" },
-  { key: "ai_score", label: "AI评分" },
-  { key: "status", label: "客户阶段" },
-  { key: "followup_status", label: "跟进状态" },
-  { key: "protection", label: "保护期剩余" },
-  { key: "last_contact_time", label: "最近跟进" },
-  { key: "owner", label: "归属人" },
-  { key: "phone", label: "联系电话" },
-  { key: "email", label: "邮箱" },
-  { key: "website_email", label: "官网邮箱" },
-  { key: "website_phone", label: "官网电话" },
-  { key: "website", label: "官网" },
-  { key: "google_url", label: "Google Maps" },
-  { key: "source", label: "数据来源" },
-  { key: "updated_at", label: "更新时间" },
-];
-const defaults: ColumnKey[] = [
-  "company_name",
-  "country",
-  "ai_score",
-  "status",
-  "followup_status",
-  "protection",
-  "last_contact_time",
-  "phone",
-  "email",
-  "website",
-  "google_url",
-  "source",
-  "updated_at",
-];
-const columnKeys = new Set<ColumnKey>(columns.map((column) => column.key));
-function normalizeSavedColumns(value: unknown): ColumnKey[] {
-  const saved = Array.isArray(value) ? value.filter((key): key is ColumnKey => typeof key === "string" && columnKeys.has(key as ColumnKey)) : [];
-  // 归属人属于跨用户管理字段，普通销售员不默认显示；保护期剩余必须可见。
-  const withoutOwner = saved.filter((key) => key !== "owner");
-  if (!withoutOwner.includes("protection")) withoutOwner.splice(Math.min(5, withoutOwner.length), 0, "protection");
-  return withoutOwner.length ? withoutOwner : defaults;
-}
+const columns = CUSTOMER_LIST_COLUMNS;
+const defaults = CUSTOMER_LIST_DEFAULT_COLUMNS;
 const href = (value?: string | null) => {
   const text = String(value || "").trim();
   return text ? (/^https?:\/\//i.test(text) ? text : `https://${text}`) : "";
@@ -204,13 +171,13 @@ export function CustomersView() {
   useEffect(() => {
     try {
       const saved = JSON.parse(
-        localStorage.getItem("customer-columns-v5") || "null",
+        localStorage.getItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY) || localStorage.getItem("customer-columns-v5") || "null",
       );
       if (Array.isArray(saved) && saved.length) {
-        const normalized = normalizeSavedColumns(saved);
+        const normalized = normalizeCustomerListColumns(saved);
         setFields(normalized);
         setDraft(normalized);
-        localStorage.setItem("customer-columns-v5", JSON.stringify(normalized));
+        localStorage.setItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY, JSON.stringify(normalized));
       }
     } catch {}
   }, []);
@@ -353,7 +320,7 @@ export function CustomersView() {
     const url = next === "list" ? "/customers" : `/customers?tab=${next}`;
     window.history.replaceState(null, "", url);
   }
-  const sortableField = (key: ColumnKey) => key === "owner" ? "owner_id" : key === "protection" ? "updated_at" : key;
+  const sortableField = customerListSortField;
   function changeSort(key: ColumnKey) {
     const next = sortableField(key);
     if (sort === next) setDirection((current) => current === "asc" ? "desc" : "asc");
@@ -737,12 +704,12 @@ export function CustomersView() {
                     <span><span className="block text-sm font-medium">手动新增</span><small className="text-slate-500">逐条录入客户资料</small></span>
                   </Link>
                   <Link
-                    href="/import"
+                    href="/import?destination=private"
                     className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
                     <FileSpreadsheet size={20} className="mt-0.5 shrink-0 text-emerald-600" />
                     <span><span className="block text-sm font-medium">批量导入</span><small className="text-slate-500">
-                      前往 数据导入 &gt; 上传文件
+                      导入后归属当前用户
                     </small></span>
                   </Link>
                   <a
@@ -841,7 +808,7 @@ export function CustomersView() {
                         const visibleFields = canViewAll && !selectedFields.includes("owner") ? [...selectedFields, "owner" as const] : selectedFields;
                         setFields(visibleFields);
                         localStorage.setItem(
-                          "customer-columns-v5",
+                          CUSTOMER_LIST_COLUMN_STORAGE_KEY,
                           JSON.stringify(visibleFields),
                         );
                         setFieldOpen(false);
