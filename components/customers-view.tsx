@@ -508,7 +508,7 @@ export function CustomersView() {
     <main className="min-h-screen bg-[#f5f8fc] px-5 py-6 lg:px-7">
       <div className="mx-auto max-w-[1800px]">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">客户管理</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950">我的客户</h1>
           <span className="text-base text-slate-500">统一管理、跟进和保护客户数据</span>
           <span className="text-lg text-slate-600">
             <b className="text-blue-600">{totalCustomerCount}</b> 家客户
@@ -531,8 +531,8 @@ export function CustomersView() {
             value={workspace}
             items={[
               { value: "list", label: "我的客户", description: "当前归属并由我维护的客户" },
-              { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount },
-              { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount },
+              { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount, countTone: "warning" },
+              { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount, countTone: "danger" },
             ]}
             onChange={switchWorkspace}
             label="我的客户分类"
