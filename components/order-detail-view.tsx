@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, FileDown, LoaderCircle, Save, XCircle } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
+import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
+import { AppStatusBadge } from "@/components/ui/app-list";
 type Payload = {
   order: {
     id: string;
@@ -47,6 +49,8 @@ export function OrderDetailView({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [delivery, setDelivery] = useState("");
   const [note, setNote] = useState("");
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
@@ -132,9 +136,7 @@ export function OrderDetailView({ id }: { id: string }) {
                 {o.owner?.name || o.owner?.email || "-"}
               </p>
             </div>
-            <span className="rounded bg-blue-50 px-3 py-1.5 text-sm text-blue-700">
-              {SALES_ORDER_STATUS_LABELS[o.status]}
-            </span>
+            <AppStatusBadge status={o.status}>{SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>
           {error ? (
             <p className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
@@ -234,11 +236,7 @@ export function OrderDetailView({ id }: { id: string }) {
               {data.can_cancel ? (
                 <button
                   disabled={busy}
-                  onClick={() => {
-                    const reason = window.prompt("请输入取消订单的真实原因");
-                    if (reason)
-                      void patch(`/api/orders/${id}/cancel`, { reason }, "POST");
-                  }}
+                  onClick={() => setCancelOpen(true)}
                   className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm text-rose-700"
                 >
                   <XCircle size={16} />
@@ -267,6 +265,10 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
+        <AppDialog open={cancelOpen} title="取消销售订单" description="订单和关联备货单将同步取消；客户阶段会按剩余的有效报价或意向凭证自动回退。" onClose={()=>setCancelOpen(false)} width="max-w-md">
+          <label className="text-sm font-medium text-slate-700">真实取消原因<textarea autoFocus required value={cancelReason} onChange={event=>setCancelReason(event.target.value)} rows={4} className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm" placeholder="请输入客户取消、内容变更或其他真实原因"/></label>
+          <form onSubmit={event=>{event.preventDefault();if(cancelReason.trim()){void patch(`/api/orders/${id}/cancel`,{reason:cancelReason.trim()},"POST");setCancelOpen(false)}}}><DialogActions busy={busy} onCancel={()=>setCancelOpen(false)} confirmLabel="确认取消订单" tone="danger"/></form>
+        </AppDialog>
       </div>
     </main>
   );

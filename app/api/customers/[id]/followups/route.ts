@@ -5,11 +5,18 @@ import { FOLLOWUP_TYPES } from "@/lib/types";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user, account } = await requirePermission("followups.create");
+    const { user, account, supabase } = await requirePermission("followups.create");
     const { id } = await context.params;
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });
     if (!String(body.content || "").trim()) return NextResponse.json({ error: "请填写跟进内容" }, { status: 400 });
+    const outcome = String(body.outcome || "CONTACT_ONLY").toUpperCase();
+    if (!["CONTACT_ONLY", "INTEREST", "NO_INTEREST"].includes(outcome)) {
+      return NextResponse.json({ error: "请选择有效的客户反馈结果" }, { status: 400 });
+    }
+    if (outcome === "INTEREST" && body.has_attachment !== true) {
+      return NextResponse.json({ error: "客户明确有采购意向时必须上传真实沟通凭证" }, { status: 400 });
+    }
     const admin = createAdminClient();
     const { data: customer, error: customerError } = await admin.from("customers").select("id,status,owner_id,created_by").eq("id", id).is("deleted_at", null).single();
     if (customerError) throw customerError;
@@ -24,14 +31,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       content: String(body.content).trim(),
       attachment: body.attachment || null,
       next_follow_date: body.next_follow_date || null,
+      outcome,
     }).select("*,creator:users(name,email)").single();
     if (error) throw error;
     await admin.from("customers").update({ last_contact_time: new Date().toISOString() }).eq("id", id);
-    if (customer.status === "CLAIMED") {
-      const { error: stageError } = await supabase.rpc("set_customer_stage", { p_customer_id: id, p_status: "FOLLOWING" });
-      if (stageError) throw stageError;
-    }
-    await writeAudit(supabase, user.id, "FOLLOWUP_CREATE", "customer", id, { type: body.type, next_follow_date: body.next_follow_date || null });
+    await writeAudit(supabase, user.id, "FOLLOWUP_CREATE", "customer", id, { type: body.type, outcome, next_follow_date: body.next_follow_date || null });
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "跟进保存失败";

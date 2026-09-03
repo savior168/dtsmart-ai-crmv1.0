@@ -25,13 +25,14 @@ import { FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, type FollowupStage } from "@/li
 import { CountryLabel } from "@/components/country-label";
 import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/import-batch-multi-select";
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
+import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { csvCell, customerListText, customerProtectionText, type CustomerExportColumn } from "@/lib/customer-export";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
 const stageLabels: Record<CustomerStatus, string> = {
-  UNCLAIMED: "新客户",
-  CLAIMED: "意向客户",
+  UNCLAIMED: "潜在客户",
+  CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "报价中",
   DEAL: "成交客户",
@@ -166,15 +167,16 @@ export function CustomersView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [protectedSelected, setProtectedSelected] = useState<Set<string>>(new Set());
+  const [, setProtectedSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Customer | null>(null);
   const [fields, setFields] = useState<ColumnKey[]>(defaults);
   const [draft, setDraft] = useState<ColumnKey[]>(defaults);
   const [draggedField, setDraggedField] = useState<ColumnKey | null>(null);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const [releaseTarget, setReleaseTarget] = useState<Customer | null>(null);
+  const [releaseReason, setReleaseReason] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -444,41 +446,6 @@ export function CustomersView() {
       setDeleting(false);
     }
   }
-  async function updateStage(nextStatus: string) {
-    if (!selected.size) return;
-    let reason = "";
-    if (protectedSelected.size && nextStatus) {
-      const input = window.prompt("所选客户包含报价中或已成交客户。请填写本次阶段变更的真实原因，系统将保留操作记录：", "");
-      if (input === null) return;
-      reason = input.trim();
-      if (!reason) return notify("报价中或已成交客户变更阶段必须填写原因", "error");
-    }
-    const response = await fetch("/api/customers/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ids: [...selected],
-        action: "STAGE",
-        status: nextStatus,
-        reason,
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setError(body.error || "批量更新阶段失败");
-      notify(body.error || "批量更新阶段失败", "error");
-      return;
-    }
-    if (Number(body.failed_count || 0) > 0) {
-      const message = body.results?.find?.((item: { error?: string }) => item.error)?.error || "部分客户阶段没有更新";
-      setError(message);
-      notify(message, "error");
-    } else notify(`已更新 ${body.success_count || selected.size} 条客户阶段`);
-    setBulkOpen(false);
-    setSelected(new Set());
-    setProtectedSelected(new Set());
-    await load();
-  }
   async function selectAllResults() {
     if (crossUserReadOnly) return notify("跨用户数据仅供查看，不能批量操作", "error");
     setSelectingAll(true);
@@ -522,11 +489,11 @@ export function CustomersView() {
       setSelectingAll(false);
     }
   }
-  async function releaseCustomer(customer: Customer) {
-    const response = await fetch(`/api/customers/${customer.id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "RELEASE", reason: "用户主动释放" }) });
+  async function releaseCustomer(customer: Customer, reason: string) {
+    const response = await fetch(`/api/customers/${customer.id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "RELEASE", reason }) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return notify(body.error || "释放客户失败", "error");
-    notify("客户已释放，保护期已清零");
+    setReleaseTarget(null);setReleaseReason("");notify("客户已释放并进入客户公海，保护期已结束");
     await load();
   }
   async function exportData() {
@@ -902,14 +869,6 @@ export function CustomersView() {
             <span className="ml-auto text-sm text-slate-600">已选择 {selected.size} 项</span>
             <button
               disabled={crossUserReadOnly || !selected.size}
-              onClick={() => setBulkOpen((value) => !value)}
-              className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <UserPlus size={16} />
-              批量更新阶段
-            </button>
-            <button
-              disabled={crossUserReadOnly || !selected.size}
               onClick={() => {
                 setDeleteIds([...selected]);
               }}
@@ -918,20 +877,6 @@ export function CustomersView() {
               <Trash2 size={16} />
               批量删除
             </button>
-            {bulkOpen && (
-              <select
-                autoFocus
-                onChange={(event) => void updateStage(event.target.value)}
-                className="rounded-lg border border-blue-300 px-3 py-2.5 text-sm"
-              >
-                <option value="">选择客户阶段</option>
-                <option value="CLAIMED">意向客户</option>
-                <option value="FOLLOWING">跟进中</option>
-                <option value="QUOTE">报价中</option>
-                <option value="DEAL">成交客户</option>
-                <option value="RELEASED">无效客户</option>
-              </select>
-            )}
           </div>
         </section>
         {error && (
@@ -1072,7 +1017,7 @@ export function CustomersView() {
                       >
                         <Pencil size={17} />
                       </Link>
-                      {!crossUserReadOnly && (row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); if (window.confirm("确定释放该客户？")) void releaseCustomer(row); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
+                      {!crossUserReadOnly && (row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); setReleaseTarget(row);setReleaseReason(""); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
                       {!crossUserReadOnly ? (
                       <button
                         onClick={(event) => {
@@ -1232,6 +1177,7 @@ export function CustomersView() {
         </> : workspace === "protection"
           ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />
           : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />}
+        {releaseTarget ? <AppDialog title="释放客户到公海" description={`${releaseTarget.company_name} · 释放后其他销售员可凭真实联系凭证认领`} onClose={()=>{setReleaseTarget(null);setReleaseReason("")}} width="max-w-md"><form onSubmit={event=>{event.preventDefault();if(releaseReason.trim())void releaseCustomer(releaseTarget,releaseReason.trim())}}><label className="block text-sm font-medium text-slate-700">释放原因（必填）<textarea autoFocus required minLength={5} maxLength={300} value={releaseReason} onChange={event=>setReleaseReason(event.target.value)} rows={4} placeholder="请客观说明释放原因，系统将保留审计记录" className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label><p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">存在进行中报价、订单或已成交的客户不能直接释放，必须先按业务单据流程处理。</p><DialogActions onCancel={()=>{setReleaseTarget(null);setReleaseReason("")}} confirmLabel="确认释放" tone="danger"/></form></AppDialog> : null}
       </div>
     </main>
   );

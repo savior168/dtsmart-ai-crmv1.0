@@ -1,7 +1,10 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { ConfirmDialog as SharedConfirmDialog } from "@/components/ui/app-dialog";
+import { AppPagination } from "@/components/ui/app-pagination";
+import { AppStatusBadge } from "@/components/ui/app-list";
 
 export const panel = "rounded-[10px] border border-[#e1e6ef] bg-white";
 export const input = "h-[38px] rounded-[7px] border border-[#dbe2ec] bg-white px-[10px] text-sm text-[#334157] outline-none transition focus:border-[#1763e8] focus:ring-2 focus:ring-blue-100";
@@ -21,7 +24,7 @@ const statusMap: Record<string, { label: string; className: string }> = {
 
 export function StatusBadge({ status }: { status: string }) {
   const config = statusMap[status] || { label: status || "未知", className: "bg-slate-100 text-slate-600" };
-  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${config.className}`}>{config.label}</span>;
+  return <AppStatusBadge status={status}>{config.label}</AppStatusBadge>;
 }
 
 export function StrategyBadge({ strategy }: { strategy: string }) {
@@ -33,9 +36,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
 }
 
 export function Pagination({ page, pageSize, total, onPage, onPageSize, itemLabel = "条", pageSizes = [10, 20, 50, 100] }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void; itemLabel?: string; pageSizes?: number[] }) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  const nums = [...new Set([1, page - 1, page, page + 1, pages].filter((value) => value >= 1 && value <= pages))];
-  return <footer className="grid grid-cols-1 items-center gap-3 border-t border-[#e8ecf2] px-4 py-[14px] text-sm text-[#657187] md:grid-cols-[1fr_auto_1fr]"><span>共 {total.toLocaleString("zh-CN")} {itemLabel}</span><div className="flex items-center justify-center gap-[5px]"><button className="grid h-[34px] min-w-[34px] place-items-center rounded-md border border-[#dbe1ea] bg-white disabled:opacity-45" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="上一页"><ChevronLeft size={16}/></button>{nums.map((value, index) => <span key={`${value}-${index}`} className="contents">{index > 0 && value - nums[index - 1] > 1 ? <span className="grid h-[34px] w-8 place-items-center">…</span> : null}<button onClick={() => onPage(value)} className={`h-[34px] min-w-[34px] rounded-md border px-2 ${value === page ? "border-[#1763e8] bg-[#1763e8] text-white" : "border-[#dbe1ea] bg-white text-[#46536a]"}`}>{value}</button></span>)}<button className="grid h-[34px] min-w-[34px] place-items-center rounded-md border border-[#dbe1ea] bg-white disabled:opacity-45" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="下一页"><ChevronRight size={16}/></button></div><div className="flex items-center justify-self-end gap-2"><select className={`${input} h-[34px]`} value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>{pageSizes.map((size) => <option key={size} value={size}>{size}条/页</option>)}</select><label className="flex items-center gap-1">跳至 <input className="h-[34px] w-12 rounded-md border border-[#dbe1ea] px-2 text-center" defaultValue={page} key={page} onKeyDown={(event) => { if (event.key === "Enter") { const value = Math.min(pages, Math.max(1, Number(event.currentTarget.value) || 1)); onPage(value); } }}/> 页</label></div></footer>;
+  return <AppPagination page={page} pageSize={pageSize} total={total} onPage={onPage} onPageSize={onPageSize} itemLabel={itemLabel} pageSizes={pageSizes}/>;
 }
 
 export function Loading({ text = "正在加载…" }: { text?: string }) {
@@ -47,8 +48,7 @@ export function ErrorState({ message, reload }: { message: string; reload: () =>
 }
 
 export function ConfirmDialog({ open, title, description, confirmLabel, busy, onClose, onConfirm }: { open: boolean; title: string; description: string; confirmLabel: string; busy?: boolean; onClose: () => void; onConfirm: () => void }) {
-  if (!open) return null;
-  return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/35 p-4" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold text-slate-950">{title}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{description}</p></div><button className="rounded-lg p-1 text-slate-400 hover:bg-slate-100" onClick={onClose}><X size={18}/></button></div><div className="mt-6 flex justify-end gap-2"><button className={button} onClick={onClose}>取消</button><button disabled={busy} className={primaryButton} onClick={onConfirm}>{busy ? "处理中…" : confirmLabel}</button></div></div></div>;
+  return <SharedConfirmDialog open={open} title={title} description={description} confirmLabel={confirmLabel} busy={busy} onCancel={onClose} onConfirm={onConfirm}/>;
 }
 
 export function useToast() {

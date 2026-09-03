@@ -8,6 +8,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   try {
     const { id } = await context.params;
     const body = (await request.json()) as WorkflowBody;
+    if (body.action === "STAGE") {
+      return NextResponse.json({ error: "客户阶段由真实跟进凭证、正式报价和销售订单自动更新，不能手工跳级" }, { status: 409 });
+    }
     const permission = body.action === "RELEASE" ? "customers.release" : body.action === "ASSIGN" ? "customers.assign" : "customers.edit";
     const { supabase, user, account } = await requirePermission(permission);
     const customer = await createAdminClient().from("customers").select("owner_id").eq("id", id).maybeSingle();
@@ -20,7 +23,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     let args: Record<string, string>;
     if (body.action === "RELEASE") { rpc = "release_customer"; args = { p_customer_id: id, p_reason: body.reason || "" }; }
     else if (body.action === "ASSIGN") { rpc = "assign_customer"; args = { p_customer_id: id, p_user_id: body.user_id || "" }; }
-    else if (body.action === "STAGE") { rpc = "set_customer_stage"; args = { p_customer_id: id, p_status: body.status || "" }; }
     else return NextResponse.json({ error: "无效操作" }, { status: 400 });
 
     const { data, error } = await supabase.rpc(rpc, args);

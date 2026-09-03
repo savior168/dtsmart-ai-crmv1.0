@@ -12,9 +12,10 @@ const actionCopy: Record<string, { label: string; title: string; description: st
   cancel: { label: "取消任务", title: "取消排队任务？", description: "取消后退出等待队列，不执行分析也不产生费用。" },
   resume: { label: "继续执行", title: "继续执行任务？", description: "只继续分析尚未完成的客户。" },
   retry: { label: "重试失败项", title: "重试失败客户？", description: "仅重试失败客户，已完成客户不会重复分析。" },
+  archive: { label: "归档任务", title: "归档任务？", description: "任务将从任务中心隐藏；客户结果、证据、完成统计、Token和费用账本全部保留。" },
 };
 
-function actionFor(task?: AiTask | null) { const status = task?.status; return ["RUNNING", "PAUSING"].includes(String(status)) ? "pause" : status === "QUEUED" ? "cancel" : status === "PAUSED" ? "resume" : status === "FAILED" || (status === "COMPLETED" && Number(task?.failed_count || 0) > 0) ? "retry" : null; }
+function actionFor(task?: AiTask | null) { const status = task?.status; return ["RUNNING", "PAUSING"].includes(String(status)) ? "pause" : status === "QUEUED" ? "cancel" : status === "PAUSED" ? "resume" : status === "FAILED" || (status === "COMPLETED" && Number(task?.failed_count || 0) > 0) ? "retry" : ["COMPLETED", "CANCELLED"].includes(String(status)) ? "archive" : null; }
 
 export function TaskDetailView({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<AiTask | null>(null);
@@ -86,10 +87,10 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   async function runAction() {
     if (!confirm) return;
     setBusy(true);
-    const response = await fetch(`/api/ai/tasks/${taskId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: confirm }) });
+    const response = await fetch(`/api/ai/tasks/${taskId}`, confirm === "archive" ? { method: "DELETE" } : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: confirm }) });
     const body = await response.json().catch(() => ({})); setBusy(false);
     if (!response.ok) return toast(body.error || "任务操作失败", "error");
-    setConfirm(null); toast("任务状态已更新"); await load(true);
+    if(confirm === "archive"){window.location.href="/ai-screening";return} setConfirm(null); toast("任务状态已更新"); await load(true);
   }
 
   if (loading && !task) return <main className="min-h-full bg-[#f5f7fb] p-6"><Loading/></main>;

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ClipboardList, LoaderCircle, Search } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
+import { AppFilterBar, AppStatusBadge, appFieldClass } from "@/components/ui/app-list";
+import { AppPagination } from "@/components/ui/app-pagination";
 type StockLink = { id: string; stock_number: string; status: string };
 type Row = {
   id: string;
@@ -26,9 +28,12 @@ export function OrdersView() {
   const [status, setStatus] = useState("");
   const [userId, setUserId] = useState("");
   const [canViewAll, setCanViewAll] = useState(false);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const load = useCallback(async () => {
     setLoading(true);
-    const p = new URLSearchParams({ page_size: "100" });
+    const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (q) p.set("q", q);
     if (status) p.set("status", status);
     if (userId) p.set("user_id", userId);
@@ -40,9 +45,10 @@ export function OrdersView() {
       return;
     }
     setData(b.data || []);
+    setCount(Number(b.count || 0));
     setCanViewAll(Boolean(b.can_view_all));
     setError("");
-  }, [q, status, userId]);
+  }, [page, pageSize, q, status, userId]);
   useEffect(() => {
     const t = setTimeout(() => void load(), 200);
     return () => clearTimeout(t);
@@ -56,23 +62,23 @@ export function OrdersView() {
             客户确认报价后形成的不可变订单快照，并关联唯一备货单。
           </p>
         </header>
-        <section className="mt-4 flex flex-wrap gap-2 rounded-xl border bg-white p-3">
-          <label className="relative min-w-64 flex-1">
+        <AppFilterBar>
+          <label className="relative min-w-64 flex-1 xl:min-w-[320px]">
             <Search
               className="absolute left-3 top-3 text-slate-400"
               size={17}
             />
             <input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => { setQ(e.target.value); setPage(1); }}
               placeholder="搜索订单号、报价号或客户简称"
-              className="h-10 w-full rounded-lg border pl-9 pr-3 text-sm"
+              className={`${appFieldClass} w-full pl-9`}
             />
           </label>
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="h-10 rounded-lg border px-3 text-sm"
+            onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+            className={appFieldClass}
           >
             <option value="">全部订单状态</option>
             {Object.entries(SALES_ORDER_STATUS_LABELS).map(([k, v]) => (
@@ -84,20 +90,21 @@ export function OrdersView() {
           <UserScopeSelect
             permission="orders.data_all"
             value={userId}
-            onChange={setUserId}
-            className="h-10 min-w-52 rounded-lg border px-3 text-sm"
+            onChange={(value) => { setUserId(value); setPage(1); }}
+            className={`${appFieldClass} min-w-52`}
           />
           <button
             onClick={() => {
               setQ("");
               setStatus("");
               setUserId("");
+              setPage(1);
             }}
-            className="h-10 rounded-lg border px-4 text-sm"
+            className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             重置
           </button>
-        </section>
+        </AppFilterBar>
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -150,9 +157,7 @@ export function OrdersView() {
                         <td className="px-4 py-3 font-semibold text-blue-700">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3">
-                          {SALES_ORDER_STATUS_LABELS[row.status]}
-                        </td>
+                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3">
                           {stock?.stock_number || "-"}
                         </td>
@@ -180,6 +185,7 @@ export function OrdersView() {
               ) : null}
             </div>
           )}
+          <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="张订单" onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }}/>
         </section>
       </div>
     </main>

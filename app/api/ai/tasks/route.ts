@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const to = params.get("date_to") || "";
     const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
-    let query = admin.from("ai_screening_tasks").select("*", { count: "exact" });
+    let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).is("archived_at", null);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);
     if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
     else if (status) query = query.eq("status", status);
@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; ; offset += 1000) {
       let statsQuery = admin.from("ai_screening_tasks")
         .select("id,status,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at")
+        .is("archived_at", null)
         .order("updated_at", { ascending: false });
       if (scopeUserId) statsQuery = statsQuery.eq("user_id", scopeUserId);
       const stats = await statsQuery.range(offset, offset + 999);

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 const migration = read("supabase/migrations/202609020001_customer_public_pool_workflow.sql");
+const closedLoop = read("supabase/migrations/202609030001_customer_center_closed_loop.sql");
 const poolApi = read("app/api/customers/public-pool/route.ts");
 const userApi = read("app/api/admin/users/route.ts");
 const orderApi = read("app/api/orders/route.ts");
@@ -17,7 +18,10 @@ assert.match(migration, /request_owner\.manager_id is distinct from actor\.id/, 
 assert.match(migration, /next_count<=2 or actor\.role='SUPERVISOR'/, "销售前两次自动续期、主管本人无需审批");
 assert.match(migration, /effective_expire-interval '15 days'/, "续期需在到期前15天开放");
 assert.match(migration, /effective_expire\+interval '3 days'/, "续期宽限期必须限制为3天");
-assert.match(migration, /acquisition_scope='PUBLIC_POOL' then 'AVAILABLE' else 'PENDING_ALLOCATION'/, "释放后公海与私有客户必须分流");
+assert.match(closedLoop, /needs_admin[\s\S]*PENDING_ALLOCATION[\s\S]*AVAILABLE/, "到期客户必须按活动业务和账号状态分流");
+assert.match(closedLoop, /release_customer[\s\S]*acquisition_scope='PUBLIC_POOL'[\s\S]*pool_status='AVAILABLE'/, "普通客户主动释放后必须进入公海");
+assert.match(closedLoop, /claim_public_customer[\s\S]*status='CLAIMED'[\s\S]*pool_status='CLAIMED'/, "认领只建立潜在客户归属，不得伪造意向阶段");
+assert.match(closedLoop, /outcome<>'INTEREST'[\s\S]*status='FOLLOWING'/, "只有带凭证的真实意向跟进才可进入意向客户阶段");
 assert.match(migration, /lower\(trim\(coalesce\(name,''\)\)\)='eva'/i, "销售员默认上级应优先 Eva");
 assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入审计日志");
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
@@ -32,5 +36,6 @@ assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得�
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");
 assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客户公海入口");
+assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客户原始来源由系统保留，不能修改/, "系统获客来源标记必须不可被前端篡改");
 
 console.log("customer public-pool regression tests passed");

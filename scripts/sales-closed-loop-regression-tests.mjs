@@ -21,7 +21,9 @@ assert.match(auth, /canWriteOwnedRecord[\s\S]*account\.role === "ADMIN" \|\| own
 const customerUpdate = read("app/api/customers/[id]/route.ts");
 assert.match(customerUpdate, /account\.role === "ADMIN" \|\| customer\.owner_id === user\.id/, "客户修改必须拒绝主管修改他人客户");
 const customerBatch = read("app/api/customers/batch/route.ts");
-assert.match(customerBatch, /account\.role !== "ADMIN"[\s\S]*\.eq\("owner_id", user\.id\)/, "批量更新必须将主管限定为本人客户");
+const customerDelete = read("lib/customers/soft-delete.ts");
+assert.match(customerBatch, /allowAll: account\.role === "ADMIN"/, "批量删除只有系统管理员可跨归属人操作");
+assert.match(customerDelete, /allowAll \|\| customer\.owner_id === userId/, "主管与销售员批量删除必须限定本人客户");
 const followupUpdate = read("app/api/followups/[id]/route.ts");
 assert.match(followupUpdate, /canWriteOwnedRecord\(account,existing\.data\.user_id\)/, "跟进修改必须按创建人校验，主管跨用户只读");
 const singleCustomerAnalysis = read("app/api/ai/analyze/route.ts");
@@ -38,6 +40,7 @@ assert.doesNotMatch(stockApi, /unit_price|total_amount|phone|email,address/, "�
 const migration = read("supabase/migrations/202609010001_sales_quote_stock_cost_center.sql");
 const orderMigration = read("supabase/migrations/202609010002_sales_order_workflow.sql");
 const lifecycleMigration = read("supabase/migrations/202609010003_document_lifecycle_guardrails.sql");
+const closedLoopMigration = read("supabase/migrations/202609030001_customer_center_closed_loop.sql");
 assert.match(migration, /target\.owner_id<>actor\.id and actor\.role<>'ADMIN'[\s\S]*只能修改归属自己的报价单/, "数据库报价修改必须拒绝主管修改他人报价");
 assert.match(migration, /target\.owner_id <> actor\.id and actor\.role<>'ADMIN'[\s\S]*只有报价归属销售员或系统管理员可以确认客户/, "客户确认必须由报价归属销售员或系统管理员执行");
 assert.match(migration, /actor\.role not in \('WAREHOUSE','ADMIN'\)/, "数据库备货状态只允许仓库员或系统管理员更新");
@@ -57,6 +60,10 @@ assert.match(orderMigration,/created_order\.destination_country,'DRAFT'[\s\S]*�
 assert.match(orderMigration,/submit_stock_order[\s\S]*status='WAITING'[\s\S]*STOCK_ORDER_CREATED/,"只有销售员完善备货信息后才提交并通知仓库");
 assert.match(orderMigration,/previous='WAITING'[\s\S]*previous='PREPARING'[\s\S]*previous='SHORTAGE'/,"备货状态必须按允许状态机流转");
 assert.match(lifecycleMigration,/target\.status in \('CONFIRMED','SUPERSEDED'\)[\s\S]*报价已进入后续业务流程，不能取消/, "已进入后续流程的报价不得被越权取消");
+assert.match(closedLoopMigration,/q\.status in \('SENT','CONFIRMED'\)[\s\S]*desired:='QUOTE'/,"只有已发送或客户确认的正式报价才能推进到报价中");
+assert.match(closedLoopMigration,/sales_orders o[\s\S]*o\.status<>'CANCELLED'[\s\S]*desired:='DEAL'/,"只有有效销售订单才能推进到已成交");
+assert.match(closedLoopMigration,/when 'FOLLOWING' then '订单或报价取消，保留已有意向凭证'[\s\S]*else '订单或报价取消，回到潜在客户'/,"取消业务单据后必须按剩余真实证据回退阶段");
+assert.doesNotMatch(closedLoopMigration,/stock_orders[\s\S]*desired:='DEAL'/,"备货状态不得控制客户成交阶段");
 
 const menu = read("components/app-shell.tsx");
 assert.match(menu, /label: "客户中心"[\s\S]*客户公海[\s\S]*我的客户[\s\S]*客户导入[\s\S]*跟进管理/, "客户中心必须按公海、我的客户、导入和跟进顺序归类");
@@ -80,6 +87,14 @@ const quoteForm = read("components/quote-form.tsx");
 assert.match(quoteForm, /api\/quotes\/template[\s\S]*下载导入模板[\s\S]*导入Excel[\s\S]*粘贴表格/, "报价创建必须支持模板、Excel导入和剪贴板粘贴");
 assert.doesNotMatch(quoteForm,/\["序号","产品","品牌","型号","质量","描述（客户）","中文质量\/描述（仓库）"/,"报价产品表不得混入仓库专用列");
 assert.match(quoteForm,/订单编号（必填）[\s\S]*确认并创建订单/,"客户确认时必须由销售员填写订单编号");
+const customerWorkflow = read("app/api/customers/[id]/workflow/route.ts");
+const customerBatchWorkflow = read("app/api/customers/batch/route.ts");
+assert.match(customerWorkflow,/action === "STAGE"[\s\S]*不能手工跳级/,"单客户页面不得手工篡改客户阶段");
+assert.match(customerBatchWorkflow,/客户阶段由真实跟进凭证、正式报价和销售订单自动更新/,"批量操作不得手工篡改客户阶段");
+const taskRoute = read("app/api/ai/tasks/[id]/route.ts");
+const taskListRoute = read("app/api/ai/tasks/route.ts");
+assert.match(taskRoute,/update\(\{ archived_at:[\s\S]*客户结果、证据及费用账本保留/,"终态AI任务删除必须是可追溯归档");
+assert.match(taskListRoute,/\.is\("archived_at", null\)/,"任务中心默认不得显示已归档任务");
 const costApi=read("app/api/cost-center/route.ts");
 assert.doesNotMatch(costApi,/user:users\(name,email\)/,"无外键费用账本不得使用PostgREST嵌套用户关联");
 const reportView = read("components/sales-reports-view.tsx");

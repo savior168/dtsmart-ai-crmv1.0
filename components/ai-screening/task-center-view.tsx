@@ -25,6 +25,7 @@ const actionCopy: Record<string, { title: string; description: string; confirm: 
   cancel: { title: "取消排队任务？", description: "任务尚未执行，取消后退出等待队列，不分析客户且不产生OpenAI费用。", confirm: "确认取消" },
   resume: { title: "继续执行任务？", description: "任务从停止位置继续，只分析未完成客户；已完成客户不会重复分析。", confirm: "继续执行" },
   retry: { title: "重试失败客户？", description: "仅重新分析失败客户，已完成结果不会重复分析或重复计费。", confirm: "确认重试" },
+  archive: { title: "归档任务？", description: "任务将从任务中心隐藏，但客户分析结果、证据、完成统计、Token和费用账本全部保留。", confirm: "确认归档" },
 };
 
 function control(task: AiTask) {
@@ -34,6 +35,7 @@ function control(task: AiTask) {
   if (task.status === "PAUSED") return { action: "resume", label: "继续执行", className: "text-emerald-600" };
   if (task.status === "FAILED") return { action: "retry", label: "重试失败项", className: "text-blue-600" };
   if (task.status === "COMPLETED" && Number(task.failed_count || 0) > 0) return { action: "retry", label: "重试失败项", className: "text-blue-600" };
+  if (["COMPLETED", "CANCELLED"].includes(task.status)) return { action: "archive", label: "归档任务", className: "text-slate-500" };
   return null;
 }
 
@@ -84,11 +86,11 @@ export function TaskCenterView() {
   async function runAction() {
     if (!pendingAction) return;
     setBusy(true);
-    const response = await fetch(`/api/ai/tasks/${pendingAction.task.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: pendingAction.action }) });
+    const response = await fetch(`/api/ai/tasks/${pendingAction.task.id}`, pendingAction.action === "archive" ? { method: "DELETE" } : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: pendingAction.action }) });
     const body = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok) return toast(body.error || "任务操作失败", "error");
-    toast({ pause: "任务已停止", cancel: "排队任务已取消", resume: "任务已继续执行", retry: "失败客户已重新排队" }[pendingAction.action] || "操作成功");
+    toast({ pause: "任务已停止", cancel: "排队任务已取消", resume: "任务已继续执行", retry: "失败客户已重新排队", archive: "任务已归档，历史结果与费用均已保留" }[pendingAction.action] || "操作成功");
     setPendingAction(null); await load(true);
   }
 

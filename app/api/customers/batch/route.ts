@@ -21,33 +21,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (body.action !== "STAGE" || !["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(body.status || "")) {
-      return NextResponse.json({ error: "无效的批量操作或客户状态" }, { status: 400 });
-    }
-    let allowedQuery = supabase.from("customers").select("id").in("id", ids);
-    if (account.role !== "ADMIN") allowedQuery = allowedQuery.eq("owner_id", user.id);
-    const { data: allowedRows, error: allowedError } = await allowedQuery;
-    if (allowedError) throw new Error(allowedError.message);
-    const allowedIds = new Set((allowedRows || []).map((row) => row.id));
-    const successIds: string[] = [];
-    const failures: Array<{ id: string; ok: false; error: string }> = ids
-      .filter((id) => !allowedIds.has(id))
-      .map((id) => ({ id, ok: false, error: "客户不存在或您没有操作权限" }));
-    for (const id of ids.filter((item) => allowedIds.has(item))) {
-      const result = body.status === "RELEASED"
-        ? await supabase.rpc("release_customer", { p_customer_id: id, p_reason: body.reason?.trim() || "批量更新为无效客户" })
-        : await supabase.rpc("set_customer_stage", { p_customer_id: id, p_status: body.status });
-      if (result.error) failures.push({ id, ok: false, error: result.error.message });
-      else successIds.push(id);
-    }
-    const successSet = new Set(successIds);
-    if (successIds.length) await supabase.from("audit_logs").insert(successIds.map((id) => ({ user_id: user.id, action: "CUSTOMER_STAGE", target_type: "customer", target_id: id, content: { status: body.status, reason: body.reason || null } })));
-    return NextResponse.json({
-      total_count: ids.length,
-      success_count: successIds.length,
-      failed_count: ids.length - successIds.length,
-      results: ids.map((id) => successSet.has(id) ? { id, ok: true } : failures.find((item) => item.id === id) || { id, ok: false, error: "客户不存在或您没有操作权限" }),
-    });
+    return NextResponse.json({ error: "客户阶段由真实跟进凭证、正式报价和销售订单自动更新，不支持批量手工修改" }, { status: 409 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "批量操作失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

@@ -21,11 +21,11 @@ export type CustomerExportColumn =
   | "updated_at";
 
 const STAGE_LABELS: Record<CustomerStatus, string> = {
-  UNCLAIMED: "新客户",
-  CLAIMED: "意向客户",
+  UNCLAIMED: "潜在客户",
+  CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "报价中",
-  DEAL: "成交客户",
+  DEAL: "已成交",
   RELEASED: "无效客户",
 };
 
