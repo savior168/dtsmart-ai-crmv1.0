@@ -1023,7 +1023,7 @@ export function QuoteForm({
                     }
                     className="h-10 w-full rounded-lg border px-3 text-sm"
                   >
-                    <option>WhatsApp</option>
+                    <option value="WhatsApp">whatsapp</option>
                     <option>邮件</option>
                     <option>电话</option>
                     <option>面谈</option>

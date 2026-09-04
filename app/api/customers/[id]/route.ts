@@ -13,6 +13,29 @@ const writable = [
   "store_name", "product_image", "store_score", "review_count",
 ];
 
+function validateExternalUrl(value: unknown, label: string, host?: RegExp) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  let parsed: URL;
+  try { parsed = new URL(text); } catch { throw new Error(`${label}必须是完整的 http:// 或 https:// 链接`); }
+  if (!/^https?:$/.test(parsed.protocol)) throw new Error(`${label}只支持 http:// 或 https:// 链接`);
+  if (host && !host.test(parsed.hostname.toLowerCase())) throw new Error(`${label}与所选平台域名不匹配`);
+}
+
+function validateCustomerContactPayload(payload: Record<string, unknown>) {
+  const email = String(payload.email || "").trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
+  const whatsapp = String(payload.whatsapp || "").trim();
+  if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
+  validateExternalUrl(payload.website, "官网网址");
+  validateExternalUrl(payload.google_url, "Google 地图网址", /(^|\.)google\.[a-z.]+$|(^|\.)googleusercontent\.com$|(^|\.)goo\.gl$/);
+  validateExternalUrl(payload.facebook_url, "Facebook 链接", /(^|\.)facebook\.com$|(^|\.)fb\.com$/);
+  validateExternalUrl(payload.instagram_url, "Instagram 链接", /(^|\.)instagram\.com$/);
+  validateExternalUrl(payload.tiktok_url, "TikTok 链接", /(^|\.)tiktok\.com$/);
+  validateExternalUrl(payload.linkedin_url, "LinkedIn 链接", /(^|\.)linkedin\.com$/);
+  for (const url of Array.isArray(payload.other_public_urls) ? payload.other_public_urls : []) validateExternalUrl(url, "社媒链接");
+}
+
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { user, account } = await requirePermission("customers.view");
@@ -38,6 +61,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
+    validateCustomerContactPayload(payload);
     const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country").eq("id", id).single();
     if (customerError) throw customerError;
     const canEdit = account.role === "ADMIN" || customer.owner_id === user.id;

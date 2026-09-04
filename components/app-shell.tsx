@@ -127,11 +127,14 @@ function ProfileModal({
   saved,
   profile,
 }: {
-  type: "avatar" | "name" | "password";
+  type: "profile" | "password";
   close: () => void;
   saved: () => void;
+  openPassword: () => void;
+  passwordRequired: boolean;
   profile: { name: string; avatar_url: string };
 }) {
+  const canClose = type !== "password" || !passwordRequired;
   const [value, setValue] = useState({
     avatar_url: "",
     name: "",
@@ -165,7 +168,7 @@ function ProfileModal({
   }
   async function submit() {
     setMessage("");
-    if (type === "name" && !value.name.trim()) return setMessage("请输入用户名");
+    if (type === "profile" && !value.name.trim()) return setMessage("请输入用户名");
     if (type === "password" && value.new_password !== value.confirm_password)
       return setMessage("两次输入的新密码不一致");
     setBusy(true);
@@ -173,9 +176,7 @@ function ProfileModal({
     try {
       const body = isPassword
         ? value
-        : type === "avatar"
-          ? { avatar_url: await uploadAvatar(avatarFile as File) }
-          : { name: value.name.trim() };
+        : { name: value.name.trim(), ...(avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : {}) };
       const response = await fetch(
         isPassword ? "/api/users/password" : "/api/users/profile",
         {
@@ -195,16 +196,11 @@ function ProfileModal({
       setBusy(false);
     }
   }
-  const title =
-    type === "avatar"
-      ? "修改头像"
-      : type === "name"
-        ? "修改用户名"
-        : "修改登录密码";
+  const title = type === "profile" ? "个人中心" : "修改登录密码";
   return (
     <div
       className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/30 p-4"
-      onMouseDown={(event) => event.target === event.currentTarget && close()}
+      onMouseDown={(event) => event.target === event.currentTarget && canClose && close()}
     >
       <section
         role="dialog"
@@ -214,17 +210,17 @@ function ProfileModal({
       >
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button
+          {canClose ? <button
             type="button"
             aria-label="关闭"
             onClick={close}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X size={19} />
-          </button>
+          </button> : null}
         </div>
         <div className="mt-5 space-y-3">
-          {type === "avatar" ? (
+          {type === "profile" ? (
             <>
               <input ref={inputRef}
                 type="file"
@@ -241,7 +237,7 @@ function ProfileModal({
               </button>
             </>
           ) : null}
-          {type === "name" ? (
+          {type === "profile" ? (
             <input
               value={value.name}
               onChange={(event) =>
@@ -250,6 +246,11 @@ function ProfileModal({
               placeholder="请输入用户名"
               className="w-full rounded-xl border border-slate-200 p-2.5 text-sm"
             />
+          ) : null}
+          {type === "profile" ? (
+            <button type="button" onClick={openPassword} className="flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+              <span>登录密码</span><span className="text-blue-600">修改</span>
+            </button>
           ) : null}
           {type === "password" ? (
             <>
@@ -289,17 +290,17 @@ function ProfileModal({
           </p>
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
-          <button
+          {canClose ? <button
             type="button"
             onClick={close}
             className="rounded-lg border border-slate-200 px-4 py-2 text-sm"
           >
             取消
-          </button>
+          </button> : null}
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={busy || (type === "avatar" && !avatarFile)}
+            disabled={busy}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {busy ? "保存中…" : "保存"}
@@ -334,7 +335,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageTitleOverride, setPageTitleOverride] = useState("");
-  const [modal, setModal] = useState<"avatar" | "name" | "password" | null>(
+  const [modal, setModal] = useState<"profile" | "password" | null>(
     null,
   );
   const profileRef = useRef<HTMLDivElement>(null);
@@ -405,7 +406,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     const timer = window.setInterval(refresh, 60000);
     return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [canLoadNotices, loadNotices]);
-  useEffect(() => { if(profile?.must_change_password && path !== "/profile") router.replace("/profile?password=required"); },[path,profile?.must_change_password,router]);
+  useEffect(() => {
+    if (profile?.must_change_password) setModal("password");
+  }, [profile?.must_change_password]);
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
     setSidebarMode(saved === "dark" ? "dark" : "light");
@@ -650,7 +653,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ) : profile ? profile.name.slice(0, 1) : null}
               </span>
               {profile ? <>
-                <span className="hidden max-w-24 truncate text-sm font-medium text-slate-800 sm:block">{profile.name}</span>
+                <span className="hidden max-w-44 truncate text-sm font-medium text-slate-800 sm:block">欢迎您，{profile.name}（{roleLabels[profile.role]}）</span>
                 <ChevronDown size={15} className="hidden text-slate-500 sm:block" />
               </> : <span className="hidden h-4 w-16 animate-pulse rounded bg-slate-200 sm:block" aria-hidden="true" />}
             </button>
@@ -665,36 +668,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={() => {
-                    setModal("avatar");
+                    setModal("profile");
                     setProfileOpen(false);
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
                 >
                   <UserRound size={15} />
-                  修改头像
-                </button>
-                <Link href="/profile" prefetch={false} onClick={()=>setProfileOpen(false)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"><UserRound size={15}/>个人中心</Link>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModal("name");
-                    setProfileOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
-                >
-                  <Sparkles size={15} />
-                  修改用户名
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModal("password");
-                    setProfileOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
-                >
-                  <Settings size={15} />
-                  修改登录密码
+                  个人中心
                 </button>
                 <button
                   type="button"
@@ -716,6 +696,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           type={modal}
           close={() => setModal(null)}
           saved={loadProfile}
+          openPassword={() => setModal("password")}
+          passwordRequired={profile.must_change_password}
           profile={profile}
         />
       ) : null}

@@ -45,7 +45,7 @@ const channelLabels: Record<string, string> = {
 const contactLabels: Record<string, string> = {
   EMAIL: "邮箱",
   PHONE: "电话",
-  WHATSAPP: "WhatsApp",
+  WHATSAPP: "whatsapp",
   WEBSITE: "企业官网",
   GOOGLE_MAPS: "谷歌地图",
   FACEBOOK: "Facebook",

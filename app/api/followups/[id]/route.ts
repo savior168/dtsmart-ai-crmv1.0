@@ -10,8 +10,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });
     const content = String(body.content || "").trim();
+    const editReason = String(body.edit_reason || "").trim() || "销售员修正跟进记录";
     if (!content) return NextResponse.json({ error: "请填写跟进内容" }, { status: 400 });
-    const existing = await createAdminClient().from("followups").select("id,user_id,customer_id,customer:customers!inner(owner_id)").eq("id", id).single();
+    const existing = await createAdminClient().from("followups").select("id,user_id,customer_id,type,content,next_follow_date,customer:customers!inner(owner_id)").eq("id", id).single();
     if (existing.error) throw existing.error;
     const customer = Array.isArray(existing.data.customer) ? existing.data.customer[0] : existing.data.customer;
     if (account.role !== "ADMIN" && (existing.data.user_id !== user.id || customer?.owner_id !== user.id)) {
@@ -19,7 +20,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     }
     const updated = await supabase.from("followups").update({ type: body.type, content, next_follow_date: body.next_follow_date || null }).eq("id", id).select("id,customer_id").single();
     if (updated.error) throw updated.error;
-    await writeAudit(supabase, user.id, "FOLLOWUP_UPDATE", "customer", updated.data.customer_id, { followup_id: id });
+    await writeAudit(supabase, user.id, "FOLLOWUP_UPDATE", "customer", updated.data.customer_id, {
+      followup_id: id,
+      reason: editReason,
+      before: { type: existing.data.type, content: existing.data.content, next_follow_date: existing.data.next_follow_date },
+      after: { type: body.type, content, next_follow_date: body.next_follow_date || null },
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "跟进记录修改失败" }, { status: 400 });

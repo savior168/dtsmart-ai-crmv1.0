@@ -267,6 +267,15 @@ a[href^="/customers/"][class*="bg-[#1763e8]"] {
   color: #fff !important;
 }
 
+/* 客户详情的跟进记录采用紧凑信息卡：保留清晰层级，不让单条记录出现无意义大留白。 */
+.crm-content section.space-y-3 > article.rounded-xl.border {
+  padding: .75rem;
+}
+.crm-content section.space-y-3 > article.rounded-xl.border > p {
+  margin-top: .5rem;
+  line-height: 1.5rem;
+}
+
 @media (min-width: 1280px) {
   .ai-create-task-page div:has(> label select option[value="新增&导入"]) {
     grid-template-columns: minmax(300px, 1.35fr) minmax(200px, .7fr) minmax(360px, 1fr) auto !important;

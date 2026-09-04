@@ -39,6 +39,19 @@ function validateSocialLinks(rows: SocialLinkRow[]) {
   }
 }
 
+function validateBasicContacts(form: Record<string, string>) {
+  const email = form.email.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
+  const whatsapp = form.whatsapp.trim();
+  if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
+  for (const [label, value] of [["官网网址", form.website], ["Google地图网址", form.google_url]] as const) {
+    if (!value.trim()) continue;
+    let parsed: URL;
+    try { parsed = new URL(value.trim()); } catch { throw new Error(`${label}必须是完整的 http:// 或 https:// 链接`); }
+    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error(`${label}只支持 http:// 或 https:// 链接`);
+  }
+}
+
 export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = false, editBasicOnly = false, destination = "PRIVATE" }: { customer?: Customer | null; onDone: (customer?: Customer) => void; onCancel: () => void; analyzeAfterSave?: boolean; editBasicOnly?: boolean; destination?: "PRIVATE" | "PUBLIC_POOL" }) {
   const [form, setForm] = useState<Record<string,string>>({ company_name:customer?.company_name||"",contact_name:customer?.contact_name||"",country:customer?.country?countryInfo(customer.country).name:"",phone:customer?.phone||"",whatsapp:customer?.whatsapp||"",email:customer?.email||"",website:customer?.website||"",google_url:customer?.google_url||"",address:customer?.address||"",industry:customer?.industry||"",category:customer?.category||"",source:customer?.source||"手动创建",status:customer?.status||"UNCLAIMED",followup_status:customer?.followup_status||"WAITING_CONTACT",notes:customer?.notes||"" });
   const [socialLinks,setSocialLinks]=useState<SocialLinkRow[]>(()=>initialSocialLinks(customer));
@@ -51,6 +64,7 @@ export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = fa
     setError("");
     setResolution(null);
     try {
+      validateBasicContacts(form);
       const uniqueSocial=[...new Map(socialLinks.map((row)=>({ ...row,url:row.url.trim() })).filter((row)=>row.url).map((row)=>[`${row.platform}|${row.url.toLowerCase().replace(/\/$/,"")}`,row])).values()];
       validateSocialLinks(uniqueSocial);
       const fixed=(platform:SocialPlatform)=>uniqueSocial.find((row)=>row.platform===platform)?.url||"";
@@ -76,6 +90,6 @@ export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = fa
       setSaving(false);
     }
   }
-  const input=(key:string,label:string,required=false,type="text")=><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700">{label}{required&&<b className="ml-1 text-rose-500">*</b>}</span><input required={required} type={type} value={form[key]} onChange={(e)=>set(key,e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label>;
+  const input=(key:string,label:string,required=false,type="text")=><label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700">{label === "WhatsApp" ? "whatsapp" : label}{required&&<b className="ml-1 text-rose-500">*</b>}</span><input required={required} type={type} value={form[key]} onChange={(e)=>set(key,e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label>;
   return <form onSubmit={submit} className="space-y-6"><section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="border-l-4 border-blue-600 pl-3 font-semibold">{editBasicOnly?"编辑客户原始资料":"客户信息"}</h3>{editBasicOnly?<p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">AI评分、AI等级、行业结论、官网核验联系方式及分析依据为只读数据，只能通过AI筛选任务更新。</p>:null}<div className="mt-5 grid gap-4 md:grid-cols-2">{input("company_name","客户/公司名称",true)}{input("country","国家/地区",true)}{input("contact_name","联系人")}{input("category","客户类型")}{input("phone","联系电话")}{input("email","邮箱",false,"email")}{input("whatsapp","WhatsApp")}{input("website","官网网址")}{input("google_url","Google地图网址")}{!editBasicOnly?input("industry","行业"):null}<CustomerSocialLinksEditor rows={socialLinks} onChange={setSocialLinks}/><label className="md:col-span-2"><span className="mb-1.5 block text-sm font-medium text-slate-700">地址</span><input value={form.address} onChange={(e)=>set("address",e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label><div className="rounded-lg bg-violet-50 px-3 py-2.5 text-sm text-violet-700"><b>客户阶段和跟进状态由用户单条维护</b><span className="mt-1 block text-xs">新增或导入的私有客户默认为潜在客户；保存后可在客户详情中手动变更，系统单据不会自动改动。</span></div><label className="md:col-span-2"><span className="mb-1.5 block text-sm font-medium text-slate-700">备注</span><textarea value={form.notes} onChange={(e)=>set("notes",e.target.value)} rows={3} maxLength={500} className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/><span className="float-right text-xs text-slate-400">{form.notes.length}/500</span></label></div><p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">客户名称和国家为必填项；联系电话、邮箱、官网网址或Google地图网址至少填写一项。</p></section>{error&&<div className="flex flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><span>{error}</span>{resolution?<Link href={resolution.href} className="ml-auto rounded-lg border border-rose-300 bg-white px-3 py-2 font-medium text-rose-700 hover:bg-rose-100">{resolution.label}</Link>:null}</div>}<div className="flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm hover:bg-slate-50">取消</button><button disabled={saving} className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{saving?"保存中…":analyzeAfterSave?"保存并进行AI筛选":"保存客户"}</button></div></form>;
 }
