@@ -139,14 +139,16 @@ export async function GET(request: NextRequest) {
           }
         }
       }
-      const industries = [
-        ...verifiedIndustryMap.values(),
-        ...[...rawIndustryMap.entries()].map(([label, categories]) => ({
-          value: `raw-label:${label}`,
-          label: `${label}（原始类别映射，待AI核验）`,
-          values: [...categories].map((category) => `raw:${category}`),
-        })),
-      ];
+      const industryOptionMap = new Map<string, { value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>();
+      for (const item of verifiedIndustryMap.values()) industryOptionMap.set(item.label, { ...item, value: `industry:${item.label}`, tone: "verified" });
+      for (const [label, categories] of rawIndustryMap.entries()) {
+        const rawValues = [...categories].map((category) => `raw:${category}`);
+        const current = industryOptionMap.get(label);
+        industryOptionMap.set(label, current
+          ? { ...current, values: [...current.values, ...rawValues], tone: "mixed" }
+          : { value: `industry:${label}`, label, values: rawValues, tone: "raw" });
+      }
+      const industries = [...industryOptionMap.values()];
       return NextResponse.json({
         industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],

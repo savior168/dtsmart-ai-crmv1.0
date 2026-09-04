@@ -102,7 +102,7 @@ type AssignmentOptions = {
   inactive_users: Array<Owner & { status: string; customer_count: number }>;
 };
 type PoolFilterOptions = {
-  industries: Array<{ value: string; label: string; values: string[] }>;
+  industries: Array<{ value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>;
   owners: Owner[];
 };
 type Renewal = {
@@ -195,7 +195,7 @@ function PoolScore({ row }: { row: PoolRow }) {
 function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className={`mt-1 inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-xs font-medium ${industry.verified ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
+    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;
@@ -532,7 +532,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   </button>
                   {industryOpen ? <div role="listbox" aria-label="所属行业多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-72 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
                     <button type="button" onClick={() => { setIndustries([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空行业选择</button>
-                    {filterOptions.industries.map((item) => <label key={item.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item.value)} onChange={() => { setIndustries((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className={`min-w-0 break-words ${item.value.startsWith("ai:") ? "text-indigo-700" : "text-amber-700"}`}>{item.label}</span></label>)}
+                    {filterOptions.industries.map((item) => <label key={item.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item.value)} onChange={() => { setIndustries((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className={`min-w-0 break-words ${item.tone === "verified" ? "text-emerald-600" : "text-slate-600"}`}>{item.label}</span></label>)}
                   </div> : null}
                 </div>
                 <select
