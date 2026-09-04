@@ -5,12 +5,13 @@ export async function GET() {
   try {
     const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
     const [{ data }, { data: profile }] = await Promise.all([
-      supabase.from("users").select("id,name,email,role").eq("id", user.id).single(),
+      supabase.from("users").select("id,name,email,phone,role").eq("id", user.id).single(),
       supabase.from("profiles").select("avatar_url").eq("id", user.id).maybeSingle(),
     ]);
     return NextResponse.json({
       id: user.id,
       email: user.email,
+      phone: data?.phone || "",
       name:
         data?.name ||
         String(user.user_metadata?.username || user.user_metadata?.name || "").trim() ||

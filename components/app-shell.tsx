@@ -16,6 +16,7 @@ import {
   Moon,
   Settings,
   Sparkles,
+  KeyRound,
   UploadCloud,
   Sun,
   UserRound,
@@ -125,16 +126,14 @@ function ProfileModal({
   type,
   close,
   saved,
-  openPassword,
   passwordRequired,
   profile,
 }: {
-  type: "profile" | "password";
+  type: "avatar" | "profile" | "password";
   close: () => void;
   saved: () => void;
-  openPassword: () => void;
   passwordRequired: boolean;
-  profile: { name: string; avatar_url: string };
+  profile: { name: string; email: string; phone: string; avatar_url: string };
 }) {
   const canClose = type !== "password" || !passwordRequired;
   const [value, setValue] = useState({
@@ -178,7 +177,10 @@ function ProfileModal({
     try {
       const body = isPassword
         ? value
-        : { name: value.name.trim(), ...(avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : {}) };
+        : type === "avatar"
+          ? avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : null
+          : { name: value.name.trim() };
+      if (!body) return setMessage("请选择头像图片");
       const response = await fetch(
         isPassword ? "/api/users/password" : "/api/users/profile",
         {
@@ -198,7 +200,7 @@ function ProfileModal({
       setBusy(false);
     }
   }
-  const title = type === "profile" ? "个人中心" : "修改登录密码";
+  const title = type === "avatar" ? "修改头像" : type === "profile" ? "修改个人资料" : "修改登录密码";
   return (
     <div
       className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/30 p-4"
@@ -222,7 +224,7 @@ function ProfileModal({
           </button> : null}
         </div>
         <div className="mt-5 space-y-3">
-          {type === "profile" ? (
+          {type === "avatar" ? (
             <>
               <input ref={inputRef}
                 type="file"
@@ -240,6 +242,12 @@ function ProfileModal({
             </>
           ) : null}
           {type === "profile" ? (
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-blue-100 text-lg font-semibold text-blue-700">{avatarPreview ? <Image unoptimized width={48} height={48} src={avatarPreview} alt="当前头像" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}</span>
+              <span className="min-w-0"><b className="block text-sm text-slate-800">当前头像</b><small className="block text-slate-500">如需更换，请从右上角选择“修改头像”</small></span>
+            </div>
+          ) : null}
+          {type === "profile" ? (
             <input
               name="display-name"
               autoComplete="name"
@@ -253,9 +261,11 @@ function ProfileModal({
             />
           ) : null}
           {type === "profile" ? (
-            <button type="button" onClick={openPassword} className="flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-              <span>登录密码</span><span className="text-blue-600">修改</span>
-            </button>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">登录邮箱<input value={profile.email || "未绑定"} readOnly aria-readonly="true" className="mt-1.5 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-500"/></label>
+              <label className="block text-sm font-medium text-slate-700">绑定手机号<input value={profile.phone || "未绑定"} readOnly aria-readonly="true" className="mt-1.5 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-500"/></label>
+              <p className="text-xs leading-5 text-slate-500">邮箱与手机号用于登录和账号识别，当前不支持自行修改；如需变更请联系系统管理员。</p>
+            </div>
           ) : null}
           {type === "password" ? (
             <>
@@ -335,6 +345,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<{
     name: string;
     email: string;
+    phone: string;
     avatar_url: string;
     role: "ADMIN" | "SUPERVISOR" | "SALES" | "WAREHOUSE";
     must_change_password: boolean;
@@ -346,7 +357,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageTitleOverride, setPageTitleOverride] = useState("");
-  const [modal, setModal] = useState<"profile" | "password" | null>(
+  const [modal, setModal] = useState<"avatar" | "profile" | "password" | null>(
     null,
   );
   const profileRef = useRef<HTMLDivElement>(null);
@@ -367,7 +378,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const email = String(body.email || "").trim();
       const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
-      setProfile({ name, email, avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
+      setProfile({ name, email, phone: String(body.phone || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
     } catch {
       // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
     }
@@ -682,13 +693,35 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={() => {
+                    setModal("avatar");
+                    setProfileOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
+                >
+                  <UploadCloud size={15} />
+                  修改头像
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     setModal("profile");
                     setProfileOpen(false);
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
                 >
                   <UserRound size={15} />
-                  个人中心
+                  修改个人资料
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModal("password");
+                    setProfileOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
+                >
+                  <KeyRound size={15} />
+                  修改登录密码
                 </button>
                 <button
                   type="button"
@@ -710,7 +743,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           type={modal}
           close={() => setModal(null)}
           saved={loadProfile}
-          openPassword={() => setModal("password")}
           passwordRequired={profile.must_change_password}
           profile={profile}
         />
