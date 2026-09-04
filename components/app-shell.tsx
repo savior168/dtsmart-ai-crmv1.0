@@ -125,6 +125,8 @@ function ProfileModal({
   type,
   close,
   saved,
+  openPassword,
+  passwordRequired,
   profile,
 }: {
   type: "profile" | "password";
