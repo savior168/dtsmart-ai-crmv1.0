@@ -245,6 +245,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [claim, setClaim] = useState<PoolRow | null>(null);
+  const [supplementRow, setSupplementRow] = useState<PoolRow | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
@@ -617,6 +618,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
               selected={selected}
               setSelected={setSelected}
               claim={setClaim}
+              showSupplements={setSupplementRow}
               remove={(row) => setDeleteIds([row.id])}
             />
             <AppPagination
@@ -651,6 +653,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
             }}
           />
         ) : null}
+        {supplementRow ? <SupplementDialog row={supplementRow} close={() => setSupplementRow(null)} /> : null}
         {assignOpen ? (
           <AssignDialog
             customerIds={[...selected]}
@@ -693,6 +696,7 @@ function PoolTable({
   selected,
   setSelected,
   claim,
+  showSupplements,
   remove,
 }: {
   rows: PoolRow[];
@@ -705,6 +709,7 @@ function PoolTable({
   selected: Set<string>;
   setSelected: (value: Set<string>) => void;
   claim: (row: PoolRow) => void;
+  showSupplements: (row: PoolRow) => void;
   remove: (row: PoolRow) => void;
 }) {
   const selectable = canDelete;
@@ -755,6 +760,7 @@ function PoolTable({
               <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                 {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`}><Eye size={14}/>查看详情</Link> : null}
+                {row.my_supplements?.length ? <button type="button" onClick={() => showSupplements(row)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 bg-white px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-50" title="查看仅自己可见的补充资料"><Eye size={14}/>我的补充</button> : null}
                 {row.can_claim ? (
                   <button
                     onClick={() => claim(row)}
@@ -783,6 +789,13 @@ function PoolTable({
       ) : null}
     </section>
   );
+}
+
+function SupplementDialog({ row, close }: { row: PoolRow; close: () => void }) {
+  const fieldLabels: Record<string, string> = { contact_name: "联系人", phone: "电话", whatsapp: "whatsapp", email: "邮箱", website: "官网", google_url: "Google Maps", address: "地址" };
+  return <Modal title="我的补充资料" subtitle={`${row.company_name} · 仅您本人可见，不覆盖客户公海原始资料`} close={close}>
+    <div className="grid gap-2 sm:grid-cols-2">{(row.my_supplements || []).map((item) => <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm"><span className="block text-xs text-slate-500">{fieldLabels[item.field_name] || item.field_name}</span><span className="mt-1 block break-all text-slate-800">{item.value_raw}</span>{item.source_batch ? <small className="mt-2 block text-slate-400">{item.source_batch}{item.source_row ? ` · 第 ${item.source_row} 行` : ""}</small> : null}</div>)}</div>
+  </Modal>;
 }
 
 function PoolDeleteDialog({customerIds,close,saved}:{customerIds:string[];close:()=>void;saved:(message:string)=>void}){

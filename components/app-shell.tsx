@@ -239,6 +239,9 @@ function ProfileModal({
           ) : null}
           {type === "profile" ? (
             <input
+              name="display-name"
+              autoComplete="name"
+              type="text"
               value={value.name}
               onChange={(event) =>
                 setValue({ ...value, name: event.target.value })
@@ -255,6 +258,8 @@ function ProfileModal({
           {type === "password" ? (
             <>
               <input
+                name="current-password"
+                autoComplete="current-password"
                 type="password"
                 value={value.old_password}
                 onChange={(event) =>
@@ -264,6 +269,8 @@ function ProfileModal({
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-sm"
               />
               <input
+                name="new-password"
+                autoComplete="new-password"
                 type="password"
                 value={value.new_password}
                 onChange={(event) =>
@@ -273,6 +280,8 @@ function ProfileModal({
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-sm"
               />
               <input
+                name="confirm-password"
+                autoComplete="new-password"
                 type="password"
                 value={value.confirm_password}
                 onChange={(event) =>
@@ -409,6 +418,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (profile?.must_change_password) setModal("password");
   }, [profile?.must_change_password]);
+  useEffect(() => {
+    if (profile && new URLSearchParams(window.location.search).get("profile") === "1") setModal("profile");
+  }, [profile, path]);
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
     setSidebarMode(saved === "dark" ? "dark" : "light");
