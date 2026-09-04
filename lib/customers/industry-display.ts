@@ -16,12 +16,18 @@ const rawCategoryRules: Array<[RegExp, string]> = [
   [/(?:repair service)/i, "维修服务"],
 ];
 
-export function customerIndustryDisplay(customer: IndustryCustomer) {
+export function customerIndustryLabels(customer: IndustryCustomer) {
   const verified = String(customer.industry || "").trim();
-  if (customer.ai_screening_done && verified) return { text: verified, verified: true, title: `AI核验行业：${verified}` };
+  if (customer.ai_screening_done && verified) return { labels: [verified], verified: true };
   const category = String(customer.category || "").trim();
   const labels = rawCategoryRules.filter(([pattern]) => pattern.test(category)).map(([, label]) => label);
-  const distinct = Array.from(new Set(labels)).slice(0, 3);
+  return { labels: Array.from(new Set(labels)).slice(0, 3), verified: false };
+}
+
+export function customerIndustryDisplay(customer: IndustryCustomer) {
+  const { labels: distinct, verified } = customerIndustryLabels(customer);
+  const verifiedIndustry = String(customer.industry || "").trim();
+  if (verified && verifiedIndustry) return { text: verifiedIndustry, verified: true, title: `AI核验行业：${verifiedIndustry}` };
   const text = distinct.length ? distinct.join("、") : "待AI核验";
   return { text, verified: false, title: distinct.length ? `原始商家类别映射：${text}（待AI核验）` : "尚无已核验行业，请先完成AI筛选" };
 }

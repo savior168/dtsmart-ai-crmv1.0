@@ -102,7 +102,7 @@ type AssignmentOptions = {
   inactive_users: Array<Owner & { status: string; customer_count: number }>;
 };
 type PoolFilterOptions = {
-  industries: Array<{ value: string; label: string }>;
+  industries: Array<{ value: string; label: string; values: string[] }>;
   owners: Owner[];
 };
 type Renewal = {
@@ -195,7 +195,7 @@ function PoolScore({ row }: { row: PoolRow }) {
 function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className="mt-0.5 block truncate font-normal text-slate-500" title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
+    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className={`mt-1 inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-xs font-medium ${industry.verified ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;
@@ -220,7 +220,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
   const [focusedCustomerId, setFocusedCustomerId] = useState("");
-  const [industry, setIndustry] = useState("");
+  const [industries, setIndustries] = useState<string[]>([]);
+  const [industryOpen, setIndustryOpen] = useState(false);
   const [aiLevel, setAiLevel] = useState("");
   const [target, setTarget] = useState("");
   const [customerStatus, setCustomerStatus] = useState("");
@@ -235,6 +236,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [exporting, setExporting] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
+  const industryRef = useRef<HTMLDivElement>(null);
   const requestVersion = useRef(0);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     industries: [],
@@ -253,6 +255,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     CUSTOMER_LIST_COLUMNS.forEach((column) => { if (!draftFields.includes(column.key)) ordered.push(column); });
     return ordered;
   }, [draftFields]);
+  const appendIndustryFilters = useCallback((params: URLSearchParams) => {
+    for (const value of industries) {
+      const option = filterOptions.industries.find((item) => item.value === value);
+      for (const filterValue of option?.values || []) params.append("industry", filterValue);
+    }
+  }, [filterOptions.industries, industries]);
   const load = useCallback(async () => {
     if (!["available", "claimed", "pending"].includes(tab)) {
       setLoading(false);
@@ -269,7 +277,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       });
       if (query.trim()) params.set("q", query.trim());
       if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
-      if (industry) params.set("industry", industry);
+      appendIndustryFilters(params);
       if (aiLevel) params.set("ai_level", aiLevel);
       if (target) params.set("target", target);
       if (customerStatus && tab === "claimed") params.set("status", customerStatus);
@@ -291,8 +299,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     }
   }, [
     aiLevel,
+    appendIndustryFilters,
     customerStatus,
-    industry,
     ownerId,
     page,
     pageSize,
@@ -337,6 +345,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     const close = (event: MouseEvent) => {
       const targetNode = event.target as Node;
       if (newRef.current && !newRef.current.contains(targetNode)) setNewOpen(false);
+      if (industryRef.current && !industryRef.current.contains(targetNode)) setIndustryOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -356,7 +365,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, customerStatus, industry, ownerId, query, tab, target],
+    [aiLevel, customerStatus, industries, ownerId, query, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -369,6 +378,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setTab(value);
     setError("");
     setSelected(new Set());
+    setIndustries([]);
+    setIndustryOpen(false);
     setOwnerId("");
     setCustomerStatus("");
     if (value === "available" || value === "claimed" || value === "pending") {
@@ -383,7 +394,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }
   function resetFilters() {
     setQuery("");
-    setIndustry("");
+    setIndustries([]);
     setAiLevel("");
     setTarget("");
     setCustomerStatus("");
@@ -415,7 +426,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (let exportPage = 1; ; exportPage += 1) {
         const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "100", sort, direction, export: "1" });
         if (query.trim()) params.set("q", query.trim());
-        if (industry) params.set("industry", industry);
+        appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
@@ -449,7 +460,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (let resultPage = 1; ; resultPage += 1) {
         const params = new URLSearchParams({ tab, page: String(resultPage), page_size: "100", sort, direction });
         if (query.trim()) params.set("q", query.trim());
-        if (industry) params.set("industry", industry);
+        appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
@@ -515,16 +526,15 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
-                <select
-                  value={industry}
-                  onChange={(event) => setIndustry(event.target.value)}
-                  className={appFieldClass}
-                >
-                  <option value="">全部所属行业</option>
-                  {filterOptions.industries.map((item) => (
-                    <option key={item.value} value={item.value}>{item.label}</option>
-                  ))}
-                </select>
+                <div ref={industryRef} className="relative min-w-0">
+                  <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
+                    <span className="truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
+                  </button>
+                  {industryOpen ? <div role="listbox" aria-label="所属行业多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-72 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    <button type="button" onClick={() => { setIndustries([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空行业选择</button>
+                    {filterOptions.industries.map((item) => <label key={item.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item.value)} onChange={() => { setIndustries((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className={`min-w-0 break-words ${item.value.startsWith("ai:") ? "text-indigo-700" : "text-amber-700"}`}>{item.label}</span></label>)}
+                  </div> : null}
+                </div>
                 <select
                   value={aiLevel}
                   onChange={(event) => setAiLevel(event.target.value)}

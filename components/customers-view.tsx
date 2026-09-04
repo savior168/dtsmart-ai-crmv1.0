@@ -954,7 +954,7 @@ export function CustomersView() {
                         {key === "company_name" ? (
                           <span className="block truncate font-medium text-blue-600">
                             {row.company_name}
-                            <small className="block truncate text-xs font-normal text-slate-500" title={customerIndustryDisplay(row).title}>
+                            <small className={`mt-1 inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-xs font-medium ${customerIndustryDisplay(row).verified ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"}`} title={customerIndustryDisplay(row).title}>
                               {customerIndustryDisplay(row).verified ? "AI核验：" : "原始类别："}{customerIndustryDisplay(row).text}
                             </small>
                           </span>

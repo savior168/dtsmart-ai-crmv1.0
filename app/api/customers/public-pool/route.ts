@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { postgrestContains } from "@/lib/postgrest-search";
-import { customerIndustryDisplay } from "@/lib/customers/industry-display";
+import { customerIndustryLabels } from "@/lib/customers/industry-display";
 
 type PoolDbRow = Record<string, unknown> & {
   id: string;
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
     const country = params.get("country")?.trim() || "";
-    const industry = params.get("industry")?.trim() || "";
+    const industries = params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const aiLevel = params.get("ai_level")?.trim().toUpperCase() || "";
     const target = params.get("target")?.trim() || "";
     const customerStatus = params.get("status")?.trim().toUpperCase() || "";
@@ -122,23 +122,33 @@ export async function GET(request: NextRequest) {
         ? await admin.from("users").select("id,name,email").in("id", ownerIds).order("name")
         : { data: [], error: null };
       if (owners.error) throw owners.error;
-      const industryMap = new Map<string, { value: string; label: string }>();
+      const verifiedIndustryMap = new Map<string, { value: string; label: string; values: string[] }>();
+      const rawIndustryMap = new Map<string, Set<string>>();
       for (const item of optionRows) {
-        const display = customerIndustryDisplay(item);
-        if (display.verified && item.industry?.trim()) industryMap.set(`ai:${item.industry.trim()}`, { value: `ai:${item.industry.trim()}`, label: item.industry.trim() });
+        const display = customerIndustryLabels(item);
+        if (display.verified && item.industry?.trim()) {
+          const value = item.industry.trim();
+          verifiedIndustryMap.set(value, { value: `ai:${value}`, label: value, values: [`ai:${value}`] });
+        }
         else if (item.category?.trim()) {
           const rawCategory = item.category.trim();
-          industryMap.set(`raw:${rawCategory}`, {
-            value: `raw:${rawCategory}`,
-            // Keep every source category selectable. Categories without a
-            // presentation mapping retain their source label instead of
-            // silently disappearing from the filter.
-            label: display.text === "待AI核验" ? `原始类别：${rawCategory}` : display.text,
-          });
+          for (const label of display.labels) {
+            const categories = rawIndustryMap.get(label) || new Set<string>();
+            categories.add(rawCategory);
+            rawIndustryMap.set(label, categories);
+          }
         }
       }
+      const industries = [
+        ...verifiedIndustryMap.values(),
+        ...[...rawIndustryMap.entries()].map(([label, categories]) => ({
+          value: `raw-label:${label}`,
+          label: `${label}（原始类别映射，待AI核验）`,
+          values: [...categories].map((category) => `raw:${category}`),
+        })),
+      ];
       return NextResponse.json({
-        industries: [...industryMap.values()].sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
+        industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
@@ -170,9 +180,21 @@ export async function GET(request: NextRequest) {
       query = query.or(searchable.map((field) => `${field}.ilike.${pattern}`).join(","));
     }
     if (country) query = query.eq("country", country);
-    if (industry.startsWith("ai:")) query = query.eq("ai_screening_done", true).eq("industry", industry.slice(3));
-    else if (industry.startsWith("raw:")) query = query.or(`ai_screening_done.is.false,ai_screening_done.is.null`).eq("category", industry.slice(4));
-    else if (industry) query = query.eq("industry", industry); // compatibility with saved legacy URLs
+    const verifiedIndustries = industries.filter((value) => value.startsWith("ai:")).map((value) => value.slice(3));
+    const rawCategories = industries.filter((value) => value.startsWith("raw:")).map((value) => value.slice(4));
+    const quoted = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+    if (verifiedIndustries.length && !rawCategories.length) query = query.eq("ai_screening_done", true).in("industry", verifiedIndustries);
+    else if (!verifiedIndustries.length && rawCategories.length) query = query.or("ai_screening_done.is.false,ai_screening_done.is.null").in("category", rawCategories);
+    else if (verifiedIndustries.length || rawCategories.length) {
+      const anyIndustry = [
+        ...verifiedIndustries.map((value) => `and(ai_screening_done.is.true,industry.eq.${quoted(value)})`),
+        ...rawCategories.flatMap((value) => [
+          `and(ai_screening_done.is.false,category.eq.${quoted(value)})`,
+          `and(ai_screening_done.is.null,category.eq.${quoted(value)})`,
+        ]),
+      ];
+      query = query.or(anyIndustry.join(","));
+    }
     if (["A", "B", "C", "D"].includes(aiLevel)) query = query.eq("ai_level", aiLevel);
     if (target === "valid") query = query.eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("is_target_customer", false);
