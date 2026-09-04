@@ -15,6 +15,7 @@ import {
   ChevronUp,
   CheckCircle2,
   Download,
+  Eye,
   ExternalLink,
   FileSpreadsheet,
   Globe2,
@@ -51,6 +52,7 @@ import { csvCell } from "@/lib/customer-export";
 import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
+import { AttachmentPreview } from "@/components/ui/attachment-preview";
 
 type Role = UserRole;
 type Tab =
@@ -206,7 +208,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [tab, setTab] = useState<Tab>("available");
   const [rows, setRows] = useState<PoolRow[]>([]);
   const [role, setRole] = useState<Role>(initialRole);
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState<number | null>(null);
   const [tabCounts, setTabCounts] = useState<Partial<Record<Tab, number>>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -227,6 +229,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [exporting, setExporting] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
+  const requestVersion = useRef(0);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     industries: [],
     owners: [],
@@ -248,6 +251,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       setLoading(false);
       return;
     }
+    const version = ++requestVersion.current;
     setLoading(true);
     setError("");
     try {
@@ -266,14 +270,17 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       params.set("sort", sort);
       params.set("direction", direction);
       const body = await api(`/api/customers/public-pool?${params}`);
+      if (version !== requestVersion.current) return;
+      const nextCount = Number(body.count || 0);
       setRows(body.data || []);
-      setCount(Number(body.count || 0));
+      setCount(nextCount);
+      setTabCounts((current) => ({ ...current, [tab]: nextCount }));
       setRole(body.role || "SALES");
       setSelected(new Set());
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "客户公海加载失败");
+      if (version === requestVersion.current) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [
     aiLevel,
@@ -319,11 +326,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       .catch(() => undefined);
   }, []);
   useEffect(() => { loadTabCounts(); }, [loadTabCounts]);
-  useEffect(() => {
-    if (["available", "claimed", "pending"].includes(tab)) {
-      setTabCounts((current) => ({ ...current, [tab]: count }));
-    }
-  }, [count, tab]);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       const targetNode = event.target as Node;
@@ -586,7 +588,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 {role === "ADMIN" ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? "正在导出…" : "导出数据"}</button> : null}
                 <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />字段设置</button>
                 {role === "ADMIN" ? <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                  <button type="button" disabled={selectingAll || !count} onClick={() => count > 0 && selected.size >= count ? setSelected(new Set()) : void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "正在全选…" : count > 0 && selected.size >= count ? "取消全选" : "全选筛选结果"}</button>
+                  <button type="button" disabled={selectingAll || !(count ?? 0)} onClick={() => (count ?? 0) > 0 && selected.size >= (count ?? 0) ? setSelected(new Set()) : void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "正在全选…" : (count ?? 0) > 0 && selected.size >= (count ?? 0) ? "取消全选" : "全选筛选结果"}</button>
                   {["available", "pending"].includes(tab) ? <button disabled={!selected.size} type="button" onClick={() => setAssignOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"><UserPlus size={16}/>分配已选 {selected.size} 家</button> : null}
                   <button disabled={!selected.size} type="button" onClick={() => setDeleteIds([...selected])} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"><Trash2 size={16}/>删除已选 {selected.size} 家</button>
                 </div> : null}
@@ -613,7 +615,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
             <AppPagination
               page={page}
               pageSize={pageSize}
-              total={count}
+              total={count ?? 0}
               itemLabel="家客户"
               onPage={setPage}
               onPageSize={(size) => {
@@ -744,7 +746,8 @@ function PoolTable({
               ) : null}
               {fields.map((field) => <td key={field} className={`max-w-64 overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
               <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`}><Eye size={14}/>查看详情</Link> : null}
                 {row.can_claim ? (
                   <button
                     onClick={() => claim(row)}
@@ -752,16 +755,9 @@ function PoolTable({
                   >
                     认领
                   </button>
-                ) : row.can_open_customer ? (
-                  <Link
-                    href={`/customers/${row.id}?from=pool`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    查看详情
-                  </Link>
-                ) : (
+                ) : !row.can_open_customer ? (
                   <span className="text-xs text-slate-400">已被认领</span>
-                )}
+                ) : null}
                 {canDelete ? <button type="button" onClick={() => remove(row)} title="永久删除客户" aria-label={`永久删除${row.company_name}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-50"><Trash2 size={14}/></button> : null}
                 </div>
               </td>
@@ -1235,16 +1231,7 @@ function RenewalReview({
                 <td className="px-4 py-4">第 {row.renewal_number} 次</td>
                 <td className="max-w-64 px-4 py-4">{row.reason}</td>
                 <td className="max-w-64 px-4 py-4">{row.next_plan}</td>
-                <td className="px-4 py-4">
-                  <a
-                    href={`/api/attachments/${row.evidence_attachment_id}`}
-                    target="_blank"
-                    className="inline-flex items-center gap-1 text-blue-600"
-                  >
-                    查看凭证
-                    <ExternalLink size={13} />
-                  </a>
-                </td>
+                <td className="px-4 py-4"><AttachmentPreview attachment={{ id: row.evidence_attachment_id, filename: "续期凭证", mime_type: null }} /></td>
                 <td className="px-4 py-4">{formatDate(row.created_at)}</td>
                 <td className="px-4 py-4">
                   <div className="flex gap-2">

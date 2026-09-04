@@ -25,7 +25,7 @@ const customerDelete = read("lib/customers/soft-delete.ts");
 assert.match(customerBatch, /allowAll: account\.role === "ADMIN"/, "批量删除只有系统管理员可跨归属人操作");
 assert.match(customerDelete, /allowAll \|\| customer\.owner_id === userId/, "主管与销售员批量删除必须限定本人客户");
 const followupUpdate = read("app/api/followups/[id]/route.ts");
-assert.match(followupUpdate, /canWriteOwnedRecord\(account,existing\.data\.user_id\)/, "跟进修改必须按创建人校验，主管跨用户只读");
+assert.match(followupUpdate, /existing\.data\.user_id !== user\.id \|\| customer\?\.owner_id !== user\.id/, "跟进修改必须同时校验创建人和当前客户归属，主管跨用户只读");
 const singleCustomerAnalysis = read("app/api/ai/analyze/route.ts");
 assert.match(singleCustomerAnalysis, /\.eq\("id", body\.customer_id\)\.eq\("owner_id", user\.id\)/, "单客户AI筛选必须限定当前归属人，主管不得替他人发起分析");
 const quoteDetail = read("app/api/quotes/[id]/route.ts");

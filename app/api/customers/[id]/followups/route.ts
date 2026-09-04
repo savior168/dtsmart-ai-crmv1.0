@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canWriteOwnedRecord, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { FOLLOWUP_TYPES } from "@/lib/types";
 
@@ -19,10 +19,10 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       return NextResponse.json({ error: "客户明确有采购意向时必须上传真实沟通凭证" }, { status: 400 });
     }
     const admin = createAdminClient();
-    const { data: customer, error: customerError } = await admin.from("customers").select("id,status,owner_id,created_by").eq("id", id).is("deleted_at", null).single();
+    const { data: customer, error: customerError } = await admin.from("customers").select("id,status,owner_id").eq("id", id).is("deleted_at", null).single();
     if (customerError) throw customerError;
-    const effectiveOwner = customer.owner_id || customer.created_by;
-    if (!canWriteOwnedRecord(account, effectiveOwner)) {
+    if (!customer.owner_id) return NextResponse.json({ error: "公海客户需先完成认领，才可以新增跟进" }, { status: 403 });
+    if (customer.owner_id !== user.id) {
       return NextResponse.json({ error: "其他用户的客户和跟进数据仅供查看，不能新增跟进" }, { status: 403 });
     }
     const { data, error } = await admin.from("followups").insert({

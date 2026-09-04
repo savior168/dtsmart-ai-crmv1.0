@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const scopeUserId = requestedOwnerId(request, account, "followups.data_all");
     const now = new Date(); const start = new Date(now); start.setHours(0,0,0,0); const end = new Date(start); end.setDate(end.getDate()+1);
     let query = supabase.from("followups").select("id,customer_id,user_id,type,content,attachment,next_follow_date,created_at,user:users!followups_user_id_fkey(id,name,email),customer:customers!inner(id,company_name,country,ai_level,ai_score,status,owner_id)",{count:"exact"});
-    if (scopeUserId) query = query.eq("user_id", scopeUserId);
+    if (scopeUserId) query = query.eq("customer.owner_id", scopeUserId);
     if(search) query=query.ilike("customer.company_name",`%${search.replace(/[%_]/g,"\\$&")}%`);
     if (scope === "overdue") query = query.lt("next_follow_date", start.toISOString());
     else if (scope === "upcoming") query = query.gte("next_follow_date", start.toISOString());

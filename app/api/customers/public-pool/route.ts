@@ -183,7 +183,9 @@ export async function GET(request: NextRequest) {
         protection: protectionByCustomer.get(row.id) || null,
         my_supplements: supplementsByCustomer.get(row.id) || [],
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
-        can_open_customer: own || elevated,
+        // 未认领公海客户对所有具备客户查看权限的用户开放基础详情；
+        // 已认领客户仍仅归属人和具备全量数据权限的角色可打开完整详情。
+        can_open_customer: tab === "available" || own || elevated,
       };
     });
     return NextResponse.json({

@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
         .select("type,content,next_follow_date,created_at,user:users!followups_user_id_fkey(name,email),customer:customers!inner(company_name,country,ai_level,ai_score,status)")
         .order(scope === "history" ? "created_at" : "next_follow_date", { ascending: scope !== "history", nullsFirst: false })
         .range(offset, offset + 999);
-      if (scopeUserId) query = query.eq("user_id", scopeUserId);
+      if (scopeUserId) query = query.eq("customer.owner_id", scopeUserId);
       if (search) query = query.ilike("customer.company_name", `%${search.replace(/[%_]/g, "\\$&")}%`);
       if (scope === "overdue") query = query.lt("next_follow_date", start.toISOString());
       else if (scope === "upcoming") query = query.gte("next_follow_date", start.toISOString());

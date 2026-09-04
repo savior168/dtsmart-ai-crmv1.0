@@ -53,7 +53,7 @@ for (const path of ["components/orders-view.tsx", "components/quotes-view.tsx", 
 }
 assert.doesNotMatch(read("components/followups-view.tsx"), /进入客户库/, "跟进管理不得显示含义重复的进入客户库按钮");
 assert.match(read("components/customers-view.tsx"), /selected\.size >= count \? "取消全选" : "全选筛选结果"/, "我的客户跨页全选与取消必须合并为同一按钮");
-assert.match(read("components/customer-public-pool-view.tsx"), /selected\.size >= count \? "取消全选" : "全选筛选结果"/, "客户公海跨页全选与取消必须合并为同一按钮");
+assert.match(read("components/customer-public-pool-view.tsx"), /selected\.size >= \(count \?\? 0\) \? "取消全选" : "全选筛选结果"/, "客户公海跨页全选与取消必须合并为同一按钮");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), />取消全选<\/button>/, "客户公海不得额外堆叠独立取消全选按钮");
 
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");

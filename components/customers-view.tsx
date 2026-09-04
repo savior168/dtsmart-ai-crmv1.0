@@ -9,10 +9,10 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Eye,
   FileSpreadsheet,
   Globe2,
   MapPin,
-  Pencil,
   Plus,
   Search,
   Settings2,
@@ -108,11 +108,11 @@ function value(customer: Customer, key: ColumnKey) {
 export function CustomersView() {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<CustomerWorkspace>("list");
-  const [protectionCount, setProtectionCount] = useState(0);
-  const [conflictCount, setConflictCount] = useState(0);
+  const [protectionCount, setProtectionCount] = useState<number | null>(null);
+  const [conflictCount, setConflictCount] = useState<number | null>(null);
   const [rows, setRows] = useState<Customer[]>([]);
   const [count, setCount] = useState(0);
-  const [totalCustomerCount, setTotalCustomerCount] = useState(0);
+  const [totalCustomerCount, setTotalCustomerCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
@@ -294,14 +294,19 @@ export function CustomersView() {
   }, []);
   useEffect(() => {
     if (!scopeReady) return;
+    let disposed = false;
+    setTotalCustomerCount(null);
+    setProtectionCount(null);
+    setConflictCount(null);
     const scope = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
     void Promise.all([
-      fetch(`/api/customers?page=1&pageSize=1&ai_status=all&deleted=false${scope}`).then((response) => response.json()).then((body) => setTotalCustomerCount(Number(body.count ?? 0))),
-      fetch(`/api/customers?options=industries${scope}`).then((response) => response.json()).then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : [])),
-      fetch(`/api/customers?options=batches${scope}`).then((response) => response.json()).then((body) => setBatchOptions(Array.isArray(body.data) ? body.data : [])),
-      fetch(`/api/customers/protection?summary=1${scope}`).then((response) => response.json()).then((body) => setProtectionCount(Number(body.count ?? 0))),
-      fetch(`/api/customer-conflicts?summary=1${scope}`).then((response) => response.json()).then((body) => setConflictCount(Number(body.count ?? 0))),
+      fetch(`/api/customers?page=1&pageSize=1&ai_status=all&deleted=false${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setTotalCustomerCount(Number(body.count ?? 0)); }),
+      fetch(`/api/customers?options=industries${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setIndustryOptions(Array.isArray(body.data) ? body.data : []); }),
+      fetch(`/api/customers?options=batches${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setBatchOptions(Array.isArray(body.data) ? body.data : []); }),
+      fetch(`/api/customers/protection?summary=1${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setProtectionCount(Number(body.count ?? 0)); }),
+      fetch(`/api/customer-conflicts?summary=1${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setConflictCount(Number(body.count ?? 0)); }),
     ]).catch(() => undefined);
+    return () => { disposed = true; };
   }, [scopeReady, scopeUserId]);
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
   const crossUserReadOnly = canViewAll && scopeUserId !== defaultScopeUserId;
@@ -530,9 +535,9 @@ export function CustomersView() {
           <AppTabs
             value={workspace}
             items={[
-              { value: "list", label: "我的客户", description: "当前归属并由我维护的客户", count: totalCustomerCount, countTone: "success" },
-              { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount, countTone: "warning" },
-              { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount, countTone: "danger" },
+              { value: "list", label: "我的客户", description: "当前归属并由我维护的客户", count: totalCustomerCount ?? undefined, countTone: "success" },
+              { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount ?? undefined, countTone: "warning" },
+              { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount ?? undefined, countTone: "danger" },
             ]}
             onChange={switchWorkspace}
             label="我的客户分类"
@@ -974,11 +979,11 @@ export function CustomersView() {
                         href={`/customers/${row.id}`}
                         prefetch={false}
                         onClick={(event) => event.stopPropagation()}
-                        className="inline-grid h-8 w-8 place-items-center rounded-lg border border-blue-100 text-blue-600 hover:bg-blue-50"
-                        title={crossUserReadOnly ? "查看客户详情（跨用户数据只读）" : "编辑客户"}
-                        aria-label={`${crossUserReadOnly ? "查看" : "编辑"}${row.company_name}`}
+                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                        title={crossUserReadOnly ? "查看客户详情（跨用户数据只读）" : "查看客户详情"}
+                        aria-label={`查看${row.company_name}详情`}
                       >
-                        <Pencil size={17} />
+                        <Eye size={14} />查看详情
                       </Link>
                       {!crossUserReadOnly && (row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); setReleaseTarget(row);setReleaseReason(""); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
                       {!crossUserReadOnly ? (

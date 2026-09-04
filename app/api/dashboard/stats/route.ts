@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { countryInfo } from "@/lib/countries";
 
 type DashboardCustomer = {
   id: string;
@@ -137,7 +138,13 @@ export async function GET(request: NextRequest) {
       return { ...item, percentage: share };
     });
     const countryCounts = new Map<string, number>();
-    customers.forEach((item) => { const key = item.country?.trim() || "未知"; countryCounts.set(key, (countryCounts.get(key) || 0) + 1); });
+    customers.forEach((item) => {
+      const normalized = countryInfo(item.country);
+      // Use the ISO code as the aggregation identity so IE/爱尔兰/Ireland
+      // cannot become three visually duplicated country rows.
+      const key = normalized.code || normalized.name;
+      countryCounts.set(key, (countryCounts.get(key) || 0) + 1);
+    });
     const countryTop = Array.from(countryCounts, ([name, count]) => ({ name, count, percentage: percentage(count, customers.length) })).sort((a, b) => b.count - a.count).slice(0, 10);
     const pendingAi = distribution.find((item) => item.grade === "未筛选")?.count || 0;
     const targetCustomers = customers.filter((item) => item.ai_score !== null && item.ai_score >= 60).length;

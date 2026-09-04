@@ -26,6 +26,7 @@ import {
   ConfirmDialog,
   DialogActions,
 } from "@/components/ui/app-dialog";
+import { AttachmentPreview } from "@/components/ui/attachment-preview";
 
 type CustomerOption = {
   id: string;
@@ -919,18 +920,13 @@ export function QuoteForm({
                       className="inline-flex max-w-full items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm"
                     >
                       <Paperclip size={14} className="shrink-0 text-blue-600" />
-                      <a
-                        href={`/api/attachments/${item.id}`}
-                        className="max-w-64 truncate text-blue-700"
-                        title={item.filename}
-                      >
-                        {item.filename}
-                      </a>
+                      <span className="max-w-64 truncate text-blue-700" title={item.filename}>{item.filename}</span>
                       <small className="text-slate-400">
                         {item.size_bytes
                           ? `${(item.size_bytes / 1024).toFixed(0)}KB`
                           : ""}
                       </small>
+                      <AttachmentPreview attachment={item} />
                       {detail.can_edit ? (
                         <button
                           onClick={() =>
