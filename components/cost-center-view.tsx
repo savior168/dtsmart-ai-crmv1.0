@@ -23,6 +23,7 @@ type Payload = {
     providers: ProviderRow[];
   };
 };
+type GoogleBilling = { state: "NOT_CONFIGURED" | "CONNECTED" | "NO_DATA" | "ERROR"; message: string; totalUsd?: number; latestUsageAt?: string | null; usageRows?: number };
 
 const money = (value: unknown) => `$${Number(value || 0).toFixed(4)}`;
 const chinaDate = (value: string) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -47,6 +48,7 @@ export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
 
   const query = useMemo(() => {
@@ -64,6 +66,8 @@ export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
     if (!response.ok) { setError(body.error || "费用数据加载失败"); return; }
     setPayload(body);
     setAccountingDate(inputDate(body.accounting_start_at));
+    const google = await fetch("/api/cost-center/google-billing", { cache: "no-store" });
+    if (google.ok) setGoogleBilling(await google.json());
   }, [query]);
 
   useEffect(() => { void load(); }, [load]);
@@ -111,6 +115,10 @@ export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
     </AppFilterBar>
     <p className="mt-2 text-xs text-slate-500">当前查看：{scopeLabel}{payload ? ` · 实际查询 ${chinaDate(payload.effective_from)} 至 ${chinaDate(payload.effective_to)}` : ""}</p>
     {Number(summary?.unknown_pricing_count || 0) > 0 ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">有 {summary?.unknown_pricing_count} 次调用尚未配置计费单价，因此暂不计入金额；这不代表接口免费。配置价目后需与平台账单对账。</p> : null}
+    <section className="mt-4 rounded-xl border bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><b className="text-sm text-slate-800">Google Cloud 实际账单核对</b><p className="mt-1 text-xs text-slate-500">来源为 Google Cloud BigQuery 的结算明细；不替代系统调用账本，也不会把预估金额写成实际费用。</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${googleBilling?.state === "CONNECTED" ? "bg-emerald-50 text-emerald-700" : googleBilling?.state === "ERROR" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{googleBilling?.state === "CONNECTED" ? "已连接" : googleBilling?.state === "NO_DATA" ? "暂无账单数据" : googleBilling?.state === "ERROR" ? "连接异常" : "未连接"}</span></div>
+      {googleBilling ? <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2"><p className="text-sm text-slate-700">{googleBilling.message}</p>{googleBilling.state === "CONNECTED" ? <><b className="text-xl text-emerald-700">{money(googleBilling.totalUsd)}</b><span className="text-xs text-slate-500">近 90 天 · {Number(googleBilling.usageRows || 0).toLocaleString("zh-CN")} 条结算明细{googleBilling.latestUsageAt ? ` · 最新使用：${chinaDate(googleBilling.latestUsageAt)}` : ""}</span></> : null}</div> : <p className="mt-3 text-sm text-slate-400">正在检查 Google Cloud 连接状态…</p>}
+    </section>
     {error ? <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div> : payload ? <>
       <section className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
