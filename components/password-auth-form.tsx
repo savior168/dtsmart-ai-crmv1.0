@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AtSign,
@@ -119,15 +119,21 @@ export function PasswordAuthForm() {
   const [loading, setLoading] = useState(false);
   const [captcha, setCaptcha] = useState("");
   const [captchaVersion, setCaptchaVersion] = useState(1);
+  const [captchaFocused, setCaptchaFocused] = useState(false);
 
-  function refreshCaptcha() {
-    setCaptcha("");
+  const refreshCaptcha = useCallback((clearInput = true) => {
+    if (clearInput) setCaptcha("");
     setCaptchaVersion((value) => value + 1);
-  }
-  useEffect(() => {
-    const timer = window.setInterval(refreshCaptcha, 10000);
-    return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    // Refreshing the image also replaces the server-side challenge cookie.
+    // Never do that while the user is entering an answer, or a valid answer
+    // can be turned into an invalid one between keystrokes and submission.
+    const timer = window.setInterval(() => {
+      if (!captchaFocused && !captcha.trim()) refreshCaptcha(false);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [captcha, captchaFocused, refreshCaptcha]);
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -221,7 +227,7 @@ export function PasswordAuthForm() {
             onChange={setPassword}
             autoComplete="current-password"
           />
-          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} />
+          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} onFocus={() => setCaptchaFocused(true)} onBlur={() => setCaptchaFocused(false)} />
           <div className="flex justify-end">
             <button
               type="button"
@@ -312,7 +318,7 @@ export function PasswordAuthForm() {
             />
             注册后账号进入待审核状态。系统管理员审核通过后方可登录，手机号仅作为可选登录标识。
           </p>
-          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} />
+            <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} onFocus={() => setCaptchaFocused(true)} onBlur={() => setCaptchaFocused(false)} />
           <Feedback error={error} notice={notice} />
           <PrimaryButton
             loading={loading}
@@ -349,11 +355,11 @@ export function PasswordAuthForm() {
   );
 }
 
-function CaptchaField({ value, onChange, version, refresh }: { value: string; onChange: (value: string) => void; version: number; refresh: () => void }) {
+function CaptchaField({ value, onChange, version, refresh, onFocus, onBlur }: { value: string; onChange: (value: string) => void; version: number; refresh: () => void; onFocus: () => void; onBlur: () => void }) {
   // A regular img is intentional: the browser must receive the captcha cookie
   // from this request, which the Next.js image optimizer would not forward.
   // eslint-disable-next-line @next/next/no-img-element
-  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className="mt-1.5 block text-xs text-slate-400">验证码含随机干扰，每 10 秒自动刷新，也可点击图片手动刷新。</span></label>;
+  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onFocus={onFocus} onBlur={onBlur} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className="mt-1.5 block text-xs text-slate-400">验证码含随机干扰；空白时每 15 秒自动刷新，获得输入焦点或输入后暂停刷新，也可点击图片手动刷新。</span></label>;
 }
 
 function Feedback({ error, notice }: { error: string; notice: string }) {
