@@ -25,6 +25,18 @@ import {
 import { downloadWorkbook } from "@/lib/xlsx-export";
 import { customerIdentityKeys } from "@/lib/import-dedupe";
 import { CountryLabel } from "@/components/country-label";
+import { AppDialog } from "@/components/ui/app-dialog";
+
+type PotentialCandidate = {
+  id?: string;
+  company_name?: string;
+  country?: string;
+  website?: string | null;
+  google_url?: string | null;
+  match_reasons?: string[];
+  ownership_status?: string;
+  action_url?: string | null;
+};
 
 type MappedRow = ReturnType<typeof mapImportRow> & {
   preview_id: number;
@@ -36,6 +48,8 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   action_url?: string;
   supplement_count?: number;
   suspected_duplicate?: boolean;
+  suspected_candidates?: PotentialCandidate[];
+  preflight_candidates?: PotentialCandidate[];
 };
 
 function ImportCountry({ value }: { value?: string | null }) { return <CountryLabel value={value} />; }
@@ -229,6 +243,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   >("all");
   const [detailSearch, setDetailSearch] = useState("");
   const [jumpPage, setJumpPage] = useState("");
+  const [candidateDialog, setCandidateDialog] = useState<{ row: MappedRow; candidates: PotentialCandidate[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const sessionRef = useRef<ImportSessionSnapshot>(initialSession);
@@ -471,7 +486,9 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
       const preview = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(preview.error || "系统重复预检失败");
       const suspected = new Set((Array.isArray(preview.suspected_row_indexes) ? preview.suspected_row_indexes : []).map(Number));
-      setRows(next.map((row, index) => ({ ...row, suspected_duplicate: suspected.has(index) })));
+      const matches = preview.suspected_matches && typeof preview.suspected_matches === "object" ? preview.suspected_matches as Record<string, PotentialCandidate[]> : {};
+      const preflightMatches = preview.preflight_matches && typeof preview.preflight_matches === "object" ? preview.preflight_matches as Record<string, PotentialCandidate[]> : {};
+      setRows(next.map((row, index) => ({ ...row, suspected_duplicate: suspected.has(index), suspected_candidates: Array.isArray(matches[String(index)]) ? matches[String(index)] : [], preflight_candidates: Array.isArray(preflightMatches[String(index)]) ? preflightMatches[String(index)] : [] })));
       setPreviewStats({
         success_count: Number(preview.success_count || 0),
         conflict_count: Number(preview.conflict_count || 0),
@@ -1077,8 +1094,9 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                   >
                     <td className="w-[190px] px-4 py-3 font-medium text-slate-800">
                       <span className="block truncate" title={row.company_name || ""}>{row.company_name || "-"}</span>
+                      {row.preflight_candidates?.length ? <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700"><button type="button" onClick={()=>setCandidateDialog({row,candidates:row.preflight_candidates||[]})} className="underline underline-offset-2">确认重复/冲突，核对匹配客户</button>{row.preflight_candidates[0]?.action_url ? <Link href={row.preflight_candidates[0].action_url} className="underline underline-offset-2">前往处理</Link> : null}</span> : null}
                       {row.import_result === "conflict" ? <span className="mt-1 block truncate text-xs font-semibold text-rose-600" title={`当前归属人：${row.conflict_owner_name || "已归属其他用户"}`}>当前归属人：{row.conflict_owner_name || "已归属其他用户"}</span> : null}
-                      {row.suspected_duplicate ? <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">疑似重复，已提示核对</span> : null}
+                      {row.suspected_duplicate ? <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">疑似重复，已提示核对{row.suspected_candidates?.length ? <button type="button" onClick={()=>setCandidateDialog({row,candidates:row.suspected_candidates||[]})} className="underline underline-offset-2">核对候选</button> : null}</span> : null}
                       {row.action_url ? <Link href={row.action_url} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">去公海认领<ExternalLink size={12}/></Link> : null}
                     </td>
                     <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>
@@ -1196,6 +1214,9 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             </label>
           </footer>
         </section>
+        <AppDialog open={Boolean(candidateDialog)} onClose={() => setCandidateDialog(null)} title="核对系统匹配客户" description="当前导入行与候选主档并排核对；不会自动合并或覆盖任何资料。" width="max-w-4xl">
+          {candidateDialog ? <div className="space-y-4"><div className="rounded-xl border border-blue-100 bg-blue-50 p-4"><b>当前导入数据</b><p className="mt-2 text-sm text-slate-700">{candidateDialog.row.company_name || "未命名客户"} · {candidateDialog.row.country || "—"}</p><p className="mt-1 text-xs text-slate-600">官网：{candidateDialog.row.website || "—"} · Google 地图：{candidateDialog.row.google_url || "—"}</p></div><div className="grid gap-3 md:grid-cols-2">{candidateDialog.candidates.map((item,index)=><article key={item.id||index} className="rounded-xl border border-amber-200 bg-amber-50/40 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><b>{item.company_name||"未命名客户"}</b><span className="rounded-full bg-white px-2 py-1 text-xs text-slate-600">{item.ownership_status}</span></div><p className="mt-2 text-sm text-slate-600">国家/地区：{item.country||"—"}</p><p className="mt-1 text-xs text-amber-800">匹配依据：{item.match_reasons?.join("、")||"资料相似"}</p><p className="mt-2 truncate text-xs text-blue-700">官网：{item.website||"—"}</p><p className="mt-1 truncate text-xs text-blue-700">Google 地图：{item.google_url||"—"}</p>{item.action_url?<Link href={item.action_url} className="mt-3 inline-flex text-xs font-medium text-blue-700 hover:underline">打开对应客户处理</Link>:null}</article>)}</div><div className="flex justify-end border-t pt-4"><button type="button" onClick={() => setCandidateDialog(null)} className="h-10 rounded-lg border px-4 text-sm">完成核对</button></div></div> : null}
+        </AppDialog>
         {showFailures && (
           <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4">
             <section className="max-h-[80vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -1260,7 +1281,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                 </div>
                 <div className="rounded-xl border border-slate-200 p-4">
                   <div className="font-semibold text-slate-900">重复判断</div>
-                  <p className="mt-2">客户名称 + 完整号码，或客户名称 + 邮箱完全相同时，只保留最先出现的一条。</p>
+                  <p className="mt-2">电话、whatsapp 或邮箱命中即为确认重复；官网、Google 地图主体或高相似名称会提示核对候选，系统不会自动合并。</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 p-4 sm:col-span-2">
                   <div className="font-semibold text-slate-900">支持字段</div>

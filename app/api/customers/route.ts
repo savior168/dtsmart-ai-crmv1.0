@@ -3,7 +3,7 @@ import { hasPermission, requestedOwnerId, requirePermission, writeAudit } from "
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, isPotentialCustomerDuplicate } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
@@ -350,14 +350,40 @@ export async function POST(request: NextRequest) {
           : outcome.reason === "PERMANENT_PROTECTION"
             ? "已成交客户永久保护，已加入冲突客户列表"
             : "该客户已有归属或需管理员核对，已加入冲突客户列表";
-        return NextResponse.json({ conflict: true, status: "CONFLICT", message }, { status: 201 });
+        return NextResponse.json({
+          conflict: true,
+          status: "CONFLICT",
+          message,
+          conflict_customer: {
+            id: duplicateId,
+            company_name: duplicate.company_name,
+            country: duplicate.country,
+            website: duplicate.website,
+            google_url: duplicate.google_url,
+            ownership_status: "已有归属或待管理员处理",
+            match_reasons: submittedKeys.filter((key) => customerIndexIdentityKeys(duplicate).includes(key))
+              .map((key) => key.startsWith("phone:") ? "电话或 whatsapp 一致" : key.startsWith("email:") ? "邮箱一致" : key.startsWith("website:") ? "官网一致" : "Google 地图主体一致"),
+          },
+          action_url: `/customers/conflicts?customer=${encodeURIComponent(String(duplicateId))}`,
+        }, { status: 201 });
       }
-      const potential = possibleMatches.find((item) => isPotentialCustomerDuplicate(body, item));
-      if (potential && body.confirm_potential_duplicate !== true) {
+      const potentialCustomers = possibleMatches
+        .map((item) => ({ item, match_reasons: potentialCustomerDuplicateReasons(body, item) }))
+        .filter((item) => item.match_reasons.length)
+        .slice(0, 5);
+      if (potentialCustomers.length && body.confirm_potential_duplicate !== true) {
         return NextResponse.json({
           error: "发现疑似重复客户，请核对后确认是否仍要新增。系统不会自动合并或覆盖已有客户资料。",
           status: "POTENTIAL_DUPLICATE",
-          potential_customer: { company_name: potential.company_name, country: potential.country },
+          potential_customers: potentialCustomers.map(({ item, match_reasons }) => ({
+            id: item.id,
+            company_name: item.company_name,
+            country: item.country,
+            website: item.website,
+            google_url: item.google_url,
+            match_reasons,
+            ownership_status: classifyExistingCustomer(item, user.id) === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : "已有归属或待管理员处理",
+          })),
         }, { status: 409 });
       }
     }

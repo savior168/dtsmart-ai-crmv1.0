@@ -144,18 +144,25 @@ function editDistance(left: string, right: string) {
  * A weak match never blocks a customer record or merges data. It only asks the
  * operator to review likely duplicates before they deliberately continue.
  */
-export function isPotentialCustomerDuplicate(candidate: CustomerIdentityInput, existing: CustomerIdentityInput) {
+export function potentialCustomerDuplicateReasons(candidate: CustomerIdentityInput, existing: CustomerIdentityInput) {
+  const reasons: string[] = [];
   const candidateWebsite = normalizeIdentityUrl(candidate.website);
   const existingWebsite = normalizeIdentityUrl(existing.website);
-  if (candidateWebsite && candidateWebsite === existingWebsite) return true;
+  if (candidateWebsite && candidateWebsite === existingWebsite) reasons.push("官网一致");
   const candidateGoogle = normalizeGoogleIdentity(candidate.google_url);
   const existingGoogle = normalizeGoogleIdentity(existing.google_url);
-  if (candidateGoogle && candidateGoogle === existingGoogle) return true;
+  if (candidateGoogle && candidateGoogle === existingGoogle) reasons.push("Google 地图主体一致");
   const left = companyNameFingerprint(candidate.company_name);
   const right = companyNameFingerprint(existing.company_name);
-  if (left.length < 5 || right.length < 5) return false;
-  const threshold = Math.max(1, Math.floor(Math.max(left.length, right.length) * 0.15));
-  return editDistance(left, right) <= threshold;
+  if (left.length >= 5 && right.length >= 5) {
+    const threshold = Math.max(1, Math.floor(Math.max(left.length, right.length) * 0.15));
+    if (editDistance(left, right) <= threshold) reasons.push("客户名称高度相似");
+  }
+  return reasons;
+}
+
+export function isPotentialCustomerDuplicate(candidate: CustomerIdentityInput, existing: CustomerIdentityInput) {
+  return potentialCustomerDuplicateReasons(candidate, existing).length > 0;
 }
 
 /**
