@@ -131,6 +131,10 @@ assert.match(captchaLib, /MAX_ACTIVE_CHALLENGES = 8/, "验证码校验窗口必�
 assert.match(authForm, /captchaExpiresAt[\s\S]*120000/, "验证码必须展示并遵守服务端120秒挑战有效期");
 assert.match(authForm, /将在 \$\{refreshRemainingSeconds\} 秒后自动刷新/, "页面必须显示15秒自动刷新倒计时，而非展示120秒安全有效期");
 assert.match(authForm, /if \(captchaExpired\) return setError\("验证码已失效/, "提交过期验证码前必须在前端明确提示刷新，不得误报验证码错误");
+const passwordShell = read("components/app-shell.tsx");
+assert.match(passwordShell, /dtsmart-password-account[\s\S]*autoComplete="username"[\s\S]*dtsmart-current-password[\s\S]*autoComplete="off"/, "修改密码弹窗必须把浏览器凭据自动填充限制在自身表单内");
+assert.match(read("components/customers-view.tsx"), /customer-list-search[\s\S]*data-lpignore[\s\S]*data-1p-ignore/, "我的客户搜索框不得接收密码管理器自动填充");
+assert.match(read("components/customer-public-pool-view.tsx"), /public-pool-search[\s\S]*data-lpignore[\s\S]*data-1p-ignore/, "客户公海搜索框不得接收密码管理器自动填充");
 assert.match(authForm, /<CaptchaField[\s\S]*mode === "register"[\s\S]*<CaptchaField/, "登录与注册表单都必须显示图形验证码");
 assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用户必须固定为待审核销售员");
 assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");

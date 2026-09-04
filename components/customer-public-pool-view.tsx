@@ -508,6 +508,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <input
                     name="public-pool-search"
                     autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="搜索客户名称、国家/地区或行业"

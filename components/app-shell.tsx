@@ -262,12 +262,26 @@ function ProfileModal({
             </div>
           ) : null}
           {type === "password" ? (
-            <>
+            <form autoComplete="off" onSubmit={(event) => { event.preventDefault(); void submit(); }} className="space-y-3">
+              {/* Keep credential autofill scoped to this dialog. Without an in-form
+                  username field Chrome may inject the login email into a customer search input. */}
               <input
-                name="current-password"
-                autoComplete="current-password"
+                aria-hidden="true"
+                tabIndex={-1}
+                type="text"
+                name="dtsmart-password-account"
+                autoComplete="username"
+                value={profile.email}
+                readOnly
+                className="sr-only"
+              />
+              <input
+                name="dtsmart-current-password"
+                autoComplete="off"
                 type="password"
                 value={value.old_password}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 onChange={(event) =>
                   setValue({ ...value, old_password: event.target.value })
                 }
@@ -275,10 +289,12 @@ function ProfileModal({
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-sm"
               />
               <input
-                name="new-password"
+                name="dtsmart-new-password"
                 autoComplete="new-password"
                 type="password"
                 value={value.new_password}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 onChange={(event) =>
                   setValue({ ...value, new_password: event.target.value })
                 }
@@ -286,17 +302,19 @@ function ProfileModal({
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-sm"
               />
               <input
-                name="confirm-password"
+                name="dtsmart-confirm-password"
                 autoComplete="new-password"
                 type="password"
                 value={value.confirm_password}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 onChange={(event) =>
                   setValue({ ...value, confirm_password: event.target.value })
                 }
                 placeholder="确认新密码"
                 className="w-full rounded-xl border border-slate-200 p-2.5 text-sm"
               />
-            </>
+            </form>
           ) : null}
         </div>
         {message ? (
