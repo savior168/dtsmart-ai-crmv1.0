@@ -123,8 +123,11 @@ const permissionMigration = read("supabase/migrations/202608310002_user_access_c
 assert.match(loginApi, /verifyCaptcha\(body\.captcha\)/, "登录必须由服务端校验图形验证码");
 assert.match(registerApi, /verifyCaptcha\(body\.captcha\)/, "注册必须由服务端校验图形验证码");
 assert.match(authForm, /captchaRefreshAt[\s\S]*15000/, "登录注册验证码必须每15秒自动刷新");
-assert.match(authForm, /if \(!captchaRefreshPaused && now >= captchaRefreshAt\) refreshCaptcha\(false\)/, "输入验证码或获得输入焦点时不得替换服务端验证码挑战");
-assert.match(authForm, /onFocus=\{onFocus\}[\s\S]*onBlur=\{onBlur\}/, "验证码输入框必须在聚焦与失焦时控制自动刷新");
+assert.match(authForm, /if \(now >= captchaRefreshAt\) refreshCaptcha\(false\)/, "验证码必须持续按15秒自动刷新，不受输入框焦点影响");
+const captchaApi = read("app/api/auth/captcha/route.ts");
+const captchaLib = read("lib/auth/captcha.ts");
+assert.match(captchaApi, /appendCaptchaChallenge/, "验证码刷新必须保留短时校验窗口，避免换图后误判已输入验证码");
+assert.match(captchaLib, /MAX_ACTIVE_CHALLENGES = 8/, "验证码校验窗口必须有明确上限");
 assert.match(authForm, /captchaExpiresAt[\s\S]*120000/, "验证码必须展示并遵守服务端120秒挑战有效期");
 assert.match(authForm, /将在 \$\{refreshRemainingSeconds\} 秒后自动刷新/, "页面必须显示15秒自动刷新倒计时，而非展示120秒安全有效期");
 assert.match(authForm, /if \(captchaExpired\) return setError\("验证码已失效/, "提交过期验证码前必须在前端明确提示刷新，不得误报验证码错误");

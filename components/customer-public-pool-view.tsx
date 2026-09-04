@@ -193,10 +193,10 @@ function PoolScore({ row }: { row: PoolRow }) {
   return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${row.ai_score >= 80 ? "bg-emerald-50 text-emerald-700" : row.ai_score >= 65 ? "bg-blue-50 text-blue-700" : row.ai_score >= 50 ? "bg-orange-50 text-orange-700" : "bg-rose-50 text-rose-600"}`}>{row.ai_level || "-"} · {row.ai_score}</span>;
 }
 
-function PoolValue({ row, field }: { row: PoolRow; field: CustomerListColumn }) {
+function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className="mt-0.5 block truncate font-normal text-slate-500" title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <small className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 font-normal text-blue-700">我的补充 {row.my_supplements.length} 项</small> : null}</span>;
+    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className="mt-0.5 block truncate font-normal text-slate-500" title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;
@@ -756,11 +756,10 @@ function PoolTable({
                   />
                 </td>
               ) : null}
-              {fields.map((field) => <td key={field} className={`max-w-64 overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
+              {fields.map((field) => <td key={field} className={`max-w-64 overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
               <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                 {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`}><Eye size={14}/>查看详情</Link> : null}
-                {row.my_supplements?.length ? <button type="button" onClick={() => showSupplements(row)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 bg-white px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-50" title="查看仅自己可见的补充资料"><Eye size={14}/>我的补充</button> : null}
                 {row.can_claim ? (
                   <button
                     onClick={() => claim(row)}

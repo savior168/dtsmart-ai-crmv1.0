@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 export const CAPTCHA_COOKIE = "dtsmart_captcha";
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const MAX_ACTIVE_CHALLENGES = 8;
 
 function secret() {
   const value = process.env.CAPTCHA_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -42,19 +43,30 @@ export function createCaptcha() {
   return { token, svg };
 }
 
+// Keep a small rolling window so a 15-second image refresh never invalidates
+// text that the user was already entering. The whole window is cleared on the
+// next verification attempt, so every challenge remains single-use.
+export function appendCaptchaChallenge(previous: string | undefined, next: string) {
+  return [...(previous || "").split("|").filter(Boolean), next].slice(-MAX_ACTIVE_CHALLENGES).join("|");
+}
+
 export async function verifyCaptcha(answer: unknown) {
   const input = String(answer || "").trim().toUpperCase();
   if (!input) return { ok: false, error: "请输入图形验证码" };
   const cookieStore = await cookies();
-  const token = cookieStore.get(CAPTCHA_COOKIE)?.value || "";
+  const tokens = (cookieStore.get(CAPTCHA_COOKIE)?.value || "").split("|").filter(Boolean);
   // A challenge is single-use regardless of the answer. The client refreshes
   // after every response, preventing captured answers from being replayed.
   cookieStore.delete(CAPTCHA_COOKIE);
-  const parts = token.split(".");
-  if (parts.length !== 4) return { ok: false, error: "验证码已失效，请刷新后重试" };
-  const [code, expires, nonce, signature] = parts;
-  const payload = `${code}.${expires}.${nonce}`;
-  if (sign(payload) !== signature || Number(expires) < Date.now()) return { ok: false, error: "验证码已失效，请刷新后重试" };
-  if (input !== code) return { ok: false, error: "图形验证码错误" };
-  return { ok: true as const };
+  let hasActiveChallenge = false;
+  for (const token of tokens) {
+    const parts = token.split(".");
+    if (parts.length !== 4) continue;
+    const [code, expires, nonce, signature] = parts;
+    const payload = `${code}.${expires}.${nonce}`;
+    if (sign(payload) !== signature || Number(expires) < Date.now()) continue;
+    hasActiveChallenge = true;
+    if (input === code) return { ok: true as const };
+  }
+  return { ok: false, error: hasActiveChallenge ? "图形验证码错误" : "验证码已失效，请刷新后重试" };
 }
