@@ -52,7 +52,7 @@ function activityText(action: string, customerName: string, content: unknown) {
 export async function GET(request: NextRequest) {
   try {
     const { supabase, user, account } = await requirePermission("dashboard.view");
-    const scopeUserId = requestedOwnerId(request, account, "dashboard.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "dashboard.data_all");
     const now = new Date();
     if (request.nextUrl.searchParams.get("summary") === "1") {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());

@@ -13,7 +13,9 @@ export async function GET(request: Request) {
     const canSelectOwner = profile.role === "ADMIN"
       || Boolean(permission && definition?.kind === "DATA" && hasPermission(profile, permission));
     if (!canSelectOwner) return NextResponse.json({ profile, users: [], can_select_owner: false });
-    const { data, error } = await createAdminClient().from("users").select("id,name,email,role").eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]).order("name");
+    let query = createAdminClient().from("users").select("id,name,email,role").eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
+    if (profile.role === "SUPERVISOR") query = query.or(`id.eq.${profile.id},manager_id.eq.${profile.id}`);
+    const { data, error } = await query.order("name");
     if (error) throw error;
     return NextResponse.json({ profile, users: data || [], can_select_owner: true });
   } catch (error) {

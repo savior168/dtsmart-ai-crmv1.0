@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const search = params.get("search")?.trim() || "";
     const step = params.get("step") || "";
     const retry = params.get("retry") || "";
-    const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     let tasksQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,user_id");
     if (scopeUserId) tasksQuery = tasksQuery.eq("user_id", scopeUserId);

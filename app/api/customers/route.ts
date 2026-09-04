@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
-    const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
     const options = request.nextUrl.searchParams.get("options");

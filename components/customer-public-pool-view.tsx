@@ -187,12 +187,19 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
   return "—";
 }
 
+// Keep the exact same score thresholds and visual language as “我的客户”.
+function PoolScore({ row }: { row: PoolRow }) {
+  if (row.ai_score == null) return <span className="text-slate-400">未筛选</span>;
+  return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${row.ai_score >= 80 ? "bg-emerald-50 text-emerald-700" : row.ai_score >= 65 ? "bg-blue-50 text-blue-700" : row.ai_score >= 50 ? "bg-orange-50 text-orange-700" : "bg-rose-50 text-rose-600"}`}>{row.ai_level || "-"} · {row.ai_score}</span>;
+}
+
 function PoolValue({ row, field }: { row: PoolRow; field: CustomerListColumn }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
     return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className="mt-0.5 block truncate font-normal text-slate-500" title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <small className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 font-normal text-blue-700">我的补充 {row.my_supplements.length} 项</small> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
+  if (field === "ai_score") return <PoolScore row={row}/>;
   if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
   if (field === "website" || field === "google_url") {
     const raw = field === "website" ? row.website : row.google_url;

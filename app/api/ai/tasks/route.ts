@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const selectionMode = params.get("selection_mode") || "";
     const from = params.get("date_from") || "";
     const to = params.get("date_to") || "";
-    const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).is("archived_at", null);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);

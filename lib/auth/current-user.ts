@@ -103,13 +103,18 @@ export function canWriteOwnedRecord(account: CurrentAccount, ownerId: string | n
   return account.role === "ADMIN" || ownerId === account.id;
 }
 
-export function requestedOwnerId(request: Request, account: CurrentAccount, dataPermission: string) {
+export async function requestedOwnerId(request: Request, account: CurrentAccount, dataPermission: string) {
   if (!hasPermission(account, dataPermission)) return account.id;
   const requested = new URL(request.url).searchParams.get("user_id")?.trim() || "";
-  if (requested.toLowerCase() === "all") return null;
-  // 拥有全部数据权限只代表可以主动扩大范围。主管和系统管理员进入
-  // 任何业务页面时也默认查看本人数据，避免默认混入其他销售数据。
-  return requested || account.id;
+  if (account.role === "ADMIN") return requested.toLowerCase() === "all" ? null : requested || account.id;
+  // 主管仅能读本人和直属下级；权限判断必须在服务端执行，不能只依赖
+  // 下拉选项的前端限制。暂不提供“全员”或跨主管聚合范围。
+  if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
+  if (account.role !== "SUPERVISOR") return account.id;
+  const { data, error } = await createAdminClient().from("users").select("id").eq("id", requested).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("FORBIDDEN");
+  return requested;
 }
 
 export function clearPermissionCache(role?: UserRole) {

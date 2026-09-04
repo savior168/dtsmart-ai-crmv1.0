@@ -52,7 +52,7 @@ assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入�
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
 assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
 assert.match(poolApi, /optionalProbe[\s\S]*hasOptionalFields[\s\S]*optionalSelect/, "客户公海必须兼容尚未补齐可选联系字段的旧生产库");
-assert.match(poolApi, /tab === "available" \|\| own \|\| elevated/, "未认领公海客户应可查看基础详情；已认领完整详情只限归属人或高级只读角色");
+assert.match(poolApi, /tab === "available" \|\| own \|\| teamRead/, "未认领公海客户应可查看基础详情；已认领完整详情只限归属人、直属主管或系统管理员");
 assert.match(userApi, /historyCount > 0/, "存在业务历史的账号不得物理删除");
 assert.match(userApi, /action === "CREATE"/, "系统管理员应能新增用户");
 assert.match(userApi, /action === "UPDATE_MANAGER"/, "系统管理员应能修改销售直属上级");
@@ -117,7 +117,7 @@ assert.match(poolApi, /created_by[\s\S]*creator:/, "客户公海数据来源必�
 assert.match(customerCrmApi, /publicReadOnly[\s\S]*followups: \[\], attachments: \[\], quotes: \[\]/, "未认领公海详情不得返回跟进、附件或报价业务数据");
 assert.match(customerCrmApi, /!canReadAll && !isOwner && !publicReadOnly/, "客户详情必须先按归属/全量权限/公海状态确认读取范围");
 assert.doesNotMatch(customerCrmApi, /created_by\.eq\.\$\{user\.id\}/, "历史创建人不得因 created_by 绕过现有客户归属读取业务数据");
-assert.match(customerDetailApi, /publicUnclaimed[\s\S]*data\.owner_id !== user\.id/, "基础客户详情接口必须与公海详情采用同一读取边界");
+assert.match(customerDetailApi, /publicUnclaimed[\s\S]*directReport[\s\S]*mayRead/, "基础客户详情接口必须与公海详情采用同一读取边界，并限制主管直属下级");
 assert.doesNotMatch(attachmentApi, /let allowed=data\.uploaded_by===account\.id/, "附件读取不得仅因上传人身份放行");
 assert.match(attachmentApi, /Content-Disposition[\s\S]*preview \? "inline"/, "附件预览必须沿用同一服务端授权下载入口");
 assert.match(followupApi, /公海客户需先完成认领[\s\S]*customer\.owner_id !== user\.id/, "公海客户不得写入跟进，且跟进必须由当前归属销售员创建");

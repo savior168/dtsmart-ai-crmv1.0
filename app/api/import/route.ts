@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: Request) {
   try {
     const { supabase, account } = await requirePermission("imports.view");
-    const scopeUserId = requestedOwnerId(request, account, "imports.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "imports.data_all");
     let query = supabase.from("import_tasks").select("id,filename,total_count,success_count,duplicate_count,failed_count,created_at,created_by");
     if (scopeUserId) query = query.eq("created_by", scopeUserId);
     const { data, error } = await query.order("created_at", { ascending: false }).limit(100);

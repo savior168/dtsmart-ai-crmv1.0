@@ -160,9 +160,13 @@ export async function GET(request: NextRequest) {
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
     const supplementsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
+    const directReportIds = account.role === "SUPERVISOR" && ownerIds.length
+      ? new Set((await admin.from("users").select("id").in("id", ownerIds).eq("manager_id", account.id).eq("status", "ACTIVE")).data?.map((item) => item.id) || [])
+      : new Set<string>();
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
-      const full = tab !== "claimed" || own || elevated;
+      const teamRead = account.role === "ADMIN" || directReportIds.has(String(row.owner_id || ""));
+      const full = tab !== "claimed" || own || teamRead;
       const websiteEmail = "website_email" in row ? row.website_email : null;
       const websitePhone = "website_phone" in row ? row.website_phone : null;
       return {
@@ -185,7 +189,7 @@ export async function GET(request: NextRequest) {
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
         // 未认领公海客户对所有具备客户查看权限的用户开放基础详情；
         // 已认领客户仍仅归属人和具备全量数据权限的角色可打开完整详情。
-        can_open_customer: tab === "available" || own || elevated,
+        can_open_customer: tab === "available" || own || teamRead,
       };
     });
     return NextResponse.json({

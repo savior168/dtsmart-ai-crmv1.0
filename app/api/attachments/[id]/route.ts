@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hasPermission, requireUser } from "@/lib/auth/current-user";
+import { requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 async function access(id: string) {
@@ -9,22 +9,29 @@ async function access(id: string) {
   if (error || !attachment) throw error || new Error("附件不存在");
 
   let allowed = account.role === "ADMIN";
+  async function canReadOwner(ownerId: string | null | undefined) {
+    if (!ownerId) return false;
+    if (ownerId === account.id || account.role === "ADMIN") return true;
+    if (account.role !== "SUPERVISOR") return false;
+    const direct = await admin.from("users").select("id").eq("id", ownerId).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
+    return Boolean(direct.data);
+  }
   if (attachment.customer_id) {
     const customer = await admin.from("customers").select("owner_id").eq("id", attachment.customer_id).single();
-    allowed ||= customer.data?.owner_id === account.id || hasPermission(account, "customers.data_all");
+    allowed ||= await canReadOwner(customer.data?.owner_id);
   }
   if (attachment.quote_id) {
     const quote = await admin.from("quotes").select("owner_id").eq("id", attachment.quote_id).single();
-    allowed ||= quote.data?.owner_id === account.id || hasPermission(account, "quotes.data_all");
+    allowed ||= await canReadOwner(quote.data?.owner_id);
   }
   if (attachment.stock_order_id) {
     const stock = await admin.from("stock_orders").select("sales_user_id").eq("id", attachment.stock_order_id).single();
-    allowed ||= stock.data?.sales_user_id === account.id || hasPermission(account, "stock.data_all") || account.role === "WAREHOUSE";
+    allowed ||= await canReadOwner(stock.data?.sales_user_id) || account.role === "WAREHOUSE";
   }
   if (attachment.followup_id && !attachment.customer_id) {
     const followup = await admin.from("followups").select("customer:customers!inner(owner_id)").eq("id", attachment.followup_id).single();
     const customer = Array.isArray(followup.data?.customer) ? followup.data?.customer[0] : followup.data?.customer;
-    allowed ||= customer?.owner_id === account.id || hasPermission(account, "followups.data_all");
+    allowed ||= await canReadOwner(customer?.owner_id);
   }
   if (!allowed) throw new Error("FORBIDDEN");
   return { account, admin, attachment };

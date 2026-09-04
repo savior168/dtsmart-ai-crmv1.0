@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     const scope = params.get("scope") || "history";
     const search = params.get("q")?.trim() || "";
-    const scopeUserId = requestedOwnerId(request, account, "followups.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
     const now = new Date();
     const start = new Date(now); start.setHours(0, 0, 0, 0);
     const end = new Date(start); end.setDate(end.getDate() + 1);

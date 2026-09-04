@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
         headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" },
       });
     }
-    const ownerId = account.role === "WAREHOUSE" ? null : requestedOwnerId(request, account, "stock.data_all");
+    const ownerId = account.role === "WAREHOUSE" ? null : await requestedOwnerId(request, account, "stock.data_all");
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const from = (page - 1) * pageSize;

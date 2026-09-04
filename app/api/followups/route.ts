@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
-    const scopeUserId = requestedOwnerId(request, account, "followups.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
     const now = new Date(); const start = new Date(now); start.setHours(0,0,0,0); const end = new Date(start); end.setDate(end.getDate()+1);
     let query = supabase.from("followups").select("id,customer_id,user_id,type,content,attachment,next_follow_date,created_at,user:users!followups_user_id_fkey(id,name,email),customer:customers!inner(id,company_name,country,ai_level,ai_score,status,owner_id)",{count:"exact"});
     if (scopeUserId) query = query.eq("customer.owner_id", scopeUserId);

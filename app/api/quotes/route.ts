@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("quotes.view");
     const params = request.nextUrl.searchParams;
-    const ownerId = requestedOwnerId(request, account, "quotes.data_all");
+    const ownerId = await requestedOwnerId(request, account, "quotes.data_all");
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const from = (page - 1) * pageSize;

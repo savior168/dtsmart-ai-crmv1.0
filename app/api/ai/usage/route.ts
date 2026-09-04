@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const model = params.get("model")?.trim() || "";
     const status = params.get("status")?.trim() || "";
     const taskId = params.get("task_id")?.trim() || "";
-    const scopeUserId = requestedOwnerId(request, account, "ai.usage.view_all");
+    const scopeUserId = await requestedOwnerId(request, account, "ai.usage.view_all");
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";

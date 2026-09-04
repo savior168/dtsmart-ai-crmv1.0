@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
-    const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const now = new Date();
     await admin.rpc("refresh_expired_public_customers");
     const renewalWindowEnd = new Date(now.getTime() + 15 * 86400000).toISOString();

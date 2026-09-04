@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
     const returnAll = params.get("all") === "true";
-    const scopeUserId = requestedOwnerId(request, account, "ai.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {

@@ -33,7 +33,10 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (profileResult.error) throw profileResult.error;
     const customer = customerResult.data;
     const isOwner = customer.owner_id === user.id;
-    const canReadAll = hasPermission(account, "customers.data_all");
+    const directReport = account.role === "SUPERVISOR" && customer.owner_id
+      ? await admin.from("users").select("id").eq("id", customer.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
+      : { data: null };
+    const canReadAll = account.role === "ADMIN" || Boolean(directReport.data);
     const publicReadOnly = isPublicUnclaimed(customer);
     if (!canReadAll && !isOwner && !publicReadOnly) throw new Error("FORBIDDEN");
 

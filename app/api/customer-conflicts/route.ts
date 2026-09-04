@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
-    const scopeUserId = requestedOwnerId(request, account, "customers.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
     const tableRows: ConflictRow[] = [];
     let tableAvailable = true;

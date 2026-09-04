@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       100,
       Math.max(10, Number(params.get("page_size") || 20)),
     );
-    const ownerId = requestedOwnerId(request, account, "orders.data_all");
+    const ownerId = await requestedOwnerId(request, account, "orders.data_all");
     let query = supabase
       .from("sales_orders")
       .select(

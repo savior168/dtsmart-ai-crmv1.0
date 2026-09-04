@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) > Date.parse(to)) {
       return NextResponse.json({ error: "无效日期范围" }, { status: 400 });
     }
-    const scopeUserId = requestedOwnerId(request, account, "reports.data_all");
+    const scopeUserId = await requestedOwnerId(request, account, "reports.data_all");
     const report = await loadSalesReport(supabase, user.id, from, to, scopeUserId);
     const lines: string[] = [];
     const add = (values: unknown[]) => lines.push(values.map(csvCell).join(","));

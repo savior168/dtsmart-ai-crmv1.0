@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hasPermission, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 
@@ -17,10 +17,15 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
   try {
     const { user, account } = await requirePermission("customers.view");
     const { id } = await context.params;
-    const { data, error } = await createAdminClient().from("customers").select("*").eq("id", id).is("deleted_at", null).single();
+    const admin = createAdminClient();
+    const { data, error } = await admin.from("customers").select("*").eq("id", id).is("deleted_at", null).single();
     if (error) throw error;
     const publicUnclaimed = !data.owner_id && data.acquisition_scope === "PUBLIC_POOL" && data.pool_status === "AVAILABLE" && data.status === "UNCLAIMED";
-    if (!hasPermission(account, "customers.data_all") && data.owner_id !== user.id && !publicUnclaimed) return NextResponse.json({ error: "无权查看其他销售员的客户资料" }, { status: 403 });
+    const directReport = account.role === "SUPERVISOR" && data.owner_id
+      ? await admin.from("users").select("id").eq("id", data.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
+      : { data: null };
+    const mayRead = account.role === "ADMIN" || data.owner_id === user.id || Boolean(directReport.data) || publicUnclaimed;
+    if (!mayRead) return NextResponse.json({ error: "无权查看其他销售员的客户资料" }, { status: 403 });
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "查询失败" }, { status: 400 });
