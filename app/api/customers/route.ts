@@ -6,39 +6,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 
-const writableFields = [
-  "company_name",
-  "contact_name",
-  "country",
-  "phone",
-  "whatsapp",
-  "email",
-  "website",
-  "google_url",
-  "facebook_url",
-  "instagram_url",
-  "linkedin_url",
-  "tiktok_url",
-  "other_public_urls",
-  "address",
-  "industry",
-  "category",
-  "source",
-  "tags",
-  "rating",
-  "ai_score",
-  "ai_level",
-  "ai_screening_done",
-  "ai_reason",
-  "is_target_customer",
-  "website_email",
-  "website_phone",
-  "business_relevance",
-  "customer_value",
-  "followup_suggestion",
-  "notes",
-  "status", "followup_status",
-  "owner_id",
+// Manual creation must never impersonate AI conclusions, import provenance,
+// ownership or workflow transitions. Those fields belong to dedicated flows.
+const manualWritableFields = [
+  "company_name", "contact_name", "country", "phone", "whatsapp", "email",
+  "website", "google_url", "facebook_url", "instagram_url", "linkedin_url",
+  "tiktok_url", "other_public_urls", "address", "category", "notes",
 ] as const;
 
 // The customer list must not download the full CRM/AI payload for every row.
@@ -79,7 +52,32 @@ function postgrestInValue(value: string) {
 }
 
 function clean(body: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(writableFields.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
+  return Object.fromEntries(manualWritableFields.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
+}
+
+function validateManualUrl(value: unknown, label: string, host?: RegExp) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  let parsed: URL;
+  try { parsed = new URL(text); } catch { throw new Error(`${label}必须是完整的 http:// 或 https:// 链接`); }
+  if (!/^https?:$/.test(parsed.protocol)) throw new Error(`${label}只支持 http:// 或 https:// 链接`);
+  if (host && !host.test(parsed.hostname.toLowerCase())) throw new Error(`${label}与所选平台域名不匹配`);
+}
+
+function validateManualContactInput(body: Record<string, unknown>) {
+  const phone = String(body.phone || "").trim();
+  const whatsapp = String(body.whatsapp || "").trim();
+  const email = String(body.email || "").trim();
+  if (phone && !/^\+?[\d\s().-]{6,25}$/.test(phone)) throw new Error("联系电话格式不正确");
+  if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
+  validateManualUrl(body.website, "官网网址");
+  validateManualUrl(body.google_url, "Google Maps网址", /(^|\.)google\.[a-z.]+$|(^|\.)googleusercontent\.com$|(^|\.)goo\.gl$/);
+  validateManualUrl(body.facebook_url, "Facebook 链接", /(^|\.)facebook\.com$|(^|\.)fb\.com$/);
+  validateManualUrl(body.instagram_url, "Instagram 链接", /(^|\.)instagram\.com$/);
+  validateManualUrl(body.tiktok_url, "TikTok 链接", /(^|\.)tiktok\.com$/);
+  validateManualUrl(body.linkedin_url, "LinkedIn 链接", /(^|\.)linkedin\.com$/);
+  for (const url of Array.isArray(body.other_public_urls) ? body.other_public_urls : []) validateManualUrl(url, "社媒链接");
 }
 
 export async function GET(request: NextRequest) {
@@ -288,6 +286,7 @@ export async function POST(request: NextRequest) {
     const { supabase, user, account } = await requirePermission("customers.create");
     const admin = createAdminClient();
     const body = await request.json();
+    validateManualContactInput(body);
     const publicPool = body.destination === "PUBLIC_POOL";
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
@@ -355,8 +354,8 @@ export async function POST(request: NextRequest) {
       }
     }
     const payload: Record<string, unknown> = publicPool
-      ? { ...clean(body), source: body.source || "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
-      : { ...clean(body), source: body.source || "MANUAL", status: "CLAIMED", followup_status: body.followup_status || "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
+      ? { ...clean(body), source: "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
+      : { ...clean(body), source: "MANUAL", status: "CLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
     delete payload.destination;
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;

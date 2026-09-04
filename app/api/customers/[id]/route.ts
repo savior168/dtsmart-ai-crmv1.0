@@ -23,6 +23,8 @@ function validateExternalUrl(value: unknown, label: string, host?: RegExp) {
 }
 
 function validateCustomerContactPayload(payload: Record<string, unknown>) {
+  const phone = String(payload.phone || "").trim();
+  if (phone && !/^\+?[\d\s().-]{6,25}$/.test(phone)) throw new Error("联系电话格式不正确");
   const email = String(payload.email || "").trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
   const whatsapp = String(payload.whatsapp || "").trim();
