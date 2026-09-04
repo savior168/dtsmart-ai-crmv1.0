@@ -20,6 +20,13 @@ assert.equal(
   "place:0x123:0xabc",
 );
 
+const strongContactNameVariantA = { company_name: "Eur Mobile", phone: "+48 123 456 789", email: "sales@example.com" };
+const strongContactNameVariantB = { company_name: "Euro Mobile", phone: "0048 123456789", email: "SALES@example.com" };
+assert.ok(customerLookupIdentityKeys(strongContactNameVariantA).some((key) => customerIndexIdentityKeys(strongContactNameVariantB).includes(key)), "电话或邮箱相同即为全局确认重复，不得依赖客户名称");
+
+const whatsappVariant = { company_name: "Mobile Example", whatsapp: "+48 123 456 789" };
+assert.ok(customerLookupIdentityKeys(whatsappVariant).includes("phone:48123456789"), "whatsapp必须纳入全局强身份去重");
+
 const rich = { company_name: "Same Shop", phone: "+48 123 456 789", website: "https://same.example/" };
 const sparse = { company_name: "Same Shop", website: "https://www.same.example/?utm_source=x" };
 assert.ok(customerIndexIdentityKeys(rich).some((key) => customerLookupIdentityKeys(sparse).includes(key)));

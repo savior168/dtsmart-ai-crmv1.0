@@ -18,6 +18,15 @@ function serviceAccount(): ServiceAccount | null {
   } catch { return null; }
 }
 
+function billingTableReference(project: string, dataset: string) {
+  const configured = process.env.GOOGLE_CLOUD_BILLING_TABLE?.trim();
+  if (!configured) return `${project}.${dataset}.gcp_billing_export_resource_v1_*`;
+  // The setting accepts either a table ID inside the selected dataset or a
+  // complete BigQuery reference. It remains server-only and is never exposed.
+  const reference = configured.replace(/^`|`$/g, "");
+  return reference.includes(".") ? reference : `${project}.${dataset}.${reference}`;
+}
+
 async function accessToken(account: ServiceAccount) {
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
@@ -47,7 +56,8 @@ export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus>
     const token = await accessToken(account);
     const project = process.env.GOOGLE_CLOUD_PROJECT_ID!;
     const dataset = process.env.GOOGLE_CLOUD_BILLING_DATASET!;
-    const query = `SELECT ROUND(SUM(cost + IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)), 6) AS total_usd, MAX(usage_end_time) AS latest_usage_at, COUNT(*) AS usage_rows FROM \`${project}.${dataset}.gcp_billing_export_resource_v1_*\` WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY) AND REGEXP_CONTAINS(LOWER(service.description), r'google maps|maps platform|places')`;
+    const table = billingTableReference(project, dataset);
+    const query = `SELECT ROUND(SUM(cost + IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)), 6) AS total_usd, MAX(usage_end_time) AS latest_usage_at, COUNT(*) AS usage_rows FROM \`${table}\` WHERE usage_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY) AND REGEXP_CONTAINS(LOWER(service.description), r'google maps|maps platform|places')`;
     const response = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(project)}/queries`, {
       method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ query, useLegacySql: false, timeoutMs: 10000 }),
@@ -55,7 +65,7 @@ export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus>
     const body = await response.json() as { error?: { message?: string }; rows?: Array<{ f?: Array<{ v?: string | null }> }> };
     if (!response.ok) {
       const message = body.error?.message || "Google BigQuery 查询失败";
-      if (/not found|does not exist|no matching signature/i.test(message)) return { state: "NO_DATA", message: "账单导出已配置，Google 尚未生成可读取的明细表" };
+      if (/not found|does not exist|no matching signature|does not match any table/i.test(message)) return { state: "NO_DATA", message: "账单导出已配置；Google 尚未生成可读取的详细费用表，通常需要等待首次导出完成后再刷新" };
       throw new Error(message);
     }
     const fields = body.rows?.[0]?.f || [];

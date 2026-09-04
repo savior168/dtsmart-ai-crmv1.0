@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, isPotentialCustomerDuplicate } from "@/lib/import-dedupe";
 
 type Row = {
   company_name?: string;
   phone?: string;
+  whatsapp?: string;
   email?: string;
   [key: string]: unknown;
 };
@@ -18,13 +19,13 @@ export async function POST(request: NextRequest) {
     if (payload.destination === "PUBLIC_POOL" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以向客户公海导入数据" }, { status: 403 });
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) {
-      return NextResponse.json({ success_count: 0, conflict_count: 0 });
+      return NextResponse.json({ success_count: 0, conflict_count: 0, existing_duplicate_count: 0, suspected_count: 0, suspected_row_indexes: [] });
     }
 
     const data: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,phone,email,website,google_url,owner_id,acquisition_scope,pool_status,status")
+        .select("id,company_name,phone,whatsapp,email,website,google_url,owner_id,acquisition_scope,pool_status,status")
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
@@ -39,11 +40,15 @@ export async function POST(request: NextRequest) {
 
     const conflictIds = new Set<string>();
     let existingDuplicates = 0;
-    rows.forEach((row) => {
+    const suspectedRowIndexes: number[] = [];
+    rows.forEach((row, rowIndex) => {
       const match = customerLookupIdentityKeys(row)
         .map((key) => existing.get(key))
         .find(Boolean);
-      if (!match) return;
+      if (!match) {
+        if (data.some((existingRow) => isPotentialCustomerDuplicate(row, existingRow as Row))) suspectedRowIndexes.push(rowIndex);
+        return;
+      }
       const disposition = classifyExistingCustomer(match, user.id);
       if (disposition === "OTHER_OWNED_CUSTOMER" || disposition === "UNOWNED_REVIEW_REQUIRED") conflictIds.add(String(match.id));
       else existingDuplicates += 1;
@@ -53,6 +58,8 @@ export async function POST(request: NextRequest) {
       success_count: Math.max(0, rows.length - conflictIds.size - existingDuplicates),
       conflict_count: conflictIds.size,
       existing_duplicate_count: existingDuplicates,
+      suspected_count: suspectedRowIndexes.length,
+      suspected_row_indexes: suspectedRowIndexes,
     });
   } catch (error) {
     return NextResponse.json(

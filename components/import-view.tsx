@@ -35,6 +35,7 @@ type MappedRow = ReturnType<typeof mapImportRow> & {
   conflict_owner_name?: string;
   action_url?: string;
   supplement_count?: number;
+  suspected_duplicate?: boolean;
 };
 
 function ImportCountry({ value }: { value?: string | null }) { return <CountryLabel value={value} />; }
@@ -56,7 +57,7 @@ type Stats = {
   failed_count: number;
   errors: string[];
 };
-type PreviewStats = { success_count: number; conflict_count: number };
+type PreviewStats = { success_count: number; conflict_count: number; existing_duplicate_count?: number; suspected_count?: number };
 const pageSizes = [10, 20, 30, 50, 100, 200, 300, 500];
 const directoryProps = { webkitdirectory: "" } as Record<string, string>;
 const LAST_IMPORT_RESULT_KEY = "dtsmart-last-import-result";
@@ -78,7 +79,7 @@ let importSessionSnapshot: ImportSessionSnapshot = {
   rows: [],
   failed: [],
   stats: null,
-  previewStats: { success_count: 0, conflict_count: 0 },
+    previewStats: { success_count: 0, conflict_count: 0, existing_duplicate_count: 0, suspected_count: 0 },
 };
 
 type PersistedImportTask = {
@@ -293,7 +294,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
           rows: [],
           failed: [],
           stats: null,
-          previewStats: { success_count: 0, conflict_count: 0 },
+  previewStats: { success_count: 0, conflict_count: 0, existing_duplicate_count: 0, suspected_count: 0 },
         };
         window.localStorage.removeItem(LAST_IMPORT_RESULT_KEY);
       }
@@ -455,7 +456,32 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
     }
     setRows(next);
     setFailed(bad);
-    setPreviewStats({ success_count: 0, conflict_count: 0 });
+    try {
+      const response = await fetch("/api/import/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination,
+          rows: next.map(({ preview_id, file_name, row_number, ...item }) => {
+            void preview_id; void file_name; void row_number;
+            return item;
+          }),
+        }),
+      });
+      const preview = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(preview.error || "系统重复预检失败");
+      const suspected = new Set((Array.isArray(preview.suspected_row_indexes) ? preview.suspected_row_indexes : []).map(Number));
+      setRows(next.map((row, index) => ({ ...row, suspected_duplicate: suspected.has(index) })));
+      setPreviewStats({
+        success_count: Number(preview.success_count || 0),
+        conflict_count: Number(preview.conflict_count || 0),
+        existing_duplicate_count: Number(preview.existing_duplicate_count || 0),
+        suspected_count: Number(preview.suspected_count || 0),
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "系统重复预检失败");
+      setPreviewStats({ success_count: 0, conflict_count: 0, existing_duplicate_count: 0, suspected_count: 0 });
+    }
     setBusy(false);
   }
 
@@ -919,7 +945,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
               <p className="mt-1 text-sm text-slate-500">
                 {stats
                   ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
-                  : `共 ${rows.length} 条可导入数据；当前仅完成解析预览，点击“确认导入”后才会写入系统`}
+                  : `共 ${rows.length} 条可导入数据；已完成全库预检，确认导入后才会写入系统`}
               </p>
             </div>
             <div className="flex gap-2">
@@ -951,6 +977,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
               ) : null}
             </div>
           </div>
+          {!stats && (Number(previewStats.existing_duplicate_count || 0) > 0 || Number(previewStats.conflict_count || 0) > 0 || Number(previewStats.suspected_count || 0) > 0) ? <div className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><ShieldAlert size={18} className="text-amber-600"/><span><b>全库预检：</b>确认重复 {Number(previewStats.existing_duplicate_count || 0)} 条、归属冲突 {Number(previewStats.conflict_count || 0)} 条、疑似重复 {Number(previewStats.suspected_count || 0)} 条。</span><span className="text-xs leading-5 text-amber-800">确认重复不会创建第二条客户；疑似重复仅提示核对，不会自动合并或覆盖已有资料。</span></div> : null}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
             <div className="flex flex-wrap items-center gap-2">
               {stats ? (
@@ -1051,6 +1078,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                     <td className="w-[190px] px-4 py-3 font-medium text-slate-800">
                       <span className="block truncate" title={row.company_name || ""}>{row.company_name || "-"}</span>
                       {row.import_result === "conflict" ? <span className="mt-1 block truncate text-xs font-semibold text-rose-600" title={`当前归属人：${row.conflict_owner_name || "已归属其他用户"}`}>当前归属人：{row.conflict_owner_name || "已归属其他用户"}</span> : null}
+                      {row.suspected_duplicate ? <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">疑似重复，已提示核对</span> : null}
                       {row.action_url ? <Link href={row.action_url} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">去公海认领<ExternalLink size={12}/></Link> : null}
                     </td>
                     <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>

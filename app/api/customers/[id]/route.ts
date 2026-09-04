@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
+import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -12,6 +13,32 @@ const writable = [
   "facebook_url", "instagram_url", "linkedin_url", "tiktok_url", "other_public_urls",
   "store_name", "product_image", "store_score", "review_count",
 ];
+
+async function assertNoDuplicateIdentity(customerId: string, payload: Record<string, unknown>) {
+  const admin = createAdminClient();
+  const { data: current, error } = await admin.from("customers")
+    .select("id,company_name,phone,whatsapp,email,website,google_url")
+    .eq("id", customerId)
+    .single();
+  if (error) throw error;
+  const candidate = { ...current, ...payload };
+  const lookupKeys = customerLookupIdentityKeys(candidate);
+  if (!lookupKeys.length) return;
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += 1000) {
+    const page = await admin.from("customers")
+      .select("id,company_name,phone,whatsapp,email,website,google_url")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .range(from, from + 999);
+    if (page.error) throw page.error;
+    rows.push(...(page.data || []));
+    if ((page.data || []).length < 1000) break;
+  }
+  const duplicate = rows.find((row) => row.id !== customerId && customerIndexIdentityKeys(row)
+    .some((key) => lookupKeys.includes(key)));
+  if (duplicate) throw new Error("电话、whatsapp或邮箱已与系统客户重复，不能保存；请先在客户公海或冲突客户中核对");
+}
 
 function validateExternalUrl(value: unknown, label: string, host?: RegExp) {
   const text = String(value || "").trim();
@@ -71,6 +98,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
     if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
     if (!(payload.country ?? customer.country)?.toString().trim()) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
+    await assertNoDuplicateIdentity(id, payload);
     const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select().single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_UPDATE", "customer", id, { fields: Object.keys(payload) });

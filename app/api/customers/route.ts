@@ -3,7 +3,7 @@ import { hasPermission, requestedOwnerId, requirePermission, writeAudit } from "
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, isPotentialCustomerDuplicate } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
@@ -351,6 +351,14 @@ export async function POST(request: NextRequest) {
             ? "已成交客户永久保护，已加入冲突客户列表"
             : "该客户已有归属或需管理员核对，已加入冲突客户列表";
         return NextResponse.json({ conflict: true, status: "CONFLICT", message }, { status: 201 });
+      }
+      const potential = possibleMatches.find((item) => isPotentialCustomerDuplicate(body, item));
+      if (potential && body.confirm_potential_duplicate !== true) {
+        return NextResponse.json({
+          error: "发现疑似重复客户，请核对后确认是否仍要新增。系统不会自动合并或覆盖已有客户资料。",
+          status: "POTENTIAL_DUPLICATE",
+          potential_customer: { company_name: potential.company_name, country: potential.country },
+        }, { status: 409 });
       }
     }
     const payload: Record<string, unknown> = publicPool

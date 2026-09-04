@@ -43,11 +43,19 @@ export async function GET(request: NextRequest) {
     if (summary.error) throw summary.error;
     const rows = data || [];
     const userIds = [...new Set(rows.map((row) => row.user_id).filter((value): value is string => Boolean(value)))];
+    const taskIds = [...new Set(rows.map((row) => row.task_id).filter((value): value is string => Boolean(value)))];
+    const customerIds = [...new Set(rows.map((row) => row.customer_id).filter((value): value is string => Boolean(value)))];
     const users = userIds.length ? await createAdminClient().from("users").select("id,name,email").in("id", userIds) : { data: [], error: null };
+    const tasks = taskIds.length ? await createAdminClient().from("ai_screening_tasks").select("id,name,task_number").in("id", taskIds) : { data: [], error: null };
+    const customers = customerIds.length ? await createAdminClient().from("customers").select("id,company_name").in("id", customerIds) : { data: [], error: null };
     if (users.error) throw users.error;
+    if (tasks.error) throw tasks.error;
+    if (customers.error) throw customers.error;
     const userMap = new Map((users.data || []).map((user) => [user.id, { name: user.name, email: user.email }]));
+    const taskMap = new Map((tasks.data || []).map((task) => [task.id, { name: task.name, task_number: task.task_number }]));
+    const customerMap = new Map((customers.data || []).map((customer) => [customer.id, { company_name: customer.company_name }]));
     return NextResponse.json({
-      data: rows.map((row) => ({ ...row, user: row.user_id ? userMap.get(row.user_id) || { name: "历史账号", email: null } : null })), count: count || 0, page, page_size: pageSize, period,
+      data: rows.map((row) => ({ ...row, user: row.user_id ? userMap.get(row.user_id) || { name: "历史账号", email: null } : null, task: row.task_id ? taskMap.get(row.task_id) || { name: "已删除任务", task_number: null } : null, customer: row.customer_id ? customerMap.get(row.customer_id) || { company_name: "已删除客户" } : null })), count: count || 0, page, page_size: pageSize, period,
       accounting_start_at: settings.data.accounting_start_at,
       settings_updated_at: settings.data.updated_at,
       effective_from: from, effective_to: to,

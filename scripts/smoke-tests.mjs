@@ -181,6 +181,8 @@ assert.doesNotMatch(taskRuntime, /requestUrl\.includes\("\/api\/import"\).*isImp
 assert.match(importView, /label="归属冲突"[\s\S]*showResult\("conflict"\)/, "导入结果的归属冲突卡片必须定位到本次导入冲突明细");
 assert.match(importView, /成功导入[\s\S]*失败导入[\s\S]*重复数据[\s\S]*冲突客户/, "完整导入报告必须包含四类结果页签");
 assert.match(importView, /当前归属人/, "导入明细和冲突报告必须显示当前归属人");
+assert.match(importView, /\/api\/import\/preview/, "解析后的导入数据必须调用服务端全库预检");
+assert.match(importView, /疑似重复，已提示核对/, "疑似重复行必须在导入明细中清楚标记");
 const importApi = read("app/api/import/route.ts");
 assert.match(importApi, /for \(let from = 0; ; from \+= 1000\)/, "导入去重必须分页读取全部现有客户，不能设置固定上限");
 assert.match(importApi, /error\?\.code === "23505"/, "导入必须处理数据库并发唯一冲突");
@@ -188,6 +190,12 @@ assert.match(importApi, /status: "duplicate"[\s\S]*客户已存在于我的客�
 assert.match(importApi, /status: "conflict"[\s\S]*客户仍在保护期或需管理员处理/, "其他归属人的受保护重复客户必须计入冲突客户");
 assert.match(importApi, /owner_name:/, "冲突导入结果必须返回当前归属人");
 assert.match(importApi, /source_batch_id: taskId \|\| null/, "导入客户必须保存唯一导入任务ID，不能只依赖文件名");
+const importPreviewApi = read("app/api/import/preview/route.ts");
+assert.match(importPreviewApi, /isPotentialCustomerDuplicate/, "导入预检必须返回弱身份命中的疑似重复");
+assert.match(importPreviewApi, /existing_duplicate_count[\s\S]*suspected_count/, "导入预检统计必须分开确认重复与疑似重复");
+const globalIdentityMigration = read("supabase/migrations/202609040001_global_customer_contact_identity_guard.sql");
+assert.match(globalIdentityMigration, /before insert or update of phone, whatsapp, email/, "生产层必须在新增和编辑时拦截全局联系方式重复");
+assert.doesNotMatch(globalIdentityMigration, /normalized_name|company_name/, "全局联系方式防重不得受客户名称拼写差异影响");
 const aiCreateTask = read("components/ai-screening/create-task-view.tsx");
 const importBatchSelector = read("components/import-batch-multi-select.tsx");
 const aiCustomerApi = read("app/api/ai/customers/route.ts");
