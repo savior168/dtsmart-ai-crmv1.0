@@ -15,7 +15,6 @@ import {
   ChevronUp,
   CheckCircle2,
   Download,
-  Eye,
   ExternalLink,
   FileSpreadsheet,
   Globe2,
@@ -763,7 +762,7 @@ function PoolTable({
               {fields.map((field) => <td key={field} className={`max-w-64 overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
               <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`}><Eye size={14}/>查看详情</Link> : null}
+                {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`} aria-label={`查看${row.company_name}详情`}>详情</Link> : null}
                 {row.can_claim ? (
                   <button
                     onClick={() => claim(row)}

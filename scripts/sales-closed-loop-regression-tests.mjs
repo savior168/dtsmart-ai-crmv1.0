@@ -95,7 +95,14 @@ assert.match(quoteForm,/订单编号（必填）[\s\S]*确认并创建订单/,"�
 const customerWorkflow = read("app/api/customers/[id]/workflow/route.ts");
 const customerDetail = read("components/customer-crm-detail-view.tsx");
 const customerBatchWorkflow = read("app/api/customers/batch/route.ts");
+const customersView = read("components/customers-view.tsx");
 assert.match(customerWorkflow,/multipart\/form-data[\s\S]*action[\s\S]*STAGE[\s\S]*必须上传真实凭证/,"单客户页面必须支持有凭证的手工阶段修改");
+assert.match(customerWorkflow,/body\.action === "RELEASE"[\s\S]*customers\.release[\s\S]*canWriteOwnedRecord/,"释放接口必须经过客户释放权限与归属写入校验");
+assert.match(closedLoopMigration,/target\.owner_id is distinct from actor\.id[\s\S]*只能释放归属自己的客户/,"数据库释放必须拒绝主管或管理员释放他人的在职客户");
+assert.match(closedLoopMigration,/target\.status='DEAL'[\s\S]*已成交客户为永久保护，不能直接释放/,"已成交客户不得释放到公海");
+assert.match(closedLoopMigration,/quotes q[\s\S]*\('SENT','CONFIRMED'\)[\s\S]*sales_orders o[\s\S]*'CANCELLED'/,"进行中报价或订单必须阻止释放");
+assert.match(customersView,/row\.owner_id === defaultScopeUserId[\s\S]*row\.status !== "DEAL"/,"释放入口只允许当前归属人操作，且已成交客户不得显示直接释放");
+assert.match(customersView,/releaseNeedsAcknowledgement[\s\S]*FOLLOWING[\s\S]*QUOTE/,"意向与报价客户释放必须要求风险确认");
 assert.match(customerBatchWorkflow,/客户阶段和跟进状态只支持单条手工修改，不能批量变更/,"批量操作不得修改客户阶段或跟进状态");
 assert.match(customerDetail,/FOLLOWUP_STATUS[\s\S]*跟进后状态：保持当前/,"新增跟进与跟进状态必须合并为一个简洁入口，且仅按用户明确选择更新");
 assert.doesNotMatch(customerDetail,/>跟进状态<\/button>|followupStatusOpen/,"客户详情不得重复提供独立跟进状态入口");

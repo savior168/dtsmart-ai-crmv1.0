@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  Eye,
   FileSpreadsheet,
   Globe2,
   MapPin,
@@ -104,6 +103,12 @@ function value(customer: Customer, key: ColumnKey) {
   if (key === "protection") return <ProtectionRemaining customer={customer} />;
   return customerListText(customer, key);
 }
+function releaseNotice(status: CustomerStatus) {
+  if (status === "FOLLOWING") return "该客户已有意向与跟进投入。请确认已记录最终处理结果；释放后客户会回到公海，其他销售员可认领。";
+  if (status === "QUOTE") return "报价中客户可能关联业务单据。若存在已发送/确认报价或未取消订单，系统将拒绝释放；请先按业务单据流程完成处理。";
+  return "释放后客户进入公海待认领，保护期立即结束；其他销售员可凭真实联系凭证认领。";
+}
+function releaseNeedsAcknowledgement(status: CustomerStatus) { return status === "FOLLOWING" || status === "QUOTE"; }
 
 export function CustomersView() {
   const router = useRouter();
@@ -149,6 +154,7 @@ export function CustomersView() {
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [releaseTarget, setReleaseTarget] = useState<Customer | null>(null);
   const [releaseReason, setReleaseReason] = useState("");
+  const [releaseAcknowledged, setReleaseAcknowledged] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -461,7 +467,7 @@ export function CustomersView() {
     const response = await fetch(`/api/customers/${customer.id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "RELEASE", reason }) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return notify(body.error || "释放客户失败", "error");
-    setReleaseTarget(null);setReleaseReason("");notify("客户已释放并进入客户公海，保护期已结束");
+    setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false);notify("客户已释放并进入客户公海，保护期已结束");
     await load();
   }
   async function exportData() {
@@ -983,13 +989,13 @@ export function CustomersView() {
                         href={`/customers/${row.id}`}
                         prefetch={false}
                         onClick={(event) => event.stopPropagation()}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                        className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                         title={crossUserReadOnly ? "查看客户详情（跨用户数据只读）" : "查看客户详情"}
                         aria-label={`查看${row.company_name}详情`}
                       >
-                        <Eye size={14} />查看详情
+                        详情
                       </Link>
-                      {!crossUserReadOnly && (row.status === "UNCLAIMED" || Number(row.ai_score ?? 100) < 60) ? <button onClick={(event) => { event.stopPropagation(); setReleaseTarget(row);setReleaseReason(""); }} className="h-8 rounded-lg border border-emerald-100 px-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50" title="释放客户" aria-label={`释放${row.company_name}`}>释放</button> : null}
+                      {row.owner_id === defaultScopeUserId && row.status !== "DEAL" ? <button onClick={(event) => { event.stopPropagation(); setReleaseTarget(row);setReleaseReason("");setReleaseAcknowledged(false); }} className="h-8 rounded-lg border border-amber-200 px-2 text-sm font-medium text-amber-700 hover:bg-amber-50" title="释放本人客户到公海" aria-label={`释放${row.company_name}`}>释放</button> : null}
                       {!crossUserReadOnly ? (
                       <button
                         onClick={(event) => {
@@ -1122,7 +1128,7 @@ export function CustomersView() {
         </> : workspace === "protection"
           ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />
           : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />}
-        {releaseTarget ? <AppDialog title="释放客户到公海" description={`${releaseTarget.company_name} · 释放后其他销售员可凭真实联系凭证认领`} onClose={()=>{setReleaseTarget(null);setReleaseReason("")}} width="max-w-md"><form onSubmit={event=>{event.preventDefault();if(releaseReason.trim())void releaseCustomer(releaseTarget,releaseReason.trim())}}><label className="block text-sm font-medium text-slate-700">释放原因（必填）<textarea autoFocus required minLength={5} maxLength={300} value={releaseReason} onChange={event=>setReleaseReason(event.target.value)} rows={4} placeholder="请客观说明释放原因，系统将保留审计记录" className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label><p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">存在进行中报价、订单或已成交的客户不能直接释放，必须先按业务单据流程处理。</p><DialogActions onCancel={()=>{setReleaseTarget(null);setReleaseReason("")}} confirmLabel="确认释放" tone="danger"/></form></AppDialog> : null}
+        {releaseTarget ? <AppDialog title="释放客户到公海" description={`${releaseTarget.company_name} · ${stageLabels[releaseTarget.status]}`} onClose={()=>{setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false)}} width="max-w-md"><form onSubmit={event=>{event.preventDefault();if(releaseReason.trim() && (!releaseNeedsAcknowledgement(releaseTarget.status) || releaseAcknowledged))void releaseCustomer(releaseTarget,releaseReason.trim())}}><p className={`rounded-lg p-3 text-xs leading-5 ${releaseNeedsAcknowledgement(releaseTarget.status)?"bg-amber-50 text-amber-800":"bg-slate-50 text-slate-700"}`}>{releaseNotice(releaseTarget.status)}</p><label className="mt-4 block text-sm font-medium text-slate-700">释放原因（必填）<textarea autoFocus required minLength={5} maxLength={300} value={releaseReason} onChange={event=>setReleaseReason(event.target.value)} rows={4} placeholder="请客观说明释放原因，系统将保留审计记录" className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label>{releaseNeedsAcknowledgement(releaseTarget.status)?<label className="mt-3 flex cursor-pointer items-start gap-2 text-xs leading-5 text-slate-600"><input required type="checkbox" checked={releaseAcknowledged} onChange={event=>setReleaseAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"/><span>我已确认上述业务影响，并已完成必要的客户沟通或业务单据处理。</span></label>:null}<DialogActions onCancel={()=>{setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false)}} confirmLabel="确认释放" tone="danger"/></form></AppDialog> : null}
       </div>
     </main>
   );
