@@ -102,7 +102,7 @@ type AssignmentOptions = {
   inactive_users: Array<Owner & { status: string; customer_count: number }>;
 };
 type PoolFilterOptions = {
-  industries: string[];
+  industries: Array<{ value: string; label: string }>;
   owners: Owner[];
 };
 type Renewal = {
@@ -521,8 +521,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   className={appFieldClass}
                 >
                   <option value="">全部所属行业</option>
-                  {filterOptions.industries.map((value) => (
-                    <option key={value}>{value}</option>
+                  {filterOptions.industries.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
                   ))}
                 </select>
                 <select

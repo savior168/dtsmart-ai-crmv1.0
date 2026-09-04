@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { postgrestContains } from "@/lib/postgrest-search";
+import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 
 type PoolDbRow = Record<string, unknown> & {
   id: string;
@@ -101,9 +102,9 @@ export async function GET(request: NextRequest) {
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionRows: Array<{ industry: string | null; owner_id: string | null }> = [];
+      const optionRows: Array<{ industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
-        let optionQuery = admin.from("customers").select("industry,owner_id").is("deleted_at", null);
+        let optionQuery = admin.from("customers").select("industry,category,ai_screening_done,owner_id").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
         if (tab === "claimed") {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
@@ -121,9 +122,23 @@ export async function GET(request: NextRequest) {
         ? await admin.from("users").select("id,name,email").in("id", ownerIds).order("name")
         : { data: [], error: null };
       if (owners.error) throw owners.error;
-      const unique = (values: Array<string | null>) => [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right, "zh-CN"));
+      const industryMap = new Map<string, { value: string; label: string }>();
+      for (const item of optionRows) {
+        const display = customerIndustryDisplay(item);
+        if (display.verified && item.industry?.trim()) industryMap.set(`ai:${item.industry.trim()}`, { value: `ai:${item.industry.trim()}`, label: item.industry.trim() });
+        else if (item.category?.trim()) {
+          const rawCategory = item.category.trim();
+          industryMap.set(`raw:${rawCategory}`, {
+            value: `raw:${rawCategory}`,
+            // Keep every source category selectable. Categories without a
+            // presentation mapping retain their source label instead of
+            // silently disappearing from the filter.
+            label: display.text === "待AI核验" ? `原始类别：${rawCategory}` : display.text,
+          });
+        }
+      }
       return NextResponse.json({
-        industries: unique(optionRows.map((item) => item.industry)),
+        industries: [...industryMap.values()].sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
@@ -155,7 +170,9 @@ export async function GET(request: NextRequest) {
       query = query.or(searchable.map((field) => `${field}.ilike.${pattern}`).join(","));
     }
     if (country) query = query.eq("country", country);
-    if (industry) query = query.eq("industry", industry);
+    if (industry.startsWith("ai:")) query = query.eq("ai_screening_done", true).eq("industry", industry.slice(3));
+    else if (industry.startsWith("raw:")) query = query.or(`ai_screening_done.is.false,ai_screening_done.is.null`).eq("category", industry.slice(4));
+    else if (industry) query = query.eq("industry", industry); // compatibility with saved legacy URLs
     if (["A", "B", "C", "D"].includes(aiLevel)) query = query.eq("ai_level", aiLevel);
     if (target === "valid") query = query.eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("is_target_customer", false);

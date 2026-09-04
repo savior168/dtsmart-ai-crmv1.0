@@ -122,6 +122,7 @@ assert.match(customersApi, /created_by[\s\S]*creatorById[\s\S]*creator:/, "客�
 assert.match(poolApi, /created_by[\s\S]*creator:/, "客户公海数据来源必须返回可追溯的新增或导入人");
 assert.match(poolApi, /searchable\.push\("contact_name", "phone", "whatsapp", "email", "website", "google_url"\)/, "客户公海文本搜索必须覆盖联系人、电话、WhatsApp、邮箱与链接");
 assert.match(poolApi, /tab !== "claimed" \|\| account\.role === "ADMIN"/, "已认领客户的他人联系方式不得被非管理员通过搜索探测");
+assert.match(poolApi, /customerIndustryDisplay\(item\)[\s\S]*raw:\$\{rawCategory/, "未AI筛选的公海客户必须以原始类别生成去重行业筛选项");
 assert.match(customerCrmApi, /publicReadOnly[\s\S]*followups: \[\], attachments: \[\], quotes: \[\]/, "未认领公海详情不得返回跟进、附件或报价业务数据");
 assert.match(customerCrmApi, /!canReadAll && !isOwner && !publicReadOnly/, "客户详情必须先按归属/全量权限/公海状态确认读取范围");
 assert.doesNotMatch(customerCrmApi, /created_by\.eq\.\$\{user\.id\}/, "历史创建人不得因 created_by 绕过现有客户归属读取业务数据");
