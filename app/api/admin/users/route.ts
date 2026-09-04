@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, authErrorStatus } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACCOUNT_STATUSES, USER_ROLES, normalizeRole } from "@/lib/auth/permissions";
+import { isUsername, listAuthUsers } from "@/lib/auth/identifiers";
 
 function temporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
@@ -129,16 +130,21 @@ export async function POST(request: NextRequest) {
   try {
     const { user } = await requireAdmin();
     const body = await request.json();
-    const action = String(body.action || "RESET_PASSWORD").toUpperCase();
+      const action = String(body.action || "RESET_PASSWORD").toUpperCase();
     if (action === "CREATE") {
       const name = String(body.name || "").trim();
       const email = String(body.email || "").trim().toLowerCase();
       const requestedRole = String(body.role || "SALES").toUpperCase();
-      if (!name || !/^\S+@\S+\.\S+$/.test(email)) return NextResponse.json({ error: "请填写用户名和有效邮箱" }, { status: 400 });
+      if (!isUsername(name) || !/^\S+@\S+\.\S+$/.test(email)) return NextResponse.json({ error: "用户名需为 1-15 位中文、字母、数字、下划线或短横线，并填写有效邮箱" }, { status: 400 });
       if (!USER_ROLES.includes(requestedRole as never)) return NextResponse.json({ error: "角色无效" }, { status: 400 });
       const role = normalizeRole(requestedRole);
       const managerId = String(body.manager_id || "");
       const admin = createAdminClient();
+      const normalizedName = name.toLowerCase();
+      const authUsers = await listAuthUsers();
+      if (authUsers.some((item) => String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalizedName)) {
+        return NextResponse.json({ error: "该用户名已被使用" }, { status: 409 });
+      }
       let effectiveManager: string | null = null;
       if (role === "SALES") {
         if (managerId) {
@@ -152,7 +158,7 @@ export async function POST(request: NextRequest) {
         }
       }
       const password = temporaryPassword();
-      const { data: authCreated, error: authCreateError } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { name } });
+      const { data: authCreated, error: authCreateError } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { username: name, name } });
       if (authCreateError || !authCreated.user) throw authCreateError || new Error("用户创建失败");
       const createdId = authCreated.user.id;
       const { data: settings } = await admin.from("system_security_settings").select("temporary_password_hours").eq("id", true).maybeSingle();

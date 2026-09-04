@@ -511,7 +511,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     data-1p-ignore="true"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索客户名称、国家/地区或行业"
+                    placeholder="搜索名称、联系人、国家/地区、电话、邮箱或链接"
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
@@ -564,7 +564,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     onChange={(event) => setOwnerId(event.target.value)}
                     className={appFieldClass}
                   >
-                    <option value="">全部归属人</option>
+                    <option value="">全部认领人</option>
                     {filterOptions.owners.map((value) => (
                       <option key={value.id} value={value.id}>
                         {displayUser(value)}
@@ -1158,10 +1158,22 @@ function RenewalReview({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const owners = useMemo(() => {
+    const seen = new Map<string, Owner>();
+    for (const row of rows) if (row.owner?.id) seen.set(row.owner.id, row.owner);
+    return [...seen.values()].sort((left, right) => displayUser(left).localeCompare(displayUser(right), "zh-CN"));
+  }, [rows]);
+  const filteredRows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return rows.filter((row) => (!ownerId || row.owner?.id === ownerId) && (!needle || [row.customer?.company_name, row.customer?.country, row.owner?.name, row.owner?.email, row.reason, row.next_plan].some((value) => String(value || "").toLowerCase().includes(needle))));
+  }, [ownerId, rows, search]);
   const visibleRows = useMemo(
-    () => rows.slice((page - 1) * pageSize, page * pageSize),
-    [page, pageSize, rows],
+    () => filteredRows.slice((page - 1) * pageSize, page * pageSize),
+    [filteredRows, page, pageSize],
   );
+  useEffect(() => setPage(1), [ownerId, search]);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -1215,6 +1227,11 @@ function RenewalReview({
             : "显示所有待审核申请；通常由直属主管优先处理。"}
         </p>
       </header>
+      <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[minmax(260px,1fr)_220px_88px]">
+        <label className="relative"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索客户、国家/地区、申请人或申请内容" className={`${appFieldClass} w-full pl-9`}/></label>
+        <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className={appFieldClass}><option value="">全部申请人</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{displayUser(owner)}</option>)}</select>
+        <button type="button" onClick={() => { setSearch(""); setOwnerId(""); }} className="h-10 rounded-lg border px-3 text-sm hover:bg-slate-50">重置</button>
+      </div>
       {error ? (
         <div className="m-5">
           <ErrorText value={error} />
@@ -1279,7 +1296,7 @@ function RenewalReview({
           <div className="grid min-h-52 place-items-center">
             <LoaderCircle className="animate-spin text-blue-600" />
           </div>
-        ) : !rows.length ? (
+      ) : !filteredRows.length ? (
           <div className="grid min-h-52 place-items-center text-sm text-slate-400">
             暂无待审核续期申请
           </div>
@@ -1288,7 +1305,7 @@ function RenewalReview({
       <AppPagination
         page={page}
         pageSize={pageSize}
-        total={rows.length}
+        total={filteredRows.length}
         itemLabel="条申请"
         onPage={setPage}
         onPageSize={(size) => {

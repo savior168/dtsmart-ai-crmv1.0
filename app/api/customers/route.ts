@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hasPermission, requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -111,11 +111,12 @@ export async function GET(request: NextRequest) {
         let pageQueryBuilder = supabase.from("customers")
           .select("industry")
           .is("deleted_at", null)
+          .not("owner_id", "is", null)
           .neq("status", "RELEASED")
           .not("industry", "is", null)
           .neq("industry", "")
           .order("industry", { ascending: true });
-        if (scopeUserId && scopeUserId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
+        if (scopeUserId) pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
         const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
         values.push(...(pageQuery.data || []).map((item) => String(item.industry || "").trim()).filter(Boolean));
@@ -130,11 +131,12 @@ export async function GET(request: NextRequest) {
         let pageQueryBuilder = supabase.from("customers")
           .select("source_batch_id,source_batch,created_at")
           .is("deleted_at", null)
+          .not("owner_id", "is", null)
           .neq("status", "RELEASED")
           .not("source_batch", "is", null)
           .neq("source_batch", "")
           .order("created_at", { ascending: false });
-        if (scopeUserId && scopeUserId !== "unclaimed") pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
+        if (scopeUserId) pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
         const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
         for (const row of pageQuery.data || []) {
@@ -160,7 +162,7 @@ export async function GET(request: NextRequest) {
         let tasksQuery = admin.from("import_tasks")
           .select("id,filename,success_count,created_at")
           .in("id", taskIds.slice(offset, offset + 200));
-        if (scopeUserId && scopeUserId !== "unclaimed") tasksQuery = tasksQuery.eq("created_by", scopeUserId);
+        if (scopeUserId) tasksQuery = tasksQuery.eq("created_by", scopeUserId);
         const tasks = await tasksQuery;
         if (tasks.error) throw tasks.error;
         for (const task of tasks.data || []) {
@@ -193,6 +195,9 @@ export async function GET(request: NextRequest) {
     // 客户列表以当前归属为准。客户的创建时间不能决定其是否仍属于
     // 销售员，否则历史客户被重新认领后会从“我的客户”中消失。
     query = query.neq("status", "RELEASED");
+    // “我的客户”无论按本人、指定归属人还是全部归属人查看，都只包含
+    // 当前已经归属的客户。无归属客户只能在客户公海查看与处理。
+    query = query.not("owner_id", "is", null);
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) {
@@ -221,8 +226,7 @@ export async function GET(request: NextRequest) {
       const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
       if (filters.length) query = query.or(Array.from(new Set(filters)).map((item) => `country.ilike.%${item}%`).join(","));
     }
-    if (hasPermission(account, "customers.data_all") && scopeUserId === "unclaimed") query = query.is("owner_id", null);
-    else if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+    if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
     if (sourceBatches.length) {

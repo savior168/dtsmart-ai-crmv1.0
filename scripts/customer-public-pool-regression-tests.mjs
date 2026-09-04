@@ -79,6 +79,12 @@ assert.match(poolPage, /protectPage\("customers\.view"\)[\s\S]*initialRole=\{acc
 assert.doesNotMatch(poolView, /RefreshCw|>刷新<\//, "公海顶部不得堆叠无必要的刷新按钮");
 assert.match(poolApi, /export["\)]* === "1"[\s\S]*account\.role !== "ADMIN"/, "公海导出请求必须在服务端限制为系统管理员");
 assert.match(customersApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*status: "UNCLAIMED"[\s\S]*owner_id: null[\s\S]*pool_status: "AVAILABLE"/, "管理员新增公海客户必须生成无归属待认领记录");
+assert.match(customersApi, /“我的客户”无论按本人、指定归属人还是全部归属人查看[\s\S]*not\("owner_id", "is", null\)/, "我的客户全部归属人范围不得混入无归属公海或待分配客户");
+assert.match(customersApi, /select\("industry"\)[\s\S]*not\("owner_id", "is", null\)[\s\S]*select\("source_batch_id,source_batch,created_at"\)[\s\S]*not\("owner_id", "is", null\)/, "我的客户行业与导入批次筛选项也不得混入无归属客户");
+const protectionApi = read("app/api/customers/protection/route.ts");
+assert.match(protectionApi, /expiredQuery[\s\S]*not\("owner_id", "is", null\)/, "保护到期扫描不得把无归属公海客户当作我的到期客户");
+const conflictsApi = read("app/api/customer-conflicts/route.ts");
+assert.match(conflictsApi, /Boolean\(ownerByCustomer\.get\(item\.customer_id\)\)/, "无归属公海客户不得混入跨归属冲突客户队列");
 assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*assigned_via: "ADMIN_ASSIGN"/, "公海导入必须服务端鉴权并写入合法的管理员归属来源");
 assert.match(importPage, /destination === "public"[\s\S]*requireAdmin\(\)/, "公海导入页面本身必须仅系统管理员可进入");
 assert.match(importView, /destination[\s\S]*导入到客户公海[\s\S]*导入到我的客户/, "共用导入页必须清楚显示实际导入目标");
@@ -114,6 +120,8 @@ assert.doesNotMatch(customerForm, /标签（用逗号分隔）|input\("tags"/, "
 assert.match(customerSocialEditor, /Facebook[\s\S]*Instagram[\s\S]*TikTok[\s\S]*YouTube[\s\S]*LinkedIn/, "客户编辑必须支持主流社媒主页选择与增删");
 assert.match(customersApi, /created_by[\s\S]*creatorById[\s\S]*creator:/, "客户列表数据来源必须返回可追溯的新增或导入人");
 assert.match(poolApi, /created_by[\s\S]*creator:/, "客户公海数据来源必须返回可追溯的新增或导入人");
+assert.match(poolApi, /searchable\.push\("contact_name", "phone", "whatsapp", "email", "website", "google_url"\)/, "客户公海文本搜索必须覆盖联系人、电话、WhatsApp、邮箱与链接");
+assert.match(poolApi, /tab !== "claimed" \|\| account\.role === "ADMIN"/, "已认领客户的他人联系方式不得被非管理员通过搜索探测");
 assert.match(customerCrmApi, /publicReadOnly[\s\S]*followups: \[\], attachments: \[\], quotes: \[\]/, "未认领公海详情不得返回跟进、附件或报价业务数据");
 assert.match(customerCrmApi, /!canReadAll && !isOwner && !publicReadOnly/, "客户详情必须先按归属/全量权限/公海状态确认读取范围");
 assert.doesNotMatch(customerCrmApi, /created_by\.eq\.\$\{user\.id\}/, "历史创建人不得因 created_by 绕过现有客户归属读取业务数据");

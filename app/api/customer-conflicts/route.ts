@@ -175,6 +175,7 @@ export async function GET(request: NextRequest) {
       item.customer_id
       && item.reported_by
       && ownerByCustomer.has(item.customer_id)
+      && Boolean(ownerByCustomer.get(item.customer_id))
       && ownerByCustomer.get(item.customer_id) !== item.reported_by
     ));
     const current = aggregateOpenConflicts(currentRows);

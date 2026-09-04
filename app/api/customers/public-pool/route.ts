@@ -55,10 +55,22 @@ export async function GET(request: NextRequest) {
     const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
+    // Claimed customers have left the public pool. They are visible only to
+    // their owner, that owner's direct supervisor, or the system administrator.
+    const directReports = account.role === "SUPERVISOR"
+      ? await admin.from("users").select("id").eq("manager_id", account.id).eq("status", "ACTIVE")
+      : { data: [], error: null };
+    if (directReports.error) throw directReports.error;
+    const claimScopeOwnerIds = account.role === "ADMIN"
+      ? null
+      : account.role === "SUPERVISOR"
+        ? [account.id, ...(directReports.data || []).map((item) => item.id)]
+        : [account.id];
     if (params.get("counts") === "1") {
       const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
       const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
-      const claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+      let claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+      if (claimScopeOwnerIds) claimedQuery = claimedQuery.in("owner_id", claimScopeOwnerIds);
       const pendingQuery = baseCount().eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
       const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner:users!customer_protection_renewal_requests_owner_id_fkey(manager_id)").eq("status", "PENDING");
       const historyQuery = account.role === "ADMIN"
@@ -86,14 +98,17 @@ export async function GET(request: NextRequest) {
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
     const elevated = account.role === "ADMIN" || account.role === "SUPERVISOR";
     if (params.get("export") === "1" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以导出客户公海数据" }, { status: 403 });
-    if (ownerId && !elevated) return NextResponse.json({ error: "当前角色不能按他人归属筛选" }, { status: 403 });
+    if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
       const optionRows: Array<{ industry: string | null; owner_id: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin.from("customers").select("industry,owner_id").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
-        if (tab === "claimed") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+        if (tab === "claimed") {
+          optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+          if (claimScopeOwnerIds) optionQuery = optionQuery.in("owner_id", claimScopeOwnerIds);
+        }
         if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
         const optionPage = await optionQuery.order("updated_at", { ascending: false }).range(offset, offset + 999);
         if (optionPage.error) throw optionPage.error;
@@ -123,11 +138,21 @@ export async function GET(request: NextRequest) {
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
-    if (tab === "claimed") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+    if (tab === "claimed") {
+      query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
+      if (claimScopeOwnerIds) query = query.in("owner_id", claimScopeOwnerIds);
+    }
     if (tab === "pending") query = query.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
     if (search) {
       const pattern = postgrestContains(search.replace(/[(),]/g, " "));
-      query = query.or(`company_name.ilike.${pattern},country.ilike.${pattern},industry.ilike.${pattern}`);
+      // Search practical identifiers without turning masked claimed contacts
+      // into an oracle for customers owned by another salesperson.
+      const searchable = ["company_name", "country", "industry"];
+      if (tab !== "claimed" || account.role === "ADMIN") {
+        searchable.push("contact_name", "phone", "whatsapp", "email", "website", "google_url");
+        if (hasOptionalFields) searchable.push("website_phone", "website_email");
+      }
+      query = query.or(searchable.map((field) => `${field}.ilike.${pattern}`).join(","));
     }
     if (country) query = query.eq("country", country);
     if (industry) query = query.eq("industry", industry);
@@ -160,9 +185,7 @@ export async function GET(request: NextRequest) {
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
     const supplementsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
-    const directReportIds = account.role === "SUPERVISOR" && ownerIds.length
-      ? new Set((await admin.from("users").select("id").in("id", ownerIds).eq("manager_id", account.id).eq("status", "ACTIVE")).data?.map((item) => item.id) || [])
-      : new Set<string>();
+    const directReportIds = new Set(account.role === "SUPERVISOR" ? (directReports.data || []).map((item) => item.id) : []);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const teamRead = account.role === "ADMIN" || directReportIds.has(String(row.owner_id || ""));

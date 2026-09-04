@@ -383,4 +383,12 @@ assert.match(immutableMetrics, /ai_screening_completion_ledger[\s\S]*capture_ai_
 const usageApi = read("app/api/ai/usage/route.ts");
 assert.match(usageApi, /ai_screening_usage_ledger[\s\S]*ai_screening_completion_ledger/, "AI用量接口必须从独立用量和完成账本读取");
 
+const profileApi = read("app/api/users/profile/route.ts");
+const adminUsersApi = read("app/api/admin/users/route.ts");
+const usernameMigration = read("supabase/migrations/202609040002_user_name_unique.sql");
+assert.match(registerApi, /该用户名已被使用/, "注册必须拒绝已占用用户名");
+assert.match(profileApi, /usersError\.code === "23505"/, "修改用户名必须处理数据库唯一性冲突");
+assert.match(adminUsersApi, /isUsername\(name\)[\s\S]*listAuthUsers\(\)[\s\S]*该用户名已被使用/, "系统管理员新增用户必须执行相同的用户名校验");
+assert.match(usernameMigration, /create unique index[\s\S]*lower\(btrim\(name\)\)/i, "用户名必须有大小写无关的数据库唯一约束");
+
 console.log("DTSmart CRM 烟雾测试通过：页面、权限、AI筛选和兼容迁移检查正常。");

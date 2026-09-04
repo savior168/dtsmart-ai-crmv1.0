@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
     let protectionsQuery = admin.from("customer_protection").select("id,customer_id,owner_id,type,start_date,expire_date,status,extension_count,last_extended_at").or(`status.eq.RELEASED,expire_date.lte.${renewalWindowEnd}`).order("start_date", { ascending: false });
     let claimsQuery = admin.from("customer_claims").select("id,customer_id,user_id,created_at,released_at,release_reason").eq("action", "RELEASE").order("created_at", { ascending: false });
-    let expiredQuery = admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
+    let expiredQuery = admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).not("owner_id", "is", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
     if (scopeUserId) {
       protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
       claimsQuery = claimsQuery.eq("user_id", scopeUserId);

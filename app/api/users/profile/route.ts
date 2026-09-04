@@ -29,8 +29,20 @@ export async function PATCH(request: NextRequest) {
       if (users.some((item) => item.id !== user.id && String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalized)) {
         return NextResponse.json({ error: "该用户名已被使用" }, { status: 409 });
       }
+      // public.users has the database-level case-insensitive unique index. Write
+      // it first so a concurrent rename cannot create two login usernames.
+      const { data: storedProfile, error: storedProfileError } = await admin.from("users").select("name").eq("id", user.id).single();
+      if (storedProfileError) throw storedProfileError;
+      const { error: usersError } = await admin.from("users").update({ name: username }).eq("id", user.id);
+      if (usersError) {
+        if (usersError.code === "23505") return NextResponse.json({ error: "该用户名已被使用" }, { status: 409 });
+        throw usersError;
+      }
       const { error: metadataError } = await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...sessionSafeMetadata(user.user_metadata), username, name: username } });
-      if (metadataError) throw metadataError;
+      if (metadataError) {
+        await admin.from("users").update({ name: storedProfile.name }).eq("id", user.id);
+        throw metadataError;
+      }
       payload.name = username;
     }
     if ("avatar_url" in body) {
@@ -45,12 +57,6 @@ export async function PATCH(request: NextRequest) {
     }
     if (!Object.keys(payload).length) {
       return NextResponse.json({ error: "没有需要保存的资料" }, { status: 400 });
-    }
-    const usersPayload: Record<string, string | null> = {};
-    if ("name" in payload) usersPayload.name = payload.name;
-    if (Object.keys(usersPayload).length) {
-      const { error } = await admin.from("users").update(usersPayload).eq("id", user.id);
-      if (error) throw error;
     }
     await writeAudit(supabase, user.id, "USER_PROFILE_UPDATE", "user", user.id, payload);
     const profilePayload: Record<string, string | null> = { id: user.id };

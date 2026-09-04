@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { postgrestContains } from "@/lib/postgrest-search";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,11 +10,26 @@ export async function GET(request: NextRequest) {
     const mode = request.nextUrl.searchParams.get("mode") || "options";
     if (mode === "history") {
       const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-      const result = await admin.from("customer_assignment_batches")
+      const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("page_size") || 20)));
+      const search = request.nextUrl.searchParams.get("q")?.trim() || "";
+      const historyType = request.nextUrl.searchParams.get("history_type")?.trim().toUpperCase() || "";
+      const dateFrom = request.nextUrl.searchParams.get("date_from")?.trim() || "";
+      const dateTo = request.nextUrl.searchParams.get("date_to")?.trim() || "";
+      let query = admin.from("customer_assignment_batches")
         .select("id,batch_number,batch_name,reason_type,reason,mode,customer_count,created_at,source:users!customer_assignment_batches_source_user_id_fkey(id,name,email),target:users!customer_assignment_batches_target_user_id_fkey(id,name,email),creator:users!customer_assignment_batches_created_by_fkey(id,name,email)", { count: "exact" })
-        .order("created_at", { ascending: false }).range((page - 1) * 20, page * 20 - 1);
+        .order("created_at", { ascending: false });
+      if (search) {
+        const pattern = postgrestContains(search.replace(/[(),]/g, " "));
+        query = query.or(`batch_number.ilike.${pattern},batch_name.ilike.${pattern},reason.ilike.${pattern}`);
+      }
+      if (historyType === "HANDOVER") query = query.eq("reason_type", "ACCOUNT_HANDOVER");
+      if (historyType === "ASSIGN") query = query.eq("mode", "ASSIGN").neq("reason_type", "ACCOUNT_HANDOVER");
+      if (historyType === "RELEASE") query = query.eq("mode", "RELEASE");
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) query = query.gte("created_at", `${dateFrom}T00:00:00.000Z`);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
+      const result = await query.range((page - 1) * pageSize, page * pageSize - 1);
       if (result.error) throw result.error;
-      return NextResponse.json({ data: result.data || [], count: result.count || 0, page });
+      return NextResponse.json({ data: result.data || [], count: result.count || 0, page, page_size: pageSize });
     }
     const [activeUsers, inactiveUsers, owned] = await Promise.all([
       admin.from("users").select("id,name,email,role,manager_id").eq("status", "ACTIVE").in("role", ["SALES", "SUPERVISOR"]).order("name"),
