@@ -125,6 +125,8 @@ assert.match(registerApi, /verifyCaptcha\(body\.captcha\)/, "注册必须由服�
 assert.match(authForm, /setInterval\([\s\S]*15000\)/, "登录注册验证码必须每15秒自动刷新");
 assert.match(authForm, /if \(!captchaFocused && !captcha\.trim\(\)\) refreshCaptcha\(false\)/, "输入验证码或获得输入焦点时不得替换服务端验证码挑战");
 assert.match(authForm, /onFocus=\{onFocus\}[\s\S]*onBlur=\{onBlur\}/, "验证码输入框必须在聚焦与失焦时控制自动刷新");
+assert.match(authForm, /captchaExpiresAt[\s\S]*120000/, "验证码必须展示并遵守服务端120秒挑战有效期");
+assert.match(authForm, /if \(captchaExpired\) return setError\("验证码已失效/, "提交过期验证码前必须在前端明确提示刷新，不得误报验证码错误");
 assert.match(authForm, /<CaptchaField[\s\S]*mode === "register"[\s\S]*<CaptchaField/, "登录与注册表单都必须显示图形验证码");
 assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用户必须固定为待审核销售员");
 assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");

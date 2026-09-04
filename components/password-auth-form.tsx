@@ -120,10 +120,18 @@ export function PasswordAuthForm() {
   const [captcha, setCaptcha] = useState("");
   const [captchaVersion, setCaptchaVersion] = useState(1);
   const [captchaFocused, setCaptchaFocused] = useState(false);
+  const [captchaExpiresAt, setCaptchaExpiresAt] = useState(() => Date.now() + 120000);
+  const [now, setNow] = useState(() => Date.now());
+  const captchaExpired = now >= captchaExpiresAt;
 
   const refreshCaptcha = useCallback((clearInput = true) => {
     if (clearInput) setCaptcha("");
+    setCaptchaExpiresAt(Date.now() + 120000);
     setCaptchaVersion((value) => value + 1);
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     // Refreshing the image also replaces the server-side challenge cookie.
@@ -152,6 +160,7 @@ export function PasswordAuthForm() {
 
   async function submitLogin(event: FormEvent) {
     event.preventDefault();
+    if (captchaExpired) return setError("验证码已失效，请点击图片刷新后重新输入");
     setLoading(true);
     setError("");
     setNotice("");
@@ -170,6 +179,7 @@ export function PasswordAuthForm() {
     event.preventDefault();
     setError("");
     setNotice("");
+    if (captchaExpired) return setError("验证码已失效，请点击图片刷新后重新输入");
     if (register.password !== register.confirmPassword)
       return setError("两次输入的密码不一致");
     setLoading(true);
@@ -227,7 +237,7 @@ export function PasswordAuthForm() {
             onChange={setPassword}
             autoComplete="current-password"
           />
-          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} onFocus={() => setCaptchaFocused(true)} onBlur={() => setCaptchaFocused(false)} />
+          <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} onFocus={() => setCaptchaFocused(true)} onBlur={() => setCaptchaFocused(false)} remainingSeconds={Math.max(0, Math.ceil((captchaExpiresAt - now) / 1000))} />
           <div className="flex justify-end">
             <button
               type="button"
@@ -318,7 +328,7 @@ export function PasswordAuthForm() {
             />
             注册后账号进入待审核状态。系统管理员审核通过后方可登录，手机号仅作为可选登录标识。
           </p>
-            <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} onFocus={() => setCaptchaFocused(true)} onBlur={() => setCaptchaFocused(false)} />
+            <CaptchaField value={captcha} onChange={setCaptcha} version={captchaVersion} refresh={refreshCaptcha} onFocus={() => setCaptchaFocused(true)} onBlur={() => setCaptchaFocused(false)} remainingSeconds={Math.max(0, Math.ceil((captchaExpiresAt - now) / 1000))} />
           <Feedback error={error} notice={notice} />
           <PrimaryButton
             loading={loading}
@@ -355,11 +365,12 @@ export function PasswordAuthForm() {
   );
 }
 
-function CaptchaField({ value, onChange, version, refresh, onFocus, onBlur }: { value: string; onChange: (value: string) => void; version: number; refresh: () => void; onFocus: () => void; onBlur: () => void }) {
+function CaptchaField({ value, onChange, version, refresh, onFocus, onBlur, remainingSeconds }: { value: string; onChange: (value: string) => void; version: number; refresh: () => void; onFocus: () => void; onBlur: () => void; remainingSeconds: number }) {
   // A regular img is intentional: the browser must receive the captcha cookie
   // from this request, which the Next.js image optimizer would not forward.
   // eslint-disable-next-line @next/next/no-img-element
-  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onFocus={onFocus} onBlur={onBlur} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className="mt-1.5 block text-xs text-slate-400">验证码含随机干扰；空白时每 15 秒自动刷新，获得输入焦点或输入后暂停刷新，也可点击图片手动刷新。</span></label>;
+  const expired = remainingSeconds <= 0;
+  return <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">图形验证码</span><span className="flex items-stretch gap-2"><input required maxLength={5} autoComplete="off" value={value} onFocus={onFocus} onBlur={onBlur} onChange={(event) => onChange(event.target.value.toUpperCase())} placeholder="请输入图中字符" className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 px-4 text-[15px] uppercase tracking-[.2em] outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/><button type="button" onClick={refresh} title="点击刷新验证码" className="group relative flex h-12 w-[154px] overflow-hidden rounded-xl border border-slate-200 bg-blue-50"><img src={`/api/auth/captcha?v=${version}`} alt="图形验证码，点击刷新" className="h-full w-full object-cover"/><span className="absolute inset-0 hidden items-center justify-center bg-slate-950/45 text-xs font-medium text-white group-hover:flex"><RefreshCw size={14} className="mr-1"/>刷新</span></button></span><span className={`mt-1.5 block text-xs ${expired ? "font-medium text-rose-600" : "text-slate-400"}`}>{expired ? "验证码已失效，请点击图片刷新后重新输入。" : `验证码剩余 ${remainingSeconds} 秒；空白时每 15 秒自动刷新，输入后暂停刷新。`}</span></label>;
 }
 
 function Feedback({ error, notice }: { error: string; notice: string }) {
