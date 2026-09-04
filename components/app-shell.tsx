@@ -179,7 +179,7 @@ function ProfileModal({
         ? value
         : type === "avatar"
           ? avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : null
-          : { name: value.name.trim() };
+          : { name: value.name.trim(), ...(avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : {}) };
       if (!body) return setMessage("请选择头像图片");
       const response = await fetch(
         isPassword ? "/api/users/password" : "/api/users/profile",
@@ -224,7 +224,7 @@ function ProfileModal({
           </button> : null}
         </div>
         <div className="mt-5 space-y-3">
-          {type === "avatar" ? (
+          {type === "avatar" || type === "profile" ? (
             <>
               <input ref={inputRef}
                 type="file"
@@ -232,20 +232,14 @@ function ProfileModal({
                 onChange={(event) => selectAvatar(event.target.files?.[0])}
                 className="hidden"
               />
-              <button type="button" onClick={() => inputRef.current?.click()} className="group flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-blue-200 bg-gradient-to-b from-blue-50 to-white px-6 py-7 transition hover:border-blue-400 hover:bg-blue-50">
-                <span className="grid h-28 w-28 place-items-center overflow-hidden rounded-full border-4 border-white bg-blue-100 text-3xl font-bold text-blue-600 shadow-lg">
+              <button type="button" onClick={() => inputRef.current?.click()} className={`group flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-blue-200 bg-gradient-to-b from-blue-50 to-white transition hover:border-blue-400 hover:bg-blue-50 ${type === "avatar" ? "px-6 py-7" : "px-4 py-4"}`}>
+                <span className={`grid place-items-center overflow-hidden rounded-full border-4 border-white bg-blue-100 font-bold text-blue-600 shadow-lg ${type === "avatar" ? "h-28 w-28 text-3xl" : "h-16 w-16 text-xl"}`}>
                   {avatarPreview ? <Image unoptimized width={112} height={112} src={avatarPreview} alt="头像预览" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}
                 </span>
-                <span className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm group-hover:bg-blue-700"><UploadCloud size={17}/>选择头像图片</span>
+                <span className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm group-hover:bg-blue-700 ${type === "avatar" ? "mt-4" : "mt-2"}`}><UploadCloud size={17}/>{type === "avatar" ? "选择头像图片" : "点击更换头像"}</span>
                 <small className="mt-2 text-slate-500">支持 JPG、PNG、WebP，文件不超过 5MB</small>
               </button>
             </>
-          ) : null}
-          {type === "profile" ? (
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-blue-100 text-lg font-semibold text-blue-700">{avatarPreview ? <Image unoptimized width={48} height={48} src={avatarPreview} alt="当前头像" className="h-full w-full object-cover"/> : profile.name.slice(0, 1)}</span>
-              <span className="min-w-0"><b className="block text-sm text-slate-800">当前头像</b><small className="block text-slate-500">如需更换，请从右上角选择“修改头像”</small></span>
-            </div>
           ) : null}
           {type === "profile" ? (
             <input

@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
+import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -13,7 +14,7 @@ function taskNumber() {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("ai.tasks.view");
+    const { account } = await requirePermission("ai.tasks.view");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -98,14 +99,15 @@ export async function GET(request: NextRequest) {
       .select("source_task_item_id", { count: "exact", head: true })
       .gte("completed_at", todayStart);
     if (scopeUserId) todayCompletedQuery = todayCompletedQuery.eq("user_id", scopeUserId);
-    let pendingCustomersQuery = supabase
+    const pendingScope = await resolveAiOwnerScope(account);
+    let pendingCustomersQuery = admin
       .from("customers")
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null)
       .is("ai_score", null);
-    // 所有角色使用同一归属人口径：销售员固定本人；主管和系统管理员
-    // 默认本人，只有主动切换归属人后才查询对应用户或全部用户。
-    if (scopeUserId) pendingCustomersQuery = pendingCustomersQuery.eq("owner_id", scopeUserId);
+    // 待筛选统计遵循创建任务时可选择的数据范围：销售员仅本人；主管为
+    // 本人及直属下属；系统管理员为全系统（含尚未归属的公海客户）。
+    if (pendingScope.ownerIds) pendingCustomersQuery = pendingCustomersQuery.in("owner_id", pendingScope.ownerIds);
     const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
       countItems("FAILED", undefined, true),
       todayCompletedQuery,
@@ -132,7 +134,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, user, account } = await requirePermission("ai.tasks.create");
+    const { user, account } = await requirePermission("ai.tasks.create");
     const body = await request.json() as {
       name?: string; strategy?: AiStrategy; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
@@ -143,12 +145,13 @@ export async function POST(request: NextRequest) {
     if (!AI_STRATEGIES.includes(strategy)) return NextResponse.json({ error: "分析策略无效" }, { status: 400 });
     const requestedIds = [...new Set((body.customer_ids || []).filter(Boolean))];
     if (!requestedIds.length) return NextResponse.json({ error: "请至少选择一条待筛选客户" }, { status: 400 });
+    const ownerScope = await resolveAiOwnerScope(account, String(body.filters?.owner_id || ""));
 
     const allowedIds: string[] = [];
     for (let offset = 0; offset < requestedIds.length; offset += 200) {
       const ids = requestedIds.slice(offset, offset + 200);
-      let allowedQuery = (account.role === "ADMIN" ? createAdminClient() : supabase).from("customers").select("id").in("id", ids).is("deleted_at", null).is("ai_score", null);
-      if (account.role !== "ADMIN") allowedQuery = allowedQuery.eq("owner_id", user.id);
+      let allowedQuery = createAdminClient().from("customers").select("id").in("id", ids).is("deleted_at", null).is("ai_score", null);
+      if (ownerScope.ownerIds) allowedQuery = allowedQuery.in("owner_id", ownerScope.ownerIds);
       const allowed = await allowedQuery;
       if (allowed.error) throw allowed.error;
       allowedIds.push(...(allowed.data || []).map((item) => item.id));
@@ -160,7 +163,7 @@ export async function POST(request: NextRequest) {
       if (existing.error) throw existing.error;
       if (existing.data) return NextResponse.json({ task: existing.data, idempotent: true }, { status: 200 });
     }
-    const allReserved = await getReservedAiCustomerIds(account.role === "ADMIN" ? null : user.id);
+    const allReserved = await getReservedAiCustomerIds();
     const reserved=new Set(allowedIds.filter((id)=>allReserved.has(id)));
     const eligibleIds=allowedIds.filter(id=>!reserved.has(id));
     if (!eligibleIds.length) return NextResponse.json({ error: "所选客户已完成AI筛选、已删除、无权访问或已加入其他活动任务" }, { status: 409 });

@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mapCustomerForAi } from "@/lib/ai/semantic-fields";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
+import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 
 type MappedCustomer = ReturnType<typeof mapCustomerForAi>;
 
@@ -24,7 +25,7 @@ function batchFilterKey(row: MappedCustomer) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user, account } = await requirePermission("ai.tasks.create");
+    const { account } = await requirePermission("ai.tasks.create");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(200, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -36,13 +37,12 @@ export async function GET(request: NextRequest) {
     const to = params.get("date_to")?.trim() || "";
     const idsOnly = params.get("ids") === "all";
     const admin = createAdminClient();
-
-    const isAdmin = account.role === "ADMIN";
-    const excluded = await getReservedAiCustomerIds(isAdmin ? null : user.id);
+    const ownerScope = await resolveAiOwnerScope(account, params.get("owner_id"));
+    const excluded = await getReservedAiCustomerIds();
 
     const buildQuery = (start: number, end: number) => {
-      let query = (isAdmin ? admin : supabase).from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
-      if (!isAdmin) query = query.eq("owner_id", user.id);
+      let query = admin.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
+      if (ownerScope.ownerIds) query = query.in("owner_id", ownerScope.ownerIds);
       return query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(start, end);
     };
 
@@ -89,6 +89,11 @@ export async function GET(request: NextRequest) {
     const eligibleCount = collected.length;
     const start = (page - 1) * pageSize;
     const data = collected.slice(start, start + pageSize);
+    const sourceCounts = new Map<string, number>();
+    for (const item of eligible) {
+      const kind = sourceKind(item);
+      sourceCounts.set(kind, (sourceCounts.get(kind) || 0) + 1);
+    }
 
     const batchCounts = new Map<string, { id: string; filename: string; pending_count: number; success_count: number | null; created_at: string | null; legacy: boolean }>();
     for (const item of eligible) {
@@ -109,7 +114,7 @@ export async function GET(request: NextRequest) {
     if (taskIds.length) {
       for (let offset = 0; offset < taskIds.length; offset += 200) {
         let taskQuery = admin.from("import_tasks").select("id,filename,success_count,created_at").gt("success_count", 0).in("id", taskIds.slice(offset, offset + 200));
-        if (!isAdmin) taskQuery = taskQuery.eq("created_by", user.id);
+        if (ownerScope.ownerIds) taskQuery = taskQuery.in("created_by", ownerScope.ownerIds);
         const taskRows = await taskQuery;
         if (taskRows.error) throw taskRows.error;
         for (const task of taskRows.data || []) {
@@ -123,11 +128,11 @@ export async function GET(request: NextRequest) {
       // 仍有当前用户可筛选的客户，就必须作为可选批次返回，不能静默隐藏。
       .filter((item) => item.pending_count > 0)
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
-    const ownerIds = isAdmin ? [...new Set(data.map((item) => String(item.owner_id || "")).filter(Boolean))] : [];
+    const ownerIds = ownerScope.canSelectOwner ? [...new Set(data.map((item) => String(item.owner_id || "")).filter(Boolean))] : [];
     const ownerRows = ownerIds.length ? await admin.from("users").select("id,name,email").in("id", ownerIds) : { data: [], error: null };
     if (ownerRows.error) throw ownerRows.error;
     const ownerById = new Map((ownerRows.data || []).map((item) => [item.id, item]));
-    return NextResponse.json({ data: data.map((item) => ({ ...item, owner: item.owner_id ? ownerById.get(String(item.owner_id)) || null : null })), count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches, role: account.role });
+    return NextResponse.json({ data: data.map((item) => ({ ...item, owner: item.owner_id ? ownerById.get(String(item.owner_id)) || null : null })), count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches, source_options: [...sourceCounts.entries()].map(([value, count]) => ({ value, count })).sort((left, right) => right.count - left.count), role: account.role, owner_options: ownerScope.options, selected_owner_id: ownerScope.selectedOwnerId, can_select_owner: ownerScope.canSelectOwner, scope_label: ownerScope.scopeLabel, all_scope_label: ownerScope.allScopeLabel });
   } catch (error) {
     const message = error instanceof Error ? error.message : "待筛选客户查询失败";
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录会话已失效，请重新登录" : message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

@@ -552,6 +552,8 @@ export function CustomersView() {
                 size={17}
               />
               <input
+                name="customer-list-search"
+                autoComplete="off"
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
