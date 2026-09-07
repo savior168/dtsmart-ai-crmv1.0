@@ -70,7 +70,7 @@ assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实�
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
 assert.match(taskRunner, /id: randomUUID\(\)/, "复用证据必须生成新的主键，不能写入空ID");
-assert.match(taskRunner, /score: analysis\.ai_score, grade: analysis\.ai_level/, "每条完成的客户分析必须保存AI等级和评分");
+assert.match(taskRunner, /score: publishedScore, grade: publishedLevel/, "明确结论必须保存评分；待定结论不得伪造低分");
 assert.doesNotMatch(taskRunner, /AI_EVIDENCE_GATE_NOT_SATISFIED/, "资料不足不得被错误标记为任务执行失败");
 assert.doesNotMatch(taskRunner, /JSON\.stringify\(item\.evidence\)/, "不得把原始证据JSON直接保存或展示给业务员");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");

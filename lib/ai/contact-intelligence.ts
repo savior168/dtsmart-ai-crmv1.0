@@ -114,6 +114,8 @@ export function buildContactCandidate(input: {
   sourcePageTitle?: string | null;
   identityStatus: IdentityStatus;
   originalValues?: string[];
+  /** Same business is matched, but this value conflicts with an imported one. */
+  contactConflict?: boolean;
   capturedAt?: string;
 }): ContactCandidate | null {
   const normalized = normalizeByType(input.type, input.value, input.country);
@@ -122,6 +124,8 @@ export function buildContactCandidate(input: {
   const official = ["website", "google_maps", "facebook", "instagram", "linkedin"].includes(input.sourceChannel);
   const verificationStatus: ContactVerification = originals.has(normalized)
     ? "MATCHED_ORIGINAL"
+    : input.contactConflict && input.identityStatus === "MATCHED" && official
+      ? "CONFLICTING_VERIFIED"
     : input.identityStatus === "MATCHED" && official ? "NEW_VERIFIED" : "UNVERIFIED";
   const capturedAt = input.capturedAt || new Date().toISOString();
   return {

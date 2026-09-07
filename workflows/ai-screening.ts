@@ -111,9 +111,12 @@ async function finishTask(taskId: string) {
   const admin = createAdminClient();
   const refreshed = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: taskId });
   if (refreshed.error) throw refreshed.error;
-  const { data, error } = await admin.from("ai_screening_tasks").select("failed_count,status,elapsed_ms,started_at").eq("id", taskId).single();
+  const { data, error } = await admin.from("ai_screening_tasks").select("pending_count,status,elapsed_ms,started_at").eq("id", taskId).single();
   if (error) throw error;
   if (!data || ["CANCELLED", "PAUSED"].includes(String(data.status))) return;
+  // A workflow can only report completion after every item reached a terminal
+  // state. Reviews are terminal outcomes, not a hidden pending queue.
+  if (Number(data.pending_count || 0) > 0) return;
   const now = new Date();
   const started = data.started_at ? new Date(data.started_at).getTime() : NaN;
   const elapsedMs = Number.isFinite(started) ? Math.max(0, now.getTime() - started) : Number(data.elapsed_ms || 0);

@@ -21,6 +21,20 @@ type ErrorContext = {
   durationMs?: number | null;
 };
 
+/** PostgreSQL jsonb rejects unpaired UTF-16 surrogates. Public webpages can
+ * contain them, so sanitize only the invalid code units while preserving all
+ * valid Unicode evidence. */
+export function jsonSafe<T>(value: T): T {
+  if (typeof value === "string") {
+    return value.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "�") as T;
+  }
+  if (Array.isArray(value)) return value.map((item) => jsonSafe(item)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [jsonSafe(key), jsonSafe(item)])) as T;
+  }
+  return value;
+}
+
 function recordOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }

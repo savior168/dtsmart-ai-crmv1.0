@@ -33,7 +33,7 @@ import {
   type ContactCandidate,
   type ContactType,
 } from "./contact-intelligence";
-import { normalizeError } from "./error-normalization";
+import { jsonSafe, normalizeError } from "./error-normalization";
 
 type CustomerRow = AiMappedCustomer;
 
@@ -74,7 +74,7 @@ export function resultLeadPriority(insufficientData: boolean, level: CustomerAna
   // ai_screening_results.lead_priority is NOT NULL in production. An
   // low-evidence customer is still a completed, scored screening result, but
   // receives the lowest workflow priority.
-  return insufficientData ? "LOW" : level;
+  return insufficientData ? "LOW" : level || "LOW";
 }
 
 type PipelineStage =
@@ -184,9 +184,10 @@ function effectiveWebsite(customer: CustomerRow) {
 const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia|amazon|ebay|kleinanzeigen)\./i;
 
 function hasCriticalIdentityMismatch(signals?: string[]) {
-  // A changed phone/domain can indicate a branch, renamed company or wrong
-  // candidate. It must be corroborated, never silently treated as an update.
-  return Boolean(signals?.length);
+  // A different public telephone is a contact conflict, not proof that the
+  // business is different. Name + full address can still identify the same
+  // merchant; keep the phone out of contact writeback but assess the business.
+  return Boolean(signals?.some((signal) => /地址信息不一致|官网与原始官网域名不一致/.test(signal)));
 }
 
 function websiteHost(value?: string | null) {
@@ -521,8 +522,8 @@ function originalValuesForType(customer: CustomerRow, type: ContactType) {
 
 function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
   const candidates: ContactCandidate[] = [];
-  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null, candidateIdentity = identityStatus) => {
-    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus: candidateIdentity, originalValues: originalValuesForType(customer, type) });
+  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null, candidateIdentity = identityStatus, contactConflict = false) => {
+    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus: candidateIdentity, originalValues: originalValuesForType(customer, type), contactConflict });
     if (candidate) candidates.push(candidate);
   };
   for (const record of records) {
@@ -537,7 +538,8 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
         && !hasCriticalIdentityMismatch(item.mismatch_signals)
         ? "MATCHED"
         : "AMBIGUOUS";
-      if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name, googleIdentity);
+      const phoneConflict = Boolean(item.mismatch_signals?.some((signal) => /电话.*不一致/.test(signal)));
+      if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name, googleIdentity, phoneConflict);
       for (const email of item.emails || []) add("EMAIL", email, "google_maps", url, item.name, googleIdentity);
       if (url) add("GOOGLE_MAPS", url, "google_maps", url, item.name, googleIdentity);
       if (item.website) add(contactTypeForUrl(item.website), item.website, "google_maps", url, item.name, googleIdentity);
@@ -686,11 +688,11 @@ function hasUsableCollectedEvidence(records: ChannelRecord[]) {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
       const item = record.evidence as GooglePlaceEvidence;
-      if (item.identity_status && !["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status))) return false;
-      return Boolean(item.name || item.types?.length || item.formatted_address || item.phone || item.reviews?.length);
+      return Boolean(item.identity_status && ["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status))
+        && (item.types?.length || item.description || item.reviews?.length));
     }
     const item = record.evidence as WebsiteEvidence;
-    return Boolean(item.title || item.description || item.headings?.length || item.text_excerpt || item.emails?.length || item.phones?.length);
+    return Boolean(item.title || item.description || item.headings?.length || item.text_excerpt);
   });
 }
 
@@ -1124,9 +1126,7 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
     ? `；${failed.map((item) => AI_CHANNEL_LABELS[item.channel]).join("、")}未能取得有效公开内容`
     : "";
   const sourceCount = new Set(collected.map((item) => item.channel)).size;
-  const locatorCount = [effectiveWebsite(customer), customer.google_url, customer.phone, customer.email].filter(Boolean).length;
-  const score = Math.min(39, 8 + sourceCount * 7 + Math.min(8, locatorCount * 2));
-  const reason = `${collectedText}${limitation}。本次公开检索已完成；未发现能够证明目标业务的经营事实，因此按低销售优先级评为D级${score}分。该分数表示当前目标价值，不代表凭空判定企业行业。`;
+  const reason = `${collectedText}${limitation}。本次公开检索尚未取得足以支持有效或无效判断的经营事实，因此不作评分和定级；后续会继续补充公开证据后再形成结论。`;
   const attemptEvidence = records.flatMap((record) => {
     const url = record.source_url || channelUrl(customer, record.channel);
     if (!url || !/^https?:\/\//i.test(url)) return [];
@@ -1139,16 +1139,16 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
   return {
     industry_type: "其他",
     is_target_customer: false,
-    ai_score: score,
-    ai_level: "D",
+    ai_score: null,
+    ai_level: null,
     ai_reason: reason,
-    business_relevance: "本次已完成可用公开入口检索，但没有发现与手机、电脑维修配件、批发分销或采购相关的可核验经营事实，当前按低相关度处理。",
-    customer_value: "当前未发现可支持销售开发的目标业务事实，列为低优先级客户；后续如新增有效公开入口可重新分析。",
-    followup_suggestion: "暂不进入重点开发名单；保留来源链接供复核，后续补充官网、具体Google商家页或官方企业主页后可重新筛选。",
+    business_relevance: "尚未取得足以支持有效或无效判断的公开经营事实，不能据此降低客户优先级。",
+    customer_value: "经营证据待补全，暂不进入有效或无效名单。",
+    followup_suggestion: "继续补充官网重点页面、具体Google商家信息或已确认的官方公开主页后自动重新判断。",
     confidence_score: Math.min(59, 30 + sourceCount * 8),
     evidence_sufficiency: "一般",
     evidence_conflicts: [],
-    score_breakdown: { ...emptyBreakdown(score), evidence_completeness: Math.min(49, 20 + sourceCount * 10), contradiction_risk: 45 },
+    score_breakdown: { ...emptyBreakdown(0), evidence_completeness: Math.min(49, 20 + sourceCount * 10), contradiction_risk: 45 },
     suggested_contact_order: [],
     evidence_summaries: attemptEvidence,
     usage: { ...ZERO_USAGE, model: "NO_MODEL" },
@@ -1238,7 +1238,7 @@ async function readCustomer(customerId: string) {
 async function saveCheckpoint(taskItemId: string, records: ChannelRecord[], channel: AiChannel) {
   const admin = createAdminClient();
   const write = await admin.from("ai_screening_task_items").update({
-    channel_checkpoint: { records }, checkpoint_version: "1.0", last_completed_channel: channel,
+    channel_checkpoint: jsonSafe({ records }), checkpoint_version: "1.0", last_completed_channel: channel,
     last_checkpoint_at: new Date().toISOString(), current_step: `ANALYZED_${channel.toUpperCase()}`,
     analyzed_channels: records.filter((item) => item.status === "COLLECTED").map((item) => item.channel),
     skipped_channels: records.filter((item) => item.status !== "COLLECTED").map((item) => ({ channel: item.channel, status: item.status, reason: item.error })),
@@ -1624,8 +1624,28 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     if (analysis) {
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
     } else if (!hasUsableCollectedEvidence(records)) {
-      analysis = insufficientDataAnalysis(customer, records);
-      earlyStopReason = "公开来源检索已完成，但没有取得可用于行业判断的可靠经营事实；本次不调用大模型。";
+      // Do not hand an empty record to a salesperson. A bounded recovery pass
+      // finds public sources, fetches those pages again, and only then allows
+      // the normal evidence engine to score the customer. Search snippets or
+      // model text are never themselves treated as evidence.
+      const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal });
+      usage = addUsage(usage, recovery.usage);
+      analysis = deterministicAnalysis(customer, records);
+      if (!analysis && hasUsableCollectedEvidence(records)) {
+        const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: input.strategy === "DEEP" ? "deep" : "fast", maxRequests: input.strategy === "DEEP" ? maxModelCalls as 1 | 2 : 1 });
+        analysis = outcome.analysis;
+        modelRequestCount = outcome.requestCount;
+        usage = addUsage(usage, analysis.usage);
+        earlyStopReason = "首次入口无可读事实，系统已自动检索并二次抓取公开页面后完成分析。";
+      } else if (!analysis) {
+        // This is a truthful terminal system outcome, not an instruction for a
+        // user to investigate. No score or industry claim is fabricated when
+        // the open web exposes no retrievable business fact after recovery.
+        analysis = insufficientDataAnalysis(customer, records);
+        earlyStopReason = "系统已自动完成公开来源扩展检索与二次抓取，但未获得可复核经营事实；未编造行业或评分。";
+      } else {
+        earlyStopReason = "系统已自动检索并二次抓取公开页面，规则引擎取得可核验证据后完成判断。";
+      }
     } else if (input.strategy === "DEEP") {
       const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "deep", maxRequests: maxModelCalls as 1 | 2 });
       analysis = outcome.analysis;
@@ -1637,12 +1657,13 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       modelRequestCount = outcome.requestCount;
       usage = addUsage(usage, analysis.usage);
     }
-    const needsEscalation = analysis.usage.model !== "RULE_ENGINE"
+    const needsEscalation = hasUsableCollectedEvidence(records)
+      && analysis.usage.model !== "RULE_ENGINE"
       && modelRequestCount < maxModelCalls
       && (analysis.evidence_conflicts.length > 0
         || analysis.confidence_score < 82
         || analysis.evidence_sufficiency !== "充分"
-        || (primaryIndustryFor(analysis.industry_type) !== "UNKNOWN" && analysis.ai_score < 60));
+        || (primaryIndustryFor(analysis.industry_type) !== "UNKNOWN" && (analysis.ai_score ?? 0) < 60));
     if (needsEscalation) {
       const callStarted = Date.now();
       try {
@@ -1671,13 +1692,17 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const gate = evaluateEvidenceGate({
       strategy: input.strategy, identityStatus: identity.status, identityConfidence: identity.confidence,
       industryConfidence: analysis.confidence_score, decisionConfidence: analysis.confidence_score,
-      score: analysis.ai_score, industry: primaryIndustry, evidence: policyEvidence,
+      score: analysis.ai_score ?? 0, industry: primaryIndustry, evidence: policyEvidence,
       // Verified target and non-target activities may describe a legitimate
       // mixed business. Only unresolved identity conflicts block automation.
       hasCriticalConflict: ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
     const needsReview = gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length;
+    // A hold is not a low-value verdict. Never expose a tentative model D/0
+    // as a customer score or list classification.
+    const publishedScore = needsReview ? null : analysis.ai_score;
+    const publishedLevel = needsReview ? null : analysis.ai_level;
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
     // Conflicting official sources remain visible in customer_contacts for
     // manual verification, but are not written into the customer's usable
@@ -1694,7 +1719,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const scaleSignals = verifiedScale.companyScaleEvidence ? [verifiedScale.companyScaleEvidence] : [];
     const resultPayload = {
       customer_id: customer.id, task_id: input.taskId, task_item_id: input.taskItemId,
-      score: analysis.ai_score, grade: analysis.ai_level,
+      score: publishedScore, grade: publishedLevel,
       target_decision: compatibilityTargetDecision(gate.automationStatus), automation_status: gate.automationStatus,
       customer_type: analysis.industry_type, industry_type: analysis.industry_type,
       primary_industry: primaryIndustry, secondary_industries: [], business_activities: businessScope ? [businessScope] : [],
@@ -1734,7 +1759,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
       target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "UNCERTAIN",
-      lead_priority: resultLeadPriority(needsReview, analysis.ai_level),
+      lead_priority: resultLeadPriority(needsReview, publishedLevel),
       purchase_scale: verifiedScale.companyScale || "UNKNOWN",
       decision_status: gate.automationStatus,
       short_reason: needsReview ? analysis.ai_reason : gate.reason,
@@ -1745,7 +1770,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     };
     const invalidatePrevious = await admin.from("ai_screening_results").update({ is_latest_valid: false }).eq("task_item_id", input.taskItemId).eq("is_latest_valid", true);
     if (invalidatePrevious.error) throw durableError(invalidatePrevious.error, "INVALIDATE_PREVIOUS_RESULT");
-    const resultWrite = await admin.from("ai_screening_results").insert(resultPayload).select("id").single();
+    const resultWrite = await admin.from("ai_screening_results").insert(jsonSafe(resultPayload)).select("id").single();
     if (resultWrite.error || !resultWrite.data) throw durableError(resultWrite.error || new Error("RESULT_WRITE_FAILED"), "RESULT_WRITE");
 
     // A saved model conclusion is only a checkpoint. It is not a completed AI
@@ -1854,7 +1879,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       const completedEvidence = new Set((existingEvidence.data || []).map((row) => row.content_hash).filter(Boolean));
       const pendingEvidence = evidenceRows.filter((row) => !completedEvidence.has(row.content_hash));
       if (pendingEvidence.length) {
-        const evidenceWrite = await admin.from("ai_screening_evidence").insert(pendingEvidence).select("id");
+        const evidenceWrite = await admin.from("ai_screening_evidence").insert(jsonSafe(pendingEvidence)).select("id");
         if (evidenceWrite.error) throw durableError(evidenceWrite.error, "EVIDENCE_WRITE");
         savedEvidenceIds.push(...(evidenceWrite.data || []).map((row) => String(row.id)));
       }
@@ -1869,7 +1894,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
 
     const customerUpdate = {
       industry: analysis.industry_type,
-      ai_score: analysis.ai_score, ai_level: analysis.ai_level,
+      ai_score: publishedScore, ai_level: publishedLevel,
       ai_reason: analysis.ai_reason,
       // Review is a third state. A score alone must never turn uncertain
       // evidence into a definitive customer classification.
@@ -1964,4 +1989,81 @@ export function publicAiError(error: unknown) {
     code: normalized.error_code === "UNKNOWN_ERROR" ? "AI_ANALYSIS_FAILED" : normalized.error_code,
     message: raw || "AI分析失败",
   };
+}
+
+function recoveryChannel(url: string): AiChannel {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (/linkedin\.com$/.test(host)) return "linkedin";
+    if (/(^|\.)facebook\.com$/.test(host)) return "facebook";
+    if (/instagram\.com$/.test(host)) return "instagram";
+    if (/tiktok\.com$/.test(host)) return "tiktok";
+  } catch { /* invalid URL is rejected by the collector */ }
+  return "other";
+}
+
+function recoveryRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], record: ChannelRecord) {
+  if (record.status !== "COLLECTED" || !record.evidence) return false;
+  const website = record.evidence as WebsiteEvidence;
+  const pageText = [website.title, website.description, ...(website.headings || []), website.text_excerpt]
+    .filter(Boolean).join(" ");
+  const channel = record.channel;
+  if (channel === "other") return websiteRecordMatchesEntity(customer, records, { ...record, channel: "website" });
+  // A social profile is not an official website. It may only supplement a
+  // result after it identifies the same business by an exact name, or by a
+  // name plus a phone/address signal. This prevents same-name profiles from
+  // being scored as the imported customer.
+  const nameScore = identityNameSimilarity(customer.company_name, pageText);
+  const originalPhone = normalizePhoneInternational(customer.phone, customer.country);
+  const phoneMatch = Boolean(originalPhone && website.phones.some((value) => normalizePhoneInternational(value, customer.country) === originalPhone));
+  const addressMatch = Boolean(customer.address && identitySimilarity(customer.address, pageText) >= 0.55);
+  return nameScore >= 0.92 || (nameScore >= 0.75 && (phoneMatch || addressMatch));
+}
+
+/**
+ * Empty first-party records are not handed to a sales user. One bounded public
+ * search discovers candidate pages, then this worker fetches the pages itself.
+ * Search snippets and model output are never stored as evidence or scored.
+ */
+async function recoverPublicEvidence(input: {
+  taskId: string; taskItemId: string; customerId: string; attemptNumber: number;
+  customer: CustomerRow; records: ChannelRecord[]; signal: AbortSignal;
+}) {
+  const startedAt = Date.now();
+  let recovery: CustomerAnalysis;
+  try {
+    recovery = await analyzeCustomer({
+      customer_name: input.customer.company_name,
+      country: input.customer.country,
+      website: effectiveWebsite(input.customer),
+      google_url: input.customer.google_url,
+      address: input.customer.address,
+      industry_keywords: null,
+      evidence: evidenceForModel(input.records, "fast"),
+    }, { signal: input.signal, timeoutMs: 35_000, tier: "recovery" });
+    await saveModelCall({ ...input, channel: "public_source_recovery", startedAt, usage: recovery.usage, status: "COMPLETED" });
+  } catch (error) {
+    await saveModelCall({ ...input, channel: "public_source_recovery", startedAt, status: "FAILED", error });
+    return { usage: ZERO_USAGE, collected: 0 };
+  }
+  const existing = new Set(input.records.map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
+  const urls = (recovery.discovered_source_urls || [])
+    .filter((url) => !existing.has(url.replace(/\/$/, "").toLowerCase()))
+    .slice(0, 3);
+  const fetched = await Promise.all(urls.map(async (url): Promise<ChannelRecord | null> => {
+    try {
+      // Deep page collection follows only relevant second/third-level business
+      // pages and is therefore more reliable than a search-result snippet.
+      const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 7_000 });
+      if (!evidence?.reachable) return null;
+      const record: ChannelRecord = { channel: recoveryChannel(url), status: "COLLECTED", source_url: evidence.url || url, evidence };
+      return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
+    } catch { return null; }
+  }));
+  for (const record of fetched.filter((item): item is ChannelRecord => Boolean(item))) {
+    const duplicate = input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === String(record.source_url || "").replace(/\/$/, "").toLowerCase());
+    if (!duplicate) input.records.push(record);
+  }
+  if (fetched.some(Boolean)) await saveCheckpoint(input.taskItemId, input.records, "other");
+  return { usage: recovery.usage, collected: fetched.filter(Boolean).length };
 }

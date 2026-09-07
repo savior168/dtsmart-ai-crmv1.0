@@ -62,7 +62,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const currentAction = actionFor(task);
   const processed = Number(task?.processed_count || 0);
-  const remaining = Math.max(0, Number(task?.total_count || 0) - processed);
+  const remaining = Math.max(0, Number(task?.pending_count || 0));
   const averageTokens = processed ? Number(task?.total_tokens || 0) / processed : 0;
   const averageCost = processed ? Number(task?.total_cost_usd || 0) / processed : 0;
 
@@ -78,7 +78,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
     const grade = item.result?.grade || item.customer?.ai_level || "-";
     const score = item.result?.score ?? item.customer?.ai_score;
     if (!item.result?.grade && item.result?.score == null && item.customer?.ai_score == null) {
-      return <span className="inline-flex min-w-[62px] justify-center rounded-md bg-rose-50 px-2 py-1 font-semibold text-rose-700">D · 0</span>;
+      return <span className="inline-flex min-w-[62px] justify-center rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-700">待定</span>;
     }
     const color = grade === "A" ? "bg-emerald-50 text-emerald-700" : grade === "B" ? "bg-blue-50 text-blue-700" : grade === "C" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700";
     return <span className={`inline-flex min-w-[62px] justify-center rounded-md px-2 py-1 font-semibold ${color}`}>{grade} · {score ?? "-"}</span>;
@@ -99,9 +99,9 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
     {error ? <ErrorState message={error} reload={() => void load()}/> : null}
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">{[
       ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <StrategyBadge key="strategy" strategy={task?.strategy || "SMART"}/>],
-      ["已完成分析", formatNumber(processed), `占任务总量${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
-      ["剩余待分析", formatNumber(remaining), `排队与处理中客户`],
-      ["完成结果", `${formatNumber(task?.success_count)} / ${formatNumber(task?.failed_count)}`, "成功 / 失败"],
+      ["已处理", formatNumber(processed), `占任务总量${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
+      ["仍在分析", formatNumber(remaining), "排队与处理中客户"],
+      ["自动结论 / 待定 / 失败", `${formatNumber(task?.success_count)} / ${formatNumber(task?.review_count)} / ${formatNumber(task?.failed_count)}`, "证据充分结论 / 证据待补全 / 执行失败"],
       ["当前总消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(task?.total_cost_usd)}`, "Token / 实际费用"],
       ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageCost)}`, "Token / 客户费用"],
       ["任务执行耗时", formatDuration(task ? effectiveElapsedMs(task, now) : 0), "仅统计实际执行时间"],

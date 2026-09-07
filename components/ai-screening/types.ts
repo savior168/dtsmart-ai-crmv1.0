@@ -1,7 +1,7 @@
 export type AiTask = {
   id: string; task_number: string; name: string; strategy: "SMART" | "DEEP"; strategy_version: string;
   user_id?: string; owner?: { id: string; name?: string | null; email?: string | null } | null;
-  status: string; total_count: number; success_count: number; failed_count: number; processed_count: number; pending_count: number;
+  status: string; total_count: number; success_count: number; review_count?: number; failed_count: number; processed_count: number; pending_count: number;
   total_tokens: number; total_cost_usd: number; created_at: string; updated_at?: string | null;
   started_at?: string | null; completed_at?: string | null; finished_at?: string | null; elapsed_ms?: number | null;
   workflow_run_id?: string | null;

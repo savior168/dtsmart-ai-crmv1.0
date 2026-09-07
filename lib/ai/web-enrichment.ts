@@ -794,11 +794,11 @@ export function resolveGoogleCandidateIdentity(input: {
   const addressConflict = input.hasInputAddress && input.addressSimilarity < 0.45
     && !input.phoneMatch && !input.officialDomainMatch && !input.directPlaceIdMatch;
   if (addressConflict) return "AMBIGUOUS" as const;
-  // An exact name/address is not enough when a supplied phone or official
-  // domain points elsewhere. This is the common same-name/different-branch
-  // failure mode and must remain unresolved until another exact signal clears it.
+  // A conflicting phone remains a contact conflict. It must not erase an
+  // exact-name + full-address entity match; a conflicting official domain is
+  // still identity-critical.
   if (input.phoneConflict && input.officialDomainConflict) return "CONFLICTED" as const;
-  if ((input.phoneConflict && !input.officialDomainMatch && !input.directPlaceIdMatch)
+  if ((input.phoneConflict && !nameAndAddress && !input.officialDomainMatch && !input.directPlaceIdMatch)
       || (input.officialDomainConflict && !input.phoneMatch && !input.directPlaceIdMatch)) return "AMBIGUOUS" as const;
   if (uniqueCandidate && (nameAndAddress || addressAndPhone || directPlaceCorroborated)) return "MATCHED" as const;
   if (!uniqueCandidate) return "AMBIGUOUS" as const;

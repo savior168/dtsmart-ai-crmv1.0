@@ -187,7 +187,8 @@ export function splitVerifiedContacts(customer: ContactOwnerSnapshot | undefined
     originals.push({ id: `original-${type}-${value}`, type, value_raw: value, value_normalized: canonicalComparable(type, value), source_channel: type === "WEBSITE" ? "website" : "google_maps", exact_source_url: source.source_url || value, source_page_title: source.title || null, verification_status: "MATCHED_ORIGINAL" });
   }
   const discovered = normalized.filter((contact) => contact.verification_status === "NEW_VERIFIED" && !contactMatchesOriginal(contact, customer));
-  return { original: originals, discovered };
+  const conflicts = normalized.filter((contact) => contact.verification_status === "CONFLICTING_VERIFIED" && !contactMatchesOriginal(contact, customer));
+  return { original: originals, discovered, conflicts };
 }
 
 function displayContactKey(contact: VerifiedContactDisplayItem) {
@@ -358,12 +359,13 @@ export function VerifiedContactsSection({ contacts, customer, evidence = [], pre
   const verifiedPreferred = contacts.find((item) => item.value_raw === preferredValue);
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI已核验的联系方式</h3><p className="mt-1 text-sm text-slate-500">原始联系方式会标注核验来源；仅将不同的新联系方式写回扩展字段，号码统一按国际格式去重。</p></div>
+      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI已核验的联系方式</h3><p className="mt-1 text-sm text-slate-500">原始联系方式会标注核验来源；不同的新联系方式写回扩展字段。与原号码不一致的号码单独保留来源，不自动替换。</p></div>
       {verifiedPreferred ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">推荐优先：{verifiedPreferred.value_raw}</span> : null}
     </div>
     <div className="space-y-4 p-4">
       <div><h4 className="mb-2 text-sm font-semibold text-slate-800">1. 已核验的原有资料</h4><ContactGroupList contacts={classified.original} emptyText="本次分析尚未核验到原有联系方式"/></div>
       <div className="border-t border-slate-100 pt-4"><h4 className="mb-2 text-sm font-semibold text-slate-800">2. AI新发现并已核验</h4><ContactGroupList contacts={classified.discovered} emptyText="本次未发现与原始资料不同的新联系方式或社媒链接"/></div>
+      <div className="border-t border-slate-100 pt-4"><h4 className="mb-2 text-sm font-semibold text-amber-800">3. 与原始号码不一致的已核验联系方式</h4><p className="mb-2 text-xs text-slate-500">主体已匹配，但该联系方式与原始资料不同；可按来源核对后联系，系统不会自动覆盖原值。</p><ContactGroupList contacts={classified.conflicts} emptyText="本次没有需要单独核对的联系方式"/></div>
     </div>
   </section>;
 }
