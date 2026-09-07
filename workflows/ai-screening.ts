@@ -42,8 +42,12 @@ async function nextPendingItems(taskId: string, limit: number) {
     .eq("task_id", taskId)
     .eq("status", "PENDING")
     .or(`retry_at.is.null,retry_at.lte.${new Date().toISOString()}`)
-    .order("updated_at", { ascending: false })
-    .order("id", { ascending: false })
+    // Finish never-attempted customers before returning to slow evidence
+    // recovery rows. A small number of difficult customers must not occupy
+    // every worker slot while the rest of the task is still untouched.
+    .order("attempt_count", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(limit);
   if (error) throw error;
   return (data || []).map((item) => item.id);

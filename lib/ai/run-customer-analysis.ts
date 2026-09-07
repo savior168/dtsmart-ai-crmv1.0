@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.07.3";
+const ANALYSIS_VERSION = "2026.09.07.6";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -181,7 +181,7 @@ function effectiveWebsite(customer: CustomerRow) {
   return domain ? `https://${domain}` : null;
 }
 
-const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia|amazon|ebay|kleinanzeigen)\./i;
+const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia|amazon|ebay|kleinanzeigen|fastbase|mobilverksteder)\./i;
 
 function hasCriticalIdentityMismatch(signals?: string[]) {
   // A different public telephone is a contact conflict, not proof that the
@@ -728,11 +728,58 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
   { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|运营商营业厅|手机套餐|电信运营商|通信合约|宽带套餐)/i, industry: "运营商营业厅", baseScore: 22, target: false },
   { pattern: /(?:railway engineering|rail safety|railway safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i, industry: "其他", baseScore: 15, target: false },
   { pattern: /(?:food wholesale|food distributor|vegetable wholesale|fruit wholesale|食品批发|蔬菜批发|水果批发|餐饮供应)/i, industry: "其他", baseScore: 10, target: false },
+  { pattern: /(?:tobacco shop|tobacconist|vape shop|vaping store|e[- ]?cigarette|smoke shop|shisha shop|电子烟|烟草店|水烟店)/i, industry: "其他", baseScore: 8, target: false },
+  { pattern: /(?:insolvency auction|liquidation auction|auction house|auction calendar|versteigerungskalender|insolvenzverfahren|拍卖行|破产拍卖|清算拍卖)/i, industry: "其他", baseScore: 8, target: false },
 ];
 
 const PRODUCT_RELEVANCE_PATTERN = /(?:mobile|phone|cellular|smartphone|iphone|ipad|macbook|computer|laptop|gsm|lcd|oled|screen|battery|repair parts?|spare parts?|accessor(?:y|ies)|telefon|komputer|smartfon|手机|电脑|屏幕|电池|配件|维修件)/i;
 const TELECOM_SERVICE_PATTERN = /(?:mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|sim card|mobile plan|通信合约|宽带套餐|手机套餐|运营商)/i;
 const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone repair|iphone repair|computer repair|laptop repair|handyreparatur|computerreparatur|napraw\w* (?:telefon|smartfon|komputer|laptop)|serwis\w* (?:telefon|gsm|smartfon|komputer|laptop)|reparaci[oó]n (?:de )?(?:tel[eé]fonos|m[oó]viles|celulares|ordenadores|computadoras)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones|computadores)|手机维修|电脑维修|换屏|电池更换|充电口|主板维修)/i;
+
+function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
+  const reviews = (item.reviews || []).join("；");
+  const verifiedContext: string[] = [];
+  if (item.identity_status === "MATCHED") {
+    if (/(?:cell_phone_store|mobile_phone_shop)/i.test((item.types || []).join(" "))
+        && /(?:accessor|cover|charger|earbud|headphone|配件|手机壳|充电器|耳机)/i.test(reviews)) {
+      verifiedContext.push("mobile phone accessories");
+    }
+  }
+  return verifiedContext.join("；");
+}
+
+function googleBusinessEvidenceText(item: GooglePlaceEvidence) {
+  return [googleCategoryText(item), item.description, googleContextualReviewEvidence(item), ...(item.reviews || [])].filter(Boolean).join("；");
+}
+
+export function hasTargetValueSignal(customer: CustomerRow, records: ChannelRecord[]) {
+  const evidenceText = records.filter((record) => record.status === "COLLECTED" && record.evidence).map((record) => {
+    if (record.channel === "google_maps") return googleBusinessEvidenceText(record.evidence as GooglePlaceEvidence);
+    const item = record.evidence as WebsiteEvidence;
+    return [item.title, item.description, ...(item.structured_descriptions || []), ...(item.headings || []), item.text_excerpt].filter(Boolean).join(" ");
+  }).join(" ");
+  // Imported fields are routing hints only. They may authorize deeper
+  // collection, but never become evidence or add to the score.
+  return PRODUCT_RELEVANCE_PATTERN.test(`${customer.company_name || ""} ${evidenceText}`);
+}
+
+export function isConclusiveChannelAnalysis(analysis: CustomerAnalysis | null) {
+  if (!analysis || !analysis.evidence_summaries.length) return false;
+  if (analysis.confidence_score >= 82 && analysis.evidence_sufficiency === "充分") return true;
+  // A verified official website is authoritative for declared business scope.
+  // A conflicting Google category is retained in the evidence, but does not
+  // justify more social/model calls after the website already proves the result.
+  return analysis.usage.model === "RULE_ENGINE"
+    && analysis.evidence_summaries.some((item) => item.channel === "website" && item.confidence >= 90 && item.evidence_type !== "中性");
+}
+
+export function shouldUseModelSupplement(customer: CustomerRow, records: ChannelRecord[], analysis: CustomerAnalysis | null) {
+  if (isConclusiveChannelAnalysis(analysis)) return false;
+  // Social collection and model synthesis are reserved for target-adjacent
+  // customers that primary sources could not settle. No target-value signal
+  // means no token-consuming speculative search.
+  return hasTargetValueSignal(customer, records);
+}
 
 function ruleIsSupported(rule: (typeof RULE_INDUSTRIES)[number], text: string) {
   if (!rule.pattern.test(text)) return false;
@@ -750,17 +797,13 @@ function deterministicScore(input: {
   records: ChannelRecord[];
   google?: GooglePlaceEvidence;
 }) {
-  const googleBusinessText = (evidence: GooglePlaceEvidence) => {
-    // The business name is an entity locator only. Industry and score must be
-    // supported by Google categories, editorial text, reviews or media facts.
-    return [googleCategoryText(evidence), evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
-  };
   const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
-      return input.rule.pattern.test(googleBusinessText(evidence));
+      return input.rule.pattern.test(googleBusinessEvidenceText(evidence));
     }
+    if (record.channel !== "website" && !publicChannelRecordMatchesEntity(input.customer, input.records, record)) return false;
     const evidence = record.evidence as WebsiteEvidence;
     return input.rule.pattern.test([evidence.title, evidence.description, ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join(" "));
   });
@@ -770,7 +813,7 @@ function deterministicScore(input: {
   const combinedText = matchingRecords.map((record) => {
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
-      return googleBusinessText(evidence);
+      return googleBusinessEvidenceText(evidence);
     }
     const evidence = record.evidence as WebsiteEvidence;
     return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
@@ -788,7 +831,7 @@ function deterministicScore(input: {
     if (!record.evidence) return "";
     if (record.channel === "google_maps") {
       const evidence = record.evidence as GooglePlaceEvidence;
-      return googleBusinessText(evidence);
+      return googleBusinessEvidenceText(evidence);
     }
     const evidence = record.evidence as WebsiteEvidence;
     return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
@@ -896,6 +939,8 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "电信合作伙伴或运营商服务", pattern: /(?:mobile network operator|telecommunications service provider|telekom partner|telekommunikationspartner|运营商营业厅|电信运营商|电信合作伙伴)/i },
   { label: "铁路工程、电气安装或电气安全服务", pattern: /(?:railway engineering|rail safety|railway safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i },
   { label: "食品批发或餐饮供应", pattern: /(?:food wholesale|food distributor|vegetable wholesale|fruit wholesale|食品批发|蔬菜批发|水果批发|餐饮供应)/i },
+  { label: "电子烟、烟草或水烟零售", pattern: /(?:tobacco shop|tobacconist|vape shop|vaping store|e[- ]?cigarette|smoke shop|shisha shop|电子烟|烟草店|水烟店)/i },
+  { label: "拍卖、破产清算或资产处置", pattern: /(?:insolvency auction|liquidation auction|auction house|auction calendar|versteigerungskalender|insolvenzverfahren|拍卖行|破产拍卖|清算拍卖)/i },
 ];
 
 function verifiedFactLabels(text: string) {
@@ -1045,7 +1090,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       title: google.name,
       // 名称不得单独推断行业；只有同一已匹配主体的公开说明/评论同时
       // 明确维修或配件活动时，名称中的设备类型才可作为组合证据。
-      text: [googleCategoryText(google), google.description, ...(google.reviews || [])].filter(Boolean).join("；"),
+      text: googleBusinessEvidenceText(google),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
       originalExcerpt: compactBusinessExcerpt([googleCategoryText(google), google.description, ...(google.reviews || [])].filter(Boolean).join("；")),
     });
@@ -1061,6 +1106,24 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       originalExcerpt: compactBusinessExcerpt([website.title, website.description, ...(website.structured_descriptions || []), website.text_excerpt].filter(Boolean).join("；")),
     });
   }
+  for (const record of records) {
+    if (!["facebook", "instagram", "linkedin", "tiktok"].includes(record.channel)
+        || record.status !== "COLLECTED" || !record.evidence
+        || !record.source_url || !publicChannelRecordMatchesEntity(customer, records, record)) continue;
+    const social = record.evidence as WebsiteEvidence;
+    const text = [social.title, social.description, ...(social.structured_types || []),
+      ...(social.structured_descriptions || []), ...(social.headings || []), social.text_excerpt?.slice(0, 1600)]
+      .filter(Boolean).join("；").slice(0, 4000);
+    if (!text) continue;
+    candidates.push({
+      channel: record.channel,
+      url: record.source_url,
+      title: social.title || customer.company_name || record.channel,
+      text,
+      confidence: 88,
+      originalExcerpt: compactBusinessExcerpt(text),
+    });
+  }
   const matches = candidates.flatMap((candidate) => RULE_INDUSTRIES
     .filter((rule) => {
       const exactGoogleCategory = candidate.channel === "google_maps" && google && hasVerifiedGoogleBusinessCategory(google);
@@ -1069,7 +1132,9 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       if (candidate.channel !== "google_maps" || !rule.target) return true;
       // 精确匹配主体的具体 Google 商家类别属于公开经营事实；泛类别、
       // 同名或仅可能匹配的候选仍必须由描述、评论或官网继续佐证。
-      const corroborationText = [google?.description, ...(google?.reviews || [])].filter(Boolean).join("；");
+      const corroborationText = google
+        ? [google.description, googleContextualReviewEvidence(google), ...(google.reviews || [])].filter(Boolean).join("；")
+        : "";
       return Boolean(google && hasVerifiedGoogleBusinessCategory(google))
         || ruleIsSupported(rule, corroborationText)
         || /(?:换屏|屏幕更换|玻璃更换|换电池|电池更换|尾插|充电口|主板|拆机|维修作业|screen replacement|battery replacement|charging port|motherboard|wymian\w* (?:szyb|wyświetlacz|bater))/i.test(corroborationText);
@@ -1259,10 +1324,14 @@ async function readCustomer(customerId: string) {
   return mapped;
 }
 
-async function saveCheckpoint(taskItemId: string, records: ChannelRecord[], channel: AiChannel) {
+async function saveCheckpoint(taskItemId: string, records: ChannelRecord[], channel: AiChannel, metadata: Record<string, unknown> = {}) {
   const admin = createAdminClient();
+  const previous = await admin.from("ai_screening_task_items").select("channel_checkpoint").eq("id", taskItemId).maybeSingle();
+  if (previous.error) throw previous.error;
+  const previousCheckpoint = previous.data?.channel_checkpoint && typeof previous.data.channel_checkpoint === "object"
+    ? previous.data.channel_checkpoint as Record<string, unknown> : {};
   const write = await admin.from("ai_screening_task_items").update({
-    channel_checkpoint: jsonSafe({ records }), checkpoint_version: "1.0", last_completed_channel: channel,
+    channel_checkpoint: jsonSafe({ ...previousCheckpoint, ...metadata, records }), checkpoint_version: "1.0", last_completed_channel: channel,
     last_checkpoint_at: new Date().toISOString(), current_step: `ANALYZED_${channel.toUpperCase()}`,
     analyzed_channels: records.filter((item) => item.status === "COLLECTED").map((item) => item.channel),
     skipped_channels: records.filter((item) => item.status !== "COLLECTED").map((item) => ({ channel: item.channel, status: item.status, reason: item.error })),
@@ -1562,9 +1631,14 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   }
   const checkpoint = await admin.from("ai_screening_task_items").select("channel_checkpoint").eq("id", input.taskItemId).maybeSingle();
   if (checkpoint.error) throw checkpoint.error;
-  const savedRecords = checkpoint.data?.channel_checkpoint && typeof checkpoint.data.channel_checkpoint === "object"
-    ? (checkpoint.data.channel_checkpoint as { records?: ChannelRecord[] }).records : [];
+  const checkpointPayload = checkpoint.data?.channel_checkpoint && typeof checkpoint.data.channel_checkpoint === "object"
+    ? checkpoint.data.channel_checkpoint as { records?: ChannelRecord[]; completed_recovery_focuses?: string[]; model_call_baseline?: number } : {};
+  const savedRecords = checkpointPayload.records;
   const records: ChannelRecord[] = Array.isArray(savedRecords) ? savedRecords.filter((item) => item && AI_CHANNEL_ORDER.includes(item.channel)) : [];
+  const completedRecoveryFocuses = new Set(Array.isArray(checkpointPayload.completed_recovery_focuses) ? checkpointPayload.completed_recovery_focuses : []);
+  const existingModelCalls = await admin.from("ai_screening_model_calls").select("id", { count: "exact", head: true }).eq("task_item_id", input.taskItemId);
+  if (existingModelCalls.error) throw existingModelCalls.error;
+  let modelRequestCount = Math.max(0, Number(existingModelCalls.count || 0) - Number(checkpointPayload.model_call_baseline || 0));
   let analysis: CustomerAnalysis | null = null;
   let usage = { ...ZERO_USAGE };
   let earlyStopReason: string | null = null;
@@ -1624,55 +1698,77 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       },
     });
     analysis = deterministicAnalysis(customer, records);
-    if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
+    if (!isConclusiveChannelAnalysis(analysis) && hasTargetValueSignal(customer, records)) {
       // Google Places and the verified official website can reveal public
       // profiles that were absent from the imported customer row. Include
       // those profiles in this same run instead of merely writing their URL
       // back after the analysis has already finished.
       const expandedCustomer = customerWithDiscoveredPublicChannels(customer, records);
-      const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !primaryChannels.includes(channel) && Boolean(channelUrl(expandedCustomer, channel)) && !records.some((item) => item.channel === channel));
-      for (let index = 0; index < secondaryChannels.length; index += 2) {
-        const batch = secondaryChannels.slice(index, index + 2);
-        const secondary = await Promise.all(batch.map((channel) => collectChannel(expandedCustomer, channel, analysisController.signal, costContext)));
-        records.push(...secondary);
-        await saveCheckpoint(input.taskItemId, records, batch[batch.length - 1]);
+      const secondaryPriority: AiChannel[] = ["facebook", "instagram", "linkedin", "tiktok", "other"];
+      const secondaryChannels = secondaryPriority.filter((channel) => Boolean(channelUrl(expandedCustomer, channel)) && !records.some((item) => item.channel === channel));
+      for (const channel of secondaryChannels) {
+        // Collect one corroborating channel at a time. Once it supplies enough
+        // verified evidence, later social channels and the model are skipped.
+        const secondary = await collectChannel(expandedCustomer, channel, analysisController.signal, costContext);
+        records.push(secondary);
+        await saveCheckpoint(input.taskItemId, records, channel);
         const supplemented = deterministicAnalysis(customer, records);
         if (supplemented) analysis = supplemented;
-        if (analysis && !analysis.evidence_conflicts.length && analysis.confidence_score >= 82) {
+        if (isConclusiveChannelAnalysis(analysis)) {
           earlyStopReason = "补充已确认的官方公开渠道后取得足够直接证据，停止继续采集。";
           break;
         }
       }
     }
-    let modelRequestCount = 0;
     const maxModelCalls = input.strategy === "DEEP"
       ? Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER || 2)))
       : Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_SMART_MAX_MODEL_CALLS_PER_CUSTOMER || 2)));
-    if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
-      // Resolve identity first, then official business pages, and finally
-      // official social profiles. Discovery output only supplies candidate
-      // URLs; every URL is fetched and identity checked before scoring.
-      for (const focus of ["identity", "official_business", "social_business"] as const) {
+    if (!isConclusiveChannelAnalysis(analysis) && shouldUseModelSupplement(customer, records, analysis)) {
+      // One bounded discovery call covers identity, official business pages and
+      // (only for target-adjacent customers) verified official social profiles.
+      // Repeating three searches per attempt caused the same difficult rows to
+      // consume most of the task's latency and tokens.
+      const focus = "comprehensive" as const;
+      if (modelRequestCount < maxModelCalls && !completedRecoveryFocuses.has(focus)) {
+        modelRequestCount += 1;
         const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, focus });
         usage = addUsage(usage, recovery.usage);
+        if (recovery.completed) {
+          completedRecoveryFocuses.add(focus);
+          await saveCheckpoint(input.taskItemId, records, "other", { completed_recovery_focuses: [...completedRecoveryFocuses] });
+        }
         analysis = deterministicAnalysis(customer, records);
-        if (analysis && !analysis.evidence_conflicts.length && analysis.confidence_score >= 82) break;
       }
       if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
         if (!hasUsableCollectedEvidence(records)) {
           await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: "本轮尚未取得可核验经营事实，系统将在后台继续扩展公开来源。" });
           return { status: "PENDING" as const };
         }
-        const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation", maxRequests: 2 });
+        const remainingModelCalls = maxModelCalls - modelRequestCount;
+        if (remainingModelCalls <= 0) {
+          await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: "已达到本客户模型调用上限，保留现有真实证据并移至任务末尾再次核验。" });
+          return { status: "PENDING" as const };
+        }
+        const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation", maxRequests: remainingModelCalls >= 2 ? 2 : 1 });
         analysis = outcome.analysis;
-        modelRequestCount = outcome.requestCount;
+        modelRequestCount += outcome.requestCount;
         usage = addUsage(usage, analysis.usage);
-        earlyStopReason = "规则无法直接判断时，系统已完成主体、官网经营页和官方社媒扩展采集，再由高精度模型综合全部已核验证据。";
+        earlyStopReason = "规则无法直接判断时，系统完成一次综合公开来源补证，再由高精度模型综合全部已核验证据。";
       } else {
         earlyStopReason = "系统扩展公开来源后取得可核验直接证据，由规则引擎完成判断。";
       }
     } else {
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
+    }
+    if (!analysis) {
+      await deferEvidenceRecovery({
+        ...input,
+        attemptNumber: input.attemptNumber || 1,
+        records,
+        usage,
+        reason: "Google商家与已确认官网尚未形成可核验行业结论，且当前没有潜在目标价值信号；不消耗社媒与模型费用，移至任务末尾等待公开来源更新。",
+      });
+      return { status: "PENDING" as const };
     }
     const needsEscalation = hasUsableCollectedEvidence(records)
       && analysis.usage.model !== "RULE_ENGINE"
@@ -1706,7 +1802,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const identity = resolveIdentity(customer, records, analysis);
     const policyEvidence = policyEvidenceFromAnalysis(analysis);
     const primaryIndustry = primaryIndustryFor(analysis.industry_type);
-    const explicitRejectEvidence = policyEvidence.some((item) => item.kind === "矛盾" && /只销售手机成品|运营商|外配件|软件|IT咨询|IT系统|技术支持|网络|NAS|服务器|永久关闭|停业|食品|铁路|电气安全|无关业务/.test(item.fact));
+    const explicitRejectEvidence = policyEvidence.some((item) => item.kind === "矛盾" && /只销售手机成品|运营商|外配件|软件|IT咨询|IT系统|技术支持|网络|NAS|服务器|永久关闭|停业|食品|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|无关业务/.test(item.fact));
     const gate = evaluateEvidenceGate({
       strategy: input.strategy, identityStatus: identity.status, identityConfidence: identity.confidence,
       industryConfidence: analysis.confidence_score, decisionConfidence: analysis.confidence_score,
@@ -2098,7 +2194,7 @@ export function recoveryRecordMatchesEntity(customer: CustomerRow, records: Chan
 async function recoverPublicEvidence(input: {
   taskId: string; taskItemId: string; customerId: string; attemptNumber: number;
   customer: CustomerRow; records: ChannelRecord[]; signal: AbortSignal;
-  focus: "identity" | "official_business" | "social_business";
+  focus: "identity" | "official_business" | "social_business" | "comprehensive";
 }) {
   const startedAt = Date.now();
   let recovery: CustomerAnalysis;
@@ -2118,7 +2214,7 @@ async function recoverPublicEvidence(input: {
     await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, usage: recovery.usage, status: "COMPLETED" });
   } catch (error) {
     await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, status: "FAILED", error });
-    return { usage: ZERO_USAGE, collected: 0 };
+    return { usage: ZERO_USAGE, collected: 0, completed: false };
   }
   const existing = new Set(input.records.map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
   const urls = (recovery.discovered_source_urls || [])
@@ -2152,5 +2248,5 @@ async function recoverPublicEvidence(input: {
     } else input.records.push(record);
   }
   if (fetched.some(Boolean)) await saveCheckpoint(input.taskItemId, input.records, "other");
-  return { usage: recovery.usage, collected: fetched.filter(Boolean).length };
+  return { usage: recovery.usage, collected: fetched.filter(Boolean).length, completed: true };
 }

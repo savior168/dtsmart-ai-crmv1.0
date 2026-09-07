@@ -59,7 +59,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.09\.07\.3/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.09\.07\.6/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
@@ -87,7 +87,8 @@ assert.doesNotMatch(workflow, /Promise\.race\(\[analysis, deadline\]\)/, "工作
 assert.match(workflow, /AI_SCREENING_CONCURRENCY/, "AI任务并发量必须可通过服务端环境变量配置");
 assert.match(workflow, /status: "COMPLETED"/, "单个客户失败不能把已跑完的整个任务标记为失败");
 assert.match(workflow, /failTask\(input\.taskId/, "任务级异常必须单独标记整个任务失败");
-assert.match(workflow, /order\("updated_at", \{ ascending: false \}\)/, "任务客户领取顺序必须按最近更新时间倒序");
+assert.match(workflow, /order\("attempt_count", \{ ascending: true \}\)/, "未分析客户必须优先于补证重试客户");
+assert.match(workflow, /order\("created_at", \{ ascending: true \}\)/, "同一轮任务必须保持稳定先进先出顺序");
 const nextConfig = read("next.config.ts");
 assert.match(nextConfig, /withWorkflow\(nextConfig\)/, "生产构建必须启用持久化Workflow");
 const taskCenter = read("components/ai-screening/task-center-view.tsx");

@@ -811,6 +811,10 @@ export function resolveGoogleCandidateIdentity(input: {
   if ((input.phoneConflict && !nameAndAddress && !input.officialDomainMatch && !input.directPlaceIdMatch)
       || (input.officialDomainConflict && !input.phoneMatch && !input.directPlaceIdMatch)) return "AMBIGUOUS" as const;
   if (uniqueCandidate && (nameAndAddress || addressAndPhone || directPlaceCorroborated)) return "MATCHED" as const;
+  // A competing nearby result must not override the candidate whose exact
+  // name/address is also tied to the imported official domain. Keep a phone
+  // difference as a contact conflict instead of reopening entity discovery.
+  if (!uniqueCandidate && nameAndAddress && input.officialDomainMatch) return "MATCHED" as const;
   if (!uniqueCandidate) return "AMBIGUOUS" as const;
   if (input.score >= 90) return "MATCHED" as const;
   if (input.score >= 70) return "LIKELY_MATCHED" as const;

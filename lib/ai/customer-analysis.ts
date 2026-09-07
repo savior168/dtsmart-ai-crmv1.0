@@ -72,7 +72,7 @@ export type CustomerAnalysis = {
 };
 
 export type AnalysisTier = "fast" | "deep" | "escalation" | "recovery";
-export type RecoveryFocus = "identity" | "official_business" | "social_business";
+export type RecoveryFocus = "identity" | "official_business" | "social_business" | "comprehensive";
 
 export function scoreToLevel(score: number): Exclude<CustomerAnalysis["ai_level"], null> {
   return score >= 85 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D";
@@ -299,6 +299,9 @@ function responseSourceUrls(payload: unknown) {
 }
 
 function recoveryInstruction(focus: RecoveryFocus) {
+  if (focus === "comprehensive") {
+    return "一次完成必要的公开来源补证：先组合客户全名、完整地址、国家、电话、邮箱域名确认企业主体，再查同一Google商家和已确认官网的维修、产品、服务、关于我们、联系我们及门店页面；仅当已有手机、电脑、维修、配件、批发或分销等潜在价值信号时，才查找可由电话、地址、官网互链或邮箱域名确认的Facebook、Instagram、LinkedIn、TikTok官方主页。名称相同但地址或主体不同的候选必须分开，只返回可访问页面链接。";
+  }
   if (focus === "identity") {
     return "先做企业主体定位：组合检索客户全名、完整地址、国家、电话、邮箱域名。查找同一企业的Google商家主页和官网；名称相同但电话不同、地址不同的候选必须分别列出，不能混为同一主体。只返回可访问页面链接。";
   }
@@ -464,6 +467,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   if (score > 89 && !(verifiedBuyingRole || verifiedHighVolumeRepair || verifiedProcurement)) score = 89;
   if (score > 94 && !verifiedProcurement) score = 94;
   if (score > 96 && !verifiedLargeRecentProcurement) score = 96;
+  const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/.test(analysis.industry_type)
+    && !(computerRepairClaim && !verifiedComputerHardwareRepair)
+    && !itSupportOnly
+    && evidenceSufficient
+    && hasStrongDirectEvidence;
+  // Industry, target decision, score and grade are one atomic conclusion. A
+  // customer cannot be presented as a verified target industry while remaining
+  // below the 60-point target threshold merely because the model's auxiliary
+  // value metrics were conservative.
+  if (verifiedTargetIndustry) score = Math.max(score, 60);
   const evidenceLead = supporting.slice(0, 3).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const allEvidenceLead = evidence.slice(0, 4).map((item) => item.fact_zh.replace(/[。；]+$/, "")).join("；");
   const normalizedIndustry = itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : analysis.industry_type;
