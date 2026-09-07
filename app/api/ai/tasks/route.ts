@@ -3,7 +3,6 @@ import { start } from "workflow/api";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
-import { AI_STRATEGIES, type AiStrategy } from "@/lib/ai/task-types";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 
@@ -136,13 +135,15 @@ export async function POST(request: NextRequest) {
   try {
     const { user, account } = await requirePermission("ai.tasks.create");
     const body = await request.json() as {
-      name?: string; strategy?: AiStrategy; scheduled_at?: string | null; customer_ids?: string[];
+      name?: string; strategy?: string; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
     };
     const name = body.name?.trim();
-    const strategy = body.strategy || "SMART";
+    // The product exposes one adaptive mode. Keep SMART as the stored legacy
+    // value so historical workflows remain compatible; the runner itself
+    // escalates uncertain cases to the deeper model tier when justified.
+    const strategy = "SMART" as const;
     if (!name) return NextResponse.json({ error: "请输入任务名称" }, { status: 400 });
-    if (!AI_STRATEGIES.includes(strategy)) return NextResponse.json({ error: "分析策略无效" }, { status: 400 });
     const requestedIds = [...new Set((body.customer_ids || []).filter(Boolean))];
     if (!requestedIds.length) return NextResponse.json({ error: "请至少选择一条待筛选客户" }, { status: 400 });
     const ownerScope = await resolveAiOwnerScope(account, String(body.filters?.owner_id || ""));

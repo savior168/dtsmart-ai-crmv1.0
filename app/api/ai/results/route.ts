@@ -42,12 +42,7 @@ export async function GET(request: NextRequest) {
       if (taskId) query = query.eq("task_id", taskId);
       if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
       if (grade) query = query.eq("grade", grade);
-      // The target list rule is score-based. `target_decision` is retained for
-      // the separate manual-review workflow, but must not change the customer
-      // target classification.
-      if (target === "VALID") query = query.gte("score", 60);
-      else if (target === "INVALID") query = query.lt("score", 60);
-      else if (target === "REVIEW") query = query.eq("target_decision", "REVIEW");
+      if (["VALID", "INVALID", "REVIEW"].includes(target)) query = query.eq("target_decision", target);
       if (evidence) query = query.eq("evidence_sufficiency", evidence);
       if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
       return query.order("completed_at", { ascending: false });
@@ -85,9 +80,9 @@ export async function GET(request: NextRequest) {
     const grades: Record<string, number> = {};
     const summary = summaryItems.reduce((value, item) => {
       value.total += 1;
-      if (item.score != null && item.score >= 60) value.valid += 1;
-      else if (item.score != null) value.invalid += 1;
-      if (item.target_decision === "REVIEW") value.review += 1;
+      if (item.target_decision === "VALID") value.valid += 1;
+      else if (item.target_decision === "INVALID") value.invalid += 1;
+      else if (item.target_decision === "REVIEW") value.review += 1;
       value.tokens += Number(item.total_tokens || 0);
       value.cost += Number(item.cost_usd || 0);
       if (item.evidence_sufficiency === "SUFFICIENT") value.sufficient += 1;
@@ -146,8 +141,7 @@ export async function PATCH(request: NextRequest) {
       const customerUpdate: Record<string, unknown> = {};
       if (body.grade) customerUpdate.ai_level = body.grade;
       if (body.score !== undefined) customerUpdate.ai_score = body.score;
-      const effectiveScore = body.score ?? row.score;
-      if (typeof effectiveScore === "number") customerUpdate.is_target_customer = effectiveScore >= 60;
+      if (body.target_decision) customerUpdate.is_target_customer = body.target_decision === "VALID" ? true : body.target_decision === "INVALID" ? false : null;
       if (Object.keys(customerUpdate).length) {
         const customerSaved = await admin.from("customers").update(customerUpdate).eq("id", row.customer_id);
         if (customerSaved.error) throw customerSaved.error;

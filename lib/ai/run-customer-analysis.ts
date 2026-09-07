@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.08.28.7";
+const ANALYSIS_VERSION = "2026.09.07.1";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -181,14 +181,12 @@ function effectiveWebsite(customer: CustomerRow) {
   return domain ? `https://${domain}` : null;
 }
 
-const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia)\./i;
-
-function isBenignIdentityMismatch(signal: string) {
-  return /电话与原始记录不同|电话.*可能.*更新号码/.test(signal);
-}
+const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtube|google|goo\.gl|yelp|tripadvisor|yellowpages|11880|golocal|cylex|trustpilot|wikipedia|amazon|ebay|kleinanzeigen)\./i;
 
 function hasCriticalIdentityMismatch(signals?: string[]) {
-  return (signals || []).some((signal) => !isBenignIdentityMismatch(signal));
+  // A changed phone/domain can indicate a branch, renamed company or wrong
+  // candidate. It must be corroborated, never silently treated as an update.
+  return Boolean(signals?.length);
 }
 
 function websiteHost(value?: string | null) {
@@ -1406,6 +1404,12 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   const cachedScore = Number.isFinite(cachedScoreValue)
     ? Math.max(0, Math.min(100, Math.round(cachedScoreValue)))
     : 20;
+  const cachedTargetDecision = cachedResult.target_decision === "VALID" || cachedResult.target_decision === "INVALID"
+    ? cachedResult.target_decision
+    : "REVIEW";
+  const cachedAutomationStatus = cachedResult.automation_status === "AUTO_DEVELOP" || cachedResult.automation_status === "AUTO_REJECT"
+    ? cachedResult.automation_status
+    : "AUTO_HOLD";
   const normalizedCachedResult = {
     ...cachedResult,
     score: cachedScore,
@@ -1415,7 +1419,9 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
     evidence_sufficiency: cachedResult.evidence_sufficiency === "不足" || !cachedResult.evidence_sufficiency
       ? "一般"
       : cachedResult.evidence_sufficiency,
-    target_fit: cachedResult.target_fit || "NOT_TARGET",
+    target_decision: cachedTargetDecision,
+    automation_status: cachedAutomationStatus,
+    target_fit: cachedResult.target_fit || (cachedTargetDecision === "VALID" ? "TARGET" : cachedTargetDecision === "INVALID" ? "NOT_TARGET" : "UNCERTAIN"),
     lead_priority: cachedResult.lead_priority || "LOW",
     decision_status: cachedResult.decision_status || "AUTO_HOLD",
     manual_review_status: cachedResult.manual_review_status || "NEEDS_REVIEW",
@@ -1469,10 +1475,7 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
     ai_score: normalizedCachedResult.score,
     ai_level: normalizedCachedResult.grade,
       ai_reason: cachedResult.ai_reason || cachedResult.summary,
-      // Customer target lists use the published score threshold. Workflow
-      // automation may hold a high-score record, but it must not relabel it as
-      // an invalid target.
-      is_target_customer: normalizedCachedResult.score >= 60,
+      is_target_customer: cachedTargetDecision === "VALID" ? true : cachedTargetDecision === "INVALID" ? false : null,
       ai_screening_done: true,
       ai_status: "COMPLETED",
       business_relevance: cachedResult.business_relevance,
@@ -1594,26 +1597,30 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       },
     });
     analysis = deterministicAnalysis(customer, records);
-    if (!analysis) {
+    if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
       // Google Places and the verified official website can reveal public
       // profiles that were absent from the imported customer row. Include
       // those profiles in this same run instead of merely writing their URL
       // back after the analysis has already finished.
       const expandedCustomer = customerWithDiscoveredPublicChannels(customer, records);
       const secondaryChannels = AI_CHANNEL_ORDER.filter((channel) => !primaryChannels.includes(channel) && Boolean(channelUrl(expandedCustomer, channel)) && !records.some((item) => item.channel === channel));
-      for (let index = 0; index < secondaryChannels.length && !analysis; index += 2) {
+      for (let index = 0; index < secondaryChannels.length; index += 2) {
         const batch = secondaryChannels.slice(index, index + 2);
         const secondary = await Promise.all(batch.map((channel) => collectChannel(expandedCustomer, channel, analysisController.signal, costContext)));
         records.push(...secondary);
         await saveCheckpoint(input.taskItemId, records, batch[batch.length - 1]);
-        analysis = deterministicAnalysis(customer, records);
-        if (analysis) earlyStopReason = "补充公开渠道已取得足够的直接经营证据，停止继续采集并由规则引擎完成判断。";
+        const supplemented = deterministicAnalysis(customer, records);
+        if (supplemented) analysis = supplemented;
+        if (analysis && !analysis.evidence_conflicts.length && analysis.confidence_score >= 82) {
+          earlyStopReason = "补充已确认的官方公开渠道后取得足够直接证据，停止继续采集。";
+          break;
+        }
       }
     }
     let modelRequestCount = 0;
     const maxModelCalls = input.strategy === "DEEP"
-      ? Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER || 1)))
-      : 1;
+      ? Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER || 2)))
+      : Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_SMART_MAX_MODEL_CALLS_PER_CUSTOMER || 2)));
     if (analysis) {
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
     } else if (!hasUsableCollectedEvidence(records)) {
@@ -1631,8 +1638,11 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       usage = addUsage(usage, analysis.usage);
     }
     const needsEscalation = analysis.usage.model !== "RULE_ENGINE"
-      && analysis.evidence_conflicts.length > 0
-      && modelRequestCount < maxModelCalls;
+      && modelRequestCount < maxModelCalls
+      && (analysis.evidence_conflicts.length > 0
+        || analysis.confidence_score < 82
+        || analysis.evidence_sufficiency !== "充分"
+        || (primaryIndustryFor(analysis.industry_type) !== "UNKNOWN" && analysis.ai_score < 60));
     if (needsEscalation) {
       const callStarted = Date.now();
       try {
@@ -1662,7 +1672,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       strategy: input.strategy, identityStatus: identity.status, identityConfidence: identity.confidence,
       industryConfidence: analysis.confidence_score, decisionConfidence: analysis.confidence_score,
       score: analysis.ai_score, industry: primaryIndustry, evidence: policyEvidence,
-      hasCriticalConflict: analysis.evidence_conflicts.length > 0 || ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
+      // Verified target and non-target activities may describe a legitimate
+      // mixed business. Only unresolved identity conflicts block automation.
+      hasCriticalConflict: ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
     const needsReview = gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length;
@@ -1721,7 +1733,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       discovered_contacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps, contacts: reconciled.contacts },
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
-      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : "NOT_TARGET",
+      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "UNCERTAIN",
       lead_priority: resultLeadPriority(needsReview, analysis.ai_level),
       purchase_scale: verifiedScale.companyScale || "UNKNOWN",
       decision_status: gate.automationStatus,
@@ -1859,9 +1871,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       industry: analysis.industry_type,
       ai_score: analysis.ai_score, ai_level: analysis.ai_level,
       ai_reason: analysis.ai_reason,
-      // `automationStatus` is a workflow decision (for example, evidence may
-      // require review); it is not the customer target classification.
-      is_target_customer: analysis.ai_score >= 60,
+      // Review is a third state. A score alone must never turn uncertain
+      // evidence into a definitive customer classification.
+      is_target_customer: gate.automationStatus === "AUTO_DEVELOP" ? true : gate.automationStatus === "AUTO_REJECT" ? false : null,
       ai_screening_done: true, ai_status: "COMPLETED",
       business_relevance: analysis.business_relevance, customer_value: analysis.customer_value,
       followup_suggestion: analysis.followup_suggestion, website_email: websiteEmail || null,

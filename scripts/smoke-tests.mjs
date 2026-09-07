@@ -59,7 +59,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.08\.28\.7/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.09\.07\.1/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
@@ -164,8 +164,8 @@ assert.match(resultsView, /查看分析依据/, "结果与报告必须能进入�
 assert.match(resultsView, /全部任务/, "今日完成客户必须可按所属任务筛选");
 const strategiesPage = read("app/ai-screening/strategies/page.tsx");
 assert.match(strategiesPage, /返回任务中心/, "分析策略说明必须有返回任务中心出口");
-assert.match(createTaskView, /官网与Google商家并行[\s\S]*最多调用1次快速模型/, "智能分析说明必须与服务端证据优先和单次快速模型逻辑一致");
-assert.match(createTaskView, /矛盾时最多再核验1次/, "深度分析说明必须与服务端最多一次升级核验逻辑一致");
+assert.match(createTaskView, /官网 \+ Google商家并行[\s\S]*最多2次/, "智能筛选说明必须与服务端证据优先和按需升级复核逻辑一致");
+assert.match(createTaskView, /系统会根据证据复杂度自动选择分析深度/, "创建任务页不得再要求用户理解或选择内部分析模式");
 
 const importView = read("components/import-view.tsx");
 assert.match(importView, /async function isReadableImportFile/, "文件夹导入必须验证真实文件内容");

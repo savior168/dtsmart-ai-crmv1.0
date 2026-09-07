@@ -243,12 +243,10 @@ export async function GET(request: NextRequest) {
     if (aiStatus === "pending" || aiPending) query = query.is("ai_score", null);
     else if (aiStatus === "done" || aiDone) query = query.not("ai_score", "is", null);
     if (aiFailed) query = query.ilike("ai_reason", "%失败%");
-    // Keep target filtering compatible with both the migrated schema and the
-    // original production schema. `ai_score` is always present and is the
-    // canonical fallback when the optional boolean has not reached PostgREST's
-    // schema cache yet.
-    if (target === "valid") query = query.gte("ai_score", 60);
-    if (target === "invalid") query = query.lt("ai_score", 60);
+    // Score expresses priority, while this tri-state field records the gated
+    // business conclusion. Null therefore remains outside both target lists.
+    if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);
+    if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false);
 
     // `followup_status` was added by a compatibility migration and is still
     // absent from some production databases. Do not request or sort by that

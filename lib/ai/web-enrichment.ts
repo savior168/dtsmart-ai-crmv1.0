@@ -522,9 +522,25 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
     // crawling an entire site or inflating token cost.
     const keywords = /about|company|service|product|contact|support|team|portfolio|solution|repair|shop|store|business|o nas|kontakt|usług|serwis|napraw|produkt|empresa|nosotros|contacto|servicio|reparaci|producto|à propos|contact|service|répar|produit|azienda|chi siamo|contatt|servizi|ripar|prodott|empresa|sobre|contato|serviç|repara|produto|über uns|kontakt|dienst|reparatur|produkt|о нас|контакт|услуг|ремонт|продукт|会社|私たち|連絡|サービス|修理|製品|公司|关于|服务|维修|产品|联系|會社|關於|服務|維修|產品|聯絡/i;
     const excluded = /privacy|policy|terms|legal|cookie|login|sign[ -]?in|register|account|cart|checkout|wishlist|blog|news|press|career|vacan|polityka|regulamin|privacidad|mentions-l[eé]gales|impressum|隐私|条款|登录|注册|购物车/i;
-    const links = [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
+    const navigationLinks = [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
       .map((match, index) => ({ url: sameWebsiteUrl(url, match[1]), text: compactText(match[2]), index }))
-      .filter((item): item is { url: string; text: string; index: number } => Boolean(item.url) && item.url !== url)
+      .filter((item): item is { url: string; text: string; index: number } => Boolean(item.url) && item.url !== url);
+    // Important service pages are often absent from the visible home-page
+    // navigation. Read the site's own sitemap as a bounded discovery source;
+    // URLs still have to be same-origin and pass the business-page ranking.
+    let sitemapLinks: Array<{ url: string; text: string; index: number }> = [];
+    try {
+      const sitemapUrl = new URL("/sitemap.xml", url).toString();
+      const sitemapResponse = await fetchPublic(sitemapUrl, { signal: request.signal, headers: BROWSER_HEADERS });
+      if (sitemapResponse.ok) {
+        const sitemap = await readTextLimited(sitemapResponse, 350_000);
+        sitemapLinks = [...sitemap.matchAll(/<loc>([\s\S]*?)<\/loc>/gi)]
+          .slice(0, 300)
+          .map((match, index) => ({ url: sameWebsiteUrl(url, decodeHtmlAttribute(compactText(match[1]))), text: "", index: navigationLinks.length + index }))
+          .filter((item): item is { url: string; text: string; index: number } => Boolean(item.url) && item.url !== url);
+      }
+    } catch { /* A missing or blocked sitemap does not invalidate the website. */ }
+    const links = [...navigationLinks, ...sitemapLinks]
       .filter((item) => !excluded.test(`${item.url} ${item.text}`))
       .map((item) => {
         const candidate = new URL(item.url);
@@ -533,7 +549,8 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
         // Prefer service/category pages over individual product detail pages.
         // Detail pages otherwise crowd out About, Services and Contact pages
         // while adding little company-level evidence.
-        const detailPagePenalty = /\/(?:product|item|sku)\//i.test(candidate.pathname) ? 80 : 0;
+        const directBusinessDetail = /(?:repair|reparatur|reparasjon|reparaci|r[eé]paration|riparazione|napraw|serwis|screen|battery|charging|parts?|spare|wholesale|dealer|b2b|维修|屏幕|电池|配件|批发)/i.test(label);
+        const detailPagePenalty = /\/(?:product|item|sku)\//i.test(candidate.pathname) && !directBusinessDetail ? 80 : 0;
         const score = (keywords.test(label) ? 100 : 0)
           + (depth <= 1 ? 18 : depth === 2 ? 8 : 0)
           + (item.text.length >= 2 && item.text.length <= 40 ? 5 : 0)
@@ -542,9 +559,56 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
         return { ...item, score };
       })
       .sort((a, b) => b.score - a.score || a.index - b.index);
-    return [...new Set(links.map((item) => item.url))].slice(0, 6);
+    const ranked = [...new Map(links.map((item) => [item.url, item])).values()];
+    const selected: string[] = [];
+    const take = (pattern: RegExp, count: number) => {
+      for (const item of ranked) {
+        if (selected.length >= 8 || selected.filter((value) => pattern.test(value)).length >= count) break;
+        if (pattern.test(`${item.url} ${item.text}`) && !selected.includes(item.url)) selected.push(item.url);
+      }
+    };
+    // Preserve coverage across business proof, catalogue/B2B and identity
+    // pages instead of allowing six similar navigation items to crowd out the
+    // page that actually proves the customer's activity.
+    take(/repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|维修|修理/i, 3);
+    take(/product|parts?|spare|accessor|wholesale|dealer|trade|b2b|shop|store|produkt|配件|批发|产品/i, 2);
+    take(/about|company|team|contact|impressum|legal|kontakt|über-uns|o-nas|关于|联系|公司/i, 2);
+    for (const item of ranked) {
+      if (selected.length >= 8) break;
+      if (!selected.includes(item.url)) selected.push(item.url);
+    }
+    return selected;
   } catch {
     return [];
+  } finally {
+    request.clear();
+  }
+}
+
+async function discoverRelevantChildPages(rootUrl: string, seedUrls: string[], options: FetchOptions = {}) {
+  const request = requestSignal(options, 5_000);
+  const businessPath = /repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|screen|battery|charging|motherboard|parts?|spare|accessor|wholesale|dealer|trade|b2b|product|produkt|about|company|contact|kontakt|impressum|维修|修理|屏幕|电池|主板|配件|批发|关于|联系/i;
+  const excluded = /privacy|policy|terms|cookie|login|sign[ -]?in|register|account|cart|checkout|wishlist|blog|news|press|career|vacan|隐私|条款|登录|注册|购物车/i;
+  try {
+    const rootOrigin = new URL(rootUrl).origin;
+    const batches = await Promise.all(seedUrls.slice(0, 3).map(async (seedUrl) => {
+      try {
+        const response = await fetchPublic(seedUrl, { signal: request.signal, headers: BROWSER_HEADERS });
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
+        const html = await readTextLimited(response, 500_000);
+        return [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
+          .map((match) => ({ url: sameWebsiteUrl(rootUrl, match[1]), label: compactText(match[2]) }))
+          .filter((item): item is { url: string; label: string } => Boolean(item.url))
+          .filter((item) => {
+            const parsed = new URL(item.url);
+            const depth = parsed.pathname.split("/").filter(Boolean).length;
+            const description = `${parsed.pathname} ${item.label}`;
+            return parsed.origin === rootOrigin && depth <= 4 && businessPath.test(description) && !excluded.test(description);
+          })
+          .map((item) => item.url);
+      } catch { return []; }
+    }));
+    return [...new Set(batches.flat())].filter((item) => !seedUrls.includes(item)).slice(0, 4);
   } finally {
     request.clear();
   }
@@ -555,7 +619,15 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
   if (!homepage?.reachable) return homepage;
   const importantPages = await discoverImportantWebsitePages(homepage.url, options);
   if (!importantPages.length) return homepage;
-  const pages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 3500, 3500) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  const firstLevelPages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  const deepSeedPattern = /repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|parts?|spare|accessor|wholesale|dealer|trade|b2b|product|produkt|维修|修理|配件|批发/i;
+  const seedUrls = firstLevelPages
+    .filter((page) => deepSeedPattern.test(`${page.url} ${page.title || ""} ${page.headings.join(" ")}`))
+    .map((page) => page.url)
+    .slice(0, 3);
+  const childUrls = seedUrls.length ? await discoverRelevantChildPages(homepage.url, seedUrls, options) : [];
+  const childPages = (await Promise.all(childUrls.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  const pages = [...new Map([...firstLevelPages, ...childPages].map((page) => [page.url, page])).values()];
   return {
     ...homepage,
     structured_types: unique([...(homepage.structured_types || []), ...pages.flatMap((page) => page.structured_types || [])]).slice(0, 40),
@@ -708,6 +780,8 @@ export function resolveGoogleCandidateIdentity(input: {
   phoneMatch: boolean;
   officialDomainMatch: boolean;
   directPlaceIdMatch: boolean;
+  phoneConflict?: boolean;
+  officialDomainConflict?: boolean;
 }) {
   const uniqueCandidate = input.runnerUpScore == null || input.score - input.runnerUpScore >= 10;
   const nameAndAddress = input.nameSimilarity >= 0.8 && input.addressSimilarity >= 0.72;
@@ -720,6 +794,12 @@ export function resolveGoogleCandidateIdentity(input: {
   const addressConflict = input.hasInputAddress && input.addressSimilarity < 0.45
     && !input.phoneMatch && !input.officialDomainMatch && !input.directPlaceIdMatch;
   if (addressConflict) return "AMBIGUOUS" as const;
+  // An exact name/address is not enough when a supplied phone or official
+  // domain points elsewhere. This is the common same-name/different-branch
+  // failure mode and must remain unresolved until another exact signal clears it.
+  if (input.phoneConflict && input.officialDomainConflict) return "CONFLICTED" as const;
+  if ((input.phoneConflict && !input.officialDomainMatch && !input.directPlaceIdMatch)
+      || (input.officialDomainConflict && !input.phoneMatch && !input.directPlaceIdMatch)) return "AMBIGUOUS" as const;
   if (uniqueCandidate && (nameAndAddress || addressAndPhone || directPlaceCorroborated)) return "MATCHED" as const;
   if (!uniqueCandidate) return "AMBIGUOUS" as const;
   if (input.score >= 90) return "MATCHED" as const;
@@ -847,6 +927,8 @@ async function collectPublicGooglePlaceEvidence(input: {
       phoneMatch: top.phoneMatch,
       officialDomainMatch: top.officialDomainMatch,
       directPlaceIdMatch: resolvedFromSpecificPlace,
+      phoneConflict: Boolean(input.phone && top.phone && !top.phoneMatch),
+      officialDomainConflict: Boolean(domain(input.website) && domain(top.website) && domain(input.website) !== domain(top.website)),
     });
     const allStrings = nestedStrings(top.row);
     const imageUrls = uniqueOriginalMedia(
@@ -870,14 +952,15 @@ async function collectPublicGooglePlaceEvidence(input: {
     const matchSignals = [top.nameSimilarity >= 0.8 ? "商家名称高度一致" : "", nameVariantConfirmed ? "商家名称存在细微差异，完整地址与电话已确认同一主体" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", top.addressSimilarity >= 0.72 ? "完整地址一致" : "", input.country && String(input.country).toUpperCase() === top.countryCode ? "国家代码一致" : "", top.officialDomainMatch ? "公开网站一致" : "", top.phoneMatch ? "电话号码一致" : ""].filter(Boolean);
     const mismatchSignals = [
       input.address && top.addressSimilarity < 0.45 ? "地址信息不一致" : "",
-      phoneChanged && top.nameSimilarity >= 0.8 && top.addressSimilarity >= 0.72 ? "Google商家电话与原始记录不同，可能为商家更新号码" : "",
+      phoneChanged ? "Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选" : "",
+      domain(input.website) && domain(top.website) && domain(input.website) !== domain(top.website) ? "Google商家官网与原始官网域名不一致" : "",
     ].filter(Boolean);
     return {
       configured: false,
       query,
       name: top.name,
       formatted_address: top.address,
-      business_status: allStrings.some((item) => /(?:永久关闭|cerrado permanentemente|permanently closed)/i.test(item)) ? "CLOSED_PERMANENTLY" : "OPERATIONAL",
+      business_status: allStrings.some((item) => /(?:永久关闭|cerrado permanentemente|permanently closed)/i.test(item)) ? "CLOSED_PERMANENTLY" : undefined,
       types: Array.isArray(top.row[13]) ? top.row[13].filter((item): item is string => typeof item === "string") : [],
       website: top.website || undefined,
       phone: top.phone || undefined,
@@ -1000,19 +1083,12 @@ export async function collectGooglePlaceEvidence(input: {
       }
     }
 
-    const proFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri,photos";
-    const details: PlaceDetail[] = [];
-    for (const candidateId of candidateIds) {
-      const item = await readDetail(candidateId, proFields);
-      if (item) details.push(item);
-      // A specific supplied Place ID is already the exact entity; there is no
-      // reason to spend another request on other candidates.
-      if (directPlaceId && item) break;
-      // Most Text Search requests rank the intended entity first. A near-exact
-      // name plus address is enough to avoid additional paid candidate reads.
-      if (item && nameSimilarity(input.company_name, item.displayName?.text) >= 0.88
-        && (!input.address || addressIdentityScore(input.address, item.formattedAddress) >= 0.55)) break;
-    }
+    // Read identity/contact fields for every returned candidate before
+    // ranking. The search order alone is not reliable: a lower-ranked result
+    // can be the only one with the exact customer phone or official domain.
+    const identityFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri,photos,internationalPhoneNumber,nationalPhoneNumber,websiteUri";
+    const details = (await Promise.all(candidateIds.map((candidateId) => readDetail(candidateId, identityFields))))
+      .filter((item): item is PlaceDetail => Boolean(item));
     if (!details.length) {
       const fallback = await collectPublicGooglePlaceEvidence(input, options);
       return fallback || { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
@@ -1040,7 +1116,20 @@ export async function collectGooglePlaceEvidence(input: {
       if (specificUrlScore) matchSignals.push("客户提供的Google商家入口与候选名称一致");
       const directIdScore = directPlaceId && item.id === directPlaceId ? 35 : 0;
       if (directIdScore) matchSignals.push("Google Place ID一致");
-      return { item, score: Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch: false, phoneMatch: false, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
+      const candidatePhone = item.internationalPhoneNumber || item.nationalPhoneNumber;
+      const matchedPhone = phoneIdentityMatch(input.phone, candidatePhone);
+      const inputDomain = domain(input.website);
+      const candidateDomain = domain(item.websiteUri);
+      const officialDomainMatch = Boolean(inputDomain && candidateDomain && inputDomain === candidateDomain);
+      const phoneConflict = Boolean(input.phone && candidatePhone && !matchedPhone);
+      const officialDomainConflict = Boolean(inputDomain && candidateDomain && inputDomain !== candidateDomain);
+      if (matchedPhone) matchSignals.push("电话号码一致");
+      if (officialDomainMatch) matchSignals.push("官网域名一致");
+      if (phoneConflict) mismatchSignals.push("Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选");
+      if (officialDomainConflict) mismatchSignals.push("Google商家官网与原始官网域名不一致");
+      const contactBonus = (matchedPhone ? 30 : 0) + (officialDomainMatch ? 40 : 0);
+      const conflictPenalty = (phoneConflict ? 15 : 0) + (officialDomainConflict ? 20 : 0);
+      return { item, score: Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
     }).sort((a, b) => b.score - a.score);
     let top = scored[0]; const runnerUp = scored[1];
 
@@ -1055,8 +1144,7 @@ export async function collectGooglePlaceEvidence(input: {
     const hasSpecificPlaceType = (top.item.types || []).some((type) => !genericPlaceTypes.has(type));
     const targetAdjacentPlaceType = (top.item.types || []).some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor|store)/i.test(type));
     const needsBusinessClarification = top.score >= 70 && (!hasSpecificPlaceType || targetAdjacentPlaceType);
-    const needsContactEnrichment = !input.phone || !input.website || top.score < 70;
-    if (top.item.id && (needsContactEnrichment || needsBusinessClarification)) {
+    if (top.item.id && needsBusinessClarification) {
       const enrichmentFields = [
         "id", "internationalPhoneNumber", "nationalPhoneNumber", "websiteUri",
         "rating", "userRatingCount", "regularOpeningHours",
@@ -1065,16 +1153,6 @@ export async function collectGooglePlaceEvidence(input: {
       const enterprise = await readDetail(top.item.id, enrichmentFields);
       if (enterprise) {
         top = { ...top, item: { ...top.item, ...enterprise } };
-        const officialDomainMatch = Boolean(domain(input.website) && domain(input.website) === domain(enterprise.websiteUri));
-        const websiteScore = officialDomainMatch ? 35 : 0;
-        const enterprisePhone = enterprise.internationalPhoneNumber || enterprise.nationalPhoneNumber;
-        const matchedPhone = phoneIdentityMatch(input.phone, enterprisePhone);
-        const phoneScore = matchedPhone ? 25 : 0;
-        if (websiteScore) top.matchSignals.push("官网域名一致");
-        if (phoneScore) top.matchSignals.push("电话号码一致");
-        top.officialDomainMatch = officialDomainMatch;
-        top.phoneMatch = matchedPhone;
-        top.score = Math.min(100, top.score + websiteScore + phoneScore);
       }
     }
     const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = resolveGoogleCandidateIdentity({
@@ -1086,6 +1164,8 @@ export async function collectGooglePlaceEvidence(input: {
       phoneMatch: top.phoneMatch,
       officialDomainMatch: top.officialDomainMatch,
       directPlaceIdMatch: top.directPlaceIdMatch,
+      phoneConflict: top.phoneConflict,
+      officialDomainConflict: top.officialDomainConflict,
     });
     const result = top.item;
     const googlePhone = result.internationalPhoneNumber || result.nationalPhoneNumber;
@@ -1096,9 +1176,7 @@ export async function collectGooglePlaceEvidence(input: {
       top.matchSignals.push("商家名称存在细微差异，完整地址与电话已确认同一主体");
     }
     if (top.addressSimilarity >= 0.72) top.mismatchSignals = top.mismatchSignals.filter((signal) => signal !== "地址信息不足或不一致");
-    if (phoneChanged && top.nameSimilarity >= 0.8 && top.addressSimilarity >= 0.72) {
-      top.mismatchSignals.push("Google商家电话与原始记录不同，可能为商家更新号码");
-    }
+    if (phoneChanged && !top.mismatchSignals.some((signal) => signal.includes("电话与原始电话不一致"))) top.mismatchSignals.push("Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选");
     const reviewTexts = unique((result.reviews || []).map((review) => review.text?.text || review.originalText?.text || "")).slice(0, 5);
     const textualBusinessFacts = [result.editorialSummary?.text, ...reviewTexts].filter(Boolean).join(" ");
     const hasDirectBusinessActivity = /(?:repair|fix|replacement|parts?|accessor|wholesale|distributor|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|更换|配件|批发|分销)/i.test(textualBusinessFacts);

@@ -50,11 +50,14 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (retry === "exhausted") query = query.gte("attempt_count", 3);
     if (industry) query = query.eq("customer.industry", industry);
     if (grade && ["A", "B", "C", "D"].includes(grade)) query = query.eq("customer.ai_level", grade);
-    // Keep task-detail filters aligned with customer lists: score >= 60 is a
-    // valid target and score < 60 is invalid. Do not trust the legacy boolean,
-    // which historically represented an automation eligibility gate.
-    if (target === "valid") query = query.gte("customer.ai_score", 60);
-    if (target === "invalid") query = query.lt("customer.ai_score", 60);
+    if (["valid", "invalid", "review"].includes(target)) {
+      const decision = target === "valid" ? "VALID" : target === "invalid" ? "INVALID" : "REVIEW";
+      const decisions = await admin.from("ai_screening_results").select("task_item_id").eq("task_id", id).eq("target_decision", decision).eq("is_latest_valid", true);
+      if (decisions.error) throw decisions.error;
+      const itemIds = (decisions.data || []).map((item) => item.task_item_id).filter(Boolean);
+      if (!itemIds.length) return NextResponse.json({ data: [], count: 0, page, pageSize });
+      query = query.in("id", itemIds);
+    }
     if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
     const result = await query
       .order("updated_at", { ascending: false })
