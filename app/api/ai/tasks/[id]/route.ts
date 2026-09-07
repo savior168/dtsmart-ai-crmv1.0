@@ -4,6 +4,12 @@ import { hasPermission, requirePermission, type CurrentAccount } from "@/lib/aut
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import type { AiStrategy } from "@/lib/ai/task-types";
+import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
+
+function taskNumber() {
+  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  return `AI-${stamp}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+}
 
 async function ownedTask(id: string, account: CurrentAccount) {
   const admin = createAdminClient();
@@ -44,7 +50,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { user, account } = await requirePermission("ai.tasks.control");
     const { id } = await context.params;
     const body = await request.json() as {
-      action?: "pause" | "resume" | "cancel" | "retry" | "edit";
+      action?: "pause" | "resume" | "cancel" | "retry" | "reanalyze" | "edit";
       name?: string; scheduled_at?: string | null; notification_mode?: string;
     };
     const task = await ownedTask(id, account);
@@ -115,6 +121,46 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);
       const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", id);
       if (linked.error) throw linked.error;
+    } else if (body.action === "reanalyze") {
+      if (!['COMPLETED', 'FAILED'].includes(task.status)) return NextResponse.json({ error: "只有已结束的任务可以创建全量复核任务" }, { status: 409 });
+      const sourceItems = await admin.from("ai_screening_task_items").select("customer_id").eq("task_id", id);
+      if (sourceItems.error) throw sourceItems.error;
+      const customerIds = [...new Set((sourceItems.data || []).map((item) => String(item.customer_id || "")).filter(Boolean))];
+      if (!customerIds.length) return NextResponse.json({ error: "原任务没有可重新分析的客户" }, { status: 409 });
+      const reserved = await getReservedAiCustomerIds();
+      const conflicts = customerIds.filter((customerId) => reserved.has(customerId));
+      if (conflicts.length) return NextResponse.json({ error: `有 ${conflicts.length} 条客户正在其他任务中分析，请完成后再执行全量复核` }, { status: 409 });
+      const now = new Date().toISOString();
+      const strategy = "SMART" as const;
+      const created = await admin.from("ai_screening_tasks").insert({
+        user_id: task.user_id,
+        task_number: taskNumber(),
+        name: `${task.name}（全量复核）`.slice(0, 80),
+        strategy,
+        strategy_version: "1.0",
+        status: "QUEUED",
+        total_count: customerIds.length,
+        pending_count: customerIds.length,
+        filters: { reanalysis_source_task_id: id, reanalysis_source_task_number: task.task_number },
+        selection_mode: "FILTERED",
+        notification_mode: task.notification_mode || "IN_APP",
+      }).select("*").single();
+      if (created.error || !created.data) throw created.error || new Error("全量复核任务创建失败");
+      const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
+      try {
+        for (let offset = 0; offset < rows.length; offset += 500) {
+          const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
+          if (inserted.error) throw inserted.error;
+        }
+        const run = await start(aiScreeningWorkflow, [{ taskId: created.data.id, strategy, scheduledAt: null }]);
+        const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: now }).eq("id", created.data.id);
+        if (linked.error) throw linked.error;
+        await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_REANALYZE", target_type: "ai_screening_task", target_id: created.data.id, content: { source_task_id: id, source_task_number: task.task_number, task_number: created.data.task_number, total_count: customerIds.length } });
+        return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: run.runId } }, { status: 201 });
+      } catch (error) {
+        await admin.from("ai_screening_tasks").update({ status: "FAILED", error_message: error instanceof Error ? error.message.slice(0, 1000) : "全量复核任务启动失败", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", created.data.id);
+        throw error;
+      }
     } else if (body.action === "edit") {
       if (task.status !== "QUEUED") return NextResponse.json({ error: "只有尚未执行的排队任务可以编辑" }, { status: 409 });
       const name = body.name?.trim();
