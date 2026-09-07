@@ -1469,7 +1469,10 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
     ai_score: normalizedCachedResult.score,
     ai_level: normalizedCachedResult.grade,
       ai_reason: cachedResult.ai_reason || cachedResult.summary,
-      is_target_customer: cachedResult.target_decision === "VALID" ? true : cachedResult.target_decision === "INVALID" ? false : null,
+      // Customer target lists use the published score threshold. Workflow
+      // automation may hold a high-score record, but it must not relabel it as
+      // an invalid target.
+      is_target_customer: normalizedCachedResult.score >= 60,
       ai_screening_done: true,
       ai_status: "COMPLETED",
       business_relevance: cachedResult.business_relevance,
@@ -1856,7 +1859,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       industry: analysis.industry_type,
       ai_score: analysis.ai_score, ai_level: analysis.ai_level,
       ai_reason: analysis.ai_reason,
-      is_target_customer: gate.automationStatus === "AUTO_DEVELOP",
+      // `automationStatus` is a workflow decision (for example, evidence may
+      // require review); it is not the customer target classification.
+      is_target_customer: analysis.ai_score >= 60,
       ai_screening_done: true, ai_status: "COMPLETED",
       business_relevance: analysis.business_relevance, customer_value: analysis.customer_value,
       followup_suggestion: analysis.followup_suggestion, website_email: websiteEmail || null,

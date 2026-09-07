@@ -198,9 +198,12 @@ export async function GET(request: NextRequest) {
       query = query.or(anyIndustry.join(","));
     }
     if (["A", "B", "C", "D"].includes(aiLevel)) query = query.eq("ai_level", aiLevel);
-    if (target === "valid") query = query.eq("is_target_customer", true);
-    if (target === "invalid") query = query.eq("is_target_customer", false);
-    if (target === "pending") query = query.is("is_target_customer", null);
+    // Target classification is derived exclusively from a completed AI score.
+    // The historic boolean was also used by the automation gate, so it cannot
+    // safely decide which records are shown as valid or invalid targets.
+    if (target === "valid") query = query.eq("ai_screening_done", true).gte("ai_score", 60);
+    if (target === "invalid") query = query.eq("ai_screening_done", true).lt("ai_score", 60);
+    if (target === "pending") query = query.is("ai_score", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
     if (customerId) query = query.eq("id", customerId);

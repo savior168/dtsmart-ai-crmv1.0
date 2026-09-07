@@ -42,7 +42,12 @@ export async function GET(request: NextRequest) {
       if (taskId) query = query.eq("task_id", taskId);
       if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
       if (grade) query = query.eq("grade", grade);
-      if (target) query = query.eq("target_decision", target);
+      // The target list rule is score-based. `target_decision` is retained for
+      // the separate manual-review workflow, but must not change the customer
+      // target classification.
+      if (target === "VALID") query = query.gte("score", 60);
+      else if (target === "INVALID") query = query.lt("score", 60);
+      else if (target === "REVIEW") query = query.eq("target_decision", "REVIEW");
       if (evidence) query = query.eq("evidence_sufficiency", evidence);
       if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
       return query.order("completed_at", { ascending: false });
@@ -65,9 +70,9 @@ export async function GET(request: NextRequest) {
       resultData = result.data || [];
       resultCount = result.count || 0;
     }
-    const summaryItems: Array<{ grade: string | null; target_decision: string | null; total_tokens: number | null; cost_usd: number | string | null; evidence_sufficiency: string | null; early_stop_reason: string | null; completed_at: string | null }> = [];
+    const summaryItems: Array<{ grade: string | null; score: number | null; target_decision: string | null; total_tokens: number | null; cost_usd: number | string | null; evidence_sufficiency: string | null; early_stop_reason: string | null; completed_at: string | null }> = [];
     for (let offset = 0; ; offset += 1000) {
-      let summaryQuery = admin.from("ai_screening_results").select("grade,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)");
+      let summaryQuery = admin.from("ai_screening_results").select("grade,score,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)");
       if (scopeUserId) summaryQuery = summaryQuery.eq("task.user_id", scopeUserId);
       if (taskId) summaryQuery = summaryQuery.eq("task_id", taskId);
       if (today) summaryQuery = summaryQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
@@ -80,9 +85,9 @@ export async function GET(request: NextRequest) {
     const grades: Record<string, number> = {};
     const summary = summaryItems.reduce((value, item) => {
       value.total += 1;
-      if (item.target_decision === "VALID") value.valid += 1;
-      else if (item.target_decision === "INVALID") value.invalid += 1;
-      else value.review += 1;
+      if (item.score != null && item.score >= 60) value.valid += 1;
+      else if (item.score != null) value.invalid += 1;
+      if (item.target_decision === "REVIEW") value.review += 1;
       value.tokens += Number(item.total_tokens || 0);
       value.cost += Number(item.cost_usd || 0);
       if (item.evidence_sufficiency === "SUFFICIENT") value.sufficient += 1;
@@ -119,7 +124,7 @@ export async function PATCH(request: NextRequest) {
     if (!resultIds.length) return NextResponse.json({ error: "请选择需要修正的分析结果" }, { status: 400 });
     if (body.score !== undefined && (!Number.isInteger(body.score) || body.score < 0 || body.score > 100)) return NextResponse.json({ error: "目标客户评分必须为0到100的整数" }, { status: 400 });
     const admin = createAdminClient();
-    const owned = await admin.from("ai_screening_results").select("id,customer_id,task:ai_screening_tasks!inner(user_id)").in("id", resultIds);
+    const owned = await admin.from("ai_screening_results").select("id,customer_id,score,task:ai_screening_tasks!inner(user_id)").in("id", resultIds);
     if (owned.error) throw owned.error;
     const permitted = (owned.data || []).filter((row) => {
       const task = Array.isArray(row.task) ? row.task[0] : row.task;
@@ -141,7 +146,8 @@ export async function PATCH(request: NextRequest) {
       const customerUpdate: Record<string, unknown> = {};
       if (body.grade) customerUpdate.ai_level = body.grade;
       if (body.score !== undefined) customerUpdate.ai_score = body.score;
-      if (body.target_decision) customerUpdate.is_target_customer = body.target_decision === "VALID";
+      const effectiveScore = body.score ?? row.score;
+      if (typeof effectiveScore === "number") customerUpdate.is_target_customer = effectiveScore >= 60;
       if (Object.keys(customerUpdate).length) {
         const customerSaved = await admin.from("customers").update(customerUpdate).eq("id", row.customer_id);
         if (customerSaved.error) throw customerSaved.error;

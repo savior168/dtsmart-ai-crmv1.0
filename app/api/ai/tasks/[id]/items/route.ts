@@ -50,8 +50,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (retry === "exhausted") query = query.gte("attempt_count", 3);
     if (industry) query = query.eq("customer.industry", industry);
     if (grade && ["A", "B", "C", "D"].includes(grade)) query = query.eq("customer.ai_level", grade);
-    if (target === "valid") query = query.eq("customer.is_target_customer", true);
-    if (target === "invalid") query = query.eq("customer.is_target_customer", false);
+    // Keep task-detail filters aligned with customer lists: score >= 60 is a
+    // valid target and score < 60 is invalid. Do not trust the legacy boolean,
+    // which historically represented an automation eligibility gate.
+    if (target === "valid") query = query.gte("customer.ai_score", 60);
+    if (target === "invalid") query = query.lt("customer.ai_score", 60);
     if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
     const result = await query
       .order("updated_at", { ascending: false })

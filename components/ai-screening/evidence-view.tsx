@@ -26,7 +26,7 @@ export function EvidenceView({customerId,taskId}:{customerId:string;taskId?:stri
   const scoredResult=Boolean(result?.grade&&result?.score!=null);
   const conclusionSupported=scoredResult||usableEvidence.some(item=>item.evidence_type!=="中性"&&Number(item.evidence_confidence||0)>=60);
   const legacyUnscored=Boolean(result&&!scoredResult);
-  const targetLabel=result?.target_decision==="VALID"?"是":result?.target_decision==="INVALID"?"否":legacyUnscored?"否":"需复核";
+  const targetLabel=scoredResult?(Number(result?.score)>=60?"是":"否"):"待确认";
   const displayedScore=Number(result?.score??0);
   const displayedConfidence=Number(result?.confidence_score??0);
   const sufficiency=result?.evidence_sufficiency==="SUFFICIENT"?"充分":result?.evidence_sufficiency==="INSUFFICIENT"?"一般":result?.evidence_sufficiency||"一般";

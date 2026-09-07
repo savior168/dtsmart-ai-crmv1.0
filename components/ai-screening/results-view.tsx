@@ -25,7 +25,7 @@ function resultGrade(item: AiResult) {
 }
 function resultDecision(item: AiResult) {
   if (item.decision_status === "INSUFFICIENT_DATA" || (!item.grade && item.score == null)) return "低优先级";
-  return item.target_decision === "VALID" ? "有效目标" : item.target_decision === "INVALID" ? "无效目标" : "需人工复核";
+  return Number(item.score) >= 60 ? "有效目标" : "无效目标";
 }
 export function ResultsView({ taskId, report = false }: { taskId?: string; report?: boolean }) {
   const [items, setItems] = useState<AiResult[]>([]); const [count, setCount] = useState(0); const [tasks, setTasks] = useState<Array<{id:string;name:string;task_number:string;strategy?:string;total_count?:number;success_count?:number;failed_count?:number;total_tokens?:number;total_cost_usd?:number}>>([]);
