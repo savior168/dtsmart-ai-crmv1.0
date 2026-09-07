@@ -90,6 +90,12 @@ assert.match(customersApi, /“我的客户”无论按本人、指定归属人�
 assert.match(customersApi, /select\("industry"\)[\s\S]*not\("owner_id", "is", null\)[\s\S]*select\("source_batch_id,source_batch,created_at"\)[\s\S]*not\("owner_id", "is", null\)/, "我的客户行业与导入批次筛选项也不得混入无归属客户");
 const protectionApi = read("app/api/customers/protection/route.ts");
 assert.match(protectionApi, /expiredQuery[\s\S]*not\("owner_id", "is", null\)/, "保护到期扫描不得把无归属公海客户当作我的到期客户");
+assert.match(protectionApi, /protectionsQuery[\s\S]*\.in\("status", \["ACTIVE", "EXPIRED"\]\)[\s\S]*\.not\("expire_date", "is", null\)/, "保护到期列表只能统计当前有效或已到期的保护关系");
+assert.doesNotMatch(protectionApi, /status\.eq\.RELEASED|\.eq\("action", "RELEASE"\)/, "主动释放和历史释放记录不得混入保护到期与续期");
+assert.match(protectionApi, /select\(summaryOnly \? "id" : "\*"\)\.is\("deleted_at", null\)[\s\S]*if \(summaryOnly\)[\s\S]*customers\.length/, "保护数量必须在排除已删除或不存在客户后统计");
+const releaseIntegrity = read("supabase/migrations/202609070001_customer_release_integrity.sql");
+assert.match(releaseIntegrity, /customers_claimed_pool_requires_owner[\s\S]*pool_status is distinct from 'CLAIMED' or owner_id is not null/, "数据库必须阻止无归属客户处于已认领公海状态");
+assert.match(releaseIntegrity, /release_customer[\s\S]*owner_id=null,owner_user_id=null,status='UNCLAIMED'[\s\S]*pool_status='AVAILABLE'/, "主动释放必须原子清空归属并恢复为公海待认领状态");
 const conflictsApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictsApi, /Boolean\(ownerByCustomer\.get\(item\.customer_id\)\)/, "无归属公海客户不得混入跨归属冲突客户队列");
 assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*assigned_via: "ADMIN_ASSIGN"/, "公海导入必须服务端鉴权并写入合法的管理员归属来源");
