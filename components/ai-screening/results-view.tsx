@@ -21,7 +21,7 @@ function channelText(channels?: string[]) {
   return channels?.map(channel=>CHANNEL_LABELS[channel]||"其他公开来源").join("、")||"-";
 }
 function resultGrade(item: AiResult) {
-  return item.grade && item.score != null ? `${item.grade} · ${item.score}` : "D · 0";
+  return item.grade && item.score != null ? `${item.grade} · ${item.score}` : "未形成评分";
 }
 function resultDecision(item: AiResult) {
   if (item.target_decision === "VALID") return "有效目标";

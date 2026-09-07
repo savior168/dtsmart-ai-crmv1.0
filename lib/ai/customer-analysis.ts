@@ -9,6 +9,9 @@ const ANALYSIS_INDUSTRIES = [
 export type CustomerAnalysisInput = {
   customer_name: string;
   country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  whatsapp?: string | null;
   website?: string | null;
   google_url?: string | null;
   address?: string | null;

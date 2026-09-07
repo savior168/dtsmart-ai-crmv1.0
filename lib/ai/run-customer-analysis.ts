@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.07.1";
+const ANALYSIS_VERSION = "2026.09.07.2";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -614,6 +614,10 @@ function withoutEmpty<T extends Record<string, unknown>>(value: T): T {
 export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep" | "escalation" = "fast"): CustomerEvidence {
   const deep = tier !== "fast";
   const publicChannels: Record<string, WebsiteEvidence> = {};
+  const pageRelevance = (page: NonNullable<WebsiteEvidence["pages"]>[number]) => {
+    const value = [page.url, page.title, page.description, ...(page.headings || [])].join(" ");
+    return /(?:repair|service|product|parts?|wholesale|about|contact|location|branch|repar|serwis|napraw|维修|配件|产品|服务|关于|联系|分店)/i.test(value) ? 1 : 0;
+  };
   const compactWebsite = (item: WebsiteEvidence): WebsiteEvidence => withoutEmpty({
     url: item.url,
     reachable: item.reachable,
@@ -631,12 +635,15 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
     emails: (item.emails || []).slice(0, 5),
     phones: (item.phones || []).slice(0, 5),
     whatsapps: (item.whatsapps || []).slice(0, 3),
-    pages: (item.pages || []).slice(0, 1).map((page) => withoutEmpty({
+    pages: [...(item.pages || [])]
+      .sort((left, right) => pageRelevance(right) - pageRelevance(left))
+      .slice(0, deep ? 3 : 2)
+      .map((page) => withoutEmpty({
       url: page.url,
       title: page.title,
       description: page.description?.slice(0, 240),
       headings: (page.headings || []).slice(0, 3),
-      text_excerpt: page.text_excerpt?.slice(0, deep ? 320 : 220),
+      text_excerpt: page.text_excerpt?.slice(0, deep ? 360 : 180),
       image_alts: (page.image_alts || []).filter(Boolean).slice(0, 2),
       image_urls: (page.image_urls || []).slice(0, 1),
       emails: (page.emails || []).slice(0, 3),
@@ -683,23 +690,38 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
   };
 }
 
-function hasUsableCollectedEvidence(records: ChannelRecord[]) {
+export function hasUsableCollectedEvidence(records: ChannelRecord[]) {
   return records.some((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
       const item = record.evidence as GooglePlaceEvidence;
-      return Boolean(item.identity_status && ["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status))
-        && (item.types?.length || item.description || item.reviews?.length));
+      return Boolean(hasVerifiedGoogleBusinessCategory(item)
+        || (item.identity_status && ["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status))
+          && (item.description?.trim() || item.reviews?.some((review) => review.trim()) || item.image_urls?.length)));
     }
     const item = record.evidence as WebsiteEvidence;
-    return Boolean(item.title || item.description || item.headings?.length || item.text_excerpt);
+    return Boolean(item.reachable && (item.description?.trim() || item.structured_descriptions?.some((value) => value.trim()) || item.headings?.some((value) => value.trim()) || item.text_excerpt?.trim()));
   });
+}
+
+const SPECIFIC_GOOGLE_BUSINESS_CATEGORY = /(?:mobile phone repair|cell phone repair|phone repair service|computer repair|laptop repair|electronics repair|screen repair|mobile phone accessory|cell phone accessory|repair parts? wholesal|维修店|维修服务|电脑维修|手机配件)/i;
+
+function googleCategoryText(item: GooglePlaceEvidence) {
+  return (item.types || []).map((value) => String(value).replace(/_/g, " ")).join("；");
+}
+
+export function hasVerifiedGoogleBusinessCategory(item: GooglePlaceEvidence) {
+  if (item.identity_status !== "MATCHED" || Number(item.identity_confidence || 0) < 90) return false;
+  const signals = (item.match_signals || []).join("；");
+  const corroboratedIdentity = /(?:地址|电话|官网|place.?id|address|phone|website|domain)/i.test(signals);
+  return corroboratedIdentity && SPECIFIC_GOOGLE_BUSINESS_CATEGORY.test(googleCategoryText(item));
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
   { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|(?:repair|fix)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
   { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
+  { pattern: /(?:electronics? repair shop|electrical repair shop|electronic device repair|电子设备维修|电子产品维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
@@ -731,7 +753,7 @@ function deterministicScore(input: {
   const googleBusinessText = (evidence: GooglePlaceEvidence) => {
     // The business name is an entity locator only. Industry and score must be
     // supported by Google categories, editorial text, reviews or media facts.
-    return [...(evidence.types || []), evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
+    return [googleCategoryText(evidence), evidence.description, ...(evidence.reviews || [])].filter(Boolean).join("；");
   };
   const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
@@ -854,6 +876,7 @@ function deterministicScore(input: {
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)|手机维修/i },
   { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
+  { label: "电子设备维修", pattern: /(?:electronics? repair shop|electrical repair shop|electronic device repair|电子设备维修|电子产品维修)/i },
   { label: "屏幕或玻璃更换", pattern: /(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
   { label: "电池更换", pattern: /(?:battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
   { label: "充电口或接口维修", pattern: /(?:charging port|charge port|dock connector|usb port|ladebuchse|puerto de carga|port de charge|connettore di ricarica|充电口|尾插)/i },
@@ -1022,9 +1045,9 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       title: google.name,
       // 名称不得单独推断行业；只有同一已匹配主体的公开说明/评论同时
       // 明确维修或配件活动时，名称中的设备类型才可作为组合证据。
-      text: [...(google.types || []), google.description, ...(google.reviews || [])].filter(Boolean).join("；"),
+      text: [googleCategoryText(google), google.description, ...(google.reviews || [])].filter(Boolean).join("；"),
       confidence: Math.max(70, Number(google.identity_confidence || 0)),
-      originalExcerpt: compactBusinessExcerpt([google.description, ...(google.reviews || [])].filter(Boolean).join("；")),
+      originalExcerpt: compactBusinessExcerpt([googleCategoryText(google), google.description, ...(google.reviews || [])].filter(Boolean).join("；")),
     });
   }
   if (website?.reachable && /^https?:\/\//i.test(website.url)) {
@@ -1040,12 +1063,15 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   }
   const matches = candidates.flatMap((candidate) => RULE_INDUSTRIES
     .filter((rule) => {
-      if (!ruleIsSupported(rule, candidate.text)) return false;
+      const exactGoogleCategory = candidate.channel === "google_maps" && google && hasVerifiedGoogleBusinessCategory(google);
+      const googleComputerRepairCategory = exactGoogleCategory && rule.industry === "电脑维修店" && /computer repair/i.test(googleCategoryText(google));
+      if (!ruleIsSupported(rule, candidate.text) && !googleComputerRepairCategory) return false;
       if (candidate.channel !== "google_maps" || !rule.target) return true;
-      // Google 分类只负责定位候选主体。目标客户分类还需要商家描述、
-      // 评论或部件级服务事实佐证；否则交给后续视觉/模型核验。
+      // 精确匹配主体的具体 Google 商家类别属于公开经营事实；泛类别、
+      // 同名或仅可能匹配的候选仍必须由描述、评论或官网继续佐证。
       const corroborationText = [google?.description, ...(google?.reviews || [])].filter(Boolean).join("；");
-      return ruleIsSupported(rule, corroborationText)
+      return Boolean(google && hasVerifiedGoogleBusinessCategory(google))
+        || ruleIsSupported(rule, corroborationText)
         || /(?:换屏|屏幕更换|玻璃更换|换电池|电池更换|尾插|充电口|主板|拆机|维修作业|screen replacement|battery replacement|charging port|motherboard|wymian\w* (?:szyb|wyświetlacz|bater))/i.test(corroborationText);
     })
     .map((rule) => ({ candidate, rule, scored: deterministicScore({ rule, candidate, customer, records, google }) })))
@@ -1079,19 +1105,17 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     ? [{ channel: "google_maps", title_zh: "Google商家营业状态", fact_zh: "Google商家页显示该营业地点已经永久停业。", source_url: googleUrl, evidence_type: "矛盾" as const, confidence: Math.max(85, Number(google.identity_confidence || 0)), original_excerpt: "" }]
     : []),
   ].slice(0, 5);
-  const conflictTargetMatch = crossSourceConflict
-    ? [bestWebsite, bestGoogle].find((item) => item?.rule.target)
-    : undefined;
-  const effectiveTarget = Boolean(conflictTargetMatch?.rule.target || selected.rule.target);
-  const effectiveIndustry = crossSourceConflict && conflictTargetMatch
-    ? "混合经营" as const
-    : selected.rule.industry;
-  const score = conflictTargetMatch ? Math.max(60, conflictTargetMatch.scored.score) : selected.scored.score;
+  // 到达这里的 website 已经过主体交叉验证，或来自已匹配 Google 商家
+  // 绑定的官网。因此经营范围冲突时以官网为准，同时保留 Google 事实
+  // 和冲突说明；不能把任一目标标签简单合并成“混合经营”。
+  const effectiveTarget = selected.rule.target;
+  const effectiveIndustry = selected.rule.industry;
+  const score = selected.scored.score;
   const contactChannels = [customer.phone ? "原始电话" : "", customer.email ? "原始邮箱" : ""].filter(Boolean);
   const salesFields = salesSummaryFields({ industry: effectiveIndustry, target: effectiveTarget, candidates, contactChannels });
   const evidenceConflicts = [
     ...(crossSourceConflict
-      ? [`官网与Google商家公开信息显示不同经营方向：官网明确显示“${bestWebsite?.rule.industry}”，Google商家公开说明或评论显示“${bestGoogle?.rule.industry}”。系统保留两方事实并按混合经营处理。`]
+      ? [`已确认的企业官网与Google商家公开信息显示不同经营方向：官网显示“${bestWebsite?.rule.industry}”，Google商家显示“${bestGoogle?.rule.industry}”。系统保留两方事实，经营范围与目标判断优先采用已确认官网。`]
       : []),
     ...(google?.business_status === "CLOSED_PERMANENTLY" && website?.reachable
       ? ["Google商家页显示该营业地点永久停业，但当前企业官网仍可访问并公开维修服务；可能是旧门店关闭或经营方式变更，联系前应先确认当前营业状态。"]
@@ -1298,6 +1322,9 @@ async function analyzeWithRecovery(input: {
   const modelInput = {
     customer_name: input.customer.company_name,
     country: input.customer.country,
+    phone: input.customer.phone,
+    email: input.customer.email,
+    whatsapp: input.customer.whatsapp,
     website: input.customer.website,
     google_url: input.customer.google_url,
     address: input.customer.address,
@@ -1623,11 +1650,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       : Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_SMART_MAX_MODEL_CALLS_PER_CUSTOMER || 2)));
     if (analysis) {
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
-    } else if (!hasUsableCollectedEvidence(records)) {
-      // Do not hand an empty record to a salesperson. A bounded recovery pass
-      // finds public sources, fetches those pages again, and only then allows
-      // the normal evidence engine to score the customer. Search snippets or
-      // model text are never themselves treated as evidence.
+    } else {
+      // 规则尚不能形成结论时，不论已读取页面是否只有泛化内容，都继续
+      // 公开检索。否则一个只有“Services”的页面会错误阻止证据恢复。
       const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal });
       usage = addUsage(usage, recovery.usage);
       analysis = deterministicAnalysis(customer, records);
@@ -1636,7 +1661,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         analysis = outcome.analysis;
         modelRequestCount = outcome.requestCount;
         usage = addUsage(usage, analysis.usage);
-        earlyStopReason = "首次入口无可读事实，系统已自动检索并二次抓取公开页面后完成分析。";
+        earlyStopReason = "现有入口尚不能形成结论，系统已自动检索并二次抓取公开页面后完成分析。";
       } else if (!analysis) {
         // This is a truthful terminal system outcome, not an instruction for a
         // user to investigate. No score or industry claim is fabricated when
@@ -1646,16 +1671,6 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       } else {
         earlyStopReason = "系统已自动检索并二次抓取公开页面，规则引擎取得可核验证据后完成判断。";
       }
-    } else if (input.strategy === "DEEP") {
-      const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "deep", maxRequests: maxModelCalls as 1 | 2 });
-      analysis = outcome.analysis;
-      modelRequestCount = outcome.requestCount;
-      usage = addUsage(usage, analysis.usage);
-    } else {
-      const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "fast", maxRequests: 1 });
-      analysis = outcome.analysis;
-      modelRequestCount = outcome.requestCount;
-      usage = addUsage(usage, analysis.usage);
     }
     const needsEscalation = hasUsableCollectedEvidence(records)
       && analysis.usage.model !== "RULE_ENGINE"
@@ -1669,7 +1684,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       try {
         const escalated = await analyzeCustomer({
           customer_name: customer.company_name, country: customer.country, website: effectiveWebsite(customer),
-          google_url: customer.google_url, address: customer.address,
+          google_url: customer.google_url, address: customer.address, phone: customer.phone,
+          email: customer.email, whatsapp: customer.whatsapp,
           industry_keywords: null,
           evidence: evidenceForModel(records, "escalation"),
         }, { signal: analysisController.signal, timeoutMs: 45_000, tier: "escalation" });
@@ -2002,7 +2018,7 @@ function recoveryChannel(url: string): AiChannel {
   return "other";
 }
 
-function recoveryRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], record: ChannelRecord) {
+export function recoveryRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], record: ChannelRecord) {
   if (record.status !== "COLLECTED" || !record.evidence) return false;
   const website = record.evidence as WebsiteEvidence;
   const pageText = [website.title, website.description, ...(website.headings || []), website.text_excerpt]
@@ -2010,14 +2026,22 @@ function recoveryRecordMatchesEntity(customer: CustomerRow, records: ChannelReco
   const channel = record.channel;
   if (channel === "other") return websiteRecordMatchesEntity(customer, records, { ...record, channel: "website" });
   // A social profile is not an official website. It may only supplement a
-  // result after it identifies the same business by an exact name, or by a
-  // name plus a phone/address signal. This prevents same-name profiles from
+  // result after its name is corroborated by a phone/address signal or a
+  // previously verified official link. This prevents same-name profiles from
   // being scored as the imported customer.
   const nameScore = identityNameSimilarity(customer.company_name, pageText);
   const originalPhone = normalizePhoneInternational(customer.phone, customer.country);
   const phoneMatch = Boolean(originalPhone && website.phones.some((value) => normalizePhoneInternational(value, customer.country) === originalPhone));
-  const addressMatch = Boolean(customer.address && identitySimilarity(customer.address, pageText) >= 0.55);
-  return nameScore >= 0.92 || (nameScore >= 0.75 && (phoneMatch || addressMatch));
+  const addressTokens = compactIdentity(customer.address).split(/\s+/).filter(Boolean);
+  const pageTokens = new Set(compactIdentity(pageText).split(/\s+/));
+  const specificAddressTokens = addressTokens.filter((value) => /\d/.test(value));
+  const addressMatch = addressTokens.length >= 4 && specificAddressTokens.length > 0
+    && specificAddressTokens.every((value) => pageTokens.has(value))
+    && addressTokens.filter((value) => pageTokens.has(value)).length / addressTokens.length >= 0.8;
+  const verifiedLink = discoveredPublicChannelUrls(customer, records)[channel];
+  const canonical = (value?: string | null) => String(value || "").replace(/\/$/, "").toLowerCase();
+  const officialLinkMatch = Boolean(verifiedLink && canonical(verifiedLink) === canonical(record.source_url));
+  return officialLinkMatch || (nameScore >= 0.75 && (phoneMatch || addressMatch));
 }
 
 /**
@@ -2035,6 +2059,9 @@ async function recoverPublicEvidence(input: {
     recovery = await analyzeCustomer({
       customer_name: input.customer.company_name,
       country: input.customer.country,
+      phone: input.customer.phone,
+      email: input.customer.email,
+      whatsapp: input.customer.whatsapp,
       website: effectiveWebsite(input.customer),
       google_url: input.customer.google_url,
       address: input.customer.address,
@@ -2057,12 +2084,21 @@ async function recoverPublicEvidence(input: {
       const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 7_000 });
       if (!evidence?.reachable) return null;
       const record: ChannelRecord = { channel: recoveryChannel(url), status: "COLLECTED", source_url: evidence.url || url, evidence };
-      return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
+      if (!recoveryRecordMatchesEntity(input.customer, input.records, record)) return null;
+      // 与客户主体交叉验证通过的普通网页应作为官方官网进入后续优先级；
+      // 目录页仍保留为 other，不能压过已确认官网或 Google 商家。
+      if (record.channel === "other" && websiteRecordMatchesEntity(input.customer, input.records, record)) record.channel = "website";
+      return record;
     } catch { return null; }
   }));
   for (const record of fetched.filter((item): item is ChannelRecord => Boolean(item))) {
     const duplicate = input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === String(record.source_url || "").replace(/\/$/, "").toLowerCase());
-    if (!duplicate) input.records.push(record);
+    if (duplicate) continue;
+    if (record.channel === "website") {
+      const existingWebsite = input.records.findIndex((saved) => saved.channel === "website");
+      if (existingWebsite >= 0) input.records[existingWebsite] = record;
+      else input.records.push(record);
+    } else input.records.push(record);
   }
   if (fetched.some(Boolean)) await saveCheckpoint(input.taskItemId, input.records, "other");
   return { usage: recovery.usage, collected: fetched.filter(Boolean).length };

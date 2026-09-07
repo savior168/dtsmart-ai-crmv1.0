@@ -74,6 +74,16 @@ function requestSignal(options: FetchOptions, fallbackMs: number) {
   };
 }
 
+export function evidenceDomain(value?: string | null) {
+  const raw = value?.trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return ["http:", "https:"].includes(url.protocol)
+      ? url.hostname.replace(/^www\./, "").toLowerCase() : "";
+  } catch { return ""; }
+}
+
 function normalizeUrl(url?: string | null) {
   const value = url?.trim();
   if (!value) return null;
@@ -888,7 +898,7 @@ async function collectPublicGooglePlaceEvidence(input: {
     };
     visit(payload);
     if (!candidateArrays.length) return undefined;
-    const domain = (value?: string | null) => { try { return new URL(/^https?:\/\//i.test(String(value)) ? String(value) : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+    const domain = evidenceDomain;
     const candidates = candidateArrays.map((row) => {
       const name = String(row[11] || "");
       const address = String(row[18] || row[39] || "");
@@ -1094,7 +1104,7 @@ export async function collectGooglePlaceEvidence(input: {
       return fallback || { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
     }
     const normalize = (value?: string | null) => String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-    const domain = (value?: string | null) => { try { return new URL(/^https?:\/\//i.test(String(value)) ? String(value) : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+    const domain = evidenceDomain;
     const phone = phoneIdentityDigits;
     const providedGoogleUrl = safePublicUrl(input.google_url);
     const hasConcretePlacePath = Boolean(providedGoogleUrl && /google\.[^/]+\/maps\/place\//i.test(providedGoogleUrl));
