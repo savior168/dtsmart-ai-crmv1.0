@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
     const safeSearch = search.replace(/[,%()]/g," ").trim();
     const buildResultQuery = () => {
       let query = admin.from("ai_screening_results").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks!inner(id,name,task_number,user_id)", { count: "exact" });
+      query = query.in("target_decision", ["VALID", "INVALID"]).not("score", "is", null).not("grade", "is", null).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
       if (scopeUserId) query = query.eq("task.user_id", scopeUserId);
       if (taskId) query = query.eq("task_id", taskId);
       if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
     const summaryItems: Array<{ grade: string | null; score: number | null; target_decision: string | null; total_tokens: number | null; cost_usd: number | string | null; evidence_sufficiency: string | null; early_stop_reason: string | null; completed_at: string | null }> = [];
     for (let offset = 0; ; offset += 1000) {
       let summaryQuery = admin.from("ai_screening_results").select("grade,score,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)");
+      summaryQuery = summaryQuery.in("target_decision", ["VALID", "INVALID"]).not("score", "is", null).not("grade", "is", null).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
       if (scopeUserId) summaryQuery = summaryQuery.eq("task.user_id", scopeUserId);
       if (taskId) summaryQuery = summaryQuery.eq("task_id", taskId);
       if (today) summaryQuery = summaryQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);

@@ -53,6 +53,8 @@ export async function GET(request: NextRequest) {
     const target = params.get("target")?.trim() || "";
     const customerStatus = params.get("status")?.trim().toUpperCase() || "";
     const ownerId = params.get("owner_id")?.trim() || "";
+    const sourceType = params.get("source_type")?.trim().toUpperCase() || "";
+    const sourceBatch = params.get("source_batch")?.trim() || "";
     const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
@@ -102,9 +104,9 @@ export async function GET(request: NextRequest) {
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionRows: Array<{ industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null }> = [];
+      const optionRows: Array<{ industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
-        let optionQuery = admin.from("customers").select("industry,category,ai_screening_done,owner_id").is("deleted_at", null);
+        let optionQuery = admin.from("customers").select("industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
         if (tab === "claimed") {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
@@ -149,9 +151,28 @@ export async function GET(request: NextRequest) {
           : { value: `industry:${label}`, label, values: rawValues, tone: "raw" });
       }
       const industries = [...industryOptionMap.values()];
+      const sourceGroup = (value?: string | null) => {
+        const normalized = String(value || "").toUpperCase();
+        if (["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"].includes(normalized)) return "IMPORT";
+        if (["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"].includes(normalized)) return "AI_ACQUISITION";
+        if (["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"].includes(normalized)) return "MANUAL";
+        return "";
+      };
+      const batches = [...new Map(optionRows
+        .filter((item) => String(item.source_batch || "").trim())
+        .map((item) => {
+          const value = String(item.source_batch || "").trim();
+          return [value, { value, label: value, source: sourceGroup(item.source) }];
+        })).values()].sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
       return NextResponse.json({
         industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
+        sources: [
+          { value: "IMPORT", label: "批量导入" },
+          { value: "AI_ACQUISITION", label: "AI获客" },
+          { value: "MANUAL", label: "手动新增" },
+        ].filter((option) => optionRows.some((item) => sourceGroup(item.source) === option.value)),
+        batches,
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
@@ -161,7 +182,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -205,6 +226,10 @@ export async function GET(request: NextRequest) {
     if (target === "pending") query = query.is("ai_score", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
+    if (sourceType === "IMPORT") query = query.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);
+    if (sourceType === "AI_ACQUISITION") query = query.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
+    if (sourceType === "MANUAL") query = query.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
+    if (sourceBatch) query = query.eq("source_batch", sourceBatch);
     if (customerId) query = query.eq("id", customerId);
     const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website", "google_url", "ai_score", "status", "last_contact_time", "owner_id", "source", "created_at", "updated_at"]);
     if (hasOptionalFields) ["website_email", "website_phone", "followup_status"].forEach((field) => allowedSort.add(field));

@@ -143,11 +143,13 @@ assert.match(poolApi, /tab !== "claimed" \|\| account\.role === "ADMIN"/, "已�
 assert.match(poolApi, /customerIndustryLabels\(item\)[\s\S]*rawIndustryMap[\s\S]*industryOptionMap/, "公海所属行业必须按标准化行业去重");
 assert.match(poolView, /所属行业多选[\s\S]*type="checkbox"/, "公海所属行业必须支持多选");
 assert.match(poolView, /appendIndustryFilters\(params\)/, "公海列表、导出与全选必须复用同一行业筛选条件");
+assert.match(poolApi, /source_type[\s\S]*source_batch[\s\S]*const batches = \[\.\.\.new Map[\s\S]*sources:/, "客户公海必须返回真实去重的获客方式与批次筛选项");
+assert.match(poolView, /全部获客方式[\s\S]*全部导入批次/, "客户公海各数据页签必须提供获客方式和批次筛选");
+assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType\)[\s\S]*if \(sourceBatch\) params\.set\("source_batch", sourceBatch\)/, "客户公海列表请求必须携带获客方式与批次筛选");
 assert.match(poolApi, /target === "valid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", true\)/, "客户公海有效目标必须来自明确的有效结论");
 assert.match(poolApi, /target === "invalid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", false\)/, "客户公海无效目标不得混入待复核或未筛选客户");
 assert.match(customersApi, /target === "valid"[\s\S]*eq\("is_target_customer", true\)[\s\S]*target === "invalid"[\s\S]*eq\("is_target_customer", false\)/, "我的客户目标筛选必须按明确业务结论查询");
-assert.match(aiTaskItemsApi, /target === "valid"[\s\S]*"VALID"[\s\S]*target === "invalid"[\s\S]*"INVALID"[\s\S]*"REVIEW"/, "AI任务明细目标筛选必须按三态结果结论查询");
-assert.match(aiResultsApi, /\["VALID", "INVALID", "REVIEW"\][\s\S]*eq\("target_decision", target\)/, "AI结果列表目标筛选必须按三态结果结论查询");
+assert.match(aiResultsApi, /\.in\("target_decision", \["VALID", "INVALID"\]\)[\s\S]*\.not\("score", "is", null\)[\s\S]*\.not\("grade", "is", null\)/, "AI最终结果只能加载已评分的有效或无效结论");
 assert.match(aiRunner, /cachedTargetDecision === "VALID" \? true[\s\S]*gate\.automationStatus === "AUTO_DEVELOP" \? true/, "AI写回客户的目标标记必须从证据门控结论推导");
 assert.match(customerCrmView, /data\.ai_result\?\.target_decision==="VALID"\?"是"[\s\S]*"待复核"/, "客户详情目标判断必须展示结果三态而非仅按评分推导");
 assert.match(customerCrmApi, /publicReadOnly[\s\S]*followups: \[\], attachments: \[\], quotes: \[\]/, "未认领公海详情不得返回跟进、附件或报价业务数据");
@@ -156,6 +158,7 @@ assert.doesNotMatch(customerCrmApi, /created_by\.eq\.\$\{user\.id\}/, "历史创
 assert.match(customerDetailApi, /publicUnclaimed[\s\S]*directReport[\s\S]*mayRead/, "基础客户详情接口必须与公海详情采用同一读取边界，并限制主管直属下级");
 assert.doesNotMatch(attachmentApi, /let allowed=data\.uploaded_by===account\.id/, "附件读取不得仅因上传人身份放行");
 assert.match(attachmentApi, /Content-Disposition[\s\S]*preview \? "inline"/, "附件预览必须沿用同一服务端授权下载入口");
+assert.match(sidebar, /useLayoutEffect[\s\S]*URLSearchParams\(window\.location\.search\)\.get\("from"\) === "pool"[\s\S]*客户中心 \/ 客户公海 \/ 客户详情/, "从客户公海进入详情时面包屑必须在浏览器绘制前稳定为客户公海来源");
 assert.match(followupApi, /公海客户需先完成认领[\s\S]*customer\.owner_id !== user\.id/, "公海客户不得写入跟进，且跟进必须由当前归属销售员创建");
 assert.match(followupEditApi, /customer\?\.owner_id !== user\.id/, "客户转移后历史跟进创建人不得继续编辑记录");
 

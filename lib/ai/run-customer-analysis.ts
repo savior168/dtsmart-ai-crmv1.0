@@ -45,7 +45,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.07.2";
+const ANALYSIS_VERSION = "2026.09.07.3";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1316,7 +1316,7 @@ async function analyzeWithRecovery(input: {
   customer: CustomerRow;
   records: ChannelRecord[];
   signal: AbortSignal;
-  tier: "fast" | "deep";
+  tier: "fast" | "deep" | "escalation";
   maxRequests: 1 | 2;
 }) {
   const modelInput = {
@@ -1331,8 +1331,8 @@ async function analyzeWithRecovery(input: {
     industry_keywords: null,
     evidence: evidenceForModel(input.records, input.tier),
   };
-  const primaryTimeout = input.tier === "deep" ? 60_000 : 40_000;
-  const retryTimeout = input.tier === "deep" ? 60_000 : 35_000;
+  const primaryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 40_000;
+  const retryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 35_000;
   const run = async (channel: string, timeoutMs: number) => {
     const startedAt = Date.now();
     try {
@@ -1648,29 +1648,31 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const maxModelCalls = input.strategy === "DEEP"
       ? Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER || 2)))
       : Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_SMART_MAX_MODEL_CALLS_PER_CUSTOMER || 2)));
-    if (analysis) {
-      earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
-    } else {
-      // 规则尚不能形成结论时，不论已读取页面是否只有泛化内容，都继续
-      // 公开检索。否则一个只有“Services”的页面会错误阻止证据恢复。
-      const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal });
-      usage = addUsage(usage, recovery.usage);
-      analysis = deterministicAnalysis(customer, records);
-      if (!analysis && hasUsableCollectedEvidence(records)) {
-        const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: input.strategy === "DEEP" ? "deep" : "fast", maxRequests: input.strategy === "DEEP" ? maxModelCalls as 1 | 2 : 1 });
+    if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
+      // Resolve identity first, then official business pages, and finally
+      // official social profiles. Discovery output only supplies candidate
+      // URLs; every URL is fetched and identity checked before scoring.
+      for (const focus of ["identity", "official_business", "social_business"] as const) {
+        const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, focus });
+        usage = addUsage(usage, recovery.usage);
+        analysis = deterministicAnalysis(customer, records);
+        if (analysis && !analysis.evidence_conflicts.length && analysis.confidence_score >= 82) break;
+      }
+      if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
+        if (!hasUsableCollectedEvidence(records)) {
+          await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: "本轮尚未取得可核验经营事实，系统将在后台继续扩展公开来源。" });
+          return { status: "PENDING" as const };
+        }
+        const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation", maxRequests: 2 });
         analysis = outcome.analysis;
         modelRequestCount = outcome.requestCount;
         usage = addUsage(usage, analysis.usage);
-        earlyStopReason = "现有入口尚不能形成结论，系统已自动检索并二次抓取公开页面后完成分析。";
-      } else if (!analysis) {
-        // This is a truthful terminal system outcome, not an instruction for a
-        // user to investigate. No score or industry claim is fabricated when
-        // the open web exposes no retrievable business fact after recovery.
-        analysis = insufficientDataAnalysis(customer, records);
-        earlyStopReason = "系统已自动完成公开来源扩展检索与二次抓取，但未获得可复核经营事实；未编造行业或评分。";
+        earlyStopReason = "规则无法直接判断时，系统已完成主体、官网经营页和官方社媒扩展采集，再由高精度模型综合全部已核验证据。";
       } else {
-        earlyStopReason = "系统已自动检索并二次抓取公开页面，规则引擎取得可核验证据后完成判断。";
+        earlyStopReason = "系统扩展公开来源后取得可核验直接证据，由规则引擎完成判断。";
       }
+    } else {
+      earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
     }
     const needsEscalation = hasUsableCollectedEvidence(records)
       && analysis.usage.model !== "RULE_ENGINE"
@@ -1714,11 +1716,14 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       hasCriticalConflict: ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
-    const needsReview = gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length;
-    // A hold is not a low-value verdict. Never expose a tentative model D/0
-    // as a customer score or list classification.
-    const publishedScore = needsReview ? null : analysis.ai_score;
-    const publishedLevel = needsReview ? null : analysis.ai_level;
+    if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {
+      await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: `${gate.reason} 系统将在后台继续补充并交叉核验公开来源。` });
+      return { status: "PENDING" as const };
+    }
+    // The hold path returned above. Every persisted final result therefore has
+    // a real score and grade backed by a valid/invalid evidence-gate decision.
+    const publishedScore = analysis.ai_score;
+    const publishedLevel = analysis.ai_level;
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
     // Conflicting official sources remain visible in customer_contacts for
     // manual verification, but are not written into the customer's usable
@@ -1769,16 +1774,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       pricing_snapshot: usage.pricing_snapshot, model_snapshot: { primary_model: usage.model }, completed_at: new Date().toISOString(),
       score_breakdown: analysis.score_breakdown,
       entity_match: identity,
-      manual_review_status: needsReview ? "NEEDS_REVIEW" : "NOT_REVIEWED",
+      manual_review_status: "NOT_REVIEWED",
       suggested_contact_order: analysis.suggested_contact_order,
       discovered_contacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps, contacts: reconciled.contacts },
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
       target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "UNCERTAIN",
-      lead_priority: resultLeadPriority(needsReview, publishedLevel),
+      lead_priority: resultLeadPriority(false, publishedLevel),
       purchase_scale: verifiedScale.companyScale || "UNKNOWN",
       decision_status: gate.automationStatus,
-      short_reason: needsReview ? analysis.ai_reason : gate.reason,
+      short_reason: gate.reason,
       attempt_number: input.attemptNumber || 1,
       is_latest_valid: false,
       writeback_status: "PENDING",
@@ -1968,6 +1973,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       error_context: writebackWarnings.length ? { writeback_warnings: writebackWarnings } : {},
       current_step: "COMPLETED",
       pipeline_stage: "COMPLETED",
+      analysis_version: ANALYSIS_VERSION,
       duration_ms: Date.now() - started,
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -2005,6 +2011,46 @@ export function publicAiError(error: unknown) {
     code: normalized.error_code === "UNKNOWN_ERROR" ? "AI_ANALYSIS_FAILED" : normalized.error_code,
     message: raw || "AI分析失败",
   };
+}
+
+async function deferEvidenceRecovery(input: {
+  taskId: string;
+  taskItemId: string;
+  attemptNumber: number;
+  records: ChannelRecord[];
+  usage: UsageTotals;
+  reason: string;
+}) {
+  const delayMinutes = input.attemptNumber <= 1 ? 1 : input.attemptNumber === 2 ? 5 : 30;
+  const retryAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+  const admin = createAdminClient();
+  const write = await admin.from("ai_screening_task_items").update({
+    status: "PENDING",
+    analysis_status: "PENDING",
+    writeback_status: "PENDING",
+    automation_status: null,
+    progress: 45,
+    current_step: "EXPANDING_PUBLIC_EVIDENCE",
+    pipeline_stage: "EXPANDING_PUBLIC_EVIDENCE",
+    retryable: true,
+    retry_at: retryAt,
+    error_message: null,
+    error_code: null,
+    error_context: { automatic_research: true, reason: input.reason, next_retry_at: retryAt },
+    analyzed_channels: input.records.filter((item) => item.status === "COLLECTED").map((item) => item.channel),
+    skipped_channels: input.records.filter((item) => item.status !== "COLLECTED").map((item) => ({ channel: item.channel, status: item.status, reason: item.error })),
+    analysis_version: ANALYSIS_VERSION,
+    input_tokens: input.usage.input_tokens,
+    cached_input_tokens: input.usage.cached_input_tokens,
+    output_tokens: input.usage.output_tokens,
+    total_tokens: input.usage.total_tokens,
+    cost_usd: input.usage.cost_usd,
+    completed_at: null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", input.taskItemId);
+  if (write.error) throw durableError(write.error, "EVIDENCE_RECOVERY_DEFER");
+  const totals = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
+  if (totals.error) throw durableError(totals.error, "TASK_TOTAL_REFRESH");
 }
 
 function recoveryChannel(url: string): AiChannel {
@@ -2052,6 +2098,7 @@ export function recoveryRecordMatchesEntity(customer: CustomerRow, records: Chan
 async function recoverPublicEvidence(input: {
   taskId: string; taskItemId: string; customerId: string; attemptNumber: number;
   customer: CustomerRow; records: ChannelRecord[]; signal: AbortSignal;
+  focus: "identity" | "official_business" | "social_business";
 }) {
   const startedAt = Date.now();
   let recovery: CustomerAnalysis;
@@ -2067,16 +2114,20 @@ async function recoverPublicEvidence(input: {
       address: input.customer.address,
       industry_keywords: null,
       evidence: evidenceForModel(input.records, "fast"),
-    }, { signal: input.signal, timeoutMs: 35_000, tier: "recovery" });
-    await saveModelCall({ ...input, channel: "public_source_recovery", startedAt, usage: recovery.usage, status: "COMPLETED" });
+    }, { signal: input.signal, timeoutMs: 40_000, tier: "recovery", recoveryFocus: input.focus });
+    await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, usage: recovery.usage, status: "COMPLETED" });
   } catch (error) {
-    await saveModelCall({ ...input, channel: "public_source_recovery", startedAt, status: "FAILED", error });
+    await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, status: "FAILED", error });
     return { usage: ZERO_USAGE, collected: 0 };
   }
   const existing = new Set(input.records.map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
   const urls = (recovery.discovered_source_urls || [])
     .filter((url) => !existing.has(url.replace(/\/$/, "").toLowerCase()))
-    .slice(0, 3);
+    .sort((left, right) => {
+      const social = (url: string) => /(?:facebook|instagram|linkedin|tiktok)\.com/i.test(url) ? 1 : 0;
+      return input.focus === "social_business" ? social(right) - social(left) : social(left) - social(right);
+    })
+    .slice(0, 6);
   const fetched = await Promise.all(urls.map(async (url): Promise<ChannelRecord | null> => {
     try {
       // Deep page collection follows only relevant second/third-level business

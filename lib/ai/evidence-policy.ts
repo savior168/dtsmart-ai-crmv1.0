@@ -60,14 +60,9 @@ export function evidenceStrengthFor(evidence: PolicyEvidence): EvidenceStrength 
   const channel = evidence.channel.toLowerCase();
   const fact = evidence.fact.toLowerCase();
   const directBusinessFact = /(?:换屏|更换屏幕|换电池|电池更换|尾插维修|维修预约|维修报价|手机维修|电脑(?:或笔记本)?维修|计算机维修|电脑硬件维修|macbook维修|手机(?:、平板)?配件销售|手机配件(?:商店|零售|批发)?|电脑配件(?:商店|零售|批发)?|电子设备维修|电子产品维修|lcd|oled|批发|经销|分销|进口|wholesale|\bb2b\b|\bmoq\b|bulk price|trade account|distributor|dealer|reseller|永久关闭|已停业|只销售手机成品|运营商套餐)/i.test(fact);
-  const googleRepairCategoryOnly = channel === "google_maps"
-    && /(?:分类|类别)/.test(fact)
-    && /(?:手机维修|电脑维修|电子产品维修)/.test(fact)
-    && !/(?:换屏|屏幕更换|换电池|电池更换|尾插|充电口|主板|维修评论|维修工作台|拆机|内配件)/.test(fact);
   const directRejectFact = /(?:计算机服务|计算机技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|软件开发|云服务|网络托管|运营商套餐|SIM卡|食品批发|铁路工程|铁路安全|电气安全|software|IT support|technical support|managed services|network setup|NAS setup|server maintenance)/i.test(fact);
   // A page path such as /services or /contact is not evidence by itself. Strong
   // evidence requires a concrete business fact from an authoritative source.
-  if (googleRepairCategoryOnly) return "MEDIUM_CORROBORATING";
   if (["website", "google_maps", "customs", "exhibition"].includes(channel)
       && (directBusinessFact || (evidence.kind === "矛盾" && directRejectFact))) return "STRONG_DIRECT";
   if (["website", "google_maps", "linkedin", "business_registry", "directory"].includes(channel)) return "MEDIUM_CORROBORATING";
@@ -110,7 +105,7 @@ export function evaluateEvidenceGate(input: {
   // phone or address chain. Requiring 90 again rejected exact public entities
   // whose raw score was 80-89, even when an official page supplied direct
   // business facts.
-  const identityThreshold = 80;
+  const identityThreshold = 70;
   const industryThreshold = 82;
   const evidenceIds = usable.map((item) => item.sourceId).filter((item): item is string => Boolean(item));
 
@@ -134,6 +129,10 @@ export function evaluateEvidenceGate(input: {
   }
   if (input.explicitRejectEvidence && negativeEnough && input.decisionConfidence >= (strongNegative ? 60 : industryThreshold)) {
     return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业，且存在明确的非目标经营证据。", sufficient: true, evidenceIds };
+  }
+  if (input.score < 60 && input.industry !== "UNKNOWN" && input.industryConfidence >= 60
+      && input.decisionConfidence >= 60 && (strongPositive || positiveEnough || negativeEnough)) {
+    return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业及其真实经营方向，评分低于目标客户门槛。", sufficient: true, evidenceIds };
   }
   if (!positiveEnough || input.industry === "UNKNOWN" || input.industryConfidence < industryThreshold || input.decisionConfidence < industryThreshold) {
     return { automationStatus: "AUTO_HOLD", reason: "外部证据或行业置信度不足，不能自动判为有效或无效。", sufficient: false, evidenceIds };

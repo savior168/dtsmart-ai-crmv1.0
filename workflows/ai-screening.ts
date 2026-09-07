@@ -41,11 +41,23 @@ async function nextPendingItems(taskId: string, limit: number) {
     .select("id")
     .eq("task_id", taskId)
     .eq("status", "PENDING")
+    .or(`retry_at.is.null,retry_at.lte.${new Date().toISOString()}`)
     .order("updated_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(limit);
   if (error) throw error;
   return (data || []).map((item) => item.id);
+}
+
+async function hasPendingItems(taskId: string) {
+  "use step";
+  const admin = createAdminClient();
+  const { count, error } = await admin.from("ai_screening_task_items")
+    .select("id", { count: "exact", head: true })
+    .eq("task_id", taskId)
+    .eq("status", "PENDING");
+  if (error) throw error;
+  return Number(count || 0) > 0;
 }
 
 async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrategy) {
@@ -115,7 +127,7 @@ async function finishTask(taskId: string) {
   if (error) throw error;
   if (!data || ["CANCELLED", "PAUSED"].includes(String(data.status))) return;
   // A workflow can only report completion after every item reached a terminal
-  // state. Reviews are terminal outcomes, not a hidden pending queue.
+  // success or technical-failure state. Evidence recovery remains pending.
   if (Number(data.pending_count || 0) > 0) return;
   const now = new Date();
   const started = data.started_at ? new Date(data.started_at).getTime() : NaN;
@@ -170,7 +182,13 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
       }
       if (state.status === "CANCELLED" || state.cancelRequested) break;
       const batch = await nextPendingItems(input.taskId, concurrency);
-      if (!batch.length) break;
+      if (!batch.length) {
+        if (await hasPendingItems(input.taskId)) {
+          await sleep("30s");
+          continue;
+        }
+        break;
+      }
       await Promise.all(batch.map((itemId) => analyzeTaskItem(input.taskId, itemId, input.strategy)));
       state = await taskState(input.taskId);
       if (state.status === "PAUSING") await settlePause(input.taskId);

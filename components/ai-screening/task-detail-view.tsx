@@ -10,7 +10,7 @@ import { aiErrorCodeLabel, aiErrorMessageZh, aiStepLabel } from "@/components/ai
 const actionCopy: Record<string, { label: string; title: string; description: string }> = {
   pause: { label: "停止任务", title: "停止任务？", description: "当前单条客户完成后暂停；已完成结果永久保留。" },
   cancel: { label: "取消任务", title: "取消排队任务？", description: "取消后退出等待队列，不执行分析也不产生费用。" },
-  resume: { label: "继续执行", title: "继续执行任务？", description: "只继续分析尚未完成的客户。" },
+  resume: { label: "继续执行", title: "继续执行任务？", description: "继续分析尚未完成的客户；旧版本中无评分的结果会自动重新分析。" },
   retry: { label: "重试失败项", title: "重试失败客户？", description: "仅重试失败客户，已完成客户不会重复分析。" },
   archive: { label: "归档任务", title: "归档任务？", description: "任务将从任务中心隐藏；客户结果、证据、完成统计、Token和费用账本全部保留。" },
 };
@@ -61,8 +61,8 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   useEffect(() => { if (!task || refreshMs <= 0 || !["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(task.status)) return; const timer = setInterval(() => void load(true), refreshMs); return () => clearInterval(timer); }, [task, load, refreshMs]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const currentAction = actionFor(task);
-  const processed = Number(task?.processed_count || 0);
-  const remaining = Math.max(0, Number(task?.pending_count || 0));
+  const processed = Number(task?.success_count || 0) + Number(task?.failed_count || 0);
+  const remaining = Math.max(0, Number(task?.total_count || 0) - processed);
   const averageTokens = processed ? Number(task?.total_tokens || 0) / processed : 0;
   const averageCost = processed ? Number(task?.total_cost_usd || 0) / processed : 0;
 
@@ -78,7 +78,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
     const grade = item.result?.grade || item.customer?.ai_level || "-";
     const score = item.result?.score ?? item.customer?.ai_score;
     if (!item.result?.grade && item.result?.score == null && item.customer?.ai_score == null) {
-      return <span className="inline-flex min-w-[62px] justify-center rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-700">待定</span>;
+      return <span className="text-slate-400">未完成</span>;
     }
     const color = grade === "A" ? "bg-emerald-50 text-emerald-700" : grade === "B" ? "bg-blue-50 text-blue-700" : grade === "C" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700";
     return <span className={`inline-flex min-w-[62px] justify-center rounded-md px-2 py-1 font-semibold ${color}`}>{grade} · {score ?? "-"}</span>;
@@ -101,7 +101,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
       ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <StrategyBadge key="strategy" strategy={task?.strategy || "SMART"}/>],
       ["已处理", formatNumber(processed), `占任务总量${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
       ["仍在分析", formatNumber(remaining), "排队与处理中客户"],
-      ["自动结论 / 待定 / 失败", `${formatNumber(task?.success_count)} / ${formatNumber(task?.review_count)} / ${formatNumber(task?.failed_count)}`, "证据充分结论 / 证据待补全 / 执行失败"],
+      ["分析成功 / 分析失败", `${formatNumber(task?.success_count)} / ${formatNumber(task?.failed_count)}`, "真实业务结论 / 技术执行异常"],
       ["当前总消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(task?.total_cost_usd)}`, "Token / 实际费用"],
       ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageCost)}`, "Token / 客户费用"],
       ["任务执行耗时", formatDuration(task ? effectiveElapsedMs(task, now) : 0), "仅统计实际执行时间"],

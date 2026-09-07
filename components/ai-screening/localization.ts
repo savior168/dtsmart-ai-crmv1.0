@@ -3,6 +3,7 @@ const stepLabels: Record<string, string> = {
   NORMALIZED: "客户数据已标准化",
   CUSTOMER_LOADED: "客户资料已读取",
   COLLECTING_EVIDENCE: "正在读取公开渠道证据",
+  EXPANDING_PUBLIC_EVIDENCE: "正在自动扩展公开来源并交叉核验",
   EVIDENCE_COLLECTED: "公开渠道证据已读取",
   SOURCES_COLLECTED: "公开来源已汇总",
   ANALYZING: "正在进行AI综合分析",

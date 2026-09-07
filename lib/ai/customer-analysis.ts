@@ -72,6 +72,7 @@ export type CustomerAnalysis = {
 };
 
 export type AnalysisTier = "fast" | "deep" | "escalation" | "recovery";
+export type RecoveryFocus = "identity" | "official_business" | "social_business";
 
 export function scoreToLevel(score: number): Exclude<CustomerAnalysis["ai_level"], null> {
   return score >= 85 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D";
@@ -294,7 +295,17 @@ function responseSourceUrls(payload: unknown) {
     if (typeof value === "object") Object.values(value as Record<string, unknown>).forEach((item) => visit(item, depth + 1));
   };
   visit(payload);
-  return [...found].slice(0, 6);
+  return [...found].slice(0, 12);
+}
+
+function recoveryInstruction(focus: RecoveryFocus) {
+  if (focus === "identity") {
+    return "先做企业主体定位：组合检索客户全名、完整地址、国家、电话、邮箱域名。查找同一企业的Google商家主页和官网；名称相同但电话不同、地址不同的候选必须分别列出，不能混为同一主体。只返回可访问页面链接。";
+  }
+  if (focus === "official_business") {
+    return "主体定位后继续查经营事实：优先查已确认官网的服务、维修、产品、关于我们、联系我们、门店页面，以及同一Google商家的分类、业务说明和评论。重点确认手机或电脑维修、配件零售批发、进口分销等真实业务；只返回可访问页面链接。";
+  }
+  return "若官网或Google商家仍缺少经营事实，继续查找与客户名称并由电话、地址、官网互链或邮箱域名交叉确认的Facebook、Instagram、LinkedIn、TikTok等官方主页。不得采用无法确认主体的同名账号；只返回可访问页面链接。";
 }
 
 function hasVisualInputs(input: CustomerAnalysisInput) {
@@ -562,7 +573,7 @@ async function postOpenAiResponses(key: string, body: string, signal: AbortSigna
   });
 }
 
-export async function analyzeCustomer(input: CustomerAnalysisInput, options: { signal?: AbortSignal; timeoutMs?: number; tier?: AnalysisTier } = {}): Promise<CustomerAnalysis> {
+export async function analyzeCustomer(input: CustomerAnalysisInput, options: { signal?: AbortSignal; timeoutMs?: number; tier?: AnalysisTier; recoveryFocus?: RecoveryFocus } = {}): Promise<CustomerAnalysis> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) throw new Error("OPENAI_NOT_CONFIGURED");
 
@@ -587,7 +598,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   }
   const recovery = options.tier === "recovery";
   const userContent: Array<Record<string, unknown>> = [
-    ...(recovery ? [{ type: "input_text", text: "当前没有读到足够事实。请使用公开网页搜索，围绕客户名称、地址、国家和电话寻找该企业的官网、Google商家页或官方社媒。不得把搜索摘要当作事实；只输出可访问页面链接及其可核验经营事实，找不到时保持证据数组为空。" }] : []),
+    ...(recovery ? [{ type: "input_text", text: `当前证据还不能完成可靠判断。${recoveryInstruction(options.recoveryFocus || "identity")} 搜索摘要不得作为证据；链接随后会由系统重新抓取核验，找不到时保持证据数组为空。` }] : []),
     { type: "input_text", text: JSON.stringify(promptInput) },
     // Only one or two pre-filtered key photos are inspected. High detail is
     // required to read storefront repair wording and distinguish genuine

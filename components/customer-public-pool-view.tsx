@@ -15,7 +15,6 @@ import {
   ChevronUp,
   CheckCircle2,
   Download,
-  ExternalLink,
   FileSpreadsheet,
   Globe2,
   LoaderCircle,
@@ -89,6 +88,8 @@ type PoolRow = {
   followup_status: string | null;
   last_contact_time: string | null;
   source: string | null;
+  source_batch?: string | null;
+  source_batch_id?: string | null;
   created_at: string;
   updated_at: string;
   contact_masked: boolean;
@@ -104,6 +105,8 @@ type AssignmentOptions = {
 type PoolFilterOptions = {
   industries: Array<{ value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>;
   owners: Owner[];
+  sources: Array<{ value: string; label: string }>;
+  batches: Array<{ value: string; label: string; source: string }>;
 };
 type Renewal = {
   id: string;
@@ -226,6 +229,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [target, setTarget] = useState("");
   const [customerStatus, setCustomerStatus] = useState("");
   const [ownerId, setOwnerId] = useState("");
+  const [sourceType, setSourceType] = useState("");
+  const [sourceBatch, setSourceBatch] = useState("");
   const [sort, setSort] = useState("updated_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [fields, setFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
@@ -241,6 +246,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     industries: [],
     owners: [],
+    sources: [],
+    batches: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -282,6 +289,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       if (target) params.set("target", target);
       if (customerStatus && tab === "claimed") params.set("status", customerStatus);
       if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
+      if (sourceType) params.set("source_type", sourceType);
+      if (sourceBatch) params.set("source_batch", sourceBatch);
       params.set("sort", sort);
       params.set("direction", direction);
       const body = await api(`/api/customers/public-pool?${params}`);
@@ -302,6 +311,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     appendIndustryFilters,
     customerStatus,
     ownerId,
+    sourceType,
+    sourceBatch,
     page,
     pageSize,
     query,
@@ -357,15 +368,17 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         setFilterOptions({
           industries: body.industries || [],
           owners: body.owners || [],
+          sources: body.sources || [],
+          batches: body.batches || [],
         }),
       )
       .catch(() =>
-        setFilterOptions({ industries: [], owners: [] }),
+        setFilterOptions({ industries: [], owners: [], sources: [], batches: [] }),
       );
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, customerStatus, industries, ownerId, query, tab, target],
+    [aiLevel, customerStatus, industries, ownerId, query, sourceBatch, sourceType, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -382,6 +395,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setIndustryOpen(false);
     setOwnerId("");
     setCustomerStatus("");
+    setSourceType("");
+    setSourceBatch("");
     if (value === "available" || value === "claimed" || value === "pending") {
       let next = POOL_DEFAULT_FIELDS[value];
       try {
@@ -399,6 +414,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setTarget("");
     setCustomerStatus("");
     setOwnerId("");
+    setSourceType("");
+    setSourceBatch("");
     setPage(1);
   }
   function changeSort(key: CustomerListColumn) {
@@ -431,6 +448,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
+        if (sourceType) params.set("source_type", sourceType);
+        if (sourceBatch) params.set("source_batch", sourceBatch);
         const body = await api(`/api/customers/public-pool?${params}`);
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
         exported.push(...pageRows);
@@ -465,6 +484,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
+        if (sourceType) params.set("source_type", sourceType);
+        if (sourceBatch) params.set("source_batch", sourceBatch);
         const body = await api(`/api/customers/public-pool?${params}`);
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
         ids.push(...pageRows.map((row) => row.id));
@@ -509,7 +530,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.8fr)_repeat(4,minmax(140px,1fr))_minmax(160px,1fr)_96px]">
+              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.7fr)_repeat(6,minmax(132px,1fr))_96px]">
                 <label className="relative min-w-0">
                   <Search
                     size={17}
@@ -535,6 +556,28 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     {filterOptions.industries.map((item) => <label key={item.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item.value)} onChange={() => { setIndustries((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className={`min-w-0 break-words ${item.tone === "verified" ? "text-emerald-600" : "text-slate-600"}`}>{item.label}</span></label>)}
                   </div> : null}
                 </div>
+                <select
+                  value={sourceType}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setSourceType(next);
+                    if (sourceBatch && next && !filterOptions.batches.some((item) => item.value === sourceBatch && item.source === next)) setSourceBatch("");
+                  }}
+                  className={appFieldClass}
+                  aria-label="按获客方式筛选"
+                >
+                  <option value="">全部获客方式</option>
+                  {filterOptions.sources.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+                <select
+                  value={sourceBatch}
+                  onChange={(event) => setSourceBatch(event.target.value)}
+                  className={appFieldClass}
+                  aria-label="按导入批次筛选"
+                >
+                  <option value="">全部导入批次</option>
+                  {filterOptions.batches.filter((item) => !sourceType || item.source === sourceType).map((item) => <option key={`${item.source}:${item.value}`} value={item.value}>{item.label}</option>)}
+                </select>
                 <select
                   value={aiLevel}
                   onChange={(event) => setAiLevel(event.target.value)}

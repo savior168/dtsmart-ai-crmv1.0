@@ -88,6 +88,22 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     } else if (body.action === "resume") {
       if (task.status !== "PAUSED") return NextResponse.json({ error: "只有已停止的任务可以继续执行" }, { status: 409 });
       const now = new Date().toISOString();
+      // Requeue legacy evidence-deficient completions only when the user
+      // explicitly resumes the task. Scored results remain untouched and the
+      // previous rows stay available as immutable audit history.
+      const legacyHolds = await admin.from("ai_screening_task_items").select("id").eq("task_id", id).eq("status", "COMPLETED").eq("automation_status", "AUTO_HOLD");
+      if (legacyHolds.error) throw legacyHolds.error;
+      const legacyIds = (legacyHolds.data || []).map((item) => item.id);
+      if (legacyIds.length) {
+        const invalidate = await admin.from("ai_screening_results").update({ is_latest_valid: false }).in("task_item_id", legacyIds);
+        if (invalidate.error) throw invalidate.error;
+        const requeue = await admin.from("ai_screening_task_items").update({
+          status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING",
+          automation_status: null, result_id: null, progress: 0, current_step: "WAITING",
+          pipeline_stage: "NORMALIZED", retry_at: null, completed_at: null, updated_at: now,
+        }).in("id", legacyIds);
+        if (requeue.error) throw requeue.error;
+      }
       const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, pause_started_at: null, completed_at: null, finished_at: null, error_message: null, updated_at: now }).eq("id", id);
       if (queued.error) throw queued.error;
       const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);

@@ -23,7 +23,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 
@@ -347,7 +347,9 @@ function ProfileModal({
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const [fromPool, setFromPool] = useState(false);
-  useEffect(() => setFromPool(new URLSearchParams(window.location.search).get("from") === "pool"), [path]);
+  useLayoutEffect(() => {
+    setFromPool(new URLSearchParams(window.location.search).get("from") === "pool");
+  }, [path]);
   const router = useRouter();
   const [sidebarWidth, setSidebarWidth] = useState(248);
   const [collapsed, setCollapsed] = useState(false);
@@ -483,7 +485,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
   if (path === "/login" || path === "/reset-password") return <>{children}</>;
-  const title = pageTitleOverride || pageTitles.find(([pattern]) => pattern.test(path))?.[1] || "智客云";
+  const contextualCustomerTitle = fromPool && /^\/customers\/[^/]+$/.test(path)
+    ? "客户中心 / 客户公海 / 客户详情"
+    : null;
+  const title = pageTitleOverride || contextualCustomerTitle || pageTitles.find(([pattern]) => pattern.test(path))?.[1] || "智客云";
   const titleParts = title.split(" / ");
   const effectiveWidth = collapsed ? 76 : sidebarWidth;
   const sidebarDark = sidebarMode === "dark";
