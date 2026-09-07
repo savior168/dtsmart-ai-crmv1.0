@@ -27,6 +27,18 @@ function billingTableReference(project: string, dataset: string) {
   return reference.includes(".") ? reference : `${project}.${dataset}.${reference}`;
 }
 
+export function normalizeGoogleBillingTimestamp(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  // BigQuery REST serializes TIMESTAMP values as Unix seconds (often with a
+  // fractional part), not necessarily as an ISO date string.
+  const seconds = Number(text);
+  const date = Number.isFinite(seconds) && seconds > 0
+    ? new Date(seconds * 1000)
+    : new Date(text);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
 async function accessToken(account: ServiceAccount) {
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
@@ -70,7 +82,7 @@ export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus>
     }
     const fields = body.rows?.[0]?.f || [];
     const total = Number(fields[0]?.v || 0);
-    const latest = fields[1]?.v || null;
+    const latest = normalizeGoogleBillingTimestamp(fields[1]?.v);
     const count = Number(fields[2]?.v || 0);
     if (!count) return { state: "NO_DATA", message: "已连接 Google Cloud；近 90 天暂无 Google Maps/Places 实际账单明细" };
     return { state: "CONNECTED", message: "已连接 Google Cloud BigQuery，金额为实际结算明细汇总", totalUsd: total, latestUsageAt: latest, usageRows: count };

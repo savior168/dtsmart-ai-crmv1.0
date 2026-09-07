@@ -3,6 +3,7 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
+import { readableImportError, sanitizeImportRow } from "@/lib/import-safety";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -24,9 +25,10 @@ const bounded = (value: unknown, min: number, max: number) => {
 };
 function identity(row: Row) { return { lookupKeys: customerLookupIdentityKeys(row), indexKeys: customerIndexIdentityKeys(row) }; }
 function importErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "");
+  const message = readableImportError(error, "");
   if (/customers_assigned_via_check/i.test(message)) return "客户归属来源不合法，请检查导入目标后重试";
   if (/customers_acquisition_scope_check|customers_pool_status_check/i.test(message)) return "客户公海状态不合法，请检查导入目标后重试";
+  if (/could not find.*column|column .* does not exist|schema cache/i.test(message)) return `导入字段与系统数据库不兼容：${message}`;
   return message || "导入失败，请稍后重试";
 }
 
@@ -75,7 +77,7 @@ export async function POST(request: NextRequest) {
     const privateSupplements: Record<string, unknown>[] = [];
     let ownershipConflictCount = 0;
     rows.forEach((raw, index) => {
-      const item = { ...raw };
+      const item = sanitizeImportRow(raw);
       const importMeta = item.import_meta && typeof item.import_meta === "object" ? item.import_meta : {};
       const fileName = text(importMeta.file_name) || payload.filename || "导入文件";
       const rowNumber = Number(importMeta.row_number) || index + 2;

@@ -26,6 +26,7 @@ import { downloadWorkbook } from "@/lib/xlsx-export";
 import { customerIdentityKeys } from "@/lib/import-dedupe";
 import { CountryLabel } from "@/components/country-label";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { readableImportError } from "@/lib/import-safety";
 
 type PotentialCandidate = {
   id?: string;
@@ -484,7 +485,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
         }),
       });
       const preview = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(preview.error || "系统重复预检失败");
+      if (!response.ok) throw new Error(readableImportError(preview.error, "系统重复预检失败"));
       const suspected = new Set((Array.isArray(preview.suspected_row_indexes) ? preview.suspected_row_indexes : []).map(Number));
       const matches = preview.suspected_matches && typeof preview.suspected_matches === "object" ? preview.suspected_matches as Record<string, PotentialCandidate[]> : {};
       const preflightMatches = preview.preflight_matches && typeof preview.preflight_matches === "object" ? preview.preflight_matches as Record<string, PotentialCandidate[]> : {};
@@ -532,8 +533,8 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
     setError("");
     try {
       const bodyRows = rows.map(
-        ({ preview_id, file_name, row_number, ...item }) => {
-          void preview_id;
+        ({ preview_id, file_name, row_number, suspected_duplicate, suspected_candidates, preflight_candidates, ...item }) => {
+          void preview_id; void suspected_duplicate; void suspected_candidates; void preflight_candidates;
           return {
             ...item,
             import_meta: { ...(item.import_meta || {}), file_name, row_number },
@@ -553,7 +554,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "导入失败，请稍后重试");
+      if (!response.ok) throw new Error(readableImportError(body.error, "导入失败，请稍后重试"));
       const results = Array.isArray(body.results) ? body.results : [];
       const resultByRow = new Map<string, Record<string, unknown>>(
         results.map((item: Record<string, unknown>) => [
@@ -597,7 +598,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
           id: failed.length + index + 1,
           file_name: String(item.file_name || "导入文件"),
           row_number: Number(item.row_number || 0),
-          reason: String(item.reason || "导入系统失败"),
+          reason: readableImportError(item.reason, "导入系统失败"),
           kind: "failure" as const,
         }));
       const completedFailures = [...failed, ...serverFailures];
@@ -609,7 +610,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
         conflict_count: Number(body.conflict_count || 0),
         error_count: invalidCount + Number(body.error_count || 0),
         failed_count: Number(body.failed_count || serverFailures.length || 0),
-        errors: Array.isArray(body.errors) ? body.errors.map(String) : [],
+        errors: Array.isArray(body.errors) ? body.errors.map((item: unknown) => readableImportError(item, "导入系统失败")) : [],
       };
       setRows(completedRows);
       setFailed(completedFailures);

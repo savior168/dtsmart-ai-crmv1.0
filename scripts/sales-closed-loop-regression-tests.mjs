@@ -78,11 +78,15 @@ assert.match(menu, /label: "AI获客"[\s\S]*disabled: true/, "AI获客本期只�
 assert.match(menu, /label: "系统管理"[\s\S]*用户与权限[\s\S]*费用中心[\s\S]*操作日志[\s\S]*安全设置/, "系统管理必须使用清晰二级菜单");
 
 const costView = read("components/cost-center-view.tsx");
+const googleBilling = read("lib/google-cloud-billing.ts");
 assert.match(costView, /单价待配置[\s\S]*这不代表接口免费/, "未配置第三方单价时不得错误显示为免费");
 assert.match(costView, /api\/cost-center\/export/, "费用中心必须支持导出完整明细");
 assert.match(costView, /历史测试期/, "费用中心必须可单独查看历史测试期");
 assert.match(costView, /清空正式期统计/, "费用中心必须支持重置正式统计起点");
 assert.match(costView, /不会删除任何真实调用记录/, "费用中心重置统计不得删除历史账本");
+assert.match(costView, /validDate[\s\S]*Number\.isFinite\(date\.getTime\(\)\)[\s\S]*时间未知/, "费用中心遇到异常时间值不得导致整页崩溃");
+assert.match(googleBilling, /normalizeGoogleBillingTimestamp[\s\S]*seconds \* 1000[\s\S]*toISOString/, "BigQuery 的 Unix 秒时间戳必须转换为可展示的 ISO 时间");
+assert.match(costView, /当前账户余额[\s\S]*官方接口未提供，无法真实同步/, "OpenAI 不提供余额接口时必须明确展示真实能力边界");
 const shell = read("components/app-shell.tsx");
 assert.match(shell, /toastNotices[\s\S]*fixed bottom-5 right-5[\s\S]*立即查看[\s\S]*稍后处理/, "关键通知必须在右下角弹出并可直达业务详情");
 assert.match(shell, /canLoadNotices = Boolean\(profile\)[\s\S]*if \(!canLoadNotices\)[\s\S]*setInterval\(refresh, 60000\)/, "登录页或未核验会话不得轮询通知接口");

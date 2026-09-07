@@ -29,8 +29,20 @@ type GoogleBilling = { state: "NOT_CONFIGURED" | "CONNECTED" | "NO_DATA" | "ERRO
 type OpenAiBilling = { state: "NOT_CONFIGURED" | "CONNECTED" | "NO_DATA" | "ERROR"; message: string; totalUsd?: number; latestUsageAt?: string | null; lineItems?: Array<{ name: string; amountUsd: number }> };
 
 const money = (value: unknown) => `$${Number(value || 0).toFixed(4)}`;
-const chinaDate = (value: string) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-const inputDate = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+const chinaDateFormatter = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" });
+const inputDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+const validDate = (value: unknown) => {
+  const date = new Date(String(value || ""));
+  return Number.isFinite(date.getTime()) ? date : null;
+};
+const chinaDate = (value: unknown) => {
+  const date = validDate(value);
+  return date ? chinaDateFormatter.format(date) : "时间未知";
+};
+const inputDate = (value: unknown) => {
+  const date = validDate(value);
+  return date ? inputDateFormatter.format(date) : "";
+};
 
 function amountLabel(row: CostRow) {
   if (row.amount_type === "FINAL") return "账单已确认";
@@ -64,15 +76,20 @@ export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
-    const response = await fetch(`/api/cost-center?${query}`, { cache: "no-store" });
-    const body = await response.json().catch(() => ({}));
-    setLoading(false);
-    if (!response.ok) { setError(body.error || "费用数据加载失败"); return; }
-    setPayload(body);
-    setAccountingDate(inputDate(body.accounting_start_at));
-    const [google, openai] = await Promise.all([fetch("/api/cost-center/google-billing", { cache: "no-store" }), fetch("/api/cost-center/openai-billing", { cache: "no-store" })]);
-    if (google.ok) setGoogleBilling(await google.json());
-    if (openai.ok) setOpenAiBilling(await openai.json());
+    try {
+      const response = await fetch(`/api/cost-center?${query}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) { setError(body.error || "费用数据加载失败"); return; }
+      setPayload(body);
+      setAccountingDate(inputDate(body.accounting_start_at));
+      const [google, openai] = await Promise.all([fetch("/api/cost-center/google-billing", { cache: "no-store" }), fetch("/api/cost-center/openai-billing", { cache: "no-store" })]);
+      if (google.ok) setGoogleBilling(await google.json());
+      if (openai.ok) setOpenAiBilling(await openai.json());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "费用数据加载失败");
+    } finally {
+      setLoading(false);
+    }
   }, [query]);
 
   useEffect(() => { void load(); }, [load]);
@@ -122,7 +139,7 @@ export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
     {Number(summary?.unknown_pricing_count || 0) > 0 ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">有 {summary?.unknown_pricing_count} 次调用尚未配置计费单价，因此暂不计入金额；这不代表接口免费。配置价目后需与平台账单对账。</p> : null}
     <section className="mt-5"><div className="mb-3 flex items-center gap-2"><BadgeDollarSign size={18} className="text-emerald-600"/><div><h2 className="font-semibold text-slate-900">平台真实费用总览</h2><p className="text-xs text-slate-500">仅展示从平台读取的账单；与系统调用台账分开，避免不同统计周期被误认为同一金额。</p></div></div><div className="grid gap-3 xl:grid-cols-2">
       <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><b>Google Places / Google Cloud</b><p className="mt-1 text-xs text-slate-500">来源：BigQuery 详细费用导出 · 近 90 天</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${billingTone(googleBilling?.state)}`}>{billingLabel(googleBilling?.state)}</span></div>{googleBilling ? <div className="mt-5"><b className={`text-3xl ${googleBilling.state === "CONNECTED" ? "text-emerald-700" : "text-slate-400"}`}>{googleBilling.state === "CONNECTED" ? money(googleBilling.totalUsd) : "—"}</b><p className="mt-2 text-sm leading-6 text-slate-700">{googleBilling.message}</p>{googleBilling.state === "CONNECTED" ? <p className="mt-2 text-xs text-slate-500">{Number(googleBilling.usageRows || 0).toLocaleString("zh-CN")} 条结算明细{googleBilling.latestUsageAt ? ` · 最新使用 ${chinaDate(googleBilling.latestUsageAt)}` : ""}</p> : null}</div> : <p className="mt-5 text-sm text-slate-400">正在读取 Google Cloud 账单状态…</p>}<div className="mt-5 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800"><b>免费额度 / 账户余额：</b>BigQuery 账单导出不能读取；未接入实际使用项目的配额监控前，系统不推算余额。</div></article>
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><b>OpenAI</b><p className="mt-1 text-xs text-slate-500">来源：组织 Costs API · 近 90 天</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${billingTone(openAiBilling?.state)}`}>{billingLabel(openAiBilling?.state)}</span></div>{openAiBilling ? <div className="mt-5"><b className={`text-3xl ${openAiBilling.state === "CONNECTED" ? "text-emerald-700" : "text-slate-400"}`}>{openAiBilling.state === "CONNECTED" ? money(openAiBilling.totalUsd) : "—"}</b><p className="mt-2 text-sm leading-6 text-slate-700">{openAiBilling.message}</p>{openAiBilling.state === "CONNECTED" ? <><p className="mt-2 text-xs text-slate-500">{openAiBilling.latestUsageAt ? `最新费用归集 ${chinaDate(openAiBilling.latestUsageAt)}` : "暂无最新时间"}</p>{openAiBilling.lineItems?.length ? <p className="mt-2 text-xs leading-5 text-slate-500">主要计费项：{openAiBilling.lineItems.slice(0, 3).map(item => `${item.name} ${money(item.amountUsd)}`).join(" · ")}</p> : null}</> : null}</div> : <p className="mt-5 text-sm text-slate-400">正在读取 OpenAI 组织账单状态…</p>}<div className="mt-5 rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600"><b>账户余额：</b>OpenAI Costs API 只返回已发生费用，不返回余额；不会将 API Key 或系统台账伪装成余额。</div></article>
+      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><b>OpenAI</b><p className="mt-1 text-xs text-slate-500">来源：组织 Costs API · 近 90 天</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${billingTone(openAiBilling?.state)}`}>{billingLabel(openAiBilling?.state)}</span></div>{openAiBilling ? <div className="mt-5"><small className="block text-slate-500">近 90 天已发生费用</small><b className={`mt-1 block text-3xl ${openAiBilling.state === "CONNECTED" ? "text-emerald-700" : "text-slate-400"}`}>{openAiBilling.state === "CONNECTED" ? money(openAiBilling.totalUsd) : "—"}</b><p className="mt-2 text-sm leading-6 text-slate-700">{openAiBilling.message}</p>{openAiBilling.state === "CONNECTED" ? <><p className="mt-2 text-xs text-slate-500">{openAiBilling.latestUsageAt ? `最新费用归集 ${chinaDate(openAiBilling.latestUsageAt)}` : "暂无最新时间"}</p>{openAiBilling.lineItems?.length ? <p className="mt-2 text-xs leading-5 text-slate-500">主要计费项：{openAiBilling.lineItems.slice(0, 3).map(item => `${item.name} ${money(item.amountUsd)}`).join(" · ")}</p> : null}</> : null}</div> : <p className="mt-5 text-sm text-slate-400">正在读取 OpenAI 组织账单状态…</p>}<div className="mt-5 flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600"><b>当前账户余额</b><span className="text-right">官方接口未提供，无法真实同步</span></div></article>
     </div></section>
     {error ? <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div> : payload ? <>

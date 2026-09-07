@@ -8,6 +8,7 @@ const closedLoop = read("supabase/migrations/202609030001_customer_center_closed
 const poolApi = read("app/api/customers/public-pool/route.ts");
 const customersApi = read("app/api/customers/route.ts");
 const poolView = read("components/customer-public-pool-view.tsx");
+const customersView = read("components/customers-view.tsx");
 const poolPage = read("app/customers/pool/page.tsx");
 const poolDeleteApi = read("app/api/customers/public-pool/delete/route.ts");
 const permanentDelete = read("lib/customers/soft-delete.ts");
@@ -20,6 +21,7 @@ const manualStatusRules = read("supabase/migrations/202609030002_restore_single_
 const ownershipIntegrity = read("supabase/migrations/202609030003_customer_ownership_integrity.sql");
 const stageReleaseBoundary = read("supabase/migrations/202609030004_customer_stage_release_boundary.sql");
 const importApi = read("app/api/import/route.ts");
+const importSafety = read("lib/import-safety.ts");
 const importPage = read("app/import/page.tsx");
 const importView = read("components/import-view.tsx");
 const listFields = read("lib/customers/list-fields.ts");
@@ -70,6 +72,7 @@ assert.doesNotMatch(poolView, /潜在客户（未认领）|潜在客户（已归
 assert.match(poolView, /border-blue-200 bg-blue-50[\s\S]*认领/, "认领按钮必须采用克制的浅色操作样式");
 assert.match(poolDeleteApi, /requireAdmin\(\)[\s\S]*请填写永久删除原因[\s\S]*permanentlyDeleteCustomers/, "公海永久删除必须仅限系统管理员并要求原因");
 assert.match(permanentDelete, /quotes[\s\S]*sales_orders[\s\S]*客户已有报价或订单记录/, "存在报价或订单的客户不得物理删除");
+assert.match(customersView, /const crossUserReadOnly = currentRole !== "ADMIN" && canViewAll && scopeUserId !== defaultScopeUserId/, "系统管理员切换归属人后仍须保留客户管理与删除权限");
 assert.match(poolApi, /params\.get\("options"\) === "1"[\s\S]*industries[\s\S]*owners/, "客户公海必须提供完整筛选选项");
 assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得使用存在双外键歧义的嵌套关系");
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
@@ -90,6 +93,11 @@ assert.match(protectionApi, /expiredQuery[\s\S]*not\("owner_id", "is", null\)/, 
 const conflictsApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictsApi, /Boolean\(ownerByCustomer\.get\(item\.customer_id\)\)/, "无归属公海客户不得混入跨归属冲突客户队列");
 assert.match(importApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*assigned_via: "ADMIN_ASSIGN"/, "公海导入必须服务端鉴权并写入合法的管理员归属来源");
+assert.match(importApi, /sanitizeImportRow\(raw\)/, "导入接口必须按服务端白名单清理客户端临时字段");
+assert.match(importSafety, /IMPORTABLE_CUSTOMER_FIELDS[\s\S]*sanitizeImportRow/, "服务端导入白名单必须集中维护");
+assert.match(importSafety, /typeof value === "object"[\s\S]*"message", "details", "hint", "error"/, "导入接口必须读取结构化数据库错误而不是显示 object Object");
+assert.match(importView, /suspected_duplicate, suspected_candidates, preflight_candidates, \.\.\.item/, "确认导入前必须剔除疑似重复预检的页面临时字段");
+assert.match(importView, /readableImportError\(body\.error/, "导入页面必须把结构化错误转换为可读原因");
 assert.match(importPage, /destination === "public"[\s\S]*requireAdmin\(\)/, "公海导入页面本身必须仅系统管理员可进入");
 assert.match(importView, /destination[\s\S]*导入到客户公海[\s\S]*导入到我的客户/, "共用导入页必须清楚显示实际导入目标");
 assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客户原始来源由系统保留，不能修改/, "系统获客来源标记必须不可被前端篡改");

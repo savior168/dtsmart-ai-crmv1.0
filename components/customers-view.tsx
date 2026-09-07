@@ -315,7 +315,9 @@ export function CustomersView() {
     return () => { disposed = true; };
   }, [scopeReady, scopeUserId]);
   const allPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
-  const crossUserReadOnly = canViewAll && scopeUserId !== defaultScopeUserId;
+  // 主管查看下属客户时保持只读；系统管理员拥有全系统客户的完整管理权限，
+  // 不能因为切换了归属人筛选就被误判为跨用户只读。
+  const crossUserReadOnly = currentRole !== "ADMIN" && canViewAll && scopeUserId !== defaultScopeUserId;
   function switchWorkspace(next: CustomerWorkspace) {
     setWorkspace(next);
     // 每个客户工作区首次进入都以本人为默认范围；主管和系统管理员
