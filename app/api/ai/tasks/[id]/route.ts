@@ -30,7 +30,17 @@ function accumulatedElapsed(task: { elapsed_ms?: number | null; started_at?: str
 async function cancelWorkflowRun(runId?: string | null) {
   if (!runId) return;
   const run = getRun(runId);
-  if (await run.exists) await run.cancel();
+  if (!(await run.exists)) return;
+  try {
+    await run.cancel();
+  } catch (error) {
+    // Pausing already cancels the durable run. A later explicit cancellation
+    // must remain idempotent instead of trapping the task in PAUSED merely
+    // because the same run is already terminal.
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (/already finished|already cancelled|status ['\"]?cancelled/i.test(message)) return;
+    throw error;
+  }
 }
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
