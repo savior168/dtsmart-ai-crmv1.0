@@ -461,6 +461,40 @@ export function finalizeAnalysisAgainstEvidence(customer: CustomerRow, records: 
   return { ...grounded, usage };
 }
 
+const VERIFIED_TARGET_INDUSTRY = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/;
+
+/**
+ * A page belonging to an unresolved Google/search candidate may describe a
+ * real repair business, but those facts cannot be published as this
+ * customer's verified industry until the entity is attributable. Keep the
+ * candidate evidence for audit while making the displayed industry, score and
+ * target decision one consistent conclusion.
+ */
+export function reconcileRejectedTargetIndustry(
+  analysis: CustomerAnalysis,
+  reason: string,
+  permanentlyClosed = false,
+): CustomerAnalysis {
+  if (!VERIFIED_TARGET_INDUSTRY.test(analysis.industry_type)) return analysis;
+  // 营业状态不是所属行业；永久关闭只记录在结论与冲突中。
+  const industryType: CustomerAnalysis["industry_type"] = "其他";
+  const score = Math.min(59, Number(analysis.ai_score || 0));
+  const verificationNote = permanentlyClosed
+    ? "已匹配主体的Google商家页显示永久关闭，且没有已确认的当前官网经营事实能够证明仍在营业。"
+    : `候选公开页面虽包含目标业务事实，但${reason}；该事实不能归属于当前客户。`;
+  return {
+    ...analysis,
+    industry_type: industryType,
+    ai_score: score,
+    ai_level: scoreToLevel(score),
+    is_target_customer: false,
+    ai_reason: `${verificationNote} 系统保留候选来源供核对，但不将其发布为当前客户的AI核验行业。`,
+    business_relevance: verificationNote,
+    customer_value: "当前没有可安全归属于该客户的目标业务证据，不进入有效目标客户名单。",
+    evidence_conflicts: [...new Set([...analysis.evidence_conflicts, `重点核对：${verificationNote}`])],
+  };
+}
+
 function contactTypeForUrl(value?: string | null): ContactType {
   const url = String(value || "").toLowerCase();
   if (/google\.[^/]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/.test(url)) return "GOOGLE_MAPS";
@@ -1869,7 +1903,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     analysis = finalizeAnalysisAgainstEvidence(customer, records, analysis);
     const identity = resolveIdentity(customer, records, analysis);
     const policyEvidence = policyEvidenceFromAnalysis(analysis);
-    const primaryIndustry = primaryIndustryFor(analysis.industry_type);
+    let primaryIndustry = primaryIndustryFor(analysis.industry_type);
     const explicitRejectEvidence = policyEvidence.some((item) => item.kind === "矛盾" && /只销售手机成品|运营商|外配件|软件|IT咨询|IT系统|技术支持|网络|NAS|服务器|永久关闭|停业|食品|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|无关业务/.test(item.fact));
     const gate = evaluateEvidenceGate({
       strategy: input.strategy, identityStatus: identity.status, identityConfidence: identity.confidence,
@@ -1897,6 +1931,12 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       finalAutomationStatus = "AUTO_REJECT";
       finalGateReason = verificationNote;
     }
+    analysis = reconcileRejectedTargetIndustry(
+      analysis,
+      finalGateReason,
+      finalAutomationStatus === "AUTO_REJECT" && policyEvidence.some((item) => item.kind === "矛盾" && /永久关闭|永久停业|已永久关闭/.test(item.fact)),
+    );
+    primaryIndustry = primaryIndustryFor(analysis.industry_type);
     if (finalAutomationStatus === "AUTO_REJECT" && Number(analysis.ai_score || 0) >= 60) {
       const rejectedScore = explicitRejectEvidence ? 39 : 59;
       analysis = { ...analysis, ai_score: rejectedScore, ai_level: "D", is_target_customer: false };
