@@ -48,6 +48,7 @@ function digest(value: string) { return createHash("sha256").update(value).diges
 export function normalizeEmailStrict(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) return "";
+  if (/\.(?:png|jpe?g|gif|webp|svg|ico|css|js|woff2?|ttf|map)$/i.test(normalized.split("@").at(-1) || "")) return "";
   if (/@(?:example\.(?:com|org|net)|test\.|invalid\.|email\.)/i.test(normalized)) return "";
   // Common misspellings shipped in website/theme demo blocks. They can be
   // exposed as real mailto links, so syntax validation alone is insufficient.

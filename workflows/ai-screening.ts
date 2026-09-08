@@ -22,16 +22,26 @@ async function beginTask(taskId: string) {
   "use step";
   const admin = createAdminClient();
   const now = new Date().toISOString();
-  const current = await admin.from("ai_screening_tasks").select("started_at").eq("id", taskId).single();
-  if (current.error) throw current.error;
-  const updated = await admin.from("ai_screening_tasks").update({ status: "RUNNING", started_at: current.data.started_at || now, finished_at: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "PENDING", "RUNNING"]);
+  // elapsed_ms already contains previous active intervals after pause/retry.
+  // Always start a fresh interval here to avoid counting old time twice.
+  const updated = await admin.from("ai_screening_tasks").update({ status: "RUNNING", started_at: now, finished_at: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "PENDING", "RUNNING"]);
   if (updated.error) throw updated.error;
 }
 
 async function settlePause(taskId: string) {
   "use step";
   const admin = createAdminClient();
-  await admin.from("ai_screening_tasks").update({ status: "PAUSED", updated_at: new Date().toISOString() }).eq("id", taskId).eq("status", "PAUSING");
+  const current = await admin.from("ai_screening_tasks").select("elapsed_ms,started_at").eq("id", taskId).single();
+  if (current.error) throw current.error;
+  const now = new Date();
+  const started = current.data.started_at ? new Date(current.data.started_at).getTime() : NaN;
+  const elapsedMs = Number(current.data.elapsed_ms || 0)
+    + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
+  const paused = await admin.from("ai_screening_tasks").update({
+    status: "PAUSED", started_at: null, elapsed_ms: elapsedMs,
+    pause_started_at: now.toISOString(), updated_at: now.toISOString(),
+  }).eq("id", taskId).eq("status", "PAUSING");
+  if (paused.error) throw paused.error;
 }
 
 async function nextPendingItems(taskId: string, limit: number) {
@@ -41,7 +51,6 @@ async function nextPendingItems(taskId: string, limit: number) {
     .select("id")
     .eq("task_id", taskId)
     .eq("status", "PENDING")
-    .or(`retry_at.is.null,retry_at.lte.${new Date().toISOString()}`)
     // Finish never-attempted customers before returning to slow evidence
     // recovery rows. A small number of difficult customers must not occupy
     // every worker slot while the rest of the task is still untouched.
@@ -144,11 +153,11 @@ async function finishTask(taskId: string) {
   if (error) throw error;
   if (!data || ["CANCELLED", "PAUSED"].includes(String(data.status))) return;
   // A workflow can only report completion after every item reached a terminal
-  // success or technical-failure state. Evidence recovery remains pending.
+  // success or technical-failure state.
   if (Number(data.pending_count || 0) > 0) return;
   const now = new Date();
   const started = data.started_at ? new Date(data.started_at).getTime() : NaN;
-  const elapsedMs = Number.isFinite(started) ? Math.max(0, now.getTime() - started) : Number(data.elapsed_ms || 0);
+  const elapsedMs = Number(data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
   const completed = await admin.from("ai_screening_tasks").update({
     status: "COMPLETED",
     completed_at: now.toISOString(), finished_at: now.toISOString(),
@@ -167,7 +176,7 @@ async function failTask(taskId: string, errorMessage: string) {
   if (!data || ["CANCELLED", "PAUSED"].includes(String(data.status))) return;
   const now = new Date();
   const started = data.started_at ? new Date(data.started_at).getTime() : NaN;
-  const elapsedMs = Number.isFinite(started) ? Math.max(0, now.getTime() - started) : Number(data.elapsed_ms || 0);
+  const elapsedMs = Number(data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
   const failed = await admin.from("ai_screening_tasks").update({
     status: "FAILED", finished_at: now.toISOString(),
     elapsed_ms: elapsedMs, error_message: errorMessage.slice(0, 1000), updated_at: now.toISOString(),
@@ -182,7 +191,7 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     const initial = await taskState(input.taskId);
     if (initial.status === "CANCELLED" || initial.cancelRequested) return { status: "CANCELLED" };
     await beginTask(input.taskId);
-    const concurrency = Math.min(8, Math.max(1, Number(process.env.AI_SCREENING_CONCURRENCY || 3)));
+    const concurrency = Math.min(6, Math.max(1, Number(process.env.AI_SCREENING_CONCURRENCY || 5)));
     while (true) {
       let state = await taskState(input.taskId);
       if (state.status === "PAUSING") {
@@ -201,12 +210,26 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
       const batch = await nextPendingItems(input.taskId, concurrency);
       if (!batch.length) {
         if (await hasPendingItems(input.taskId)) {
-          await sleep("30s");
+          await sleep("3s");
           continue;
         }
         break;
       }
-      await Promise.all(batch.map((itemId) => analyzeTaskItem(input.taskId, itemId, input.strategy)));
+      // Keep every worker slot busy. The old fixed batch waited for the single
+      // slowest customer before starting any new customer, producing visible
+      // gaps even when four workers had already finished.
+      const active = batch.map((itemId) => analyzeTaskItem(input.taskId, itemId, input.strategy));
+      let stopRefill = false;
+      while (active.length) {
+        const completedIndex = await Promise.race(active.map((promise, index) => promise.then(() => index)));
+        active.splice(completedIndex, 1);
+        state = await taskState(input.taskId);
+        if (["PAUSING", "PAUSED", "CANCELLED"].includes(state.status) || state.cancelRequested) stopRefill = true;
+        if (!stopRefill) {
+          const replacement = await nextPendingItems(input.taskId, 1);
+          if (replacement[0]) active.push(analyzeTaskItem(input.taskId, replacement[0], input.strategy));
+        }
+      }
       state = await taskState(input.taskId);
       if (state.status === "PAUSING") await settlePause(input.taskId);
     }

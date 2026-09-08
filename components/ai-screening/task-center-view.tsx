@@ -71,7 +71,7 @@ export function TaskCenterView() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const refresh = () => { if (document.visibilityState === "visible") void load(true); };
-    const timer = window.setInterval(refresh, 20000);
+    const timer = window.setInterval(refresh, 5000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {

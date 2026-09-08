@@ -150,7 +150,7 @@ assert.match(poolApi, /target === "valid"[\s\S]*eq\("ai_screening_done", true\)\
 assert.match(poolApi, /target === "invalid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", false\)/, "客户公海无效目标不得混入待复核或未筛选客户");
 assert.match(customersApi, /target === "valid"[\s\S]*eq\("is_target_customer", true\)[\s\S]*target === "invalid"[\s\S]*eq\("is_target_customer", false\)/, "我的客户目标筛选必须按明确业务结论查询");
 assert.match(aiResultsApi, /\.in\("target_decision", \["VALID", "INVALID"\]\)[\s\S]*\.not\("score", "is", null\)[\s\S]*\.not\("grade", "is", null\)/, "AI最终结果只能加载已评分的有效或无效结论");
-assert.match(aiRunner, /cachedTargetDecision === "VALID" \? true[\s\S]*gate\.automationStatus === "AUTO_DEVELOP" \? true/, "AI写回客户的目标标记必须从证据门控结论推导");
+assert.match(aiRunner, /is_target_customer: cachedTargetDecision === "VALID"[\s\S]*is_target_customer: finalAutomationStatus === "AUTO_DEVELOP"/, "AI写回客户的目标标记必须从最终证据门控结论推导");
 assert.match(customerCrmView, /data\.ai_result\?\.target_decision==="VALID"\?"是"[\s\S]*"待复核"/, "客户详情目标判断必须展示结果三态而非仅按评分推导");
 assert.match(customerCrmApi, /publicReadOnly[\s\S]*followups: \[\], attachments: \[\], quotes: \[\]/, "未认领公海详情不得返回跟进、附件或报价业务数据");
 assert.match(customerCrmApi, /!canReadAll && !isOwner && !publicReadOnly/, "客户详情必须先按归属/全量权限/公海状态确认读取范围");

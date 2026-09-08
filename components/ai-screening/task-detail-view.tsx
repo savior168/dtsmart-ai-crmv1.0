@@ -30,7 +30,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   const [target, setTarget] = useState("");
   const [grade, setGrade] = useState("");
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
-  const [refreshMs, setRefreshMs] = useState(10000);
+  const [refreshMs, setRefreshMs] = useState(3000);
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -58,7 +58,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
       .then((body) => setIndustryOptions(Array.isArray(body.data) ? body.data : []))
       .catch(() => setIndustryOptions([]));
   }, [taskId]);
-  useEffect(() => { if (!task || refreshMs <= 0 || !["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(task.status)) return; const timer = setInterval(() => void load(true), refreshMs); return () => clearInterval(timer); }, [task, load, refreshMs]);
+  useEffect(() => { if (!task || refreshMs <= 0 || !["QUEUED", "RUNNING", "PAUSING"].includes(task.status)) return; const timer = setInterval(() => void load(true), refreshMs); return () => clearInterval(timer); }, [task, load, refreshMs]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const currentAction = actionFor(task);
   const processed = Number(task?.success_count || 0) + Number(task?.failed_count || 0);

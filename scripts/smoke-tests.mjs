@@ -54,18 +54,19 @@ assert.match(analysis, /"A"\s*\|\s*"B"\s*\|\s*"C"\s*\|\s*"D"/, "AI等级必须�
 assert.doesNotMatch(analysis, /"S"\s*\|/, "不能保留S级");
 assert.match(analysis, /EXCEL_IMPORT[\s\S]*绝不是进口商/, "导入来源标签不得作为进口商或行业证据");
 assert.match(analysis, /groundCustomerAnalysis/, "AI结论必须经过证据一致性校验");
-assert.doesNotMatch(analysis, /tools:\s*\[\{ type: "web_search"/, "模型内置网页搜索不得作为默认兜底，否则会重复抓取并放大Token成本");
+assert.match(analysis, /discoverPublicSourceUrls[\s\S]*max_output_tokens: 520[\s\S]*tools: \[\{ type: "web_search" \}\]/, "网页搜索只能使用轻量网址发现请求");
+assert.doesNotMatch(analysis, /const recoveryTools/, "完整分析模型不得启用网页搜索造成重复抓取和Token浪费");
 assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)/, "未实际读取的输入网址不得自动视为有效证据来源");
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.09\.07\.6/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.09\.08\.1/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
-assert.match(taskRunner, /automation_status: gate\.automationStatus/, "任务客户必须保存最终自动处理状态");
+assert.match(taskRunner, /automation_status: finalAutomationStatus/, "任务客户必须保存最终自动处理状态");
 assert.doesNotMatch(taskRunner, /setTimeout\(\(\) => timeoutController\.abort\(\), 30_000\)/, "不得用30秒整客户硬超时丢弃已抓取证据");
-assert.match(taskRunner, /analyzeWithRecovery/, "慢模型调用必须支持保留证据后的自动恢复重试");
-assert.match(taskRunner, /all_available_sources_retry/, "模型恢复重试必须独立记录而且不得重复抓取客户公开来源");
+assert.match(taskRunner, /analyzeWithRecovery/, "高价值疑似客户可使用一次模型综合分析");
+assert.doesNotMatch(taskRunner, /all_available_sources_retry|canRecoverModelCall/, "单客户模型调用不得自动重试并重复消耗费用");
 assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
 assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
@@ -82,7 +83,8 @@ assert.match(evidenceView, /VerifiedContactsSection/, "AI依据页必须在结�
 assert.match(evidenceView, /<span>客户详情<\/span>/, "AI分析依据页必须显示客户详情按钮文字");
 assert.match(evidenceView, /历史结果未保存评分/, "历史未评分记录必须明确提示重新评分且不得伪造高分");
 const workflow = read("workflows/ai-screening.ts");
-assert.match(workflow, /Promise\.all\(batch\.map/, "AI任务必须按可控并发持续执行，单条失败不能终止整批任务");
+assert.match(workflow, /Promise\.race\(active\.map/, "AI任务必须持续补位执行，不能等待最慢客户拖住下一批");
+assert.match(workflow, /AI_SCREENING_CONCURRENCY \|\| 5/, "AI任务默认并发必须兼顾吞吐和外部接口稳定性");
 assert.doesNotMatch(workflow, /Promise\.race\(\[analysis, deadline\]\)/, "工作流不得用30秒整客户硬超时中断证据收集");
 assert.match(workflow, /AI_SCREENING_CONCURRENCY/, "AI任务并发量必须可通过服务端环境变量配置");
 assert.match(workflow, /status: "COMPLETED"/, "单个客户失败不能把已跑完的整个任务标记为失败");

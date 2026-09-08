@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
+  discoverPublicSourceUrls,
   isComputerHardwareRepairEvidence,
   scoreToLevel,
   type CustomerAnalysis,
@@ -45,7 +46,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.07.6";
+const ANALYSIS_VERSION = "2026.09.08.1";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -523,6 +524,12 @@ function originalValuesForType(customer: CustomerRow, type: ContactType) {
 function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
   const candidates: ContactCandidate[] = [];
   const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null, candidateIdentity = identityStatus, contactConflict = false) => {
+    if (type === "EMAIL") {
+      const domain = normalizeEmailStrict(value).split("@").at(-1) || "";
+      const host = websiteHost(url);
+      const sameBusinessDomain = Boolean(domain && host && (host === domain || host.endsWith(`.${domain}`) || domain.endsWith(`.${host}`)));
+      if (domain && !PERSONAL_EMAIL_DOMAINS.has(domain) && !sameBusinessDomain) return;
+    }
     const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus: candidateIdentity, originalValues: originalValuesForType(customer, type), contactConflict });
     if (candidate) candidates.push(candidate);
   };
@@ -718,7 +725,7 @@ export function hasVerifiedGoogleBusinessCategory(item: GooglePlaceEvidence) {
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|(?:repair|fix)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|(?:reparerer?|fikser)\s+(?:vi\s+)?(?:mobil|telefon|smarttelefon)|(?:repair|fix)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
   { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:electronics? repair shop|electrical repair shop|electronic device repair|电子设备维修|电子产品维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
@@ -734,7 +741,7 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
 
 const PRODUCT_RELEVANCE_PATTERN = /(?:mobile|phone|cellular|smartphone|iphone|ipad|macbook|computer|laptop|gsm|lcd|oled|screen|battery|repair parts?|spare parts?|accessor(?:y|ies)|telefon|komputer|smartfon|手机|电脑|屏幕|电池|配件|维修件)/i;
 const TELECOM_SERVICE_PATTERN = /(?:mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|sim card|mobile plan|通信合约|宽带套餐|手机套餐|运营商)/i;
-const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone repair|iphone repair|computer repair|laptop repair|handyreparatur|computerreparatur|napraw\w* (?:telefon|smartfon|komputer|laptop)|serwis\w* (?:telefon|gsm|smartfon|komputer|laptop)|reparaci[oó]n (?:de )?(?:tel[eé]fonos|m[oó]viles|celulares|ordenadores|computadoras)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones|computadores)|手机维修|电脑维修|换屏|电池更换|充电口|主板维修)/i;
+const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone repair|iphone repair|computer repair|laptop repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|handyreparatur|computerreparatur|napraw\w* (?:telefon|smartfon|komputer|laptop)|serwis\w* (?:telefon|gsm|smartfon|komputer|laptop)|reparaci[oó]n (?:de )?(?:tel[eé]fonos|m[oó]viles|celulares|ordenadores|computadoras)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones|computadores)|手机维修|电脑维修|换屏|电池更换|充电口|主板维修)/i;
 
 function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
   const reviews = (item.reviews || []).join("；");
@@ -819,14 +826,14 @@ function deterministicScore(input: {
     return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
   }).join("；");
   const specificServices = [
-    /(?:screen (?:replacement|repair)|display (?:replacement|repair)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
-    /(?:battery (?:replacement|repair)|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
-    /(?:component[- ]level repair|board[- ]level repair|microsoldering|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线)/i,
+    /(?:screen (?:replacement|repair)|display (?:replacement|repair)|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
+    /(?:battery (?:replacement|repair)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
+    /(?:component[- ]level repair|board[- ]level repair|microsoldering|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|ladeport|høyttaler(?:e)?|bøyd chassis|vanninngangsskade|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线)/i,
     /(?:repair bench|device disassembly|repair work|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|维修工作台|拆机维修|维修作业|专业维修车间|内配件|维修配件)/i,
     /(?:spare parts?|replacement parts?|repair parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|优质备件|维修配件|内配件)/i,
     /(?:wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i,
   ].filter((pattern) => pattern.test(combinedText || input.candidate.text)).length;
-  const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|screen replacement|battery replacement|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|device disassembly|spare parts?|replacement parts?|repair parts?|ersatzteil\w*|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|专业维修车间|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
+  const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|screen replacement|battery replacement|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|vanninngangsskade|bøyd chassis|ødelagte? høyttaler(?:e)?|ladeport|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|device disassembly|spare parts?|replacement parts?|repair parts?|ersatzteil\w*|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|专业维修车间|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
   const recordTargetText = (record: ChannelRecord) => {
     if (!record.evidence) return "";
     if (record.channel === "google_maps") {
@@ -836,7 +843,9 @@ function deterministicScore(input: {
     const evidence = record.evidence as WebsiteEvidence;
     return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
   };
-  const googleDirectTargetEvidence = matchingRecords.some((record) => record.channel === "google_maps" && directTargetPattern.test(recordTargetText(record)));
+  const googleDirectTargetEvidence = matchingRecords.some((record) => record.channel === "google_maps"
+    && (directTargetPattern.test(recordTargetText(record))
+      || Boolean(input.google && input.rule.target && hasVerifiedGoogleBusinessCategory(input.google))));
   const websiteDirectTargetEvidence = matchingRecords.some((record) => record.channel === "website" && directTargetPattern.test(recordTargetText(record)));
   const googleDirectBusinessEvidence = matchingRecords.some((record) => record.channel === "google_maps"
     && verifiedFactLabels(recordTargetText(record)).some((label) => !NON_TARGET_FACT_LABEL.test(label)));
@@ -888,7 +897,11 @@ function deterministicScore(input: {
   // repairs phones/laptops or sells their accessories is direct operating
   // evidence. It is weaker than component-level or multi-source proof, but it
   // must clear the target threshold instead of being mislabeled as D.
-  if (input.rule.target && googleDirectBusinessEvidence) rawScore = Math.max(rawScore, 62);
+  if (input.rule.target && googleDirectBusinessEvidence) {
+    const reviewSignal = Math.min(6, Math.round(Math.log10(reviewCount + 1) * 2.5));
+    const serviceSignal = Math.min(4, specificServices);
+    rawScore = Math.max(rawScore, 60 + reviewSignal + serviceSignal + (verifiedContacts ? 1 : 0));
+  }
   if (completeDirectTargetChain) rawScore = Math.max(rawScore, 85);
   const qualifiesForA = completeDirectTargetChain || (input.rule.target && matchingSources >= 2
     && (verifiedProcurementEvidence || highVolumeRepair || (wholesale && scaleValue >= 15)));
@@ -917,11 +930,11 @@ function deterministicScore(input: {
 }
 
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
-  { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono)|手机维修/i },
+  { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)|手机维修/i },
   { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
   { label: "电子设备维修", pattern: /(?:electronics? repair shop|electrical repair shop|electronic device repair|电子设备维修|电子产品维修)/i },
-  { label: "屏幕或玻璃更换", pattern: /(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
-  { label: "电池更换", pattern: /(?:battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
+  { label: "屏幕或玻璃更换", pattern: /(?:sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
+  { label: "电池更换", pattern: /(?:dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)?|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
   { label: "充电口或接口维修", pattern: /(?:charging port|charge port|dock connector|usb port|ladebuchse|puerto de carga|port de charge|connettore di ricarica|充电口|尾插)/i },
   { label: "主板或逻辑板维修", pattern: /(?:motherboard|mainboard|logic board|logicboard|płyta gł[oó]wna|placa madre|carte m[eè]re|scheda madre|主板|逻辑板).{0,20}(?:repair|service|napraw|repar|r[eé]paration|riparazione|维修)/i },
   { label: "板级或元器件级维修", pattern: /(?:component[- ]level repair|board[- ]level repair|microsoldering|micro soldering|板级维修|元器件级维修)/i },
@@ -1215,7 +1228,9 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
     ? `；${failed.map((item) => AI_CHANNEL_LABELS[item.channel]).join("、")}未能取得有效公开内容`
     : "";
   const sourceCount = new Set(collected.map((item) => item.channel)).size;
-  const reason = `${collectedText}${limitation}。本次公开检索尚未取得足以支持有效或无效判断的经营事实，因此不作评分和定级；后续会继续补充公开证据后再形成结论。`;
+  const score = Math.min(39, 16 + sourceCount * 5 + (customer.phone ? 2 : 0) + (customer.email ? 2 : 0));
+  const verificationNote = "重点核对：公开渠道未显示目标维修、维修配件或批发分销事实；若销售沟通取得相反凭证，应补充到客户资料后重新分析。";
+  const reason = `${collectedText}${limitation}。系统已完成本轮全部可用渠道核验，现有真实证据显示目标业务相关性较低，综合评为D级${score}分；未把无法读取的页面或客户名称关键词当作经营事实。`;
   const attemptEvidence = records.flatMap((record) => {
     const url = record.source_url || channelUrl(customer, record.channel);
     if (!url || !/^https?:\/\//i.test(url)) return [];
@@ -1228,15 +1243,15 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
   return {
     industry_type: "其他",
     is_target_customer: false,
-    ai_score: null,
-    ai_level: null,
+    ai_score: score,
+    ai_level: "D",
     ai_reason: reason,
-    business_relevance: "尚未取得足以支持有效或无效判断的公开经营事实，不能据此降低客户优先级。",
-    customer_value: "经营证据待补全，暂不进入有效或无效名单。",
-    followup_suggestion: "继续补充官网重点页面、具体Google商家信息或已确认的官方公开主页后自动重新判断。",
+    business_relevance: "已检查现有公开入口，未发现可追溯的手机或电脑维修、维修配件、相关批发分销经营事实，当前按低相关客户处理。",
+    customer_value: `当前公开证据未证明目标业务价值。${verificationNote}`,
+    followup_suggestion: "无需继续自动消耗模型费用；仅在销售取得新的官网、Google商家或官方社媒经营凭证后重新分析。",
     confidence_score: Math.min(59, 30 + sourceCount * 8),
     evidence_sufficiency: "一般",
-    evidence_conflicts: [],
+    evidence_conflicts: [verificationNote],
     score_breakdown: { ...emptyBreakdown(0), evidence_completeness: Math.min(49, 20 + sourceCount * 10), contradiction_risk: 45 },
     suggested_contact_order: [],
     evidence_summaries: attemptEvidence,
@@ -1373,10 +1388,6 @@ async function saveModelCall(input: {
   if (write.error) throw write.error;
 }
 
-function canRecoverModelCall(error: unknown) {
-  return normalizeError(error, { stage: "MODEL_CALL", provider: "OPENAI" }).retryable;
-}
-
 async function analyzeWithRecovery(input: {
   taskId: string;
   taskItemId: string;
@@ -1386,7 +1397,6 @@ async function analyzeWithRecovery(input: {
   records: ChannelRecord[];
   signal: AbortSignal;
   tier: "fast" | "deep" | "escalation";
-  maxRequests: 1 | 2;
 }) {
   const modelInput = {
     customer_name: input.customer.company_name,
@@ -1401,7 +1411,6 @@ async function analyzeWithRecovery(input: {
     evidence: evidenceForModel(input.records, input.tier),
   };
   const primaryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 40_000;
-  const retryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 35_000;
   const run = async (channel: string, timeoutMs: number) => {
     const startedAt = Date.now();
     try {
@@ -1413,14 +1422,7 @@ async function analyzeWithRecovery(input: {
       throw error;
     }
   };
-  try {
-    return { analysis: await run("all_available_sources", primaryTimeout), requestCount: 1 };
-  } catch (error) {
-    if (input.maxRequests < 2 || !canRecoverModelCall(error)) throw error;
-    // The evidence checkpoint is already stored. Retry only the model synthesis,
-    // never re-crawl the customer or discard facts collected by the first pass.
-    return { analysis: await run("all_available_sources_retry", retryTimeout), requestCount: 2 };
-  }
+  return { analysis: await run("all_available_sources", primaryTimeout), requestCount: 1 };
 }
 
 async function saveVerifiedContacts(input: { taskId: string; resultId: string; customer: CustomerRow; contacts: ContactCandidate[]; preferred?: ContactCandidate | null }) {
@@ -1517,7 +1519,7 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
       : cachedResult.evidence_sufficiency,
     target_decision: cachedTargetDecision,
     automation_status: cachedAutomationStatus,
-    target_fit: cachedResult.target_fit || (cachedTargetDecision === "VALID" ? "TARGET" : cachedTargetDecision === "INVALID" ? "NOT_TARGET" : "UNCERTAIN"),
+    target_fit: cachedTargetDecision === "VALID" ? "TARGET" : "NOT_TARGET",
     lead_priority: cachedResult.lead_priority || "LOW",
     decision_status: cachedResult.decision_status || "AUTO_HOLD",
     manual_review_status: cachedResult.manual_review_status || "NEEDS_REVIEW",
@@ -1571,7 +1573,7 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
     ai_score: normalizedCachedResult.score,
     ai_level: normalizedCachedResult.grade,
       ai_reason: cachedResult.ai_reason || cachedResult.summary,
-      is_target_customer: cachedTargetDecision === "VALID" ? true : cachedTargetDecision === "INVALID" ? false : null,
+      is_target_customer: cachedTargetDecision === "VALID",
       ai_screening_done: true,
       ai_status: "COMPLETED",
       business_relevance: cachedResult.business_relevance,
@@ -1720,40 +1722,45 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         }
       }
     }
-    const maxModelCalls = input.strategy === "DEEP"
-      ? Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_DEEP_MAX_MODEL_CALLS_PER_CUSTOMER || 2)))
-      : Math.max(1, Math.min(2, Number(process.env.AI_SCREENING_SMART_MAX_MODEL_CALLS_PER_CUSTOMER || 2)));
+    // Hard cost and latency boundary: at most one model-assisted pass per
+    // customer. A second call must never be scheduled automatically; any
+    // remaining uncertainty is scored from the saved evidence and highlighted.
+    const maxModelCalls = 1;
     if (!isConclusiveChannelAnalysis(analysis) && shouldUseModelSupplement(customer, records, analysis)) {
-      // One bounded discovery call covers identity, official business pages and
-      // (only for target-adjacent customers) verified official social profiles.
-      // Repeating three searches per attempt caused the same difficult rows to
-      // consume most of the task's latency and tokens.
-      const focus = "comprehensive" as const;
-      if (modelRequestCount < maxModelCalls && !completedRecoveryFocuses.has(focus)) {
-        modelRequestCount += 1;
-        const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, focus });
-        usage = addUsage(usage, recovery.usage);
-        if (recovery.completed) {
-          completedRecoveryFocuses.add(focus);
-          await saveCheckpoint(input.taskItemId, records, "other", { completed_recovery_focuses: [...completedRecoveryFocuses] });
+      // Spend the single model allowance where it adds the most value. When no
+      // usable source exists, use it to locate public entry points. When saved
+      // evidence already exists, skip another search and use the call to
+      // synthesize that evidence instead.
+      if (!hasUsableCollectedEvidence(records)) {
+        const focus = "comprehensive" as const;
+        if (modelRequestCount < maxModelCalls && !completedRecoveryFocuses.has(focus)) {
+          modelRequestCount += 1;
+          const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, focus });
+          usage = addUsage(usage, recovery.usage);
+          if (recovery.completed) {
+            completedRecoveryFocuses.add(focus);
+            await saveCheckpoint(input.taskItemId, records, "other", { completed_recovery_focuses: [...completedRecoveryFocuses] });
+          }
+          analysis = deterministicAnalysis(customer, records);
         }
-        analysis = deterministicAnalysis(customer, records);
       }
       if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
         if (!hasUsableCollectedEvidence(records)) {
-          await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: "本轮尚未取得可核验经营事实，系统将在后台继续扩展公开来源。" });
-          return { status: "PENDING" as const };
+          analysis = insufficientDataAnalysis(customer, records);
+          earlyStopReason = "已完成全部可用公开入口核验，未发现目标业务事实，直接形成低相关结论，不再重复检索或消耗模型费用。";
+        } else {
+          const remainingModelCalls = maxModelCalls - modelRequestCount;
+          if (remainingModelCalls > 0) {
+            const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation" });
+            analysis = outcome.analysis;
+            modelRequestCount += outcome.requestCount;
+            usage = addUsage(usage, analysis.usage);
+            earlyStopReason = "规则无法直接判断时，系统完成一次轻量公开来源补证，再由高精度模型综合全部已核验证据。";
+          } else if (!analysis) {
+            analysis = insufficientDataAnalysis(customer, records);
+            earlyStopReason = "已达到本客户模型调用上限，依据已取得的真实证据形成低相关结论，不进入等待或重复重试。";
+          }
         }
-        const remainingModelCalls = maxModelCalls - modelRequestCount;
-        if (remainingModelCalls <= 0) {
-          await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: "已达到本客户模型调用上限，保留现有真实证据并移至任务末尾再次核验。" });
-          return { status: "PENDING" as const };
-        }
-        const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation", maxRequests: remainingModelCalls >= 2 ? 2 : 1 });
-        analysis = outcome.analysis;
-        modelRequestCount += outcome.requestCount;
-        usage = addUsage(usage, analysis.usage);
-        earlyStopReason = "规则无法直接判断时，系统完成一次综合公开来源补证，再由高精度模型综合全部已核验证据。";
       } else {
         earlyStopReason = "系统扩展公开来源后取得可核验直接证据，由规则引擎完成判断。";
       }
@@ -1761,14 +1768,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       earlyStopReason = "已取得可核验的直接行业证据，规则引擎完成判断，未调用大模型。";
     }
     if (!analysis) {
-      await deferEvidenceRecovery({
-        ...input,
-        attemptNumber: input.attemptNumber || 1,
-        records,
-        usage,
-        reason: "Google商家与已确认官网尚未形成可核验行业结论，且当前没有潜在目标价值信号；不消耗社媒与模型费用，移至任务末尾等待公开来源更新。",
-      });
-      return { status: "PENDING" as const };
+      analysis = insufficientDataAnalysis(customer, records);
+      earlyStopReason = "Google商家与已确认官网未显示目标行业事实，直接形成低相关结论；未调用社媒或大模型。";
     }
     const needsEscalation = hasUsableCollectedEvidence(records)
       && analysis.usage.model !== "RULE_ENGINE"
@@ -1812,11 +1813,24 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       hasCriticalConflict: ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
+    let finalAutomationStatus = gate.automationStatus;
+    let finalGateReason = gate.reason;
     if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {
-      await deferEvidenceRecovery({ ...input, attemptNumber: input.attemptNumber || 1, records, usage, reason: `${gate.reason} 系统将在后台继续补充并交叉核验公开来源。` });
-      return { status: "PENDING" as const };
+      const potentialTarget = analysis.evidence_summaries.some((item) => item.evidence_type === "支持");
+      const boundedScore = Math.min(59, Math.max(Number(analysis.ai_score || 0), potentialTarget ? 52 : 20));
+      const verificationNote = `重点核对：${gate.reason}。系统已完成自动分析并给出保守评分；销售联系时应优先核对主体或冲突事实。`;
+      analysis = {
+        ...analysis,
+        ai_score: boundedScore,
+        ai_level: scoreToLevel(boundedScore),
+        is_target_customer: false,
+        confidence_score: Math.min(79, analysis.confidence_score),
+        evidence_conflicts: [...new Set([...analysis.evidence_conflicts, verificationNote])],
+      };
+      finalAutomationStatus = "AUTO_REJECT";
+      finalGateReason = verificationNote;
     }
-    // The hold path returned above. Every persisted final result therefore has
+    // Every persisted final result has
     // a real score and grade backed by a valid/invalid evidence-gate decision.
     const publishedScore = analysis.ai_score;
     const publishedLevel = analysis.ai_level;
@@ -1837,7 +1851,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const resultPayload = {
       customer_id: customer.id, task_id: input.taskId, task_item_id: input.taskItemId,
       score: publishedScore, grade: publishedLevel,
-      target_decision: compatibilityTargetDecision(gate.automationStatus), automation_status: gate.automationStatus,
+      target_decision: compatibilityTargetDecision(finalAutomationStatus), automation_status: finalAutomationStatus,
       customer_type: analysis.industry_type, industry_type: analysis.industry_type,
       primary_industry: primaryIndustry, secondary_industries: [], business_activities: businessScope ? [businessScope] : [],
       business_scope: businessScope,
@@ -1875,11 +1889,11 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       discovered_contacts: { website_email: websiteEmail || null, website_phone: websitePhone || null, whatsapp: discoveredWhatsapps, contacts: reconciled.contacts },
       model_version: usage.model, rule_version: AI_RULE_VERSION, field_mapping_version: AI_FIELD_MAPPING_VERSION,
       verified_industry: primaryIndustry,
-      target_fit: gate.automationStatus === "AUTO_DEVELOP" ? "TARGET" : gate.automationStatus === "AUTO_REJECT" ? "NOT_TARGET" : "UNCERTAIN",
+      target_fit: finalAutomationStatus === "AUTO_DEVELOP" ? "TARGET" : "NOT_TARGET",
       lead_priority: resultLeadPriority(false, publishedLevel),
       purchase_scale: verifiedScale.companyScale || "UNKNOWN",
-      decision_status: gate.automationStatus,
-      short_reason: gate.reason,
+      decision_status: finalAutomationStatus,
+      short_reason: finalGateReason,
       attempt_number: input.attemptNumber || 1,
       is_latest_valid: false,
       writeback_status: "PENDING",
@@ -1897,7 +1911,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       analysis_status: "RUNNING",
       writeback_status: "PENDING",
       result_id: resultWrite.data.id,
-      automation_status: gate.automationStatus,
+      automation_status: finalAutomationStatus,
       retry_at: retryAt,
       progress: 80,
       current_step: "RESULT_SAVED",
@@ -2015,7 +2029,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       ai_reason: analysis.ai_reason,
       // Review is a third state. A score alone must never turn uncertain
       // evidence into a definitive customer classification.
-      is_target_customer: gate.automationStatus === "AUTO_DEVELOP" ? true : gate.automationStatus === "AUTO_REJECT" ? false : null,
+      is_target_customer: finalAutomationStatus === "AUTO_DEVELOP",
       ai_screening_done: true, ai_status: "COMPLETED",
       business_relevance: analysis.business_relevance, customer_value: analysis.customer_value,
       followup_suggestion: analysis.followup_suggestion, website_email: websiteEmail || null,
@@ -2109,46 +2123,6 @@ export function publicAiError(error: unknown) {
   };
 }
 
-async function deferEvidenceRecovery(input: {
-  taskId: string;
-  taskItemId: string;
-  attemptNumber: number;
-  records: ChannelRecord[];
-  usage: UsageTotals;
-  reason: string;
-}) {
-  const delayMinutes = input.attemptNumber <= 1 ? 1 : input.attemptNumber === 2 ? 5 : 30;
-  const retryAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
-  const admin = createAdminClient();
-  const write = await admin.from("ai_screening_task_items").update({
-    status: "PENDING",
-    analysis_status: "PENDING",
-    writeback_status: "PENDING",
-    automation_status: null,
-    progress: 45,
-    current_step: "EXPANDING_PUBLIC_EVIDENCE",
-    pipeline_stage: "EXPANDING_PUBLIC_EVIDENCE",
-    retryable: true,
-    retry_at: retryAt,
-    error_message: null,
-    error_code: null,
-    error_context: { automatic_research: true, reason: input.reason, next_retry_at: retryAt },
-    analyzed_channels: input.records.filter((item) => item.status === "COLLECTED").map((item) => item.channel),
-    skipped_channels: input.records.filter((item) => item.status !== "COLLECTED").map((item) => ({ channel: item.channel, status: item.status, reason: item.error })),
-    analysis_version: ANALYSIS_VERSION,
-    input_tokens: input.usage.input_tokens,
-    cached_input_tokens: input.usage.cached_input_tokens,
-    output_tokens: input.usage.output_tokens,
-    total_tokens: input.usage.total_tokens,
-    cost_usd: input.usage.cost_usd,
-    completed_at: null,
-    updated_at: new Date().toISOString(),
-  }).eq("id", input.taskItemId);
-  if (write.error) throw durableError(write.error, "EVIDENCE_RECOVERY_DEFER");
-  const totals = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
-  if (totals.error) throw durableError(totals.error, "TASK_TOTAL_REFRESH");
-}
-
 function recoveryChannel(url: string): AiChannel {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -2197,9 +2171,9 @@ async function recoverPublicEvidence(input: {
   focus: "identity" | "official_business" | "social_business" | "comprehensive";
 }) {
   const startedAt = Date.now();
-  let recovery: CustomerAnalysis;
+  let recovery: Awaited<ReturnType<typeof discoverPublicSourceUrls>>;
   try {
-    recovery = await analyzeCustomer({
+    recovery = await discoverPublicSourceUrls({
       customer_name: input.customer.company_name,
       country: input.customer.country,
       phone: input.customer.phone,
@@ -2210,14 +2184,14 @@ async function recoverPublicEvidence(input: {
       address: input.customer.address,
       industry_keywords: null,
       evidence: evidenceForModel(input.records, "fast"),
-    }, { signal: input.signal, timeoutMs: 40_000, tier: "recovery", recoveryFocus: input.focus });
+    }, { signal: input.signal, timeoutMs: 25_000, recoveryFocus: input.focus });
     await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, usage: recovery.usage, status: "COMPLETED" });
   } catch (error) {
     await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, status: "FAILED", error });
     return { usage: ZERO_USAGE, collected: 0, completed: false };
   }
   const existing = new Set(input.records.map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
-  const urls = (recovery.discovered_source_urls || [])
+  const urls = recovery.urls
     .filter((url) => !existing.has(url.replace(/\/$/, "").toLowerCase()))
     .sort((left, right) => {
       const social = (url: string) => /(?:facebook|instagram|linkedin|tiktok)\.com/i.test(url) ? 1 : 0;
