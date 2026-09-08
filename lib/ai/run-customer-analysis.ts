@@ -56,7 +56,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.4";
+const ANALYSIS_VERSION = "2026.09.08.5";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -293,7 +293,9 @@ function identityNameSimilarity(left?: string | null, right?: string | null) {
 
 export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[], analysis?: CustomerAnalysis | null) {
   const google = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
-  const website = records.find((item) => item.channel === "website" && item.status === "COLLECTED")?.evidence as WebsiteEvidence | undefined;
+  const websiteRecord = records.find((item) => item.channel === "website" && item.status === "COLLECTED");
+  const website = websiteRecord?.evidence as WebsiteEvidence | undefined;
+  const admittedWebsite = Boolean(websiteRecord && websiteRecordMatchesEntity(customer, records, websiteRecord));
   // Prefer a fully matched Google entity. If Google is only ambiguous while a
   // supplied official website was successfully read, evaluate that website
   // instead of letting the weaker Maps candidate override stronger identity
@@ -301,13 +303,18 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   const googleConfidence = Number(google?.identity_confidence || 0);
   const googleMatchSignals = google?.match_signals || [];
   const googleMismatchSignals = google?.mismatch_signals || [];
-  const exactGoogleSignals = googleMatchSignals.filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口/.test(signal)).length;
+  const exactGoogleSignals = googleMatchSignals.filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/i.test(signal)).length;
+  const onlyReplaceableContactMismatches = googleMismatchSignals.length > 0
+    && googleMismatchSignals.every((signal) => /电话|官网|域名|换号|分店/.test(signal));
   const normalizedGoogleStatus: IdentityStatus | null = google?.identity_status
-    ? (google.identity_status === "AMBIGUOUS" && googleConfidence >= 90 && exactGoogleSignals >= 2 && !hasCriticalIdentityMismatch(googleMismatchSignals)
+    ? ((google.identity_status === "AMBIGUOUS" && googleConfidence >= 90 && exactGoogleSignals >= 2 && !hasCriticalIdentityMismatch(googleMismatchSignals))
+      || (google.identity_status === "CONFLICTED" && googleConfidence >= 90 && exactGoogleSignals >= 3 && onlyReplaceableContactMismatches)
       ? "MATCHED"
       : google.identity_status as IdentityStatus)
     : null;
-  if (normalizedGoogleStatus && (googleConfidence >= 90 || !website?.reachable)) return {
+  if (normalizedGoogleStatus
+      && ["MATCHED", "LIKELY_MATCHED"].includes(normalizedGoogleStatus)
+      && (googleConfidence >= 90 || !website?.reachable)) return {
     status: normalizedGoogleStatus,
     confidence: googleConfidence,
     verifiedBusinessName: google?.name || null,
@@ -338,8 +345,8 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   }
   const pageText = [website.title, website.description, website.text_excerpt].filter(Boolean).join(" ");
   const nameScore = Math.round(identityNameSimilarity(customer.company_name, pageText) * 65);
-  const originalPhone = normalizePhone(customer.phone);
-  const phoneMatch = Boolean(originalPhone && website.phones.some((item) => normalizePhone(item) === originalPhone));
+  const originalPhone = normalizePhoneInternational(customer.phone, customer.country);
+  const phoneMatch = Boolean(originalPhone && website.phones.some((item) => normalizePhoneInternational(item, customer.country) === originalPhone));
   const emailDomain = normalizeEmail(customer.email).split("@")[1] || "";
   let websiteDomain = ""; try { websiteDomain = new URL(website.url).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
   const customerWebsite = effectiveWebsite(customer);
@@ -350,7 +357,12 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   // The exact domain of a non-personal company mailbox is a strong identity
   // signal for imported branch records whose display name may only be a mall or
   // district name. It verifies the company, but still does not prove industry.
-  const score = Math.min(100, Math.max(providedDomainMatch ? 75 : 0, nameScore + (providedDomainMatch ? 30 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 50 : 0) + (addressMatch ? 20 : 0)));
+  // An exact normalized public phone uniquely ties the page to the customer in
+  // the same way the website admission gate already does. It must not be
+  // weakened merely because the brand is translated, reordered or spelled
+  // differently in the page title (for example Smartphone Doctor / Smartfon
+  // Doctor). Domain and name remain corroborating signals when phone is absent.
+  const score = Math.min(100, Math.max(phoneMatch ? 90 : 0, admittedWebsite ? 80 : 0, providedDomainMatch ? 75 : 0, nameScore + (providedDomainMatch ? 30 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 50 : 0) + (addressMatch ? 20 : 0)));
   const signals = [nameScore >= 45 ? "官网名称与客户名称一致" : "", providedDomainMatch ? "读取域名与客户官网一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
   const status: IdentityStatus = score >= 90 ? "MATCHED" : score >= 70 ? "LIKELY_MATCHED" : "AMBIGUOUS";
   return { status, confidence: score, verifiedBusinessName: website.title || customer.company_name, verifiedAddress: addressMatch ? customer.address : null, verifiedWebsite: website.url, verifiedGoogleMapsUrl: customer.google_url, placeId: null, candidateCount: 0, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["官网主体匹配信号不足"] };
@@ -866,7 +878,16 @@ const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone
 function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
   const reviews = (item.reviews || []).join("；");
   const verifiedContext: string[] = [];
-  if (item.identity_status === "MATCHED") {
+  if (item.identity_status === "MATCHED" && Number(item.identity_confidence || 0) >= 90) {
+    const businessName = String(item.name || "");
+    const mobileName = /(?:phone|mobile|smartphone|smartfon|telefon|gsm|iphone|手机)/i.test(businessName);
+    const repairReview = /(?:repair|repaired|fix|fixed|screen replacement|battery replacement|napraw|serwis|repar|维修|修理|更换)/i.test(reviews);
+    // A matched Google business name is not used alone as industry evidence.
+    // It becomes a concrete mobile-repair fact only when the published name
+    // device wording is corroborated by an actual customer review describing
+    // a repair. A descriptive name without an independent activity fact is
+    // still only a routing hint and never becomes a scored business fact.
+    if (mobileName && repairReview) verifiedContext.push("mobile phone repair");
     if (/(?:cell_phone_store|mobile_phone_shop)/i.test((item.types || []).join(" "))
         && /(?:accessor|cover|charger|earbud|headphone|配件|手机壳|充电器|耳机)/i.test(reviews)) {
       verifiedContext.push("mobile phone accessories");
@@ -1977,7 +1998,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {
       const potentialTarget = analysis.evidence_summaries.some((item) => item.evidence_type === "支持");
       const boundedScore = Math.min(59, Math.max(Number(analysis.ai_score || 0), potentialTarget ? 52 : 20));
-      const verificationNote = `重点核对：${gate.reason}。系统已完成自动分析并给出保守评分；销售联系时应优先核对主体或冲突事实。`;
+      const conciseGateReason = gate.reason.replace(/^重点核对：/, "").replace(/[。；\s]+$/, "");
+      const verificationNote = `重点核对：${conciseGateReason}。系统已完成自动分析并给出保守评分；销售联系时应优先核对主体或冲突事实。`;
       analysis = {
         ...analysis,
         ai_score: boundedScore,
