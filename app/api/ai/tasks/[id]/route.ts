@@ -180,7 +180,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         status: "QUEUED",
         total_count: customerIds.length,
         pending_count: customerIds.length,
-        filters: { reanalysis_scope: "INVALID", source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number) },
+        filters: { force_fresh_analysis: true, reanalysis_scope: "INVALID", source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number) },
         selection_mode: "FILTERED",
         notification_mode: body.notification_mode || task.notification_mode || "IN_APP",
       }).select("*").single();
@@ -220,7 +220,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         status: "QUEUED",
         total_count: customerIds.length,
         pending_count: customerIds.length,
-        filters: { reanalysis_source_task_id: id, reanalysis_source_task_number: task.task_number },
+        filters: { force_fresh_analysis: true, reanalysis_source_task_id: id, reanalysis_source_task_number: task.task_number },
         selection_mode: "FILTERED",
         notification_mode: task.notification_mode || "IN_APP",
       }).select("*").single();

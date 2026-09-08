@@ -40,6 +40,12 @@ import { jsonSafe, normalizeError } from "./error-normalization";
 
 type CustomerRow = AiMappedCustomer;
 
+export function shouldReuseAnalysisForTask(filters: unknown) {
+  if (!filters || typeof filters !== "object") return true;
+  const value = filters as Record<string, unknown>;
+  return !Boolean(value.force_fresh_analysis || value.reanalysis_scope || value.reanalysis_source_task_id);
+}
+
 export type ChannelRecord = {
   channel: AiChannel;
   status: "COLLECTED" | "SKIPPED" | "FAILED";
@@ -1736,11 +1742,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   const analysisController = new AbortController();
   const customer = await readCustomer(input.customerId);
   const admin = createAdminClient();
-  const taskOwnerResult = await admin.from("ai_screening_tasks").select("user_id").eq("id", input.taskId).maybeSingle();
+  const taskOwnerResult = await admin.from("ai_screening_tasks").select("user_id,filters").eq("id", input.taskId).maybeSingle();
   if (taskOwnerResult.error) throw taskOwnerResult.error;
   const costContext = { taskId: input.taskId, customerId: input.customerId, userId: taskOwnerResult.data?.user_id || null };
   await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_LOADED", startedAt: started });
-  const reusable = await findReusableAnalysis(customer, input.strategy);
+  // A user-requested reanalysis must execute the current collectors and scoring
+  // rules for every customer. Reusing an older conclusion would make the audit
+  // look complete without actually validating the new implementation.
+  const reusable = shouldReuseAnalysisForTask(taskOwnerResult.data?.filters)
+    ? await findReusableAnalysis(customer, input.strategy)
+    : null;
   if (reusable) {
     return completeFromReusableCache(input, customer, reusable as Record<string, unknown>, started);
   }
