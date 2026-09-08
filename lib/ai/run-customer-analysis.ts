@@ -24,6 +24,7 @@ import {
   evaluateEvidenceGate,
   evidenceStrengthFor,
   primaryIndustryFor,
+  type AutomationStatus,
   type IdentityStatus,
   type PolicyEvidence,
 } from "./evidence-policy";
@@ -493,6 +494,17 @@ export function reconcileRejectedTargetIndustry(
     customer_value: "当前没有可安全归属于该客户的目标业务证据，不进入有效目标客户名单。",
     evidence_conflicts: [...new Set([...analysis.evidence_conflicts, `重点核对：${verificationNote}`])],
   };
+}
+
+export function reconcileFinalDecision(
+  analysis: CustomerAnalysis,
+  automationStatus: AutomationStatus,
+  reason: string,
+  permanentlyClosed = false,
+) {
+  return automationStatus === "AUTO_REJECT"
+    ? reconcileRejectedTargetIndustry(analysis, reason, permanentlyClosed)
+    : analysis;
 }
 
 function contactTypeForUrl(value?: string | null): ContactType {
@@ -1931,10 +1943,11 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       finalAutomationStatus = "AUTO_REJECT";
       finalGateReason = verificationNote;
     }
-    analysis = reconcileRejectedTargetIndustry(
+    analysis = reconcileFinalDecision(
       analysis,
+      finalAutomationStatus,
       finalGateReason,
-      finalAutomationStatus === "AUTO_REJECT" && policyEvidence.some((item) => item.kind === "矛盾" && /永久关闭|永久停业|已永久关闭/.test(item.fact)),
+      policyEvidence.some((item) => item.kind === "矛盾" && /永久关闭|永久停业|已永久关闭/.test(item.fact)),
     );
     primaryIndustry = primaryIndustryFor(analysis.industry_type);
     if (finalAutomationStatus === "AUTO_REJECT" && Number(analysis.ai_score || 0) >= 60) {
