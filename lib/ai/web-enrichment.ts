@@ -309,10 +309,56 @@ function isPrivateAddress(address: string) {
 
 async function assertPublicHost(url: string) {
   const host = new URL(url).hostname;
-  const addresses = await lookup(host, { all: true, verbatim: true });
+  let addresses: Array<{ address: string; family: number }> = [];
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      addresses = await lookup(host, { all: true, verbatim: true });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+      await waitForRetry(attempt);
+    }
+  }
+  if (!addresses.length && lastError) throw lastError;
   if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) {
     throw new Error("UNSAFE_SOURCE_ADDRESS");
   }
+}
+
+function normalizedPlaceQueryPart(value?: string | null) {
+  return String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+export function googlePlaceTextQueries(input: {
+  company_name: string;
+  address?: string | null;
+  country?: string | null;
+  phone?: string | null;
+}) {
+  const name = normalizedPlaceQueryPart(input.company_name);
+  const address = normalizedPlaceQueryPart(input.address);
+  const location = address || (String(input.country || "").length > 2 ? normalizedPlaceQueryPart(input.country) : "");
+  // A supplied address is the most precise locator and may already contain the
+  // company name. Search that exact address first, then compare every returned
+  // entity by name, full address and telephone before accepting it.
+  const primary = address || [name, location].filter(Boolean).join(", ");
+  const phone = String(input.phone || "").replace(/[^\d+]/g, "");
+  const identityFallback = phone.length >= 7 ? [name, phone].filter(Boolean).join(" ") : name;
+  return [...new Set([primary, identityFallback].filter(Boolean))].slice(0, 2);
+}
+
+const NON_INDUSTRY_PLACE_TYPES = new Set([
+  "service", "services", "point_of_interest", "establishment", "general_contractor",
+  "contractor", "store", "business", "company",
+]);
+
+export function googlePlaceNeedsBusinessClarification(types: string[], identityScore: number) {
+  const normalizedTypes = types.map((value) => String(value).trim().toLowerCase().replace(/\s+/g, "_"));
+  const hasSpecificPlaceType = normalizedTypes.some((type) => type && !NON_INDUSTRY_PLACE_TYPES.has(type));
+  const targetAdjacentPlaceType = normalizedTypes.some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor|store)/i.test(type));
+  return identityScore >= 70 && (!hasSpecificPlaceType || targetAdjacentPlaceType);
 }
 
 async function waitForRetry(attempt: number, signal?: AbortSignal) {
@@ -861,7 +907,7 @@ async function collectPublicGooglePlaceEvidence(input: {
   // When a customer link opens a broad Maps result list, search the full
   // address first. It is a better locator than appending several loose terms
   // and avoids selecting a similarly named nearby business.
-  const query = [input.company_name, locationText, input.country].filter(Boolean).join(", ");
+  const query = googlePlaceTextQueries(input)[0] || [input.company_name, locationText, input.country].filter(Boolean).join(", ");
   if (!query) return undefined;
   const request = requestSignal(options, 9_000);
   const headers = {
@@ -1012,7 +1058,8 @@ export async function collectGooglePlaceEvidence(input: {
 }, options: FetchOptions = {}): Promise<GooglePlaceEvidence | undefined> {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
-  const query = [input.company_name, input.address, input.country].filter(Boolean).join(" ");
+  const queries = googlePlaceTextQueries(input);
+  const query = queries[0] || [input.company_name, input.address, input.country].filter(Boolean).join(" ");
   if (!apiKey) {
     const publicEvidence = await collectPublicGooglePlaceEvidence(input, options);
     return publicEvidence || {
@@ -1081,21 +1128,31 @@ export async function collectGooglePlaceEvidence(input: {
     const directPlaceId = input.place_id?.trim() || googlePlaceIdFromUrl(input.google_url);
     let candidateIds = directPlaceId ? [directPlaceId] : [];
     if (!candidateIds.length) {
-      const searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
-        method: "POST",
-        signal: request.signal,
-        headers: placesHeaders("places.id"),
-        body: JSON.stringify({ textQuery: query, pageSize: 3, languageCode: "zh-CN" }),
-      });
-      await reportCall("名称地址文本搜索","PLACES_TEXT_SEARCH_ID_ONLY",searchResponse.status,"GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST",searchResponse);
-      const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
-      candidateIds = (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
-      if (!searchResponse.ok || !candidateIds.length) {
+      let searchError = "未找到匹配的Google商家。";
+      for (const [index, textQuery] of queries.entries()) {
+        const searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
+          method: "POST",
+          signal: request.signal,
+          headers: placesHeaders("places.id"),
+          body: JSON.stringify({
+            textQuery,
+            pageSize: 3,
+            languageCode: "zh-CN",
+            ...(/^[A-Za-z]{2}$/.test(String(input.country || "")) ? { regionCode: String(input.country).toUpperCase() } : {}),
+          }),
+        });
+        await reportCall(index === 0 ? "名称地址文本搜索" : "电话号码精确回退搜索","PLACES_TEXT_SEARCH_ID_ONLY",searchResponse.status,"GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST",searchResponse);
+        const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
+        searchError = searchPayload.error?.message || searchError;
+        candidateIds = (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
+        if (searchResponse.ok && candidateIds.length) break;
+      }
+      if (!candidateIds.length) {
         const fallback = await collectPublicGooglePlaceEvidence(input, options);
         return fallback || {
           configured: true, query, types: [], reviews: [], emails: [], candidate_count: 0,
           identity_status: "NOT_FOUND", identity_confidence: 0,
-          error: searchPayload.error?.message || "未找到匹配的Google商家。",
+          error: searchError,
         };
       }
     }
@@ -1104,7 +1161,7 @@ export async function collectGooglePlaceEvidence(input: {
     // ranking. The search order alone is not reliable: a lower-ranked result
     // can be the only one with the exact customer phone or official domain.
     const identityFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri,photos,internationalPhoneNumber,nationalPhoneNumber,websiteUri";
-    const details = (await Promise.all(candidateIds.map((candidateId) => readDetail(candidateId, identityFields))))
+    let details = (await Promise.all(candidateIds.map((candidateId) => readDetail(candidateId, identityFields))))
       .filter((item): item is PlaceDetail => Boolean(item));
     if (!details.length) {
       const fallback = await collectPublicGooglePlaceEvidence(input, options);
@@ -1115,7 +1172,7 @@ export async function collectGooglePlaceEvidence(input: {
     const phone = phoneIdentityDigits;
     const providedGoogleUrl = safePublicUrl(input.google_url);
     const hasConcretePlacePath = Boolean(providedGoogleUrl && /google\.[^/]+\/maps\/place\//i.test(providedGoogleUrl));
-    const scored = details.map((item) => {
+    const scoreDetails = (items: PlaceDetail[]) => items.map((item) => {
       const matchSignals: string[] = []; const mismatchSignals: string[] = [];
       const candidateName = item.displayName?.text || "";
       const candidateNameSimilarity = nameSimilarity(input.company_name, candidateName);
@@ -1148,6 +1205,37 @@ export async function collectGooglePlaceEvidence(input: {
       const conflictPenalty = (phoneConflict ? 15 : 0) + (officialDomainConflict ? 20 : 0);
       return { item, score: Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
     }).sort((a, b) => b.score - a.score);
+    let scored = scoreDetails(details);
+
+    // Search rank is not identity. A full-address lookup can return a building
+    // or nearby merchant, so use name+phone only when the best address result
+    // is still below the attribution threshold. Already matched rows avoid the
+    // extra request and its latency/cost.
+    if (!directPlaceId && scored[0]?.score < 70 && queries[1]) {
+      const fallbackResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        signal: request.signal,
+        headers: placesHeaders("places.id"),
+        body: JSON.stringify({
+          textQuery: queries[1],
+          pageSize: 3,
+          languageCode: "zh-CN",
+          ...(/^[A-Za-z]{2}$/.test(String(input.country || "")) ? { regionCode: String(input.country).toUpperCase() } : {}),
+        }),
+      });
+      await reportCall("电话号码精确回退搜索", "PLACES_TEXT_SEARCH_ID_ONLY", fallbackResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", fallbackResponse);
+      if (fallbackResponse.ok) {
+        const fallbackPayload = await fallbackResponse.json() as { places?: Array<{ id?: string }> };
+        const known = new Set(details.map((item) => item.id).filter(Boolean));
+        const fallbackIds = (fallbackPayload.places || []).map((item) => item.id || "").filter((id) => id && !known.has(id)).slice(0, 3);
+        const fallbackDetails = (await Promise.all(fallbackIds.map((id) => readDetail(id, identityFields))))
+          .filter((item): item is PlaceDetail => Boolean(item));
+        if (fallbackDetails.length) {
+          details = [...details, ...fallbackDetails];
+          scored = scoreDetails(details);
+        }
+      }
+    }
     let top = scored[0]; const runnerUp = scored[1];
 
     // Contact/rating fields are requested once, and only for the selected
@@ -1157,10 +1245,9 @@ export async function collectGooglePlaceEvidence(input: {
     // This prevents clear repair businesses from being downgraded merely
     // because Google returned a generic primary type, while avoiding this
     // higher-cost evidence request for every customer.
-    const genericPlaceTypes = new Set(["service", "point_of_interest", "establishment"]);
-    const hasSpecificPlaceType = (top.item.types || []).some((type) => !genericPlaceTypes.has(type));
-    const targetAdjacentPlaceType = (top.item.types || []).some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor|store)/i.test(type));
-    const needsBusinessClarification = top.score >= 70 && (!hasSpecificPlaceType || targetAdjacentPlaceType);
+    const needsBusinessClarification = googlePlaceNeedsBusinessClarification([
+      top.item.primaryTypeDisplayName?.text || "", top.item.primaryType || "", ...(top.item.types || []),
+    ], top.score);
     if (top.item.id && needsBusinessClarification) {
       const enrichmentFields = [
         "id", "internationalPhoneNumber", "nationalPhoneNumber", "websiteUri",
@@ -1204,7 +1291,10 @@ export async function collectGooglePlaceEvidence(input: {
     // Place ID, phone, or address independently confirms the same entity.
     let publicMedia: GooglePlaceEvidence | undefined;
     if (needsBusinessClarification) {
-      publicMedia = await collectPublicGooglePlaceEvidence(input, { ...options, timeoutMs: Math.min(options.timeoutMs || 9_000, 9_000) });
+      publicMedia = await collectPublicGooglePlaceEvidence({
+        ...input,
+        google_url: result.googleMapsUri || input.google_url,
+      }, { ...options, timeoutMs: Math.min(options.timeoutMs || 9_000, 9_000) });
       const samePublicEntity = Boolean(publicMedia && (
         (result.id && publicMedia.place_id === result.id)
         || (phone(publicMedia.phone).length >= 7 && phone(publicMedia.phone) === phone(result.internationalPhoneNumber || result.nationalPhoneNumber))
@@ -1293,5 +1383,50 @@ export async function collectCustomerEvidence(input: {
 /** Read a public social/company page without requiring provider credentials. */
 export async function collectPublicPageEvidence(url?: string | null, options: FetchOptions = {}) {
   return collectWebsiteEvidence(url, { ...options, timeoutMs: Math.min(options.timeoutMs || 4000, 4000) });
+}
+
+/**
+ * Zero-token public locator used only after Places and the supplied website do
+ * not yield a conclusion. Result links are merely candidates: callers must
+ * fetch each page and pass the normal name/address/phone identity gate before
+ * using any content as evidence.
+ */
+export async function discoverPublicBusinessUrls(input: {
+  company_name: string;
+  address?: string | null;
+  phone?: string | null;
+  country?: string | null;
+}, options: FetchOptions = {}) {
+  const name = normalizedPlaceQueryPart(input.company_name);
+  const address = normalizedPlaceQueryPart(input.address);
+  const phone = String(input.phone || "").replace(/[^\d+]/g, "");
+  const queries = [...new Set([
+    [name, address].filter(Boolean).join(" "),
+    phone.length >= 7 ? [name, phone, input.country].filter(Boolean).join(" ") : "",
+  ].filter(Boolean))].slice(0, 2);
+  const request = requestSignal(options, 8_000);
+  try {
+    const pages = await Promise.all(queries.map(async (query) => {
+      try {
+        const response = await fetchWithRetry(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+          signal: request.signal,
+          headers: BROWSER_HEADERS,
+        }, 1);
+        if (!response.ok) return [] as string[];
+        const html = await readTextLimited(response, 180_000);
+        return [...html.matchAll(/[?&]uddg=([^&"']+)/gi)].flatMap((match) => {
+          try {
+            const decoded = decodeURIComponent(match[1].replace(/&amp;/g, "&"));
+            const safe = safePublicUrl(decoded);
+            if (!safe || /(?:duckduckgo\.com|bing\.com|google\.[^/]+\/search)/i.test(safe)) return [];
+            return [safe];
+          } catch { return []; }
+        });
+      } catch { return [] as string[]; }
+    }));
+    return unique(pages.flat()).slice(0, 10);
+  } finally {
+    request.clear();
+  }
 }
 

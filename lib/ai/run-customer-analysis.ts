@@ -14,6 +14,7 @@ import {
   collectDeepWebsiteEvidence,
   collectGooglePlaceEvidence,
   collectPublicPageEvidence,
+  discoverPublicBusinessUrls,
   type CustomerEvidence,
   type GooglePlaceEvidence,
   type WebsiteEvidence,
@@ -56,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.5";
+const ANALYSIS_VERSION = "2026.09.08.7";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -187,7 +188,7 @@ function emailBusinessDomain(value?: string | null) {
  * of an industry or target-customer decision.
  */
 function effectiveWebsite(customer: CustomerRow) {
-  if (customer.website) return customer.website;
+  if (customer.website && !aiChannelForPublicUrl(customer.website)) return customer.website;
   const domain = emailBusinessDomain(customer.email);
   return domain ? `https://${domain}` : null;
 }
@@ -258,10 +259,8 @@ export function websiteRecordMatchesEntity(customer: CustomerRow, records: Chann
   const googleWebsite = verifiedOfficialWebsiteFromGoogle(records);
   const exactGoogleWebsite = Boolean(googleWebsite && websiteHost(googleWebsite) === host);
   const domainNameMatch = identityNameSimilarity(customer.company_name, host.replace(/\./g, " ")) >= 0.55;
-  const pageAddress = [customer.address, google?.formatted_address].filter(Boolean).find((value) => {
-    const normalized = compactIdentity(value);
-    return normalized.length >= 6 && (compactIdentity(pageText).includes(normalized.slice(0, 32)) || identitySimilarity(value, pageText) >= 0.55);
-  });
+  const pageAddress = [customer.address, google?.formatted_address].filter(Boolean)
+    .find((value) => addressAppearsOnPage(value, pageText));
   // 电话或企业邮箱域名属于强信号。Google具体商家已通过名称、地址、电话、
   // Place ID等多信号严格匹配时，该商家资料绑定的可访问官网本身就是权威关联，
   // 即使页面由脚本渲染而没有在首屏重复商家名称，也必须继续抓取分析。
@@ -281,6 +280,16 @@ function identitySimilarity(left?: string | null, right?: string | null) {
   const b = new Set(compactIdentity(right).split(/\s+/).filter((item) => item.length > 1));
   if (!a.size || !b.size) return 0;
   return [...a].filter((item) => b.has(item)).length / Math.max(a.size, b.size);
+}
+
+function addressAppearsOnPage(address?: string | null, pageText?: string | null) {
+  const addressTokens = compactIdentity(address).split(/\s+/).filter((item) => item.length > 1);
+  const pageTokens = new Set(compactIdentity(pageText).split(/\s+/).filter(Boolean));
+  if (addressTokens.length < 3 || !pageTokens.size) return false;
+  const significant = addressTokens.filter((item) => /\d/.test(item) || item.length >= 4);
+  const exactLocator = significant.some((item) => /\d/.test(item) && pageTokens.has(item));
+  const matched = significant.filter((item) => pageTokens.has(item)).length;
+  return exactLocator && significant.length >= 3 && matched / significant.length >= 0.65;
 }
 
 function identityNameSimilarity(left?: string | null, right?: string | null) {
@@ -326,6 +335,33 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
     matchSignals: googleMatchSignals,
     mismatchSignals: googleMismatchSignals,
   };
+  const recoveredIdentityRecord = records.find((record) => ["facebook", "instagram", "linkedin", "tiktok", "other"].includes(record.channel)
+    && record.status === "COLLECTED" && recoveryRecordMatchesEntity(customer, records, record));
+  if (recoveredIdentityRecord?.evidence) {
+    const recovered = recoveredIdentityRecord.evidence as WebsiteEvidence;
+    const recoveredText = [recovered.title, recovered.description, ...(recovered.structured_names || []),
+      ...(recovered.structured_descriptions || []), ...(recovered.headings || []), recovered.text_excerpt].filter(Boolean).join(" ");
+    const nameMatch = identityNameSimilarity(customer.company_name, recoveredText) >= 0.75;
+    const originalPhone = normalizePhoneInternational(customer.phone, customer.country);
+    const recoveredPhones = (recovered.phones || []).map((value) => normalizePhoneInternational(value, customer.country)).filter(Boolean);
+    const phoneMatch = Boolean(originalPhone && recoveredPhones.includes(originalPhone));
+    const addressMatch = addressAppearsOnPage(customer.address, recoveredText);
+    if (nameMatch && (phoneMatch || addressMatch)) {
+      const phoneConflict = Boolean(originalPhone && recoveredPhones.length && !phoneMatch);
+      return {
+        status: "MATCHED" as const,
+        confidence: phoneMatch && addressMatch ? 98 : 92,
+        verifiedBusinessName: recovered.title || customer.company_name,
+        verifiedAddress: addressMatch ? customer.address : null,
+        verifiedWebsite: null,
+        verifiedGoogleMapsUrl: records.find((record) => record.channel === "google_maps")?.source_url || customer.google_url,
+        placeId: null,
+        candidateCount: 1,
+        matchSignals: ["补充公开来源中的企业名称一致", phoneMatch ? "补充公开来源中的电话一致" : "", addressMatch ? "补充公开来源中的完整地址一致" : ""].filter(Boolean),
+        mismatchSignals: phoneConflict ? ["补充公开来源电话与原始电话不同，可能是换号或历史号码；未自动覆盖原始电话"] : [],
+      };
+    }
+  }
   if (!website?.reachable) {
     const searched = (analysis?.evidence_summaries || []).filter((item) => /^https?:\/\//i.test(item.source_url));
     const combined = searched.map((item) => `${item.title_zh} ${item.fact_zh}`).join(" ");
@@ -594,21 +630,6 @@ function customerWithDiscoveredPublicChannels(customer: CustomerRow, records: Ch
   };
 }
 
-function publicChannelRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], record: ChannelRecord) {
-  if (!["linkedin", "facebook", "instagram", "tiktok"].includes(record.channel) || !record.source_url) return false;
-  const expected = discoveredPublicChannelUrls(customer, records)[record.channel];
-  if (!expected) return false;
-  try {
-    const normalize = (value: string) => {
-      const url = new URL(value);
-      return `${url.hostname.replace(/^www\./, "").toLowerCase()}${url.pathname.replace(/\/$/, "").toLowerCase()}`;
-    };
-    return normalize(expected) === normalize(record.source_url);
-  } catch {
-    return expected === record.source_url;
-  }
-}
-
 function originalValuesForType(customer: CustomerRow, type: ContactType) {
   if (type === "EMAIL") return splitContacts(customer.email);
   // Phone and WhatsApp are the same numbering namespace. A number already
@@ -662,7 +683,7 @@ export function contactCandidatesFromRecords(customer: CustomerRow, records: Cha
     }
     const item = record.evidence as WebsiteEvidence;
     const recordIdentity: IdentityStatus = websiteRecordMatchesEntity(customer, records, record)
-      || publicChannelRecordMatchesEntity(customer, records, record)
+      || recoveryRecordMatchesEntity(customer, records, record)
       ? "MATCHED"
       : "AMBIGUOUS";
     const childPages = (item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }));
@@ -860,7 +881,7 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
   { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|(?:reparerer?|fikser)\s+(?:vi\s+)?(?:mobil|telefon|smarttelefon)|(?:repair|fix)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
   { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
-  { pattern: /(?:electronics? repair shop|electrical repair shop|electronic device repair|电子设备维修|电子产品维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
+  { pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
@@ -908,7 +929,7 @@ export function hasTargetValueSignal(customer: CustomerRow, records: ChannelReco
   }).join(" ");
   // Imported fields are routing hints only. They may authorize deeper
   // collection, but never become evidence or add to the score.
-  return PRODUCT_RELEVANCE_PATTERN.test(`${customer.company_name || ""} ${evidenceText}`);
+  return PRODUCT_RELEVANCE_PATTERN.test(`${customer.company_name || ""} ${customer.category || ""} ${customer.industry || ""} ${evidenceText}`);
 }
 
 export function isConclusiveChannelAnalysis(analysis: CustomerAnalysis | null) {
@@ -957,7 +978,7 @@ function deterministicScore(input: {
       const evidence = record.evidence as GooglePlaceEvidence;
       return input.rule.pattern.test(googleBusinessEvidenceText(evidence));
     }
-    if (record.channel !== "website" && !publicChannelRecordMatchesEntity(input.customer, input.records, record)) return false;
+    if (record.channel !== "website" && !recoveryRecordMatchesEntity(input.customer, input.records, record)) return false;
     const evidence = record.evidence as WebsiteEvidence;
     return input.rule.pattern.test([evidence.title, evidence.description, ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join(" "));
   });
@@ -1005,7 +1026,8 @@ function deterministicScore(input: {
   const repairOnly = /维修店/.test(input.rule.industry);
   const wholesale = input.rule.industry === "进口商或分销商";
   const accessoryRetail = input.rule.industry === "手机外配件零售";
-  const verifiedChain = /(?:连锁|多家门店|多门店|分店|multiple locations|chain of repair|sie[cć] serwis)/i.test(combinedText);
+  const verifiedChain = matchingRecords.some((record) => record.channel === "website"
+    && /(?:连锁|多家门店|多门店|分店|multiple locations|chain of repair|sie[cć] serwis)/i.test(recordTargetText(record)));
   const highVolumeRepair = repairOnly
     && matchingSources >= 2
     && specificServices >= 2
@@ -1079,7 +1101,7 @@ function deterministicScore(input: {
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)|手机维修/i },
   { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
-  { label: "电子设备维修", pattern: /(?:electronics? repair shop|electrical repair shop|electronic device repair|电子设备维修|电子产品维修)/i },
+  { label: "电子设备维修", pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i },
   { label: "屏幕或玻璃更换", pattern: /(?:sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
   { label: "电池更换", pattern: /(?:dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)?|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
   { label: "充电口或接口维修", pattern: /(?:charging port|charge port|dock connector|usb port|ladebuchse|puerto de carga|port de charge|connettore di ricarica|充电口|尾插)/i },
@@ -1117,6 +1139,14 @@ type DeterministicCandidate = {
   originalExcerpt: string;
 };
 
+function verifiedFactLabelsForCandidate(candidate: Pick<DeterministicCandidate, "channel" | "text">) {
+  const labels = verifiedFactLabels(candidate.text);
+  // Scale and chain claims are accepted only from the verified official
+  // website. Directory boilerplate and nearby-business widgets frequently use
+  // phrases such as "multiple locations" that do not describe this customer.
+  return candidate.channel === "website" ? labels : labels.filter((label) => label !== "多门店或连锁经营");
+}
+
 function compactBusinessExcerpt(value: string) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
   if (!normalized) return "";
@@ -1146,8 +1176,8 @@ function candidateSourceName(candidate: Pick<DeterministicCandidate, "channel" |
   return `${AI_CHANNEL_LABELS[candidate.channel as AiChannel] || "公开来源"}${title ? `“${title}”` : ""}`;
 }
 
-function labelsForIndustry(candidate: Pick<DeterministicCandidate, "text">, industry: CustomerAnalysis["industry_type"]) {
-  let labels = [...new Set(verifiedFactLabels(candidate.text))];
+function labelsForIndustry(candidate: Pick<DeterministicCandidate, "channel" | "text">, industry: CustomerAnalysis["industry_type"]) {
+  let labels = [...new Set(verifiedFactLabelsForCandidate(candidate))];
   if (industry === "软件或IT服务") labels = labels.filter((item) => /IT|软件|云服务|网络托管/.test(item));
   if (industry === "运营商营业厅") labels = labels.filter((item) => /手机合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|运营商/.test(item));
   if (industry === "其他" && labels.some((item) => /食品/.test(item))) labels = labels.filter((item) => /食品/.test(item));
@@ -1174,7 +1204,7 @@ function salesSummaryFields(params: {
   const sourceFacts = params.candidates.map((candidate) => ({
     channel: candidate.channel,
     source: candidateSourceName(candidate),
-    labels: [...new Set(verifiedFactLabels(candidate.text))].slice(0, 8),
+    labels: [...new Set(verifiedFactLabelsForCandidate(candidate))].slice(0, 8),
   })).filter((item) => item.labels.length);
   const allLabels = [...new Set(sourceFacts.flatMap((item) => item.labels))];
   // Sales-facing conclusions contain Chinese verified facts only. The exact
@@ -1268,9 +1298,9 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     });
   }
   for (const record of records) {
-    if (!["facebook", "instagram", "linkedin", "tiktok"].includes(record.channel)
+    if (!["facebook", "instagram", "linkedin", "tiktok", "other"].includes(record.channel)
         || record.status !== "COLLECTED" || !record.evidence
-        || !record.source_url || !publicChannelRecordMatchesEntity(customer, records, record)) continue;
+        || !record.source_url || !recoveryRecordMatchesEntity(customer, records, record)) continue;
     const social = record.evidence as WebsiteEvidence;
     const text = [social.title, social.description, ...(social.structured_types || []),
       ...(social.structured_descriptions || []), ...(social.headings || []), social.text_excerpt?.slice(0, 1600)]
@@ -1281,7 +1311,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       url: record.source_url,
       title: social.title || customer.company_name || record.channel,
       text,
-      confidence: 88,
+      confidence: record.channel === "other" ? 76 : 88,
       originalExcerpt: compactBusinessExcerpt(text),
     });
   }
@@ -1307,8 +1337,8 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   // address and recent public activity. Prefer an explicit website business
   // fact over a conflicting platform category, while preserving any direct
   // cross-source conflict for the user instead of silently blending it.
-  const websiteMatches = matches.filter((item) => item.candidate.channel === "website" && verifiedFactLabels(item.candidate.text).length);
-  const googleMatches = matches.filter((item) => item.candidate.channel === "google_maps" && verifiedFactLabels(item.candidate.text).length);
+  const websiteMatches = matches.filter((item) => item.candidate.channel === "website" && verifiedFactLabelsForCandidate(item.candidate).length);
+  const googleMatches = matches.filter((item) => item.candidate.channel === "google_maps" && verifiedFactLabelsForCandidate(item.candidate).length);
   const bestWebsite = websiteMatches[0];
   const bestGoogle = googleMatches[0];
   const crossSourceConflict = Boolean(bestWebsite && bestGoogle && bestWebsite.rule.target !== bestGoogle.rule.target);
@@ -1473,13 +1503,13 @@ export function verifiedCompanyScale(records: ChannelRecord[]) {
   return { companyScale: scaleParts.join("；") || null, companyScaleEvidence: facts.slice(0, 1200) || null, locationCount: branchCount };
 }
 
-function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
+export function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
   if (channel === "website") return effectiveWebsite(customer);
   if (channel === "google_maps") return customer.google_url;
-  if (channel === "linkedin") return customer.linkedin_url || null;
-  if (channel === "facebook") return customer.facebook_url || null;
-  if (channel === "instagram") return customer.instagram_url || null;
-  if (channel === "tiktok") return customer.tiktok_url || null;
+  if (channel === "linkedin") return customer.linkedin_url || (aiChannelForPublicUrl(customer.website) === "linkedin" ? customer.website : null);
+  if (channel === "facebook") return customer.facebook_url || (aiChannelForPublicUrl(customer.website) === "facebook" ? customer.website : null);
+  if (channel === "instagram") return customer.instagram_url || (aiChannelForPublicUrl(customer.website) === "instagram" ? customer.website : null);
+  if (channel === "tiktok") return customer.tiktok_url || (aiChannelForPublicUrl(customer.website) === "tiktok" ? customer.website : null);
   return customer.other_public_urls?.[0] || null;
 }
 
@@ -2320,12 +2350,20 @@ export function publicAiError(error: unknown) {
 function recoveryChannel(url: string): AiChannel {
   try {
     const host = new URL(url).hostname.toLowerCase();
+    if (/google\.[^/]+$/.test(host) && /\/maps\//i.test(new URL(url).pathname)) return "google_maps";
     if (/linkedin\.com$/.test(host)) return "linkedin";
     if (/(^|\.)facebook\.com$/.test(host)) return "facebook";
     if (/instagram\.com$/.test(host)) return "instagram";
     if (/tiktok\.com$/.test(host)) return "tiktok";
   } catch { /* invalid URL is rejected by the collector */ }
   return "other";
+}
+
+function recoveryChannelForCustomer(url: string, customer: CustomerRow): AiChannel {
+  const channel = recoveryChannel(url);
+  if (channel !== "other") return channel;
+  const knownWebsite = effectiveWebsite(customer);
+  return knownWebsite && websiteHost(knownWebsite) === websiteHost(url) ? "website" : "other";
 }
 
 export function recoveryRecordMatchesEntity(customer: CustomerRow, records: ChannelRecord[], record: ChannelRecord) {
@@ -2364,6 +2402,40 @@ async function recoverPublicEvidence(input: {
   customer: CustomerRow; records: ChannelRecord[]; signal: AbortSignal;
   focus: "identity" | "official_business" | "social_business" | "comprehensive";
 }) {
+  // First use a zero-token public index lookup. Every result is re-fetched and
+  // must pass the same deterministic entity gate; search snippets themselves
+  // are never evidence. This handles service-area businesses omitted by Places
+  // without paying for a model call or blocking the rest of the batch.
+  const indexedUrls = await discoverPublicBusinessUrls({
+    company_name: input.customer.company_name,
+    address: input.customer.address,
+    phone: input.customer.phone,
+    country: input.customer.country,
+  }, { signal: input.signal, timeoutMs: 8_000 });
+  const indexedRecords = await Promise.all(indexedUrls.slice(0, 8).map(async (url): Promise<ChannelRecord | null> => {
+    const channel = recoveryChannelForCustomer(url, input.customer);
+    if (channel === "google_maps") return null;
+    try {
+      const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 7_000 });
+      if (!evidence?.reachable) return null;
+      const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
+      return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
+    } catch { return null; }
+  }));
+  for (const record of indexedRecords.filter((item): item is ChannelRecord => Boolean(item))) {
+    const sameChannel = record.channel === "website"
+      ? input.records.findIndex((saved) => saved.channel === "website")
+      : -1;
+    if (sameChannel >= 0) input.records[sameChannel] = record;
+    else if (!input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === String(record.source_url || "").replace(/\/$/, "").toLowerCase())) input.records.push(record);
+  }
+  if (indexedRecords.some(Boolean)) {
+    await saveCheckpoint(input.taskItemId, input.records, "other");
+    if (deterministicAnalysis(input.customer, input.records)) {
+      return { usage: ZERO_USAGE, collected: indexedRecords.filter(Boolean).length, completed: true };
+    }
+  }
+
   const startedAt = Date.now();
   let recovery: Awaited<ReturnType<typeof discoverPublicSourceUrls>>;
   try {
@@ -2378,13 +2450,17 @@ async function recoverPublicEvidence(input: {
       address: input.customer.address,
       industry_keywords: null,
       evidence: evidenceForModel(input.records, "fast"),
-    }, { signal: input.signal, timeoutMs: 25_000, recoveryFocus: input.focus });
+    }, { signal: input.signal, timeoutMs: 40_000, recoveryFocus: input.focus });
     await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, usage: recovery.usage, status: "COMPLETED" });
   } catch (error) {
     await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, status: "FAILED", error });
     return { usage: ZERO_USAGE, collected: 0, completed: false };
   }
-  const existing = new Set(input.records.map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
+  // A transient DNS/HTTP failure is not a completed source. Permit the single
+  // bounded recovery pass to retry the same URL if discovery returns it.
+  const existing = new Set(input.records
+    .filter((record) => record.status === "COLLECTED")
+    .map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
   const urls = recovery.urls
     .filter((url) => !existing.has(url.replace(/\/$/, "").toLowerCase()))
     .sort((left, right) => {
@@ -2394,27 +2470,39 @@ async function recoverPublicEvidence(input: {
     .slice(0, 6);
   const fetched = await Promise.all(urls.map(async (url): Promise<ChannelRecord | null> => {
     try {
+      const channel = recoveryChannelForCustomer(url, input.customer);
+      if (channel === "google_maps") {
+        const evidence = await collectGooglePlaceEvidence({
+          company_name: input.customer.company_name,
+          address: input.customer.address,
+          country: input.customer.country,
+          google_url: url,
+          phone: input.customer.phone,
+          website: effectiveWebsite(input.customer),
+          place_id: input.customer.google_place_id,
+        }, { signal: input.signal, timeoutMs: 9_000 });
+        if (!evidence || !["MATCHED", "LIKELY_MATCHED"].includes(String(evidence.identity_status || ""))) return null;
+        return { channel, status: "COLLECTED", source_url: evidence.verified_google_maps_url || url, evidence };
+      }
       // Deep page collection follows only relevant second/third-level business
       // pages and is therefore more reliable than a search-result snippet.
       const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 7_000 });
       if (!evidence?.reachable) return null;
-      const record: ChannelRecord = { channel: recoveryChannel(url), status: "COLLECTED", source_url: evidence.url || url, evidence };
+      const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
       if (!recoveryRecordMatchesEntity(input.customer, input.records, record)) return null;
-      // 与客户主体交叉验证通过的普通网页应作为官方官网进入后续优先级；
-      // 目录页仍保留为 other，不能压过已确认官网或 Google 商家。
-      if (record.channel === "other" && websiteRecordMatchesEntity(input.customer, input.records, record)) record.channel = "website";
       return record;
     } catch { return null; }
   }));
-  for (const record of fetched.filter((item): item is ChannelRecord => Boolean(item))) {
+  const accepted = fetched.filter((item): item is ChannelRecord => Boolean(item));
+  for (const record of accepted) {
     const duplicate = input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === String(record.source_url || "").replace(/\/$/, "").toLowerCase());
     if (duplicate) continue;
-    if (record.channel === "website") {
-      const existingWebsite = input.records.findIndex((saved) => saved.channel === "website");
-      if (existingWebsite >= 0) input.records[existingWebsite] = record;
+    if (record.channel === "website" || record.channel === "google_maps") {
+      const existingChannel = input.records.findIndex((saved) => saved.channel === record.channel);
+      if (existingChannel >= 0) input.records[existingChannel] = record;
       else input.records.push(record);
     } else input.records.push(record);
   }
-  if (fetched.some(Boolean)) await saveCheckpoint(input.taskItemId, input.records, "other");
-  return { usage: recovery.usage, collected: fetched.filter(Boolean).length, completed: true };
+  if (accepted.length) await saveCheckpoint(input.taskItemId, input.records, "other");
+  return { usage: recovery.usage, collected: accepted.length, completed: true };
 }
