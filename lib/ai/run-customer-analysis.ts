@@ -56,7 +56,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.10";
+const ANALYSIS_VERSION = "2026.09.08.13";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -70,6 +70,19 @@ const ZERO_USAGE: UsageTotals = {
   pricing_snapshot: {},
   model_calls: 0,
 };
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 function durableError(error: unknown, stage: string) {
   if (error instanceof Error && error.message && error.message !== "[object Object]") return error;
@@ -895,9 +908,9 @@ export function hasVerifiedGoogleBusinessCategory(item: GooglePlaceEvidence) {
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|(?:reparerer?|fikser)\s+(?:vi\s+)?(?:mobil|telefon|smarttelefon)|(?:repair|fix)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|(?:reparerer?|fikser)\s+(?:vi\s+)?(?:mobil|telefon|smarttelefon)|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair|fix)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair|fix)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
+  { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
@@ -911,7 +924,7 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
 
 const PRODUCT_RELEVANCE_PATTERN = /(?:mobile|phone|cellular|smartphone|iphone|ipad|macbook|computer|laptop|gsm|lcd|oled|screen|battery|repair parts?|spare parts?|accessor(?:y|ies)|telefon|komputer|smartfon|手机|电脑|屏幕|电池|配件|维修件)/i;
 const TELECOM_SERVICE_PATTERN = /(?:mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|sim card|mobile plan|通信合约|宽带套餐|手机套餐|运营商)/i;
-const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone repair|iphone repair|computer repair|laptop repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|handyreparatur|computerreparatur|napraw\w* (?:telefon|smartfon|komputer|laptop)|serwis\w* (?:telefon|gsm|smartfon|komputer|laptop)|reparaci[oó]n (?:de )?(?:tel[eé]fonos|m[oó]viles|celulares|ordenadores|computadoras)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones|computadores)|手机维修|电脑维修|换屏|电池更换|充电口|主板维修)/i;
+const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone repair|iphone repair|computer repair|laptop repair|(?:phone|mobile|computer|laptop|notebook|macbook|pc)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|handyreparatur|computerreparatur|napraw\w* (?:telefon|smartfon|komputer|laptop)|serwis\w* (?:telefon|gsm|smartfon|komputer|laptop)|reparaci[oó]n (?:de )?(?:tel[eé]fonos|m[oó]viles|celulares|ordenadores|computadoras)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones|computadores)|手机维修|电脑维修|换屏|电池更换|充电口|主板维修)/i;
 
 function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
   const reviews = (item.reviews || []).join("；");
@@ -1086,7 +1099,7 @@ function deterministicScore(input: {
     ? highVolumeRepair ? 94 : completeDirectTargetChain ? 89 : 84
     : accessoryRetail ? 69
       : qualifiesForA ? (verifiedProcurementEvidence ? 100 : 89) : 84;
-  const score = Math.max(0, Math.min(input.rule.target ? targetMaximum : 39, rawScore));
+  const score = Math.max(0, Math.min(input.rule.target ? targetMaximum : 39, input.rule.target ? Math.max(60, rawScore) : rawScore));
   const evidenceCompleteness = Math.min(100, 35 + evidenceValue * 3 + contactValue * 3 + activityValue * 2);
   return {
     score,
@@ -1108,7 +1121,7 @@ function deterministicScore(input: {
 
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)|手机维修/i },
-  { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|service|fix|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|电脑维修|笔记本维修/i },
+  { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|service|fix(?:ed|es|ing)?|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair(?:ed|s|ing)?|service|fix(?:ed|es|ing)?|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|电脑维修|笔记本维修/i },
   { label: "电子设备维修", pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i },
   { label: "屏幕或玻璃更换", pattern: /(?:sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
   { label: "电池更换", pattern: /(?:dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)?|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
@@ -1440,7 +1453,7 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
     const fact = record.status === "COLLECTED"
       ? `已读取${label}；本次可解析公开内容中未发现手机或电脑维修配件、批发分销、进口采购等目标经营事实。`
       : `已尝试读取${label}；本次未取得可解析的公开页面内容，该来源仅作为已执行检索记录。`;
-    return [{ channel: record.channel, title_zh: `${label}采集记录`, fact_zh: fact, source_url: url, evidence_type: "中性" as const, confidence: 100, original_excerpt: "" }];
+    return [{ channel: record.channel, title_zh: `${label}采集记录`, fact_zh: fact, source_url: url, evidence_type: "中性" as const, confidence: record.status === "COLLECTED" ? 45 : 25, original_excerpt: "" }];
   }).slice(0, 5);
   return {
     industry_type: "其他",
@@ -2047,7 +2060,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       const potentialTarget = analysis.evidence_summaries.some((item) => item.evidence_type === "支持");
       const boundedScore = Math.min(59, Math.max(Number(analysis.ai_score || 0), potentialTarget ? 52 : 20));
       const conciseGateReason = gate.reason.replace(/^重点核对：/, "").replace(/[。；\s]+$/, "");
-      const verificationNote = `重点核对：${conciseGateReason}。系统已完成自动分析并给出保守评分；销售联系时应优先核对主体或冲突事实。`;
+      const verificationNote = `重点核对：${conciseGateReason}。系统已完成本轮自动分析；因该风险无法把候选经营事实安全归属于当前客户，当前按低相关无效目标处理。`;
       analysis = {
         ...analysis,
         ai_score: boundedScore,
@@ -2442,7 +2455,7 @@ async function collectIndexedPublicEvidence(input: {
     score: /(?:repair|repar|serwis|napraw|维修)/i.test(url) ? 4
       : /(?:phone|mobile|handy|computer|laptop|gsm)/i.test(url) ? 1 : 0,
   })).sort((left, right) => right.score - left.score || left.index - right.index);
-  const indexedRecords = await Promise.all(rankedUrls.slice(0, 6).map(async ({ url }): Promise<ChannelRecord | null> => {
+  const indexedRecords = await mapWithConcurrency(rankedUrls.slice(0, 6), 2, async ({ url }): Promise<ChannelRecord | null> => {
     const channel = recoveryChannelForCustomer(url, input.customer);
     if (channel === "google_maps") return null;
     try {
@@ -2451,7 +2464,7 @@ async function collectIndexedPublicEvidence(input: {
       const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
       return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
     } catch { return null; }
-  }));
+  });
   const accepted = indexedRecords.filter((item): item is ChannelRecord => Boolean(item));
   for (const record of accepted) {
     const canonicalUrl = String(record.source_url || "").replace(/\/$/, "").toLowerCase();

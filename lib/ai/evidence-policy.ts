@@ -59,6 +59,12 @@ export function evidenceStrengthFor(evidence: PolicyEvidence): EvidenceStrength 
   if (evidence.strength) return evidence.strength;
   const channel = evidence.channel.toLowerCase();
   const fact = evidence.fact.toLowerCase();
+  // A collector status or an explicit statement that no fact was found is an
+  // audit trail, not positive/negative business evidence. Check this before
+  // keyword matching so phrases such as "未发现手机维修事实" cannot become
+  // STRONG_DIRECT merely because they contain a target-industry term.
+  const collectionAttemptOnly = /(?:已尝试读取|已读取).{0,80}(?:未发现|未取得|未能取得)|(?:未发现|未取得|未能取得|没有发现|无可核验).{0,120}(?:经营事实|公开页面内容|目标经营事实|维修|配件|批发|分销|进口|采购)/i.test(fact);
+  if (collectionAttemptOnly && evidence.kind === "中性") return "WEAK_HINT";
   const directBusinessFact = /(?:换屏|更换屏幕|屏幕(?:或玻璃)?更换|玻璃更换|换电池|电池更换|充电口(?:或接口)?维修|主板(?:或逻辑板)?维修|板级或元器件级维修|尾插维修|维修预约|维修报价|手机维修|电脑(?:或笔记本)?维修|计算机维修|电脑硬件维修|macbook维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|game(?:s)? console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|手机(?:、平板)?配件销售|手机配件(?:商店|零售|批发)?|电脑配件(?:商店|零售|批发)?|lcd|oled|批发|经销|分销|进口|wholesale|\bb2b\b|\bmoq\b|bulk price|trade account|distributor|dealer|reseller|永久关闭|已停业|只销售手机成品|运营商套餐)/i.test(fact);
   const directRejectFact = /(?:计算机服务|计算机技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|软件开发|云服务|网络托管|运营商套餐|SIM卡|食品批发|铁路工程|铁路安全|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software|IT support|technical support|managed services|network setup|NAS setup|server maintenance|tobacco|vape|auction)/i.test(fact);
   // A page path such as /services or /contact is not evidence by itself. Strong

@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isDateLikeContactValue } from "./contact-intelligence";
+import { countryInfo } from "../countries";
 
 export type WebsiteEvidence = {
   url: string;
@@ -72,6 +73,19 @@ function requestSignal(options: FetchOptions, fallbackMs: number) {
     signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
     clear: () => clearTimeout(timeout),
   };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export function evidenceDomain(value?: string | null) {
@@ -331,6 +345,29 @@ function normalizedPlaceQueryPart(value?: string | null) {
   return String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
+function countryQueryLabel(value?: string | null) {
+  const info = countryInfo(value);
+  if (!info.code) return normalizedPlaceQueryPart(value);
+  return new Intl.DisplayNames(["en"], { type: "region" }).of(info.code) || info.name || info.code;
+}
+
+export function placeAddressCountryStatus(country?: string | null, address?: string | null): "MATCH" | "MISMATCH" | "UNKNOWN" {
+  const expected = countryInfo(country).code;
+  const normalizedAddress = normalizedPlaceQueryPart(address);
+  if (!expected || !normalizedAddress) return "UNKNOWN";
+  const segments = normalizedAddress.split(",").map((part) => part.trim()).filter(Boolean).reverse();
+  for (const segment of segments.slice(0, 2)) {
+    const detected = countryInfo(segment).code;
+    if (detected) return detected === expected ? "MATCH" : "MISMATCH";
+  }
+  const labels = [
+    countryInfo(country).name,
+    new Intl.DisplayNames(["en"], { type: "region" }).of(expected),
+    new Intl.DisplayNames(["zh-CN"], { type: "region" }).of(expected),
+  ].filter((item): item is string => Boolean(item && item.length > 2));
+  return labels.some((label) => normalizedAddress.toLocaleLowerCase().includes(label.toLocaleLowerCase())) ? "MATCH" : "UNKNOWN";
+}
+
 export function googlePlaceTextQueries(input: {
   company_name: string;
   address?: string | null;
@@ -345,7 +382,8 @@ export function googlePlaceTextQueries(input: {
   // entity by name, full address and telephone before accepting it.
   const primary = address || [name, location].filter(Boolean).join(", ");
   const phone = String(input.phone || "").replace(/[^\d+]/g, "");
-  const identityFallback = phone.length >= 7 ? [name, phone].filter(Boolean).join(" ") : name;
+  const country = countryQueryLabel(input.country);
+  const identityFallback = phone.length >= 7 ? [name, phone, country].filter(Boolean).join(" ") : [name, country].filter(Boolean).join(" ");
   return [...new Set([primary, identityFallback].filter(Boolean))].slice(0, 2);
 }
 
@@ -650,7 +688,7 @@ async function discoverRelevantChildPages(rootUrl: string, seedUrls: string[], o
   const excluded = /privacy|policy|terms|cookie|login|sign[ -]?in|register|account|cart|checkout|wishlist|blog|news|press|career|vacan|隐私|条款|登录|注册|购物车/i;
   try {
     const rootOrigin = new URL(rootUrl).origin;
-    const batches = await Promise.all(seedUrls.slice(0, 3).map(async (seedUrl) => {
+    const batches = await mapWithConcurrency(seedUrls.slice(0, 3), 2, async (seedUrl) => {
       try {
         const response = await fetchPublic(seedUrl, { signal: request.signal, headers: BROWSER_HEADERS });
         if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
@@ -666,7 +704,7 @@ async function discoverRelevantChildPages(rootUrl: string, seedUrls: string[], o
           })
           .map((item) => item.url);
       } catch { return []; }
-    }));
+    });
     return [...new Set(batches.flat())].filter((item) => !seedUrls.includes(item)).slice(0, 4);
   } finally {
     request.clear();
@@ -678,14 +716,14 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
   if (!homepage?.reachable) return homepage;
   const importantPages = await discoverImportantWebsitePages(homepage.url, options);
   if (!importantPages.length) return homepage;
-  const firstLevelPages = (await Promise.all(importantPages.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  const firstLevelPages = (await mapWithConcurrency(importantPages, 2, (pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) }))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
   const deepSeedPattern = /repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|parts?|spare|accessor|wholesale|dealer|trade|b2b|product|produkt|维修|修理|配件|批发/i;
   const seedUrls = firstLevelPages
     .filter((page) => deepSeedPattern.test(`${page.url} ${page.title || ""} ${page.headings.join(" ")}`))
     .map((page) => page.url)
     .slice(0, 3);
   const childUrls = seedUrls.length ? await discoverRelevantChildPages(homepage.url, seedUrls, options) : [];
-  const childPages = (await Promise.all(childUrls.map((pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) })))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
+  const childPages = (await mapWithConcurrency(childUrls, 2, (pageUrl) => collectWebsiteEvidence(pageUrl, { ...options, timeoutMs: Math.min(options.timeoutMs || 5000, 5000) }))).filter((page): page is WebsiteEvidence => Boolean(page?.reachable));
   const pages = [...new Map([...firstLevelPages, ...childPages].map((page) => [page.url, page])).values()];
   return {
     ...homepage,
@@ -960,25 +998,25 @@ async function collectPublicGooglePlaceEvidence(input: {
       const phoneBlock = Array.isArray(row[178]) && Array.isArray(row[178][0]) ? row[178][0] : [];
       const phone = String(phoneBlock[0] || "");
        const candidateNameSimilarity = nameSimilarity(input.company_name, name);
-       const nameScore = Math.round(candidateNameSimilarity * 45);
+       const nameScore = Math.round(candidateNameSimilarity * 15);
       const addressSimilarity = addressIdentityScore(input.address, address);
-      const addressScore = Math.round(addressSimilarity * 45);
+      const addressScore = Math.round(addressSimilarity * 55);
       // A candidate exposing the exact customer-supplied official domain is a
       // much stronger identity signal than a loose name overlap. This is still
       // identity evidence only; the page content/types must separately prove
       // the industry.
       const officialDomainMatch = Boolean(domain(input.website) && domain(input.website) === domain(website));
-      const websiteScore = officialDomainMatch ? 55 : 0;
+      const websiteScore = officialDomainMatch ? 70 : 0;
       const matchedPhone = phoneIdentityMatch(input.phone, phone);
-      const phoneScore = matchedPhone ? 20 : 0;
-      const countryScore = input.country && String(input.country).toUpperCase() === countryCode ? 10 : 0;
-       // An exact/near-exact business name returned as the unique top Google
-       // candidate is a strong identity signal even when imported rows lack an
-       // address. A supplied concrete place URL strengthens it further, while a
-       // mismatched place URL receives no bonus and remains blocked.
-       const exactNameScore = candidateNameSimilarity >= 0.85 ? 45 : 0;
-       const exactPlaceUrlScore = resolvedFromSpecificPlace && candidateNameSimilarity >= 0.55 ? 65 : 0;
-       return { row, name, address, website, phone, countryCode, nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, score: Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactNameScore + exactPlaceUrlScore) };
+      const phoneScore = matchedPhone ? 70 : 0;
+      const expectedCountryCode = countryInfo(input.country).code;
+      const countryMismatch = Boolean(expectedCountryCode && countryCode && expectedCountryCode !== countryCode);
+      const countryScore = expectedCountryCode && expectedCountryCode === countryCode ? 10 : 0;
+       // Imported names are mutable and may be stale. They only rank candidates;
+       // stable identity signals (address, phone, official domain or a concrete
+       // Place ID) must carry the attribution decision.
+       const exactPlaceUrlScore = resolvedFromSpecificPlace ? 35 : 0;
+       return { row, name, address, website, phone, countryCode, nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, score: countryMismatch ? 0 : Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactPlaceUrlScore) };
     }).sort((a, b) => b.score - a.score);
     const top = candidates[0]; const runnerUp = candidates[1];
     const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = resolveGoogleCandidateIdentity({
@@ -1012,7 +1050,7 @@ async function collectPublicGooglePlaceEvidence(input: {
     const verifiedUrl = isSpecificPlaceUrl ? providedUrl! : typeof top.row[42] === "string" ? top.row[42] : searchPage;
     const nameVariantConfirmed = top.nameSimilarity < 0.8 && top.addressSimilarity >= 0.72 && top.phoneMatch;
     const phoneChanged = Boolean(input.phone && top.phone && !top.phoneMatch);
-    const matchSignals = [top.nameSimilarity >= 0.8 ? "商家名称高度一致" : "", nameVariantConfirmed ? "商家名称存在细微差异，完整地址与电话已确认同一主体" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", top.addressSimilarity >= 0.72 ? "完整地址一致" : "", input.country && String(input.country).toUpperCase() === top.countryCode ? "国家代码一致" : "", top.officialDomainMatch ? "公开网站一致" : "", top.phoneMatch ? "电话号码一致" : ""].filter(Boolean);
+    const matchSignals = [top.nameSimilarity >= 0.8 ? "商家名称高度一致（辅助信号）" : "", nameVariantConfirmed ? "商家名称存在细微差异，完整地址与电话已确认同一主体" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", top.addressSimilarity >= 0.72 ? "完整地址一致" : "", countryInfo(input.country).code && countryInfo(input.country).code === top.countryCode ? "国家代码一致" : "", top.officialDomainMatch ? "公开网站一致" : "", top.phoneMatch ? "电话号码一致" : ""].filter(Boolean);
     const mismatchSignals = [
       input.address && top.addressSimilarity < 0.45 ? "地址信息不一致" : "",
       phoneChanged ? "Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选" : "",
@@ -1059,6 +1097,7 @@ export async function collectGooglePlaceEvidence(input: {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   const queries = googlePlaceTextQueries(input);
+  const regionCode = countryInfo(input.country).code;
   const query = queries[0] || [input.company_name, input.address, input.country].filter(Boolean).join(" ");
   if (!apiKey) {
     const publicEvidence = await collectPublicGooglePlaceEvidence(input, options);
@@ -1144,7 +1183,7 @@ export async function collectGooglePlaceEvidence(input: {
             textQuery,
             pageSize: 3,
             languageCode: "zh-CN",
-            ...(/^[A-Za-z]{2}$/.test(String(input.country || "")) ? { regionCode: String(input.country).toUpperCase() } : {}),
+            ...(regionCode ? { regionCode } : {}),
           }),
         });
         await reportCall(index === 0 ? "名称地址文本搜索" : "电话号码精确回退搜索","PLACES_TEXT_SEARCH_ID_ONLY",searchResponse.status,"GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST",searchResponse);
@@ -1173,7 +1212,6 @@ export async function collectGooglePlaceEvidence(input: {
     if (!details.length) {
       return { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
     }
-    const normalize = (value?: string | null) => String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     const domain = evidenceDomain;
     const providedGoogleUrl = safePublicUrl(input.google_url);
     const hasConcretePlacePath = Boolean(providedGoogleUrl && /google\.[^/]+\/maps\/place\//i.test(providedGoogleUrl));
@@ -1181,17 +1219,19 @@ export async function collectGooglePlaceEvidence(input: {
       const matchSignals: string[] = []; const mismatchSignals: string[] = [];
       const candidateName = item.displayName?.text || "";
       const candidateNameSimilarity = nameSimilarity(input.company_name, candidateName);
-      const nameScore = Math.round(candidateNameSimilarity * 55);
-      if (nameScore >= 44) matchSignals.push("商家名称高度一致"); else mismatchSignals.push("商家名称未达到高度一致");
+      const nameScore = Math.round(candidateNameSimilarity * 15);
+      if (nameScore >= 12) matchSignals.push("商家名称高度一致（辅助信号）"); else mismatchSignals.push("商家名称未达到高度一致");
       const addressSimilarity = addressIdentityScore(input.address, item.formattedAddress);
-      const addressScore = Math.round(addressSimilarity * 35);
-      if (addressScore >= 21) matchSignals.push("地址信息一致"); else if (input.address) mismatchSignals.push("地址信息不足或不一致");
-      const countryScore = input.country && normalize(item.formattedAddress).includes(normalize(input.country)) ? 10 : 0;
+      const addressScore = Math.round(addressSimilarity * 55);
+      if (addressScore >= 33) matchSignals.push("地址信息一致"); else if (input.address) mismatchSignals.push("地址信息不足或不一致");
+      const countryStatus = placeAddressCountryStatus(input.country, item.formattedAddress);
+      if (countryStatus === "MISMATCH") mismatchSignals.push("Google商家国家与客户国家不一致，候选已淘汰");
+      const countryScore = countryStatus === "MATCH" ? 10 : 0;
       if (countryScore) matchSignals.push("国家或地区一致");
       // /maps/search/... is only a query, not a concrete merchant identity.
       // Treating it as a specific-place signal caused similarly named nearby
       // businesses to outrank the customer's full address.
-      const specificUrlScore = hasConcretePlacePath && candidateNameSimilarity >= 0.55 ? 25 : 0;
+      const specificUrlScore = hasConcretePlacePath && candidateNameSimilarity >= 0.55 ? 20 : 0;
       if (specificUrlScore) matchSignals.push("客户提供的Google商家入口与候选名称一致");
       const directIdScore = directPlaceId && item.id === directPlaceId ? 35 : 0;
       if (directIdScore) matchSignals.push("Google Place ID一致");
@@ -1206,9 +1246,9 @@ export async function collectGooglePlaceEvidence(input: {
       if (officialDomainMatch) matchSignals.push("官网域名一致");
       if (phoneConflict) mismatchSignals.push("Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选");
       if (officialDomainConflict) mismatchSignals.push("Google商家官网与原始官网域名不一致");
-      const contactBonus = (matchedPhone ? 30 : 0) + (officialDomainMatch ? 40 : 0);
+      const contactBonus = (matchedPhone ? 70 : 0) + (officialDomainMatch ? 70 : 0);
       const conflictPenalty = (phoneConflict ? 15 : 0) + (officialDomainConflict ? 20 : 0);
-      return { item, score: Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
+      return { item, score: countryStatus === "MISMATCH" ? 0 : Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
     }).sort((a, b) => b.score - a.score);
     let scored = scoreDetails(details);
 
@@ -1225,7 +1265,7 @@ export async function collectGooglePlaceEvidence(input: {
           textQuery: queries[1],
           pageSize: 3,
           languageCode: "zh-CN",
-          ...(/^[A-Za-z]{2}$/.test(String(input.country || "")) ? { regionCode: String(input.country).toUpperCase() } : {}),
+          ...(regionCode ? { regionCode } : {}),
         }),
       });
       await reportCall("电话号码精确回退搜索", "PLACES_TEXT_SEARCH_ID_ONLY", fallbackResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", fallbackResponse);
@@ -1422,7 +1462,7 @@ export async function discoverPublicBusinessUrls(input: {
       ...[...html.matchAll(/<a[^>]+href=["']([^"']{1,1200})["']/gi)].map((match) => normalizeSearchLink(match[1])),
     ].filter((url): url is string => Boolean(url))
       .filter((url) => !/(?:duckduckgo\.com|bing\.com|google\.[^/]+\/(?:search|maps))/i.test(url)));
-    const pages = await Promise.all(queries.map(async (query) => {
+    const pages = await mapWithConcurrency(queries, 2, async (query) => {
       try {
         const response = await fetchWithRetry(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
           signal: request.signal,
@@ -1443,7 +1483,7 @@ export async function discoverPublicBusinessUrls(input: {
         if (!fallback.ok) return [] as string[];
         return resultLinks(await readTextLimited(fallback, 180_000));
       } catch { return [] as string[]; }
-    }));
+    });
     return unique(pages.flat()).slice(0, 10);
   } finally {
     request.clear();
