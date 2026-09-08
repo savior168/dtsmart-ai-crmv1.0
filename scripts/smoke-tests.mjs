@@ -88,7 +88,9 @@ assert.match(workflow, /AI_SCREENING_CONCURRENCY/, "AI任务并发量必须可�
 assert.match(workflow, /status: "COMPLETED"/, "单个客户失败不能把已跑完的整个任务标记为失败");
 assert.match(workflow, /failTask\(input\.taskId/, "任务级异常必须单独标记整个任务失败");
 assert.match(workflow, /order\("attempt_count", \{ ascending: true \}\)/, "未分析客户必须优先于补证重试客户");
-assert.match(workflow, /order\("created_at", \{ ascending: true \}\)/, "同一轮任务必须保持稳定先进先出顺序");
+assert.match(workflow, /order\("updated_at", \{ ascending: true \}\)/, "同一轮任务必须使用生产表真实字段保持稳定先进先出顺序");
+assert.doesNotMatch(workflow, /order\("created_at"/, "任务队列不得查询生产表不存在的created_at字段");
+assert.match(workflow, /normalizeError\(error, \{ stage: "TASK" \}\)/, "任务级Supabase对象错误必须保留真实错误码和消息");
 const nextConfig = read("next.config.ts");
 assert.match(nextConfig, /withWorkflow\(nextConfig\)/, "生产构建必须启用持久化Workflow");
 const taskCenter = read("components/ai-screening/task-center-view.tsx");

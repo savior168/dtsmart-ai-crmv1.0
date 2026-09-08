@@ -46,10 +46,23 @@ async function nextPendingItems(taskId: string, limit: number) {
     // recovery rows. A small number of difficult customers must not occupy
     // every worker slot while the rest of the task is still untouched.
     .order("attempt_count", { ascending: true })
-    .order("created_at", { ascending: true })
+    // ai_screening_task_items has no created_at column in production. New
+    // items share their initial updated_at, while every retry receives a later
+    // updated_at, so this preserves FIFO order without querying a phantom
+    // column and still keeps slow retries behind untouched rows.
+    .order("updated_at", { ascending: true })
     .order("id", { ascending: true })
     .limit(limit);
-  if (error) throw error;
+  if (error) {
+    console.error("[ai-screening] pending queue query failed", {
+      taskId,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
   return (data || []).map((item) => item.id);
 }
 
@@ -200,7 +213,11 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     await finishTask(input.taskId);
     return { status: "FINISHED" };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "任务级AI执行异常";
+    // Supabase/PostgREST failures are plain objects rather than Error
+    // instances. Normalize them so the task page and runtime logs retain the
+    // actual database code/message instead of the unhelpful generic text.
+    const normalized = normalizeError(error, { stage: "TASK" });
+    const message = `${normalized.error_code}：${normalized.error_message}`;
     await failTask(input.taskId, message);
     return { status: "FAILED", error: message };
   }
