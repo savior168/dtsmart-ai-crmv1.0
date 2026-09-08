@@ -57,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.8";
+const ANALYSIS_VERSION = "2026.09.08.9";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -390,7 +390,7 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   let inputWebsiteDomain = ""; try { inputWebsiteDomain = new URL(/^https?:\/\//i.test(String(customerWebsite || "")) ? String(customerWebsite) : `https://${customerWebsite}`).hostname.replace(/^www\./, ""); } catch { /* invalid source */ }
   const providedDomainMatch = Boolean(inputWebsiteDomain && websiteDomain && inputWebsiteDomain === websiteDomain);
   const emailMatch = Boolean(emailDomain && websiteDomain && (emailDomain === websiteDomain || emailDomain.endsWith(`.${websiteDomain}`)));
-  const addressMatch = Boolean(customer.address && compactIdentity(pageText).includes(compactIdentity(customer.address).slice(0, 24)));
+  const addressMatch = addressAppearsOnPage(customer.address, pageText);
   // The exact domain of a non-personal company mailbox is a strong identity
   // signal for imported branch records whose display name may only be a mall or
   // district name. It verifies the company, but still does not prove industry.
@@ -443,6 +443,13 @@ function recordBusinessText(record?: ChannelRecord) {
     return [item.description, ...(item.reviews || [])].filter(Boolean).join("；");
   }
   const item = record.evidence as WebsiteEvidence;
+  if (record.channel === "other") {
+    // A directory's flattened body is not listing-scoped and may contain
+    // nearby merchants or generic articles. Keep normalization on the same
+    // strict metadata boundary used by deterministic analysis.
+    return [item.title, item.description, ...(item.structured_types || [])]
+      .filter(Boolean).join("；");
+  }
   return [item.description, ...(item.structured_descriptions || []), ...(item.headings || []), item.text_excerpt]
     .filter(Boolean).join("；");
 }
@@ -812,7 +819,17 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
     if (item.status !== "COLLECTED" || !item.evidence) continue;
     if (item.channel === "website") continue;
     if (item.channel === "google_maps") continue;
-    publicChannels[item.channel] = compactWebsite(item.evidence as WebsiteEvidence);
+    const publicEvidence = item.evidence as WebsiteEvidence;
+    publicChannels[item.channel] = compactWebsite(item.channel === "other" ? {
+      ...publicEvidence,
+      // Keep model synthesis on listing-scoped metadata. Directory body/pages
+      // may describe nearby businesses or generic SEO articles and must not be
+      // attributed to this customer merely because the listing itself matched.
+      structured_descriptions: [],
+      headings: [],
+      text_excerpt: "",
+      pages: [],
+    } : publicEvidence);
   }
   const googleCandidate = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
   const google = googleCandidate && (!googleCandidate.identity_status
@@ -926,6 +943,7 @@ export function hasTargetValueSignal(customer: CustomerRow, records: ChannelReco
   const evidenceText = records.filter((record) => record.status === "COLLECTED" && record.evidence).map((record) => {
     if (record.channel === "google_maps") return googleBusinessEvidenceText(record.evidence as GooglePlaceEvidence);
     const item = record.evidence as WebsiteEvidence;
+    if (record.channel === "other") return identityAnchoredRecoveryText(customer, item);
     return [item.title, item.description, ...(item.structured_descriptions || []), ...(item.headings || []), item.text_excerpt].filter(Boolean).join(" ");
   }).join(" ");
   // Imported fields are routing hints only. They may authorize deeper
@@ -942,7 +960,7 @@ export function isConclusiveChannelAnalysis(analysis: CustomerAnalysis | null) {
   if (analysis.usage.model !== "RULE_ENGINE") return false;
   return analysis.evidence_summaries.some((item) => {
     if (item.confidence < 80 || item.evidence_type === "中性") return false;
-    if (!/^(?:website|google_maps|facebook|instagram|linkedin|tiktok)$/.test(item.channel)) return false;
+    if (!/^(?:website|google_maps|facebook|instagram|linkedin|tiktok|other)$/.test(item.channel)) return false;
     return item.evidence_type === "支持"
       ? hasDirectTargetBusinessEvidence(item.fact_zh)
       : isDirectNonTargetBusinessEvidence(item.fact_zh);
@@ -973,6 +991,13 @@ function deterministicScore(input: {
   records: ChannelRecord[];
   google?: GooglePlaceEvidence;
 }) {
+  const recordTargetText = (record: ChannelRecord) => {
+    if (!record.evidence) return "";
+    if (record.channel === "google_maps") return googleBusinessEvidenceText(record.evidence as GooglePlaceEvidence);
+    const evidence = record.evidence as WebsiteEvidence;
+    if (record.channel === "other") return identityAnchoredRecoveryText(input.customer, evidence);
+    return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
+  };
   const matchingRecords = input.records.filter((record) => {
     if (record.status !== "COLLECTED" || !record.evidence) return false;
     if (record.channel === "google_maps") {
@@ -980,20 +1005,12 @@ function deterministicScore(input: {
       return input.rule.pattern.test(googleBusinessEvidenceText(evidence));
     }
     if (record.channel !== "website" && !recoveryRecordMatchesEntity(input.customer, input.records, record)) return false;
-    const evidence = record.evidence as WebsiteEvidence;
-    return input.rule.pattern.test([evidence.title, evidence.description, ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join(" "));
+    return input.rule.pattern.test(recordTargetText(record));
   });
   const matchingSources = new Set(matchingRecords.map((record) => {
     try { return new URL(record.source_url || "").origin; } catch { return record.channel; }
   }).filter(Boolean)).size;
-  const combinedText = matchingRecords.map((record) => {
-    if (record.channel === "google_maps") {
-      const evidence = record.evidence as GooglePlaceEvidence;
-      return googleBusinessEvidenceText(evidence);
-    }
-    const evidence = record.evidence as WebsiteEvidence;
-    return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
-  }).join("；");
+  const combinedText = matchingRecords.map(recordTargetText).join("；");
   const specificServices = [
     /(?:screen (?:replacement|repair)|display (?:replacement|repair)|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
     /(?:battery (?:replacement|repair)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
@@ -1003,15 +1020,6 @@ function deterministicScore(input: {
     /(?:wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i,
   ].filter((pattern) => pattern.test(combinedText || input.candidate.text)).length;
   const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|screen replacement|battery replacement|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|vanninngangsskade|bøyd chassis|ødelagte? høyttaler(?:e)?|ladeport|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|device disassembly|spare parts?|replacement parts?|repair parts?|ersatzteil\w*|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|专业维修车间|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
-  const recordTargetText = (record: ChannelRecord) => {
-    if (!record.evidence) return "";
-    if (record.channel === "google_maps") {
-      const evidence = record.evidence as GooglePlaceEvidence;
-      return googleBusinessEvidenceText(evidence);
-    }
-    const evidence = record.evidence as WebsiteEvidence;
-    return [evidence.title, evidence.description, ...(evidence.structured_descriptions || []), ...(evidence.headings || []), evidence.text_excerpt].filter(Boolean).join("；");
-  };
   const googleDirectTargetEvidence = matchingRecords.some((record) => record.channel === "google_maps"
     && (directTargetPattern.test(recordTargetText(record))
       || Boolean(input.google && input.rule.target && hasVerifiedGoogleBusinessCategory(input.google))));
@@ -1268,6 +1276,16 @@ function emptyBreakdown(value: number): CustomerAnalysis["score_breakdown"] {
   };
 }
 
+function identityAnchoredRecoveryText(_customer: CustomerRow, website: WebsiteEvidence) {
+  // A third-party listing's free body can contain related-business widgets,
+  // reviews for nearby merchants and generic SEO articles. Even a nearby name
+  // or address is not a reliable ownership boundary after the DOM is flattened.
+  // Only listing-scoped metadata is eligible for automatic scoring; the full
+  // page remains stored as provenance but cannot create a business fact.
+  return [website.title, website.description, ...(website.structured_types || [])]
+    .filter(Boolean).join("；").slice(0, 3000);
+}
+
 export function deterministicAnalysis(customer: CustomerRow, records: ChannelRecord[]): CustomerAnalysis | null {
   const googleRecord = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
   const google = googleRecord?.evidence as GooglePlaceEvidence | undefined;
@@ -1303,16 +1321,22 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
         || record.status !== "COLLECTED" || !record.evidence
         || !record.source_url || !recoveryRecordMatchesEntity(customer, records, record)) continue;
     const social = record.evidence as WebsiteEvidence;
-    const text = [social.title, social.description, ...(social.structured_types || []),
-      ...(social.structured_descriptions || []), ...(social.headings || []), social.text_excerpt?.slice(0, 1600)]
-      .filter(Boolean).join("；").slice(0, 4000);
+    const text = record.channel === "other"
+      ? identityAnchoredRecoveryText(customer, social)
+      : [social.title, social.description, ...(social.structured_types || []),
+        ...(social.structured_descriptions || []), ...(social.headings || []), social.text_excerpt?.slice(0, 1600)]
+        .filter(Boolean).join("；").slice(0, 4000);
     if (!text) continue;
     candidates.push({
       channel: record.channel,
       url: record.source_url,
       title: social.title || customer.company_name || record.channel,
       text,
-      confidence: record.channel === "other" ? 76 : 88,
+      // `other` reaches this branch only after recoveryRecordMatchesEntity has
+      // verified the page by name plus address/phone/domain. It is weaker than
+      // an official site, but strong enough to stop repeated paid searches when
+      // the page contains a direct business fact.
+      confidence: record.channel === "other" ? 84 : 88,
       originalExcerpt: compactBusinessExcerpt(text),
     });
   }
@@ -1857,34 +1881,40 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   let earlyStopReason: string | null = null;
   let discoveredOfficialWebsite: string | null = null;
   try {
-    // Both modes start with the two highest-value public sources. Secondary
-    // channels are collected in small batches only when the primary evidence
-    // cannot support a reliable conclusion. This is faster and avoids sending
-    // redundant public content to the model.
-    const primaryChannels = ["website", "google_maps"] as AiChannel[];
-    const pendingChannels = primaryChannels.filter((channel) => !records.some((item) => item.channel === channel && ["COLLECTED", "SKIPPED"].includes(item.status)));
-    if (pendingChannels.length) {
-      const collected = await Promise.all(pendingChannels.map((channel) => collectChannel(customer, channel, analysisController.signal, costContext)));
-      for (const current of collected) {
-        const index = records.findIndex((item) => item.channel === current.channel);
-        if (index >= 0) records[index] = current; else records.push(current);
-      }
-      await saveCheckpoint(input.taskItemId, records, pendingChannels[pendingChannels.length - 1]);
+    // Cost-aware staged collection. Read the supplied official website first:
+    // it is the most authoritative source for business scope and has no
+    // per-request provider fee. If it already proves the entity and industry,
+    // do not start Google Places, social collection, or a model call.
+    if (!records.some((item) => item.channel === "website" && ["COLLECTED", "SKIPPED"].includes(item.status))) {
+      const websiteRecord = await collectChannel(customer, "website", analysisController.signal, costContext);
+      records.push(websiteRecord);
+      await saveCheckpoint(input.taskItemId, records, "website");
     }
-
-    // The original website and Google Places are collected concurrently. When
-    // an exact matched Place supplies a missing official website, the old flow
-    // discovered it too late and never read it. Fetch it now, then require the
-    // fetched page itself to corroborate the business identity before allowing
-    // its evidence or contacts into the pipeline.
     const websiteIndex = records.findIndex((item) => item.channel === "website");
     let currentWebsite = websiteIndex >= 0 ? records[websiteIndex] : undefined;
-    const currentWebsiteVerified = Boolean(currentWebsite && websiteRecordMatchesEntity(customer, records, currentWebsite));
+    let currentWebsiteVerified = Boolean(currentWebsite && websiteRecordMatchesEntity(customer, records, currentWebsite));
     if (currentWebsite?.status === "COLLECTED" && !currentWebsiteVerified) {
       // 保留页面和失败原因供任务审计，但FAILED记录不会进入模型证据、评分或联系方式写回。
       currentWebsite = { ...currentWebsite, status: "FAILED", error: "官网页面与当前客户主体交叉校验未通过" };
       records[websiteIndex] = currentWebsite;
       await saveCheckpoint(input.taskItemId, records, "website");
+    }
+
+    let stagedAnalysis = deterministicAnalysis(customer, records);
+    if (!isConclusiveChannelAnalysis(stagedAnalysis)) {
+      // A bounded ordinary web-index lookup costs no LLM tokens and often finds
+      // the exact official/directory/social page for service-area businesses.
+      // Candidate snippets are never evidence; fetched pages still need strict
+      // entity matching. This phase runs before paid Places.
+      await collectIndexedPublicEvidence({ taskItemId: input.taskItemId, customer, records, signal: analysisController.signal });
+      stagedAnalysis = deterministicAnalysis(customer, records);
+    }
+
+    if (!isConclusiveChannelAnalysis(stagedAnalysis)
+        && !records.some((item) => item.channel === "google_maps" && ["COLLECTED", "SKIPPED"].includes(item.status))) {
+      const googleRecord = await collectChannel(customer, "google_maps", analysisController.signal, costContext);
+      records.push(googleRecord);
+      await saveCheckpoint(input.taskItemId, records, "google_maps");
     }
 
     const googleWebsite = verifiedOfficialWebsiteFromGoogle(records);
@@ -1896,6 +1926,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         const index = records.findIndex((item) => item.channel === "website");
         if (index >= 0) records[index] = candidate; else records.push(candidate);
         currentWebsite = candidate;
+        currentWebsiteVerified = true;
         await saveCheckpoint(input.taskItemId, records, "website");
       }
     }
@@ -2373,7 +2404,18 @@ export function recoveryRecordMatchesEntity(customer: CustomerRow, records: Chan
   const pageText = [website.title, website.description, ...(website.headings || []), website.text_excerpt]
     .filter(Boolean).join(" ");
   const channel = record.channel;
-  if (channel === "other") return websiteRecordMatchesEntity(customer, records, { ...record, channel: "website" });
+  if (channel === "other") {
+    const nameMatch = identityNameSimilarity(customer.company_name, pageText) >= 0.75;
+    const originalPhone = normalizePhoneInternational(customer.phone, customer.country);
+    const phoneMatch = Boolean(originalPhone && website.phones.some((value) => normalizePhoneInternational(value, customer.country) === originalPhone));
+    const addressMatch = addressAppearsOnPage(customer.address, pageText);
+    const customerDomain = emailBusinessDomain(customer.email);
+    const sourceHost = websiteHost(record.source_url || website.url);
+    const emailDomainMatch = Boolean(customerDomain && sourceHost && (sourceHost === customerDomain || sourceHost.endsWith(`.${customerDomain}`)));
+    const verifiedGoogleWebsite = verifiedOfficialWebsiteFromGoogle(records);
+    const googleOfficialLinkMatch = Boolean(verifiedGoogleWebsite && sourceHost === websiteHost(verifiedGoogleWebsite));
+    return googleOfficialLinkMatch || (nameMatch && (phoneMatch || addressMatch || emailDomainMatch));
+  }
   // A social profile is not an official website. It may only supplement a
   // result after its name is corroborated by a phone/address signal or a
   // previously verified official link. This prevents same-name profiles from
@@ -2393,6 +2435,51 @@ export function recoveryRecordMatchesEntity(customer: CustomerRow, records: Chan
   return officialLinkMatch || (nameScore >= 0.75 && (phoneMatch || addressMatch));
 }
 
+async function collectIndexedPublicEvidence(input: {
+  taskItemId: string;
+  customer: CustomerRow;
+  records: ChannelRecord[];
+  signal: AbortSignal;
+}) {
+  const indexedUrls = await discoverPublicBusinessUrls({
+    company_name: input.customer.company_name,
+    address: input.customer.address,
+    phone: input.customer.phone,
+    country: input.customer.country,
+  }, { signal: input.signal, timeoutMs: 6_000 });
+  // The index only discovers candidates. Fetch a small bounded set, and never
+  // score snippets. Every accepted page must independently pass the normal
+  // name plus address/phone/domain identity gate.
+  const rankedUrls = indexedUrls.map((url, index) => ({
+    url,
+    index,
+    score: /(?:repair|repar|serwis|napraw|维修)/i.test(url) ? 4
+      : /(?:phone|mobile|handy|computer|laptop|gsm)/i.test(url) ? 1 : 0,
+  })).sort((left, right) => right.score - left.score || left.index - right.index);
+  const indexedRecords = await Promise.all(rankedUrls.slice(0, 6).map(async ({ url }): Promise<ChannelRecord | null> => {
+    const channel = recoveryChannelForCustomer(url, input.customer);
+    if (channel === "google_maps") return null;
+    try {
+      const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 5_000 });
+      if (!evidence?.reachable) return null;
+      const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
+      return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
+    } catch { return null; }
+  }));
+  const accepted = indexedRecords.filter((item): item is ChannelRecord => Boolean(item));
+  for (const record of accepted) {
+    const canonicalUrl = String(record.source_url || "").replace(/\/$/, "").toLowerCase();
+    if (input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === canonicalUrl)) continue;
+    const sameChannel = record.channel === "website"
+      ? input.records.findIndex((saved) => saved.channel === "website" && saved.status !== "COLLECTED")
+      : -1;
+    if (sameChannel >= 0) input.records[sameChannel] = record;
+    else input.records.push(record);
+  }
+  if (accepted.length) await saveCheckpoint(input.taskItemId, input.records, "other");
+  return accepted.length;
+}
+
 /**
  * Empty first-party records are not handed to a sales user. One bounded public
  * search discovers candidate pages, then this worker fetches the pages itself.
@@ -2403,38 +2490,9 @@ async function recoverPublicEvidence(input: {
   customer: CustomerRow; records: ChannelRecord[]; signal: AbortSignal;
   focus: "identity" | "official_business" | "social_business" | "comprehensive";
 }) {
-  // First use a zero-token public index lookup. Every result is re-fetched and
-  // must pass the same deterministic entity gate; search snippets themselves
-  // are never evidence. This handles service-area businesses omitted by Places
-  // without paying for a model call or blocking the rest of the batch.
-  const indexedUrls = await discoverPublicBusinessUrls({
-    company_name: input.customer.company_name,
-    address: input.customer.address,
-    phone: input.customer.phone,
-    country: input.customer.country,
-  }, { signal: input.signal, timeoutMs: 8_000 });
-  const indexedRecords = await Promise.all(indexedUrls.slice(0, 8).map(async (url): Promise<ChannelRecord | null> => {
-    const channel = recoveryChannelForCustomer(url, input.customer);
-    if (channel === "google_maps") return null;
-    try {
-      const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 7_000 });
-      if (!evidence?.reachable) return null;
-      const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
-      return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
-    } catch { return null; }
-  }));
-  for (const record of indexedRecords.filter((item): item is ChannelRecord => Boolean(item))) {
-    const sameChannel = record.channel === "website"
-      ? input.records.findIndex((saved) => saved.channel === "website")
-      : -1;
-    if (sameChannel >= 0) input.records[sameChannel] = record;
-    else if (!input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === String(record.source_url || "").replace(/\/$/, "").toLowerCase())) input.records.push(record);
-  }
-  if (indexedRecords.some(Boolean)) {
-    await saveCheckpoint(input.taskItemId, input.records, "other");
-    if (deterministicAnalysis(input.customer, input.records)) {
-      return { usage: ZERO_USAGE, collected: indexedRecords.filter(Boolean).length, completed: true };
-    }
+  const indexedCount = await collectIndexedPublicEvidence(input);
+  if (indexedCount && isConclusiveChannelAnalysis(deterministicAnalysis(input.customer, input.records))) {
+    return { usage: ZERO_USAGE, collected: indexedCount, completed: true };
   }
 
   const startedAt = Date.now();

@@ -60,7 +60,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.09\.08\.8/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.09\.08\.9/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: finalAutomationStatus/, "任务客户必须保存最终自动处理状态");
@@ -69,9 +69,16 @@ assert.match(taskRunner, /analyzeWithRecovery/, "高价值疑似客户可使用�
 assert.doesNotMatch(taskRunner, /all_available_sources_retry|canRecoverModelCall/, "单客户模型调用不得自动重试并重复消耗费用");
 assert.match(taskRunner, /input\.strategy === "DEEP"/, "AI执行器必须真实区分智能分析和深度分析");
 assert.match(taskRunner, /website_email[\s\S]*website_phone/, "AI分析必须回写去重后的官网邮箱和官网电话");
-assert.match(taskRunner, /Promise\.all\(pendingChannels\.map/, "同一客户可用公开渠道必须并行读取以控制耗时");
+assert.match(taskRunner, /collectChannel\(customer, "website"[\s\S]*collectIndexedPublicEvidence[\s\S]*collectChannel\(customer, "google_maps"/, "AI筛选必须先使用官网和零Token公开索引，结论不足时才调用Places");
 assert.match(taskRunner, /id: randomUUID\(\)/, "复用证据必须生成新的主键，不能写入空ID");
 assert.match(taskRunner, /score: publishedScore, grade: publishedLevel/, "明确结论必须保存评分；待定结论不得伪造低分");
+const taskDetailApi = read("app/api/ai/tasks/[id]/route.ts");
+const taskItemsCostApi = read("app/api/ai/tasks/[id]/items/route.ts");
+const taskDetailCostView = read("components/ai-screening/task-detail-view.tsx");
+assert.match(taskDetailApi, /api_cost_ledger[\s\S]*provider", "GOOGLE_PLACES"[\s\S]*google_places_call_count/, "任务详情必须从真实费用流水汇总Places调用次数");
+assert.match(taskItemsCostApi, /select\("id,score,grade,target_decision,industry_type"\)/, "已分析客户必须返回本任务AI核验行业");
+assert.match(taskItemsCostApi, /api_cost_ledger[\s\S]*placesByCustomer[\s\S]*google_places_call_count/, "客户明细必须逐条汇总本任务Places调用次数");
+assert.match(taskDetailCostView, /Google Places调用[\s\S]*AI核验行业[\s\S]*Places调用/, "任务详情必须显示任务与客户级Places次数及AI核验行业");
 assert.doesNotMatch(taskRunner, /AI_EVIDENCE_GATE_NOT_SATISFIED/, "资料不足不得被错误标记为任务执行失败");
 assert.doesNotMatch(taskRunner, /JSON\.stringify\(item\.evidence\)/, "不得把原始证据JSON直接保存或展示给业务员");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
@@ -173,7 +180,7 @@ assert.match(resultsView, /查看分析依据/, "结果与报告必须能进入�
 assert.match(resultsView, /全部任务/, "今日完成客户必须可按所属任务筛选");
 const strategiesPage = read("app/ai-screening/strategies/page.tsx");
 assert.match(strategiesPage, /返回任务中心/, "分析策略说明必须有返回任务中心出口");
-assert.match(createTaskView, /官网 \+ Google商家并行[\s\S]*最多2次/, "智能筛选说明必须与服务端证据优先和按需升级复核逻辑一致");
+assert.match(createTaskView, /官网与公开来源优先[\s\S]*最多1次/, "智能筛选说明必须与分层止损和单次模型上限一致");
 assert.match(createTaskView, /系统会根据证据复杂度自动选择分析深度/, "创建任务页不得再要求用户理解或选择内部分析模式");
 
 const importView = read("components/import-view.tsx");

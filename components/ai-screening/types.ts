@@ -5,6 +5,7 @@ export type AiTask = {
   total_tokens: number; total_cost_usd: number; created_at: string; updated_at?: string | null;
   started_at?: string | null; completed_at?: string | null; finished_at?: string | null; elapsed_ms?: number | null;
   workflow_run_id?: string | null;
+  google_places_call_count?: number;
 };
 
 export type TaskItem = {
@@ -12,7 +13,8 @@ export type TaskItem = {
   attempt_count: number; max_attempts: number; error_code?: string | null; error_message?: string | null;
   pipeline_stage?: string | null; result_id?: string | null; error_context?: Record<string, unknown> | null;
   total_tokens: number; cost_usd: number; updated_at: string;
-  result?: { id: string; score?: number | null; grade?: string | null; target_decision?: string | null } | null;
+  google_places_call_count?: number;
+  result?: { id: string; score?: number | null; grade?: string | null; target_decision?: string | null; industry_type?: string | null } | null;
   customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; industry?: string | null; is_target_customer?: boolean | null; ai_score?: number | null; ai_level?: string | null } | null;
 };
 

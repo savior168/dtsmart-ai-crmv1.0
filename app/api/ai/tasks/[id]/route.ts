@@ -48,7 +48,20 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     const { account } = await requirePermission("ai.tasks.view");
     const { id } = await context.params;
     const task = await ownedTask(id, account);
-    return NextResponse.json({ task });
+    const admin = createAdminClient();
+    let googlePlacesCallCount = 0;
+    for (let offset = 0; ; offset += 1000) {
+      const ledger = await admin.from("api_cost_ledger")
+        .select("quantity")
+        .eq("task_id", id)
+        .eq("provider", "GOOGLE_PLACES")
+        .range(offset, offset + 999);
+      if (ledger.error) throw ledger.error;
+      const rows = ledger.data || [];
+      googlePlacesCallCount += rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
+      if (rows.length < 1000) break;
+    }
+    return NextResponse.json({ task: { ...task, google_places_call_count: googlePlacesCallCount } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务查询失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 404 });

@@ -25,15 +25,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (options === "industries") {
       const values: string[] = [];
       for (let offset = 0; ; offset += 1000) {
-        const pageResult = await admin.from("ai_screening_task_items")
-          .select("customer:customers!inner(industry)")
+        const pageResult = await admin.from("ai_screening_results")
+          .select("industry_type")
           .eq("task_id", id)
+          .eq("is_latest_valid", true)
           .range(offset, offset + 999);
         if (pageResult.error) throw pageResult.error;
         const rows = pageResult.data || [];
         for (const row of rows) {
-          const customer = Array.isArray(row.customer) ? row.customer[0] : row.customer;
-          const value = String(customer?.industry || "").trim();
+          const value = String(row.industry_type || "").trim();
           if (value) values.push(value);
         }
         if (rows.length < 1000) break;
@@ -48,11 +48,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (retry === "none") query = query.eq("attempt_count", 0);
     if (retry === "retrying") query = query.gt("attempt_count", 0).lt("attempt_count", 3);
     if (retry === "exhausted") query = query.gte("attempt_count", 3);
-    if (industry) query = query.eq("customer.industry", industry);
-    if (grade && ["A", "B", "C", "D"].includes(grade)) query = query.eq("customer.ai_level", grade);
-    if (["valid", "invalid", "review"].includes(target)) {
+    if (industry || (grade && ["A", "B", "C", "D"].includes(grade)) || ["valid", "invalid", "review"].includes(target)) {
       const decision = target === "valid" ? "VALID" : target === "invalid" ? "INVALID" : "REVIEW";
-      const decisions = await admin.from("ai_screening_results").select("task_item_id").eq("task_id", id).eq("target_decision", decision).eq("is_latest_valid", true);
+      let resultFilter = admin.from("ai_screening_results").select("task_item_id").eq("task_id", id).eq("is_latest_valid", true);
+      if (industry) resultFilter = resultFilter.eq("industry_type", industry);
+      if (grade && ["A", "B", "C", "D"].includes(grade)) resultFilter = resultFilter.eq("grade", grade);
+      if (["valid", "invalid", "review"].includes(target)) resultFilter = resultFilter.eq("target_decision", decision);
+      const decisions = await resultFilter;
       if (decisions.error) throw decisions.error;
       const itemIds = (decisions.data || []).map((item) => item.task_item_id).filter(Boolean);
       if (!itemIds.length) return NextResponse.json({ data: [], count: 0, page, pageSize });
@@ -67,13 +69,34 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const rows = result.data || [];
     const resultIds = [...new Set(rows.map((row) => String(row.result_id || "")).filter(Boolean))];
     const analysisResults = resultIds.length
-      ? await admin.from("ai_screening_results").select("id,score,grade,target_decision").in("id", resultIds)
+      ? await admin.from("ai_screening_results").select("id,score,grade,target_decision,industry_type").in("id", resultIds)
       : { data: [], error: null };
     if (analysisResults.error) throw analysisResults.error;
     const resultById = new Map((analysisResults.data || []).map((row) => [String(row.id), row]));
+    const customerIds = [...new Set(rows.map((row) => String(row.customer_id || "")).filter(Boolean))];
+    const placesByCustomer = new Map<string, number>();
+    if (customerIds.length) {
+      for (let offset = 0; ; offset += 1000) {
+        const ledger = await admin.from("api_cost_ledger")
+          .select("customer_id,quantity")
+          .eq("task_id", id)
+          .eq("provider", "GOOGLE_PLACES")
+          .in("customer_id", customerIds)
+          .range(offset, offset + 999);
+        if (ledger.error) throw ledger.error;
+        const calls = ledger.data || [];
+        for (const call of calls) {
+          const customerId = String(call.customer_id || "");
+          if (!customerId) continue;
+          placesByCustomer.set(customerId, (placesByCustomer.get(customerId) || 0) + Math.max(0, Number(call.quantity || 1)));
+        }
+        if (calls.length < 1000) break;
+      }
+    }
     const data = rows.map((row) => ({
       ...row,
       result: resultById.get(String(row.result_id || "")) || null,
+      google_places_call_count: placesByCustomer.get(String(row.customer_id || "")) || 0,
     }));
     return NextResponse.json({ data, count: result.count || 0, page, pageSize });
   } catch (error) {

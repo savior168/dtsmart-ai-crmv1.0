@@ -1089,7 +1089,6 @@ export async function collectGooglePlaceEvidence(input: {
       primaryType?: string;
       primaryTypeDisplayName?: LocalizedText;
       googleMapsUri?: string;
-      photos?: Array<{ name?: string }>;
       internationalPhoneNumber?: string;
       nationalPhoneNumber?: string;
       websiteUri?: string;
@@ -1156,8 +1155,7 @@ export async function collectGooglePlaceEvidence(input: {
       }
       if (!candidateIds.length && storedPlaceIdHint) candidateIds = [storedPlaceIdHint];
       if (!candidateIds.length) {
-        const fallback = await collectPublicGooglePlaceEvidence(input, options);
-        return fallback || {
+        return {
           configured: true, query, types: [], reviews: [], emails: [], candidate_count: 0,
           identity_status: "NOT_FOUND", identity_confidence: 0,
           error: searchError,
@@ -1165,19 +1163,18 @@ export async function collectGooglePlaceEvidence(input: {
       }
     }
 
-    // Read identity/contact fields for every returned candidate before
-    // ranking. The search order alone is not reliable: a lower-ranked result
-    // can be the only one with the exact customer phone or official domain.
-    const identityFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri,photos,internationalPhoneNumber,nationalPhoneNumber,websiteUri";
-    let details = (await Promise.all(candidateIds.map((candidateId) => readDetail(candidateId, identityFields))))
+    // Rank all candidates with lower-cost identity fields first. Contact fields
+    // are requested only for the best ambiguous candidates, rather than paying
+    // the higher tier for every result returned by text search.
+    const baseIdentityFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri";
+    const contactFields = "id,internationalPhoneNumber,nationalPhoneNumber,websiteUri";
+    let details = (await Promise.all(candidateIds.map((candidateId) => readDetail(candidateId, baseIdentityFields))))
       .filter((item): item is PlaceDetail => Boolean(item));
     if (!details.length) {
-      const fallback = await collectPublicGooglePlaceEvidence(input, options);
-      return fallback || { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
+      return { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
     }
     const normalize = (value?: string | null) => String(value || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     const domain = evidenceDomain;
-    const phone = phoneIdentityDigits;
     const providedGoogleUrl = safePublicUrl(input.google_url);
     const hasConcretePlacePath = Boolean(providedGoogleUrl && /google\.[^/]+\/maps\/place\//i.test(providedGoogleUrl));
     const scoreDetails = (items: PlaceDetail[]) => items.map((item) => {
@@ -1236,12 +1233,35 @@ export async function collectGooglePlaceEvidence(input: {
         const fallbackPayload = await fallbackResponse.json() as { places?: Array<{ id?: string }> };
         const known = new Set(details.map((item) => item.id).filter(Boolean));
         const fallbackIds = (fallbackPayload.places || []).map((item) => item.id || "").filter((id) => id && !known.has(id)).slice(0, 3);
-        const fallbackDetails = (await Promise.all(fallbackIds.map((id) => readDetail(id, identityFields))))
+        const fallbackDetails = (await Promise.all(fallbackIds.map((id) => readDetail(id, baseIdentityFields))))
           .filter((item): item is PlaceDetail => Boolean(item));
         if (fallbackDetails.length) {
           details = [...details, ...fallbackDetails];
           scored = scoreDetails(details);
         }
+      }
+    }
+    // Name/address can be decisive on their own. When they are not, inspect
+    // contact fields only for the top two plausible candidates and re-rank.
+    const baseTop = scored[0];
+    const baseRunnerUp = scored[1];
+    const needsContactDisambiguation = Boolean(baseTop && (
+      baseTop.score < 90
+      || (baseRunnerUp && baseTop.score - baseRunnerUp.score < 15)
+      || (input.phone && baseTop.addressSimilarity < 0.72)
+    ));
+    if (needsContactDisambiguation) {
+      const candidateContacts = (await Promise.all(scored.slice(0, 2).map(async (candidate) => {
+        if (!candidate.item.id) return null;
+        const contact = await readDetail(candidate.item.id, contactFields);
+        return contact ? { id: candidate.item.id, contact } : null;
+      }))).filter((entry): entry is { id: string; contact: PlaceDetail } => Boolean(entry));
+      if (candidateContacts.length) {
+        details = details.map((detail) => ({
+          ...detail,
+          ...(candidateContacts.find((entry) => entry.id === detail.id)?.contact || {}),
+        }));
+        scored = scoreDetails(details);
       }
     }
     let top = scored[0]; const runnerUp = scored[1];
@@ -1256,10 +1276,14 @@ export async function collectGooglePlaceEvidence(input: {
     const needsBusinessClarification = googlePlaceNeedsBusinessClarification([
       top.item.primaryTypeDisplayName?.text || "", top.item.primaryType || "", ...(top.item.types || []),
     ], top.score);
-    if (top.item.id && needsBusinessClarification) {
+    const needsContactCompletion = Boolean(top.item.id && (
+      (!input.phone && !top.item.internationalPhoneNumber && !top.item.nationalPhoneNumber)
+      || (!input.website && !top.item.websiteUri)
+    ));
+    if (top.item.id && (needsBusinessClarification || needsContactCompletion)) {
       const enrichmentFields = [
         "id", "internationalPhoneNumber", "nationalPhoneNumber", "websiteUri",
-        "rating", "userRatingCount", "regularOpeningHours",
+        ...(needsBusinessClarification ? ["rating", "userRatingCount", "regularOpeningHours"] : []),
         ...(needsBusinessClarification ? ["editorialSummary", "reviews"] : []),
       ].join(",");
       const enterprise = await readDetail(top.item.id, enrichmentFields);
@@ -1290,49 +1314,10 @@ export async function collectGooglePlaceEvidence(input: {
     if (top.addressSimilarity >= 0.72) top.mismatchSignals = top.mismatchSignals.filter((signal) => signal !== "地址信息不足或不一致");
     if (phoneChanged && !top.mismatchSignals.some((signal) => signal.includes("电话与原始电话不一致"))) top.mismatchSignals.push("Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选");
     const reviewTexts = unique((result.reviews || []).map((review) => review.text?.text || review.originalText?.text || "")).slice(0, 5);
-    const textualBusinessFacts = [result.editorialSummary?.text, ...reviewTexts].filter(Boolean).join(" ");
-    const hasDirectBusinessActivity = /(?:repair|fix|replacement|parts?|accessor|wholesale|distributor|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|维修|修理|更换|配件|批发|分销)/i.test(textualBusinessFacts);
-
-    // Places photo resources require a separate paid media call. For a
-    // strongly matched but generically typed business, reuse the public Maps
-    // payload only as an auditable media supplement. It is merged solely when
-    // Place ID, phone, or address independently confirms the same entity.
-    let publicMedia: GooglePlaceEvidence | undefined;
-    if (needsBusinessClarification) {
-      publicMedia = await collectPublicGooglePlaceEvidence({
-        ...input,
-        google_url: result.googleMapsUri || input.google_url,
-      }, { ...options, timeoutMs: Math.min(options.timeoutMs || 9_000, 9_000) });
-      const samePublicEntity = Boolean(publicMedia && (
-        (result.id && publicMedia.place_id === result.id)
-        || (phone(publicMedia.phone).length >= 7 && phone(publicMedia.phone) === phone(result.internationalPhoneNumber || result.nationalPhoneNumber))
-        || addressIdentityScore(publicMedia.formatted_address, result.formattedAddress) >= 0.8
-      ));
-      if (!samePublicEntity) publicMedia = undefined;
-    }
-    let placePhotoUrls: string[] = [];
-    if (needsBusinessClarification && !hasDirectBusinessActivity && !(publicMedia?.image_urls?.length) && result.photos?.length) {
-      const photoResponses = await Promise.all(result.photos.slice(0, 2).map(async (photo) => {
-        if (!photo.name) return "";
-        try {
-          // 2400px preserves readable storefront wording and repair details
-          // while avoiding the bandwidth and model latency of unconstrained
-          // originals. The returned URI remains the highest-quality evidence
-          // asset retained by this task, never a Maps thumbnail.
-          const photoResponse = await fetchWithRetry(`https://places.googleapis.com/v1/${photo.name}/media?maxHeightPx=2400&maxWidthPx=2400&skipHttpRedirect=true`, {
-            signal: request.signal,
-            headers: { "X-Goog-Api-Key": apiKey },
-          });
-          await reportCall("高清商家图片","PLACES_PHOTO_MEDIA",photoResponse.status,"GOOGLE_PLACES_PHOTO_USD_PER_REQUEST",photoResponse);
-          if (!photoResponse.ok) return "";
-          const payload = await photoResponse.json() as { photoUri?: string };
-          return /^https?:\/\//i.test(payload.photoUri || "") ? payload.photoUri || "" : "";
-        } catch {
-          return "";
-        }
-      }));
-      placePhotoUrls = unique(photoResponses).slice(0, 2);
-    }
+    // Reviews/editorial text are sufficient for deterministic industry facts.
+    // Do not scrape Maps HTML or download paid photos in the normal batch path;
+    // this removes duplicate work and avoids a separate media SKU. Visual
+    // evidence can be added later only through an explicitly selected source.
     const evidence: GooglePlaceEvidence = {
       configured: true,
       query,
@@ -1345,9 +1330,9 @@ export async function collectGooglePlaceEvidence(input: {
       website: result.websiteUri,
       phone: result.internationalPhoneNumber || result.nationalPhoneNumber,
       opening_hours: result.regularOpeningHours?.weekdayDescriptions || [],
-      description: result.editorialSummary?.text || publicMedia?.description,
-      image_urls: unique([...(publicMedia?.image_urls || []), ...placePhotoUrls]).slice(0, 2),
-      video_urls: publicMedia?.video_urls || [],
+      description: result.editorialSummary?.text,
+      image_urls: [],
+      video_urls: [],
       // Google Places does not expose a business email. Review text belongs to
       // reviewers and must never be promoted to the merchant's contact data.
       emails: [],
@@ -1362,8 +1347,7 @@ export async function collectGooglePlaceEvidence(input: {
     };
     return evidence;
   } catch (error) {
-    const fallback = await collectPublicGooglePlaceEvidence(input, options);
-    return fallback || { configured: true, query, types: [], reviews: [], emails: [], error: error instanceof Error ? error.message : "Google商家读取失败" };
+    return { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: error instanceof Error ? error.message : "Google商家读取失败" };
   } finally {
     request.clear();
   }
@@ -1414,22 +1398,48 @@ export async function discoverPublicBusinessUrls(input: {
   ].filter(Boolean))].slice(0, 2);
   const request = requestSignal(options, 8_000);
   try {
+    const normalizeSearchLink = (raw: string) => {
+      try {
+        const decoded = raw.replace(/&amp;/g, "&");
+        const parsed = new URL(decoded.startsWith("//") ? `https:${decoded}` : decoded);
+        const uddg = parsed.searchParams.get("uddg");
+        if (uddg) return safePublicUrl(decodeURIComponent(uddg));
+        // Bing result redirects encode the target as base64url prefixed by a1.
+        const bingTarget = parsed.hostname.endsWith("bing.com") ? parsed.searchParams.get("u") : null;
+        if (bingTarget?.startsWith("a1")) {
+          const encoded = bingTarget.slice(2).replace(/-/g, "+").replace(/_/g, "/");
+          return safePublicUrl(Buffer.from(encoded, "base64").toString("utf8"));
+        }
+        return safePublicUrl(parsed.toString());
+      } catch { return null; }
+    };
+    const resultLinks = (html: string) => unique([
+      ...[...html.matchAll(/[?&]uddg=([^&"']+)/gi)].map((match) => {
+        try { return safePublicUrl(decodeURIComponent(match[1].replace(/&amp;/g, "&"))); } catch { return null; }
+      }),
+      ...[...html.matchAll(/<a[^>]+href=["']([^"']{1,1200})["']/gi)].map((match) => normalizeSearchLink(match[1])),
+    ].filter((url): url is string => Boolean(url))
+      .filter((url) => !/(?:duckduckgo\.com|bing\.com|google\.[^/]+\/(?:search|maps))/i.test(url)));
     const pages = await Promise.all(queries.map(async (query) => {
       try {
         const response = await fetchWithRetry(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
           signal: request.signal,
           headers: BROWSER_HEADERS,
         }, 1);
-        if (!response.ok) return [] as string[];
-        const html = await readTextLimited(response, 180_000);
-        return [...html.matchAll(/[?&]uddg=([^&"']+)/gi)].flatMap((match) => {
-          try {
-            const decoded = decodeURIComponent(match[1].replace(/&amp;/g, "&"));
-            const safe = safePublicUrl(decoded);
-            if (!safe || /(?:duckduckgo\.com|bing\.com|google\.[^/]+\/search)/i.test(safe)) return [];
-            return [safe];
-          } catch { return []; }
-        });
+        if (response.ok) {
+          const links = resultLinks(await readTextLimited(response, 180_000));
+          if (links.length) return links;
+        }
+        // Search providers occasionally return an interstitial or no result
+        // links for one query. Use a second ordinary index only in that case;
+        // this remains zero-token discovery and avoids an expensive model web
+        // search solely because one HTML layout changed.
+        const fallback = await fetchWithRetry(`https://www.bing.com/search?q=${encodeURIComponent(query)}`, {
+          signal: request.signal,
+          headers: BROWSER_HEADERS,
+        }, 1);
+        if (!fallback.ok) return [] as string[];
+        return resultLinks(await readTextLimited(fallback, 180_000));
       } catch { return [] as string[]; }
     }));
     return unique(pages.flat()).slice(0, 10);
