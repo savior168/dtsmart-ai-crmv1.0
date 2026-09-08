@@ -61,7 +61,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json() as {
       action?: "pause" | "resume" | "cancel" | "retry" | "reanalyze" | "reanalyze_invalid" | "edit";
-      name?: string; scheduled_at?: string | null; notification_mode?: string; source_task_ids?: string[];
+      name?: string; scheduled_at?: string | null; notification_mode?: string; source_task_ids?: string[]; customer_ids?: string[];
     };
     const task = await ownedTask(id, account);
     if (task.user_id !== user.id && account.role !== "ADMIN") return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能控制或修改" }, { status: 403 });
@@ -158,7 +158,14 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       }
       const sourceItems = await admin.from("ai_screening_task_items").select("customer_id").in("task_id", sourceTaskIds).eq("automation_status", "AUTO_REJECT");
       if (sourceItems.error) throw sourceItems.error;
-      const candidateIds = [...new Set((sourceItems.data || []).map((item) => String(item.customer_id || "")).filter(Boolean))];
+      const historicalInvalidIds = new Set((sourceItems.data || []).map((item) => String(item.customer_id || "")).filter(Boolean));
+      const requestedCustomerIds = [...new Set((body.customer_ids || []).map(String).filter(Boolean))];
+      const candidateIds = requestedCustomerIds.length
+        ? requestedCustomerIds.filter((customerId) => historicalInvalidIds.has(customerId))
+        : [...historicalInvalidIds];
+      if (requestedCustomerIds.length && candidateIds.length !== requestedCustomerIds.length) {
+        return NextResponse.json({ error: "所选客户中包含不属于历史无效结果的数据，已阻止混入复验任务" }, { status: 409 });
+      }
       if (!candidateIds.length) return NextResponse.json({ error: "所选历史任务没有无效目标客户" }, { status: 409 });
       const eligibleIds: string[] = [];
       for (let offset = 0; offset < candidateIds.length; offset += 200) {

@@ -106,6 +106,7 @@ assert.match(taskCenter, /status === "FAILED"[\s\S]*action: "retry"[\s\S]*重试
 assert.match(taskCenter, /查看AI筛选用量/, "任务中心顶部必须提供清晰可识别的AI用量入口");
 assert.match(taskCenter, /成功 \/ 失败[\s\S]*任务耗时/, "任务列表必须显示实时成功失败数量和任务耗时");
 const taskActionApi = read("app/api/ai/tasks/[id]/route.ts");
+assert.match(taskActionApi, /requestedCustomerIds[\s\S]*historicalInvalidIds[\s\S]*已阻止混入复验任务/, "历史无效客户复验必须支持精确子集并阻止混入非历史无效客户");
 assert.match(taskActionApi, /getRun[\s\S]*run\.cancel\(\)/, "停止任务必须真实取消当前持久工作流运行");
 assert.match(taskActionApi, /status: "PAUSED"[\s\S]*elapsed_ms:/, "停止任务必须落为已停止并保存累计耗时");
 assert.match(taskActionApi, /action === "resume"[\s\S]*start\(aiScreeningWorkflow/, "继续执行必须启动新的持久工作流处理剩余项");
