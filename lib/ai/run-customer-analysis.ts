@@ -5,6 +5,8 @@ import {
   discoverPublicSourceUrls,
   groundCustomerAnalysis,
   isComputerHardwareRepairEvidence,
+  isDirectNonTargetBusinessEvidence,
+  hasDirectTargetBusinessEvidence,
   scoreToLevel,
   type CustomerAnalysis,
 } from "./customer-analysis";
@@ -54,7 +56,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.3";
+const ANALYSIS_VERSION = "2026.09.08.4";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -381,7 +383,7 @@ export function prioritizeGoogleReviews(reviews: string[]) {
     .map((item) => item.review);
 }
 
-const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品/;
+const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品|药房|药店|药剂师|疫苗接种|电子烟|烟草|水烟|拍卖|破产清算|资产处置/;
 
 function recordBusinessText(record?: ChannelRecord) {
   if (!record?.evidence) return "";
@@ -615,16 +617,16 @@ function originalValuesForType(customer: CustomerRow, type: ContactType) {
   ];
 }
 
-function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
+export function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRecord[], identityStatus: IdentityStatus) {
   const candidates: ContactCandidate[] = [];
-  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null, candidateIdentity = identityStatus, contactConflict = false) => {
+  const add = (type: ContactType, value: string, channel: string, url: string, title?: string | null, candidateIdentity = identityStatus, contactConflict = false, contactStatus?: string) => {
     if (type === "EMAIL") {
       const domain = normalizeEmailStrict(value).split("@").at(-1) || "";
       const host = websiteHost(url);
       const sameBusinessDomain = Boolean(domain && host && (host === domain || host.endsWith(`.${domain}`) || domain.endsWith(`.${host}`)));
       if (domain && !PERSONAL_EMAIL_DOMAINS.has(domain) && !sameBusinessDomain) return;
     }
-    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus: candidateIdentity, originalValues: originalValuesForType(customer, type), contactConflict });
+    const candidate = buildContactCandidate({ type, value, country: customer.country, sourceChannel: channel, sourceUrl: url, sourcePageTitle: title, identityStatus: candidateIdentity, originalValues: originalValuesForType(customer, type), contactConflict, contactStatus });
     if (candidate) candidates.push(candidate);
   };
   for (const record of records) {
@@ -651,7 +653,27 @@ function contactCandidatesFromRecords(customer: CustomerRow, records: ChannelRec
       || publicChannelRecordMatchesEntity(customer, records, record)
       ? "MATCHED"
       : "AMBIGUOUS";
-    const pages = [{ url: item.url, title: item.title, emails: item.emails, phones: item.phones, whatsapps: item.whatsapps || [], social_urls: item.social_urls || [] }, ...(item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }))];
+    const childPages = (item.pages || []).map((page) => ({ ...page, whatsapps: page.whatsapps || [], social_urls: page.social_urls || [] }));
+    const childValues = {
+      emails: new Set(childPages.flatMap((page) => page.emails || []).map((value) => normalizeEmailStrict(value))),
+      phones: new Set(childPages.flatMap((page) => page.phones || []).map((value) => normalizePhoneInternational(value, customer.country))),
+      whatsapps: new Set(childPages.flatMap((page) => page.whatsapps || []).map((value) => normalizePhoneInternational(value, customer.country))),
+      socials: new Set(childPages.flatMap((page) => page.social_urls || [])),
+    };
+    // Deep collection keeps aggregate values on the root evidence for analysis.
+    // Contact writeback must instead retain the exact child page where a value
+    // was observed; otherwise a branch/contact-page value is falsely attributed
+    // to the home page and cannot be audited.
+    const pages = [
+      ...childPages.sort((a, b) => Number(/contact|kontakt|contatt|contacto|contato|impressum|联系/i.test(`${b.url} ${b.title || ""}`)) - Number(/contact|kontakt|contatt|contacto|contato|impressum|联系/i.test(`${a.url} ${a.title || ""}`))),
+      {
+        url: item.url, title: item.title,
+        emails: (item.emails || []).filter((value) => !childValues.emails.has(normalizeEmailStrict(value))),
+        phones: (item.phones || []).filter((value) => !childValues.phones.has(normalizePhoneInternational(value, customer.country))),
+        whatsapps: (item.whatsapps || []).filter((value) => !childValues.whatsapps.has(normalizePhoneInternational(value, customer.country))),
+        social_urls: (item.social_urls || []).filter((value) => !childValues.socials.has(value)),
+      },
+    ];
     if (record.channel === "website" && item.url) add("WEBSITE", item.url, "website", item.url, item.title, recordIdentity);
     for (const page of pages) {
       for (const email of page.emails || []) add("EMAIL", email, record.channel, page.url, page.title, recordIdentity);
@@ -693,7 +715,8 @@ function mergedVerifiedContactValues(customer: CustomerRow, contacts: ContactCan
     if (key && !originals.has(key) && !unique.has(key)) unique.set(key, raw);
   }
   for (const contact of contacts) {
-    if (contact.type !== type || contact.verificationStatus !== "NEW_VERIFIED") continue;
+    if (contact.type !== type || contact.verificationStatus !== "NEW_VERIFIED"
+      || ["SHARED_CORPORATE", "SHARED_ACROSS_CUSTOMERS"].includes(contact.contactStatus)) continue;
     if (!originals.has(contact.valueNormalized) && !unique.has(contact.valueNormalized)) unique.set(contact.valueNormalized, contact.valueRaw);
   }
   return [...unique.values()].join(", ");
@@ -873,8 +896,14 @@ export function isConclusiveChannelAnalysis(analysis: CustomerAnalysis | null) {
   // A verified official website is authoritative for declared business scope.
   // A conflicting Google category is retained in the evidence, but does not
   // justify more social/model calls after the website already proves the result.
-  return analysis.usage.model === "RULE_ENGINE"
-    && analysis.evidence_summaries.some((item) => item.channel === "website" && item.confidence >= 90 && item.evidence_type !== "中性");
+  if (analysis.usage.model !== "RULE_ENGINE") return false;
+  return analysis.evidence_summaries.some((item) => {
+    if (item.confidence < 80 || item.evidence_type === "中性") return false;
+    if (!/^(?:website|google_maps|facebook|instagram|linkedin|tiktok)$/.test(item.channel)) return false;
+    return item.evidence_type === "支持"
+      ? hasDirectTargetBusinessEvidence(item.fact_zh)
+      : isDirectNonTargetBusinessEvidence(item.fact_zh);
+  });
 }
 
 export function shouldUseModelSupplement(customer: CustomerRow, records: ChannelRecord[], analysis: CustomerAnalysis | null) {
@@ -1388,8 +1417,11 @@ export function verifiedCompanyScale(records: ChannelRecord[]) {
         const pluralClaim = /(?:multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i.test(page.text);
         const count = match ? Number(match[1]) : null;
         if ((count != null && count >= 2) || pluralClaim) {
-          const excerpt = compactBusinessExcerpt(page.text).slice(0, 260);
-          branchFacts.push({ text: count ? `官网明确列出${count}家门店或直营网点${excerpt ? `：${excerpt}` : ""}` : `官网明确说明为多门店或连锁经营${excerpt ? `：${excerpt}` : ""}`, sourceUrl: page.url, count });
+          // Sales-facing scale conclusions stay in Chinese. The exact foreign
+          // excerpt is already persisted with this source page and is available
+          // in the collapsible evidence panel; duplicating it here makes the
+          // conclusion unreadable and can concatenate contradictory page counts.
+          branchFacts.push({ text: count ? `官网明确列出${count}家门店或直营网点` : "官网明确说明为多门店或连锁经营", sourceUrl: page.url, count });
         }
       }
     }
@@ -1410,8 +1442,11 @@ export function verifiedCompanyScale(records: ChannelRecord[]) {
   const uniqueBranches = [...new Map(branchFacts.map((item) => [`${item.sourceUrl}|${item.text}`, item])).values()];
   const branchCount = Math.max(0, ...uniqueBranches.map((item) => item.count || 0)) || null;
   const scaleParts = [uniqueBranches.length ? (branchCount ? `官网确认至少${branchCount}家门店` : "官网确认多门店或连锁经营") : "", verified.length ? "存在可核验采购记录" : ""].filter(Boolean);
+  const strongestBranch = branchCount
+    ? uniqueBranches.find((item) => item.count === branchCount) || null
+    : uniqueBranches[0] || null;
   const facts = [
-    ...uniqueBranches.slice(0, 2).map((item) => `${item.text}（核验：${item.sourceUrl}）`),
+    ...(strongestBranch ? [`${branchCount ? `官网确认至少${branchCount}家门店或直营网点` : "官网确认多门店或连锁经营"}（核验：${strongestBranch.sourceUrl}）`] : []),
     ...verified.slice(0, 3).map((item) => `${item.text}（核验：${item.sourceUrl}）`),
   ].join("；");
   return { companyScale: scaleParts.join("；") || null, companyScaleEvidence: facts.slice(0, 1200) || null, locationCount: branchCount };
@@ -1927,7 +1962,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const identity = resolveIdentity(customer, records, analysis);
     const policyEvidence = policyEvidenceFromAnalysis(analysis);
     let primaryIndustry = primaryIndustryFor(analysis.industry_type);
-    const explicitRejectEvidence = policyEvidence.some((item) => item.kind === "矛盾" && /只销售手机成品|运营商|外配件|软件|IT咨询|IT系统|技术支持|网络|NAS|服务器|永久关闭|停业|食品|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|无关业务/.test(item.fact));
+    const explicitRejectEvidence = policyEvidence.some((item) => item.kind === "矛盾" && isDirectNonTargetBusinessEvidence(item.fact));
     const gate = evaluateEvidenceGate({
       strategy: input.strategy, identityStatus: identity.status, identityConfidence: identity.confidence,
       industryConfidence: analysis.confidence_score, decisionConfidence: analysis.confidence_score,
@@ -2175,7 +2210,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       ...(!customer.website && discoveredOfficialWebsite && identity.status === "MATCHED"
         ? { website: discoveredOfficialWebsite }
         : {}),
-      ...(customer.whatsapp ? {} : { whatsapp: firstVerifiedContact(reconciled.contacts, "WHATSAPP") }),
+      // AI发现的补充号码保留在customer_contacts并展示来源，不直接写入
+      // 客户主档。跨客户共用号码可能是集团总机或重复主体，写入主档会
+      // 触发全局身份唯一约束，也不应覆盖人工确认的客户身份字段。
       ...(customer.facebook_url ? {} : { facebook_url: firstVerifiedContact(reconciled.contacts, "FACEBOOK") }),
       ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(reconciled.contacts, "INSTAGRAM") }),
       ...(customer.linkedin_url ? {} : { linkedin_url: firstVerifiedContact(reconciled.contacts, "LINKEDIN") }),

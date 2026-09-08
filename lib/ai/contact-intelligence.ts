@@ -117,6 +117,8 @@ export function buildContactCandidate(input: {
   originalValues?: string[];
   /** Same business is matched, but this value conflicts with an imported one. */
   contactConflict?: boolean;
+  /** Describes whether the contact belongs to one branch or is shared by a group/corporate site. */
+  contactStatus?: string;
   capturedAt?: string;
 }): ContactCandidate | null {
   const normalized = normalizeByType(input.type, input.value, input.country);
@@ -133,7 +135,7 @@ export function buildContactCandidate(input: {
     type: input.type, valueRaw: input.value.trim(), valueNormalized: normalized,
     sourceChannel: input.sourceChannel, sourceUrl: input.sourceUrl,
     sourcePageTitle: input.sourcePageTitle || null, capturedAt, identityStatus: input.identityStatus,
-    verificationStatus, contactStatus: input.type === "WHATSAPP" ? "WHATSAPP_CONFIRMED" : "ACTIVE_UNKNOWN",
+    verificationStatus, contactStatus: input.contactStatus || (input.type === "WHATSAPP" ? "WHATSAPP_CONFIRMED" : "ACTIVE_UNKNOWN"),
     contentHash: digest(`${input.type}|${normalized}|${input.sourceUrl}`),
   };
 }
@@ -143,7 +145,9 @@ export function reconcileContacts(candidates: ContactCandidate[]) {
     const source = item.sourceChannel === "website" ? 40 : item.sourceChannel === "google_maps" ? 35 : 20;
     const status = item.verificationStatus === "MATCHED_ORIGINAL" ? 35 : item.verificationStatus === "NEW_VERIFIED" ? 30 : item.verificationStatus === "CONFLICTING_VERIFIED" ? 15 : 0;
     const purpose = item.type === "EMAIL" && /(?:sales|purchase|procurement|wholesale|trade)@/i.test(item.valueNormalized) ? 15 : item.type === "WHATSAPP" ? 10 : 5;
-    return source + status + purpose;
+    const exactContactPage = /(?:contact|kontakt|contatt|contacto|contato|about|impressum|联系|关于)/i.test(`${item.sourceUrl} ${item.sourcePageTitle || ""}`) ? 8 : 0;
+    const sharedPenalty = item.contactStatus === "SHARED_CORPORATE" || item.contactStatus === "SHARED_ACROSS_CUSTOMERS" ? 20 : 0;
+    return source + status + purpose + exactContactPage - sharedPenalty;
   };
   const unique = new Map<string, ContactCandidate>();
   for (const candidate of candidates) {
@@ -160,7 +164,8 @@ export function reconcileContacts(candidates: ContactCandidate[]) {
   // ambiguous Google candidate is useful for audit, but must never become the
   // sales team's preferred contact.
   const preferred = values
-    .filter((item) => ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(item.verificationStatus))
+    .filter((item) => ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(item.verificationStatus)
+      && !["SHARED_CORPORATE", "SHARED_ACROSS_CUSTOMERS"].includes(item.contactStatus))
     .sort((a, b) => rank(b) - rank(a))[0] || null;
   return { contacts: values, preferred };
 }

@@ -93,6 +93,11 @@ export function isItSupportWithoutHardwareRepair(text: string) {
   return IT_SUPPORT_EVIDENCE_PATTERN.test(text) && !isComputerHardwareRepairEvidence(text);
 }
 
+export function isDirectNonTargetBusinessEvidence(text: string) {
+  return !hasDirectTargetBusinessEvidence(text)
+    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|pharmacy|pharmacist|tobacco|vape|shisha|auction)/i.test(text);
+}
+
 const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
 
 export function hasDirectTargetBusinessEvidence(text: string) {
@@ -350,7 +355,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
         ...item,
         title_zh: cleanEvidenceText(item.title_zh).slice(0, 180),
         fact_zh: fact,
-        evidence_type: isItSupportWithoutHardwareRepair(fact) ? "矛盾" as const : item.evidence_type,
+        evidence_type: isDirectNonTargetBusinessEvidence(fact) ? "矛盾" as const : item.evidence_type,
         confidence: Math.max(0, Math.min(100, Math.round(Number(item.confidence) || 0))),
       };
     })
@@ -396,6 +401,13 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const directTargetFactPattern = /(?:换屏|更换(?:手机|电脑|iPhone|iPad|MacBook)?(?:屏幕|玻璃|电池|键盘)|屏幕更换|玻璃更换|电池更换|换电池|键盘更换|充电口|尾插|排线|摄像头|主板维修|维修工作台|拆机维修|维修作业|内配件|维修配件|LCD|OLED|触摸屏|批量供货|配件批发|配件分销|配件进口|B2B|MOQ|trade account)/i;
   const directServiceSignalCount = [/(?:换屏|更换(?:手机|电脑|iPhone|iPad|MacBook)?(?:屏幕|玻璃)|屏幕更换|玻璃更换|LCD|OLED|触摸屏)/i, /(?:更换(?:手机|电脑|iPhone|iPad|MacBook)?电池|电池更换|换电池)/, /(?:更换(?:手机|电脑|MacBook)?键盘|键盘更换|充电口|尾插|排线|摄像头|主板维修)/, /(?:维修工作台|拆机维修|维修作业|内配件|维修配件)/, /(?:配件批发|配件分销|配件进口|B2B|MOQ|trade account)/i]
     .filter((pattern) => pattern.test(supportingText)).length;
+  const directTargetSources = new Set(supporting
+    .filter((item) => hasDirectTargetBusinessEvidence(item.fact_zh))
+    .map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
+  const googleReviewCount = Number(input.evidence?.google_place?.user_ratings_total || 0);
+  const activityPoints = googleReviewCount >= 500 ? 6 : googleReviewCount >= 100 ? 5 : googleReviewCount >= 20 ? 3 : googleReviewCount > 0 ? 1 : 0;
+  const contactPoints = input.phone && input.email ? 4 : input.phone || input.email || input.whatsapp ? 2 : 0;
+  const identityPoints = supporting.some((item) => item.confidence >= 95) ? 4 : supporting.some((item) => item.confidence >= 80) ? 2 : 0;
   const websiteDirectTargetEvidence = supporting.some((item) => item.channel === "website" && directTargetFactPattern.test(item.fact_zh));
   const googleDirectTargetEvidence = supporting.some((item) => item.channel === "google_maps" && directTargetFactPattern.test(item.fact_zh));
   const completeDirectTargetChain = verifiedProductFit
@@ -451,22 +463,22 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     && evidenceSufficient
     && hasStrongDirectEvidence;
   if (verifiedTargetIndustry) {
-    const directTargetSources = new Set(supporting
-      .filter((item) => hasDirectTargetBusinessEvidence(item.fact_zh))
-      .map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
-    const googleReviewCount = Number(input.evidence?.google_place?.user_ratings_total || 0);
-    const activityPoints = googleReviewCount >= 500 ? 6 : googleReviewCount >= 100 ? 5 : googleReviewCount >= 20 ? 3 : googleReviewCount > 0 ? 1 : 0;
-    const contactPoints = input.phone && input.email ? 4 : input.phone || input.email || input.whatsapp ? 2 : 0;
-    const identityPoints = supporting.some((item) => item.confidence >= 95) ? 4 : supporting.some((item) => item.confidence >= 80) ? 2 : 0;
     const serviceDepthPoints = Math.min(12, directServiceSignalCount * 3);
     const sourcePoints = directTargetSources >= 2 ? 10 : 4;
     const commercialPoints = verifiedProcurement ? 12 : verifiedBuyingRole ? 8 : verifiedChain ? 7 : verifiedHighVolumeRepair ? 5 : 0;
     const riskPenalty = Math.min(12, Math.round(metric("contradiction_risk") * 0.12));
     const evidenceDerivedScore = 56 + sourcePoints + serviceDepthPoints + activityPoints
       + contactPoints + identityPoints + commercialPoints - riskPenalty;
+    const singleSourceEvidenceCeiling = Math.max(60, Math.min(69,
+      59 + Math.min(4, directServiceSignalCount * 2)
+      + Math.min(2, activityPoints)
+      + Math.min(2, contactPoints)
+      + Math.min(2, identityPoints)
+      - Math.min(4, riskPenalty),
+    ));
     const evidenceCeiling = verifiedProcurement ? 96
       : verifiedBuyingRole || verifiedChain || verifiedHighVolumeRepair ? 94
-        : directTargetSources >= 2 ? 89 : 69;
+        : directTargetSources >= 2 ? 89 : singleSourceEvidenceCeiling;
     // The threshold is an invariant, not a fixed score. Actual values vary with
     // service depth, source independence, identity, activity, contacts, scale,
     // procurement and contradiction risk.
@@ -481,7 +493,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   } else if (!strongEnoughForHighConfidence) {
     confidence = Math.min(confidence, hasStrongDirectEvidence ? 92 : 79);
     // 单一直接来源可以确认业务，但不能形成A/B所需的跨来源闭环。
-    score = Math.min(score, hasStrongDirectEvidence ? 69 : 59);
+    // 上限随实际服务深度、经营活跃度、可联系性、主体匹配度和风险变化，
+    // 不能把不同质量的客户机械压成同一个69分。
+    const singleSourceCeiling = Math.max(60, Math.min(69,
+      59 + Math.min(4, directServiceSignalCount * 2)
+      + Math.min(2, activityPoints)
+      + Math.min(2, contactPoints)
+      + Math.min(2, identityPoints)
+      - Math.min(4, Math.round(metric("contradiction_risk") * 0.12)),
+    ));
+    score = Math.min(score, hasStrongDirectEvidence ? singleSourceCeiling : 59);
   }
   // 先确认业务和证据链，再评客户价值。规模或采购不是进入A级的硬门槛；
   // 官网与Google商家页的直接事实形成完整闭环时，证据完整度本身可以支撑A级。
@@ -636,21 +657,27 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 18_000);
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
-  const visualUrls = [
-    ...(input.evidence?.google_place?.image_urls || []),
-    ...(input.evidence?.website?.image_urls || []),
-    ...((input.evidence?.website?.pages || []).flatMap((page) => page.image_urls || [])),
-  ].filter((value, index, all) => /^https?:\/\//i.test(value)
-      && !/(?:logo|icon|avatar|favicon|sprite|placeholder|thumbnail|thumb|badge|banner-ad)/i.test(value)
-      && !/\.svg(?:\?|$)/i.test(value)
-      && all.indexOf(value) === index)
-    .slice(0, options.tier === "deep" || options.tier === "escalation" ? 2 : 1);
   const promptInput = structuredClone(input);
   if (promptInput.evidence?.google_place) promptInput.evidence.google_place.image_urls = [];
   if (promptInput.evidence?.website) {
     promptInput.evidence.website.image_urls = [];
     for (const page of promptInput.evidence.website.pages || []) page.image_urls = [];
   }
+  const textualEvidence = JSON.stringify(promptInput.evidence || {});
+  // Vision is a fallback for genuinely ambiguous pages. Sending storefront
+  // photos after text has already proved the business adds latency and cost
+  // without improving the decision.
+  const needsVisualEvidence = !hasDirectTargetBusinessEvidence(textualEvidence)
+    && !isDirectNonTargetBusinessEvidence(textualEvidence);
+  const visualUrls = (needsVisualEvidence ? [
+    ...(input.evidence?.google_place?.image_urls || []),
+    ...(input.evidence?.website?.image_urls || []),
+    ...((input.evidence?.website?.pages || []).flatMap((page) => page.image_urls || [])),
+  ] : []).filter((value, index, all) => /^https?:\/\//i.test(value)
+      && !/(?:logo|icon|avatar|favicon|sprite|placeholder|thumbnail|thumb|badge|banner-ad)/i.test(value)
+      && !/\.svg(?:\?|$)/i.test(value)
+      && all.indexOf(value) === index)
+    .slice(0, options.tier === "deep" || options.tier === "escalation" ? 2 : 1);
   const userContent: Array<Record<string, unknown>> = [
     { type: "input_text", text: JSON.stringify(promptInput) },
     // Only one or two pre-filtered key photos are inspected. High detail is
@@ -663,6 +690,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
     response = await postOpenAiResponses(key, JSON.stringify({
         model,
         store: false,
+        prompt_cache_key: "dtsmart-ai-screening-2026-09-08-v4",
          // The previous 520-token fast ceiling could truncate an otherwise
          // valid strict-schema response before its closing brace. Most clear
          // customers are now handled by the zero-token rule engine; ambiguous
@@ -811,7 +839,7 @@ export async function discoverPublicSourceUrls(input: CustomerAnalysisInput, opt
       model,
       store: false,
       max_output_tokens: 520,
-      reasoning: { effort: "minimal" },
+      reasoning: { effort: "low" },
       tools: [{ type: "web_search" }],
       tool_choice: "required",
       input: [

@@ -276,10 +276,13 @@ function decodeCloudflareEmail(encoded: string) {
 
 function extractEmails(text: string) {
   const decoded = decodeHtmlAttribute(text);
-  const direct = decoded.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  // Scan rendered text rather than raw source so addresses embedded in scripts,
+  // analytics payloads and third-party widgets cannot become customer contacts.
+  const direct = compactText(decoded).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
   const mailto = [...decoded.matchAll(/href=["']mailto:([^"'?#]+)["']/gi)].map((match) => decodeURIComponent(match[1]));
+  const structured = [...decoded.matchAll(/["']email["']\s*:\s*["']([^"']+@[A-Z0-9.-]+\.[A-Z]{2,})["']/gi)].map((match) => match[1]);
   const cloudflare = [...decoded.matchAll(/data-cfemail=["']([0-9a-f]+)["']/gi)].map((match) => decodeCloudflareEmail(match[1]));
-  return unique([...direct, ...mailto, ...cloudflare].map((email) => email.trim().toLowerCase()).filter((email) => /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email))).slice(0, 20);
+  return unique([...direct, ...mailto, ...structured, ...cloudflare].map((email) => email.trim().toLowerCase()).filter((email) => /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email))).slice(0, 20);
 }
 
 function safePublicUrl(url?: string | null) {
