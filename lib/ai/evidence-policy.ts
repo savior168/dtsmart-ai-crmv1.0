@@ -111,7 +111,10 @@ export function evaluateEvidenceGate(input: {
   const industryThreshold = 82;
   const evidenceIds = usable.map((item) => item.sourceId).filter((item): item is string => Boolean(item));
 
-  if (input.identityStatus !== "MATCHED" || input.identityConfidence < identityThreshold) {
+  const identityAccepted = input.identityStatus === "MATCHED"
+    ? input.identityConfidence >= identityThreshold
+    : input.identityStatus === "LIKELY_MATCHED" && input.identityConfidence >= 75;
+  if (!identityAccepted) {
     return { automationStatus: "AUTO_HOLD", reason: "企业主体尚未达到自动判定所需的身份匹配阈值。", sufficient: false, evidenceIds };
   }
   if (input.hasCriticalConflict) {
@@ -134,7 +137,7 @@ export function evaluateEvidenceGate(input: {
     return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业，且存在明确的非目标经营证据。", sufficient: true, evidenceIds };
   }
   if (input.score < 60 && input.industry !== "UNKNOWN" && input.industryConfidence >= 60
-      && input.decisionConfidence >= 60 && (strongPositive || positiveEnough || negativeEnough)) {
+      && input.decisionConfidence >= 60 && !strongPositive && (positiveEnough || negativeEnough)) {
     return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业及其真实经营方向，评分低于目标客户门槛。", sufficient: true, evidenceIds };
   }
   if (!positiveEnough || input.industry === "UNKNOWN" || input.industryConfidence < industryThreshold || input.decisionConfidence < industryThreshold) {

@@ -78,7 +78,7 @@ export function scoreToLevel(score: number): Exclude<CustomerAnalysis["ai_level"
   return score >= 85 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D";
 }
 
-export const COMPUTER_HARDWARE_REPAIR_EVIDENCE_PATTERN = /(?:电脑硬件维修|计算机硬件维修|电脑维修店|计算机维修店|电脑屏幕(?:更换|维修)|笔记本屏幕(?:更换|维修)|电脑电池(?:更换|维修)|笔记本电池(?:更换|维修)|键盘(?:更换|维修)|充电器(?:更换|维修)|充电口(?:更换|维修)|主板(?:维修|更换)|硬盘(?:更换|升级)|内存(?:更换|升级)|computer hardware repair|computer repair shop|laptop repair|pc repair|screen replacement|battery replacement|keyboard replacement|charging port repair|motherboard repair|hardware repair|computerreparatur|laptopreparatur|naprawa (?:komputer[oó]w|laptop[oó]w)|serwis (?:komputer[oó]w|laptop[oó]w)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’])?(?:ordinateur|informatique))/i;
+export const COMPUTER_HARDWARE_REPAIR_EVIDENCE_PATTERN = /(?:电脑硬件维修|计算机硬件维修|电脑(?:或笔记本)?维修|电脑维修店|计算机维修店|电脑屏幕(?:更换|维修)|笔记本屏幕(?:更换|维修)|电脑电池(?:更换|维修)|笔记本电池(?:更换|维修)|键盘(?:更换|维修)|充电器(?:更换|维修)|充电口(?:更换|维修)|主板(?:维修|更换)|硬盘(?:更换|升级)|内存(?:更换|升级)|computer hardware repair|computer repair shop|laptop repair|pc repair|screen replacement|battery replacement|keyboard replacement|charging port repair|motherboard repair|hardware repair|computerreparatur|laptopreparatur|naprawa (?:komputer[oó]w|laptop[oó]w)|serwis (?:komputer[oó]w|laptop[oó]w)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’])?(?:ordinateur|informatique))/i;
 export const IT_SUPPORT_EVIDENCE_PATTERN = /(?:计算机服务|计算机技术支持|电脑技术支持|IT系统|IT技术支持|信息技术支持|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci)/i;
 
 export function isComputerHardwareRepairEvidence(text: string) {
@@ -356,7 +356,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     })
     .filter((item) => item.fact_zh && !/GOOGLE_MAPS_API_KEY|fetch failed|EXCEL_IMPORT|MANUAL|CSV_IMPORT/i.test(item.fact_zh))
     .sort((a, b) => {
-      const rank = (item: typeof a) => (/(?:手机维修|手机配件|电脑维修|电脑配件|批发|经销|分销|进口|永久关闭)/.test(item.fact_zh) ? 100 : 0)
+      const rank = (item: typeof a) => (hasDirectTargetBusinessEvidence(item.fact_zh) || /(?:永久关闭|已停业|软件|IT服务|运营商|食品|烟草|电子烟)/.test(item.fact_zh) ? 100 : 0)
         + (["website", "google_maps"].includes(item.channel) ? 30 : 0) + item.confidence;
       return rank(b) - rank(a);
     })
@@ -372,7 +372,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const independentSources = new Set(supporting.map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
   const hasStrongDirectEvidence = supporting.some((item) =>
     ["website", "google_maps"].includes(item.channel)
-      && /(?:手机维修|手机配件|电脑维修|电脑配件|批发|经销|分销|进口|永久关闭)/.test(item.fact_zh));
+      && hasDirectTargetBusinessEvidence(item.fact_zh));
   const hasStrongDirectContradiction = contradicting.some((item) =>
     ["website", "google_maps"].includes(item.channel)
       && /(?:软件|IT服务|技术支持|网络|NAS|服务器|运营商|永久关闭|已停业|食品|铁路|电气安全)/.test(item.fact_zh));
@@ -407,9 +407,11 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     ? "电脑维修店"
     : /(?:手机维修|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte)/i.test(supportingText)
       ? "手机维修店"
+      : /(?:屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修)/i.test(supportingText)
+        ? "手机维修店"
       : /(?:配件批发|配件分销|配件进口|批量供货|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i.test(supportingText)
         ? "进口商或分销商"
-        : /(?:手机配件|外配件)/i.test(supportingText)
+        : /(?:手机(?:、平板)?配件|外配件)/i.test(supportingText)
           ? "手机外配件零售"
           : analysis.industry_type;
   // A model label is not allowed to contradict direct, saved business facts.
@@ -443,6 +445,36 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   );
   let score = Math.max(0, Math.min(100, calibratedScore));
   let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
+  const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/.test(normalizedIndustry)
+    && !(computerRepairClaim && !verifiedComputerHardwareRepair)
+    && !itSupportOnly
+    && evidenceSufficient
+    && hasStrongDirectEvidence;
+  if (verifiedTargetIndustry) {
+    const directTargetSources = new Set(supporting
+      .filter((item) => hasDirectTargetBusinessEvidence(item.fact_zh))
+      .map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
+    const googleReviewCount = Number(input.evidence?.google_place?.user_ratings_total || 0);
+    const activityPoints = googleReviewCount >= 500 ? 6 : googleReviewCount >= 100 ? 5 : googleReviewCount >= 20 ? 3 : googleReviewCount > 0 ? 1 : 0;
+    const contactPoints = input.phone && input.email ? 4 : input.phone || input.email || input.whatsapp ? 2 : 0;
+    const identityPoints = supporting.some((item) => item.confidence >= 95) ? 4 : supporting.some((item) => item.confidence >= 80) ? 2 : 0;
+    const serviceDepthPoints = Math.min(12, directServiceSignalCount * 3);
+    const sourcePoints = directTargetSources >= 2 ? 10 : 4;
+    const commercialPoints = verifiedProcurement ? 12 : verifiedBuyingRole ? 8 : verifiedChain ? 7 : verifiedHighVolumeRepair ? 5 : 0;
+    const riskPenalty = Math.min(12, Math.round(metric("contradiction_risk") * 0.12));
+    const evidenceDerivedScore = 56 + sourcePoints + serviceDepthPoints + activityPoints
+      + contactPoints + identityPoints + commercialPoints - riskPenalty;
+    const evidenceCeiling = verifiedProcurement ? 96
+      : verifiedBuyingRole || verifiedChain || verifiedHighVolumeRepair ? 94
+        : directTargetSources >= 2 ? 89 : 69;
+    // The threshold is an invariant, not a fixed score. Actual values vary with
+    // service depth, source independence, identity, activity, contacts, scale,
+    // procurement and contradiction risk.
+    score = Math.max(score, Math.min(evidenceCeiling, evidenceDerivedScore));
+    // A stale model confidence must not contradict the confidence of the
+    // direct, entity-matched evidence recovered during normalization.
+    confidence = Math.max(confidence, directTargetSources >= 2 ? 85 : 70);
+  }
   if (!evidenceSufficient) {
     score = Math.min(score, 49);
     confidence = Math.min(confidence, evidence.length ? 49 : 25);
@@ -482,11 +514,6 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   if (score > 89 && !(verifiedBuyingRole || verifiedHighVolumeRepair || verifiedProcurement)) score = 89;
   if (score > 94 && !verifiedProcurement) score = 94;
   if (score > 96 && !verifiedLargeRecentProcurement) score = 96;
-  const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/.test(normalizedIndustry)
-    && !(computerRepairClaim && !verifiedComputerHardwareRepair)
-    && !itSupportOnly
-    && evidenceSufficient
-    && hasStrongDirectEvidence;
   // Industry, target decision, score and grade are one atomic conclusion. A
   // customer cannot be presented as a verified target industry while remaining
   // below the 60-point target threshold merely because the model's auxiliary

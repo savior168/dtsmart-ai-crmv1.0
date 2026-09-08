@@ -50,8 +50,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { user, account } = await requirePermission("ai.tasks.control");
     const { id } = await context.params;
     const body = await request.json() as {
-      action?: "pause" | "resume" | "cancel" | "retry" | "reanalyze" | "edit";
-      name?: string; scheduled_at?: string | null; notification_mode?: string;
+      action?: "pause" | "resume" | "cancel" | "retry" | "reanalyze" | "reanalyze_invalid" | "edit";
+      name?: string; scheduled_at?: string | null; notification_mode?: string; source_task_ids?: string[];
     };
     const task = await ownedTask(id, account);
     if (task.user_id !== user.id && account.role !== "ADMIN") return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能控制或修改" }, { status: 403 });
@@ -137,6 +137,59 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);
       const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", id);
       if (linked.error) throw linked.error;
+    } else if (body.action === "reanalyze_invalid") {
+      const sourceTaskIds = [...new Set([id, ...(body.source_task_ids || [])].filter(Boolean))].slice(0, 10);
+      const sourceTasks = [];
+      for (const sourceTaskId of sourceTaskIds) {
+        const sourceTask = await ownedTask(sourceTaskId, account);
+        if (sourceTask.user_id !== user.id && account.role !== "ADMIN") return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能创建复验任务" }, { status: 403 });
+        if (!["COMPLETED", "FAILED"].includes(sourceTask.status)) return NextResponse.json({ error: `任务“${sourceTask.name}”尚未结束，不能创建无效结果复验任务` }, { status: 409 });
+        sourceTasks.push(sourceTask);
+      }
+      const sourceItems = await admin.from("ai_screening_task_items").select("customer_id").in("task_id", sourceTaskIds).eq("automation_status", "AUTO_REJECT");
+      if (sourceItems.error) throw sourceItems.error;
+      const candidateIds = [...new Set((sourceItems.data || []).map((item) => String(item.customer_id || "")).filter(Boolean))];
+      if (!candidateIds.length) return NextResponse.json({ error: "所选历史任务没有无效目标客户" }, { status: 409 });
+      const eligibleIds: string[] = [];
+      for (let offset = 0; offset < candidateIds.length; offset += 200) {
+        const customers = await admin.from("customers").select("id").in("id", candidateIds.slice(offset, offset + 200)).is("deleted_at", null);
+        if (customers.error) throw customers.error;
+        eligibleIds.push(...(customers.data || []).map((item) => String(item.id)));
+      }
+      const reserved = await getReservedAiCustomerIds();
+      const customerIds = eligibleIds.filter((customerId) => !reserved.has(customerId));
+      if (!customerIds.length) return NextResponse.json({ error: "历史无效客户均已删除或正在其他任务中分析" }, { status: 409 });
+      const now = new Date().toISOString();
+      const strategy = "SMART" as const;
+      const created = await admin.from("ai_screening_tasks").insert({
+        user_id: task.user_id,
+        task_number: taskNumber(),
+        name: (body.name?.trim() || `历史无效客户复验-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}`).slice(0, 80),
+        strategy,
+        strategy_version: "1.0",
+        status: "QUEUED",
+        total_count: customerIds.length,
+        pending_count: customerIds.length,
+        filters: { reanalysis_scope: "INVALID", source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number) },
+        selection_mode: "FILTERED",
+        notification_mode: body.notification_mode || task.notification_mode || "IN_APP",
+      }).select("*").single();
+      if (created.error || !created.data) throw created.error || new Error("无效客户复验任务创建失败");
+      const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
+      try {
+        for (let offset = 0; offset < rows.length; offset += 500) {
+          const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
+          if (inserted.error) throw inserted.error;
+        }
+        const run = await start(aiScreeningWorkflow, [{ taskId: created.data.id, strategy, scheduledAt: null }]);
+        const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: now }).eq("id", created.data.id);
+        if (linked.error) throw linked.error;
+        await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_INVALID_RESULTS_REANALYZE", target_type: "ai_screening_task", target_id: created.data.id, content: { source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number), task_number: created.data.task_number, total_count: customerIds.length } });
+        return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: run.runId } }, { status: 201 });
+      } catch (error) {
+        await admin.from("ai_screening_tasks").update({ status: "FAILED", error_message: error instanceof Error ? error.message.slice(0, 1000) : "无效客户复验任务启动失败", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", created.data.id);
+        throw error;
+      }
     } else if (body.action === "reanalyze") {
       if (!['COMPLETED', 'FAILED'].includes(task.status)) return NextResponse.json({ error: "只有已结束的任务可以创建全量复核任务" }, { status: 409 });
       const sourceItems = await admin.from("ai_screening_task_items").select("customer_id").eq("task_id", id);

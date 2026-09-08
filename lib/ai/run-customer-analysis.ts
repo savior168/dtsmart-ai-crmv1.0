@@ -3,6 +3,7 @@ import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
   discoverPublicSourceUrls,
+  groundCustomerAnalysis,
   isComputerHardwareRepairEvidence,
   scoreToLevel,
   type CustomerAnalysis,
@@ -46,7 +47,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.2";
+const ANALYSIS_VERSION = "2026.09.08.3";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -361,6 +362,18 @@ function splitContacts(value?: string | null) {
   return String(value || "").split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
 }
 
+export function prioritizeGoogleReviews(reviews: string[]) {
+  return [...new Set((reviews || []).map((review) => String(review || "").replace(/\s+/g, " ").trim()).filter(Boolean))]
+    .map((review, index) => ({
+      review,
+      index,
+      score: verifiedFactLabels(review).length * 20
+        + (/(?:repair|fix|replace|screen|battery|charging|motherboard|parts?|accessor|napraw|serwis|repar|维修|修理|更换|屏幕|电池|充电口|主板|配件)/i.test(review) ? 8 : 0),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((item) => item.review);
+}
+
 const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品/;
 
 function recordBusinessText(record?: ChannelRecord) {
@@ -417,6 +430,35 @@ export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: C
     evidence_sufficiency: analysis.evidence_sufficiency === "不足" ? "一般" : analysis.evidence_sufficiency,
     evidence_summaries: evidenceSummaries,
   };
+}
+
+/**
+ * Evidence normalization can recover concrete business facts that the first
+ * model/rule pass described too generically. Re-ground the complete conclusion
+ * before the policy gate so industry, score, grade and target status cannot
+ * contradict those recovered facts.
+ */
+export function finalizeAnalysisAgainstEvidence(customer: CustomerRow, records: ChannelRecord[], analysis: CustomerAnalysis): CustomerAnalysis {
+  const normalized = normalizeAnalysisEvidence(analysis, records);
+  const { usage, ...withoutUsage } = normalized;
+  const grounded = groundCustomerAnalysis({
+    customer_name: customer.company_name,
+    country: customer.country,
+    phone: customer.phone,
+    email: customer.email,
+    whatsapp: customer.whatsapp,
+    website: effectiveWebsite(customer),
+    google_url: customer.google_url,
+    address: customer.address,
+    industry_keywords: null,
+    evidence: evidenceForModel(records, "escalation"),
+  }, withoutUsage, records.flatMap((record) => {
+    const urls = [record.source_url];
+    if (record.evidence && "url" in record.evidence) urls.push(record.evidence.url);
+    if (record.evidence && "verified_google_maps_url" in record.evidence) urls.push(record.evidence.verified_google_maps_url);
+    return urls.filter((value): value is string => Boolean(value && /^https?:\/\//i.test(value)));
+  }));
+  return { ...grounded, usage };
 }
 
 function contactTypeForUrl(value?: string | null): ContactType {
@@ -681,7 +723,10 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
       user_ratings_total: google.user_ratings_total,
       business_status: google.business_status,
       types: (google.types || []).slice(0, 8),
-      reviews: (google.reviews || []).slice(0, deep ? 3 : 2).map((review) => review.slice(0, deep ? 220 : 160)),
+      // Places returns at most five reviews. Keep all five, rank concrete
+      // repair/component comments first and cap each excerpt so review analysis
+      // is complete without materially inflating model tokens.
+      reviews: prioritizeGoogleReviews(google.reviews || []).slice(0, 5).map((review) => review.slice(0, deep ? 220 : 180)),
       description: google.description?.slice(0, deep ? 800 : 520),
       image_urls: (google.image_urls || []).slice(0, deep ? 2 : 1),
       video_urls: [],
@@ -943,6 +988,7 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "使用手机或电脑维修备件", pattern: /(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)/i },
   { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|covers?|screen protectors?|adapters?|chargers?|earphones?|smart ?watch|手机壳|保护膜|充电器|耳机|手机配件|平板配件)/i },
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
+  { label: "多门店或连锁经营", pattern: /(?:(?:at least|over|more than|拥有|设有|共有)\s*\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|门店|分店|直营网点|维修中心)|\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)|multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
   { label: "软件开发、云服务或网络托管", pattern: /(?:software development|software company|cloud services|web hosting|cyber ?security|软件开发|软件公司|云服务|网络托管|信息安全)/i },
   { label: "手机合约或移动通信套餐", pattern: /(?:sim card|mobile plan|mobile contract|phone contract|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|手机套餐|手机合约|通信合约|移动通信套餐)/i },
@@ -1276,9 +1322,25 @@ export function verifiedBusinessScope(analysis: CustomerAnalysis) {
 export function verifiedCompanyScale(records: ChannelRecord[]) {
   type TradeFact = { product?: unknown; quantity?: unknown; amount?: unknown; currency?: unknown; date?: unknown; supplier?: unknown; source_url?: unknown };
   const verified: Array<{ text: string; sourceUrl: string }> = [];
+  const branchFacts: Array<{ text: string; sourceUrl: string; count: number | null }> = [];
   for (const record of records) {
     if (record.status !== "COLLECTED" || !record.evidence || typeof record.evidence !== "object") continue;
     const evidence = record.evidence as Record<string, unknown>;
+    if (record.channel === "website") {
+      const website = record.evidence as WebsiteEvidence;
+      const pages = [{ url: website.url || record.source_url || "", text: [website.description, ...(website.structured_descriptions || []), ...(website.headings || []), website.text_excerpt].filter(Boolean).join("；") },
+        ...(website.pages || []).map((page) => ({ url: page.url, text: [page.description, ...(page.headings || []), page.text_excerpt].filter(Boolean).join("；") }))];
+      for (const page of pages) {
+        if (!page.url || !page.text) continue;
+        const match = page.text.match(/(?:(?:at least|over|more than|拥有|设有|共有)\s*)?(\d{1,3})\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)/i);
+        const pluralClaim = /(?:multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i.test(page.text);
+        const count = match ? Number(match[1]) : null;
+        if ((count != null && count >= 2) || pluralClaim) {
+          const excerpt = compactBusinessExcerpt(page.text).slice(0, 260);
+          branchFacts.push({ text: count ? `官网明确列出${count}家门店或直营网点${excerpt ? `：${excerpt}` : ""}` : `官网明确说明为多门店或连锁经营${excerpt ? `：${excerpt}` : ""}`, sourceUrl: page.url, count });
+        }
+      }
+    }
     const rawRows = [...(Array.isArray(evidence.customs_records) ? evidence.customs_records : []), ...(Array.isArray(evidence.trade_records) ? evidence.trade_records : [])];
     for (const raw of rawRows) {
       if (!raw || typeof raw !== "object") continue;
@@ -1293,9 +1355,14 @@ export function verifiedCompanyScale(records: ChannelRecord[]) {
       verified.push({ text: detail, sourceUrl });
     }
   }
-  if (!verified.length) return { companyScale: null, companyScaleEvidence: null };
-  const facts = verified.slice(0, 3).map((item) => `${item.text}（核验：${item.sourceUrl}）`).join("；");
-  return { companyScale: "存在可核验采购记录", companyScaleEvidence: facts.slice(0, 1200) };
+  const uniqueBranches = [...new Map(branchFacts.map((item) => [`${item.sourceUrl}|${item.text}`, item])).values()];
+  const branchCount = Math.max(0, ...uniqueBranches.map((item) => item.count || 0)) || null;
+  const scaleParts = [uniqueBranches.length ? (branchCount ? `官网确认至少${branchCount}家门店` : "官网确认多门店或连锁经营") : "", verified.length ? "存在可核验采购记录" : ""].filter(Boolean);
+  const facts = [
+    ...uniqueBranches.slice(0, 2).map((item) => `${item.text}（核验：${item.sourceUrl}）`),
+    ...verified.slice(0, 3).map((item) => `${item.text}（核验：${item.sourceUrl}）`),
+  ].join("；");
+  return { companyScale: scaleParts.join("；") || null, companyScaleEvidence: facts.slice(0, 1200) || null, locationCount: branchCount };
 }
 
 function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
@@ -1799,7 +1866,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
     await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "MODEL_COMPLETED", startedAt: started, details: { model_calls: usage.model_calls, total_tokens: usage.total_tokens } });
 
-    analysis = normalizeAnalysisEvidence(analysis, records);
+    analysis = finalizeAnalysisAgainstEvidence(customer, records, analysis);
     const identity = resolveIdentity(customer, records, analysis);
     const policyEvidence = policyEvidenceFromAnalysis(analysis);
     const primaryIndustry = primaryIndustryFor(analysis.industry_type);
@@ -1870,7 +1937,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       place_id: identity.placeId, candidate_count: identity.candidateCount,
       match_signals: identity.matchSignals, mismatch_signals: identity.mismatchSignals,
       industry_evidence_ids: gate.evidenceIds, industry_conflicts: analysis.evidence_conflicts,
-      scale_analysis: { scale_level: verifiedScale.companyScale || "UNKNOWN", scale_confidence: scaleSignals.length ? 90 : 0, scale_signals: scaleSignals, location_count: google?.place_id ? 1 : null, review_activity: google?.user_ratings_total || null, procurement_signals: scaleSignals, trade_records: [] },
+      scale_analysis: { scale_level: verifiedScale.companyScale || "UNKNOWN", scale_confidence: scaleSignals.length ? 90 : 0, scale_signals: scaleSignals, location_count: verifiedScale.locationCount ?? (google?.place_id ? 1 : null), review_activity: google?.user_ratings_total || null, procurement_signals: scaleSignals, trade_records: [] },
       preferred_contact_type: reconciled.preferred?.type || null, preferred_contact_value: reconciled.preferred?.valueRaw || null,
       preferred_contact_source_url: reconciled.preferred?.sourceUrl || null,
       preferred_contact_reason: reconciled.preferred ? `优先采用${reconciled.preferred.sourceChannel === "website" ? "已确认企业官网" : reconciled.preferred.sourceChannel === "google_maps" ? "已匹配Google具体门店" : "已确认官方公开页面"}中的联系方式；未覆盖原始数据。` : null,
