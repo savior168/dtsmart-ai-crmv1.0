@@ -55,5 +55,10 @@ assert.doesNotMatch(read("components/followups-view.tsx"), /进入客户库/, "�
 assert.match(read("components/customers-view.tsx"), /selected\.size >= count \? "取消全选" : "全选筛选结果"/, "我的客户跨页全选与取消必须合并为同一按钮");
 assert.match(read("components/customer-public-pool-view.tsx"), /selected\.size >= \(count \?\? 0\) \? "取消全选" : "全选筛选结果"/, "客户公海跨页全选与取消必须合并为同一按钮");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), />取消全选<\/button>/, "客户公海不得额外堆叠独立取消全选按钮");
+assert.match(read("components/customer-public-pool-view.tsx"), /repeat\(7,minmax\(132px,1fr\)\)_96px/, "客户公海主筛选行必须为重置按钮保留末列，避免按钮换行");
+const customerPanels = read("components/customer-workspace-panels-v2.tsx");
+assert.match(customerPanels, /setReleaseType\(""\)[\s\S]*>重置<\/button>/, "保护到期与续期必须提供可一次清空全部条件的重置按钮");
+assert.match(customerPanels, /setSource\(""\)[\s\S]*>重置<\/button>/, "冲突客户必须提供可一次清空全部条件的重置按钮");
+assert.doesNotMatch(customerPanels, /RefreshCw|>刷新<\//, "保护到期与冲突客户筛选区不得用刷新按钮代替重置");
 
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");

@@ -46,7 +46,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.1";
+const ANALYSIS_VERSION = "2026.09.08.2";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1829,6 +1829,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       };
       finalAutomationStatus = "AUTO_REJECT";
       finalGateReason = verificationNote;
+    }
+    if (finalAutomationStatus === "AUTO_REJECT" && Number(analysis.ai_score || 0) >= 60) {
+      const rejectedScore = explicitRejectEvidence ? 39 : 59;
+      analysis = { ...analysis, ai_score: rejectedScore, ai_level: "D", is_target_customer: false };
     }
     // Every persisted final result has
     // a real score and grade backed by a valid/invalid evidence-gate decision.

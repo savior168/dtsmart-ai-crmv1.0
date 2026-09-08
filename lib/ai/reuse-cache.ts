@@ -6,8 +6,8 @@ import type { AiStrategy } from "@/lib/ai/task-types";
 // Bump both versions whenever the evidence gate or writeback contract changes.
 // This deliberately invalidates older cache rows that could be reused before
 // their evidence/customer writeback had completed.
-export const AI_RULE_VERSION = "2026.09.08.1";
-export const AI_EVIDENCE_SCHEMA_VERSION = "2026.09.08.1";
+export const AI_RULE_VERSION = "2026.09.08.2";
+export const AI_EVIDENCE_SCHEMA_VERSION = "2026.09.08.2";
 
 function isUuid(value: unknown) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
@@ -105,6 +105,9 @@ export async function findReusableAnalysis(customer: AiMappedCustomer, strategy:
     : {};
   if (!["AUTO_DEVELOP", "AUTO_REJECT"].includes(String(cachedAnalysis.automation_status || ""))
       || cachedAnalysis.score == null || !["A", "B", "C", "D"].includes(String(cachedAnalysis.grade || ""))) return null;
+  const cachedScore = Number(cachedAnalysis.score);
+  if ((cachedAnalysis.automation_status === "AUTO_DEVELOP" && cachedScore < 60)
+      || (cachedAnalysis.automation_status === "AUTO_REJECT" && cachedScore >= 60)) return null;
   const sourceResultId = String(result.data.source_result_id || "");
   const [sourceResult, sourceEvidence] = await Promise.all([
     admin.from("ai_screening_results").select("id").eq("id", sourceResultId).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED").maybeSingle(),

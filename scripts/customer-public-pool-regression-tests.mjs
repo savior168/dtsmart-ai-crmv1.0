@@ -149,6 +149,8 @@ assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType
 assert.match(poolApi, /target === "valid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", true\)/, "客户公海有效目标必须来自明确的有效结论");
 assert.match(poolApi, /target === "invalid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", false\)/, "客户公海无效目标不得混入待复核或未筛选客户");
 assert.match(customersApi, /target === "valid"[\s\S]*eq\("is_target_customer", true\)[\s\S]*target === "invalid"[\s\S]*eq\("is_target_customer", false\)/, "我的客户目标筛选必须按明确业务结论查询");
+assert.doesNotMatch(poolApi, /eq\("is_target_customer", false\)\.lt\("ai_score", 60\)/, "客户公海无效目标不得再用评分二次过滤而漏掉历史矛盾记录");
+assert.doesNotMatch(customersApi, /eq\("is_target_customer", false\)\.lt\("ai_score", 60\)/, "我的客户无效目标不得再用评分二次过滤而漏掉历史矛盾记录");
 assert.match(aiResultsApi, /\.in\("target_decision", \["VALID", "INVALID"\]\)[\s\S]*\.not\("score", "is", null\)[\s\S]*\.not\("grade", "is", null\)/, "AI最终结果只能加载已评分的有效或无效结论");
 assert.match(aiRunner, /is_target_customer: cachedTargetDecision === "VALID"[\s\S]*is_target_customer: finalAutomationStatus === "AUTO_DEVELOP"/, "AI写回客户的目标标记必须从最终证据门控结论推导");
 assert.match(customerCrmView, /data\.ai_result\?\.target_decision==="VALID"\?"是"[\s\S]*"待复核"/, "客户详情目标判断必须展示结果三态而非仅按评分推导");

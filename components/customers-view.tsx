@@ -666,7 +666,7 @@ export function CustomersView() {
               重置
             </button>
           </div>
-          <p className="mt-3 text-xs text-slate-500">有效目标：AI评分 ≥ 60；无效目标：AI评分 &lt; 60。AI未筛选客户不会被误归入有效或无效，需切换“AI未筛选”查看。</p>
+          <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；评分用于表示销售优先级。AI未筛选客户不会被误归入两类，需切换“AI未筛选”查看。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               <span className="text-xs text-slate-500">已应用筛选：</span>

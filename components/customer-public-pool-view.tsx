@@ -530,7 +530,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.7fr)_repeat(6,minmax(132px,1fr))_96px]">
+              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.7fr)_repeat(7,minmax(132px,1fr))_96px]">
                 <label className="relative min-w-0">
                   <Search
                     size={17}

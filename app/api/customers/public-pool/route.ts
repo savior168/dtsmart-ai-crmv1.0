@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
     // Score expresses priority, while this tri-state field records the gated
     // business conclusion. Null therefore remains outside both target lists.
     if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);
-    if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false).lt("ai_score", 60);
+    if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false);
     if (target === "pending") query = query.is("ai_score", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);

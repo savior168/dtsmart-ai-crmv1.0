@@ -246,7 +246,7 @@ export async function GET(request: NextRequest) {
     // Score expresses priority, while this tri-state field records the gated
     // business conclusion. Null therefore remains outside both target lists.
     if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);
-    if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false).lt("ai_score", 60);
+    if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false);
 
     // `followup_status` was added by a compatibility migration and is still
     // absent from some production databases. Do not request or sort by that
