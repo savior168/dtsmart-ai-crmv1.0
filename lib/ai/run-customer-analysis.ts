@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
-  discoverPublicSourceUrls,
   groundCustomerAnalysis,
   isComputerHardwareRepairEvidence,
   isDirectNonTargetBusinessEvidence,
@@ -57,7 +56,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.9";
+const ANALYSIS_VERSION = "2026.09.08.10";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1872,7 +1871,6 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     ? checkpoint.data.channel_checkpoint as { records?: ChannelRecord[]; completed_recovery_focuses?: string[]; model_call_baseline?: number } : {};
   const savedRecords = checkpointPayload.records;
   const records: ChannelRecord[] = Array.isArray(savedRecords) ? savedRecords.filter((item) => item && AI_CHANNEL_ORDER.includes(item.channel)) : [];
-  const completedRecoveryFocuses = new Set(Array.isArray(checkpointPayload.completed_recovery_focuses) ? checkpointPayload.completed_recovery_focuses : []);
   const existingModelCalls = await admin.from("ai_screening_model_calls").select("id", { count: "exact", head: true }).eq("task_item_id", input.taskItemId);
   if (existingModelCalls.error) throw existingModelCalls.error;
   let modelRequestCount = Math.max(0, Number(existingModelCalls.count || 0) - Number(checkpointPayload.model_call_baseline || 0));
@@ -1969,23 +1967,11 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     // remaining uncertainty is scored from the saved evidence and highlighted.
     const maxModelCalls = 1;
     if (!isConclusiveChannelAnalysis(analysis) && shouldUseModelSupplement(customer, records, analysis)) {
-      // Spend the single model allowance where it adds the most value. When no
-      // usable source exists, use it to locate public entry points. When saved
-      // evidence already exists, skip another search and use the call to
-      // synthesize that evidence instead.
-      if (!hasUsableCollectedEvidence(records)) {
-        const focus = "comprehensive" as const;
-        if (modelRequestCount < maxModelCalls && !completedRecoveryFocuses.has(focus)) {
-          modelRequestCount += 1;
-          const recovery = await recoverPublicEvidence({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, focus });
-          usage = addUsage(usage, recovery.usage);
-          if (recovery.completed) {
-            completedRecoveryFocuses.add(focus);
-            await saveCheckpoint(input.taskItemId, records, "other", { completed_recovery_focuses: [...completedRecoveryFocuses] });
-          }
-          analysis = deterministicAnalysis(customer, records);
-        }
-      }
+      // Ordinary public indexes and Places have already completed at this
+      // point. Never spend a model call merely to search for URLs: web-search
+      // context is large, slow and can hit account TPM limits without yielding
+      // attributable evidence. The one model allowance is reserved for
+      // synthesizing real, already-collected target-adjacent evidence.
       if (!analysis || analysis.evidence_conflicts.length > 0 || analysis.confidence_score < 82) {
         if (!hasUsableCollectedEvidence(records)) {
           analysis = insufficientDataAnalysis(customer, records);
@@ -1997,7 +1983,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
             analysis = outcome.analysis;
             modelRequestCount += outcome.requestCount;
             usage = addUsage(usage, analysis.usage);
-            earlyStopReason = "规则无法直接判断时，系统完成一次轻量公开来源补证，再由高精度模型综合全部已核验证据。";
+            earlyStopReason = "规则无法直接判断时，由高精度模型综合一次全部已采集且通过主体校验的证据。";
           } else if (!analysis) {
             analysis = insufficientDataAnalysis(customer, records);
             earlyStopReason = "已达到本客户模型调用上限，依据已取得的真实证据形成低相关结论，不进入等待或重复重试。";
@@ -2460,7 +2446,7 @@ async function collectIndexedPublicEvidence(input: {
     const channel = recoveryChannelForCustomer(url, input.customer);
     if (channel === "google_maps") return null;
     try {
-      const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 5_000 });
+      const evidence = await collectPublicPageEvidence(url, { signal: input.signal, timeoutMs: 4_000 });
       if (!evidence?.reachable) return null;
       const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
       return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
@@ -2478,90 +2464,4 @@ async function collectIndexedPublicEvidence(input: {
   }
   if (accepted.length) await saveCheckpoint(input.taskItemId, input.records, "other");
   return accepted.length;
-}
-
-/**
- * Empty first-party records are not handed to a sales user. One bounded public
- * search discovers candidate pages, then this worker fetches the pages itself.
- * Search snippets and model output are never stored as evidence or scored.
- */
-async function recoverPublicEvidence(input: {
-  taskId: string; taskItemId: string; customerId: string; attemptNumber: number;
-  customer: CustomerRow; records: ChannelRecord[]; signal: AbortSignal;
-  focus: "identity" | "official_business" | "social_business" | "comprehensive";
-}) {
-  const indexedCount = await collectIndexedPublicEvidence(input);
-  if (indexedCount && isConclusiveChannelAnalysis(deterministicAnalysis(input.customer, input.records))) {
-    return { usage: ZERO_USAGE, collected: indexedCount, completed: true };
-  }
-
-  const startedAt = Date.now();
-  let recovery: Awaited<ReturnType<typeof discoverPublicSourceUrls>>;
-  try {
-    recovery = await discoverPublicSourceUrls({
-      customer_name: input.customer.company_name,
-      country: input.customer.country,
-      phone: input.customer.phone,
-      email: input.customer.email,
-      whatsapp: input.customer.whatsapp,
-      website: effectiveWebsite(input.customer),
-      google_url: input.customer.google_url,
-      address: input.customer.address,
-      industry_keywords: null,
-      evidence: evidenceForModel(input.records, "fast"),
-    }, { signal: input.signal, timeoutMs: 40_000, recoveryFocus: input.focus });
-    await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, usage: recovery.usage, status: "COMPLETED" });
-  } catch (error) {
-    await saveModelCall({ ...input, channel: `public_source_recovery_${input.focus}`, startedAt, status: "FAILED", error });
-    return { usage: ZERO_USAGE, collected: 0, completed: false };
-  }
-  // A transient DNS/HTTP failure is not a completed source. Permit the single
-  // bounded recovery pass to retry the same URL if discovery returns it.
-  const existing = new Set(input.records
-    .filter((record) => record.status === "COLLECTED")
-    .map((record) => String(record.source_url || "").replace(/\/$/, "").toLowerCase()));
-  const urls = recovery.urls
-    .filter((url) => !existing.has(url.replace(/\/$/, "").toLowerCase()))
-    .sort((left, right) => {
-      const social = (url: string) => /(?:facebook|instagram|linkedin|tiktok)\.com/i.test(url) ? 1 : 0;
-      return input.focus === "social_business" ? social(right) - social(left) : social(left) - social(right);
-    })
-    .slice(0, 6);
-  const fetched = await Promise.all(urls.map(async (url): Promise<ChannelRecord | null> => {
-    try {
-      const channel = recoveryChannelForCustomer(url, input.customer);
-      if (channel === "google_maps") {
-        const evidence = await collectGooglePlaceEvidence({
-          company_name: input.customer.company_name,
-          address: input.customer.address,
-          country: input.customer.country,
-          google_url: url,
-          phone: input.customer.phone,
-          website: effectiveWebsite(input.customer),
-          place_id: input.customer.google_place_id,
-        }, { signal: input.signal, timeoutMs: 9_000 });
-        if (!evidence || !["MATCHED", "LIKELY_MATCHED"].includes(String(evidence.identity_status || ""))) return null;
-        return { channel, status: "COLLECTED", source_url: evidence.verified_google_maps_url || url, evidence };
-      }
-      // Deep page collection follows only relevant second/third-level business
-      // pages and is therefore more reliable than a search-result snippet.
-      const evidence = await collectDeepWebsiteEvidence(url, { signal: input.signal, timeoutMs: 7_000 });
-      if (!evidence?.reachable) return null;
-      const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
-      if (!recoveryRecordMatchesEntity(input.customer, input.records, record)) return null;
-      return record;
-    } catch { return null; }
-  }));
-  const accepted = fetched.filter((item): item is ChannelRecord => Boolean(item));
-  for (const record of accepted) {
-    const duplicate = input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === String(record.source_url || "").replace(/\/$/, "").toLowerCase());
-    if (duplicate) continue;
-    if (record.channel === "website" || record.channel === "google_maps") {
-      const existingChannel = input.records.findIndex((saved) => saved.channel === record.channel);
-      if (existingChannel >= 0) input.records[existingChannel] = record;
-      else input.records.push(record);
-    } else input.records.push(record);
-  }
-  if (accepted.length) await saveCheckpoint(input.taskItemId, input.records, "other");
-  return { usage: recovery.usage, collected: accepted.length, completed: true };
 }

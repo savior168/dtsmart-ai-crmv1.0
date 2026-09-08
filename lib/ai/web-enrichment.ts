@@ -1378,8 +1378,8 @@ export async function collectPublicPageEvidence(url?: string | null, options: Fe
 }
 
 /**
- * Zero-token public locator used only after Places and the supplied website do
- * not yield a conclusion. Result links are merely candidates: callers must
+ * Zero-token public locator used after the supplied website and before paid
+ * Places. Result links are merely candidates: callers must
  * fetch each page and pass the normal name/address/phone identity gate before
  * using any content as evidence.
  */
@@ -1395,7 +1395,9 @@ export async function discoverPublicBusinessUrls(input: {
   const queries = [...new Set([
     [name, address].filter(Boolean).join(" "),
     phone.length >= 7 ? [name, phone, input.country].filter(Boolean).join(" ") : "",
-  ].filter(Boolean))].slice(0, 2);
+    [name, address, "repair service"].filter(Boolean).join(" "),
+    [name, address, "Facebook Instagram"].filter(Boolean).join(" "),
+  ].filter(Boolean))].slice(0, 4);
   const request = requestSignal(options, 8_000);
   try {
     const normalizeSearchLink = (raw: string) => {
