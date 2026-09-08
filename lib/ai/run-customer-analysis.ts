@@ -57,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.7";
+const ANALYSIS_VERSION = "2026.09.08.8";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -323,6 +323,7 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
     : null;
   if (normalizedGoogleStatus
       && ["MATCHED", "LIKELY_MATCHED"].includes(normalizedGoogleStatus)
+      && googleConfidence >= 70
       && (googleConfidence >= 90 || !website?.reachable)) return {
     status: normalizedGoogleStatus,
     confidence: googleConfidence,

@@ -1125,7 +1125,14 @@ export async function collectGooglePlaceEvidence(input: {
       return await response.json() as PlaceDetail;
     };
 
-    const directPlaceId = input.place_id?.trim() || googlePlaceIdFromUrl(input.google_url);
+    // A Place ID stored by an earlier analysis is a locator hint, not proof of
+    // identity. Reusing it as a direct match created a self-validating loop:
+    // the same previously misattributed place became "Place ID一致" forever.
+    // Only an ID encoded in the customer's concrete Maps URL is a direct link;
+    // a stored ID is used solely as a last-resort candidate and must pass the
+    // current name/address/phone/domain checks again.
+    const directPlaceId = googlePlaceIdFromUrl(input.google_url);
+    const storedPlaceIdHint = input.place_id?.trim() || "";
     let candidateIds = directPlaceId ? [directPlaceId] : [];
     if (!candidateIds.length) {
       let searchError = "未找到匹配的Google商家。";
@@ -1147,6 +1154,7 @@ export async function collectGooglePlaceEvidence(input: {
         candidateIds = (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
         if (searchResponse.ok && candidateIds.length) break;
       }
+      if (!candidateIds.length && storedPlaceIdHint) candidateIds = [storedPlaceIdHint];
       if (!candidateIds.length) {
         const fallback = await collectPublicGooglePlaceEvidence(input, options);
         return fallback || {
