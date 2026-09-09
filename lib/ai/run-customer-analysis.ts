@@ -6,6 +6,7 @@ import {
   isComputerHardwareRepairEvidence,
   isDirectNonTargetBusinessEvidence,
   hasDirectTargetBusinessEvidence,
+  positiveTargetEvidenceText,
   scoreToLevel,
   type CustomerAnalysis,
 } from "./customer-analysis";
@@ -56,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.09.18";
+const ANALYSIS_VERSION = "2026.09.09.19";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -512,6 +513,79 @@ export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: C
   };
 }
 
+function canonicalSourceUrl(value?: string | null) {
+  if (!value) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    url.hash = "";
+    url.search = "";
+    return `${url.origin}${url.pathname}`.replace(/\/$/, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function recordSourceUrls(record: ChannelRecord) {
+  const urls: Array<string | null | undefined> = [record.source_url];
+  if (record.evidence && "url" in record.evidence) {
+    urls.push(record.evidence.url);
+    urls.push(...(record.evidence.pages || []).map((page) => page.url));
+  }
+  if (record.evidence && "verified_google_maps_url" in record.evidence) {
+    // The website value returned by Places is only a locator until that site
+    // has been fetched and admitted as a separate website record. Do not let a
+    // model cite that URL as if website content had already been inspected.
+    urls.push(record.evidence.verified_google_maps_url);
+  }
+  return urls.filter((value): value is string => Boolean(value && /^https?:\/\//i.test(value)));
+}
+
+function sourceUrlMatchesRecord(sourceUrl: string, record: ChannelRecord) {
+  const normalizedSource = canonicalSourceUrl(sourceUrl);
+  if (!normalizedSource) return false;
+  const sourceHost = websiteHost(sourceUrl);
+  return recordSourceUrls(record).some((candidate) => {
+    if (canonicalSourceUrl(candidate) === normalizedSource) return true;
+    // Deep official pages legitimately have a different path from the fetched
+    // root. A host-only match is safe for the per-customer website record, but
+    // not for Google or social hosts that contain unrelated places/profiles.
+    return record.channel === "website" && sourceHost && sourceHost === websiteHost(candidate);
+  });
+}
+
+/**
+ * Recover evidence provenance from collected records rather than trusting a
+ * free-form model label. This runs before normalization and the policy gate,
+ * preventing direct official-site facts from being treated as weak hints.
+ */
+export function canonicalizeAnalysisEvidenceChannels(
+  customer: CustomerRow,
+  records: ChannelRecord[],
+  analysis: CustomerAnalysis,
+): CustomerAnalysis {
+  const collected = records.filter((record) => record.status === "COLLECTED" && record.evidence);
+  const officialHost = websiteHost(effectiveWebsite(customer));
+  return {
+    ...analysis,
+    evidence_summaries: analysis.evidence_summaries.map((summary) => {
+      const matchingRecord = collected.find((record) => sourceUrlMatchesRecord(summary.source_url, record));
+      if (matchingRecord) return { ...summary, channel: matchingRecord.channel };
+
+      const summaryHost = websiteHost(summary.source_url);
+      const admittedWebsite = collected.find((record) => record.channel === "website"
+        && websiteRecordMatchesEntity(customer, records, record));
+      if (officialHost && summaryHost === officialHost && admittedWebsite) {
+        return { ...summary, channel: "website" as const };
+      }
+
+      // A syntactically valid model label is still not provenance. If the URL
+      // cannot be tied back to a collected record, retain it only as an "other"
+      // hint; the downstream URL allowlist may remove it altogether.
+      return { ...summary, channel: "other" as const };
+    }),
+  };
+}
+
 /**
  * Evidence normalization can recover concrete business facts that the first
  * model/rule pass described too generically. Re-ground the complete conclusion
@@ -519,7 +593,8 @@ export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: C
  * contradict those recovered facts.
  */
 export function finalizeAnalysisAgainstEvidence(customer: CustomerRow, records: ChannelRecord[], analysis: CustomerAnalysis): CustomerAnalysis {
-  const normalized = normalizeAnalysisEvidence(analysis, records);
+  const canonical = canonicalizeAnalysisEvidenceChannels(customer, records, analysis);
+  const normalized = normalizeAnalysisEvidence(canonical, records);
   const { usage, ...withoutUsage } = normalized;
   const grounded = groundCustomerAnalysis({
     customer_name: customer.company_name,
@@ -1194,7 +1269,8 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 function verifiedFactLabels(text: string) {
-  return VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(text)).map((item) => item.label);
+  const positiveText = positiveTargetEvidenceText(text);
+  return VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(positiveText)).map((item) => item.label);
 }
 
 type DeterministicCandidate = {
@@ -2167,6 +2243,19 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       hasCriticalConflict: ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
       explicitRejectEvidence,
     });
+    const hasVerifiedDirectTarget = policyEvidence.some((item) => item.kind === "支持"
+      && item.confidence >= 60 && item.strength === "STRONG_DIRECT"
+      && hasDirectTargetBusinessEvidence(item.fact));
+    const acceptedIdentity = ["MATCHED", "LIKELY_MATCHED"].includes(identity.status);
+    if (acceptedIdentity && identity.confidence >= 70 && hasVerifiedDirectTarget
+        && primaryIndustry !== "UNKNOWN" && Number(analysis.ai_score || 0) >= 60
+        && analysis.confidence_score >= 60 && gate.automationStatus !== "AUTO_DEVELOP") {
+      // This is an internal consistency failure, not a business conclusion.
+      // Never publish a low-score invalid customer when the same payload has
+      // already proved an attributable target business; fail visibly so the
+      // task can be retried after the rule defect is corrected.
+      throw new Error("AI_EVIDENCE_GATE_CONTRADICTION: 已匹配主体和直接目标证据与最终无效结论冲突");
+    }
     let finalAutomationStatus = gate.automationStatus;
     let finalGateReason = gate.reason;
     if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {

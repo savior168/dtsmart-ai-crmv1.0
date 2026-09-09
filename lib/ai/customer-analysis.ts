@@ -84,7 +84,7 @@ export const IT_SUPPORT_EVIDENCE_PATTERN = /(?:计算机服务|计算机技术�
 
 export function isComputerHardwareRepairEvidence(text: string) {
   const withoutNegatedRepair = text.replace(
-    /(?:不提供|未提供|没有|并无|不含|未发现)(?:任何)?[^。；，]{0,16}(?:电脑硬件维修|计算机硬件维修|电脑维修|计算机维修|屏幕更换|电池更换|键盘更换|主板维修)/gi,
+    /(?:不提供|未提供|未显示|没有|并无|不含|未发现|未取得|无法确认)(?:任何|明确|可核验)?[^。；，]{0,32}(?:电脑硬件维修|计算机硬件维修|电脑维修|计算机维修|屏幕更换|电池更换|键盘更换|主板维修)/gi,
     "",
   );
   return COMPUTER_HARDWARE_REPAIR_EVIDENCE_PATTERN.test(withoutNegatedRepair);
@@ -101,8 +101,19 @@ export function isDirectNonTargetBusinessEvidence(text: string) {
 
 const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
 
+/** Remove only clauses that explicitly deny or fail to find target business. */
+export function positiveTargetEvidenceText(text: string) {
+  return String(text || "")
+    .split(/(?<=[。；.!?！？\n])|[,，]/)
+    .filter((clause) => {
+      const deniesFact = /(?:不提供|未提供|未显示|没有(?:发现)?|并无|不含|未发现|未取得|未能取得|无法确认|无可核验|does not (?:show|provide)|did not find|no (?:verified |clear )?|without)/i.test(clause);
+      return !(deniesFact && DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN.test(clause));
+    })
+    .join(" ");
+}
+
 export function hasDirectTargetBusinessEvidence(text: string) {
-  return DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN.test(text);
+  return DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN.test(positiveTargetEvidenceText(text));
 }
 
 function responseText(payload: Record<string, unknown>): string {
@@ -330,7 +341,12 @@ function hasVisualInputs(input: CustomerAnalysisInput) {
 
 function isDirectVisualBusinessFact(item: CustomerAnalysis["evidence_summaries"][number], input: CustomerAnalysisInput) {
   const text = `${item.title_zh} ${item.fact_zh}`;
-  if (!/(?:图片|照片|画面|门店|门头|货架|陈列|工作台|拆机|维修操作|视觉)/.test(text)) return true;
+  // A store, workbench or repair action can be an ordinary textual fact from
+  // an official service/location page. Only apply the visual-proof gate when
+  // the evidence explicitly claims that the fact came from an image, screenshot
+  // or video. The old keyword-only check deleted facts such as "官网列出多家门店"
+  // when no image was supplied and could turn a verified repair shop into D级。
+  if (!/(?:图片|照片|画面|图中|截图|影像|视频|视觉(?:证据|识别|观察))/i.test(text)) return true;
   if (!hasVisualInputs(input)) return false;
   const explicitRepairSign = /(?:门店|门头|招牌|标牌|店铺).{0,40}(?:手机|电脑|iPhone|MacBook|Phone|Computer).{0,25}(?:维修|Repair|Service)/i.test(text)
     || /(?:Phone|Computer).{0,20}Repair.{0,40}(?:门店|门头|招牌|标牌|店铺)/i.test(text);
@@ -425,7 +441,20 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const appleRepairFacts = evidenceMatchCount(/(?:Apple|iPhone|iPad|MacBook|Apple Watch|iMac).{0,35}(?:维修|更换|换屏|电池|屏幕|玻璃)|(?:维修|更换|换屏).{0,35}(?:Apple|iPhone|iPad|MacBook|Apple Watch|iMac)/i);
   const mobileRepairFacts = evidenceMatchCount(/(?:手机|iPhone|smartphone|mobile|cell ?phone|handy|mobil).{0,35}(?:维修|repair|repar|serwis|napraw|换屏|电池)|(?:维修|repair|repar|serwis|napraw).{0,35}(?:手机|iPhone|smartphone|mobile|cell ?phone|handy|mobil)/i);
   const computerRepairFacts = evidenceMatchCount(/(?:电脑硬件|计算机硬件|电脑|笔记本|laptop|computer|\bpc\b|MacBook).{0,35}(?:维修|repair|repar|serwis|napraw)|(?:维修|repair|repar|serwis|napraw).{0,35}(?:电脑硬件|计算机硬件|电脑|笔记本|laptop|computer|\bpc\b|MacBook)/i);
-  const evidenceDerivedIndustry = appleRepairFacts >= 1 && appleRepairFacts >= computerRepairFacts
+  // Preserve a specific rule/model industry when the saved evidence directly
+  // supports it. A multi-brand phone repair shop commonly lists iPhone as one
+  // supported brand; that must not relabel the whole business as Apple-only.
+  // When the proposed industry is unsupported, derive it from the evidence as
+  // before (for example correcting a computer label on an Apple-only repairer).
+  const proposedIndustrySupported = (analysis.industry_type === "手机维修店" && mobileRepairFacts >= 1
+      && mobileRepairFacts >= appleRepairFacts && mobileRepairFacts >= computerRepairFacts)
+    || (analysis.industry_type === "Apple或MacBook维修店" && appleRepairFacts >= 1
+      && appleRepairFacts >= mobileRepairFacts && appleRepairFacts >= computerRepairFacts)
+    || (analysis.industry_type === "电脑维修店" && computerRepairFacts >= 1
+      && computerRepairFacts >= appleRepairFacts && computerRepairFacts >= mobileRepairFacts);
+  const evidenceDerivedIndustry = proposedIndustrySupported
+    ? analysis.industry_type
+    : appleRepairFacts >= 1 && appleRepairFacts >= computerRepairFacts
     ? "Apple或MacBook维修店"
     : mobileRepairFacts >= 1 && mobileRepairFacts >= computerRepairFacts
       ? "手机维修店"
@@ -797,7 +826,7 @@ export async function analyzeCustomer(input: CustomerAnalysisInput, options: { s
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      channel: { type: "string" },
+                      channel: { type: "string", enum: ["website", "google_maps", "linkedin", "facebook", "instagram", "tiktok", "other"] },
                       title_zh: { type: "string" },
                       fact_zh: { type: "string" },
                       source_url: { type: "string" },
