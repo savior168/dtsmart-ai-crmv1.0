@@ -57,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.09.16";
+const ANALYSIS_VERSION = "2026.09.09.17";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -2557,7 +2557,19 @@ export function recoveryRecordMatchesEntity(customer: CustomerRow, records: Chan
     .filter(Boolean).join(" ");
   const channel = record.channel;
   if (channel === "other") {
-    const nameMatch = identityNameSimilarity(customer.company_name, pageText) >= 0.75;
+    // Directory pages often contain long city indexes and "nearby business"
+    // widgets. A customer name appearing somewhere in that flattened body is
+    // not an entity match. Require the listing header/structured identity (or
+    // its URL slug) to identify this business, then corroborate it with a
+    // phone, full address or business-domain signal.
+    const identityText = [website.title, website.description, ...(website.structured_names || []), ...(website.headings || []).slice(0, 3)]
+      .filter(Boolean).join(" ");
+    let sourcePath = "";
+    try { sourcePath = decodeURIComponent(new URL(record.source_url || website.url).pathname).replace(/[\/_-]+/g, " "); } catch { /* invalid URL already rejected */ }
+    const nameMatch = Math.max(
+      identityNameSimilarity(customer.company_name, identityText),
+      identityNameSimilarity(customer.company_name, sourcePath),
+    ) >= 0.75;
     const originalPhone = normalizePhoneInternational(customer.phone, customer.country);
     const phoneMatch = Boolean(originalPhone && website.phones.some((value) => normalizePhoneInternational(value, customer.country) === originalPhone));
     const addressMatch = addressAppearsOnPage(customer.address, pageText);

@@ -377,7 +377,8 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const contradicting = evidence.filter((item) => item.evidence_type === "矛盾" && item.confidence >= 60);
   const independentSources = new Set(supporting.map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
   const hasStrongDirectEvidence = supporting.some((item) =>
-    ["website", "google_maps"].includes(item.channel)
+    (["website", "google_maps"].includes(item.channel)
+      || (["facebook", "instagram", "linkedin", "tiktok", "other"].includes(item.channel) && item.confidence >= 84))
       && hasDirectTargetBusinessEvidence(item.fact_zh));
   const hasStrongDirectContradiction = contradicting.some((item) =>
     ["website", "google_maps"].includes(item.channel)
