@@ -54,13 +54,13 @@ assert.match(analysis, /"A"\s*\|\s*"B"\s*\|\s*"C"\s*\|\s*"D"/, "AI等级必须�
 assert.doesNotMatch(analysis, /"S"\s*\|/, "不能保留S级");
 assert.match(analysis, /EXCEL_IMPORT[\s\S]*绝不是进口商/, "导入来源标签不得作为进口商或行业证据");
 assert.match(analysis, /groundCustomerAnalysis/, "AI结论必须经过证据一致性校验");
-assert.match(analysis, /discoverPublicSourceUrls[\s\S]*max_output_tokens: 1200[\s\S]*tools: \[\{ type: "web_search" \}\]/, "网页搜索只能使用受控网址发现请求");
+assert.match(analysis, /discoverPublicSourceUrls[\s\S]*max_output_tokens: 600[\s\S]*tools: \[\{ type: "web_search", search_context_size: "low" \}\]/, "网页搜索只能使用低上下文受控网址发现请求");
 assert.doesNotMatch(analysis, /const recoveryTools/, "完整分析模型不得启用网页搜索造成重复抓取和Token浪费");
 assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)/, "未实际读取的输入网址不得自动视为有效证据来源");
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.09\.09\.15/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.09\.09\.16/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: finalAutomationStatus/, "任务客户必须保存最终自动处理状态");

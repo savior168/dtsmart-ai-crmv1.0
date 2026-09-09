@@ -4,6 +4,7 @@ const ANALYSIS_INDUSTRIES = [
   "手机成品零售", "二手或翻新手机销售", "运营商营业厅", "手机维修店", "Apple或MacBook维修店",
   "电脑维修店", "手机外配件零售", "维修内配件零售", "维修内配件批发", "进口商或分销商",
   "维修连锁", "综合电子产品零售", "电商卖家", "软件或IT服务", "其他维修行业", "混合经营", "其他",
+  "电子烟或烟草零售", "食品批发或餐饮供应", "铁路或电气工程", "拍卖或资产处置", "药房或医疗零售",
 ] as const;
 
 export type CustomerAnalysisInput = {
@@ -133,7 +134,7 @@ EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任�
 Google商家分类“手机维修服务”“电子产品维修”等只能作为行业定位线索，不能单独证明真实维修能力或配件采购价值。必须再取得至少一项直接佐证：商家描述或近期评论明确提到维修行为/更换部件；官网明确列出屏幕、电池、键盘、充电口、主板等硬件维修；或商家/官网图片提供可以直接复核的维修事实。
 图片证据实行硬门槛：只有画面清楚展示以下任一事实才可进入行业判断和评分：(1) 完整门店或门头，并能清晰读到手机/电脑维修、Phone Repair、Computer Repair等业务文字；(2) 真实拆机、部件更换或维修操作；(3) 清楚可辨的维修工作台以及正在维修的手机/电脑；(4) 清楚可辨的手机/电脑内配件货架或陈列，能够识别屏幕总成、电池、充电口、排线、摄像头、主板等维修配件。仅有图片URL、图片数量、普通门头、Logo、人物、地图、整机陈列、手机壳/耳机等外配件、宣传海报、模糊或无法辨认的画面，一律不得作为目标行业证据、不得增加评分。图片事实必须明确写出实际看到了什么，并使用图片所属的真实来源页面作为source_url；不确定时忽略该图片，严禁猜测。
 没有真实采购证据时只能写“采购能力待销售核验”，不得声称已有采购能力、采购规模或进口记录。无法确认所属行业时必须归类为“其他”，不得为了填满字段强行分类。
-行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、其他。营业状态不是行业；永久停业只能写入矛盾证据和营业状态，不得作为所属行业。无法确认时必须谨慎选择“其他”。
+行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、电子烟或烟草零售、食品批发或餐饮供应、铁路或电气工程、拍卖或资产处置、药房或医疗零售、其他。营业状态不是行业；永久停业只能写入矛盾证据和营业状态，不得作为所属行业。只有完成可用渠道采集后仍没有足以支持具体分类的事实时才可选择“其他”，不得把抓取失败或分类器未命中伪装成行业结论。
 评分：85-100为A，70-84为B，60-69为C，0-59为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度，也不能用固定行业模板打出相同分数。必须分别评估：业务匹配度、经营规模和采购潜力、真实采购事实、经营活跃度、证据完整性、可联系性与矛盾风险。进入A级不强制要求规模或采购记录：Google商家页与企业官网等至少两个独立来源若主体一致，分别给出直接、可核验且相互印证的目标业务事实，明确涉及屏幕、电池、键盘、充电口、主板等内配件使用或维修场景，证据链完整且没有关键矛盾，即使是单店维修企业也可以评为85-89分的A级。规模、连锁、高业务量、海关记录或近期采购事实用于进一步提高A级内的分值，而不是进入A级的必要条件。大型连锁手机配件批发/分销企业若多渠道证据闭环，并有身份匹配的近期海关采购或大额采购事实，应评为A中的高分。单一Google分类、企业名称关键词、资料字段齐全或联系方式齐全都不能单独提高价值等级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
 分值应随证据强弱拉开差异：95-100需要极高业务匹配、显著规模以及近期可核验的大额/批量采购事实；90-94需要高匹配、多渠道闭环，并有明确规模、连锁、持续高业务量或强采购证据；85-89需要两个以上独立来源形成完整直接证据链，充分证明其目标业务和内配件使用场景，即使暂无规模或采购记录也可进入；70-84为已证实且稳定的目标客户，但证据链完整度或经营价值尚未达到A级；60-69为存在一项直接目标业务证据但规模和证据覆盖有限；低于60为非目标、证据不足或存在关键矛盾。采购记录必须带可核验来源、相关产品以及日期/数量/金额至少一项，否则不得加采购事实分。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
@@ -415,8 +416,20 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     && websiteDirectTargetEvidence
     && googleDirectTargetEvidence
     && directServiceSignalCount >= 1;
-  const evidenceDerivedIndustry = /(?:电脑硬件维修|计算机硬件维修|电脑(?:或笔记本)?维修|laptop repair|computer repair|pc repair)/i.test(supportingText)
-    ? "电脑维修店"
+  // Determine the primary industry from the breadth of saved business facts,
+  // not from the first matching keyword. Apple repair sites commonly mention
+  // MacBook on one page while most pages and services concern iPhone/iPad; the
+  // old computer-first branch therefore mislabelled their main business.
+  const evidenceMatchCount = (pattern: RegExp) => supporting.filter((item) => pattern.test(item.fact_zh)).length;
+  const appleRepairFacts = evidenceMatchCount(/(?:Apple|iPhone|iPad|MacBook|Apple Watch|iMac).{0,35}(?:维修|更换|换屏|电池|屏幕|玻璃)|(?:维修|更换|换屏).{0,35}(?:Apple|iPhone|iPad|MacBook|Apple Watch|iMac)/i);
+  const mobileRepairFacts = evidenceMatchCount(/(?:手机|iPhone|smartphone|mobile|cell ?phone|handy|mobil).{0,35}(?:维修|repair|repar|serwis|napraw|换屏|电池)|(?:维修|repair|repar|serwis|napraw).{0,35}(?:手机|iPhone|smartphone|mobile|cell ?phone|handy|mobil)/i);
+  const computerRepairFacts = evidenceMatchCount(/(?:电脑硬件|计算机硬件|电脑|笔记本|laptop|computer|\bpc\b|MacBook).{0,35}(?:维修|repair|repar|serwis|napraw)|(?:维修|repair|repar|serwis|napraw).{0,35}(?:电脑硬件|计算机硬件|电脑|笔记本|laptop|computer|\bpc\b|MacBook)/i);
+  const evidenceDerivedIndustry = appleRepairFacts >= 1 && appleRepairFacts >= computerRepairFacts
+    ? "Apple或MacBook维修店"
+    : mobileRepairFacts >= 1 && mobileRepairFacts >= computerRepairFacts
+      ? "手机维修店"
+      : computerRepairFacts >= 1
+        ? "电脑维修店"
     : /(?:手机维修|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte)/i.test(supportingText)
       ? "手机维修店"
       : /(?:屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修)/i.test(supportingText)
@@ -427,6 +440,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
         ? "进口商或分销商"
         : /(?:手机(?:、平板)?配件|外配件)/i.test(supportingText)
           ? "手机外配件零售"
+          : /(?:电子烟|烟草|水烟)/.test(allEvidenceText)
+            ? "电子烟或烟草零售"
+            : /(?:食品批发|蔬菜批发|水果批发|餐饮供应)/.test(allEvidenceText)
+              ? "食品批发或餐饮供应"
+              : /(?:铁路工程|铁路安全|电气安装|电气安全|工业电气)/.test(allEvidenceText)
+                ? "铁路或电气工程"
+                : /(?:拍卖|破产清算|资产处置)/.test(allEvidenceText)
+                  ? "拍卖或资产处置"
+                  : /(?:药房|药店|药剂师|疫苗接种)/.test(allEvidenceText)
+                    ? "药房或医疗零售"
           : analysis.industry_type;
   // A model label is not allowed to contradict direct, saved business facts.
   // For example, a verified repair service remains a repair business even if
@@ -435,7 +458,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     ? evidenceDerivedIndustry
     : analysis.industry_type;
   const repairOrRetail = /(?:维修店|外配件零售|维修内配件零售|手机成品零售|综合电子产品零售)/.test(normalizedIndustry);
-  const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|已关闭|其他)$/.test(normalizedIndustry);
+  const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|电子烟或烟草零售|食品批发或餐饮供应|铁路或电气工程|拍卖或资产处置|药房或医疗零售|已关闭|其他)$/.test(normalizedIndustry);
   const computerRepairClaim = normalizedIndustry === "电脑维修店";
   const verifiedComputerHardwareRepair = isComputerHardwareRepairEvidence(supportingText);
   // Mixed businesses can legitimately offer IT/network support and device
@@ -854,12 +877,15 @@ export async function discoverPublicSourceUrls(input: CustomerAnalysisInput, opt
     response = await postOpenAiResponses(key, JSON.stringify({
       model,
       store: false,
-      max_output_tokens: 1200,
+      max_output_tokens: 600,
       reasoning: { effort: "low" },
-      tools: [{ type: "web_search" }],
+      // This call locates candidate URLs only. Low search context avoids paying
+      // for a large synthesis context that is not allowed to become evidence;
+      // each returned URL is still fetched and identity-checked separately.
+      tools: [{ type: "web_search", search_context_size: "low" }],
       tool_choice: "required",
       input: [
-        { role: "system", content: [{ type: "input_text", text: "你只负责定位同一企业可公开访问的真实来源网址，不判断行业和评分。按完整地址、名称加电话、官网域名或页面互链核验主体；优先具体Google商家页、官方业务页和官方社媒。允许返回一项电话或完整地址匹配的正规企业目录作交叉佐证，但目录不是官网。禁止返回搜索结果页、同名异址主体或无法核验的页面，禁止编造网址。最多返回6个网址。" }] },
+        { role: "system", content: [{ type: "input_text", text: "你只负责定位同一企业可公开访问的真实来源网址，不判断行业和评分。按完整地址、名称加电话、官网域名或页面互链核验主体；优先具体Google商家页、官方业务页和官方社媒。允许返回一项电话或完整地址匹配的正规企业目录作交叉佐证，但目录不是官网。禁止返回搜索结果页、同名异址主体或无法核验的页面，禁止编造网址。最多返回4个网址。" }] },
         { role: "user", content: [{ type: "input_text", text: `${recoveryInstruction(options.recoveryFocus || "comprehensive")}\n客户定位信息：${JSON.stringify(locator)}` }] },
       ],
       text: {
@@ -870,7 +896,7 @@ export async function discoverPublicSourceUrls(input: CustomerAnalysisInput, opt
           schema: {
             type: "object",
             additionalProperties: false,
-            properties: { urls: { type: "array", maxItems: 6, items: { type: "string" } } },
+            properties: { urls: { type: "array", maxItems: 4, items: { type: "string" } } },
             required: ["urls"],
           },
         },

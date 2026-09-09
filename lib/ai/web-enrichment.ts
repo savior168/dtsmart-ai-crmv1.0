@@ -1,4 +1,4 @@
-import { lookup } from "node:dns/promises";
+import { resolve4, resolve6 } from "node:dns/promises";
 import { isDateLikeContactValue } from "./contact-intelligence";
 import { countryInfo } from "../countries";
 
@@ -347,11 +347,18 @@ async function assertPublicHost(url: string) {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        // Node's DNS lookup uses the shared libuv worker pool. A screening
-        // batch can otherwise exhaust it and make unrelated, valid websites
-        // fail with getaddrinfo EBUSY. Keep SSRF resolution strict while
-        // bounding only this short DNS phase across concurrent customers.
-        addresses = await withPublicHostLookupSlot(() => lookup(host, { all: true, verbatim: true }));
+        // dns.lookup and undici.fetch share libuv's small worker pool. During a
+        // screening batch that caused valid websites to fail with
+        // getaddrinfo EBUSY before their homepage could be read. The resolver
+        // APIs use c-ares instead, while preserving the same SSRF address gate.
+        const settled = await withPublicHostLookupSlot(() => Promise.allSettled([resolve4(host), resolve6(host)]));
+        addresses = settled.flatMap((item, familyIndex) => item.status === "fulfilled"
+          ? item.value.map((address) => ({ address, family: familyIndex === 0 ? 4 : 6 }))
+          : []);
+        if (!addresses.length) {
+          const failure = settled.find((item): item is PromiseRejectedResult => item.status === "rejected");
+          if (failure) throw failure.reason;
+        }
         break;
       } catch (error) {
         lastError = error;
@@ -426,6 +433,17 @@ const NON_INDUSTRY_PLACE_TYPES = new Set([
   "service", "services", "point_of_interest", "establishment", "general_contractor",
   "contractor", "store", "business", "company",
 ]);
+
+const NON_BUSINESS_LOCATION_TYPES = new Set([
+  "route", "street_address", "premise", "subpremise", "intersection",
+  "postal_code", "plus_code", "neighborhood", "locality", "sublocality",
+  "administrative_area_level_1", "administrative_area_level_2", "country",
+]);
+
+export function isNonBusinessGoogleLocation(types: string[]) {
+  const normalized = types.map((value) => String(value).trim().toLowerCase().replace(/\s+/g, "_"));
+  return normalized.length > 0 && normalized.every((type) => NON_BUSINESS_LOCATION_TYPES.has(type));
+}
 
 export function googlePlaceNeedsBusinessClarification(types: string[], identityScore: number) {
   const normalizedTypes = types.map((value) => String(value).trim().toLowerCase().replace(/\s+/g, "_"));
@@ -1051,7 +1069,9 @@ async function collectPublicGooglePlaceEvidence(input: {
        // stable identity signals (address, phone, official domain or a concrete
        // Place ID) must carry the attribution decision.
        const exactPlaceUrlScore = resolvedFromSpecificPlace ? 35 : 0;
-       return { row, name, address, website, phone, countryCode, nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, score: countryMismatch ? 0 : Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactPlaceUrlScore) };
+       const types = Array.isArray(row[13]) ? row[13].filter((item): item is string => typeof item === "string") : [];
+       const nonBusinessLocation = isNonBusinessGoogleLocation(types);
+       return { row, name, address, website, phone, countryCode, types, nonBusinessLocation, nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, score: countryMismatch || nonBusinessLocation ? 0 : Math.min(100, nameScore + addressScore + websiteScore + phoneScore + countryScore + exactPlaceUrlScore) };
     }).sort((a, b) => b.score - a.score);
     const top = candidates[0]; const runnerUp = candidates[1];
     const identityStatus: NonNullable<GooglePlaceEvidence["identity_status"]> = resolveGoogleCandidateIdentity({
@@ -1097,7 +1117,7 @@ async function collectPublicGooglePlaceEvidence(input: {
       name: top.name,
       formatted_address: top.address,
       business_status: allStrings.some((item) => /(?:永久关闭|cerrado permanentemente|permanently closed)/i.test(item)) ? "CLOSED_PERMANENTLY" : undefined,
-      types: Array.isArray(top.row[13]) ? top.row[13].filter((item): item is string => typeof item === "string") : [],
+      types: top.types,
       website: top.website || undefined,
       phone: top.phone || undefined,
       description: String(descriptionBlock[0] || "") || undefined,
@@ -1296,7 +1316,10 @@ export async function collectGooglePlaceEvidence(input: {
       // the conflict for audit and contact history, but do not lower entity
       // confidence as if it were a different company.
       const conflictPenalty = (phoneConflict && !exactNameAndAddress ? 15 : 0) + (officialDomainConflict ? 20 : 0);
-      return { item, score: countryStatus === "MISMATCH" ? 0 : Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
+      const placeTypes = unique([item.primaryType || "", ...(item.types || [])]).filter(Boolean);
+      const nonBusinessLocation = isNonBusinessGoogleLocation(placeTypes);
+      if (nonBusinessLocation) mismatchSignals.push("该候选仅为地址或建筑物，不是可核验的商家主体");
+      return { item, score: countryStatus === "MISMATCH" || nonBusinessLocation ? 0 : Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nonBusinessLocation, nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
     }).sort((a, b) => b.score - a.score);
     let scored = scoreDetails(details);
 
@@ -1305,9 +1328,9 @@ export async function collectGooglePlaceEvidence(input: {
     // threshold, merge the remaining pure-address and phone candidates and
     // re-rank all of them. This fixes recall without adding paid searches for
     // rows that were already matched by the first request.
-    if (!directPlaceId && scored[0]?.score < 70) {
+    if (!directPlaceId && (scored[0]?.score < 70 || scored[0]?.nonBusinessLocation)) {
       for (const [index, fallbackQuery] of queries.entries()) {
-        if (scored[0]?.score >= 70 || searchedQueries.has(fallbackQuery)) continue;
+        if ((scored[0]?.score >= 70 && !scored[0]?.nonBusinessLocation) || searchedQueries.has(fallbackQuery)) continue;
         const known = new Set(details.map((item) => item.id).filter(Boolean));
         const fallbackIds = (await searchCandidateIds(fallbackQuery, index))
           .filter((id) => id && !known.has(id));
