@@ -117,6 +117,8 @@ assert.match(taskActionApi, /requestedCustomerIds[\s\S]*historicalInvalidIds[\s\
 assert.match(taskActionApi, /getRun[\s\S]*run\.cancel\(\)/, "停止任务必须真实取消当前持久工作流运行");
 assert.match(taskActionApi, /status: "PAUSED"[\s\S]*elapsed_ms:/, "停止任务必须落为已停止并保存累计耗时");
 assert.match(taskActionApi, /action === "resume"[\s\S]*start\(aiScreeningWorkflow/, "继续执行必须启动新的持久工作流处理剩余项");
+assert.match(workflow, /fetch failed/, "瞬时网络失败必须有明确识别规则");
+assert.match(workflow, /async function taskState[\s\S]*withTransientFetchRetry/, "任务状态读取必须有限重试瞬时网络失败，不能让单次fetch抖动终止整批任务");
 assert.match(taskActionApi, /task\.user_id !== user\.id && account\.role !== "ADMIN"/, "整任务复核必须只允许任务创建者或系统管理员发起");
 assert.match(taskActionApi, /action === "reanalyze"[\s\S]*getReservedAiCustomerIds[\s\S]*reanalysis_source_task_id[\s\S]*AI_TASK_REANALYZE/, "整任务复核必须保留原结果、阻止并发冲突并写入审计日志");
 assert.doesNotMatch(taskActionApi, /action === "reanalyze"[\s\S]{0,5000}ai_screening_done:\s*false/, "整任务复核不得先清空客户已有AI结果");

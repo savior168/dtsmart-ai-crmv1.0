@@ -10,10 +10,28 @@ type WorkflowInput = {
   scheduledAt?: string | null;
 };
 
+function isTransientFetchFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /(?:fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT)/i.test(message);
+}
+
+async function withTransientFetchRetry<T>(operation: () => PromiseLike<T>, attempts = 4): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try { return await operation(); }
+    catch (error) {
+      lastError = error;
+      if (!isTransientFetchFailure(error) || attempt === attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** (attempt - 1))));
+    }
+  }
+  throw lastError;
+}
+
 async function taskState(taskId: string) {
   "use step";
   const admin = createAdminClient();
-  const { data, error } = await admin.from("ai_screening_tasks").select("status,cancel_requested").eq("id", taskId).single();
+  const { data, error } = await withTransientFetchRetry(() => admin.from("ai_screening_tasks").select("status,cancel_requested").eq("id", taskId).single());
   if (error || !data) throw error || new Error("TASK_NOT_FOUND");
   return { status: String(data.status), cancelRequested: Boolean(data.cancel_requested) };
 }
