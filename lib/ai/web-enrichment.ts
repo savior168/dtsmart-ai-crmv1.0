@@ -322,6 +322,21 @@ function isPrivateAddress(address: string) {
 }
 
 const publicHostCheckCache = new Map<string, { expiresAt: number; promise: Promise<void> }>();
+const publicHostLookupWaiters: Array<() => void> = [];
+let activePublicHostLookups = 0;
+
+async function withPublicHostLookupSlot<T>(action: () => Promise<T>) {
+  if (activePublicHostLookups >= 2) {
+    await new Promise<void>((resolve) => publicHostLookupWaiters.push(resolve));
+  }
+  activePublicHostLookups += 1;
+  try {
+    return await action();
+  } finally {
+    activePublicHostLookups -= 1;
+    publicHostLookupWaiters.shift()?.();
+  }
+}
 
 async function assertPublicHost(url: string) {
   const host = new URL(url).hostname;
@@ -332,7 +347,11 @@ async function assertPublicHost(url: string) {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        addresses = await lookup(host, { all: true, verbatim: true });
+        // Node's DNS lookup uses the shared libuv worker pool. A screening
+        // batch can otherwise exhaust it and make unrelated, valid websites
+        // fail with getaddrinfo EBUSY. Keep SSRF resolution strict while
+        // bounding only this short DNS phase across concurrent customers.
+        addresses = await withPublicHostLookupSlot(() => lookup(host, { all: true, verbatim: true }));
         break;
       } catch (error) {
         lastError = error;
@@ -382,6 +401,9 @@ export function googlePlaceTextQueries(input: {
 }) {
   const name = normalizedPlaceQueryPart(input.company_name);
   const address = normalizedPlaceQueryPart(input.address);
+  const addressWithoutRepeatedName = name && address.toLocaleLowerCase().startsWith(name.toLocaleLowerCase())
+    ? address.slice(name.length).replace(/^[\s,;:\-]+/, "")
+    : address;
   const location = address || (String(input.country || "").length > 2 ? normalizedPlaceQueryPart(input.country) : "");
   // A supplied address is the most precise locator and may already contain the
   // company name. Search that exact address first, then compare every returned
@@ -389,8 +411,15 @@ export function googlePlaceTextQueries(input: {
   const primary = address || [name, location].filter(Boolean).join(", ");
   const phone = String(input.phone || "").replace(/[^\d+]/g, "");
   const country = countryQueryLabel(input.country);
+  const postalCode = addressWithoutRepeatedName.match(/\b(?:[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}|\d{4,6}(?:-\d{3,4})?)\b/i)?.[0] || "";
   const identityFallback = phone.length >= 7 ? [name, phone, country].filter(Boolean).join(" ") : [name, country].filter(Boolean).join(" ");
-  return [...new Set([primary, identityFallback].filter(Boolean))].slice(0, 2);
+  const phoneLocationFallback = phone.length >= 7 ? [phone, postalCode, country].filter(Boolean).join(" ") : "";
+  return [...new Set([
+    primary,
+    addressWithoutRepeatedName && addressWithoutRepeatedName !== primary ? addressWithoutRepeatedName : "",
+    identityFallback,
+    phoneLocationFallback,
+  ].filter(Boolean))].slice(0, 4);
 }
 
 const NON_INDUSTRY_PLACE_TYPES = new Set([
@@ -1178,25 +1207,33 @@ export async function collectGooglePlaceEvidence(input: {
     const directPlaceId = googlePlaceIdFromUrl(input.google_url);
     const storedPlaceIdHint = input.place_id?.trim() || "";
     let candidateIds = directPlaceId ? [directPlaceId] : [];
+    const searchedQueries = new Set<string>();
+    let searchError = "未找到匹配的Google商家。";
+    const searchCandidateIds = async (textQuery: string, index: number) => {
+      searchedQueries.add(textQuery);
+      const searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        signal: request.signal,
+        headers: placesHeaders("places.id"),
+        body: JSON.stringify({
+          textQuery,
+          pageSize: 3,
+          languageCode: "zh-CN",
+          ...(regionCode ? { regionCode } : {}),
+        }),
+      });
+      const operation = index === 0 ? "完整地址文本搜索"
+        : index === 1 ? "纯地址精确回退搜索"
+          : "电话与国家精确回退搜索";
+      await reportCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", searchResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", searchResponse);
+      const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
+      searchError = searchPayload.error?.message || searchError;
+      return (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
+    };
     if (!candidateIds.length) {
-      let searchError = "未找到匹配的Google商家。";
       for (const [index, textQuery] of queries.entries()) {
-        const searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
-          method: "POST",
-          signal: request.signal,
-          headers: placesHeaders("places.id"),
-          body: JSON.stringify({
-            textQuery,
-            pageSize: 3,
-            languageCode: "zh-CN",
-            ...(regionCode ? { regionCode } : {}),
-          }),
-        });
-        await reportCall(index === 0 ? "名称地址文本搜索" : "电话号码精确回退搜索","PLACES_TEXT_SEARCH_ID_ONLY",searchResponse.status,"GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST",searchResponse);
-        const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
-        searchError = searchPayload.error?.message || searchError;
-        candidateIds = (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
-        if (searchResponse.ok && candidateIds.length) break;
+        candidateIds = await searchCandidateIds(textQuery, index);
+        if (candidateIds.length) break;
       }
       if (!candidateIds.length && storedPlaceIdHint) candidateIds = [storedPlaceIdHint];
       if (!candidateIds.length) {
@@ -1253,38 +1290,32 @@ export async function collectGooglePlaceEvidence(input: {
       if (phoneConflict) mismatchSignals.push("Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选");
       if (officialDomainConflict) mismatchSignals.push("Google商家官网与原始官网域名不一致");
       const contactBonus = (matchedPhone ? 70 : 0) + (officialDomainMatch ? 70 : 0);
-      const conflictPenalty = (phoneConflict ? 15 : 0) + (officialDomainConflict ? 20 : 0);
+      const exactNameAndAddress = candidateNameSimilarity >= 0.8 && addressSimilarity >= 0.72;
+      // An exact/highly-similar name at the full address remains the same
+      // merchant when the only discrepancy is a public phone update. Preserve
+      // the conflict for audit and contact history, but do not lower entity
+      // confidence as if it were a different company.
+      const conflictPenalty = (phoneConflict && !exactNameAndAddress ? 15 : 0) + (officialDomainConflict ? 20 : 0);
       return { item, score: countryStatus === "MISMATCH" ? 0 : Math.max(0, Math.min(100, nameScore + addressScore + countryScore + specificUrlScore + directIdScore + contactBonus - conflictPenalty)), nameSimilarity: candidateNameSimilarity, addressSimilarity, officialDomainMatch, phoneMatch: matchedPhone, phoneConflict, officialDomainConflict, directPlaceIdMatch: Boolean(directIdScore), matchSignals, mismatchSignals };
     }).sort((a, b) => b.score - a.score);
     let scored = scoreDetails(details);
 
-    // Search rank is not identity. A full-address lookup can return a building
-    // or nearby merchant, so use name+phone only when the best address result
-    // is still below the attribution threshold. Already matched rows avoid the
-    // extra request and its latency/cost.
-    if (!directPlaceId && scored[0]?.score < 70 && queries[1]) {
-      const fallbackResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
-        method: "POST",
-        signal: request.signal,
-        headers: placesHeaders("places.id"),
-        body: JSON.stringify({
-          textQuery: queries[1],
-          pageSize: 3,
-          languageCode: "zh-CN",
-          ...(regionCode ? { regionCode } : {}),
-        }),
-      });
-      await reportCall("电话号码精确回退搜索", "PLACES_TEXT_SEARCH_ID_ONLY", fallbackResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", fallbackResponse);
-      if (fallbackResponse.ok) {
-        const fallbackPayload = await fallbackResponse.json() as { places?: Array<{ id?: string }> };
+    // A full-address query can still return a nearby or similarly named
+    // merchant. Only when its best candidate is below the attribution
+    // threshold, merge the remaining pure-address and phone candidates and
+    // re-rank all of them. This fixes recall without adding paid searches for
+    // rows that were already matched by the first request.
+    if (!directPlaceId && scored[0]?.score < 70) {
+      for (const [index, fallbackQuery] of queries.entries()) {
+        if (scored[0]?.score >= 70 || searchedQueries.has(fallbackQuery)) continue;
         const known = new Set(details.map((item) => item.id).filter(Boolean));
-        const fallbackIds = (fallbackPayload.places || []).map((item) => item.id || "").filter((id) => id && !known.has(id)).slice(0, 3);
+        const fallbackIds = (await searchCandidateIds(fallbackQuery, index))
+          .filter((id) => id && !known.has(id));
         const fallbackDetails = (await Promise.all(fallbackIds.map((id) => readDetail(id, baseIdentityFields))))
           .filter((item): item is PlaceDetail => Boolean(item));
-        if (fallbackDetails.length) {
-          details = [...details, ...fallbackDetails];
-          scored = scoreDetails(details);
-        }
+        if (!fallbackDetails.length) continue;
+        details = [...details, ...fallbackDetails];
+        scored = scoreDetails(details);
       }
     }
     // Name/address can be decisive on their own. When they are not, inspect

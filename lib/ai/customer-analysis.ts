@@ -98,7 +98,7 @@ export function isDirectNonTargetBusinessEvidence(text: string) {
     && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|pharmacy|pharmacist|tobacco|vape|shisha|auction)/i.test(text);
 }
 
-const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
+const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
 
 export function hasDirectTargetBusinessEvidence(text: string) {
   return DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN.test(text);
@@ -420,7 +420,9 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     : /(?:手机维修|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte)/i.test(supportingText)
       ? "手机维修店"
       : /(?:屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修)/i.test(supportingText)
-        ? "手机维修店"
+      ? "手机维修店"
+      : /(?:电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair)/i.test(supportingText)
+        ? "其他维修行业"
       : /(?:配件批发|配件分销|配件进口|批量供货|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i.test(supportingText)
         ? "进口商或分销商"
         : /(?:手机(?:、平板)?配件|外配件)/i.test(supportingText)
@@ -457,6 +459,20 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   );
   let score = Math.max(0, Math.min(100, calibratedScore));
   let confidence = Math.max(0, Math.min(100, Math.round(Number(analysis.confidence_score) || 0)));
+  const evidenceRiskCeiling = Math.max(12, Math.min(49, Math.round(
+    16
+    + proofQuality * 0.16
+    + metric("business_activity") * 0.07
+    + metric("contactability") * 0.04
+    - metric("contradiction_risk") * 0.09,
+  )));
+  const unrelatedBusinessCeiling = Math.max(8, Math.min(39, Math.round(
+    10
+    + proofQuality * 0.1
+    + metric("business_activity") * 0.05
+    + metric("contactability") * 0.03
+    - metric("contradiction_risk") * 0.06,
+  )));
   const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/.test(normalizedIndustry)
     && !(computerRepairClaim && !verifiedComputerHardwareRepair)
     && !itSupportOnly
@@ -488,8 +504,8 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     confidence = Math.max(confidence, directTargetSources >= 2 ? 85 : 70);
   }
   if (!evidenceSufficient) {
-    score = Math.min(score, 49);
-    confidence = Math.min(confidence, evidence.length ? 49 : 25);
+    score = Math.min(score, evidenceRiskCeiling);
+    confidence = Math.min(confidence, evidence.length ? Math.max(30, evidenceRiskCeiling + 8) : 25);
   } else if (!strongEnoughForHighConfidence) {
     confidence = Math.min(confidence, hasStrongDirectEvidence ? 92 : 79);
     // 单一直接来源可以确认业务，但不能形成A/B所需的跨来源闭环。
@@ -506,7 +522,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   }
   // 先确认业务和证据链，再评客户价值。规模或采购不是进入A级的硬门槛；
   // 官网与Google商家页的直接事实形成完整闭环时，证据完整度本身可以支撑A级。
-  if (unrelatedIndustry) score = Math.min(score, 39);
+  if (unrelatedIndustry) score = Math.min(score, unrelatedBusinessCeiling);
   if (repairOrRetail && !completeDirectTargetChain && !verifiedBuyingRole && !verifiedHighVolumeRepair) {
     // 未形成跨来源直接证据链时，普通维修/零售客户仍按证据覆盖限制等级。
     const hasDetailedRepairEvidence = supporting.length >= 2 || directServiceSignalCount >= 2;
@@ -525,7 +541,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // hardware repair. A model may not promote them into the target band unless
   // the saved evidence explicitly names hardware repair or part replacement.
   if ((computerRepairClaim && !verifiedComputerHardwareRepair) || itSupportOnly) {
-    score = Math.min(score, 39);
+    score = Math.min(score, unrelatedBusinessCeiling);
     confidence = Math.min(confidence, evidence.length ? 90 : 25);
   }
   const qualifiesForA = completeDirectTargetChain || (verifiedProductFit && strongEnoughForHighConfidence

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
+  discoverPublicSourceUrls,
   groundCustomerAnalysis,
   isComputerHardwareRepairEvidence,
   isDirectNonTargetBusinessEvidence,
@@ -56,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.14";
+const ANALYSIS_VERSION = "2026.09.09.15";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -210,7 +211,7 @@ const NON_OFFICIAL_WEBSITE_HOSTS = /(?:facebook|instagram|linkedin|tiktok|youtub
 function hasCriticalIdentityMismatch(signals?: string[]) {
   // A different public telephone is a contact conflict, not proof that the
   // business is different. Name + full address can still identify the same
-  // merchant; keep the phone out of contact writeback but assess the business.
+  // merchant; preserve both numbers with their sources and assess the business.
   return Boolean(signals?.some((signal) => /地址信息不一致|官网与原始官网域名不一致/.test(signal)));
 }
 
@@ -232,7 +233,10 @@ export function verifiedOfficialWebsiteFromGoogle(records: ChannelRecord[]) {
   if (!candidate || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return null;
   const confidence = Number(google?.identity_confidence || 0);
   const strongSignals = (google?.match_signals || []).filter((signal) => /名称|地址|电话|官网|域名|具体Google商家入口|Place ID/.test(signal));
-  if (google?.identity_status !== "MATCHED" || confidence < 90 || strongSignals.length < 2 || hasCriticalIdentityMismatch(google?.mismatch_signals)) return null;
+  const signalText = strongSignals.join("；");
+  const exactNameAndAddress = /名称/.test(signalText) && /地址/.test(signalText);
+  const minimumConfidence = exactNameAndAddress ? 80 : 90;
+  if (google?.identity_status !== "MATCHED" || confidence < minimumConfidence || strongSignals.length < 2 || hasCriticalIdentityMismatch(google?.mismatch_signals)) return null;
   return candidate;
 }
 
@@ -540,6 +544,33 @@ export function finalizeAnalysisAgainstEvidence(customer: CustomerRow, records: 
 
 const VERIFIED_TARGET_INDUSTRY = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/;
 
+function rejectedConclusionScore(
+  analysis: CustomerAnalysis,
+  identityConfidence: number,
+  permanentlyClosed = false,
+) {
+  const metric = (key: keyof CustomerAnalysis["score_breakdown"]) => Math.max(0, Math.min(100, Number(analysis.score_breakdown?.[key]) || 0));
+  const directTargetFacts = analysis.evidence_summaries.filter((item) => item.evidence_type === "支持"
+    && item.confidence >= 60 && hasDirectTargetBusinessEvidence(item.fact_zh)).length;
+  const directRejectFacts = analysis.evidence_summaries.filter((item) => item.evidence_type === "矛盾"
+    && item.confidence >= 60 && isDirectNonTargetBusinessEvidence(item.fact_zh)).length;
+  const targetFit = Math.max(metric("mobile_parts_match"), metric("macbook_parts_match"), metric("repair_business_match"), metric("wholesale_import_distribution"));
+  const observedValue = 6
+    + targetFit * (directTargetFacts ? 0.18 : 0.04)
+    + metric("business_activity") * 0.07
+    + metric("company_authenticity") * 0.06
+    + metric("contactability") * 0.04
+    + metric("evidence_completeness") * 0.05
+    + Math.max(0, Math.min(100, identityConfidence)) * 0.08
+    - metric("contradiction_risk") * 0.08
+    - directRejectFacts * 4
+    - (permanentlyClosed ? 12 : 0);
+  // INVALID must remain below the 60-point business threshold, but unlike the
+  // previous 20/39/52/59 assignments this value is derived from the observed
+  // evidence dimensions and therefore does not manufacture a boundary pile.
+  return Math.max(0, Math.min(59, Math.round(observedValue)));
+}
+
 /**
  * A page belonging to an unresolved Google/search candidate may describe a
  * real repair business, but those facts cannot be published as this
@@ -555,7 +586,7 @@ export function reconcileRejectedTargetIndustry(
   if (!VERIFIED_TARGET_INDUSTRY.test(analysis.industry_type)) return analysis;
   // 营业状态不是所属行业；永久关闭只记录在结论与冲突中。
   const industryType: CustomerAnalysis["industry_type"] = "其他";
-  const score = Math.min(59, Number(analysis.ai_score || 0));
+  const score = rejectedConclusionScore(analysis, Number(analysis.score_breakdown?.entity_consistency || analysis.confidence_score || 0), permanentlyClosed);
   const verificationNote = permanentlyClosed
     ? "已匹配主体的Google商家页显示永久关闭，且没有已确认的当前官网经营事实能够证明仍在营业。"
     : `候选公开页面虽包含目标业务事实，但${reason}；该事实不能归属于当前客户。`;
@@ -620,10 +651,12 @@ export function discoveredPublicChannelUrls(customer: CustomerRow, records: Chan
   const googleRecord = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
   const google = googleRecord?.evidence as GooglePlaceEvidence | undefined;
   const googleStrongSignals = (google?.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
+  const googleSignalText = googleStrongSignals.join("；");
+  const googleExactNameAndAddress = /名称/.test(googleSignalText) && /地址/.test(googleSignalText);
   const googleEntityVerified = Boolean(
     google
     && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status || ""))
-    && Number(google.identity_confidence || 0) >= 85
+    && Number(google.identity_confidence || 0) >= (googleExactNameAndAddress ? 80 : 85)
     && googleStrongSignals.length >= 2
     && !hasCriticalIdentityMismatch(google.mismatch_signals),
   );
@@ -688,8 +721,10 @@ export function contactCandidatesFromRecords(customer: CustomerRow, records: Cha
       const item = record.evidence as GooglePlaceEvidence;
       const url = item.verified_google_maps_url || record.source_url || customer.google_url || "";
       const strongSignals = (item.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
+      const signalText = strongSignals.join("；");
+      const exactNameAndAddress = /名称/.test(signalText) && /地址/.test(signalText);
       const googleIdentity: IdentityStatus = item.identity_status === "MATCHED"
-        && Number(item.identity_confidence || 0) >= 90
+        && Number(item.identity_confidence || 0) >= (exactNameAndAddress ? 80 : 90)
         && strongSignals.length >= 2
         && !hasCriticalIdentityMismatch(item.mismatch_signals)
         ? "MATCHED"
@@ -768,8 +803,13 @@ function mergedVerifiedContactValues(customer: CustomerRow, contacts: ContactCan
     if (key && !originals.has(key) && !unique.has(key)) unique.set(key, raw);
   }
   for (const contact of contacts) {
-    if (contact.type !== type || contact.verificationStatus !== "NEW_VERIFIED"
+    if (contact.type !== type || !["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(contact.verificationStatus)
       || ["SHARED_CORPORATE", "SHARED_ACROSS_CUSTOMERS"].includes(contact.contactStatus)) continue;
+    // When the entity is confirmed by a highly similar name plus the exact
+    // address, a different public phone is a verified replacement candidate,
+    // not a reason to discard the contact. Keep the imported number in its
+    // original field and append the public number to discovered contacts so
+    // sales can see both values and the source instead of silently overwriting.
     if (!originals.has(contact.valueNormalized) && !unique.has(contact.valueNormalized)) unique.set(contact.valueNormalized, contact.valueRaw);
   }
   return [...unique.values()].join(", ");
@@ -901,10 +941,15 @@ function googleCategoryText(item: GooglePlaceEvidence) {
 }
 
 export function hasVerifiedGoogleBusinessCategory(item: GooglePlaceEvidence) {
-  if (item.identity_status !== "MATCHED" || Number(item.identity_confidence || 0) < 90) return false;
+  if (item.identity_status !== "MATCHED") return false;
   const signals = (item.match_signals || []).join("；");
   const corroboratedIdentity = /(?:地址|电话|官网|place.?id|address|phone|website|domain)/i.test(signals);
-  return corroboratedIdentity && SPECIFIC_GOOGLE_BUSINESS_CATEGORY.test(googleCategoryText(item));
+  const exactNameAndAddress = /名称/.test(signals) && /地址/.test(signals);
+  const minimumConfidence = exactNameAndAddress ? 80 : 90;
+  return Number(item.identity_confidence || 0) >= minimumConfidence
+    && corroboratedIdentity
+    && !hasCriticalIdentityMismatch(item.mismatch_signals)
+    && SPECIFIC_GOOGLE_BUSINESS_CATEGORY.test(googleCategoryText(item));
 }
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
@@ -1394,7 +1439,10 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     if (!match) return [];
     return [{
       channel: candidate.channel,
-      title_zh: candidate.title,
+      // The grounding layer intentionally rejects non-Chinese sales-facing
+      // labels. Always retain a Chinese source label here; the original
+      // merchant name remains embedded verbatim after that label.
+      title_zh: candidateSourceName(candidate),
       fact_zh: conciseDeterministicFact(candidate, match.rule.industry),
       source_url: candidate.url,
       evidence_type: deterministicEvidenceType(match.rule.target),
@@ -1451,7 +1499,15 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
     ? `；${failed.map((item) => AI_CHANNEL_LABELS[item.channel]).join("、")}未能取得有效公开内容`
     : "";
   const sourceCount = new Set(collected.map((item) => item.channel)).size;
-  const score = Math.min(39, 16 + sourceCount * 5 + (customer.phone ? 2 : 0) + (customer.email ? 2 : 0));
+  const google = collected.find((item) => item.channel === "google_maps")?.evidence as GooglePlaceEvidence | undefined;
+  const identityConfidence = Math.max(0, Math.min(100, Number(google?.identity_confidence || 0)));
+  const reviewCount = Number(google?.user_ratings_total || google?.reviews?.length || 0);
+  const activityPoints = google?.business_status === "OPERATIONAL" ? 3 : 0;
+  const reviewPoints = Math.min(5, Math.round(Math.log10(reviewCount + 1) * 2));
+  const locatorPoints = [customer.address, customer.phone, customer.email, effectiveWebsite(customer)]
+    .filter(Boolean).length * 2;
+  const score = Math.max(5, Math.min(39, Math.round(7 + sourceCount * 4
+    + identityConfidence * 0.1 + activityPoints + reviewPoints + locatorPoints - failed.length * 2)));
   const verificationNote = "重点核对：公开渠道未显示目标维修、维修配件或批发分销事实；若销售沟通取得相反凭证，应补充到客户资料后重新分析。";
   const reason = `${collectedText}${limitation}。系统已完成本轮全部可用渠道核验，现有真实证据显示目标业务相关性较低，综合评为D级${score}分；未把无法读取的页面或客户名称关键词当作经营事实。`;
   const attemptEvidence = records.flatMap((record) => {
@@ -1472,10 +1528,19 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
     business_relevance: "已检查现有公开入口，未发现可追溯的手机或电脑维修、维修配件、相关批发分销经营事实，当前按低相关客户处理。",
     customer_value: `当前公开证据未证明目标业务价值。${verificationNote}`,
     followup_suggestion: "无需继续自动消耗模型费用；仅在销售取得新的官网、Google商家或官方社媒经营凭证后重新分析。",
-    confidence_score: Math.min(59, 30 + sourceCount * 8),
+    confidence_score: Math.max(20, Math.min(59, Math.round(22 + sourceCount * 7 + identityConfidence * 0.18
+      + activityPoints * 2 + reviewPoints - failed.length * 3))),
     evidence_sufficiency: "一般",
     evidence_conflicts: [verificationNote],
-    score_breakdown: { ...emptyBreakdown(0), evidence_completeness: Math.min(49, 20 + sourceCount * 10), contradiction_risk: 45 },
+    score_breakdown: {
+      ...emptyBreakdown(0),
+      entity_consistency: identityConfidence,
+      company_authenticity: Math.min(70, 25 + identityConfidence * 0.4 + activityPoints * 4),
+      business_activity: Math.min(60, activityPoints * 10 + reviewPoints * 6),
+      contactability: Math.min(70, locatorPoints * 8),
+      evidence_completeness: Math.min(49, 15 + sourceCount * 9 + reviewPoints * 2),
+      contradiction_risk: google?.identity_status === "CONFLICTED" ? 85 : google?.identity_status === "AMBIGUOUS" ? 70 : 45,
+    },
     suggested_contact_order: [],
     evidence_summaries: attemptEvidence,
     usage: { ...ZERO_USAGE, model: "NO_MODEL" },
@@ -1949,6 +2014,47 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         await saveCheckpoint(input.taskItemId, records, "website");
       }
     }
+    stagedAnalysis = deterministicAnalysis(customer, records);
+    if (!isConclusiveChannelAnalysis(stagedAnalysis)
+        && hasTargetValueSignal(customer, records)
+        && !hasUsableCollectedEvidence(records)
+        && modelRequestCount < 1) {
+      // Last-resort locator for a small, valuable subset only: a customer has
+      // repair/parts signals, but free index + Places still yielded no usable
+      // business fact. The model locates URLs once; every returned page is
+      // re-fetched and must pass the same identity gate before it can score.
+      // It does not write an industry or score itself and is never retried.
+      const recoveryStarted = Date.now();
+      try {
+        const located = await discoverPublicSourceUrls({
+          customer_name: customer.company_name,
+          country: customer.country,
+          phone: customer.phone,
+          email: customer.email,
+          whatsapp: customer.whatsapp,
+          website: effectiveWebsite(customer),
+          google_url: customer.google_url,
+          address: customer.address,
+          industry_keywords: null,
+          evidence: evidenceForModel(records, "fast"),
+        }, { signal: analysisController.signal, timeoutMs: 30_000, recoveryFocus: "comprehensive" });
+        await saveModelCall({ ...input, channel: "public_source_locator", attemptNumber: input.attemptNumber || 1, startedAt: recoveryStarted, usage: located.usage, status: "COMPLETED" });
+        modelRequestCount += 1;
+        usage = addUsage(usage, located.usage);
+        await collectLocatedPublicEvidence({
+          taskItemId: input.taskItemId,
+          customer,
+          records,
+          signal: analysisController.signal,
+          urls: located.urls,
+          costContext,
+        });
+        stagedAnalysis = deterministicAnalysis(customer, records);
+      } catch (error) {
+        await saveModelCall({ ...input, channel: "public_source_locator", attemptNumber: input.attemptNumber || 1, startedAt: recoveryStarted, status: "FAILED", error });
+        modelRequestCount += 1;
+      }
+    }
     await recordStage({
       taskId: input.taskId,
       taskItemId: input.taskItemId,
@@ -2065,8 +2171,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     let finalAutomationStatus = gate.automationStatus;
     let finalGateReason = gate.reason;
     if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {
-      const potentialTarget = analysis.evidence_summaries.some((item) => item.evidence_type === "支持");
-      const boundedScore = Math.min(59, Math.max(Number(analysis.ai_score || 0), potentialTarget ? 52 : 20));
+      const boundedScore = rejectedConclusionScore(analysis, identity.confidence);
       const conciseGateReason = gate.reason.replace(/^重点核对：/, "").replace(/[。；\s]+$/, "");
       const verificationNote = `重点核对：${conciseGateReason}。系统已完成本轮自动分析；因该风险无法把候选经营事实安全归属于当前客户，当前按低相关无效目标处理。`;
       analysis = {
@@ -2088,7 +2193,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     );
     primaryIndustry = primaryIndustryFor(analysis.industry_type);
     if (finalAutomationStatus === "AUTO_REJECT" && Number(analysis.ai_score || 0) >= 60) {
-      const rejectedScore = explicitRejectEvidence ? 39 : 59;
+      const rejectedScore = rejectedConclusionScore(analysis, identity.confidence,
+        policyEvidence.some((item) => item.kind === "矛盾" && /永久关闭|永久停业|已永久关闭/.test(item.fact)));
       analysis = { ...analysis, ai_score: rejectedScore, ai_level: "D", is_target_customer: false };
     }
     // Every persisted final result has
@@ -2453,20 +2559,39 @@ async function collectIndexedPublicEvidence(input: {
     address: input.customer.address,
     phone: input.customer.phone,
     country: input.customer.country,
-  }, { signal: input.signal, timeoutMs: 6_000 });
+  }, { signal: input.signal, timeoutMs: 8_000 });
+  return collectLocatedPublicEvidence({ ...input, urls: indexedUrls });
+}
+
+async function collectLocatedPublicEvidence(input: {
+  taskItemId: string;
+  customer: CustomerRow;
+  records: ChannelRecord[];
+  signal: AbortSignal;
+  urls: string[];
+  costContext?: { taskId: string; customerId: string; userId: string | null };
+}) {
   // The index only discovers candidates. Fetch a small bounded set, and never
   // score snippets. Every accepted page must independently pass the normal
   // name plus address/phone/domain identity gate.
-  const rankedUrls = indexedUrls.map((url, index) => ({
+  const rankedUrls = [...new Set(input.urls)].map((url, index) => ({
     url,
     index,
-    score: /(?:repair|repar|serwis|napraw|维修)/i.test(url) ? 4
+    score: /google\.[^/]+\/maps\/place|maps\.app\.goo\.gl/i.test(url) ? 6
+      : /(?:repair|repar|serwis|napraw|维修)/i.test(url) ? 4
       : /(?:phone|mobile|handy|computer|laptop|gsm)/i.test(url) ? 1 : 0,
   })).sort((left, right) => right.score - left.score || left.index - right.index);
   const indexedRecords = await mapWithConcurrency(rankedUrls.slice(0, 6), 2, async ({ url }): Promise<ChannelRecord | null> => {
     const channel = recoveryChannelForCustomer(url, input.customer);
-    if (channel === "google_maps") return null;
     try {
+      if (channel === "google_maps") {
+        const record = await collectChannel({ ...input.customer, google_url: url }, "google_maps", input.signal, input.costContext);
+        const google = record.evidence as GooglePlaceEvidence | undefined;
+        return record.status === "COLLECTED"
+          && google?.identity_status === "MATCHED"
+          && Number(google.identity_confidence || 0) >= 70
+          ? record : null;
+      }
       const evidence = await collectPublicPageEvidence(url, { signal: input.signal, timeoutMs: 4_000 });
       if (!evidence?.reachable) return null;
       const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
@@ -2477,10 +2602,18 @@ async function collectIndexedPublicEvidence(input: {
   for (const record of accepted) {
     const canonicalUrl = String(record.source_url || "").replace(/\/$/, "").toLowerCase();
     if (input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === canonicalUrl)) continue;
-    const sameChannel = record.channel === "website"
+    const sameChannel = record.channel === "google_maps"
+      ? input.records.findIndex((saved) => saved.channel === "google_maps")
+      : record.channel === "website"
       ? input.records.findIndex((saved) => saved.channel === "website" && saved.status !== "COLLECTED")
       : -1;
-    if (sameChannel >= 0) input.records[sameChannel] = record;
+    if (sameChannel >= 0) {
+      if (record.channel === "google_maps") {
+        const current = input.records[sameChannel]?.evidence as GooglePlaceEvidence | undefined;
+        const candidate = record.evidence as GooglePlaceEvidence | undefined;
+        if (Number(candidate?.identity_confidence || 0) > Number(current?.identity_confidence || 0)) input.records[sameChannel] = record;
+      } else input.records[sameChannel] = record;
+    }
     else input.records.push(record);
   }
   if (accepted.length) await saveCheckpoint(input.taskItemId, input.records, "other");
