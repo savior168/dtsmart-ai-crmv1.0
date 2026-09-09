@@ -321,24 +321,30 @@ function isPrivateAddress(address: string) {
     || normalized.startsWith("fe80:");
 }
 
+const publicHostCheckCache = new Map<string, { expiresAt: number; promise: Promise<void> }>();
+
 async function assertPublicHost(url: string) {
   const host = new URL(url).hostname;
-  let addresses: Array<{ address: string; family: number }> = [];
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      addresses = await lookup(host, { all: true, verbatim: true });
-      break;
-    } catch (error) {
-      lastError = error;
-      if (attempt === 2) throw error;
-      await waitForRetry(attempt);
+  const cached = publicHostCheckCache.get(host);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = (async () => {
+    let addresses: Array<{ address: string; family: number }> = [];
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        addresses = await lookup(host, { all: true, verbatim: true });
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 2) throw error;
+        await waitForRetry(attempt);
+      }
     }
-  }
-  if (!addresses.length && lastError) throw lastError;
-  if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) {
-    throw new Error("UNSAFE_SOURCE_ADDRESS");
-  }
+    if (!addresses.length && lastError) throw lastError;
+    if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) throw new Error("UNSAFE_SOURCE_ADDRESS");
+  })();
+  publicHostCheckCache.set(host, { expiresAt: Date.now() + 30_000, promise });
+  try { await promise; } catch (error) { publicHostCheckCache.delete(host); throw error; }
 }
 
 function normalizedPlaceQueryPart(value?: string | null) {
@@ -1432,11 +1438,16 @@ export async function discoverPublicBusinessUrls(input: {
   const name = normalizedPlaceQueryPart(input.company_name);
   const address = normalizedPlaceQueryPart(input.address);
   const phone = String(input.phone || "").replace(/[^\d+]/g, "");
+  const country = countryQueryLabel(input.country);
+  const addressWithoutRepeatedName = name && address.toLocaleLowerCase().startsWith(name.toLocaleLowerCase())
+    ? address.slice(name.length).replace(/^[\s,;:\-]+/, "")
+    : address;
+  const exactName = name ? `"${name.replace(/"/g, "")}"` : "";
   const queries = [...new Set([
-    [name, address].filter(Boolean).join(" "),
-    phone.length >= 7 ? [name, phone, input.country].filter(Boolean).join(" ") : "",
-    [name, address, "repair service"].filter(Boolean).join(" "),
-    [name, address, "Facebook Instagram"].filter(Boolean).join(" "),
+    [exactName, addressWithoutRepeatedName].filter(Boolean).join(" "),
+    phone.length >= 7 ? [exactName, phone, country].filter(Boolean).join(" ") : "",
+    [exactName, addressWithoutRepeatedName, "repair service"].filter(Boolean).join(" "),
+    [exactName, addressWithoutRepeatedName, "Facebook Instagram"].filter(Boolean).join(" "),
   ].filter(Boolean))].slice(0, 4);
   const request = requestSignal(options, 8_000);
   try {
@@ -1461,7 +1472,15 @@ export async function discoverPublicBusinessUrls(input: {
       }),
       ...[...html.matchAll(/<a[^>]+href=["']([^"']{1,1200})["']/gi)].map((match) => normalizeSearchLink(match[1])),
     ].filter((url): url is string => Boolean(url))
-      .filter((url) => !/(?:duckduckgo\.com|bing\.com|google\.[^/]+\/(?:search|maps))/i.test(url)));
+      .filter((url) => {
+        try {
+          const host = new URL(url).hostname;
+          // Bing's header navigation uses protocol-relative pseudo hosts such
+          // as //images/search and //maps/?q=. They are not result pages and
+          // otherwise crowd out genuine business URLs.
+          return host.includes(".") && !/(?:duckduckgo\.com|bing\.com|google\.[^/]+\/(?:search|maps))/i.test(url);
+        } catch { return false; }
+      }));
     const pages = await mapWithConcurrency(queries, 2, async (query) => {
       try {
         const response = await fetchWithRetry(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
@@ -1484,7 +1503,10 @@ export async function discoverPublicBusinessUrls(input: {
         return resultLinks(await readTextLimited(fallback, 180_000));
       } catch { return [] as string[]; }
     });
-    return unique(pages.flat()).slice(0, 10);
+    // Keep a small fair share from every query. Truncating the flattened first
+    // query could discard the later address+repair result that actually
+    // identifies a service-area business.
+    return unique(pages.flatMap((page) => page.slice(0, 5))).slice(0, 20);
   } finally {
     request.clear();
   }

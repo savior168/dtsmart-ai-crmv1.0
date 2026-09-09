@@ -23,7 +23,9 @@ export function countryInfo(value?: string | null) {
   const raw = String(value || "").trim();
   const upper = raw.toUpperCase();
   const prefixCode = upper.match(/^([A-Z]{2})(?=\s|[-/]|[\u4e00-\u9fff]|$)/)?.[1] || "";
-  const code = /^[A-Z]{2}$/.test(upper) ? upper : prefixCode || namesToCode.get(upper) || "";
+  const directAlias = namesToCode.get(upper);
+  const normalizedPrefix = prefixCode ? namesToCode.get(prefixCode) || prefixCode : "";
+  const code = directAlias || (/^[A-Z]{2}$/.test(upper) ? upper : normalizedPrefix);
   return { code, name: code ? displayNames.of(code) || raw : raw || "未知地区" };
 }
 export function countrySearchTokens(value?: string | null) {

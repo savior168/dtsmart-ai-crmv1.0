@@ -56,7 +56,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.08.13";
+const ANALYSIS_VERSION = "2026.09.08.14";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1288,13 +1288,21 @@ function emptyBreakdown(value: number): CustomerAnalysis["score_breakdown"] {
   };
 }
 
-function identityAnchoredRecoveryText(_customer: CustomerRow, website: WebsiteEvidence) {
+function identityAnchoredRecoveryText(customer: CustomerRow, website: WebsiteEvidence) {
   // A third-party listing's free body can contain related-business widgets,
-  // reviews for nearby merchants and generic SEO articles. Even a nearby name
-  // or address is not a reliable ownership boundary after the DOM is flattened.
-  // Only listing-scoped metadata is eligible for automatic scoring; the full
-  // page remains stored as provenance but cannot create a business fact.
-  return [website.title, website.description, ...(website.structured_types || [])]
+  // reviews for nearby merchants and generic SEO articles. The caller has
+  // already admitted this page through name + address/phone/domain matching,
+  // so retain only the bounded listing section anchored at the customer name.
+  // This captures the merchant's own profile paragraph without allowing a
+  // distant generic article or another listing in the page footer to score.
+  const normalizedBody = String(website.text_excerpt || "").replace(/\s+/g, " ").trim();
+  const normalizedName = String(customer.company_name || "").replace(/\s+/g, " ").trim();
+  const nameIndex = normalizedName ? normalizedBody.toLocaleLowerCase().indexOf(normalizedName.toLocaleLowerCase()) : -1;
+  const anchoredStart = nameIndex >= 0 ? Math.max(0, nameIndex - 120) : 0;
+  const listingSection = normalizedBody.slice(anchoredStart, anchoredStart + 1800)
+    .split(/\b(?:similar businesses|related businesses|nearby businesses|people also viewed|you may also like|latest articles|popular articles)\b/i)[0]
+    .trim();
+  return [website.title, website.description, ...(website.structured_types || []), listingSection]
     .filter(Boolean).join("；").slice(0, 3000);
 }
 
