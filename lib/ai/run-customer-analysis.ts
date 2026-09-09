@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
 import {
   analyzeCustomer,
-  discoverPublicSourceUrls,
   groundCustomerAnalysis,
   isComputerHardwareRepairEvidence,
   isDirectNonTargetBusinessEvidence,
@@ -57,7 +56,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.09.17";
+const ANALYSIS_VERSION = "2026.09.09.18";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1667,7 +1666,7 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id }, { signal, timeoutMs: 12_000, onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?(call.unitPriceUsd??0):0;await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_configured:call.unitPriceUsd!==null,billable_assumption:likelyBillable},metadata:{http_status:call.status},occurred_at:new Date().toISOString()})} })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id }, { signal, timeoutMs: 12_000, onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable},metadata:{http_status:call.status},occurred_at:new Date().toISOString()})} })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
@@ -2051,46 +2050,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       }
     }
     stagedAnalysis = deterministicAnalysis(customer, records);
-    if (!isConclusiveChannelAnalysis(stagedAnalysis)
-        && hasTargetValueSignal(customer, records)
-        && !hasUsableCollectedEvidence(records)
-        && modelRequestCount < 1) {
-      // Last-resort locator for a small, valuable subset only: a customer has
-      // repair/parts signals, but free index + Places still yielded no usable
-      // business fact. The model locates URLs once; every returned page is
-      // re-fetched and must pass the same identity gate before it can score.
-      // It does not write an industry or score itself and is never retried.
-      const recoveryStarted = Date.now();
-      try {
-        const located = await discoverPublicSourceUrls({
-          customer_name: customer.company_name,
-          country: customer.country,
-          phone: customer.phone,
-          email: customer.email,
-          whatsapp: customer.whatsapp,
-          website: effectiveWebsite(customer),
-          google_url: customer.google_url,
-          address: customer.address,
-          industry_keywords: null,
-          evidence: evidenceForModel(records, "fast"),
-        }, { signal: analysisController.signal, timeoutMs: 30_000, recoveryFocus: "comprehensive" });
-        await saveModelCall({ ...input, channel: "public_source_locator", attemptNumber: input.attemptNumber || 1, startedAt: recoveryStarted, usage: located.usage, status: "COMPLETED" });
-        modelRequestCount += 1;
-        usage = addUsage(usage, located.usage);
-        await collectLocatedPublicEvidence({
-          taskItemId: input.taskItemId,
-          customer,
-          records,
-          signal: analysisController.signal,
-          urls: located.urls,
-          costContext,
-        });
-        stagedAnalysis = deterministicAnalysis(customer, records);
-      } catch (error) {
-        await saveModelCall({ ...input, channel: "public_source_locator", attemptNumber: input.attemptNumber || 1, startedAt: recoveryStarted, status: "FAILED", error });
-        modelRequestCount += 1;
-      }
-    }
+    // Never spend an LLM + Web Search call merely to locate URLs. The supplied
+    // website, zero-token public indexes and Places ID-only search already form
+    // the locator layer. The single model allowance is reserved for reasoning
+    // over evidence that was fetched and passed entity verification.
     await recordStage({
       taskId: input.taskId,
       taskItemId: input.taskItemId,
@@ -2632,24 +2595,39 @@ async function collectLocatedPublicEvidence(input: {
       : /(?:repair|repar|serwis|napraw|维修)/i.test(url) ? 4
       : /(?:phone|mobile|handy|computer|laptop|gsm)/i.test(url) ? 1 : 0,
   })).sort((left, right) => right.score - left.score || left.index - right.index);
-  const indexedRecords = await mapWithConcurrency(rankedUrls.slice(0, 6), 2, async ({ url }): Promise<ChannelRecord | null> => {
-    const channel = recoveryChannelForCustomer(url, input.customer);
-    try {
-      if (channel === "google_maps") {
+  const existingGoogle = input.records.find((record) => record.channel === "google_maps" && record.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  const hasMatchedGoogle = Boolean(existingGoogle
+    && ["MATCHED", "LIKELY_MATCHED"].includes(String(existingGoogle.identity_status))
+    && Number(existingGoogle.identity_confidence || 0) >= 70);
+  const googleUrls = rankedUrls.filter(({ url }) => /google\.[^/]+\/maps\/place|maps\.app\.goo\.gl/i.test(url)).slice(0, 2);
+  const ordinaryUrls = rankedUrls.filter(({ url }) => !/google\.[^/]+\/maps\/place|maps\.app\.goo\.gl/i.test(url)).slice(0, 6);
+  const acceptedGoogle: ChannelRecord[] = [];
+  if (!hasMatchedGoogle) {
+    // Google candidates are expensive full evidence collectors. Evaluate them
+    // sequentially and stop at the first verified merchant instead of running
+    // several complete Places chains in parallel for one customer.
+    for (const { url } of googleUrls) {
+      try {
         const record = await collectChannel({ ...input.customer, google_url: url }, "google_maps", input.signal, input.costContext);
         const google = record.evidence as GooglePlaceEvidence | undefined;
-        return record.status === "COLLECTED"
-          && google?.identity_status === "MATCHED"
-          && Number(google.identity_confidence || 0) >= 70
-          ? record : null;
-      }
+        if (record.status === "COLLECTED" && google?.identity_status === "MATCHED"
+            && Number(google.identity_confidence || 0) >= 70) {
+          acceptedGoogle.push(record);
+          break;
+        }
+      } catch { /* keep evaluating bounded ordinary candidates */ }
+    }
+  }
+  const indexedRecords = await mapWithConcurrency(ordinaryUrls, 2, async ({ url }): Promise<ChannelRecord | null> => {
+    const channel = recoveryChannelForCustomer(url, input.customer);
+    try {
       const evidence = await collectPublicPageEvidence(url, { signal: input.signal, timeoutMs: 4_000 });
       if (!evidence?.reachable) return null;
       const record: ChannelRecord = { channel, status: "COLLECTED", source_url: evidence.url || url, evidence };
       return recoveryRecordMatchesEntity(input.customer, input.records, record) ? record : null;
     } catch { return null; }
   });
-  const accepted = indexedRecords.filter((item): item is ChannelRecord => Boolean(item));
+  const accepted = [...acceptedGoogle, ...indexedRecords.filter((item): item is ChannelRecord => Boolean(item))];
   for (const record of accepted) {
     const canonicalUrl = String(record.source_url || "").replace(/\/$/, "").toLowerCase();
     if (input.records.some((saved) => String(saved.source_url || "").replace(/\/$/, "").toLowerCase() === canonicalUrl)) continue;

@@ -668,7 +668,12 @@ function usageFromPayload(model: string, payload: Record<string, unknown>): Cust
   const outputTokens = Number(usagePayload.output_tokens || 0);
   const uncachedInput = Math.max(0, inputTokens - cachedTokens);
   const pricing = pricingForModel(model);
-  const cost = (uncachedInput * pricing.input + cachedTokens * pricing.cached_input + outputTokens * pricing.output) / 1_000_000;
+  const webSearchCalls = (Array.isArray(payload.output) ? payload.output : []).filter((item) => (
+    item && typeof item === "object" && (item as { type?: unknown }).type === "web_search_call"
+  )).length;
+  const webSearchUnitPrice = Number(process.env.OPENAI_WEB_SEARCH_USD_PER_CALL || 0.01);
+  const tokenCost = (uncachedInput * pricing.input + cachedTokens * pricing.cached_input + outputTokens * pricing.output) / 1_000_000;
+  const cost = tokenCost + webSearchCalls * (Number.isFinite(webSearchUnitPrice) ? webSearchUnitPrice : 0.01);
   return {
     model,
     input_tokens: inputTokens,
@@ -676,7 +681,12 @@ function usageFromPayload(model: string, payload: Record<string, unknown>): Cust
     output_tokens: outputTokens,
     total_tokens: Number(usagePayload.total_tokens || inputTokens + outputTokens),
     cost_usd: Number(cost.toFixed(6)),
-    pricing_snapshot: { currency: "USD", unit: "per_million_tokens", input: pricing.input, cached_input: pricing.cached_input, output: pricing.output, source: pricing.source },
+    pricing_snapshot: {
+      currency: "USD", unit: "per_million_tokens", input: pricing.input,
+      cached_input: pricing.cached_input, output: pricing.output, source: pricing.source,
+      web_search_calls: webSearchCalls,
+      web_search_unit_price_usd: Number.isFinite(webSearchUnitPrice) ? webSearchUnitPrice : 0.01,
+    },
   };
 }
 
@@ -885,6 +895,7 @@ export async function discoverPublicSourceUrls(input: CustomerAnalysisInput, opt
       // each returned URL is still fetched and identity-checked separately.
       tools: [{ type: "web_search", search_context_size: "low" }],
       tool_choice: "required",
+      max_tool_calls: 1,
       input: [
         { role: "system", content: [{ type: "input_text", text: "你只负责定位同一企业可公开访问的真实来源网址，不判断行业和评分。按完整地址、名称加电话、官网域名或页面互链核验主体；优先具体Google商家页、官方业务页和官方社媒。允许返回一项电话或完整地址匹配的正规企业目录作交叉佐证，但目录不是官网。禁止返回搜索结果页、同名异址主体或无法核验的页面，禁止编造网址。最多返回4个网址。" }] },
         { role: "user", content: [{ type: "input_text", text: `${recoveryInstruction(options.recoveryFocus || "comprehensive")}\n客户定位信息：${JSON.stringify(locator)}` }] },

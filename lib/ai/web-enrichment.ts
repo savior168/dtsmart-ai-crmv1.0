@@ -57,7 +57,7 @@ export type CustomerEvidence = {
   public_channels?: Record<string, WebsiteEvidence>;
 };
 
-export type ExternalApiCall = { provider:"GOOGLE_PLACES";operation:string;sku:string;requestId?:string;unitPriceUsd:number|null;status:number };
+export type ExternalApiCall = { provider:"GOOGLE_PLACES";operation:string;sku:string;requestId?:string;unitPriceUsd:number;priceSource:"ENV"|"DEFAULT_2026_09";status:number };
 type FetchOptions = { signal?: AbortSignal; timeoutMs?: number; onApiCall?:(call:ExternalApiCall)=>void|Promise<void> };
 
 const BROWSER_HEADERS = {
@@ -429,11 +429,6 @@ export function googlePlaceTextQueries(input: {
   ].filter(Boolean))].slice(0, 4);
 }
 
-const NON_INDUSTRY_PLACE_TYPES = new Set([
-  "service", "services", "point_of_interest", "establishment", "general_contractor",
-  "contractor", "store", "business", "company",
-]);
-
 const NON_BUSINESS_LOCATION_TYPES = new Set([
   "route", "street_address", "premise", "subpremise", "intersection",
   "postal_code", "plus_code", "neighborhood", "locality", "sublocality",
@@ -447,9 +442,12 @@ export function isNonBusinessGoogleLocation(types: string[]) {
 
 export function googlePlaceNeedsBusinessClarification(types: string[], identityScore: number) {
   const normalizedTypes = types.map((value) => String(value).trim().toLowerCase().replace(/\s+/g, "_"));
-  const hasSpecificPlaceType = normalizedTypes.some((type) => type && !NON_INDUSTRY_PLACE_TYPES.has(type));
-  const targetAdjacentPlaceType = normalizedTypes.some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor|store)/i.test(type));
-  return identityScore >= 70 && (!hasSpecificPlaceType || targetAdjacentPlaceType);
+  const targetAdjacentPlaceType = normalizedTypes.some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor)/i.test(type));
+  // Reviews use the highest Place Details tier. A specific repair category is
+  // worth reading only after the merchant identity is verified and Google says
+  // the business is repair/phone/computer adjacent. Generic unrelated
+  // `service`/`store` candidates must not trigger this expensive request.
+  return identityScore >= 70 && targetAdjacentPlaceType;
 }
 
 async function waitForRetry(attempt: number, signal?: AbortSignal) {
@@ -1198,24 +1196,42 @@ export async function collectGooglePlaceEvidence(input: {
       "X-Goog-FieldMask": fieldMask,
     });
     const detailUrl = (placeId: string) => `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`;
-    const configuredRate = (name: string) => {
+    const configuredRate = (name: string, fallback: number) => {
       const raw = process.env[name];
-      if (raw === undefined || raw.trim() === "") return null;
+      if (raw === undefined || raw.trim() === "") return { value: fallback, source: "DEFAULT_2026_09" as const };
       const value = Number(raw);
-      return Number.isFinite(value) && value >= 0 ? value : null;
+      return Number.isFinite(value) && value >= 0
+        ? { value, source: "ENV" as const }
+        : { value: fallback, source: "DEFAULT_2026_09" as const };
     };
-    const reportCall = async (operation:string,sku:string,status:number,rateEnv:string,response:Response) => {
-      try { await options.onApiCall?.({ provider:"GOOGLE_PLACES",operation,sku,status,unitPriceUsd:configuredRate(rateEnv),requestId:response.headers.get("x-request-id")||response.headers.get("x-goog-request-id")||undefined }); } catch { /* 费用留痕失败不应破坏客户证据采集，调用方另行记录系统告警。 */ }
+    const reportCall = async (operation:string,sku:string,status:number,rateEnv:string,defaultRate:number,response:Response) => {
+      const rate = configuredRate(rateEnv, defaultRate);
+      try { await options.onApiCall?.({ provider:"GOOGLE_PLACES",operation,sku,status,unitPriceUsd:rate.value,priceSource:rate.source,requestId:response.headers.get("x-request-id")||response.headers.get("x-goog-request-id")||undefined }); } catch { /* 费用留痕失败不应破坏客户证据采集，调用方另行记录系统告警。 */ }
     };
+    const detailCache = new Map<string, { fields: Set<string>; value: PlaceDetail }>();
     const readDetail = async (placeId: string, fieldMask: string): Promise<PlaceDetail | null> => {
+      const requestedFields = fieldMask.split(",").map((field) => field.trim()).filter(Boolean);
+      const cached = detailCache.get(placeId);
+      if (cached && requestedFields.every((field) => cached.fields.has(field))) return cached.value;
       const response = await fetchWithRetry(detailUrl(placeId), {
         signal: request.signal,
         headers: placesHeaders(fieldMask),
       });
+      const atmosphere = /reviews|editorialSummary/.test(fieldMask);
       const enterprise = /internationalPhoneNumber|reviews|rating|websiteUri/.test(fieldMask);
-      await reportCall(enterprise?"商家详情与联系方式":"商家基础详情",enterprise?"PLACES_DETAILS_ENTERPRISE":"PLACES_DETAILS_PRO",response.status,enterprise?"GOOGLE_PLACES_ENTERPRISE_USD_PER_REQUEST":"GOOGLE_PLACES_PRO_USD_PER_REQUEST",response);
+      await reportCall(
+        atmosphere ? "商家评论与经营说明" : enterprise ? "商家详情与联系方式" : "商家基础详情",
+        atmosphere ? "PLACES_DETAILS_ENTERPRISE_ATMOSPHERE" : enterprise ? "PLACES_DETAILS_ENTERPRISE" : "PLACES_DETAILS_PRO",
+        response.status,
+        atmosphere ? "GOOGLE_PLACES_ENTERPRISE_ATMOSPHERE_USD_PER_REQUEST" : enterprise ? "GOOGLE_PLACES_ENTERPRISE_USD_PER_REQUEST" : "GOOGLE_PLACES_PRO_USD_PER_REQUEST",
+        atmosphere ? 0.025 : enterprise ? 0.020 : 0.017,
+        response,
+      );
       if (!response.ok) return null;
-      return await response.json() as PlaceDetail;
+      const value = await response.json() as PlaceDetail;
+      const merged = { ...(cached?.value || {}), ...value };
+      detailCache.set(placeId, { fields: new Set([...(cached?.fields || []), ...requestedFields]), value: merged });
+      return merged;
     };
 
     // A Place ID stored by an earlier analysis is a locator hint, not proof of
@@ -1245,7 +1261,7 @@ export async function collectGooglePlaceEvidence(input: {
       const operation = index === 0 ? "完整地址文本搜索"
         : index === 1 ? "纯地址精确回退搜索"
           : "电话与国家精确回退搜索";
-      await reportCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", searchResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", searchResponse);
+      await reportCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", searchResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", 0, searchResponse);
       const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
       searchError = searchPayload.error?.message || searchError;
       return (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
@@ -1270,8 +1286,18 @@ export async function collectGooglePlaceEvidence(input: {
     // the higher tier for every result returned by text search.
     const baseIdentityFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri";
     const contactFields = "id,internationalPhoneNumber,nationalPhoneNumber,websiteUri";
-    let details = (await Promise.all(candidateIds.map((candidateId) => readDetail(candidateId, baseIdentityFields))))
-      .filter((item): item is PlaceDetail => Boolean(item));
+    let details: PlaceDetail[] = [];
+    for (const candidateId of candidateIds) {
+      const detail = await readDetail(candidateId, baseIdentityFields);
+      if (!detail) continue;
+      details.push(detail);
+      const addressSimilarity = addressIdentityScore(input.address, detail.formattedAddress);
+      const candidateNameSimilarity = nameSimilarity(input.company_name, detail.displayName?.text || "");
+      const countryStatus = placeAddressCountryStatus(input.country, detail.formattedAddress);
+      // Exact/full-address matches are decisive locator evidence. Do not pay to
+      // read every lower-ranked candidate returned by Text Search.
+      if (directPlaceId || (addressSimilarity >= 0.9 && candidateNameSimilarity >= 0.55 && countryStatus !== "MISMATCH")) break;
+    }
     if (!details.length) {
       return { configured: true, query, types: [], reviews: [], emails: [], candidate_count: candidateIds.length, identity_status: "NOT_FOUND", identity_confidence: 0, error: "未能读取Google商家详情。" };
     }
@@ -1323,6 +1349,18 @@ export async function collectGooglePlaceEvidence(input: {
     }).sort((a, b) => b.score - a.score);
     let scored = scoreDetails(details);
 
+    // Before issuing up to three additional searches, use one contact lookup
+    // on a plausible first candidate. A matching phone/domain frequently
+    // resolves renamed or service-area businesses without more searches.
+    if (!directPlaceId && scored[0]?.score >= 40 && scored[0].score < 70 && scored[0].item.id
+        && (input.phone || input.website)) {
+      const contact = await readDetail(scored[0].item.id, contactFields);
+      if (contact) {
+        details = details.map((detail) => detail.id === scored[0].item.id ? { ...detail, ...contact } : detail);
+        scored = scoreDetails(details);
+      }
+    }
+
     // A full-address query can still return a nearby or similarly named
     // merchant. Only when its best candidate is below the attribution
     // threshold, merge the remaining pure-address and phone candidates and
@@ -1334,8 +1372,16 @@ export async function collectGooglePlaceEvidence(input: {
         const known = new Set(details.map((item) => item.id).filter(Boolean));
         const fallbackIds = (await searchCandidateIds(fallbackQuery, index))
           .filter((id) => id && !known.has(id));
-        const fallbackDetails = (await Promise.all(fallbackIds.map((id) => readDetail(id, baseIdentityFields))))
-          .filter((item): item is PlaceDetail => Boolean(item));
+        const fallbackDetails: PlaceDetail[] = [];
+        for (const id of fallbackIds) {
+          const detail = await readDetail(id, baseIdentityFields);
+          if (!detail) continue;
+          fallbackDetails.push(detail);
+          const addressSimilarity = addressIdentityScore(input.address, detail.formattedAddress);
+          const candidateNameSimilarity = nameSimilarity(input.company_name, detail.displayName?.text || "");
+          if (addressSimilarity >= 0.9 && candidateNameSimilarity >= 0.55
+              && placeAddressCountryStatus(input.country, detail.formattedAddress) !== "MISMATCH") break;
+        }
         if (!fallbackDetails.length) continue;
         details = [...details, ...fallbackDetails];
         scored = scoreDetails(details);
@@ -1346,7 +1392,7 @@ export async function collectGooglePlaceEvidence(input: {
     const baseTop = scored[0];
     const baseRunnerUp = scored[1];
     const needsContactDisambiguation = Boolean(baseTop && (
-      baseTop.score < 90
+      baseTop.score < 70
       || (baseRunnerUp && baseTop.score - baseRunnerUp.score < 15)
       || (input.phone && baseTop.addressSimilarity < 0.72)
     ));
@@ -1374,7 +1420,7 @@ export async function collectGooglePlaceEvidence(input: {
     // because Google returned a generic primary type, while avoiding this
     // higher-cost evidence request for every customer.
     const needsBusinessClarification = googlePlaceNeedsBusinessClarification([
-      top.item.primaryTypeDisplayName?.text || "", top.item.primaryType || "", ...(top.item.types || []),
+      top.item.displayName?.text || "", top.item.primaryTypeDisplayName?.text || "", top.item.primaryType || "", ...(top.item.types || []),
     ], top.score);
     const needsContactCompletion = Boolean(top.item.id && (
       (!input.phone && !top.item.internationalPhoneNumber && !top.item.nationalPhoneNumber)

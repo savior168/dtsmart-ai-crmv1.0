@@ -60,7 +60,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.09\.09\.17/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /2026\.09\.09\.18/, "旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: finalAutomationStatus/, "任务客户必须保存最终自动处理状态");
