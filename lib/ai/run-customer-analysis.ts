@@ -57,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.09.20";
+const ANALYSIS_VERSION = "2026.09.09.21";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1028,9 +1028,9 @@ export function hasVerifiedGoogleBusinessCategory(item: GooglePlaceEvidence) {
 
 const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["industry_type"]; baseScore: number; target: boolean }> = [
   { pattern: /(?:apple device repair|iphone repair|macbook repair|apple repair|pogwarancyjny serwis apple|serwis(?:u|em)? (?:sprz[eę]tu |urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|napraw(?:a|y|ie) (?:urz[aą]dze[nń] )?(?:apple|iphone|ipad|macbook)|reparaci[oó]n (?:de )?(?:iphone|ipad|macbook|dispositivos apple)|r[eé]paration (?:d['’])?(?:iphone|ipad|macbook|appareils apple)|riparazione (?:iphone|ipad|macbook|dispositivi apple)|repara[cç][aã]o (?:de )?(?:iphone|ipad|macbook|dispositivos apple))/i, industry: "Apple或MacBook维修店", baseScore: 56, target: true },
-  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|mobil(?:telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|(?:reparerer?|fikser)\s+(?:vi\s+)?(?:mobil|telefon|smarttelefon)|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
-  { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
-  { pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
+  { pattern: /(?:mobile[_ ]phone[_ ]repair|cell[_ ]phone[_ ]repair|phone[_ ]repair|smartphone[_ ]repair|mobil(?:e|telefon)?\s*reparasjon|reparasjon(?:er)?\s+(?:av\s+)?(?:mobil|telefon|smarttelefon)|(?:reparerer?|fikser)\s+(?:vi\s+)?(?:mobil|telefon|smarttelefon)|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)|(?:phones?|mobile|smartphones?|iphones?|ipads?|tablets?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:tel[eé]fonos m[oó]viles|m[oó]viles|celulares)|repara[cç][aã]o (?:de )?(?:telem[oó]veis|celulares|smartphones)|r[eé]paration de t[eé]l[eé]phones|handyreparatur|serwis(?:u|em)? (?:telefon[oó]w|gsm|smartfon[oó]w)|napraw(?:a|y|ie) (?:telefon[oó]w|smartfon[oó]w)|手机维修店|手机维修服务|维修手机|手机维修)/i, industry: "手机维修店", baseScore: 52, target: true },
+  { pattern: /(?:computer repair|pc repair|pc mechanic|laptop repair|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
+  { pattern: /(?:electronics? repairs?|repair(?:ed|s|ing)?[\s\S]{0,50}electronic devices?|electrical repairs?|electronic device repairs?|tv repairs?|television repairs?|turntable repairs?|audio equipment repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|电视维修|音响维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
   { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|chargers?|earbuds?|headphones?|tablets?|手机配件商店|手机配件|手机壳|保护膜|移动电源|车载手机支架|充电器|耳机|平板电脑)/i, industry: "手机外配件零售", baseScore: 45, target: true },
   { pattern: /(?:cell[_ ]phone[_ ]store|mobile[_ ]phone[_ ]store|mobile[_ ]phone[_ ]shop|phone shop|smartphone shop|handyshop|手机店|手机成品零售)/i, industry: "手机成品零售", baseScore: 26, target: false },
@@ -1056,11 +1056,16 @@ function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
     const businessName = String(item.name || "");
     const mobileName = /(?:phone|mobile|smartphone|smartfon|telefon|gsm|iphone|手机)/i.test(businessName);
     const repairReview = /(?:repair|repaired|fix|fixed|(?:screen|display|glass|battery)(?:\s+was)?\s+(?:replacement|replaced|changed|fixed)|napraw|serwis|repar|维修|修理|更换)/i.test(reviews);
-    // A matched Google business name is not used alone as industry evidence.
-    // It becomes a concrete mobile-repair fact only when the published name
-    // device wording is corroborated by an actual customer review describing
-    // a repair. A descriptive name without an independent activity fact is
-    // still only a routing hint and never becomes a scored business fact.
+    const independentlyAnchored = /(?:地址|电话|官网|具体Google|place.?id|address|phone|website|domain)/i.test((item.match_signals || []).join("；"));
+    const explicitNamedTargetBusiness = independentlyAnchored
+      && String(item.business_status || "OPERATIONAL") === "OPERATIONAL"
+      && RULE_INDUSTRIES.some((rule) => rule.target && rule.industry !== "进口商或分销商" && ruleIsSupported(rule, businessName));
+    // The raw customer name remains a routing hint only. The public Google
+    // business name may become a business fact only after phone/address/domain
+    // independently anchors the merchant, there is no critical conflict, the
+    // business is operating, and the name explicitly describes a target
+    // service (for example "Serwis telefonów" or "Laptop repairs").
+    if (explicitNamedTargetBusiness) verifiedContext.push(businessName);
     if (mobileName && repairReview) verifiedContext.push("mobile phone repair");
     if (/(?:cell_phone_store|mobile_phone_shop|electronics_store)/i.test((item.types || []).join(" "))
         && /(?:accessor|cover|screen protector|protective film|privacy film|power ?bank|car holder|charger|earbud|headphone|tablet|配件|手机壳|保护膜|移动电源|手机支架|充电器|耳机|平板)/i.test(reviews)) {
