@@ -57,7 +57,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.09.19";
+const ANALYSIS_VERSION = "2026.09.09.20";
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1032,7 +1032,8 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
   { pattern: /(?:computer repair|pc repair|laptop repair|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
-  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|手机配件商店|手机配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
+  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|chargers?|earbuds?|headphones?|tablets?|手机配件商店|手机配件|手机壳|保护膜|移动电源|车载手机支架|充电器|耳机|平板电脑)/i, industry: "手机外配件零售", baseScore: 45, target: true },
+  { pattern: /(?:cell[_ ]phone[_ ]store|mobile[_ ]phone[_ ]store|mobile[_ ]phone[_ ]shop|phone shop|smartphone shop|handyshop|手机店|手机成品零售)/i, industry: "手机成品零售", baseScore: 26, target: false },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
   { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|运营商营业厅|手机套餐|电信运营商|通信合约|宽带套餐)/i, industry: "运营商营业厅", baseScore: 22, target: false },
   { pattern: /(?:railway engineering|rail safety|railway safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i, industry: "铁路或电气工程", baseScore: 15, target: false },
@@ -1049,18 +1050,20 @@ const EXPLICIT_DEVICE_REPAIR_PATTERN = /(?:phone repair|mobile repair|smartphone
 function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
   const reviews = (item.reviews || []).join("；");
   const verifiedContext: string[] = [];
-  if (item.identity_status === "MATCHED" && Number(item.identity_confidence || 0) >= 90) {
+  if (["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status))
+      && Number(item.identity_confidence || 0) >= 70
+      && !hasCriticalIdentityMismatch(item.mismatch_signals)) {
     const businessName = String(item.name || "");
     const mobileName = /(?:phone|mobile|smartphone|smartfon|telefon|gsm|iphone|手机)/i.test(businessName);
-    const repairReview = /(?:repair|repaired|fix|fixed|screen replacement|battery replacement|napraw|serwis|repar|维修|修理|更换)/i.test(reviews);
+    const repairReview = /(?:repair|repaired|fix|fixed|(?:screen|display|glass|battery)(?:\s+was)?\s+(?:replacement|replaced|changed|fixed)|napraw|serwis|repar|维修|修理|更换)/i.test(reviews);
     // A matched Google business name is not used alone as industry evidence.
     // It becomes a concrete mobile-repair fact only when the published name
     // device wording is corroborated by an actual customer review describing
     // a repair. A descriptive name without an independent activity fact is
     // still only a routing hint and never becomes a scored business fact.
     if (mobileName && repairReview) verifiedContext.push("mobile phone repair");
-    if (/(?:cell_phone_store|mobile_phone_shop)/i.test((item.types || []).join(" "))
-        && /(?:accessor|cover|charger|earbud|headphone|配件|手机壳|充电器|耳机)/i.test(reviews)) {
+    if (/(?:cell_phone_store|mobile_phone_shop|electronics_store)/i.test((item.types || []).join(" "))
+        && /(?:accessor|cover|screen protector|protective film|privacy film|power ?bank|car holder|charger|earbud|headphone|tablet|配件|手机壳|保护膜|移动电源|手机支架|充电器|耳机|平板)/i.test(reviews)) {
       verifiedContext.push("mobile phone accessories");
     }
   }
@@ -1144,14 +1147,14 @@ function deterministicScore(input: {
   }).filter(Boolean)).size;
   const combinedText = matchingRecords.map(recordTargetText).join("；");
   const specificServices = [
-    /(?:screen (?:replacement|repair)|display (?:replacement|repair)|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
-    /(?:battery (?:replacement|repair)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
+    /(?:(?:screen|display|glass) (?:replacement|repair|replaced|replacing|changed|changing|fixed)|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
+    /(?:battery (?:replacement|repair|replaced|replacing|changed|changing|fixed)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
     /(?:component[- ]level repair|board[- ]level repair|microsoldering|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|ladeport|høyttaler(?:e)?|bøyd chassis|vanninngangsskade|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线)/i,
     /(?:repair bench|device disassembly|repair work|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|维修工作台|拆机维修|维修作业|专业维修车间|内配件|维修配件)/i,
     /(?:spare parts?|replacement parts?|repair parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|优质备件|维修配件|内配件)/i,
     /(?:wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i,
   ].filter((pattern) => pattern.test(combinedText || input.candidate.text)).length;
-  const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|screen replacement|battery replacement|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|vanninngangsskade|bøyd chassis|ødelagte? høyttaler(?:e)?|ladeport|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|device disassembly|spare parts?|replacement parts?|repair parts?|ersatzteil\w*|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|专业维修车间|拆机维修|维修作业|内配件|维修配件|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
+  const directTargetPattern = /(?:component[- ]level repair|board[- ]level repair|(?:screen|display|glass) (?:replacement|repair|replaced|replacing|changed|changing|fixed)|battery (?:replacement|repair|replaced|replacing|changed|changing|fixed)|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|vanninngangsskade|bøyd chassis|ødelagte? høyttaler(?:e)?|ladeport|(?:troca|substitui[cç][aã]o) (?:de )?(?:tela|bater)|charging port|dock connector|motherboard|mainboard|keyboard replacement|camera replacement|repair bench|repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|device disassembly|spare parts?|replacement parts?|repair parts?|ersatzteil\w*|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|chargers?|earbuds?|headphones?|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz|bater)|换屏|屏幕更换|玻璃更换|电池更换|换电池|尾插|充电口|主板维修|板级维修|键盘更换|摄像头|排线|维修工作台|专业维修车间|拆机维修|维修作业|内配件|维修配件|手机壳|保护膜|移动电源|手机支架|充电器|耳机|wholesale|distributor|importer|b2b|moq|trade account|配件批发|配件分销|配件进口|批量供货)/i;
   const googleDirectTargetEvidence = matchingRecords.some((record) => record.channel === "google_maps"
     && (directTargetPattern.test(recordTargetText(record))
       || Boolean(input.google && input.rule.target && hasVerifiedGoogleBusinessCategory(input.google))));
@@ -1244,7 +1247,7 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)|手机维修/i },
   { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|service|fix(?:ed|es|ing)?|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair(?:ed|s|ing)?|service|fix(?:ed|es|ing)?|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|电脑维修|笔记本维修/i },
   { label: "电子设备维修", pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i },
-  { label: "屏幕或玻璃更换", pattern: /(?:sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
+  { label: "屏幕或玻璃更换", pattern: /(?:sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|replaced|replacing|change|changed|changing|fixed|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|replaced|replacing|change|changed|changing|fixed|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
   { label: "电池更换", pattern: /(?:dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)?|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
   { label: "充电口或接口维修", pattern: /(?:charging port|charge port|dock connector|usb port|ladebuchse|puerto de carga|port de charge|connettore di ricarica|充电口|尾插)/i },
   { label: "主板或逻辑板维修", pattern: /(?:motherboard|mainboard|logic board|logicboard|płyta gł[oó]wna|placa madre|carte m[eè]re|scheda madre|主板|逻辑板).{0,20}(?:repair|service|napraw|repar|r[eé]paration|riparazione|维修)/i },
@@ -1252,7 +1255,7 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "键盘或触控板维修", pattern: /(?:keyboard|trackpad|touchpad|klawiatur|teclado|clavier|tastiera|键盘|触控板).{0,20}(?:replacement|repair|wymian|napraw|repar|r[eé]paration|sostituzione|更换|维修)/i },
   { label: "专业维修车间", pattern: /(?:repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|专业维修车间|专用维修车间)/i },
   { label: "使用手机或电脑维修备件", pattern: /(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)/i },
-  { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|covers?|screen protectors?|adapters?|chargers?|earphones?|smart ?watch|手机壳|保护膜|充电器|耳机|手机配件|平板配件)/i },
+  { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|adapters?|chargers?|earbuds?|earphones?|headphones?|tablets?|smart ?watch|手机壳|保护膜|移动电源|车载手机支架|充电器|耳机|手机配件|平板配件)/i },
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "多门店或连锁经营", pattern: /(?:(?:at least|over|more than|拥有|设有|共有)\s*\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|门店|分店|直营网点|维修中心)|\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)|multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
@@ -1742,7 +1745,7 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id }, { signal, timeoutMs: 12_000, onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable},metadata:{http_status:call.status},occurred_at:new Date().toISOString()})} })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id, category_hint: customer.category, industry_hint: customer.industry }, { signal, timeoutMs: 12_000, onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable},metadata:{http_status:call.status},occurred_at:new Date().toISOString()})} })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
@@ -2246,8 +2249,14 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const hasVerifiedDirectTarget = policyEvidence.some((item) => item.kind === "支持"
       && item.confidence >= 60 && item.strength === "STRONG_DIRECT"
       && hasDirectTargetBusinessEvidence(item.fact));
+    const hasPermanentClosureEvidence = policyEvidence.some((item) => item.kind === "矛盾"
+      && /永久关闭|永久停业|已永久关闭/.test(item.fact));
+    const hasCurrentOfficialWebsiteTarget = policyEvidence.some((item) => item.kind === "支持"
+      && item.channel === "website" && item.confidence >= 60
+      && item.strength === "STRONG_DIRECT" && hasDirectTargetBusinessEvidence(item.fact));
     const acceptedIdentity = ["MATCHED", "LIKELY_MATCHED"].includes(identity.status);
     if (acceptedIdentity && identity.confidence >= 70 && hasVerifiedDirectTarget
+        && (!hasPermanentClosureEvidence || hasCurrentOfficialWebsiteTarget)
         && primaryIndustry !== "UNKNOWN" && Number(analysis.ai_score || 0) >= 60
         && analysis.confidence_score >= 60 && gate.automationStatus !== "AUTO_DEVELOP") {
       // This is an internal consistency failure, not a business conclusion.

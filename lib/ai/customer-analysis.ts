@@ -99,7 +99,7 @@ export function isDirectNonTargetBusinessEvidence(text: string) {
     && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|pharmacy|pharmacist|tobacco|vape|shisha|auction)/i.test(text);
 }
 
-const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
+const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|手机、平板配件销售|手机壳|保护膜|移动电源|充电器|耳机|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
 
 /** Remove only clauses that explicitly deny or fail to find target business. */
 export function positiveTargetEvidenceText(text: string) {

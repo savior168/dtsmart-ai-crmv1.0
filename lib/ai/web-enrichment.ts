@@ -433,6 +433,7 @@ const NON_BUSINESS_LOCATION_TYPES = new Set([
   "route", "street_address", "premise", "subpremise", "intersection",
   "postal_code", "plus_code", "neighborhood", "locality", "sublocality",
   "administrative_area_level_1", "administrative_area_level_2", "country",
+  "building", "apartment_building",
 ]);
 
 export function isNonBusinessGoogleLocation(types: string[]) {
@@ -440,14 +441,15 @@ export function isNonBusinessGoogleLocation(types: string[]) {
   return normalized.length > 0 && normalized.every((type) => NON_BUSINESS_LOCATION_TYPES.has(type));
 }
 
-export function googlePlaceNeedsBusinessClarification(types: string[], identityScore: number) {
+export function googlePlaceNeedsBusinessClarification(types: string[], identityScore: number, targetHint = "") {
   const normalizedTypes = types.map((value) => String(value).trim().toLowerCase().replace(/\s+/g, "_"));
   const targetAdjacentPlaceType = normalizedTypes.some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor)/i.test(type));
+  const targetAdjacentHint = /(?:phone|mobile|smartphone|handy|iphone|ipad|macbook|laptop|computer|\bpc\b|repair|reparatur|reparasjon|serwis|napraw|ifix|手机|电脑|维修|配件)/i.test(targetHint);
   // Reviews use the highest Place Details tier. A specific repair category is
   // worth reading only after the merchant identity is verified and Google says
   // the business is repair/phone/computer adjacent. Generic unrelated
   // `service`/`store` candidates must not trigger this expensive request.
-  return identityScore >= 70 && targetAdjacentPlaceType;
+  return identityScore >= 70 && (targetAdjacentPlaceType || targetAdjacentHint);
 }
 
 async function waitForRetry(attempt: number, signal?: AbortSignal) {
@@ -1146,6 +1148,8 @@ export async function collectGooglePlaceEvidence(input: {
   phone?: string | null;
   website?: string | null;
   place_id?: string | null;
+  category_hint?: string | null;
+  industry_hint?: string | null;
 }, options: FetchOptions = {}): Promise<GooglePlaceEvidence | undefined> {
   if (!input.google_url && !input.company_name) return undefined;
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
@@ -1421,7 +1425,7 @@ export async function collectGooglePlaceEvidence(input: {
     // higher-cost evidence request for every customer.
     const needsBusinessClarification = googlePlaceNeedsBusinessClarification([
       top.item.displayName?.text || "", top.item.primaryTypeDisplayName?.text || "", top.item.primaryType || "", ...(top.item.types || []),
-    ], top.score);
+    ], top.score, [input.company_name, input.category_hint, input.industry_hint].filter(Boolean).join(" "));
     const needsContactCompletion = Boolean(top.item.id && (
       (!input.phone && !top.item.internationalPhoneNumber && !top.item.nationalPhoneNumber)
       || (!input.website && !top.item.websiteUri)

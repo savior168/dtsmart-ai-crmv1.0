@@ -126,7 +126,7 @@ export function evaluateEvidenceGate(input: {
 
   const identityAccepted = input.identityStatus === "MATCHED"
     ? input.identityConfidence >= identityThreshold
-    : input.identityStatus === "LIKELY_MATCHED" && input.identityConfidence >= 75;
+    : input.identityStatus === "LIKELY_MATCHED" && input.identityConfidence >= identityThreshold;
   if (!identityAccepted) {
     return { automationStatus: "AUTO_HOLD", reason: "企业主体尚未达到自动判定所需的身份匹配阈值。", sufficient: false, evidenceIds };
   }
