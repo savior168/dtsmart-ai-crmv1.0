@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
@@ -133,9 +133,15 @@ export async function GET(request: NextRequest) {
     if (pendingCustomers.error) throw pendingCustomers.error;
     if (todayCompleted.error) throw todayCompleted.error;
     const pendingCustomerCount = pendingCustomers.count || 0;
-    const historical = await admin.rpc("ai_screening_historical_cost_summary", { p_user_id: scopeUserId || null });
-    if (historical.error) throw historical.error;
-    const historicalSummary = (historical.data || {}) as Record<string, unknown>;
+    // The all-time system-wide cost summary is finance-sensitive. It defaults
+    // to administrators, but the permission center may explicitly delegate it.
+    // Enforce that decision in the API rather than merely hiding the browser UI.
+    const canViewHistoricalCost = hasPermission(account, "ai.cost_summary.view");
+    const historical = canViewHistoricalCost
+      ? await admin.rpc("ai_screening_historical_cost_summary", { p_user_id: null })
+      : null;
+    if (historical?.error) throw historical.error;
+    const historicalSummary = (historical?.data || {}) as Record<string, unknown>;
     return NextResponse.json({
       data: taskRows, count: result.count || 0, counts, show_owner: account.role !== "SALES",
       pending_customers: pendingCustomerCount,
@@ -143,12 +149,13 @@ export async function GET(request: NextRequest) {
       today_completed_customers: todayCompleted.count || 0,
       today_failed_customers: todayFailedCount,
       retry_customers: retryableCount,
-      historical_summary: {
+      show_historical_cost_summary: canViewHistoricalCost,
+      historical_summary: canViewHistoricalCost ? {
         processed_customers: Number(historicalSummary.processed_customers || 0),
         total_third_party_cost_usd: Number(historicalSummary.total_third_party_cost_usd || 0),
         average_cost_per_customer_usd: Number(historicalSummary.average_cost_per_customer_usd || 0),
         provider_costs: historicalSummary.provider_costs || {},
-      },
+      } : null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务列表查询失败";

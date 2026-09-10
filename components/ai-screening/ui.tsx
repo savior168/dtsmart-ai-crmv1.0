@@ -60,7 +60,11 @@ export function useToast() {
 
 export function formatNumber(value: number | null | undefined) { return Number(value || 0).toLocaleString("zh-CN"); }
 export function formatTokens(value: number | null | undefined) { const total = Number(value || 0); return total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)}M` : total >= 1_000 ? `${(total / 1_000).toFixed(2)}K` : String(total); }
-export function formatCost(value: number | string | null | undefined) { return `$${Number(value || 0).toFixed(4)}`; }
+export function formatCost(value: number | string | null | undefined) {
+  const amount = Number(value || 0);
+  const normalized = Number.isFinite(amount) && Math.abs(amount) >= 0.00005 ? amount : 0;
+  return `$${normalized.toFixed(4)}`;
+}
 export function formatDuration(value: number | null | undefined) {
   const totalSeconds = Math.max(0, Math.floor(Number(value || 0) / 1000));
   const hours = Math.floor(totalSeconds / 3600);

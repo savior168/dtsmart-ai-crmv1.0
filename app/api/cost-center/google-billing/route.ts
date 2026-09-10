@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
-import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requireUser } from "@/lib/auth/current-user";
 import { getGoogleMapsActualBilling, type GooglePlacesSkuKey } from "@/lib/google-cloud-billing";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+const normalizedUsd = (value: number) => {
+  const rounded = Number(value.toFixed(6));
+  return Math.abs(rounded) < 0.0000005 ? 0 : rounded;
+};
+
+export async function GET(request: Request) {
   try {
-    await requirePermission("costs.view");
-    const billing = await getGoogleMapsActualBilling();
+    const { account } = await requireUser();
+    if (!hasPermission(account, "costs.view") && !hasPermission(account, "ai.cost_summary.view")) throw new Error("FORBIDDEN");
+    const billing = await getGoogleMapsActualBilling({ force: new URL(request.url).searchParams.get("refresh") === "1" });
     if (billing.state !== "CONNECTED") return NextResponse.json(billing);
     const skuByKey: Record<GooglePlacesSkuKey, string> = {
       TEXT_SEARCH_IDS_ONLY: "PLACES_TEXT_SEARCH_ID_ONLY",
@@ -19,8 +25,9 @@ export async function GET() {
     const admin = createAdminClient();
     const skuUsage = await Promise.all(billing.skuUsage.map(async (item) => {
       let pendingSystemUsage = 0;
+      let pendingSystemCostUsd = 0;
       for (let offset=0;;offset+=1000) {
-        let pendingQuery = admin.from("api_cost_ledger").select("quantity")
+        let pendingQuery = admin.from("api_cost_ledger").select("quantity,amount_usd")
           .eq("provider", "GOOGLE_PLACES")
           .eq("model_or_sku", skuByKey[item.key])
           .lt("occurred_at", billing.periodEnd);
@@ -29,15 +36,24 @@ export async function GET() {
           : pendingQuery.gte("occurred_at", billing.periodStart);
         const pending = await pendingQuery.range(offset,offset+999);
         if (pending.error) throw pending.error;
-        pendingSystemUsage += (pending.data||[]).reduce((sum,row)=>sum+Math.max(0,Number(row.quantity||1)),0);
+        for (const row of pending.data || []) {
+          pendingSystemUsage += Math.max(0, Number(row.quantity || 1));
+          pendingSystemCostUsd += Math.max(0, Number(row.amount_usd || 0));
+        }
         if ((pending.data||[]).length<1000) break;
       }
       const projectedUsage = item.usageCount + pendingSystemUsage;
+      const pendingOverageCalls = item.freeLimit === null
+        ? 0
+        : Math.max(0, pendingSystemUsage - Math.max(0, item.freeLimit - item.usageCount));
+      const averagePendingUnitCost = pendingSystemUsage > 0 ? pendingSystemCostUsd / pendingSystemUsage : 0;
       return {
         ...item,
         pendingSystemUsage,
         projectedUsage,
         projectedRemaining: item.freeLimit === null ? null : Math.max(0, item.freeLimit - projectedUsage),
+        projectedOverageCalls: item.freeLimit === null ? 0 : Math.max(0, projectedUsage - item.freeLimit),
+        projectedOverageCostUsd: normalizedUsd(item.netCostUsd + pendingOverageCalls * averagePendingUnitCost),
       };
     }));
     return NextResponse.json({ ...billing, skuUsage });

@@ -6,7 +6,12 @@ export type OpenAiBillingStatus =
 
 type CostsResponse = { data?: Array<{ end_time?: number; results?: Array<{ amount?: { value?: number; currency?: string }; line_item?: string | null }> }>; error?: { message?: string } };
 
-export async function getOpenAiActualBilling(): Promise<OpenAiBillingStatus> {
+let cachedBilling: OpenAiBillingStatus | null = null;
+let cacheExpiresAt = 0;
+let nextAllowedRequestAt = 0;
+let inFlight: Promise<OpenAiBillingStatus> | null = null;
+
+async function fetchOpenAiActualBilling(): Promise<OpenAiBillingStatus> {
   const key = process.env.OPENAI_ADMIN_API_KEY?.trim();
   if (!key) return { state: "NOT_CONFIGURED", message: "尚未配置 OpenAI 管理员密钥，无法读取组织实际费用" };
   try {
@@ -32,4 +37,24 @@ export async function getOpenAiActualBilling(): Promise<OpenAiBillingStatus> {
     if (!lineItems.length) return { state: "NO_DATA", message: "已连接 OpenAI；近 90 天暂无组织费用明细" };
     return { state: "CONNECTED", message: "已连接 OpenAI Costs API，金额可与组织账单对账", totalUsd, latestUsageAt: latest ? new Date(latest * 1000).toISOString() : null, lineItems };
   } catch (error) { return { state: "ERROR", message: error instanceof Error ? error.message : "OpenAI 实际费用连接失败" }; }
+}
+
+export async function getOpenAiActualBilling(): Promise<OpenAiBillingStatus> {
+  const now = Date.now();
+  if (cachedBilling && now < cacheExpiresAt) return cachedBilling;
+  if (inFlight) return inFlight;
+  if (cachedBilling && now < nextAllowedRequestAt) return cachedBilling;
+  nextAllowedRequestAt = now + 60_000;
+  inFlight = fetchOpenAiActualBilling().then((result) => {
+    if (result.state === "CONNECTED" || result.state === "NO_DATA" || result.state === "NOT_CONFIGURED") {
+      cachedBilling = result;
+      cacheExpiresAt = Date.now() + 5 * 60_000;
+      return result;
+    }
+    if (cachedBilling) return { ...cachedBilling, message: `${cachedBilling.message}；官方接口暂时限流，当前显示最近一次成功结果` };
+    cacheExpiresAt = Date.now() + 60_000;
+    cachedBilling = result;
+    return result;
+  }).finally(() => { inFlight = null; });
+  return inFlight;
 }

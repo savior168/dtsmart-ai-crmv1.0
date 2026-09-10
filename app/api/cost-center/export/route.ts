@@ -3,6 +3,9 @@ import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { costLedgerRange } from "@/lib/cost-center";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const selectedIds = (request: NextRequest, key: string) => [...new Set(request.nextUrl.searchParams.getAll(key).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value) => uuidPattern.test(value)))].slice(0, 50);
+
 function cell(value: unknown) {
   const text = String(value ?? "").replace(/"/g, '""');
   return `"${text}"`;
@@ -34,6 +37,8 @@ export async function GET(request: NextRequest) {
     const range = costLedgerRange(params.get("from"), params.get("to"));
     const { from, to } = range;
     const provider = params.get("provider")?.trim();
+    const taskFilterIds = selectedIds(request, "task_id");
+    const customerFilterIds = selectedIds(request, "customer_id");
     const data: CostExportRow[] = [];
     // Supabase REST responses are commonly capped at 1,000 rows. Page until
     // EOF so an export never silently drops older cost records.
@@ -46,8 +51,8 @@ export async function GET(request: NextRequest) {
       const operation = params.get("operation")?.trim();
       if (operation) query = query.or(`operation.ilike.%${operation.replace(/[%_,()]/g, "")}%,model_or_sku.ilike.%${operation.replace(/[%_,()]/g, "")}%`);
       if (params.get("user_id")) query = query.eq("user_id", params.get("user_id")!);
-      if (params.get("task_id")) query = query.eq("task_id", params.get("task_id")!);
-      if (params.get("customer_id")) query = query.eq("customer_id", params.get("customer_id")!);
+      if (taskFilterIds.length) query = query.in("task_id", taskFilterIds);
+      if (customerFilterIds.length) query = query.in("customer_id", customerFilterIds);
       const page = await query;
       if (page.error) throw page.error;
       data.push(...((page.data || []) as CostExportRow[]));

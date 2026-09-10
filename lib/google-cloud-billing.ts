@@ -14,6 +14,15 @@ export type GooglePlacesSkuUsage = {
   netCostUsd: number;
   latestUsageAt: string | null;
 };
+
+const normalizedUsd = (value: number) => {
+  const rounded = Number(value.toFixed(6));
+  return Math.abs(rounded) < 0.0000005 ? 0 : rounded;
+};
+const GOOGLE_BILLING_CACHE_MS = 5 * 60 * 1000;
+let googleBillingCache: { value: GoogleBillingStatus; expiresAt: number } | null = null;
+let googleBillingRequest: Promise<GoogleBillingStatus> | null = null;
+let googleNextRefreshAt = 0;
 export type GoogleBillingStatus =
   | { state: "NOT_CONFIGURED"; message: string }
   | { state: "CONNECTED"; message: string; totalUsd: number; latestUsageAt: string | null; usageRows: number; periodStart: string; periodEnd: string; pricingRegion: "GLOBAL" | "INDIA"; skuUsage: GooglePlacesSkuUsage[] }
@@ -88,7 +97,7 @@ async function accessToken(account: ServiceAccount) {
   return body.access_token;
 }
 
-export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus> {
+async function readGoogleMapsActualBilling(): Promise<GoogleBillingStatus> {
   const account = serviceAccount();
   if (!account) return { state: "NOT_CONFIGURED", message: "尚未配置 Google Cloud 账单读取凭据" };
   try {
@@ -168,9 +177,9 @@ export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus>
         usageCount,
         freeLimit,
         confirmedRemaining: freeLimit === null ? null : Math.max(0, freeLimit - usageCount),
-        grossCostUsd: Number(matching.reduce((total, row) => total + row.grossCostUsd, 0).toFixed(6)),
-        creditsUsd: Number(matching.reduce((total, row) => total + row.creditsUsd, 0).toFixed(6)),
-        netCostUsd: Number(matching.reduce((total, row) => total + row.netCostUsd, 0).toFixed(6)),
+        grossCostUsd: normalizedUsd(matching.reduce((total, row) => total + row.grossCostUsd, 0)),
+        creditsUsd: normalizedUsd(matching.reduce((total, row) => total + row.creditsUsd, 0)),
+        netCostUsd: normalizedUsd(matching.reduce((total, row) => total + row.netCostUsd, 0)),
         latestUsageAt: matching.map((row) => row.latestUsageAt).filter((value): value is string => Boolean(value)).sort().at(-1) || null,
       };
     });
@@ -178,7 +187,7 @@ export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus>
     const latestUsageAt = rows.map((row) => row.latestUsageAt).filter((value): value is string => Boolean(value)).sort().at(-1) || null;
     const periodStart = rows.map((row) => row.periodStart).find((value): value is string => Boolean(value)) || new Date().toISOString();
     const periodEnd = rows.map((row) => row.periodEnd).find((value): value is string => Boolean(value)) || new Date().toISOString();
-    const totalUsd = Number(rows.reduce((total, row) => total + row.netCostUsd, 0).toFixed(6));
+    const totalUsd = normalizedUsd(rows.reduce((total, row) => total + row.netCostUsd, 0));
     return {
       state: "CONNECTED",
       message: usageRows ? "已连接 Google Cloud BigQuery；以下为当前结算账号本月已确认的 SKU 用量" : "已连接 Google Cloud；本月尚未同步这四项 Places SKU 用量",
@@ -193,4 +202,24 @@ export async function getGoogleMapsActualBilling(): Promise<GoogleBillingStatus>
   } catch (error) {
     return { state: "ERROR", message: error instanceof Error ? error.message : "Google Cloud 账单连接失败" };
   }
+}
+
+export async function getGoogleMapsActualBilling(options: { force?: boolean } = {}): Promise<GoogleBillingStatus> {
+  const now = Date.now();
+  if (googleBillingRequest) return googleBillingRequest;
+  if (options.force && googleBillingCache && now < googleNextRefreshAt) return googleBillingCache.value;
+  if (!options.force && googleBillingCache && googleBillingCache.expiresAt > now) return googleBillingCache.value;
+  const stale = googleBillingCache?.value;
+  googleNextRefreshAt = now + 60_000;
+  googleBillingRequest = readGoogleMapsActualBilling()
+    .then((value) => {
+      if (value.state === "ERROR" && stale) {
+        googleBillingCache = { value: stale, expiresAt: Date.now() + 60_000 };
+        return stale;
+      }
+      googleBillingCache = { value, expiresAt: Date.now() + GOOGLE_BILLING_CACHE_MS };
+      return value;
+    })
+    .finally(() => { googleBillingRequest = null; });
+  return googleBillingRequest;
 }

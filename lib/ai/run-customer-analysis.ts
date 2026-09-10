@@ -60,6 +60,12 @@ export type ChannelRecord = {
 };
 
 const ANALYSIS_VERSION = "2026.09.09.21";
+const OPENAI_MIN_SAFE_RESERVATION_USD = 0.15;
+
+function openAiBudgetReservationUsd() {
+  const configured = Number(process.env.OPENAI_MAX_RESERVED_USD_PER_CALL || OPENAI_MIN_SAFE_RESERVATION_USD);
+  return Number.isFinite(configured) ? Math.max(OPENAI_MIN_SAFE_RESERVATION_USD, configured) : OPENAI_MIN_SAFE_RESERVATION_USD;
+}
 
 type UsageTotals = CustomerAnalysis["usage"] & { model_calls: number };
 
@@ -1851,7 +1857,7 @@ async function analyzeWithRecovery(input: {
     evidence: evidenceForModel(input.records, input.tier),
   };
   const primaryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 40_000;
-  const reserved = await reserveApiCostBudget("OPENAI", Number(process.env.OPENAI_MAX_RESERVED_USD_PER_CALL || 0.15), {
+  const reserved = await reserveApiCostBudget("OPENAI", openAiBudgetReservationUsd(), {
     userId: input.userId, customerId: input.customerId, taskId: input.taskId, operation: `客户分析-${input.tier}`,
   });
   if (!reserved.allowed) return { analysis: null, requestCount: 0, budgetExceeded: budgetExceededMessage("OPENAI", reserved) };
@@ -2244,7 +2250,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         || (primaryIndustryFor(analysis.industry_type) !== "UNKNOWN" && (analysis.ai_score ?? 0) < 60));
     if (needsEscalation) {
       const callStarted = Date.now();
-      const reserved = await reserveApiCostBudget("OPENAI", Number(process.env.OPENAI_MAX_RESERVED_USD_PER_CALL || 0.15), {
+      const reserved = await reserveApiCostBudget("OPENAI", openAiBudgetReservationUsd(), {
         userId: costContext.userId, customerId: input.customerId, taskId: input.taskId, operation: "客户分析-final_escalation",
       });
       if (!reserved.allowed) {

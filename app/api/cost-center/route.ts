@@ -3,6 +3,9 @@ import { authErrorStatus, requireAdmin, requirePermission, writeAudit } from "@/
 import { costLedgerRange } from "@/lib/cost-center";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const selectedIds = (request: NextRequest, key: string) => [...new Set(request.nextUrl.searchParams.getAll(key).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value) => uuidPattern.test(value)))].slice(0, 50);
+
 export async function GET(request: NextRequest) {
   try {
     const { supabase } = await requirePermission("costs.view");
@@ -21,36 +24,32 @@ export async function GET(request: NextRequest) {
     const provider = params.get("provider")?.trim();
     const operation = params.get("operation")?.trim();
     const userId = params.get("user_id")?.trim();
-    const taskId = params.get("task_id")?.trim();
-    const customerId = params.get("customer_id")?.trim();
+    const taskIds = selectedIds(request, "task_id");
+    const customerIds = selectedIds(request, "customer_id");
     if (provider) rowsQuery = rowsQuery.eq("provider", provider);
     const safeOperation = operation?.replace(/[%_,()]/g, "").trim() || "";
     if (safeOperation) rowsQuery = rowsQuery.or(`operation.ilike.%${safeOperation}%,model_or_sku.ilike.%${safeOperation}%`);
     if (userId) rowsQuery = rowsQuery.eq("user_id", userId);
-    if (taskId) rowsQuery = rowsQuery.eq("task_id", taskId);
-    if (customerId) rowsQuery = rowsQuery.eq("customer_id", customerId);
+    if (taskIds.length) rowsQuery = rowsQuery.in("task_id", taskIds);
+    if (customerIds.length) rowsQuery = rowsQuery.in("customer_id", customerIds);
     const admin = createAdminClient();
-    const [{ data, error, count }, summary, budgetStatus, optionUsers, optionTasks, optionCustomers] = await Promise.all([
+    const [{ data, error, count }, summary, budgetStatus, optionUsers] = await Promise.all([
       rowsQuery,
-      supabase.rpc("cost_center_summary_filtered", { p_from: from, p_to: to, p_provider: provider || null, p_operation: safeOperation || null, p_user_id: userId || null, p_task_id: taskId || null, p_customer_id: customerId || null }),
+      supabase.rpc("cost_center_summary_multi_filtered", { p_from: from, p_to: to, p_provider: provider || null, p_operation: safeOperation || null, p_user_id: userId || null, p_task_ids: taskIds.length ? taskIds : null, p_customer_ids: customerIds.length ? customerIds : null }),
       admin.rpc("api_cost_budget_status"),
       admin.from("users").select("id,name,email").order("name").limit(500),
-      admin.from("ai_screening_tasks").select("id,name,task_number").order("created_at", { ascending: false }).limit(500),
-      admin.from("customers").select("id,company_name").is("deleted_at", null).order("company_name").limit(500),
     ]);
     if (error) throw error;
     if (summary.error) throw summary.error;
     if (budgetStatus.error) throw budgetStatus.error;
     if (optionUsers.error) throw optionUsers.error;
-    if (optionTasks.error) throw optionTasks.error;
-    if (optionCustomers.error) throw optionCustomers.error;
     const rows = data || [];
     const userIds = [...new Set(rows.map((row) => row.user_id).filter((value): value is string => Boolean(value)))];
-    const taskIds = [...new Set(rows.map((row) => row.task_id).filter((value): value is string => Boolean(value)))];
-    const customerIds = [...new Set(rows.map((row) => row.customer_id).filter((value): value is string => Boolean(value)))];
+    const rowTaskIds = [...new Set(rows.map((row) => row.task_id).filter((value): value is string => Boolean(value)))];
+    const rowCustomerIds = [...new Set(rows.map((row) => row.customer_id).filter((value): value is string => Boolean(value)))];
     const users = userIds.length ? await admin.from("users").select("id,name,email").in("id", userIds) : { data: [], error: null };
-    const tasks = taskIds.length ? await admin.from("ai_screening_tasks").select("id,name,task_number").in("id", taskIds) : { data: [], error: null };
-    const customers = customerIds.length ? await admin.from("customers").select("id,company_name").in("id", customerIds) : { data: [], error: null };
+    const tasks = rowTaskIds.length ? await admin.from("ai_screening_tasks").select("id,name,task_number").in("id", rowTaskIds) : { data: [], error: null };
+    const customers = rowCustomerIds.length ? await admin.from("customers").select("id,company_name").in("id", rowCustomerIds) : { data: [], error: null };
     if (users.error) throw users.error;
     if (tasks.error) throw tasks.error;
     if (customers.error) throw customers.error;
@@ -62,7 +61,7 @@ export async function GET(request: NextRequest) {
       effective_from: from, effective_to: to,
       summary: summary.data || {},
       budgets: budgetStatus.data || {}, settings: settings.data,
-      filter_options: { users: optionUsers.data || [], tasks: optionTasks.data || [], customers: optionCustomers.data || [] },
+      filter_options: { users: optionUsers.data || [] },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "费用中心加载失败";
@@ -82,6 +81,14 @@ export async function PATCH(request: NextRequest) {
         if (raw === "" || raw == null) updates[key] = null;
         else { const value = Number(raw); if (!Number.isFinite(value) || value < 0) return NextResponse.json({ error: "费用上限必须为大于或等于0的金额；留空表示不限制" }, { status: 400 }); updates[key] = Number(value.toFixed(6)); }
       }
+      for (const prefix of ["google", "openai"] as const) {
+        const daily = updates[`${prefix}_daily_limit_usd`];
+        const weekly = updates[`${prefix}_weekly_limit_usd`];
+        const monthly = updates[`${prefix}_monthly_limit_usd`];
+        if (typeof daily === "number" && typeof weekly === "number" && daily > weekly) return NextResponse.json({ error: `${prefix === "google" ? "Google Places" : "OpenAI"} 每日上限不能高于每周上限` }, { status: 400 });
+        if (typeof daily === "number" && typeof monthly === "number" && daily > monthly) return NextResponse.json({ error: `${prefix === "google" ? "Google Places" : "OpenAI"} 每日上限不能高于每月上限` }, { status: 400 });
+        if (typeof weekly === "number" && typeof monthly === "number" && weekly > monthly) return NextResponse.json({ error: `${prefix === "google" ? "Google Places" : "OpenAI"} 每周上限不能高于每月上限` }, { status: 400 });
+      }
       const saved = await supabase.from("cost_center_settings").update(updates).eq("id", true).select("*").single();
       if (saved.error) throw saved.error;
       await writeAudit(supabase, user.id, "API_COST_BUDGETS_UPDATED", "cost_center_settings", null, { budgets: Object.fromEntries(keys.map((key) => [key, updates[key]])) });
@@ -89,7 +96,7 @@ export async function PATCH(request: NextRequest) {
     }
     return NextResponse.json({ error: "不支持的费用中心操作" }, { status: 400 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "费用统计周期更新失败";
+    const message = error instanceof Error ? error.message : "费用控制设置更新失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
