@@ -1,35 +1,11 @@
-export type CostPeriod = "official" | "test" | "all";
-
-export function normalizeCostPeriod(value: string | null): CostPeriod {
-  return value === "test" || value === "all" ? value : "official";
+export function costLedgerRange(from?: string | null, to?: string | null) {
+  const now = new Date();
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now).map((part) => [part.type, part.value]));
+  const shanghaiToday = `${parts.year}-${parts.month}-${parts.day}`;
+  const defaultFrom = `${parts.year}-${parts.month}-01`;
+  const fromDate = new Date(`${from || defaultFrom}T00:00:00+08:00`);
+  const toDate = new Date(`${to || shanghaiToday}T00:00:00+08:00`);
+  toDate.setUTCDate(toDate.getUTCDate() + 1);
+  if (![fromDate, toDate].every((value) => Number.isFinite(value.getTime())) || fromDate >= toDate) throw new Error("日期范围不正确");
+  return { from: fromDate.toISOString(), to: toDate.toISOString(), fromDate: from || defaultFrom, toDate: to || shanghaiToday };
 }
-
-export function costPeriodRange(input: {
-  period: CostPeriod;
-  accountingStartAt: string;
-  from?: string | null;
-  to?: string | null;
-}) {
-  const accountingStart = new Date(input.accountingStartAt);
-  const requestedFrom = input.from
-    ? new Date(`${input.from}T00:00:00+08:00`)
-    : input.period === "official"
-      ? accountingStart
-      : new Date("1970-01-01T00:00:00.000Z");
-  const requestedTo = input.to
-    ? new Date(`${input.to}T23:59:59.999+08:00`)
-    : new Date();
-  if (![accountingStart, requestedFrom, requestedTo].every((value) => Number.isFinite(value.getTime()))) {
-    throw new Error("日期范围不正确");
-  }
-  let from = requestedFrom;
-  let to = requestedTo;
-  if (input.period === "official" && from < accountingStart) from = accountingStart;
-  if (input.period === "test" && to > accountingStart) to = accountingStart;
-  return {
-    from: from.toISOString(),
-    to: to.toISOString(),
-    empty: from >= to,
-  };
-}
-

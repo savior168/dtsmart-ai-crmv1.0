@@ -21,7 +21,11 @@ type TaskUsage = {
   total_count: number; processed_count: number; model_call_count: number;
   input_tokens: number; cached_input_tokens: number; output_tokens: number;
   total_tokens: number; total_cost_usd: number; created_at: string | null; task_exists: boolean;
+  openai_cost_usd: number; google_places_cost_usd: number; google_places_call_count: number;
+  google_places_skus: Record<string, { count: number; cost_usd: number }>;
 };
+
+type ThirdPartyCall = { task_id: string | null; customer_id: string | null; provider: string; model_or_sku: string | null; quantity: number; amount_usd: number; occurred_at: string };
 
 export async function GET(request: NextRequest) {
   try {
@@ -68,6 +72,20 @@ export async function GET(request: NextRequest) {
       if (rows.length < 1000) break;
     }
 
+    const thirdPartyCalls: ThirdPartyCall[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      let query = admin.from("api_cost_ledger")
+        .select("task_id,customer_id,provider,model_or_sku,quantity,amount_usd,occurred_at")
+        .eq("service", "AI筛选").gte("occurred_at", start).lte("occurred_at", end);
+      if (scopeUserId) query = query.eq("user_id", scopeUserId);
+      if (taskId) query = query.eq("task_id", taskId);
+      const result = await query.order("occurred_at", { ascending: false }).range(offset, offset + 999);
+      if (result.error) throw result.error;
+      const rows = (result.data || []) as ThirdPartyCall[];
+      thirdPartyCalls.push(...rows);
+      if (rows.length < 1000) break;
+    }
+
     const models = [...new Set(calls.map((call) => call.model).filter((value): value is string => Boolean(value)))].sort();
     const filteredCalls = model ? calls.filter((call) => call.model === model) : calls;
     const allowedTaskIds = model ? new Set(filteredCalls.map((call) => call.task_id)) : null;
@@ -81,6 +99,7 @@ export async function GET(request: NextRequest) {
         status: row.task_status, total_count: Number(row.task_total_count || 0), processed_count: 0,
         model_call_count: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0,
         total_tokens: 0, total_cost_usd: 0, created_at: row.task_created_at, task_exists: false,
+        openai_cost_usd: 0, google_places_cost_usd: 0, google_places_call_count: 0, google_places_skus: {},
       };
       taskMap.set(row.task_id, created);
       return created;
@@ -94,6 +113,21 @@ export async function GET(request: NextRequest) {
       task.output_tokens += Number(call.output_tokens || 0);
       task.total_tokens += Number(call.total_tokens || 0);
       task.total_cost_usd += Number(call.cost_usd || 0);
+      task.openai_cost_usd += Number(call.cost_usd || 0);
+    }
+    const scopedThirdPartyCalls = allowedTaskIds ? thirdPartyCalls.filter((call) => call.task_id && allowedTaskIds.has(call.task_id)) : thirdPartyCalls;
+    for (const call of scopedThirdPartyCalls) {
+      if (!call.task_id) continue;
+      const task = taskMap.get(call.task_id);
+      if (!task || call.provider !== "GOOGLE_PLACES") continue;
+      const quantity = Math.max(0, Number(call.quantity || 1));
+      const amount = Number(call.amount_usd || 0);
+      const sku = call.model_or_sku || "HISTORICAL_UNCLASSIFIED";
+      task.google_places_call_count += quantity;
+      task.google_places_cost_usd += amount;
+      task.total_cost_usd += amount;
+      const current = task.google_places_skus[sku] || { count: 0, cost_usd: 0 };
+      current.count += quantity; current.cost_usd += amount; task.google_places_skus[sku] = current;
     }
 
     const taskIds = [...taskMap.keys()];
@@ -116,24 +150,42 @@ export async function GET(request: NextRequest) {
     const totalsResult = await admin.rpc("ai_screening_usage_totals", { p_user_id: scopeUserId });
     if (totalsResult.error) throw totalsResult.error;
     const historical = Array.isArray(totalsResult.data) ? totalsResult.data[0] : totalsResult.data;
+    const historicalGoogle: ThirdPartyCall[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      let query = admin.from("api_cost_ledger").select("task_id,customer_id,provider,model_or_sku,quantity,amount_usd,occurred_at").eq("service", "AI筛选").eq("provider", "GOOGLE_PLACES");
+      if (scopeUserId) query = query.eq("user_id", scopeUserId);
+      const result = await query.range(offset, offset + 999);
+      if (result.error) throw result.error;
+      const rows = (result.data || []) as ThirdPartyCall[]; historicalGoogle.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    const historicalGoogleCost = historicalGoogle.reduce((sum, row) => sum + Number(row.amount_usd || 0), 0);
+    const googleSkuTotals = historicalGoogle.reduce((all, row) => { const sku=row.model_or_sku||"HISTORICAL_UNCLASSIFIED"; const current=all[sku]||{count:0,cost_usd:0}; current.count+=Math.max(0,Number(row.quantity||1)); current.cost_usd+=Number(row.amount_usd||0); all[sku]=current; return all; }, {} as Record<string,{count:number;cost_usd:number}>);
     const totals = {
       processed: Number(historical?.processed || 0), input: Number(historical?.input_tokens || 0),
       cached: Number(historical?.cached_input_tokens || 0), output: Number(historical?.output_tokens || 0),
-      tokens: Number(historical?.total_tokens || 0), cost: Number(historical?.cost_usd || 0),
+      tokens: Number(historical?.total_tokens || 0), openai_cost: Number(historical?.cost_usd || 0),
+      google_places_cost: historicalGoogleCost, cost: Number(historical?.cost_usd || 0) + historicalGoogleCost,
+      google_places_calls: historicalGoogle.reduce((sum,row)=>sum+Math.max(0,Number(row.quantity||1)),0), google_places_skus: googleSkuTotals,
     };
-    const dailyMap = new Map<string, { date: string; tokens: number; cost: number; processed: number }>();
+    const dailyMap = new Map<string, { date: string; tokens: number; cost: number; openai_cost: number; google_places_cost: number; processed: number }>();
     for (const call of filteredCalls) {
       const date = call.occurred_at.slice(0, 10);
-      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, processed: 0 };
+      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, openai_cost: 0, google_places_cost: 0, processed: 0 };
       current.tokens += Number(call.total_tokens || 0);
       current.cost += Number(call.cost_usd || 0);
+      current.openai_cost += Number(call.cost_usd || 0);
       dailyMap.set(date, current);
     }
     for (const completion of filteredCompletions) {
       const date = completion.completed_at.slice(0, 10);
-      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, processed: 0 };
+      const current = dailyMap.get(date) || { date, tokens: 0, cost: 0, openai_cost: 0, google_places_cost: 0, processed: 0 };
       current.processed += 1;
       dailyMap.set(date, current);
+    }
+    for (const call of scopedThirdPartyCalls.filter((row)=>row.provider==="GOOGLE_PLACES")) {
+      const date=call.occurred_at.slice(0,10); const current=dailyMap.get(date)||{date,tokens:0,cost:0,openai_cost:0,google_places_cost:0,processed:0};
+      current.google_places_cost+=Number(call.amount_usd||0); current.cost+=Number(call.amount_usd||0); dailyMap.set(date,current);
     }
     const daily = [...dailyMap.values()].sort((left, right) => left.date.localeCompare(right.date));
     const count = allTaskRows.length;

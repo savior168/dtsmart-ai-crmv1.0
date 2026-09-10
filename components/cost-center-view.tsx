@@ -1,170 +1,45 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BadgeDollarSign, CircleDollarSign, Coins, Cpu, DatabaseZap, FileDown, LoaderCircle, RefreshCw, RotateCcw } from "lucide-react";
-import { ConfirmDialog } from "@/components/ui/app-dialog";
+import { Download, LoaderCircle, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import { AppFilterBar, appFieldClass } from "@/components/ui/app-list";
 import { AppPagination } from "@/components/ui/app-pagination";
 
-type CostPeriod = "official" | "test" | "all";
-type ProviderRow = { provider: string; service: string; request_count: number; total_usd: number; estimated_usd: number };
-type CostRow = {
-  id: string; provider: string; service: string; operation: string; model_or_sku: string | null;
-  input_tokens: number; cached_input_tokens: number; output_tokens: number; amount_usd: number;
-  amount_type: "FREE" | "ESTIMATED" | "FINAL"; pricing_snapshot?: { pricing_configured?: boolean } | null;
-  occurred_at: string; user?: { name?: string | null; email?: string | null } | null;
-  task?: { name?: string | null; task_number?: string | null } | null;
-  customer?: { company_name?: string | null } | null;
-};
-type Payload = {
-  data: CostRow[]; count: number; page: number; page_size: number; period: CostPeriod;
-  accounting_start_at: string; settings_updated_at: string; effective_from: string; effective_to: string;
-  summary: {
-    total_usd: number; request_count: number; input_tokens: number; cached_input_tokens: number;
-    output_tokens: number; estimated_usd: number; final_usd: number; unknown_pricing_count: number;
-    providers: ProviderRow[];
-  };
-};
-type GoogleBilling = { state: "NOT_CONFIGURED" | "CONNECTED" | "NO_DATA" | "ERROR"; message: string; totalUsd?: number; latestUsageAt?: string | null; usageRows?: number };
-type OpenAiBilling = { state: "NOT_CONFIGURED" | "CONNECTED" | "NO_DATA" | "ERROR"; message: string; totalUsd?: number; latestUsageAt?: string | null; lineItems?: Array<{ name: string; amountUsd: number }> };
+type Sku={key:string;label:string;usageCount:number;freeLimit:number|null;pendingSystemUsage:number;projectedUsage:number;projectedRemaining:number|null;grossCostUsd:number;creditsUsd:number;netCostUsd:number};
+type Billing={state:"NOT_CONFIGURED"|"CONNECTED"|"NO_DATA"|"ERROR";message:string;totalUsd?:number;latestUsageAt?:string|null;usageRows?:number;skuUsage?:Sku[];lineItems?:Array<{name:string;amountUsd:number}>};
+type Budget={daily_used_usd:number;weekly_used_usd:number;monthly_used_usd:number;monthly_blocked_count:number;daily_limit_usd:number|null;weekly_limit_usd:number|null;monthly_limit_usd:number|null};
+type Row={id:string;provider:string;service:string;operation:string;model_or_sku:string|null;quantity:number;input_tokens:number;output_tokens:number;amount_usd:number;amount_type:"FREE"|"ESTIMATED"|"FINAL";pricing_snapshot?:{pricing_configured?:boolean}|null;occurred_at:string;user?:{name?:string|null;email?:string|null}|null;task?:{name?:string|null;task_number?:string|null}|null;customer?:{company_name?:string|null}|null};
+type Option={id:string;name?:string|null;email?:string|null;task_number?:string|null;company_name?:string|null};
+type Payload={data:Row[];count:number;effective_from:string;effective_to:string;summary:{total_usd:number;request_count:number;estimated_usd:number;final_usd:number;unknown_pricing_count:number;providers:Array<{provider:string;service:string;request_count:number;total_usd:number;estimated_usd:number}>};budgets:Record<"GOOGLE_PLACES"|"OPENAI",Budget>;settings:Record<string,number|null>;filter_options:{users:Option[];tasks:Option[];customers:Option[]}};
+const budgetKeys=["google_daily_limit_usd","google_weekly_limit_usd","google_monthly_limit_usd","openai_daily_limit_usd","openai_weekly_limit_usd","openai_monthly_limit_usd"] as const;
+type BudgetKey=typeof budgetKeys[number];
+const day=()=>{const parts=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));return `${value.year}-${value.month}-${value.day}`};
+const firstDay=()=>`${day().slice(0,7)}-01`;
+const money=(v:unknown)=>`$${Number(v||0).toFixed(4)}`;
+const time=(v:unknown)=>{const d=new Date(String(v||""));return Number.isFinite(d.getTime())?d.toLocaleString("zh-CN",{timeZone:"Asia/Shanghai"}):"—"};
+const tone=(state?:Billing["state"])=>state==="CONNECTED"?"bg-emerald-50 text-emerald-700":state==="ERROR"?"bg-rose-50 text-rose-700":"bg-amber-50 text-amber-700";
+const stateText=(state?:Billing["state"])=>state==="CONNECTED"?"已连接":state==="ERROR"?"读取异常":state==="NO_DATA"?"等待账单同步":"未配置";
 
-const money = (value: unknown) => `$${Number(value || 0).toFixed(4)}`;
-const chinaDateFormatter = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" });
-const inputDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
-const validDate = (value: unknown) => {
-  const date = new Date(String(value || ""));
-  return Number.isFinite(date.getTime()) ? date : null;
-};
-const chinaDate = (value: unknown) => {
-  const date = validDate(value);
-  return date ? chinaDateFormatter.format(date) : "时间未知";
-};
-const inputDate = (value: unknown) => {
-  const date = validDate(value);
-  return date ? inputDateFormatter.format(date) : "";
-};
-
-function amountLabel(row: CostRow) {
-  if (row.amount_type === "FINAL") return "账单已确认";
-  if (row.amount_type === "FREE") return "明确免费";
-  if (row.pricing_snapshot?.pricing_configured === false) return "单价待配置";
-  return "按价目预估";
-}
-
-export function CostCenterView({ embedded = false }: { embedded?: boolean }) {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
-  const [period, setPeriod] = useState<CostPeriod>("official");
-  const [provider, setProvider] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [payload, setPayload] = useState<Payload | null>(null);
-  const [accountingDate, setAccountingDate] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null);
-  const [openAiBilling, setOpenAiBilling] = useState<OpenAiBilling | null>(null);
-  const [resetOpen, setResetOpen] = useState(false);
-
-  const query = useMemo(() => {
-    const value = new URLSearchParams({ to, period, page: String(page), page_size: String(pageSize) });
-    if (from) value.set("from", from);
-    if (provider) value.set("provider", provider);
-    return value;
-  }, [from, page, pageSize, period, provider, to]);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
-    try {
-      const response = await fetch(`/api/cost-center?${query}`, { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) { setError(body.error || "费用数据加载失败"); return; }
-      setPayload(body);
-      setAccountingDate(inputDate(body.accounting_start_at));
-      const [google, openai] = await Promise.all([fetch("/api/cost-center/google-billing", { cache: "no-store" }), fetch("/api/cost-center/openai-billing", { cache: "no-store" })]);
-      if (google.ok) setGoogleBilling(await google.json());
-      if (openai.ok) setOpenAiBilling(await openai.json());
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "费用数据加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  async function saveAccountingStart(action: "SET_DATE" | "RESET_NOW") {
-    setSaving(true); setError("");
-    const response = await fetch("/api/cost-center", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(action === "RESET_NOW" ? { action } : { action, accounting_start_date: accountingDate }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setSaving(false);
-    if (!response.ok) { setError(body.error || "费用统计周期更新失败"); return; }
-    setFrom(""); setPeriod("official"); setPage(1);
-    setResetOpen(false);
-    await load();
-  }
-
-  const summary = payload?.summary;
-  const exportQuery = new URLSearchParams({ to, period });
-  if (from) exportQuery.set("from", from);
-  if (provider) exportQuery.set("provider", provider);
-  const scopeLabel = period === "official" ? "正式期" : period === "test" ? "历史测试期" : "全部记录";
-
-  const content = <div className="mx-auto max-w-[1640px]">
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div><h1 className="text-2xl font-bold">费用中心</h1><p className="mt-1 text-sm text-slate-500">先核对平台真实账单，再追溯到系统内每一次调用；删除客户或任务不会改变历史账本。</p></div>
-      <div className="flex gap-2"><a href={`/api/cost-center/export?${exportQuery}`} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm text-blue-700"><FileDown size={16}/>导出当前明细</a><button onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button></div>
-    </div>
-
-    <section className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><b className="text-sm text-slate-800">正式费用统计起点</b><p className="mt-1 text-xs leading-5 text-slate-600">起点之前的调用归入历史测试期。调整或清空统计不会删除任何真实调用记录。</p></div>
-        <div className="flex flex-wrap items-end gap-2"><label className="text-xs text-slate-600">开始日期<input type="date" value={accountingDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setAccountingDate(event.target.value)} className="ml-2 h-9 rounded-lg border bg-white px-3 text-sm"/></label><button disabled={saving || !accountingDate} onClick={() => void saveAccountingStart("SET_DATE")} className="h-9 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">保存开始日期</button><button disabled={saving} onClick={() => setResetOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 text-sm text-amber-700 disabled:opacity-50"><RotateCcw size={15}/>清空正式期统计</button></div>
-      </div>
-      {payload ? <p className="mt-2 text-xs text-slate-500">当前起点：{chinaDate(payload.accounting_start_at)}{payload.settings_updated_at ? ` · 最近调整：${chinaDate(payload.settings_updated_at)}` : ""}</p> : null}
-    </section>
-
-    <AppFilterBar>
-      <label className="text-sm">统计范围<select value={period} onChange={(event) => { setPeriod(event.target.value as CostPeriod); setPage(1); }} className={`${appFieldClass} ml-2`}><option value="official">正式期</option><option value="test">历史测试期</option><option value="all">全部记录</option></select></label>
-      <label className="text-sm">开始日期<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className={`${appFieldClass} ml-2`}/></label>
-      <label className="text-sm">结束日期<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1); }} className={`${appFieldClass} ml-2`}/></label>
-      <label className="text-sm">服务商<select value={provider} onChange={(event) => { setProvider(event.target.value); setPage(1); }} className={`${appFieldClass} ml-2`}><option value="">全部服务商</option><option value="OPENAI">OpenAI</option><option value="GOOGLE_PLACES">Google Places</option></select></label>
-      <button type="button" onClick={() => { setFrom(""); setTo(new Date().toISOString().slice(0, 10)); setProvider(""); setPeriod("official"); setPage(1); }} className="h-10 rounded-lg border bg-white px-4 text-sm">重置筛选</button>
-    </AppFilterBar>
-    <p className="mt-2 text-xs text-slate-500">当前查看：{scopeLabel}{payload ? ` · 实际查询 ${chinaDate(payload.effective_from)} 至 ${chinaDate(payload.effective_to)}` : ""}</p>
-    {Number(summary?.unknown_pricing_count || 0) > 0 ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">有 {summary?.unknown_pricing_count} 次调用尚未配置计费单价，因此暂不计入金额；这不代表接口免费。配置价目后需与平台账单对账。</p> : null}
-    <section className="mt-5"><div className="mb-3 flex items-center gap-2"><BadgeDollarSign size={18} className="text-emerald-600"/><div><h2 className="font-semibold text-slate-900">平台真实费用总览</h2><p className="text-xs text-slate-500">仅展示从平台读取的账单；与系统调用台账分开，避免不同统计周期被误认为同一金额。</p></div></div><div className="grid gap-3 xl:grid-cols-2">
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><b>Google Places / Google Cloud</b><p className="mt-1 text-xs text-slate-500">来源：BigQuery 详细费用导出 · 近 90 天</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${billingTone(googleBilling?.state)}`}>{billingLabel(googleBilling?.state)}</span></div>{googleBilling ? <div className="mt-5"><b className={`text-3xl ${googleBilling.state === "CONNECTED" ? "text-emerald-700" : "text-slate-400"}`}>{googleBilling.state === "CONNECTED" ? money(googleBilling.totalUsd) : "—"}</b><p className="mt-2 text-sm leading-6 text-slate-700">{googleBilling.message}</p>{googleBilling.state === "CONNECTED" ? <p className="mt-2 text-xs text-slate-500">{Number(googleBilling.usageRows || 0).toLocaleString("zh-CN")} 条结算明细{googleBilling.latestUsageAt ? ` · 最新使用 ${chinaDate(googleBilling.latestUsageAt)}` : ""}</p> : null}</div> : <p className="mt-5 text-sm text-slate-400">正在读取 Google Cloud 账单状态…</p>}<div className="mt-5 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800"><b>免费额度 / 账户余额：</b>BigQuery 账单导出不能读取；未接入实际使用项目的配额监控前，系统不推算余额。</div></article>
-      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><b>OpenAI</b><p className="mt-1 text-xs text-slate-500">来源：组织 Costs API · 近 90 天</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${billingTone(openAiBilling?.state)}`}>{billingLabel(openAiBilling?.state)}</span></div>{openAiBilling ? <div className="mt-5"><small className="block text-slate-500">近 90 天已发生费用</small><b className={`mt-1 block text-3xl ${openAiBilling.state === "CONNECTED" ? "text-emerald-700" : "text-slate-400"}`}>{openAiBilling.state === "CONNECTED" ? money(openAiBilling.totalUsd) : "—"}</b><p className="mt-2 text-sm leading-6 text-slate-700">{openAiBilling.message}</p>{openAiBilling.state === "CONNECTED" ? <><p className="mt-2 text-xs text-slate-500">{openAiBilling.latestUsageAt ? `最新费用归集 ${chinaDate(openAiBilling.latestUsageAt)}` : "暂无最新时间"}</p>{openAiBilling.lineItems?.length ? <p className="mt-2 text-xs leading-5 text-slate-500">主要计费项：{openAiBilling.lineItems.slice(0, 3).map(item => `${item.name} ${money(item.amountUsd)}`).join(" · ")}</p> : null}</> : null}</div> : <p className="mt-5 text-sm text-slate-400">正在读取 OpenAI 组织账单状态…</p>}<div className="mt-5 flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600"><b>当前账户余额</b><span className="text-right">官方接口未提供，无法真实同步</span></div></article>
+export function CostCenterView({embedded=false}:{embedded?:boolean}){
+  const [from,setFrom]=useState(firstDay()); const [to,setTo]=useState(day()); const [provider,setProvider]=useState(""); const [operation,setOperation]=useState(""); const [userId,setUserId]=useState(""); const [taskId,setTaskId]=useState(""); const [customerId,setCustomerId]=useState("");
+  const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(20); const [payload,setPayload]=useState<Payload|null>(null); const [google,setGoogle]=useState<Billing|null>(null); const [openai,setOpenai]=useState<Billing|null>(null); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState("");
+  const [limits,setLimits]=useState<Record<BudgetKey,string>>(Object.fromEntries(budgetKeys.map(k=>[k,""])) as Record<BudgetKey,string>);
+  const query=useMemo(()=>{const p=new URLSearchParams({from,to,page:String(page),page_size:String(pageSize)});if(provider)p.set("provider",provider);if(operation)p.set("operation",operation);if(userId)p.set("user_id",userId);if(taskId)p.set("task_id",taskId);if(customerId)p.set("customer_id",customerId);return p},[from,to,page,pageSize,provider,operation,userId,taskId,customerId]);
+  const load=useCallback(async()=>{setLoading(true);setError("");try{const [a,b,c]=await Promise.all([fetch(`/api/cost-center?${query}`,{cache:"no-store"}),fetch("/api/cost-center/google-billing",{cache:"no-store"}),fetch("/api/cost-center/openai-billing",{cache:"no-store"})]);const [body,googleBody,openaiBody]=await Promise.all([a.json().catch(()=>({})),b.json().catch(()=>({})),c.json().catch(()=>({}))]);if(!a.ok)throw new Error(body.error||"费用数据加载失败");setPayload(body);setLimits(Object.fromEntries(budgetKeys.map(k=>[k,body.settings?.[k]==null?"":String(body.settings[k])])) as Record<BudgetKey,string>);setGoogle(b.ok?googleBody:{state:"ERROR",message:googleBody.error||"Google账单读取失败"});setOpenai(c.ok?openaiBody:{state:"ERROR",message:openaiBody.error||"OpenAI账单读取失败"})}catch(e){setError(e instanceof Error?e.message:"费用数据加载失败")}finally{setLoading(false)}},[query]);
+  useEffect(()=>{void load()},[load]);
+  async function saveLimits(){setSaving(true);setError("");try{const r=await fetch("/api/cost-center",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"UPDATE_BUDGETS",budgets:limits})});const body=await r.json().catch(()=>({}));if(!r.ok)throw new Error(body.error||"费用上限保存失败");await load()}catch(e){setError(e instanceof Error?e.message:"费用上限保存失败")}finally{setSaving(false)}}
+  const reset=()=>{setFrom(firstDay());setTo(day());setProvider("");setOperation("");setUserId("");setTaskId("");setCustomerId("");setPage(1)};
+  const exportParams=new URLSearchParams(query);exportParams.delete("page");exportParams.delete("page_size");
+  const main=<div className="mx-auto max-w-[1680px] space-y-5">
+    <header className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-bold">费用中心</h1><p className="mt-1 text-sm text-slate-500">平台账单、系统实时调用、免费额度和费用上限统一核对；历史费用永久保留。</p></div><div className="flex gap-2"><a href={`/api/cost-center/export?${exportParams}`} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm text-blue-700"><Download size={16}/>导出明细</a><button onClick={()=>void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button></div></header>
+    <AppFilterBar><label className="text-sm">开始<input type="date" value={from} max={to} onChange={e=>{setFrom(e.target.value);setPage(1)}} className={`${appFieldClass} ml-2`}/></label><label className="text-sm">结束<input type="date" value={to} min={from} onChange={e=>{setTo(e.target.value);setPage(1)}} className={`${appFieldClass} ml-2`}/></label><select value={provider} onChange={e=>{setProvider(e.target.value);setPage(1)}} className={appFieldClass}><option value="">全部平台</option><option value="OPENAI">OpenAI</option><option value="GOOGLE_PLACES">Google Places</option></select><input value={operation} onChange={e=>{setOperation(e.target.value);setPage(1)}} className={appFieldClass} placeholder="操作或SKU"/><select value={taskId} onChange={e=>{setTaskId(e.target.value);setPage(1)}} className={appFieldClass}><option value="">全部任务</option>{payload?.filter_options.tasks.map(x=><option key={x.id} value={x.id}>{x.name} {x.task_number?`· ${x.task_number}`:""}</option>)}</select><select value={customerId} onChange={e=>{setCustomerId(e.target.value);setPage(1)}} className={appFieldClass}><option value="">全部客户</option>{payload?.filter_options.customers.map(x=><option key={x.id} value={x.id}>{x.company_name}</option>)}</select><select value={userId} onChange={e=>{setUserId(e.target.value);setPage(1)}} className={appFieldClass}><option value="">全部调用人</option>{payload?.filter_options.users.map(x=><option key={x.id} value={x.id}>{x.name||x.email}</option>)}</select><button onClick={reset} className="h-10 rounded-lg border bg-white px-4 text-sm">重置</button></AppFilterBar>
+    {error?<p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
+    <section><h2 className="font-semibold">平台真实账单</h2><p className="mt-1 text-xs text-slate-500">系统实时估算与平台确认账单分开显示，最终金额以平台结算和抵扣为准。</p><div className="mt-3 grid gap-3 xl:grid-cols-2">
+      <article className="rounded-xl border bg-white p-5"><div className="flex justify-between"><div><b>Google Places</b><small className="mt-1 block text-slate-500">BigQuery详细费用导出 · 当月</small></div><span className={`h-fit rounded-full px-2 py-1 text-xs ${tone(google?.state)}`}>{stateText(google?.state)}</span></div><strong className="mt-4 block text-3xl text-emerald-700">{google?.state==="CONNECTED"?money(google.totalUsd):"—"}</strong><p className="mt-2 text-sm text-slate-600">{google?.message||"正在读取"}</p>{google?.state==="CONNECTED"?<div className="mt-4 overflow-x-auto"><table className="w-full min-w-[670px] text-xs"><thead className="bg-slate-50 text-slate-500"><tr>{["SKU","平台确认","待同步","预计用量","免费上限","预计剩余","净费用"].map(x=><th key={x} className="px-2 py-2 text-left">{x}</th>)}</tr></thead><tbody>{google.skuUsage?.map(x=><tr key={x.key} className="border-t"><td className="px-2 py-2 font-medium">{x.label}</td><td className="px-2 py-2">{x.usageCount}</td><td className="px-2 py-2">{x.pendingSystemUsage}</td><td className="px-2 py-2">{x.projectedUsage}</td><td className="px-2 py-2">{x.freeLimit==null?"不限量":x.freeLimit}</td><td className="px-2 py-2">{x.projectedRemaining==null?"不限量":x.projectedRemaining}</td><td className="px-2 py-2 font-medium">{money(x.netCostUsd)}</td></tr>)}</tbody></table></div>:null}<p className="mt-3 text-xs leading-5 text-amber-700">账单导出存在延迟；待同步仅表示本系统在Google最新同步时间后的调用，跨项目用量以Google平台为准。</p></article>
+      <article className="rounded-xl border bg-white p-5"><div className="flex justify-between"><div><b>OpenAI</b><small className="mt-1 block text-slate-500">组织Costs API · 近90天</small></div><span className={`h-fit rounded-full px-2 py-1 text-xs ${tone(openai?.state)}`}>{stateText(openai?.state)}</span></div><strong className="mt-4 block text-3xl text-emerald-700">{openai?.state==="CONNECTED"?money(openai.totalUsd):"—"}</strong><p className="mt-2 text-sm text-slate-600">{openai?.message||"正在读取"}</p>{openai?.lineItems?.length?<div className="mt-4 divide-y rounded-lg border text-sm">{openai.lineItems.slice(0,8).map(x=><div key={x.name} className="flex justify-between px-3 py-2"><span>{x.name}</span><b>{money(x.amountUsd)}</b></div>)}</div>:null}<p className="mt-3 text-xs text-slate-500">官方费用接口未提供可核验的预付余额，系统不会伪造账户余额。</p></article>
     </div></section>
-    {error ? <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
-    {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div> : payload ? <>
-      <section className="mt-6"><div className="mb-3 flex items-center gap-2"><DatabaseZap size={18} className="text-blue-600"/><div><h2 className="font-semibold text-slate-900">系统调用台账</h2><p className="text-xs text-slate-500">{scopeLabel} · {chinaDate(payload.effective_from)} 至 {chinaDate(payload.effective_to)}。用于追溯调用，不等同于平台账单。</p></div></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
-        ["台账金额", money(summary?.total_usd), CircleDollarSign], ["账单已确认", money(summary?.final_usd), Coins],
-        ["预估待对账", money(summary?.estimated_usd), Cpu], ["接口调用", `${Number(summary?.request_count || 0).toLocaleString("zh-CN")} 次`, RefreshCw],
-      ].map(([label, value, Icon]) => <article key={String(label)} className="rounded-xl border bg-white p-5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-blue-600"><Icon size={18}/></span><small className="mt-3 block text-slate-500">{String(label)}</small><b className="mt-1 block text-2xl">{String(value)}</b></article>)}</div></section>
-      <section className="mt-4 grid gap-3 lg:grid-cols-3">{(summary?.providers || []).map((row) => <article key={`${row.provider}-${row.service}`} className="rounded-xl border bg-white p-4"><b>{row.provider} · {row.service}</b><div className="mt-3 flex justify-between text-sm"><span>{Number(row.request_count).toLocaleString("zh-CN")} 次调用</span><span className="font-semibold text-blue-700">{money(row.total_usd)}</span></div>{Number(row.estimated_usd) > 0 ? <p className="mt-2 text-xs text-amber-700">其中 {money(row.estimated_usd)} 为按价目快照估算，需与平台账单对账。</p> : null}</article>)}</section>
-      <section className="mt-4 overflow-hidden rounded-xl border bg-white">
-        <div className="overflow-x-auto"><table className="w-full min-w-[1320px] text-left text-sm"><thead className="bg-slate-50"><tr>{["发生时间", "服务商/服务", "操作", "关联任务 / 客户", "模型或计费项", "Token/数量", "费用性质", "金额", "调用人"].map((header) => <th key={header} className="px-4 py-3 font-medium text-slate-600">{header}</th>)}</tr></thead><tbody>{payload.data.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{chinaDate(row.occurred_at)}</td><td className="px-4 py-3"><b>{row.provider}</b><small className="block text-slate-500">{row.service}</small></td><td className="px-4 py-3">{row.operation}</td><td className="px-4 py-3"><b className="block font-medium">{row.task?.name || "非任务调用"}</b><small className="block text-slate-500">{row.customer?.company_name || "—"}</small></td><td className="px-4 py-3">{row.model_or_sku || "—"}</td><td className="px-4 py-3">{row.input_tokens + row.output_tokens ? `${(row.input_tokens + row.output_tokens).toLocaleString("zh-CN")} Token` : "1 次"}</td><td className="px-4 py-3">{amountLabel(row)}</td><td className="px-4 py-3 font-semibold">{row.pricing_snapshot?.pricing_configured === false ? "待配置" : money(row.amount_usd)}</td><td className="px-4 py-3">{row.user?.name || row.user?.email || "系统"}</td></tr>)}</tbody></table>{!payload.data.length ? <div className="p-12 text-center text-slate-400">当前条件下暂无费用记录</div> : null}</div>
-        <AppPagination page={page} pageSize={pageSize} total={payload.count} itemLabel="条费用记录" onPage={setPage} onPageSize={size=>{setPageSize(size);setPage(1)}}/>
-      </section>
-    </> : null}
+    <section className="rounded-xl border bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div className="flex gap-2"><ShieldCheck className="text-blue-600" size={20}/><div><h2 className="font-semibold">付费API硬性上限</h2><p className="mt-1 text-xs text-slate-500">留空表示不限制，0表示禁止付费调用；达到日、周或月任一上限后，免费渠道继续分析。</p></div></div><button disabled={saving} onClick={()=>void saveLimits()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50"><Save size={15}/>{saving?"保存中":"保存上限"}</button></div><div className="mt-4 grid gap-4 xl:grid-cols-2">{(["GOOGLE_PLACES","OPENAI"] as const).map(p=>{const prefix=p==="GOOGLE_PLACES"?"google":"openai";const status=payload?.budgets?.[p];return <article key={p} className="rounded-lg border bg-slate-50 p-4"><div className="flex justify-between"><b>{p==="GOOGLE_PLACES"?"Google Places":"OpenAI"}</b><small className="text-slate-500">本月阻止 {Number(status?.monthly_blocked_count||0)} 次</small></div><div className="mt-3 grid gap-3 sm:grid-cols-3">{(["daily","weekly","monthly"] as const).map(period=>{const key=`${prefix}_${period}_limit_usd` as BudgetKey;const used=Number(status?.[`${period}_used_usd` as keyof Budget]||0);return <label key={period} className="text-xs text-slate-600">{period==="daily"?"每日":period==="weekly"?"每周":"每月"}上限（USD）<input type="number" min="0" step="0.01" value={limits[key]} onChange={e=>setLimits(v=>({...v,[key]:e.target.value}))} placeholder="不限制" className="mt-1 h-9 w-full rounded-lg border bg-white px-3 text-sm"/><span className="mt-1 block text-slate-400">已用 {money(used)}</span></label>})}</div></article>})}</div></section>
+    {loading?<div className="grid min-h-60 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div>:payload?<><section><h2 className="font-semibold">系统实时调用台账</h2><p className="mt-1 text-xs text-slate-500">{time(payload.effective_from)} 至 {time(payload.effective_to)}；筛选条件同步作用于汇总、列表和导出。</p><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[["台账总金额",money(payload.summary.total_usd)],["平台已确认",money(payload.summary.final_usd)],["实时估算待对账",money(payload.summary.estimated_usd)],["API调用",`${Number(payload.summary.request_count).toLocaleString("zh-CN")} 次`]].map(([a,b])=><article key={a} className="rounded-xl border bg-white p-5"><small className="text-slate-500">{a}</small><b className="mt-2 block text-2xl">{b}</b></article>)}</div></section>{payload.summary.unknown_pricing_count?<p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">有 {payload.summary.unknown_pricing_count} 次调用没有可靠单价，未计入金额；这不代表免费。</p>:null}<section className="overflow-hidden rounded-xl border bg-white"><div className="overflow-x-auto"><table className="w-full min-w-[1380px] text-left text-sm"><thead className="bg-slate-50"><tr>{["时间","平台 / 服务","操作 / SKU","任务 / 客户","Token / 数量","费用性质","金额","调用人"].map(x=><th key={x} className="px-4 py-3 font-medium text-slate-600">{x}</th>)}</tr></thead><tbody>{payload.data.map(x=><tr key={x.id} className="border-t"><td className="px-4 py-3">{time(x.occurred_at)}</td><td className="px-4 py-3"><b>{x.provider}</b><small className="block text-slate-500">{x.service}</small></td><td className="px-4 py-3">{x.operation}<small className="block text-slate-500">{x.model_or_sku||"历史未细分"}</small></td><td className="px-4 py-3"><b>{x.task?.name||"非任务调用"}</b><small className="block text-slate-500">{x.customer?.company_name||"—"}</small></td><td className="px-4 py-3">{x.input_tokens+x.output_tokens?`${(x.input_tokens+x.output_tokens).toLocaleString("zh-CN")} Token`:`${Number(x.quantity||1)} 次`}</td><td className="px-4 py-3">{x.amount_type==="FINAL"?"平台已确认":x.amount_type==="FREE"?"明确免费":x.pricing_snapshot?.pricing_configured===false?"单价待配置":"实时估算"}</td><td className="px-4 py-3 font-semibold">{x.pricing_snapshot?.pricing_configured===false?"待配置":money(x.amount_usd)}</td><td className="px-4 py-3">{x.user?.name||x.user?.email||"系统"}</td></tr>)}</tbody></table>{!payload.data.length?<div className="p-12 text-center text-slate-400">当前条件下暂无费用记录</div>:null}</div><AppPagination page={page} pageSize={pageSize} total={payload.count} itemLabel="条费用记录" onPage={setPage} onPageSize={n=>{setPageSize(n);setPage(1)}}/></section></>:null}
   </div>;
-  const dialog=<ConfirmDialog open={resetOpen} title="清空正式期统计？" description="历史调用记录不会删除，只会归入“历史测试期”；客户、任务和费用账本均不受影响。" confirmLabel="确认重置统计起点" danger busy={saving} onCancel={()=>setResetOpen(false)} onConfirm={()=>void saveAccountingStart("RESET_NOW")}/>;
-  return embedded ? <>{content}{dialog}</> : <main className="p-4 lg:p-6">{content}{dialog}</main>;
-}
-
-function billingLabel(state?: GoogleBilling["state"] | OpenAiBilling["state"]) {
-  if (state === "CONNECTED") return "已取得实际账单";
-  if (state === "NO_DATA") return "账单数据等待同步";
-  if (state === "ERROR") return "读取异常";
-  return "尚未配置读取权限";
-}
-
-function billingTone(state?: GoogleBilling["state"] | OpenAiBilling["state"]) {
-  return state === "CONNECTED" ? "bg-emerald-50 text-emerald-700" : state === "ERROR" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700";
+  return embedded?main:<main className="p-4 lg:p-6">{main}</main>;
 }

@@ -75,10 +75,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const resultById = new Map((analysisResults.data || []).map((row) => [String(row.id), row]));
     const customerIds = [...new Set(rows.map((row) => String(row.customer_id || "")).filter(Boolean))];
     const placesByCustomer = new Map<string, number>();
+    const placeSkusByCustomer = new Map<string, Record<string, { count: number; amount_usd: number }>>();
     if (customerIds.length) {
       for (let offset = 0; ; offset += 1000) {
         const ledger = await admin.from("api_cost_ledger")
-          .select("customer_id,quantity")
+          .select("customer_id,quantity,model_or_sku,amount_usd")
           .eq("task_id", id)
           .eq("provider", "GOOGLE_PLACES")
           .in("customer_id", customerIds)
@@ -88,7 +89,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         for (const call of calls) {
           const customerId = String(call.customer_id || "");
           if (!customerId) continue;
-          placesByCustomer.set(customerId, (placesByCustomer.get(customerId) || 0) + Math.max(0, Number(call.quantity || 1)));
+          const quantity = Math.max(0, Number(call.quantity || 1));
+          placesByCustomer.set(customerId, (placesByCustomer.get(customerId) || 0) + quantity);
+          const sku = String(call.model_or_sku || "HISTORICAL_UNCLASSIFIED");
+          const breakdown = placeSkusByCustomer.get(customerId) || {};
+          const current = breakdown[sku] || { count: 0, amount_usd: 0 };
+          breakdown[sku] = { count: current.count + quantity, amount_usd: Number((current.amount_usd + Number(call.amount_usd || 0)).toFixed(6)) };
+          placeSkusByCustomer.set(customerId, breakdown);
         }
         if (calls.length < 1000) break;
       }
@@ -97,6 +104,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       ...row,
       result: resultById.get(String(row.result_id || "")) || null,
       google_places_call_count: placesByCustomer.get(String(row.customer_id || "")) || 0,
+      google_places_sku_breakdown: placeSkusByCustomer.get(String(row.customer_id || "")) || {},
     }));
     return NextResponse.json({ data, count: result.count || 0, page, pageSize });
   } catch (error) {

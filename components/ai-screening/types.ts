@@ -6,6 +6,10 @@ export type AiTask = {
   started_at?: string | null; completed_at?: string | null; finished_at?: string | null; elapsed_ms?: number | null;
   workflow_run_id?: string | null;
   google_places_call_count?: number;
+  google_places_cost_usd?: number;
+  third_party_cost_usd?: number;
+  google_places_sku_breakdown?: Record<string, { count: number; amount_usd: number }>;
+  paid_api_budget_blocks?: Record<string, number>;
 };
 
 export type TaskItem = {
@@ -14,6 +18,7 @@ export type TaskItem = {
   pipeline_stage?: string | null; result_id?: string | null; error_context?: Record<string, unknown> | null;
   total_tokens: number; cost_usd: number; updated_at: string;
   google_places_call_count?: number;
+  google_places_sku_breakdown?: Record<string, { count: number; amount_usd: number }>;
   result?: { id: string; score?: number | null; grade?: string | null; target_decision?: string | null; industry_type?: string | null } | null;
   customer?: { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; country?: string | null; industry?: string | null; is_target_customer?: boolean | null; ai_score?: number | null; ai_level?: string | null } | null;
 };

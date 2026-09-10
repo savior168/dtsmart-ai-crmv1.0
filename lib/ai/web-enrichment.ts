@@ -57,8 +57,13 @@ export type CustomerEvidence = {
   public_channels?: Record<string, WebsiteEvidence>;
 };
 
-export type ExternalApiCall = { provider:"GOOGLE_PLACES";operation:string;sku:string;requestId?:string;unitPriceUsd:number;priceSource:"ENV"|"DEFAULT_2026_09";status:number };
-type FetchOptions = { signal?: AbortSignal; timeoutMs?: number; onApiCall?:(call:ExternalApiCall)=>void|Promise<void> };
+export type ExternalApiCall = { provider:"GOOGLE_PLACES";operation:string;sku:string;requestId?:string;reservationId?:string;unitPriceUsd:number;priceSource:"ENV"|"DEFAULT_2026_09";status:number };
+type FetchOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  onBeforeApiCall?:(call:Omit<ExternalApiCall,"status"|"requestId"|"reservationId">)=>Promise<{allowed:boolean;reservationId?:string}>;
+  onApiCall?:(call:ExternalApiCall)=>void|Promise<void>;
+};
 
 const BROWSER_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -426,7 +431,7 @@ export function googlePlaceTextQueries(input: {
     addressWithoutRepeatedName && addressWithoutRepeatedName !== primary ? addressWithoutRepeatedName : "",
     identityFallback,
     phoneLocationFallback,
-  ].filter(Boolean))].slice(0, 4);
+  ].filter(Boolean))].slice(0, 3);
 }
 
 const NON_BUSINESS_LOCATION_TYPES = new Set([
@@ -443,13 +448,13 @@ export function isNonBusinessGoogleLocation(types: string[]) {
 
 export function googlePlaceNeedsBusinessClarification(types: string[], identityScore: number, targetHint = "") {
   const normalizedTypes = types.map((value) => String(value).trim().toLowerCase().replace(/\s+/g, "_"));
-  const targetAdjacentPlaceType = normalizedTypes.some((type) => /(?:cell_phone|mobile_phone|electronics|computer|repair|accessor)/i.test(type));
+  const specificTargetPlaceType = normalizedTypes.some((type) => /(?:phone_repair|mobile_phone_repair|computer_repair|electronics_repair)/i.test(type));
+  const targetAdjacentPlaceType = normalizedTypes.some((type) => /(?:cell_phone|mobile_phone|electronics|computer|accessor)/i.test(type));
   const targetAdjacentHint = /(?:phone|mobile|smartphone|handy|iphone|ipad|macbook|laptop|computer|\bpc\b|repair|reparatur|reparasjon|serwis|napraw|ifix|手机|电脑|维修|配件)/i.test(targetHint);
-  // Reviews use the highest Place Details tier. A specific repair category is
-  // worth reading only after the merchant identity is verified and Google says
-  // the business is repair/phone/computer adjacent. Generic unrelated
-  // `service`/`store` candidates must not trigger this expensive request.
-  return identityScore >= 70 && (targetAdjacentPlaceType || targetAdjacentHint);
+  // A specific repair category already proves the industry and must stop the
+  // paid escalation. Reviews use the highest Place Details tier and are only
+  // needed when a verified, target-adjacent merchant still has a generic type.
+  return identityScore >= 70 && !specificTargetPlaceType && (targetAdjacentHint || targetAdjacentPlaceType);
 }
 
 async function waitForRetry(attempt: number, signal?: AbortSignal) {
@@ -986,7 +991,7 @@ function googleCidLookupUrl(value?: string | null) {
  * downgraded merely because the optional Places API key is absent. This only
  * reads public fields and keeps the exact Maps page as the audit source.
  */
-async function collectPublicGooglePlaceEvidence(input: {
+export async function collectPublicGooglePlaceEvidence(input: {
   company_name: string;
   address?: string | null;
   country?: string | null;
@@ -1164,15 +1169,39 @@ export async function collectGooglePlaceEvidence(input: {
     };
   }
 
+  // Prefer the public Maps page. It commonly exposes the selected merchant,
+  // address, phone, website, category and reviews without consuming a Places
+  // SKU. Only fall through to the paid API when the public result cannot be
+  // safely attributed or lacks the facts needed for a potentially valuable
+  // target-adjacent customer.
+  const publicEvidence = await collectPublicGooglePlaceEvidence(input, { ...options, timeoutMs: Math.min(options.timeoutMs || 4500, 4500) });
+  if (publicEvidence) {
+    const publicIdentityAccepted = ["MATCHED", "LIKELY_MATCHED"].includes(String(publicEvidence.identity_status || ""))
+      && Number(publicEvidence.identity_confidence || 0) >= 70;
+    const meaningfulPublicTypes = (publicEvidence.types || []).filter((value) => !/^(?:establishment|point[_ ]of[_ ]interest|store|service|premise|business)$/i.test(String(value).trim()));
+    const hasMeaningfulPublicFacts = meaningfulPublicTypes.length > 0
+      || Boolean(publicEvidence.description?.trim()) || Boolean(publicEvidence.reviews?.some((value) => value.trim()));
+    if (publicIdentityAccepted && hasMeaningfulPublicFacts) return publicEvidence;
+  }
+  const paidValueHint = [input.company_name, input.category_hint, input.industry_hint]
+    .filter(Boolean).join(" ");
+  const targetAdjacentHint = /(?:phone|mobile|smartphone|handy|iphone|ipad|macbook|laptop|computer|\bpc\b|repair|reparatur|reparasjon|serwis|napraw|ifix|gsm|手机|电脑|维修|配件)/i.test(paidValueHint);
+  const suppliedSpecificPlace = Boolean(safePublicUrl(input.google_url) && /google\.[^/]+\/maps\/place\//i.test(String(input.google_url)));
+  if (!targetAdjacentHint && !suppliedSpecificPlace) {
+    return publicEvidence || {
+      configured: true, query, types: [], reviews: [], emails: [], candidate_count: 0,
+      identity_status: "NOT_FOUND", identity_confidence: 0,
+      error: "免费公开来源未取得可归属的目标行业事实；该客户缺少高价值信号，未升级付费Google查询。",
+    };
+  }
+
   // Cost-controlled Places API (New) flow:
   // 1. Search only for Place IDs to minimize fields, latency and billable SKU
   //    cost. Never assume it is free: monthly caps and account pricing vary.
   // 2. Read the minimum Pro fields for the top-ranked candidate and only try a
   //    second/third candidate when identity matching is still ambiguous.
-  // 3. Read Enterprise contact fields only after the entity is matched and the
-  //    customer is missing an official phone or website.
-  // Public Maps parsing remains a fallback for API/network failures; it is no
-  // longer the primary path when a server-side key is configured.
+  // 3. Read Enterprise contact/review fields only when identity or business
+  //    classification remains genuinely ambiguous.
   const request = requestSignal(options, 12_000);
   try {
     type LocalizedText = { text?: string; languageCode?: string };
@@ -1208,29 +1237,42 @@ export async function collectGooglePlaceEvidence(input: {
         ? { value, source: "ENV" as const }
         : { value: fallback, source: "DEFAULT_2026_09" as const };
     };
-    const reportCall = async (operation:string,sku:string,status:number,rateEnv:string,defaultRate:number,response:Response) => {
+    const beginCall = async (operation:string,sku:string,rateEnv:string,defaultRate:number) => {
       const rate = configuredRate(rateEnv, defaultRate);
-      try { await options.onApiCall?.({ provider:"GOOGLE_PLACES",operation,sku,status,unitPriceUsd:rate.value,priceSource:rate.source,requestId:response.headers.get("x-request-id")||response.headers.get("x-goog-request-id")||undefined }); } catch { /* 费用留痕失败不应破坏客户证据采集，调用方另行记录系统告警。 */ }
+      const reservation = await options.onBeforeApiCall?.({ provider:"GOOGLE_PLACES",operation,sku,unitPriceUsd:rate.value,priceSource:rate.source });
+      if (reservation && !reservation.allowed) throw new Error("GOOGLE_PLACES_COST_BUDGET_EXCEEDED");
+      return { rate, reservationId: reservation?.reservationId };
+    };
+    const reportCall = async (operation:string,sku:string,status:number,rate:{value:number;source:"ENV"|"DEFAULT_2026_09"},response?:Response,reservationId?:string) => {
+      await options.onApiCall?.({ provider:"GOOGLE_PLACES",operation,sku,status,unitPriceUsd:rate.value,priceSource:rate.source,reservationId,requestId:response?.headers.get("x-request-id")||response?.headers.get("x-goog-request-id")||undefined });
     };
     const detailCache = new Map<string, { fields: Set<string>; value: PlaceDetail }>();
+    const maxPaidDetailCallsPerCustomer = Math.max(1, Math.min(2, Number(process.env.GOOGLE_PLACES_MAX_PAID_DETAILS_PER_CUSTOMER || 2)));
+    let paidDetailCallCount = 0;
+    let paidDetailLimitReached = false;
     const readDetail = async (placeId: string, fieldMask: string): Promise<PlaceDetail | null> => {
       const requestedFields = fieldMask.split(",").map((field) => field.trim()).filter(Boolean);
       const cached = detailCache.get(placeId);
       if (cached && requestedFields.every((field) => cached.fields.has(field))) return cached.value;
-      const response = await fetchWithRetry(detailUrl(placeId), {
-        signal: request.signal,
-        headers: placesHeaders(fieldMask),
-      });
       const atmosphere = /reviews|editorialSummary/.test(fieldMask);
       const enterprise = /internationalPhoneNumber|reviews|rating|websiteUri/.test(fieldMask);
-      await reportCall(
-        atmosphere ? "商家评论与经营说明" : enterprise ? "商家详情与联系方式" : "商家基础详情",
-        atmosphere ? "PLACES_DETAILS_ENTERPRISE_ATMOSPHERE" : enterprise ? "PLACES_DETAILS_ENTERPRISE" : "PLACES_DETAILS_PRO",
-        response.status,
-        atmosphere ? "GOOGLE_PLACES_ENTERPRISE_ATMOSPHERE_USD_PER_REQUEST" : enterprise ? "GOOGLE_PLACES_ENTERPRISE_USD_PER_REQUEST" : "GOOGLE_PLACES_PRO_USD_PER_REQUEST",
-        atmosphere ? 0.025 : enterprise ? 0.020 : 0.017,
-        response,
-      );
+      const operation = atmosphere ? "商家评论与经营说明" : enterprise ? "商家详情与联系方式" : "商家基础详情";
+      const sku = atmosphere ? "PLACES_DETAILS_ENTERPRISE_ATMOSPHERE" : enterprise ? "PLACES_DETAILS_ENTERPRISE" : "PLACES_DETAILS_PRO";
+      const rateEnv = atmosphere ? "GOOGLE_PLACES_ENTERPRISE_ATMOSPHERE_USD_PER_REQUEST" : enterprise ? "GOOGLE_PLACES_ENTERPRISE_USD_PER_REQUEST" : "GOOGLE_PLACES_PRO_USD_PER_REQUEST";
+      if (paidDetailCallCount >= maxPaidDetailCallsPerCustomer) {
+        paidDetailLimitReached = true;
+        return cached?.value || null;
+      }
+      const call = await beginCall(operation, sku, rateEnv, atmosphere ? 0.025 : enterprise ? 0.020 : 0.017);
+      paidDetailCallCount += 1;
+      let response: Response;
+      try {
+        response = await fetchWithRetry(detailUrl(placeId), { signal: request.signal, headers: placesHeaders(fieldMask) });
+        await reportCall(operation, sku, response.status, call.rate, response, call.reservationId);
+      } catch (error) {
+        await reportCall(operation, sku, 0, call.rate, undefined, call.reservationId);
+        throw error;
+      }
       if (!response.ok) return null;
       const value = await response.json() as PlaceDetail;
       const merged = { ...(cached?.value || {}), ...value };
@@ -1246,26 +1288,26 @@ export async function collectGooglePlaceEvidence(input: {
     // current name/address/phone/domain checks again.
     const directPlaceId = googlePlaceIdFromUrl(input.google_url);
     const storedPlaceIdHint = input.place_id?.trim() || "";
-    let candidateIds = directPlaceId ? [directPlaceId] : [];
+    let candidateIds = directPlaceId ? [directPlaceId] : storedPlaceIdHint ? [storedPlaceIdHint] : [];
     const searchedQueries = new Set<string>();
     let searchError = "未找到匹配的Google商家。";
     const searchCandidateIds = async (textQuery: string, index: number) => {
       searchedQueries.add(textQuery);
-      const searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
-        method: "POST",
-        signal: request.signal,
-        headers: placesHeaders("places.id"),
-        body: JSON.stringify({
-          textQuery,
-          pageSize: 3,
-          languageCode: "zh-CN",
-          ...(regionCode ? { regionCode } : {}),
-        }),
-      });
       const operation = index === 0 ? "完整地址文本搜索"
         : index === 1 ? "纯地址精确回退搜索"
           : "电话与国家精确回退搜索";
-      await reportCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", searchResponse.status, "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", 0, searchResponse);
+      const call = await beginCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", "GOOGLE_PLACES_TEXT_SEARCH_USD_PER_REQUEST", 0);
+      let searchResponse: Response;
+      try {
+        searchResponse = await fetchWithRetry("https://places.googleapis.com/v1/places:searchText", {
+          method: "POST", signal: request.signal, headers: placesHeaders("places.id"),
+          body: JSON.stringify({ textQuery, pageSize: 3, languageCode: "zh-CN", ...(regionCode ? { regionCode } : {}) }),
+        });
+        await reportCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", searchResponse.status, call.rate, searchResponse, call.reservationId);
+      } catch (error) {
+        await reportCall(operation, "PLACES_TEXT_SEARCH_ID_ONLY", 0, call.rate, undefined, call.reservationId);
+        throw error;
+      }
       const searchPayload = await searchResponse.json() as { places?: Array<{ id?: string }>; error?: { message?: string } };
       searchError = searchPayload.error?.message || searchError;
       return (searchPayload.places || []).map((item) => item.id || "").filter(Boolean).slice(0, 3);
@@ -1290,8 +1332,12 @@ export async function collectGooglePlaceEvidence(input: {
     // the higher tier for every result returned by text search.
     const baseIdentityFields = "id,displayName,formattedAddress,businessStatus,types,primaryType,primaryTypeDisplayName,googleMapsUri";
     const contactFields = "id,internationalPhoneNumber,nationalPhoneNumber,websiteUri";
+    const paidCandidateIds = new Set<string>();
+    const maxPaidCandidates = maxPaidDetailCallsPerCustomer;
     let details: PlaceDetail[] = [];
     for (const candidateId of candidateIds) {
+      if (paidCandidateIds.size >= 1) break;
+      paidCandidateIds.add(candidateId);
       const detail = await readDetail(candidateId, baseIdentityFields);
       if (!detail) continue;
       details.push(detail);
@@ -1378,6 +1424,8 @@ export async function collectGooglePlaceEvidence(input: {
           .filter((id) => id && !known.has(id));
         const fallbackDetails: PlaceDetail[] = [];
         for (const id of fallbackIds) {
+          if (paidCandidateIds.size >= maxPaidCandidates) break;
+          paidCandidateIds.add(id);
           const detail = await readDetail(id, baseIdentityFields);
           if (!detail) continue;
           fallbackDetails.push(detail);
@@ -1400,18 +1448,23 @@ export async function collectGooglePlaceEvidence(input: {
       || (baseRunnerUp && baseTop.score - baseRunnerUp.score < 15)
       || (input.phone && baseTop.addressSimilarity < 0.72)
     ));
-    if (needsContactDisambiguation) {
-      const candidateContacts = (await Promise.all(scored.slice(0, 2).map(async (candidate) => {
-        if (!candidate.item.id) return null;
-        const contact = await readDetail(candidate.item.id, contactFields);
-        return contact ? { id: candidate.item.id, contact } : null;
-      }))).filter((entry): entry is { id: string; contact: PlaceDetail } => Boolean(entry));
+    if (needsContactDisambiguation && scored[0]?.item.id) {
+      const candidateContacts: Array<{ id: string; contact: PlaceDetail }> = [];
+      const firstContact = await readDetail(scored[0].item.id, contactFields);
+      if (firstContact) candidateContacts.push({ id: scored[0].item.id, contact: firstContact });
       if (candidateContacts.length) {
-        details = details.map((detail) => ({
-          ...detail,
-          ...(candidateContacts.find((entry) => entry.id === detail.id)?.contact || {}),
-        }));
+        details = details.map((detail) => ({ ...detail, ...(candidateContacts.find((entry) => entry.id === detail.id)?.contact || {}) }));
         scored = scoreDetails(details);
+      }
+      const refreshedTop = scored[0];
+      const refreshedRunnerUp = scored[1];
+      const stillAmbiguous = Boolean(refreshedRunnerUp && refreshedTop.score < 70 && refreshedTop.score - refreshedRunnerUp.score < 15);
+      if (stillAmbiguous && refreshedRunnerUp.item.id) {
+        const runnerUpContact = await readDetail(refreshedRunnerUp.item.id, contactFields);
+        if (runnerUpContact) {
+          details = details.map((detail) => detail.id === refreshedRunnerUp.item.id ? { ...detail, ...runnerUpContact } : detail);
+          scored = scoreDetails(details);
+        }
       }
     }
     let top = scored[0]; const runnerUp = scored[1];
@@ -1426,11 +1479,7 @@ export async function collectGooglePlaceEvidence(input: {
     const needsBusinessClarification = googlePlaceNeedsBusinessClarification([
       top.item.displayName?.text || "", top.item.primaryTypeDisplayName?.text || "", top.item.primaryType || "", ...(top.item.types || []),
     ], top.score, [input.company_name, input.category_hint, input.industry_hint].filter(Boolean).join(" "));
-    const needsContactCompletion = Boolean(top.item.id && (
-      (!input.phone && !top.item.internationalPhoneNumber && !top.item.nationalPhoneNumber)
-      || (!input.website && !top.item.websiteUri)
-    ));
-    if (top.item.id && (needsBusinessClarification || needsContactCompletion)) {
+    if (top.item.id && needsBusinessClarification) {
       const enrichmentFields = [
         "id", "internationalPhoneNumber", "nationalPhoneNumber", "websiteUri",
         ...(needsBusinessClarification ? ["rating", "userRatingCount", "regularOpeningHours"] : []),
@@ -1494,10 +1543,17 @@ export async function collectGooglePlaceEvidence(input: {
       match_signals: top.matchSignals,
       mismatch_signals: top.mismatchSignals,
       verified_google_maps_url: result.googleMapsUri || (result.id ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(result.id)}` : input.google_url || undefined),
+      error: paidDetailLimitReached ? `已达到单客户${maxPaidDetailCallsPerCustomer}次付费Place Details上限，系统停止继续付费取证。` : undefined,
     };
     return evidence;
   } catch (error) {
-    return { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: error instanceof Error ? error.message : "Google商家读取失败" };
+    const message = error instanceof Error ? error.message : "Google商家读取失败";
+    if (message.includes("GOOGLE_PLACES_COST_BUDGET_EXCEEDED")) {
+      return publicEvidence
+        ? { ...publicEvidence, error: "Google Places付费费用已达到管理员设定上限；已保留免费公开页证据并停止付费调用。" }
+        : { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: "Google Places付费费用已达到管理员设定上限；本次仅使用其他免费渠道继续分析。" };
+    }
+    return publicEvidence || { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: message };
   } finally {
     request.clear();
   }

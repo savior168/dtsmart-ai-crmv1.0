@@ -38,7 +38,23 @@ export async function GET(request: NextRequest) {
     const owners = ownerIds.length ? await admin.from("users").select("id,name,email").in("id", ownerIds) : { data: [], error: null };
     if (owners.error) throw owners.error;
     const ownerById = new Map((owners.data || []).map((owner) => [owner.id, owner]));
-    const taskRows = (result.data || []).map((task) => ({ ...task, owner: ownerById.get(task.user_id) || null }));
+    const pageTaskIds = (result.data || []).map((task) => String(task.id));
+    const googleCostByTask = new Map<string, number>();
+    if (pageTaskIds.length) {
+      for (let offset = 0; ; offset += 1000) {
+        const googleCosts = await admin.from("api_cost_ledger").select("task_id,amount_usd").eq("provider", "GOOGLE_PLACES").in("task_id", pageTaskIds).range(offset, offset + 999);
+        if (googleCosts.error) throw googleCosts.error;
+        for (const row of googleCosts.data || []) {
+          const taskId = String(row.task_id || "");
+          if (taskId) googleCostByTask.set(taskId, (googleCostByTask.get(taskId) || 0) + Number(row.amount_usd || 0));
+        }
+        if ((googleCosts.data || []).length < 1000) break;
+      }
+    }
+    const taskRows = (result.data || []).map((task) => {
+      const google_places_cost_usd = googleCostByTask.get(String(task.id)) || 0;
+      return { ...task, owner: ownerById.get(task.user_id) || null, google_places_cost_usd, third_party_cost_usd: Number(task.total_cost_usd || 0) + google_places_cost_usd };
+    });
     const all: Array<{ id: string; status: string; total_count: number; success_count: number; failed_count: number; total_tokens: number; total_cost_usd: number; created_at: string }> = [];
     for (let offset = 0; ; offset += 1000) {
       let statsQuery = admin.from("ai_screening_tasks")
@@ -117,6 +133,9 @@ export async function GET(request: NextRequest) {
     if (pendingCustomers.error) throw pendingCustomers.error;
     if (todayCompleted.error) throw todayCompleted.error;
     const pendingCustomerCount = pendingCustomers.count || 0;
+    const historical = await admin.rpc("ai_screening_historical_cost_summary", { p_user_id: scopeUserId || null });
+    if (historical.error) throw historical.error;
+    const historicalSummary = (historical.data || {}) as Record<string, unknown>;
     return NextResponse.json({
       data: taskRows, count: result.count || 0, counts, show_owner: account.role !== "SALES",
       pending_customers: pendingCustomerCount,
@@ -124,6 +143,12 @@ export async function GET(request: NextRequest) {
       today_completed_customers: todayCompleted.count || 0,
       today_failed_customers: todayFailedCount,
       retry_customers: retryableCount,
+      historical_summary: {
+        processed_customers: Number(historicalSummary.processed_customers || 0),
+        total_third_party_cost_usd: Number(historicalSummary.total_third_party_cost_usd || 0),
+        average_cost_per_customer_usd: Number(historicalSummary.average_cost_per_customer_usd || 0),
+        provider_costs: historicalSummary.provider_costs || {},
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务列表查询失败";

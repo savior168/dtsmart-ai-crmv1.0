@@ -50,18 +50,34 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     const task = await ownedTask(id, account);
     const admin = createAdminClient();
     let googlePlacesCallCount = 0;
+    const googlePlacesSkuBreakdown: Record<string, { count: number; amount_usd: number }> = {};
     for (let offset = 0; ; offset += 1000) {
       const ledger = await admin.from("api_cost_ledger")
-        .select("quantity")
+        .select("quantity,model_or_sku,amount_usd")
         .eq("task_id", id)
         .eq("provider", "GOOGLE_PLACES")
         .range(offset, offset + 999);
       if (ledger.error) throw ledger.error;
       const rows = ledger.data || [];
-      googlePlacesCallCount += rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
+      for (const row of rows) {
+        const quantity = Math.max(0, Number(row.quantity || 1));
+        const sku = String(row.model_or_sku || "HISTORICAL_UNCLASSIFIED");
+        googlePlacesCallCount += quantity;
+        const current = googlePlacesSkuBreakdown[sku] || { count: 0, amount_usd: 0 };
+        current.count += quantity;
+        current.amount_usd = Number((current.amount_usd + Number(row.amount_usd || 0)).toFixed(6));
+        googlePlacesSkuBreakdown[sku] = current;
+      }
       if (rows.length < 1000) break;
     }
-    return NextResponse.json({ task: { ...task, google_places_call_count: googlePlacesCallCount } });
+    const budgetEvents = await admin.from("api_cost_budget_events").select("provider,blocked_period").eq("task_id", id);
+    if (budgetEvents.error && budgetEvents.error.code !== "42P01") throw budgetEvents.error;
+    const paidApiBudgetBlocks = (budgetEvents.data || []).reduce((all, row) => {
+      const key = `${row.provider}:${row.blocked_period}`;
+      all[key] = (all[key] || 0) + 1;
+      return all;
+    }, {} as Record<string, number>);
+    return NextResponse.json({ task: { ...task, google_places_call_count: googlePlacesCallCount, google_places_sku_breakdown: googlePlacesSkuBreakdown, paid_api_budget_blocks: paidApiBudgetBlocks } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务查询失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 404 });

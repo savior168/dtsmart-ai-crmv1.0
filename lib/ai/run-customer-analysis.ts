@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createAdminClient } from "../supabase/admin";
+import { budgetExceededMessage, releaseApiCostBudget, reserveApiCostBudget } from "../api-cost-budget";
 import {
   analyzeCustomer,
   groundCustomerAnalysis,
@@ -13,6 +14,7 @@ import {
 import {
   collectDeepWebsiteEvidence,
   collectGooglePlaceEvidence,
+  collectPublicGooglePlaceEvidence,
   collectPublicPageEvidence,
   discoverPublicBusinessUrls,
   type CustomerEvidence,
@@ -117,6 +119,7 @@ async function recordStage(input: {
   taskId: string;
   taskItemId: string;
   customerId: string;
+  userId?: string | null;
   stage: PipelineStage;
   startedAt: number;
   status?: "COMPLETED" | "WARNING";
@@ -1750,7 +1753,9 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
     const evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
-        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id, category_hint: customer.category, industry_hint: customer.industry }, { signal, timeoutMs: 12_000, onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable},metadata:{http_status:call.status},occurred_at:new Date().toISOString()})} })
+        ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id, category_hint: customer.category, industry_hint: customer.industry }, { signal, timeoutMs: 12_000,
+          onBeforeApiCall: async(call)=>{const reservation=await reserveApiCostBudget("GOOGLE_PLACES",call.unitPriceUsd,{userId:costContext?.userId,customerId:costContext?.customerId||customer.id,taskId:costContext?.taskId,operation:call.operation});return {allowed:reservation.allowed,reservationId:reservation.reservationId}},
+          onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;const written=await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable,pricing_configured:call.priceSource==="ENV"},metadata:{http_status:call.status},occurred_at:new Date().toISOString()});if(written.error)throw written.error;await releaseApiCostBudget(call.reservationId)} })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
@@ -1826,6 +1831,7 @@ async function analyzeWithRecovery(input: {
   taskId: string;
   taskItemId: string;
   customerId: string;
+  userId?: string | null;
   attemptNumber: number;
   customer: CustomerRow;
   records: ChannelRecord[];
@@ -1845,18 +1851,32 @@ async function analyzeWithRecovery(input: {
     evidence: evidenceForModel(input.records, input.tier),
   };
   const primaryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 40_000;
+  const reserved = await reserveApiCostBudget("OPENAI", Number(process.env.OPENAI_MAX_RESERVED_USD_PER_CALL || 0.15), {
+    userId: input.userId, customerId: input.customerId, taskId: input.taskId, operation: `客户分析-${input.tier}`,
+  });
+  if (!reserved.allowed) return { analysis: null, requestCount: 0, budgetExceeded: budgetExceededMessage("OPENAI", reserved) };
+  let costRecorded = false;
   const run = async (channel: string, timeoutMs: number) => {
     const startedAt = Date.now();
+    let result: Awaited<ReturnType<typeof analyzeCustomer>>;
     try {
-      const result = await analyzeCustomer(modelInput, { signal: input.signal, timeoutMs, tier: input.tier });
-      await saveModelCall({ ...input, channel, startedAt, usage: result.usage, status: "COMPLETED" });
-      return result;
+      result = await analyzeCustomer(modelInput, { signal: input.signal, timeoutMs, tier: input.tier });
     } catch (error) {
       await saveModelCall({ ...input, channel, startedAt, status: "FAILED", error });
+      costRecorded = true;
       throw error;
     }
+    await saveModelCall({ ...input, channel, startedAt, usage: result.usage, status: "COMPLETED" });
+    costRecorded = true;
+    return result;
   };
-  return { analysis: await run("all_available_sources", primaryTimeout), requestCount: 1 };
+  try {
+    return { analysis: await run("all_available_sources", primaryTimeout), requestCount: 1, budgetExceeded: null };
+  } finally {
+    // If audit persistence fails, keep the short-lived reservation active so
+    // concurrent workers cannot spend against a call missing from the ledger.
+    if (costRecorded) await releaseApiCostBudget(reserved.reservationId);
+  }
 }
 
 async function saveVerifiedContacts(input: { taskId: string; resultId: string; customer: CustomerRow; contacts: ContactCandidate[]; preferred?: ContactCandidate | null }) {
@@ -2114,6 +2134,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
 
     if (!isConclusiveChannelAnalysis(stagedAnalysis)
+        && hasTargetValueSignal(customer, records)
         && !records.some((item) => item.channel === "google_maps" && ["COLLECTED", "SKIPPED"].includes(item.status))) {
       const googleRecord = await collectChannel(customer, "google_maps", analysisController.signal, costContext);
       records.push(googleRecord);
@@ -2189,11 +2210,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         } else {
           const remainingModelCalls = maxModelCalls - modelRequestCount;
           if (remainingModelCalls > 0) {
-            const outcome = await analyzeWithRecovery({ ...input, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation" });
-            analysis = outcome.analysis;
-            modelRequestCount += outcome.requestCount;
-            usage = addUsage(usage, analysis.usage);
-            earlyStopReason = "规则无法直接判断时，由高精度模型综合一次全部已采集且通过主体校验的证据。";
+            const outcome = await analyzeWithRecovery({ ...input, userId: costContext.userId, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation" });
+            if (outcome.analysis) {
+              analysis = outcome.analysis;
+              modelRequestCount += outcome.requestCount;
+              usage = addUsage(usage, analysis.usage);
+              earlyStopReason = "规则无法直接判断时，由高精度模型综合一次全部已采集且通过主体校验的证据。";
+            } else {
+              analysis = deterministicAnalysis(customer, records) || insufficientDataAnalysis(customer, records);
+              earlyStopReason = "OpenAI费用已达到管理员设定上限，本客户未调用付费模型，继续依据已采集公开证据和规则完成判断。";
+            }
           } else if (!analysis) {
             analysis = insufficientDataAnalysis(customer, records);
             earlyStopReason = "已达到本客户模型调用上限，依据已取得的真实证据形成低相关结论，不进入等待或重复重试。";
@@ -2218,6 +2244,13 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         || (primaryIndustryFor(analysis.industry_type) !== "UNKNOWN" && (analysis.ai_score ?? 0) < 60));
     if (needsEscalation) {
       const callStarted = Date.now();
+      const reserved = await reserveApiCostBudget("OPENAI", Number(process.env.OPENAI_MAX_RESERVED_USD_PER_CALL || 0.15), {
+        userId: costContext.userId, customerId: input.customerId, taskId: input.taskId, operation: "客户分析-final_escalation",
+      });
+      if (!reserved.allowed) {
+        earlyStopReason = "OpenAI费用已达到管理员设定上限，未调用最终付费复核；按已取得的真实证据完成判断。";
+      } else {
+      let escalationCostRecorded = false;
       try {
         const escalated = await analyzeCustomer({
           customer_name: customer.company_name, country: customer.country, website: effectiveWebsite(customer),
@@ -2227,12 +2260,17 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
           evidence: evidenceForModel(records, "escalation"),
         }, { signal: analysisController.signal, timeoutMs: 45_000, tier: "escalation" });
         await saveModelCall({ ...input, channel: "final_escalation", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, usage: escalated.usage, status: "COMPLETED" });
+        escalationCostRecorded = true;
         modelRequestCount += 1;
         usage = addUsage(usage, escalated.usage);
         analysis = escalated;
       } catch (error) {
         await saveModelCall({ ...input, channel: "final_escalation", attemptNumber: input.attemptNumber || 1, startedAt: callStarted, status: "FAILED", error });
+        escalationCostRecorded = true;
         if (input.strategy === "DEEP" && analysis.confidence_score < 60) throw error;
+      } finally {
+        if (escalationCostRecorded) await releaseApiCostBudget(reserved.reservationId);
+      }
       }
     }
     await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "MODEL_COMPLETED", startedAt: started, details: { model_calls: usage.model_calls, total_tokens: usage.total_tokens } });
@@ -2711,8 +2749,15 @@ async function collectLocatedPublicEvidence(input: {
     // several complete Places chains in parallel for one customer.
     for (const { url } of googleUrls) {
       try {
-        const record = await collectChannel({ ...input.customer, google_url: url }, "google_maps", input.signal, input.costContext);
-        const google = record.evidence as GooglePlaceEvidence | undefined;
+        const google = await collectPublicGooglePlaceEvidence({
+          company_name: input.customer.company_name,
+          country: input.customer.country,
+          address: input.customer.address,
+          phone: input.customer.phone,
+          website: effectiveWebsite(input.customer),
+          google_url: url,
+        }, { signal: input.signal, timeoutMs: 4_500 });
+        const record: ChannelRecord = { channel: "google_maps", status: google ? "COLLECTED" : "FAILED", source_url: url, evidence: google, error: google?.error || null };
         if (record.status === "COLLECTED" && google?.identity_status === "MATCHED"
             && Number(google.identity_confidence || 0) >= 70) {
           acceptedGoogle.push(record);
