@@ -33,7 +33,7 @@ export function StrategyBadge({ strategy }: { strategy: string }) {
 
 export function CostModeBadge({ mode }: { mode?: string | null }) {
   const freeOnly = mode === "FREE_ONLY";
-  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{freeOnly ? "免费分析（零API费用）" : "智能分析（高性价比）"}</span>;
+  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{freeOnly ? "快速分析（完全免费）" : "智能分析（高性价比）"}</span>;
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description: ReactNode; actions?: ReactNode }) {

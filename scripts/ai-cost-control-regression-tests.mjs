@@ -12,7 +12,7 @@ const taskCenter = source("components/ai-screening/task-center-view.tsx");
 const costCenter = source("components/cost-center-view.tsx");
 
 assert.match(createView, /智能分析（高性价比）/);
-assert.match(createView, /免费分析（零API费用）/);
+assert.match(createView, /快速分析（完全免费）/);
 assert.match(createView, /cost_mode:\s*costMode/);
 assert.match(taskApi, /AI_COST_MODES\.includes/);
 assert.match(taskApi, /task_cost_limit_usd:\s*taskCostLimit/);

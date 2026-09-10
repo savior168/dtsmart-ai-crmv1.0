@@ -9,7 +9,7 @@ export type AiCostMode = (typeof AI_COST_MODES)[number];
 
 export const AI_COST_MODE_LABELS: Record<AiCostMode, string> = {
   ADAPTIVE: "智能分析（高性价比）",
-  FREE_ONLY: "免费分析（零API费用）",
+  FREE_ONLY: "快速分析（完全免费）",
 };
 
 export const AI_STRATEGY_LABELS: Record<AiStrategy, string> = {
