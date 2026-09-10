@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { start } from "workflow/api";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
-import { AI_COST_MODES, type AiCostMode } from "@/lib/ai/task-types";
+import { AI_COST_MODES, AI_EXECUTION_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
+import { dispatchAiScreeningTask, rescueStalledAutomaticTasks } from "@/lib/ai/task-dispatch";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -28,6 +27,13 @@ export async function GET(request: NextRequest) {
     const to = params.get("date_to") || "";
     const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
+    try {
+      await rescueStalledAutomaticTasks();
+    } catch (rescueError) {
+      // Fallback dispatch is best-effort. A temporary Workflow or database
+      // monitoring failure must not make the task list itself unavailable.
+      console.error("AI task fallback dispatch failed", rescueError);
+    }
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).is("archived_at", null);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);
     if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
@@ -193,7 +199,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as {
       name?: string; strategy?: string; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
-      cost_mode?: string; task_cost_limit_usd?: unknown;
+      cost_mode?: string; task_cost_limit_usd?: unknown; execution_mode?: string;
     };
     const name = body.name?.trim();
     // The product exposes one adaptive mode. Keep SMART as the stored legacy
@@ -203,6 +209,8 @@ export async function POST(request: NextRequest) {
     const costMode: AiCostMode = AI_COST_MODES.includes(body.cost_mode as AiCostMode)
       ? body.cost_mode as AiCostMode
       : "ADAPTIVE";
+    const executionMode: AiExecutionMode = AI_EXECUTION_MODES.includes(body.execution_mode as AiExecutionMode)
+      ? body.execution_mode as AiExecutionMode : "AUTO";
     const rawTaskLimit = body.task_cost_limit_usd;
     const taskCostLimit = costMode === "FREE_ONLY"
       ? 0
@@ -247,6 +255,7 @@ export async function POST(request: NextRequest) {
       request_key: requestKey,
       cost_mode: costMode,
       task_cost_limit_usd: taskCostLimit,
+      execution_mode: executionMode,
     }).select("*").single();
     if (task.error || !task.data) throw task.error || new Error("任务创建失败");
     const rows = eligibleIds.map((customerId) => ({
@@ -256,10 +265,9 @@ export async function POST(request: NextRequest) {
       const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
       if (inserted.error) throw inserted.error;
     }
-    const run = await start(aiScreeningWorkflow, [{ taskId: task.data.id, strategy, scheduledAt }]);
-    await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", task.data.id);
-    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length } });
-    return NextResponse.json({ task: { ...task.data, workflow_run_id: run.runId } }, { status: 201 });
+    const dispatch = await dispatchAiScreeningTask({ taskId: task.data.id, strategy, scheduledAt, executionMode });
+    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, execution_mode: executionMode, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length } });
+    return NextResponse.json({ task: { ...task.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务创建失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

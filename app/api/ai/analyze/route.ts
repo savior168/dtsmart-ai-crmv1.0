@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { start } from "workflow/api";
 import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { aiScreeningWorkflow } from "@/workflows/ai-screening";
+import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 
 export const runtime = "nodejs";
 
@@ -44,6 +43,7 @@ export async function POST(request: NextRequest) {
       total_count: 1, pending_count: 1,
       filters: { source: "SAVE_AND_SCREEN", customer_id: visible.data.id },
       selection_mode: "MANUAL", notification_mode: "IN_APP",
+      execution_mode: "AUTO",
     }).select("*").single();
     if (task.error || !task.data) throw task.error || new Error("AI筛选任务创建失败");
     const item = await admin.from("ai_screening_task_items").insert({
@@ -52,9 +52,7 @@ export async function POST(request: NextRequest) {
       strategy: "SMART", strategy_version: "1.0",
     });
     if (item.error) throw item.error;
-    const run = await start(aiScreeningWorkflow, [{ taskId: task.data.id, strategy: "SMART", scheduledAt: null }]);
-    const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", task.data.id);
-    if (linked.error) throw linked.error;
+    await dispatchAiScreeningTask({ taskId: task.data.id, strategy: "SMART", scheduledAt: null, executionMode: "AUTO" });
     return NextResponse.json({ task_id: task.data.id, task_number: number, status: "QUEUED" }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选任务创建失败";

@@ -1,8 +1,8 @@
 import { sleep } from "workflow";
 import { createAdminClient } from "../lib/supabase/admin";
-import { runCustomerAnalysis, publicAiError } from "../lib/ai/run-customer-analysis";
 import type { AiStrategy } from "../lib/ai/task-types";
 import { normalizeError } from "../lib/ai/error-normalization";
+import { executeClaimedAiTaskItem } from "../lib/ai/task-item-executor";
 
 type WorkflowInput = {
   taskId: string;
@@ -106,60 +106,26 @@ async function hasPendingItems(taskId: string) {
 
 async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrategy) {
   "use step";
-  const startedAt = Date.now();
   const admin = createAdminClient();
-  const claim = await withTransientFetchRetry(() => admin.from("ai_screening_task_items").update({
-    status: "RUNNING", analysis_status: "RUNNING", writeback_status: "PENDING",
-    progress: 5, current_step: "COLLECTING_EVIDENCE", pipeline_stage: "COLLECTING_EVIDENCE",
-    started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-  }).eq("id", itemId).in("status", ["PENDING", "FAILED"]).select("id,customer_id,attempt_count").maybeSingle());
+  const executorId = `vercel:${taskId}`;
+  const claim = await withTransientFetchRetry(() => admin.rpc("claim_ai_screening_task_item", {
+    p_task_id: taskId, p_item_id: itemId, p_executor_type: "VERCEL_WORKFLOW",
+    p_executor_id: executorId, p_lease_seconds: 1800,
+  }));
   if (claim.error) throw claim.error;
-  if (!claim.data) return { status: "SKIPPED" as const };
-  const claimedItem = claim.data;
-  const attemptWrite = await withTransientFetchRetry(() => admin.from("ai_screening_task_items").update({ attempt_count: Number(claimedItem.attempt_count || 0) + 1 }).eq("id", itemId));
-  if (attemptWrite.error) throw attemptWrite.error;
+  const claimedItem = Array.isArray(claim.data) ? claim.data[0] : null;
+  if (!claimedItem) return { status: "SKIPPED" as const };
   try {
-    return await runCustomerAnalysis({
+    return await executeClaimedAiTaskItem({
       taskId, taskItemId: itemId, customerId: claimedItem.customer_id, strategy,
-      attemptNumber: Number(claimedItem.attempt_count || 0) + 1,
+      attemptNumber: Number(claimedItem.attempt_number || 1), leaseToken: claimedItem.lease_token,
+    }, {
+      executorId, leaseToken: claimedItem.lease_token,
     });
-  } catch (error) {
-    const raw = error instanceof Error ? error.message : String(error || "");
-    if (raw.includes("OPENAI_NOT_CONFIGURED") || /OPENAI_API_ERROR:\s*(401|403)\b/.test(raw)) throw error;
-    const durable = await admin.from("ai_screening_task_items")
-      .select("analysis_status,writeback_status,result_id")
-      .eq("id", itemId)
-      .maybeSingle();
-    if (durable.error) throw durable.error;
-    if (durable.data?.analysis_status === "COMPLETED" && durable.data?.writeback_status === "COMPLETED" && durable.data?.result_id) {
-      const warning = normalizeError(error, { stage: "POST_ANALYSIS_WRITEBACK", attemptNumber: Number(claimedItem.attempt_count || 0) + 1, durationMs: Date.now() - startedAt });
-      const writeback = await admin.from("ai_screening_task_items").update({
-        status: "COMPLETED",
-        analysis_status: "COMPLETED",
-        writeback_status: "WARNING",
-        current_step: "COMPLETED_WITH_WRITEBACK_WARNING",
-        error_context: { writeback_warnings: [warning] },
-        writeback_warning_count: 1,
-        duration_ms: Date.now() - startedAt,
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq("id", itemId);
-      if (writeback.error) throw writeback.error;
-      await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: taskId });
-      return { status: "COMPLETED" as const, writebackWarning: warning };
-    }
-    const failure = publicAiError(error);
-    const normalized = normalizeError(error, { stage: "ANALYSIS", attemptNumber: Number(claimedItem.attempt_count || 0) + 1, durationMs: Date.now() - startedAt });
-    await admin.from("ai_screening_task_items").update({
-      status: "FAILED", analysis_status: "FAILED", writeback_status: "NOT_STARTED",
-      automation_status: "ANALYSIS_FAILED", progress: 100, current_step: "FAILED", pipeline_stage: "FAILED", error_code: failure.code,
-      error_message: failure.message, retryable: true,
-      error_context: normalized,
-      duration_ms: Date.now() - startedAt,
-      completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-    }).eq("id", itemId);
-    await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: taskId });
-    return { status: "FAILED" as const, error: failure };
+  } finally {
+    await admin.rpc("release_ai_screening_item_lease", {
+      p_item_id: itemId, p_lease_token: claimedItem.lease_token, p_executor_id: executorId,
+    });
   }
 }
 analyzeTaskItem.maxRetries = 0;

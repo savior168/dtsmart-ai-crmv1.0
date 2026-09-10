@@ -16,13 +16,19 @@ export async function GET() {
   try {
     await requirePermission("ai.settings.manage");
     const admin = createAdminClient();
-    const [settings, budgets] = await Promise.all([
+    const [settings, budgets, workers] = await Promise.all([
       admin.from("cost_center_settings").select("updated_at,google_paid_enabled,openai_paid_enabled,google_max_paid_calls_per_customer,openai_max_paid_calls_per_customer,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd").eq("id", true).single(),
       admin.rpc("api_cost_budget_status"),
+      admin.from("ai_worker_nodes").select("worker_id,display_name,host_name,worker_version,status,concurrency,active_count,last_heartbeat_at,started_at,metadata").order("last_heartbeat_at", { ascending: false }),
     ]);
     if (settings.error) throw settings.error;
     if (budgets.error) throw budgets.error;
-    return NextResponse.json({ settings: settings.data, budgets: budgets.data || {} });
+    if (workers.error) throw workers.error;
+    const now = Date.now();
+    return NextResponse.json({ settings: settings.data, budgets: budgets.data || {}, workers: (workers.data || []).map((worker) => ({
+      ...worker,
+      healthy: worker.status === "ONLINE" && now - new Date(worker.last_heartbeat_at).getTime() <= 45_000,
+    })) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选设置加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

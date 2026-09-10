@@ -45,7 +45,7 @@ const customerListProjection = customerApi.match(/const customerListFields = \[(
 assert.doesNotMatch(customerListProjection, /"followup_status"/, "兼容迁移未上线时，客户列表不得强制请求可选 followup_status 列");
 
 const aiApi = read("app/api/ai/analyze/route.ts");
-assert.match(aiApi, /start\(aiScreeningWorkflow/, "保存并筛选必须进入持久化AI任务，不能绕过证据与写回流程");
+assert.match(aiApi, /dispatchAiScreeningTask/, "保存并筛选必须进入持久化混合调度任务，不能绕过证据与写回流程");
 assert.match(aiApi, /ai_screening_task_items/, "兼容分析接口必须创建可追踪的任务客户记录");
 assert.doesNotMatch(aiApi, /OPENAI_API_KEY[^\n]*(NEXT_PUBLIC|return|json)/i, "服务端密钥不能返回前端");
 
@@ -116,10 +116,10 @@ const taskActionApi = read("app/api/ai/tasks/[id]/route.ts");
 assert.match(taskActionApi, /requestedCustomerIds[\s\S]*historicalInvalidIds[\s\S]*已阻止混入复验任务/, "历史无效客户复验必须支持精确子集并阻止混入非历史无效客户");
 assert.match(taskActionApi, /getRun[\s\S]*run\.cancel\(\)/, "停止任务必须真实取消当前持久工作流运行");
 assert.match(taskActionApi, /status: "PAUSED"[\s\S]*elapsed_ms:/, "停止任务必须落为已停止并保存累计耗时");
-assert.match(taskActionApi, /action === "resume"[\s\S]*start\(aiScreeningWorkflow/, "继续执行必须启动新的持久工作流处理剩余项");
+assert.match(taskActionApi, /action === "resume"[\s\S]*dispatchAiScreeningTask/, "继续执行必须重新进入持久化混合调度处理剩余项");
 assert.match(workflow, /fetch failed/, "瞬时网络失败必须有明确识别规则");
 assert.match(workflow, /async function taskState[\s\S]*withTransientFetchRetry/, "任务状态读取必须有限重试瞬时网络失败，不能让单次fetch抖动终止整批任务");
-assert.match(workflow, /const claim = await withTransientFetchRetry[\s\S]*const attemptWrite = await withTransientFetchRetry[\s\S]*attemptWrite\.error/, "客户领取与尝试次数写入必须有限重试瞬时网络失败并检查数据库错误");
+assert.match(workflow, /const claim = await withTransientFetchRetry[\s\S]*claim_ai_screening_task_item[\s\S]*claim\.error/, "客户领取与尝试次数必须由可重试的原子数据库租约完成并检查错误");
 assert.match(workflow, /async function nextPendingItems[\s\S]*withTransientFetchRetry/, "领取下一批客户的控制查询必须有限重试瞬时网络失败");
 assert.match(taskActionApi, /task\.user_id !== user\.id && account\.role !== "ADMIN"/, "整任务复核必须只允许任务创建者或系统管理员发起");
 assert.match(taskActionApi, /action === "reanalyze"[\s\S]*getReservedAiCustomerIds[\s\S]*reanalysis_source_task_id[\s\S]*AI_TASK_REANALYZE/, "整任务复核必须保留原结果、阻止并发冲突并写入审计日志");

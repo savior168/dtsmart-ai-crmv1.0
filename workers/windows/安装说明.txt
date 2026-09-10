@@ -1,0 +1,24 @@
+DT Smart AI 本地 Worker（Windows x64）
+
+安装前提
+1. 网站已部署包含“混合执行器”的版本，数据库迁移 202609100005 已完成。
+2. 目标主机网络可访问 Supabase、客户公开网站，以及所启用的 OpenAI/Google API。
+
+安装
+1. 将整个压缩包解压到 192.168.0.7 的本地磁盘。
+2. 双击“安装本地Worker.cmd”，同意管理员权限。
+3. 首次安装会打开 worker.env。填写 NEXT_PUBLIC_SUPABASE_URL 和 SUPABASE_SERVICE_ROLE_KEY；如需智能付费补证，再填写 OPENAI_API_KEY、GOOGLE_MAPS_API_KEY。
+4. 保存并关闭记事本，安装程序会注册开机自启任务并立即启动。
+5. 在系统“AI筛选设置 → 任务执行节点”确认该主机显示“在线”。
+
+运行策略
+- 默认 AUTO 动态并发：依据 CPU 和可用内存自动在 2 至安全上限间调节。
+- 断网或接口暂时不可用会自动退避，网络恢复后继续。
+- Windows 启动时自动运行；异常退出 5 秒后由守护脚本重启，计划任务另有失败重启保护。
+- Supabase 租约令牌会阻止本地与 Vercel 对同一客户重复执行、重复写回和重复产生付费调用。
+
+日志
+C:\ProgramData\DTSmart\AIWorker\logs
+
+卸载
+双击“卸载本地Worker.cmd”。卸载会停止任务并移除开机启动，保留程序、配置和日志用于审计；需要时再人工删除 C:\ProgramData\DTSmart\AIWorker。

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRun, start } from "workflow/api";
+import { getRun } from "workflow/api";
 import { hasPermission, requirePermission, type CurrentAccount } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { aiScreeningWorkflow } from "@/workflows/ai-screening";
-import type { AiStrategy } from "@/lib/ai/task-types";
+import type { AiExecutionMode, AiStrategy } from "@/lib/ai/task-types";
+import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
 function taskNumber() {
@@ -145,9 +145,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       }
       const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, pause_started_at: null, completed_at: null, finished_at: null, error_message: null, updated_at: now }).eq("id", id);
       if (queued.error) throw queued.error;
-      const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);
-      const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", id);
-      if (linked.error) throw linked.error;
+      await dispatchAiScreeningTask({ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode });
     } else if (body.action === "retry") {
       if (!["FAILED", "COMPLETED"].includes(task.status)) return NextResponse.json({ error: "只有失败任务或含失败客户的已完成任务可以重试" }, { status: 409 });
       const failed = await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
@@ -173,9 +171,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: id });
       const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, finished_at: null, error_message: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);
       if (queued.error) throw queued.error;
-      const run = await start(aiScreeningWorkflow, [{ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null }]);
-      const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", id);
-      if (linked.error) throw linked.error;
+      await dispatchAiScreeningTask({ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode });
     } else if (body.action === "reanalyze_invalid") {
       const sourceTaskIds = [...new Set([id, ...(body.source_task_ids || [])].filter(Boolean))].slice(0, 10);
       const sourceTasks = [];
@@ -205,7 +201,6 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const reserved = await getReservedAiCustomerIds();
       const customerIds = eligibleIds.filter((customerId) => !reserved.has(customerId));
       if (!customerIds.length) return NextResponse.json({ error: "历史无效客户均已删除或正在其他任务中分析" }, { status: 409 });
-      const now = new Date().toISOString();
       const strategy = "SMART" as const;
       const created = await admin.from("ai_screening_tasks").insert({
         user_id: task.user_id,
@@ -221,6 +216,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         notification_mode: body.notification_mode || task.notification_mode || "IN_APP",
         cost_mode: task.cost_mode || "ADAPTIVE",
         task_cost_limit_usd: task.cost_mode === "FREE_ONLY" ? 0 : task.task_cost_limit_usd ?? null,
+        execution_mode: task.execution_mode || "AUTO",
       }).select("*").single();
       if (created.error || !created.data) throw created.error || new Error("无效客户复验任务创建失败");
       const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
@@ -229,11 +225,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
           const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
           if (inserted.error) throw inserted.error;
         }
-        const run = await start(aiScreeningWorkflow, [{ taskId: created.data.id, strategy, scheduledAt: null }]);
-        const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: now }).eq("id", created.data.id);
-        if (linked.error) throw linked.error;
+        const dispatch = await dispatchAiScreeningTask({ taskId: created.data.id, strategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode });
         await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_INVALID_RESULTS_REANALYZE", target_type: "ai_screening_task", target_id: created.data.id, content: { source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number), task_number: created.data.task_number, total_count: customerIds.length } });
-        return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: run.runId } }, { status: 201 });
+        return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
       } catch (error) {
         await admin.from("ai_screening_tasks").update({ status: "FAILED", error_message: error instanceof Error ? error.message.slice(0, 1000) : "无效客户复验任务启动失败", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", created.data.id);
         throw error;
@@ -247,7 +241,6 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const reserved = await getReservedAiCustomerIds();
       const conflicts = customerIds.filter((customerId) => reserved.has(customerId));
       if (conflicts.length) return NextResponse.json({ error: `有 ${conflicts.length} 条客户正在其他任务中分析，请完成后再执行全量复核` }, { status: 409 });
-      const now = new Date().toISOString();
       const strategy = "SMART" as const;
       const created = await admin.from("ai_screening_tasks").insert({
         user_id: task.user_id,
@@ -263,6 +256,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         notification_mode: task.notification_mode || "IN_APP",
         cost_mode: task.cost_mode || "ADAPTIVE",
         task_cost_limit_usd: task.cost_mode === "FREE_ONLY" ? 0 : task.task_cost_limit_usd ?? null,
+        execution_mode: task.execution_mode || "AUTO",
       }).select("*").single();
       if (created.error || !created.data) throw created.error || new Error("全量复核任务创建失败");
       const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
@@ -271,11 +265,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
           const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
           if (inserted.error) throw inserted.error;
         }
-        const run = await start(aiScreeningWorkflow, [{ taskId: created.data.id, strategy, scheduledAt: null }]);
-        const linked = await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: now }).eq("id", created.data.id);
-        if (linked.error) throw linked.error;
+        const dispatch = await dispatchAiScreeningTask({ taskId: created.data.id, strategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode });
         await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_REANALYZE", target_type: "ai_screening_task", target_id: created.data.id, content: { source_task_id: id, source_task_number: task.task_number, task_number: created.data.task_number, total_count: customerIds.length } });
-        return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: run.runId } }, { status: 201 });
+        return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
       } catch (error) {
         await admin.from("ai_screening_tasks").update({ status: "FAILED", error_message: error instanceof Error ? error.message.slice(0, 1000) : "全量复核任务启动失败", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", created.data.id);
         throw error;

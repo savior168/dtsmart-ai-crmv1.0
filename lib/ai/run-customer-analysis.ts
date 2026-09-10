@@ -1765,7 +1765,25 @@ export function channelUrl(customer: CustomerRow, channel: AiChannel): string | 
   return customer.other_public_urls?.[0] || null;
 }
 
-async function collectChannel(customer: CustomerRow, channel: AiChannel, signal: AbortSignal, costContext?:{taskId:string;customerId:string;userId:string|null}): Promise<ChannelRecord> {
+type ExecutionLease = { executorId: string; leaseToken: string };
+
+async function assertExecutionLease(taskItemId: string, lease?: ExecutionLease) {
+  if (!lease) return;
+  const admin = createAdminClient();
+  const current = await admin.from("ai_screening_task_items")
+    .select("lease_owner,lease_token,lease_expires_at,status,task:ai_screening_tasks!inner(status,cancel_requested)")
+    .eq("id", taskItemId)
+    .maybeSingle();
+  if (current.error) throw current.error;
+  const expiresAt = current.data?.lease_expires_at ? new Date(current.data.lease_expires_at).getTime() : 0;
+  const task = Array.isArray(current.data?.task) ? current.data.task[0] : current.data?.task;
+  if (!current.data || current.data.status !== "RUNNING" || !task || !["QUEUED", "RUNNING"].includes(String(task.status)) || Boolean(task.cancel_requested) || current.data.lease_owner !== lease.executorId
+    || current.data.lease_token !== lease.leaseToken || expiresAt <= Date.now()) {
+    throw new Error("AI_EXECUTION_LEASE_LOST");
+  }
+}
+
+async function collectChannel(customer: CustomerRow, channel: AiChannel, signal: AbortSignal, costContext?:{taskId:string;taskItemId:string;customerId:string;userId:string|null;executionLease?:ExecutionLease}): Promise<ChannelRecord> {
   const url = channelUrl(customer, channel);
   if (channel !== "google_maps" && !url) return { channel, status: "SKIPPED", source_url: null, error: "客户档案没有该渠道网址" };
   if (channel === "google_maps" && !customer.google_url && !customer.company_name) return { channel, status: "SKIPPED", error: "客户档案没有Google商家信息" };
@@ -1774,7 +1792,7 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
         ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id, category_hint: customer.category, industry_hint: customer.industry }, { signal, timeoutMs: 12_000,
-          onBeforeApiCall: async(call)=>{const reservation=await reserveApiCostBudget("GOOGLE_PLACES",call.unitPriceUsd,{userId:costContext?.userId,customerId:costContext?.customerId||customer.id,taskId:costContext?.taskId,operation:call.operation});return {allowed:reservation.allowed,reservationId:reservation.reservationId}},
+          onBeforeApiCall: async(call)=>{if(costContext)await assertExecutionLease(costContext.taskItemId,costContext.executionLease);const reservation=await reserveApiCostBudget("GOOGLE_PLACES",call.unitPriceUsd,{userId:costContext?.userId,customerId:costContext?.customerId||customer.id,taskId:costContext?.taskId,operation:call.operation});return {allowed:reservation.allowed,reservationId:reservation.reservationId}},
           onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;const written=await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable,pricing_configured:call.priceSource==="ENV"},metadata:{http_status:call.status},occurred_at:new Date().toISOString()});if(written.error)throw written.error;await releaseApiCostBudget(call.reservationId)} })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
@@ -1857,6 +1875,7 @@ async function analyzeWithRecovery(input: {
   records: ChannelRecord[];
   signal: AbortSignal;
   tier: "fast" | "deep" | "escalation";
+  executionLease?: ExecutionLease;
 }) {
   const modelInput = {
     customer_name: input.customer.company_name,
@@ -1871,6 +1890,7 @@ async function analyzeWithRecovery(input: {
     evidence: evidenceForModel(input.records, input.tier),
   };
   const primaryTimeout = input.tier === "escalation" ? 60_000 : input.tier === "deep" ? 60_000 : 40_000;
+  await assertExecutionLease(input.taskItemId, input.executionLease);
   const reserved = await reserveApiCostBudget("OPENAI", openAiBudgetReservationUsd(), {
     userId: input.userId, customerId: input.customerId, taskId: input.taskId, operation: `客户分析-${input.tier}`,
   });
@@ -1969,7 +1989,8 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
   }
 }
 
-async function completeFromReusableCache(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy }, customer: CustomerRow, cache: Record<string, unknown>, started: number) {
+async function completeFromReusableCache(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; executionLease?: ExecutionLease }, customer: CustomerRow, cache: Record<string, unknown>, started: number) {
+  await assertExecutionLease(input.taskItemId, input.executionLease);
   const admin = createAdminClient();
   const cachedResult = (cache.analysis_result && typeof cache.analysis_result === "object" ? cache.analysis_result : {}) as Record<string, unknown>;
   const cachedScoreValue = Number(cachedResult.score ?? cachedResult.ai_score);
@@ -2089,7 +2110,8 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   return { status: "COMPLETED" as const, resultId: resultWrite.data.id, reused: true };
 }
 
-export async function runCustomerAnalysis(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; attemptNumber?: number }) {
+export async function runCustomerAnalysis(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; attemptNumber?: number; executionLease?: ExecutionLease }) {
+  await assertExecutionLease(input.taskItemId, input.executionLease);
   const started = Date.now();
   // Do not impose one hard timeout on the whole customer. Each public source and
   // model call owns a bounded timeout, while completed source checkpoints remain
@@ -2099,7 +2121,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   const admin = createAdminClient();
   const taskOwnerResult = await admin.from("ai_screening_tasks").select("user_id,filters").eq("id", input.taskId).maybeSingle();
   if (taskOwnerResult.error) throw taskOwnerResult.error;
-  const costContext = { taskId: input.taskId, customerId: input.customerId, userId: taskOwnerResult.data?.user_id || null };
+  const costContext = { taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, userId: taskOwnerResult.data?.user_id || null, executionLease: input.executionLease };
   await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_LOADED", startedAt: started });
   // Invalid-result rechecks always execute the current collectors and scoring
   // rules. A full recheck may reuse only a current-rule, strongly evidenced
@@ -2235,7 +2257,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         } else {
           const remainingModelCalls = maxModelCalls - modelRequestCount;
           if (remainingModelCalls > 0) {
-            const outcome = await analyzeWithRecovery({ ...input, userId: costContext.userId, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation" });
+            const outcome = await analyzeWithRecovery({ ...input, userId: costContext.userId, attemptNumber: input.attemptNumber || 1, customer, records, signal: analysisController.signal, tier: "escalation", executionLease: input.executionLease });
             if (outcome.analysis) {
               analysis = outcome.analysis;
               modelRequestCount += outcome.requestCount;
@@ -2432,6 +2454,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       writeback_status: "PENDING",
       writeback_warnings: [],
     };
+    await assertExecutionLease(input.taskItemId, input.executionLease);
     const invalidatePrevious = await admin.from("ai_screening_results").update({ is_latest_valid: false }).eq("task_item_id", input.taskItemId).eq("is_latest_valid", true);
     if (invalidatePrevious.error) throw durableError(invalidatePrevious.error, "INVALIDATE_PREVIOUS_RESULT");
     const resultWrite = await admin.from("ai_screening_results").insert(jsonSafe(resultPayload)).select("id").single();
@@ -2588,6 +2611,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       ai_last_screened_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
     {
+      await assertExecutionLease(input.taskItemId, input.executionLease);
       const customerWrite = await admin.from("customers").update(customerUpdate).eq("id", customer.id);
       if (customerWrite.error) throw durableError(customerWrite.error, "CUSTOMER_AI_WRITEBACK");
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_WRITTEN_BACK", startedAt: started });
@@ -2609,7 +2633,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CACHE_SAVED", startedAt: started });
     });
 
-    const finalItem = await admin.from("ai_screening_task_items").update({
+    await assertExecutionLease(input.taskItemId, input.executionLease);
+    let finalItemQuery = admin.from("ai_screening_task_items").update({
       status: "COMPLETED",
       analysis_status: "COMPLETED",
       writeback_status: "COMPLETED",
@@ -2625,6 +2650,8 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", input.taskItemId);
+    if (input.executionLease) finalItemQuery = finalItemQuery.eq("lease_owner", input.executionLease.executorId).eq("lease_token", input.executionLease.leaseToken);
+    const finalItem = await finalItemQuery;
     if (finalItem.error) throw durableError(finalItem.error, "TASK_ITEM_COMPLETION");
     const finalResult = await admin.from("ai_screening_results").update({
       writeback_status: "COMPLETED",

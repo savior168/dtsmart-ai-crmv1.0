@@ -7,6 +7,15 @@ export type AiStrategy = (typeof AI_STRATEGIES)[number];
 export const AI_COST_MODES = ["ADAPTIVE", "FREE_ONLY"] as const;
 export type AiCostMode = (typeof AI_COST_MODES)[number];
 
+export const AI_EXECUTION_MODES = ["AUTO", "LOCAL_ONLY", "VERCEL_ONLY"] as const;
+export type AiExecutionMode = (typeof AI_EXECUTION_MODES)[number];
+
+export const AI_EXECUTION_MODE_LABELS: Record<AiExecutionMode, string> = {
+  AUTO: "自动调度（推荐）",
+  LOCAL_ONLY: "仅本地执行",
+  VERCEL_ONLY: "仅云端执行",
+};
+
 export const AI_COST_MODE_LABELS: Record<AiCostMode, string> = {
   ADAPTIVE: "智能分析（高性价比）",
   FREE_ONLY: "快速分析（完全免费）",

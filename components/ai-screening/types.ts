@@ -1,4 +1,8 @@
 export type AiTask = {
+  execution_mode?: "AUTO" | "LOCAL_ONLY" | "VERCEL_ONLY";
+  active_executor?: "LOCAL_NODE" | "VERCEL_WORKFLOW" | null;
+  executor_heartbeat_at?: string | null;
+  dispatch_error?: string | null;
   id: string; task_number: string; name: string; strategy: "SMART" | "DEEP"; strategy_version: string;
   cost_mode?: "ADAPTIVE" | "FREE_ONLY"; task_cost_limit_usd?: number | null;
   user_id?: string; owner?: { id: string; name?: string | null; email?: string | null } | null;
