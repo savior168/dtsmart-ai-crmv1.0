@@ -6,6 +6,7 @@ export type AiTask = {
   started_at?: string | null; completed_at?: string | null; finished_at?: string | null; elapsed_ms?: number | null;
   workflow_run_id?: string | null;
   google_places_call_count?: number;
+  openai_cost_usd?: number;
   google_places_cost_usd?: number;
   third_party_cost_usd?: number;
   google_places_sku_breakdown?: Record<string, { count: number; amount_usd: number }>;

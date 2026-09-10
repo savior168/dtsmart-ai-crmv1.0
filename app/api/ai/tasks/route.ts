@@ -41,22 +41,24 @@ export async function GET(request: NextRequest) {
     if (owners.error) throw owners.error;
     const ownerById = new Map((owners.data || []).map((owner) => [owner.id, owner]));
     const pageTaskIds = (result.data || []).map((task) => String(task.id));
-    const googleCostByTask = new Map<string, number>();
+    const googleCallsByTask = new Map<string, number>();
     if (pageTaskIds.length) {
       for (let offset = 0; ; offset += 1000) {
-        const googleCosts = await admin.from("api_cost_ledger").select("task_id,amount_usd").eq("provider", "GOOGLE_PLACES").in("task_id", pageTaskIds).range(offset, offset + 999);
-        if (googleCosts.error) throw googleCosts.error;
-        for (const row of googleCosts.data || []) {
+        const googleCalls = await admin.from("api_cost_ledger").select("task_id,quantity").eq("provider", "GOOGLE_PLACES").in("task_id", pageTaskIds).range(offset, offset + 999);
+        if (googleCalls.error) throw googleCalls.error;
+        for (const row of googleCalls.data || []) {
           const taskId = String(row.task_id || "");
-          if (taskId) googleCostByTask.set(taskId, (googleCostByTask.get(taskId) || 0) + Number(row.amount_usd || 0));
+          if (taskId) googleCallsByTask.set(taskId, (googleCallsByTask.get(taskId) || 0) + Math.max(0, Number(row.quantity || 1)));
         }
-        if ((googleCosts.data || []).length < 1000) break;
+        if ((googleCalls.data || []).length < 1000) break;
       }
     }
-    const taskRows = (result.data || []).map((task) => {
-      const google_places_cost_usd = googleCostByTask.get(String(task.id)) || 0;
-      return { ...task, owner: ownerById.get(task.user_id) || null, google_places_cost_usd, third_party_cost_usd: Number(task.total_cost_usd || 0) + google_places_cost_usd };
-    });
+    const taskRows = (result.data || []).map((task) => ({
+      ...task,
+      owner: ownerById.get(task.user_id) || null,
+      openai_cost_usd: Number(task.total_cost_usd || 0),
+      google_places_call_count: googleCallsByTask.get(String(task.id)) || 0,
+    }));
     const all: Array<{ id: string; status: string; total_count: number; success_count: number; failed_count: number; total_tokens: number; total_cost_usd: number; created_at: string }> = [];
     for (let offset = 0; ; offset += 1000) {
       let statsQuery = admin.from("ai_screening_tasks")
@@ -143,6 +145,23 @@ export async function GET(request: NextRequest) {
       : null;
     if (historical?.error) throw historical.error;
     const historicalSummary = (historical?.data || {}) as Record<string, unknown>;
+    const historicalProviderCosts = (historicalSummary.provider_costs || {}) as Record<string, unknown>;
+    let historicalGoogleCalls = 0;
+    if (canViewHistoricalCost) {
+      for (let offset = 0; ; offset += 1000) {
+        const calls = await admin.from("api_cost_ledger")
+          .select("quantity")
+          .eq("service", "AI筛选")
+          .eq("provider", "GOOGLE_PLACES")
+          .range(offset, offset + 999);
+        if (calls.error) throw calls.error;
+        const rows = calls.data || [];
+        historicalGoogleCalls += rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
+        if (rows.length < 1000) break;
+      }
+    }
+    const historicalOpenAiCost = Number(historicalProviderCosts.OPENAI || 0);
+    const historicalCompleted = Number(historicalSummary.processed_customers || 0);
     return NextResponse.json({
       data: taskRows, count: result.count || 0, counts, show_owner: account.role !== "SALES",
       pending_customers: pendingCustomerCount,
@@ -153,10 +172,10 @@ export async function GET(request: NextRequest) {
       show_ai_usage: canViewAiUsage,
       show_historical_cost_summary: canViewHistoricalCost,
       historical_summary: canViewHistoricalCost ? {
-        processed_customers: Number(historicalSummary.processed_customers || 0),
-        total_third_party_cost_usd: Number(historicalSummary.total_third_party_cost_usd || 0),
-        average_cost_per_customer_usd: Number(historicalSummary.average_cost_per_customer_usd || 0),
-        provider_costs: historicalSummary.provider_costs || {},
+        processed_customers: historicalCompleted,
+        openai_cost_usd: historicalOpenAiCost,
+        average_openai_cost_per_customer_usd: historicalCompleted > 0 ? historicalOpenAiCost / historicalCompleted : 0,
+        google_places_call_count: historicalGoogleCalls,
       } : null,
     });
   } catch (error) {

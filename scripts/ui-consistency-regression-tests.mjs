@@ -61,4 +61,13 @@ assert.match(customerPanels, /setReleaseType\(""\)[\s\S]*>重置<\/button>/, "�
 assert.match(customerPanels, /setSource\(""\)[\s\S]*>重置<\/button>/, "冲突客户必须提供可一次清空全部条件的重置按钮");
 assert.doesNotMatch(customerPanels, /RefreshCw|>刷新<\//, "保护到期与冲突客户筛选区不得用刷新按钮代替重置");
 
+const aiTaskCenter = read("components/ai-screening/task-center-view.tsx");
+const aiTaskApi = read("app/api/ai/tasks/route.ts");
+assert.match(aiTaskCenter, /"OpenAI费用","Google调用"/, "AI筛选任务列表必须将OpenAI费用与Google调用次数分开展示");
+assert.doesNotMatch(aiTaskCenter, /"第三方费用"/, "AI筛选任务列表不得把Google价目估算贸然计入第三方费用");
+assert.match(aiTaskCenter, /formatNumber\(task\.google_places_call_count\).*次/, "AI筛选任务列表必须展示每个任务的Google Places真实调用次数");
+assert.match(aiTaskApi, /openai_cost_usd:\s*Number\(task\.total_cost_usd \|\| 0\)/, "AI筛选任务接口必须单独返回OpenAI费用");
+assert.match(aiTaskApi, /google_places_call_count:\s*googleCallsByTask/, "AI筛选任务接口必须单独返回Google Places调用次数");
+assert.doesNotMatch(aiTaskApi, /third_party_cost_usd:/, "AI筛选任务接口不得返回混入Google估算金额的第三方费用");
+
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");
