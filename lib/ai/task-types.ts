@@ -4,6 +4,14 @@ export type AiTaskStatus = (typeof AI_TASK_STATUSES)[number];
 export const AI_STRATEGIES = ["SMART", "DEEP"] as const;
 export type AiStrategy = (typeof AI_STRATEGIES)[number];
 
+export const AI_COST_MODES = ["ADAPTIVE", "FREE_ONLY"] as const;
+export type AiCostMode = (typeof AI_COST_MODES)[number];
+
+export const AI_COST_MODE_LABELS: Record<AiCostMode, string> = {
+  ADAPTIVE: "智能分析（高性价比）",
+  FREE_ONLY: "免费分析（零API费用）",
+};
+
 export const AI_STRATEGY_LABELS: Record<AiStrategy, string> = {
   SMART: "智能分析",
   DEEP: "深度分析",

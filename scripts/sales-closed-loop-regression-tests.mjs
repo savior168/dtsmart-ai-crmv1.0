@@ -83,6 +83,7 @@ const googleBilling = read("lib/google-cloud-billing.ts");
 const openAiBilling = read("lib/openai-billing.ts");
 const googleBillingApi = read("app/api/cost-center/google-billing/route.ts");
 const aiTaskDetail = read("components/ai-screening/task-detail-view.tsx");
+const aiSettingsView = read("components/ai-screening/settings-view.tsx");
 const budgetMigration = read("supabase/migrations/202609090001_api_cost_budget_guards.sql");
 const budgetStatusMigration = read("supabase/migrations/202609100001_cost_center_multiselect_and_budget_status.sql");
 const costOptionsApi = read("app/api/cost-center/options/route.ts");
@@ -92,7 +93,8 @@ assert.match(costView, /单价待配置/, "费用明细必须标识未配置单�
 assert.match(costView, /没有可靠单价，未计入金额；这不代表免费/, "未配置第三方单价时不得错误显示为免费");
 assert.match(costView, /api\/cost-center\/export/, "费用中心必须支持导出完整明细");
 assert.doesNotMatch(costView, /历史测试期|清空正式期统计|正式费用统计起点/, "费用中心不得再使用正式期或测试期概念");
-assert.match(costView, /付费API硬性上限/, "费用中心必须提供付费API硬性上限");
+assert.match(aiSettingsView, /全局费用硬上限/, "AI筛选设置必须提供付费API硬性上限");
+assert.match(costView, /进入AI筛选设置/, "费用中心必须提供费用控制设置入口");
 assert.match(costView, /Google Places[\s\S]*BigQuery详细费用导出/, "费用中心必须独立展示Google平台账单");
 assert.match(costView, /历史费用永久保留/, "费用中心必须明确保留历史账本");
 assert.match(costView, /const time=.*Number\.isFinite\(d\.getTime\(\)\).*"—"/, "费用中心遇到异常时间值不得导致整页崩溃");

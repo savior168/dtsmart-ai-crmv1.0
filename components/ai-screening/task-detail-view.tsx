@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import type { AiTask, TaskItem } from "@/components/ai-screening/types";
-import { ConfirmDialog, ErrorState, Loading, PageHeader, Pagination, StatusBadge, StrategyBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, input, panel, primaryButton, useToast } from "@/components/ai-screening/ui";
+import { ConfirmDialog, CostModeBadge, ErrorState, Loading, PageHeader, Pagination, StatusBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, input, panel, primaryButton, useToast } from "@/components/ai-screening/ui";
 import { aiErrorCodeLabel, aiErrorMessageZh, aiStepLabel } from "@/components/ai-screening/localization";
 
 const actionCopy: Record<string, { label: string; title: string; description: string }> = {
@@ -73,9 +73,8 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   const processed = Number(task?.success_count || 0) + Number(task?.failed_count || 0);
   const remaining = Math.max(0, Number(task?.total_count || 0) - processed);
   const averageTokens = processed ? Number(task?.total_tokens || 0) / processed : 0;
-  const googlePlacesCost = Object.values(task?.google_places_sku_breakdown || {}).reduce((sum, value) => sum + Number(value.amount_usd || 0), 0);
-  const totalThirdPartyCost = Number(task?.total_cost_usd || 0) + googlePlacesCost;
-  const averageCost = processed ? totalThirdPartyCost / processed : 0;
+  const openAiCost = Number(task?.total_cost_usd || 0);
+  const averageOpenAiCost = processed ? openAiCost / processed : 0;
   const placesSkuRows = [
     ["PLACES_TEXT_SEARCH_ID_ONLY", "Text Search IDs Only", "不限量免费"],
     ["PLACES_DETAILS_PRO", "Place Details Pro", "每月前 5,000 次免费"],
@@ -121,15 +120,15 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
 
   if (loading && !task) return <main className="min-h-full bg-[#f5f7fb] p-6"><Loading/></main>;
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-[14px]">
-    <PageHeader title={task?.name || "AI筛选任务详情"} description={`任务编号 ${task?.task_number || "-"} · ${task?.strategy === "DEEP" ? "深度分析" : "智能分析"} v1.0 · 创建于 ${task?.created_at ? new Date(task.created_at).toLocaleString("zh-CN") : "-"}`} actions={<><Link href="/ai-screening" className={button}>返回任务中心</Link><Link href={`/ai-screening/tasks/${taskId}/report`} className={primaryButton}>查看任务报告</Link>{currentAction ? <button className={button} onClick={() => setConfirm(currentAction)}>{actionCopy[currentAction].label}</button> : null}</>}/>
+    <PageHeader title={task?.name || "AI筛选任务详情"} description={`任务编号 ${task?.task_number || "-"} · 创建于 ${task?.created_at ? new Date(task.created_at).toLocaleString("zh-CN") : "-"}`} actions={<><Link href="/ai-screening" className={button}>返回任务中心</Link><Link href={`/ai-screening/tasks/${taskId}/report`} className={primaryButton}>查看任务报告</Link>{currentAction ? <button className={button} onClick={() => setConfirm(currentAction)}>{actionCopy[currentAction].label}</button> : null}</>}/>
     {error ? <ErrorState message={error} reload={() => void load()}/> : null}
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">{[
-      ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <StrategyBadge key="strategy" strategy={task?.strategy || "SMART"}/>],
+      ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <CostModeBadge key="cost-mode" mode={task?.cost_mode}/>],
       ["已处理", formatNumber(processed), `占任务总量${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
       ["仍在分析", formatNumber(remaining), "排队与处理中客户"],
       ["分析成功 / 分析失败", `${formatNumber(task?.success_count)} / ${formatNumber(task?.failed_count)}`, "真实业务结论 / 技术执行异常"],
-      ["当前总消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(totalThirdPartyCost)}`, "Token / 第三方成本参考"],
-      ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageCost)}`, "含Google价目估算，非结算分摊"],
+      ["当前OpenAI消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(openAiCost)}`, "Token / OpenAI台账费用"],
+      ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageOpenAiCost)}`, "每位客户平均Token / OpenAI费用"],
       ["Google Places调用", `${formatNumber(task?.google_places_call_count)} 次`, "本任务真实API请求"],
       ["任务执行耗时", formatDuration(task ? effectiveElapsedMs(task, now) : 0), "仅统计实际执行时间"],
     ].map(([label,value,sub]) => label === "Google Places调用" ? <button type="button" key={String(label)} aria-expanded={placesExpanded} aria-controls="google-places-task-details" onClick={() => setPlacesExpanded((value) => !value)} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}><span className="flex items-center justify-between gap-2 text-xs text-slate-500"><span>{label}</span><ChevronDown size={16} className={`text-blue-600 transition ${placesExpanded ? "rotate-180" : ""}`}/></span><span className="mt-2 block min-h-7 text-xl font-semibold text-slate-950">{value}</span><span className="mt-1 flex items-center justify-between text-xs"><span className="text-slate-400">{sub}</span><span className="font-medium text-blue-600">{placesExpanded ? "收起明细" : "查看明细"}</span></span></button> : <article key={String(label)} className={`${panel} p-4`}><p className="text-xs text-slate-500">{label}</p><div className="mt-2 min-h-7 text-xl font-semibold text-slate-950">{value}</div><div className="mt-1 text-xs text-slate-400">{sub}</div></article>)}</section>

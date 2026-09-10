@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { aiScreeningWorkflow } from "@/workflows/ai-screening";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
+import { AI_COST_MODES, type AiCostMode } from "@/lib/ai/task-types";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
     const { account } = await requirePermission("ai.tasks.view");
     const canViewAiUsage = hasPermission(account, "ai.usage.view");
     const canViewHistoricalCost = hasPermission(account, "ai.cost_summary.view");
+    const canManageAiSettings = hasPermission(account, "ai.settings.manage");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -170,6 +172,7 @@ export async function GET(request: NextRequest) {
       today_failed_customers: todayFailedCount,
       retry_customers: retryableCount,
       show_ai_usage: canViewAiUsage,
+      show_ai_settings: canManageAiSettings,
       show_historical_cost_summary: canViewHistoricalCost,
       historical_summary: canViewHistoricalCost ? {
         processed_customers: historicalCompleted,
@@ -190,13 +193,26 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as {
       name?: string; strategy?: string; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
+      cost_mode?: string; task_cost_limit_usd?: unknown;
     };
     const name = body.name?.trim();
     // The product exposes one adaptive mode. Keep SMART as the stored legacy
     // value so historical workflows remain compatible; the runner itself
     // escalates uncertain cases to the deeper model tier when justified.
     const strategy = "SMART" as const;
+    const costMode: AiCostMode = AI_COST_MODES.includes(body.cost_mode as AiCostMode)
+      ? body.cost_mode as AiCostMode
+      : "ADAPTIVE";
+    const rawTaskLimit = body.task_cost_limit_usd;
+    const taskCostLimit = costMode === "FREE_ONLY"
+      ? 0
+      : rawTaskLimit === null || rawTaskLimit === undefined || rawTaskLimit === ""
+        ? null
+        : Number(rawTaskLimit);
     if (!name) return NextResponse.json({ error: "请输入任务名称" }, { status: 400 });
+    if (taskCostLimit !== null && (!Number.isFinite(taskCostLimit) || taskCostLimit < 0)) {
+      return NextResponse.json({ error: "单任务费用上限必须大于或等于0" }, { status: 400 });
+    }
     const requestedIds = [...new Set((body.customer_ids || []).filter(Boolean))];
     if (!requestedIds.length) return NextResponse.json({ error: "请至少选择一条待筛选客户" }, { status: 400 });
     const ownerScope = await resolveAiOwnerScope(account, String(body.filters?.owner_id || ""));
@@ -229,6 +245,8 @@ export async function POST(request: NextRequest) {
       filters: body.filters || {}, selection_mode: "FILTERED", scheduled_at: scheduledAt,
       notification_mode: body.notification_mode || "IN_APP",
       request_key: requestKey,
+      cost_mode: costMode,
+      task_cost_limit_usd: taskCostLimit,
     }).select("*").single();
     if (task.error || !task.data) throw task.error || new Error("任务创建失败");
     const rows = eligibleIds.map((customerId) => ({
@@ -240,7 +258,7 @@ export async function POST(request: NextRequest) {
     }
     const run = await start(aiScreeningWorkflow, [{ taskId: task.data.id, strategy, scheduledAt }]);
     await admin.from("ai_screening_tasks").update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() }).eq("id", task.data.id);
-    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, total_count: eligibleIds.length } });
+    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length } });
     return NextResponse.json({ task: { ...task.data, workflow_run_id: run.runId } }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务创建失败";

@@ -2,7 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type CostProvider = "GOOGLE_PLACES" | "OPENAI";
 export type CostBudgetContext = { userId?: string | null; customerId?: string | null; taskId?: string | null; operation?: string | null };
-export type CostBudgetReservation = { allowed: boolean; reservationId?: string; period?: "DAY" | "WEEK" | "MONTH"; usedUsd?: number; limitUsd?: number };
+export type CostBudgetPeriod = "DAY" | "WEEK" | "MONTH" | "TASK" | "CUSTOMER" | "FREE_MODE" | "PROVIDER_DISABLED";
+export type CostBudgetReservation = { allowed: boolean; reservationId?: string; period?: CostBudgetPeriod; usedUsd?: number; limitUsd?: number };
 
 export async function reserveApiCostBudget(provider: CostProvider, amountUsd: number, context: CostBudgetContext = {}): Promise<CostBudgetReservation> {
   if (!Number.isFinite(amountUsd) || amountUsd < 0) throw new Error("INVALID_API_COST_RESERVATION");
@@ -20,7 +21,7 @@ export async function reserveApiCostBudget(provider: CostProvider, amountUsd: nu
   return {
     allowed: result.allowed === true,
     reservationId: typeof result.reservation_id === "string" ? result.reservation_id : undefined,
-    period: ["DAY", "WEEK", "MONTH"].includes(String(result.period)) ? result.period as CostBudgetReservation["period"] : undefined,
+    period: ["DAY", "WEEK", "MONTH", "TASK", "CUSTOMER", "FREE_MODE", "PROVIDER_DISABLED"].includes(String(result.period)) ? result.period as CostBudgetPeriod : undefined,
     usedUsd: Number(result.used_usd || 0),
     limitUsd: result.limit_usd == null ? undefined : Number(result.limit_usd),
   };
@@ -33,6 +34,14 @@ export async function releaseApiCostBudget(reservationId?: string | null) {
 }
 
 export function budgetExceededMessage(provider: CostProvider, reservation: CostBudgetReservation) {
-  const period = reservation.period === "DAY" ? "每日" : reservation.period === "WEEK" ? "每周" : "每月";
-  return `${provider}_COST_BUDGET_EXCEEDED:${period}费用上限已达到`;
+  const reason: Record<CostBudgetPeriod, string> = {
+    DAY: "每日费用上限已达到",
+    WEEK: "每周费用上限已达到",
+    MONTH: "每月费用上限已达到",
+    TASK: "本任务费用上限已达到",
+    CUSTOMER: "本客户付费调用次数已达到上限",
+    FREE_MODE: "本任务采用免费分析模式",
+    PROVIDER_DISABLED: "该付费渠道已由管理员停用",
+  };
+  return `${provider}_COST_BUDGET_EXCEEDED:${reason[reservation.period || "MONTH"]}`;
 }

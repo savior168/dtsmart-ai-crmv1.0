@@ -219,6 +219,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         filters: { force_fresh_analysis: true, reanalysis_scope: "INVALID", source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number) },
         selection_mode: "FILTERED",
         notification_mode: body.notification_mode || task.notification_mode || "IN_APP",
+        cost_mode: task.cost_mode || "ADAPTIVE",
+        task_cost_limit_usd: task.cost_mode === "FREE_ONLY" ? 0 : task.task_cost_limit_usd ?? null,
       }).select("*").single();
       if (created.error || !created.data) throw created.error || new Error("无效客户复验任务创建失败");
       const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
@@ -259,6 +261,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         filters: { reanalysis_scope: "SELECTIVE", reuse_only_valid_results: true, reanalysis_source_task_id: id, reanalysis_source_task_number: task.task_number },
         selection_mode: "FILTERED",
         notification_mode: task.notification_mode || "IN_APP",
+        cost_mode: task.cost_mode || "ADAPTIVE",
+        task_cost_limit_usd: task.cost_mode === "FREE_ONLY" ? 0 : task.task_cost_limit_usd ?? null,
       }).select("*").single();
       if (created.error || !created.data) throw created.error || new Error("全量复核任务创建失败");
       const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));

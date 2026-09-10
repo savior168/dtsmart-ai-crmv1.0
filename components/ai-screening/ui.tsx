@@ -31,6 +31,11 @@ export function StrategyBadge({ strategy }: { strategy: string }) {
   return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${strategy === "DEEP" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>{strategy === "DEEP" ? "深度分析" : "智能分析"} v1.0</span>;
 }
 
+export function CostModeBadge({ mode }: { mode?: string | null }) {
+  const freeOnly = mode === "FREE_ONLY";
+  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{freeOnly ? "免费分析（零API费用）" : "智能分析（高性价比）"}</span>;
+}
+
 export function PageHeader({ title, description, actions }: { title: string; description: ReactNode; actions?: ReactNode }) {
   return <header className="flex flex-wrap items-start justify-between gap-[14px]"><div><h1 className="m-0 text-2xl font-bold leading-tight tracking-[-.25px] text-[#111a2c]">{title}</h1><div className="mt-[5px] text-sm leading-[1.65] text-[#6d798d]">{description}</div></div>{actions && <div className="flex flex-wrap items-center gap-[9px]">{actions}</div>}</header>;
 }
