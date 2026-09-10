@@ -2101,9 +2101,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   if (taskOwnerResult.error) throw taskOwnerResult.error;
   const costContext = { taskId: input.taskId, customerId: input.customerId, userId: taskOwnerResult.data?.user_id || null };
   await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_LOADED", startedAt: started });
-  // A user-requested reanalysis must execute the current collectors and scoring
-  // rules for every customer. Reusing an older conclusion would make the audit
-  // look complete without actually validating the new implementation.
+  // Invalid-result rechecks always execute the current collectors and scoring
+  // rules. A full recheck may reuse only a current-rule, strongly evidenced
+  // valid result; ambiguous or previously invalid conclusions must run again.
   const reusableCandidate = shouldReuseAnalysisForTask(taskOwnerResult.data?.filters)
     ? await findReusableAnalysis(customer, input.strategy)
     : null;
