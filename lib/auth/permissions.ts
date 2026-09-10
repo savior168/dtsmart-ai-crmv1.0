@@ -49,7 +49,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "ai.tasks.delete", label: "删除AI筛选任务", group: "AI获客与筛选", description: "删除本人有权管理的任务", kind: "ACTION" },
   { code: "ai.results.view", label: "查看AI结果与依据", group: "AI获客与筛选", description: "查看任务报告、客户结果和分析依据", kind: "ACTION" },
   { code: "ai.results.review", label: "复核AI分析结果", group: "AI获客与筛选", description: "人工修正目标判断、等级和评分", kind: "ACTION" },
-  { code: "ai.usage.view", label: "查看本人AI用量", group: "AI获客与筛选", description: "查看允许范围内的AI用量与费用", kind: "ACTION" },
+  { code: "ai.usage.view", label: "查看AI筛选用量与费用", group: "AI获客与筛选", description: "进入AI筛选用量页面；默认仅系统管理员开启，可由管理员按角色或用户授权", kind: "ACTION" },
   { code: "ai.usage.view_all", label: "查看全部AI用量", group: "AI获客与筛选", description: "查看所有归属人的AI用量与费用", kind: "DATA" },
   { code: "ai.cost_summary.view", label: "查看AI历史成本总览", group: "AI获客与筛选", description: "查看系统全历史分析次数及第三方API成本汇总；默认仅系统管理员开启", kind: "ACTION" },
 

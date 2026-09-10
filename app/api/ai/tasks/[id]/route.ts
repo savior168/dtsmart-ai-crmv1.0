@@ -256,7 +256,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         status: "QUEUED",
         total_count: customerIds.length,
         pending_count: customerIds.length,
-        filters: { force_fresh_analysis: true, reanalysis_source_task_id: id, reanalysis_source_task_number: task.task_number },
+        filters: { reanalysis_scope: "SELECTIVE", reuse_only_valid_results: true, reanalysis_source_task_id: id, reanalysis_source_task_number: task.task_number },
         selection_mode: "FILTERED",
         notification_mode: task.notification_mode || "IN_APP",
       }).select("*").single();

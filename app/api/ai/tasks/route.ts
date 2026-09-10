@@ -14,6 +14,8 @@ function taskNumber() {
 export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.tasks.view");
+    const canViewAiUsage = hasPermission(account, "ai.usage.view");
+    const canViewHistoricalCost = hasPermission(account, "ai.cost_summary.view");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -97,7 +99,7 @@ export async function GET(request: NextRequest) {
     };
     // Cost and completed-customer cards read the immutable audit ledgers. They
     // therefore remain stable after a task or CRM customer is physically deleted.
-    const todayCostPromise = (async () => {
+    const todayCostPromise = canViewAiUsage ? (async () => {
       let total = 0;
       for (let rowOffset = 0; ; rowOffset += 1000) {
         let callsQuery = admin.from("ai_screening_usage_ledger").select("cost_usd").gte("occurred_at", todayStart);
@@ -109,7 +111,7 @@ export async function GET(request: NextRequest) {
         if (rows.length < 1000) break;
       }
       return total;
-    })();
+    })() : Promise.resolve(0);
     let todayCompletedQuery = admin.from("ai_screening_completion_ledger")
       .select("source_task_item_id", { count: "exact", head: true })
       .gte("completed_at", todayStart);
@@ -136,7 +138,6 @@ export async function GET(request: NextRequest) {
     // The all-time system-wide cost summary is finance-sensitive. It defaults
     // to administrators, but the permission center may explicitly delegate it.
     // Enforce that decision in the API rather than merely hiding the browser UI.
-    const canViewHistoricalCost = hasPermission(account, "ai.cost_summary.view");
     const historical = canViewHistoricalCost
       ? await admin.rpc("ai_screening_historical_cost_summary", { p_user_id: null })
       : null;
@@ -145,10 +146,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: taskRows, count: result.count || 0, counts, show_owner: account.role !== "SALES",
       pending_customers: pendingCustomerCount,
-      today_cost: todayCost,
+      today_cost: canViewAiUsage ? todayCost : null,
       today_completed_customers: todayCompleted.count || 0,
       today_failed_customers: todayFailedCount,
       retry_customers: retryableCount,
+      show_ai_usage: canViewAiUsage,
       show_historical_cost_summary: canViewHistoricalCost,
       historical_summary: canViewHistoricalCost ? {
         processed_customers: Number(historicalSummary.processed_customers || 0),

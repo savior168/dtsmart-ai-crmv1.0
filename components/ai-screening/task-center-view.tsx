@@ -16,6 +16,7 @@ function Link(props: ComponentProps<typeof NextLink>) {
 type ResponseBody = {
   data: AiTask[]; count: number; counts: Record<string, number>; pending_customers: number; today_cost: number; today_completed_customers: number; today_failed_customers: number; retry_customers: number; show_owner?: boolean;
   show_historical_cost_summary?: boolean;
+  show_ai_usage?: boolean;
   historical_summary?: { processed_customers:number; total_third_party_cost_usd:number; average_cost_per_customer_usd:number; provider_costs:Record<string,number> };
 };
 
@@ -101,7 +102,7 @@ export function TaskCenterView() {
 
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="AI筛选任务中心" description="创建、监控和处理AI筛选任务，查看客户结果与失败重试。" actions={<>
-      <Link href="/ai-screening/usage" className="group inline-flex h-[42px] items-center gap-3 rounded-[8px] border border-blue-200 bg-blue-50 px-3.5 text-left text-blue-700 transition hover:border-blue-400 hover:bg-blue-100" title="查看AI筛选Token与费用明细"><span className="grid h-7 w-7 place-items-center rounded-md bg-white text-blue-600 shadow-sm"><BarChart3 size={16}/></span><span className="leading-tight"><b className="block text-[13px] font-semibold">查看AI筛选用量</b><small className="text-[11px] text-blue-500">今日 {formatCost(data?.today_cost)}</small></span><ChevronRight size={15} className="transition group-hover:translate-x-0.5"/></Link>
+      {data?.show_ai_usage ? <Link href="/ai-screening/usage" className="group inline-flex h-[42px] items-center gap-3 rounded-[8px] border border-blue-200 bg-blue-50 px-3.5 text-left text-blue-700 transition hover:border-blue-400 hover:bg-blue-100" title="查看AI筛选Token与费用明细"><span className="grid h-7 w-7 place-items-center rounded-md bg-white text-blue-600 shadow-sm"><BarChart3 size={16}/></span><span className="leading-tight"><b className="block text-[13px] font-semibold">查看AI筛选用量</b><small className="text-[11px] text-blue-500">今日 {formatCost(data?.today_cost)}</small></span><ChevronRight size={15} className="transition group-hover:translate-x-0.5"/></Link> : null}
       <button className={button} onClick={() => void load()}><RefreshCw size={16}/>刷新状态</button>
       <Link href="/ai-screening/new" className={primaryButton}><Plus size={17}/>创建AI筛选任务</Link>
     </>}/>

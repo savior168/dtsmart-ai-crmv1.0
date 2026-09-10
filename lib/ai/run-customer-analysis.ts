@@ -48,7 +48,21 @@ type CustomerRow = AiMappedCustomer;
 export function shouldReuseAnalysisForTask(filters: unknown) {
   if (!filters || typeof filters !== "object") return true;
   const value = filters as Record<string, unknown>;
-  return !Boolean(value.force_fresh_analysis || value.reanalysis_scope || value.reanalysis_source_task_id);
+  return !Boolean(value.force_fresh_analysis || value.reanalysis_scope === "INVALID");
+}
+
+export function reusableResultAllowedForTask(filters: unknown, cached: unknown) {
+  if (!filters || typeof filters !== "object") return true;
+  const value = filters as Record<string, unknown>;
+  if (!value.reuse_only_valid_results) return true;
+  if (!cached || typeof cached !== "object") return false;
+  const row = cached as Record<string, unknown>;
+  const analysis = row.analysis_result && typeof row.analysis_result === "object"
+    ? row.analysis_result as Record<string, unknown> : {};
+  return analysis.automation_status === "AUTO_DEVELOP"
+    && analysis.target_decision === "VALID"
+    && analysis.evidence_sufficiency === "充分"
+    && Number(analysis.confidence_score || 0) >= 82;
 }
 
 export type ChannelRecord = {
@@ -2090,9 +2104,14 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   // A user-requested reanalysis must execute the current collectors and scoring
   // rules for every customer. Reusing an older conclusion would make the audit
   // look complete without actually validating the new implementation.
-  const reusable = shouldReuseAnalysisForTask(taskOwnerResult.data?.filters)
+  const reusableCandidate = shouldReuseAnalysisForTask(taskOwnerResult.data?.filters)
     ? await findReusableAnalysis(customer, input.strategy)
     : null;
+  // Full rechecks reuse only a current-rule, strongly evidenced valid result.
+  // Historical invalid conclusions are the reason users request a recheck and
+  // must always execute the current collectors and scoring rules again.
+  const reusable = reusableResultAllowedForTask(taskOwnerResult.data?.filters, reusableCandidate)
+    ? reusableCandidate : null;
   if (reusable) {
     return completeFromReusableCache(input, customer, reusable as Record<string, unknown>, started);
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type UsageCall = {
@@ -87,16 +87,40 @@ export async function GET(request: NextRequest) {
     }
 
     const models = [...new Set(calls.map((call) => call.model).filter((value): value is string => Boolean(value)))].sort();
-    const filteredCalls = model ? calls.filter((call) => call.model === model) : calls;
-    const allowedTaskIds = model ? new Set(filteredCalls.map((call) => call.task_id)) : null;
-    const filteredCompletions = allowedTaskIds ? completions.filter((item) => allowedTaskIds.has(item.task_id)) : completions;
+    const sourceTaskIds = [...new Set([
+      ...calls.map((row) => row.task_id),
+      ...completions.map((row) => row.task_id),
+      ...thirdPartyCalls.map((row) => row.task_id || ""),
+    ].filter(Boolean))];
+    const existing = new Set<string>();
+    const currentStatus = new Map<string, string>();
+    for (let offset = 0; offset < sourceTaskIds.length; offset += 200) {
+      let existingQuery = admin.from("ai_screening_tasks").select("id,status").in("id", sourceTaskIds.slice(offset, offset + 200));
+      if (scopeUserId) existingQuery = existingQuery.eq("user_id", scopeUserId);
+      const result = await existingQuery;
+      if (result.error) throw result.error;
+      for (const row of result.data || []) {
+        existing.add(row.id);
+        currentStatus.set(row.id, String(row.status || ""));
+      }
+    }
+    const snapshotStatus = new Map<string, string>();
+    for (const row of [...calls, ...completions]) {
+      if (row.task_id && row.task_status) snapshotStatus.set(row.task_id, row.task_status);
+    }
+    const taskMatchesStatus = (id: string) => !status || (currentStatus.get(id) || snapshotStatus.get(id) || "") === status;
+    const statusTaskIds = new Set(sourceTaskIds.filter(taskMatchesStatus));
+    const modelCalls = calls.filter((call) => (!model || call.model === model) && statusTaskIds.has(call.task_id));
+    const modelTaskIds = model ? new Set(modelCalls.map((call) => call.task_id)) : statusTaskIds;
+    const filteredCalls = modelCalls;
+    const filteredCompletions = completions.filter((item) => modelTaskIds.has(item.task_id));
     const taskMap = new Map<string, TaskUsage>();
     const ensureTask = (row: UsageCall | Completion) => {
       const current = taskMap.get(row.task_id);
       if (current) return current;
       const created: TaskUsage = {
         id: row.task_id, name: row.task_name || "已删除的AI筛选任务", task_number: row.task_number,
-        status: row.task_status, total_count: Number(row.task_total_count || 0), processed_count: 0,
+        status: currentStatus.get(row.task_id) || row.task_status, total_count: Number(row.task_total_count || 0), processed_count: 0,
         model_call_count: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0,
         total_tokens: 0, total_cost_usd: 0, created_at: row.task_created_at, task_exists: false,
         openai_cost_usd: 0, google_places_cost_usd: 0, google_places_call_count: 0, google_places_skus: {},
@@ -115,7 +139,7 @@ export async function GET(request: NextRequest) {
       task.total_cost_usd += Number(call.cost_usd || 0);
       task.openai_cost_usd += Number(call.cost_usd || 0);
     }
-    const scopedThirdPartyCalls = allowedTaskIds ? thirdPartyCalls.filter((call) => call.task_id && allowedTaskIds.has(call.task_id)) : thirdPartyCalls;
+    const scopedThirdPartyCalls = thirdPartyCalls.filter((call) => call.task_id && modelTaskIds.has(call.task_id));
     for (const call of scopedThirdPartyCalls) {
       if (!call.task_id) continue;
       const task = taskMap.get(call.task_id);
@@ -130,30 +154,32 @@ export async function GET(request: NextRequest) {
       current.count += quantity; current.cost_usd += amount; task.google_places_skus[sku] = current;
     }
 
-    const taskIds = [...taskMap.keys()];
-    const existing = new Set<string>();
-    for (let offset = 0; offset < taskIds.length; offset += 200) {
-      let existingQuery = admin.from("ai_screening_tasks").select("id").in("id", taskIds.slice(offset, offset + 200));
-      if (scopeUserId) existingQuery = existingQuery.eq("user_id", scopeUserId);
-      const result = await existingQuery;
-      if (result.error) throw result.error;
-      for (const row of result.data || []) existing.add(row.id);
-    }
     for (const id of existing) {
       const task = taskMap.get(id);
       if (task) task.task_exists = true;
     }
 
     const allTaskRows = [...taskMap.values()]
-      .filter((task) => !status || task.status === status)
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
-    const totalsResult = await admin.rpc("ai_screening_usage_totals", { p_user_id: scopeUserId });
-    if (totalsResult.error) throw totalsResult.error;
-    const historical = Array.isArray(totalsResult.data) ? totalsResult.data[0] : totalsResult.data;
+    const selected = allTaskRows.reduce((summary, task) => {
+      summary.processed += task.processed_count;
+      summary.model_calls += task.model_call_count;
+      summary.input += task.input_tokens;
+      summary.cached += task.cached_input_tokens;
+      summary.output += task.output_tokens;
+      summary.tokens += task.total_tokens;
+      summary.openai_cost += task.openai_cost_usd;
+      summary.google_places_cost += task.google_places_cost_usd;
+      summary.google_places_calls += task.google_places_call_count;
+      return summary;
+    }, { processed: 0, model_calls: 0, input: 0, cached: 0, output: 0, tokens: 0, openai_cost: 0, google_places_cost: 0, google_places_calls: 0 });
+    const canViewHistoricalCost = hasPermission(account, "ai.cost_summary.view");
+    const totalsResult = canViewHistoricalCost ? await admin.rpc("ai_screening_usage_totals", { p_user_id: null }) : null;
+    if (totalsResult?.error) throw totalsResult.error;
+    const historical = totalsResult ? (Array.isArray(totalsResult.data) ? totalsResult.data[0] : totalsResult.data) : null;
     const historicalGoogle: ThirdPartyCall[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      let query = admin.from("api_cost_ledger").select("task_id,customer_id,provider,model_or_sku,quantity,amount_usd,occurred_at").eq("service", "AI筛选").eq("provider", "GOOGLE_PLACES");
-      if (scopeUserId) query = query.eq("user_id", scopeUserId);
+    for (let offset = 0; canViewHistoricalCost; offset += 1000) {
+      const query = admin.from("api_cost_ledger").select("task_id,customer_id,provider,model_or_sku,quantity,amount_usd,occurred_at").eq("service", "AI筛选").eq("provider", "GOOGLE_PLACES");
       const result = await query.range(offset, offset + 999);
       if (result.error) throw result.error;
       const rows = (result.data || []) as ThirdPartyCall[]; historicalGoogle.push(...rows);
@@ -161,13 +187,29 @@ export async function GET(request: NextRequest) {
     }
     const historicalGoogleCost = historicalGoogle.reduce((sum, row) => sum + Number(row.amount_usd || 0), 0);
     const googleSkuTotals = historicalGoogle.reduce((all, row) => { const sku=row.model_or_sku||"HISTORICAL_UNCLASSIFIED"; const current=all[sku]||{count:0,cost_usd:0}; current.count+=Math.max(0,Number(row.quantity||1)); current.cost_usd+=Number(row.amount_usd||0); all[sku]=current; return all; }, {} as Record<string,{count:number;cost_usd:number}>);
-    const totals = {
+    const totals = canViewHistoricalCost ? {
       processed: Number(historical?.processed || 0), input: Number(historical?.input_tokens || 0),
       cached: Number(historical?.cached_input_tokens || 0), output: Number(historical?.output_tokens || 0),
       tokens: Number(historical?.total_tokens || 0), openai_cost: Number(historical?.cost_usd || 0),
       google_places_cost: historicalGoogleCost, cost: Number(historical?.cost_usd || 0) + historicalGoogleCost,
       google_places_calls: historicalGoogle.reduce((sum,row)=>sum+Math.max(0,Number(row.quantity||1)),0), google_places_skus: googleSkuTotals,
-    };
+    } : null;
+    const googleMonthly = canViewHistoricalCost ? [...historicalGoogle.reduce((months, row) => {
+      const month = String(row.occurred_at || "").slice(0, 7) || "未知月份";
+      const current = months.get(month) || { month, calls: 0, cost_usd: 0, skus: {} as Record<string, { count: number; cost_usd: number }> };
+      const quantity = Math.max(0, Number(row.quantity || 1));
+      const amount = Number(row.amount_usd || 0);
+      const sku = row.model_or_sku || "HISTORICAL_UNCLASSIFIED";
+      current.calls += quantity;
+      current.cost_usd += amount;
+      const skuValue = current.skus[sku] || { count: 0, cost_usd: 0 };
+      skuValue.count += quantity;
+      skuValue.cost_usd += amount;
+      current.skus[sku] = skuValue;
+      months.set(month, current);
+      return months;
+    }, new Map<string, { month: string; calls: number; cost_usd: number; skus: Record<string, { count: number; cost_usd: number }> }>()).values()]
+      .sort((left, right) => right.month.localeCompare(left.month)) : [];
     const dailyMap = new Map<string, { date: string; tokens: number; cost: number; openai_cost: number; google_places_cost: number; processed: number }>();
     for (const call of filteredCalls) {
       const date = call.occurred_at.slice(0, 10);
@@ -190,9 +232,13 @@ export async function GET(request: NextRequest) {
     const daily = [...dailyMap.values()].sort((left, right) => left.date.localeCompare(right.date));
     const count = allTaskRows.length;
     const tasks = returnAll ? allTaskRows : allTaskRows.slice((page - 1) * pageSize, page * pageSize);
-    return NextResponse.json({ tasks, count, page, pageSize, models, totals, daily, show_owner: account.role !== "SALES" });
+    return NextResponse.json({
+      tasks, count, page, pageSize, models, selected, totals, google_monthly: googleMonthly, daily,
+      show_owner: hasPermission(account, "ai.usage.view_all"),
+      show_historical_cost_summary: canViewHistoricalCost,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选用量查询失败";
-    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
   }
 }
