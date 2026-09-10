@@ -117,6 +117,7 @@ const aiUsageApi = read("app/api/ai/usage/route.ts");
 const aiUsagePage = read("app/ai-screening/usage/page.tsx");
 const aiUsageView = read("components/ai-screening/usage-view.tsx");
 const aiUsagePermissionMigration = read("supabase/migrations/202609100002_ai_usage_admin_default.sql");
+const aiUsageNullScopeMigration = read("supabase/migrations/202609100003_ai_usage_null_scope_fix.sql");
 assert.match(read("lib/auth/permissions.ts"), /ai\.usage\.view[\s\S]*默认仅系统管理员开启，可由管理员按角色或用户授权/, "AI筛选用量入口必须作为默认管理员专属且可配置的独立权限");
 assert.match(aiUsagePermissionMigration, /ADMIN'[\s\S]*ai\.usage\.view'[\s\S]*true[\s\S]*SUPERVISOR'[\s\S]*false[\s\S]*SALES'[\s\S]*false[\s\S]*WAREHOUSE'[\s\S]*false/, "数据库默认权限必须只为系统管理员开放AI筛选用量");
 assert.match(aiTaskListApi, /hasPermission\(account, "ai\.usage\.view"\)[\s\S]*show_ai_usage: canViewAiUsage/, "任务中心必须由服务端权限结果控制AI筛选用量入口");
@@ -127,6 +128,8 @@ assert.match(aiUsageApi, /taskMatchesStatus[\s\S]*filteredCalls[\s\S]*filteredCo
 assert.match(aiUsageView, /所选范围统计[\s\S]*历史筛选成本总览[\s\S]*不受上方筛选条件影响/, "用量页必须明确区分筛选范围与全历史口径");
 assert.match(aiUsageView, /aria-expanded=\{googleExpanded\}[\s\S]*Google Places SKU与当前结算月额度[\s\S]*按月份核对历史Google调用/, "Google价目估算卡必须原位展开当前月额度和分月历史明细");
 assert.match(aiUsageView, /历史未细分[\s\S]*value\.count>0/, "历史未细分为零时不得占据页面空间");
+assert.match(aiUsageNullScopeMigration, /p_user_id is null or c\.user_id = p_user_id[\s\S]*p_user_id is null or u\.user_id = p_user_id/, "全系统历史完成次数与OpenAI台账汇总不得把空归属人错误解释为user_id等于NULL");
+assert.match(aiUsageView, /Google Places SKU与当前结算月额度[\s\S]*xl:grid-cols-5/, "宽屏下五个Google SKU卡片必须保持同一行");
 assert.match(read("lib/auth/permissions.ts"), /ai\.cost_summary\.view[\s\S]*查看AI历史成本总览[\s\S]*默认仅系统管理员开启/, "AI历史成本总览必须作为权限中心可配置的独立权限");
 assert.match(aiTaskListApi, /hasPermission\(account, "ai\.cost_summary\.view"\)[\s\S]*ai_screening_historical_cost_summary[\s\S]*show_historical_cost_summary: canViewHistoricalCost[\s\S]*historical_summary: canViewHistoricalCost \?/, "全系统历史筛选成本必须在接口层按独立权限返回");
 assert.match(aiTaskCenter, /data\?\.show_historical_cost_summary \? <section[\s\S]*同一客户每完成一次分析计一次[\s\S]*仅本系统AI筛选台账/, "历史筛选成本总览必须仅管理员可见并明确全历史与重复分析计次口径");
