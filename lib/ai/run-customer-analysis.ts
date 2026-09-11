@@ -1919,6 +1919,12 @@ async function analyzeWithRecovery(input: {
   }
 }
 
+function allCollectedSourcesFailedTechnically(records: ChannelRecord[]) {
+  if (records.some((record) => record.status === "COLLECTED")) return false;
+  return records.some((record) => record.status === "FAILED"
+    && /(?:aborted|fetch failed|network|timeout|timed out|ECONN|EAI_AGAIN|ENOTFOUND|socket|TLS|certificate)/i.test(String(record.error || "")));
+}
+
 async function saveVerifiedContacts(input: { taskId: string; resultId: string; customer: CustomerRow; contacts: ContactCandidate[]; preferred?: ContactCandidate | null }) {
   const admin = createAdminClient();
   const existing = await admin.from("customer_contacts")
@@ -2217,6 +2223,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         failed_channels: records.filter((item) => item.status === "FAILED").map((item) => item.channel),
       },
     });
+    // A transport outage is a technical execution failure, not evidence that
+    // the company is unrelated. Never turn an executor/network problem into a
+    // low-score business conclusion.
+    if (allCollectedSourcesFailedTechnically(records)) throw new Error("PUBLIC_SOURCE_NETWORK_UNAVAILABLE");
     analysis = deterministicAnalysis(customer, records);
     if (!isConclusiveChannelAnalysis(analysis) && hasTargetValueSignal(customer, records)) {
       // Google Places and the verified official website can reveal public
@@ -2675,6 +2685,9 @@ export function publicAiError(error: unknown) {
     return { code: "AI_EVIDENCE_INSUFFICIENT", message: "本次未取得达到自动判定门槛的可核验经营事实；未写入AI评分，可在公开入口可访问后重试" };
   }
   if (raw.includes("OPENAI_TIMEOUT")) return { code: "OPENAI_TIMEOUT", message: "AI综合判断本次响应超时；已保存公开来源抓取进度，可直接重试而无需重复抓取" };
+  if (raw.includes("PUBLIC_SOURCE_NETWORK_UNAVAILABLE")) {
+    return { code: "PUBLIC_SOURCE_NETWORK_UNAVAILABLE", message: "本次执行节点未能连接任何已尝试的公开来源；未生成客户评分或有效性结论，请在网络链路恢复后重试" };
+  }
   if (raw.includes("OPENAI_NOT_CONFIGURED")) return { code: "OPENAI_NOT_CONFIGURED", message: "生产环境未配置OpenAI API密钥" };
   if (raw.includes("OPENAI_API_ERROR")) return { code: "OPENAI_API_ERROR", message: raw.replace(/^.*OPENAI_API_ERROR:/, "OpenAI接口错误：") };
   if (raw.includes("GOOGLE_MAPS_API_KEY_NOT_CONFIGURED")) return { code: "GOOGLE_MAPS_NOT_CONFIGURED", message: "未配置Google Maps API，已保留其他公开渠道证据" };

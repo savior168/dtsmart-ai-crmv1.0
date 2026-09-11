@@ -3,7 +3,7 @@ import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/c
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
-import { AI_COST_MODES, type AiCostMode } from "@/lib/ai/task-types";
+import { AI_COST_MODES, AI_DISPATCH_POLICIES, type AiCostMode, type AiDispatchPolicy, type AiExecutionMode } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask, rescueStalledAutomaticTasks } from "@/lib/ai/task-dispatch";
 
 function taskNumber() {
@@ -179,6 +179,7 @@ export async function GET(request: NextRequest) {
       retry_customers: retryableCount,
       show_ai_usage: canViewAiUsage,
       show_ai_settings: canManageAiSettings,
+      can_archive_tasks: hasPermission(account, "ai.tasks.delete"),
       show_historical_cost_summary: canViewHistoricalCost,
       historical_summary: canViewHistoricalCost ? {
         processed_customers: historicalCompleted,
@@ -209,9 +210,6 @@ export async function POST(request: NextRequest) {
     const costMode: AiCostMode = AI_COST_MODES.includes(body.cost_mode as AiCostMode)
       ? body.cost_mode as AiCostMode
       : "ADAPTIVE";
-    // Execution infrastructure is centrally managed. New tasks always use the
-    // local-first automatic scheduler; clients cannot force a fragile node.
-    const executionMode = "AUTO" as const;
     const rawTaskLimit = body.task_cost_limit_usd;
     const taskCostLimit = costMode === "FREE_ONLY"
       ? 0
@@ -236,6 +234,18 @@ export async function POST(request: NextRequest) {
       allowedIds.push(...(allowed.data || []).map((item) => item.id));
     }
     const admin = createAdminClient();
+    const executionSettings = await admin.from("cost_center_settings").select("ai_default_dispatch_policy").eq("id", true).single();
+    if (executionSettings.error) throw executionSettings.error;
+    const rawDispatchPolicy = executionSettings.data.ai_default_dispatch_policy as AiDispatchPolicy;
+    const dispatchPolicy: AiDispatchPolicy = AI_DISPATCH_POLICIES.includes(rawDispatchPolicy) ? rawDispatchPolicy : "VERCEL_FIRST";
+    // Cloud-first policies begin cloud-locked so a polling local worker cannot
+    // race the initial Workflow claim. Dispatch relaxes this to AUTO only when
+    // an immediate cloud start fails and a healthy local fallback exists.
+    const executionMode: AiExecutionMode = dispatchPolicy === "LOCAL_ONLY"
+      ? "LOCAL_ONLY"
+      : dispatchPolicy === "VERCEL_ONLY" || dispatchPolicy === "VERCEL_FIRST"
+        ? "VERCEL_ONLY"
+        : "AUTO";
     const requestKey = body.request_key?.trim().slice(0, 120) || null;
     if (requestKey) {
       const existing = await admin.from("ai_screening_tasks").select("*").eq("user_id", user.id).eq("request_key", requestKey).maybeSingle();
@@ -257,6 +267,7 @@ export async function POST(request: NextRequest) {
       cost_mode: costMode,
       task_cost_limit_usd: taskCostLimit,
       execution_mode: executionMode,
+      dispatch_policy: dispatchPolicy,
     }).select("*").single();
     if (task.error || !task.data) throw task.error || new Error("任务创建失败");
     const rows = eligibleIds.map((customerId) => ({
@@ -266,8 +277,8 @@ export async function POST(request: NextRequest) {
       const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
       if (inserted.error) throw inserted.error;
     }
-    const dispatch = await dispatchAiScreeningTask({ taskId: task.data.id, strategy, scheduledAt, executionMode });
-    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, execution_mode: executionMode, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length } });
+    const dispatch = await dispatchAiScreeningTask({ taskId: task.data.id, strategy, scheduledAt, executionMode, dispatchPolicy });
+    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, execution_mode: executionMode, dispatch_policy: dispatchPolicy, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length } });
     return NextResponse.json({ task: { ...task.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务创建失败";

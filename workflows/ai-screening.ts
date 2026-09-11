@@ -170,6 +170,28 @@ async function failTask(taskId: string, errorMessage: string) {
   if (failed.error) throw failed.error;
 }
 
+async function handoffWorkflowFailureToLocal(taskId:string,errorMessage:string) {
+  "use step";
+  const admin=createAdminClient();
+  const task=await withTransientFetchRetry(()=>admin.from("ai_screening_tasks").select("status,dispatch_policy").eq("id",taskId).single());
+  if(task.error||!task.data||!["VERCEL_FIRST","LOCAL_FIRST"].includes(String(task.data.dispatch_policy))||["CANCELLED","PAUSED"].includes(String(task.data.status))) return false;
+  const health=await withTransientFetchRetry(()=>admin.rpc("has_healthy_ai_worker",{p_max_age_seconds:45}));
+  if(health.error||!health.data) return false;
+  const now=new Date().toISOString();
+  const reset=await withTransientFetchRetry(()=>admin.from("ai_screening_task_items").update({
+    status:"PENDING",analysis_status:"PENDING",writeback_status:"PENDING",progress:0,
+    current_step:"WAITING",pipeline_stage:"NORMALIZED",lease_owner:null,lease_token:null,
+    lease_expires_at:null,executor_heartbeat_at:null,started_at:null,updated_at:now,
+  }).eq("task_id",taskId).eq("status","RUNNING").neq("analysis_status","COMPLETED"));
+  if(reset.error) throw reset.error;
+  const queued=await withTransientFetchRetry(()=>admin.from("ai_screening_tasks").update({
+    status:"QUEUED",execution_mode:"AUTO",active_executor:"LOCAL_NODE",workflow_run_id:null,
+    dispatch_error:`Vercel执行异常，已由本地节点接管：${errorMessage}`.slice(0,1000),updated_at:now,
+  }).eq("id",taskId));
+  if(queued.error) throw queued.error;
+  return true;
+}
+
 export async function aiScreeningWorkflow(input: WorkflowInput) {
   "use workflow";
   try {
@@ -227,6 +249,7 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     // actual database code/message instead of the unhelpful generic text.
     const normalized = normalizeError(error, { stage: "TASK" });
     const message = `${normalized.error_code}：${normalized.error_message}`;
+    if (await handoffWorkflowFailureToLocal(input.taskId, message)) return { status: "HANDED_OFF_TO_LOCAL" };
     await failTask(input.taskId, message);
     return { status: "FAILED", error: message };
   }

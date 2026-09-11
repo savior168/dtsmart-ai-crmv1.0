@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
+import { AI_DISPATCH_POLICIES, type AiDispatchPolicy, type AiExecutionMode } from "@/lib/ai/task-types";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,11 @@ export async function POST(request: NextRequest) {
     if (visible.data.ai_score !== null) return NextResponse.json({ error: "该客户已经完成AI筛选" }, { status: 409 });
 
     const admin = createAdminClient();
+    const executionSettings = await admin.from("cost_center_settings").select("ai_default_dispatch_policy").eq("id", true).single();
+    if (executionSettings.error) throw executionSettings.error;
+    const configuredPolicy=executionSettings.data.ai_default_dispatch_policy as AiDispatchPolicy;
+    const dispatchPolicy:AiDispatchPolicy=AI_DISPATCH_POLICIES.includes(configuredPolicy)?configuredPolicy:"VERCEL_FIRST";
+    const executionMode:AiExecutionMode=dispatchPolicy==="LOCAL_ONLY"?"LOCAL_ONLY":dispatchPolicy==="LOCAL_FIRST"?"AUTO":"VERCEL_ONLY";
     const existing = await admin.from("ai_screening_task_items")
       .select("id,task:ai_screening_tasks!inner(id,user_id,status)")
       .eq("customer_id", visible.data.id).eq("task.user_id", user.id)
@@ -43,7 +49,8 @@ export async function POST(request: NextRequest) {
       total_count: 1, pending_count: 1,
       filters: { source: "SAVE_AND_SCREEN", customer_id: visible.data.id },
       selection_mode: "MANUAL", notification_mode: "IN_APP",
-      execution_mode: "AUTO",
+      execution_mode: executionMode,
+      dispatch_policy: dispatchPolicy,
     }).select("*").single();
     if (task.error || !task.data) throw task.error || new Error("AI筛选任务创建失败");
     const item = await admin.from("ai_screening_task_items").insert({
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
       strategy: "SMART", strategy_version: "1.0",
     });
     if (item.error) throw item.error;
-    await dispatchAiScreeningTask({ taskId: task.data.id, strategy: "SMART", scheduledAt: null, executionMode: "AUTO" });
+    await dispatchAiScreeningTask({ taskId: task.data.id, strategy: "SMART", scheduledAt: null, executionMode, dispatchPolicy });
     return NextResponse.json({ task_id: task.data.id, task_number: number, status: "QUEUED" }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选任务创建失败";

@@ -10,8 +10,18 @@ export type AiCostMode = (typeof AI_COST_MODES)[number];
 export const AI_EXECUTION_MODES = ["AUTO", "LOCAL_ONLY", "VERCEL_ONLY"] as const;
 export type AiExecutionMode = (typeof AI_EXECUTION_MODES)[number];
 
+export const AI_DISPATCH_POLICIES = ["VERCEL_FIRST", "LOCAL_FIRST", "VERCEL_ONLY", "LOCAL_ONLY"] as const;
+export type AiDispatchPolicy = (typeof AI_DISPATCH_POLICIES)[number];
+
+export const AI_DISPATCH_POLICY_LABELS: Record<AiDispatchPolicy, string> = {
+  VERCEL_FIRST: "云端优先，本地接管（推荐）",
+  LOCAL_FIRST: "本地优先，云端接管",
+  VERCEL_ONLY: "仅云端执行",
+  LOCAL_ONLY: "仅本地执行",
+};
+
 export const AI_EXECUTION_MODE_LABELS: Record<AiExecutionMode, string> = {
-  AUTO: "自动调度（推荐）",
+  AUTO: "混合执行（兼容旧任务）",
   LOCAL_ONLY: "仅本地执行",
   VERCEL_ONLY: "仅云端执行",
 };

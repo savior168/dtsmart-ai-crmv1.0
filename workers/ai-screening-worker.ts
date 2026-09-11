@@ -3,7 +3,7 @@ import { createAdminClient } from "../lib/supabase/admin";
 import { executeClaimedAiTaskItem, type ClaimedAiTaskItem } from "../lib/ai/task-item-executor";
 import type { AiStrategy } from "../lib/ai/task-types";
 
-const VERSION = "1.0.3";
+const VERSION = "1.1.0";
 const workerId = process.env.AI_WORKER_ID || `dtsmart-${os.hostname().toLowerCase()}`;
 const displayName = process.env.AI_WORKER_NAME || `${os.hostname()} 本地分析节点`;
 const configuredConcurrency = String(process.env.AI_WORKER_CONCURRENCY || "AUTO").toUpperCase();
@@ -18,6 +18,9 @@ const leaseSeconds = Math.min(3600, Math.max(300, Number(process.env.AI_WORKER_L
 const admin = createAdminClient();
 let stopping = false;
 let activeCount = 0;
+type ChannelHealth = { ok:boolean; checked_at:string; latency_ms:number; error?:string };
+let channelHealth:Record<string,ChannelHealth> = {};
+let analysisReady = false;
 
 function log(event: string, details: Record<string, unknown> = {}) {
   process.stdout.write(`${JSON.stringify({ time: new Date().toISOString(), event, workerId, ...details })}\n`);
@@ -27,12 +30,36 @@ async function heartbeat() {
   const result = await admin.rpc("heartbeat_ai_worker", {
     p_worker_id: workerId, p_display_name: displayName, p_host_name: os.hostname(),
     p_worker_version: VERSION, p_concurrency: desiredConcurrency, p_active_count: activeCount,
-    p_metadata: { platform: process.platform, node: process.version, pid: process.pid, max_concurrency: maxConcurrency, adaptive: configuredConcurrency === "AUTO" },
+    p_metadata: { platform: process.platform, node: process.version, pid: process.pid, max_concurrency: maxConcurrency, adaptive: configuredConcurrency === "AUTO", analysis_ready: analysisReady, channel_health: channelHealth },
   });
   if (result.error) throw result.error;
 }
 
+async function probe(name:string,url:string) {
+  const started=Date.now();
+  try {
+    await fetch(url,{method:"GET",redirect:"manual",signal:AbortSignal.timeout(8_000),headers:{"User-Agent":"DTSmart-AI-Worker-Health/1.1"}});
+    return [name,{ok:true,checked_at:new Date().toISOString(),latency_ms:Date.now()-started}] as const;
+  } catch(error) {
+    return [name,{ok:false,checked_at:new Date().toISOString(),latency_ms:Date.now()-started,error:(error instanceof Error?error.message:String(error)).slice(0,160)}] as const;
+  }
+}
+
+async function preflight() {
+  const checks=await Promise.all([
+    probe("public_web","https://example.com/"),
+    probe("google_maps_public","https://www.google.com/maps"),
+    probe("google_places_host","https://places.googleapis.com/"),
+    probe("openai_host","https://api.openai.com/v1/models"),
+  ]);
+  channelHealth=Object.fromEntries(checks);
+  analysisReady=checks.every(([,value])=>value.ok);
+  log("network_preflight",{analysisReady,channels:Object.fromEntries(checks.map(([name,value])=>[name,{ok:value.ok,latency_ms:value.latency_ms}]))});
+  return analysisReady;
+}
+
 async function claim(): Promise<ClaimedAiTaskItem | null> {
+  if (!analysisReady) return null;
   const result = await admin.rpc("claim_next_ai_screening_item", {
     p_worker_id: workerId, p_lease_seconds: leaseSeconds,
   });
@@ -123,9 +150,12 @@ process.on("uncaughtException", (error) => { log("uncaught_exception", { error: 
 process.on("unhandledRejection", (error) => { log("unhandled_rejection", { error: String(error) }); process.exitCode = 1; });
 
 async function main() {
+  await preflight();
   await heartbeat();
   log("worker_online", { host: os.hostname(), concurrency: desiredConcurrency, maxConcurrency, pollMs, leaseSeconds, version: VERSION });
   const heartbeatTimer = setInterval(() => void heartbeat().catch((error) => log("heartbeat_error", { error: error.message })), 15_000);
+  const preflightTimer = setInterval(() => void preflight().then(()=>heartbeat()).catch((error)=>log("preflight_error",{error:error instanceof Error?error.message:String(error)})),60_000);
+  preflightTimer.unref();
   let previousCpu = os.cpus().map((cpu) => ({ idle: cpu.times.idle, total: Object.values(cpu.times).reduce((sum, value) => sum + value, 0) }));
   const capacityTimer = setInterval(() => {
     const current = os.cpus();
@@ -144,6 +174,7 @@ async function main() {
   capacityTimer.unref();
   await Promise.all(Array.from({ length: maxConcurrency }, (_, index) => workerSlot(index + 1)));
   clearInterval(heartbeatTimer);
+  clearInterval(preflightTimer);
   clearInterval(capacityTimer);
 }
 

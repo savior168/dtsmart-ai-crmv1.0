@@ -3,7 +3,7 @@
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ComponentProps } from "react";
-import { Activity, BarChart3, CalendarRange, ChevronRight, Plus, RefreshCw, RotateCcw, Settings2, Target, Users } from "lucide-react";
+import { Activity, Archive, BarChart3, CalendarRange, ChevronRight, Plus, RefreshCw, RotateCcw, Settings2, Target, Users } from "lucide-react";
 import type { AiTask } from "@/components/ai-screening/types";
 import { ConfirmDialog, CostModeBadge, ErrorState, Loading, PageHeader, Pagination, StatusBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, panel, primaryButton, input, useToast } from "@/components/ai-screening/ui";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -18,6 +18,7 @@ type ResponseBody = {
   show_historical_cost_summary?: boolean;
   show_ai_usage?: boolean;
   show_ai_settings?: boolean;
+  can_archive_tasks?: boolean;
   historical_summary?: { processed_customers:number; openai_cost_usd:number; average_openai_cost_per_customer_usd:number; google_places_call_count:number };
 };
 
@@ -60,6 +61,8 @@ export function TaskCenterView() {
   const [scopeUserId, setScopeUserId] = useState("");
   const [pendingAction, setPendingAction] = useState<{ task: AiTask; action: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [archiveSelection,setArchiveSelection]=useState<Set<string>>(new Set());
+  const [batchArchiveOpen,setBatchArchiveOpen]=useState(false);
   const [now, setNow] = useState(() => Date.now());
   const { toast, node: toastNode } = useToast();
   const load = useCallback(async (quiet = false) => {
@@ -89,6 +92,10 @@ export function TaskCenterView() {
     const timer = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(timer);
   }, [data?.counts?.active]);
+  useEffect(() => {
+    setArchiveSelection(new Set());
+    setBatchArchiveOpen(false);
+  }, [page, pageSize, status, search, dateFrom, dateTo, scopeUserId]);
 
   async function runAction() {
     if (!pendingAction) return;
@@ -101,11 +108,21 @@ export function TaskCenterView() {
     setPendingAction(null); await load(true);
   }
 
+  async function runBatchArchive(){
+    if(!archiveSelection.size)return;
+    setBusy(true);
+    const response=await fetch("/api/ai/tasks/batch",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"archive",task_ids:[...archiveSelection]})});
+    const body=await response.json().catch(()=>({}));
+    setBusy(false);
+    if(!response.ok)return toast(body.error||"批量归档失败","error");
+    toast(`已归档 ${body.archived_count||archiveSelection.size} 个任务，历史结果与费用均已保留`);
+    setBatchArchiveOpen(false);setArchiveSelection(new Set());await load(true);
+  }
+
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="AI筛选任务中心" description="创建、监控和处理AI筛选任务，查看客户结果与失败重试。" actions={<>
       {data?.show_ai_usage ? <Link href="/ai-screening/usage" className="group inline-flex h-[42px] items-center gap-3 rounded-[8px] border border-blue-200 bg-blue-50 px-3.5 text-left text-blue-700 transition hover:border-blue-400 hover:bg-blue-100" title="查看AI筛选Token与费用明细"><span className="grid h-7 w-7 place-items-center rounded-md bg-white text-blue-600 shadow-sm"><BarChart3 size={16}/></span><span className="leading-tight"><b className="block text-[13px] font-semibold">查看AI筛选用量</b><small className="text-[11px] text-blue-500">今日 {formatCost(data?.today_cost)}</small></span><ChevronRight size={15} className="transition group-hover:translate-x-0.5"/></Link> : null}
       {data?.show_ai_settings ? <Link href="/ai-screening/settings" className={button}><Settings2 size={16}/>AI筛选设置</Link> : null}
-      <button className={button} onClick={() => void load()}><RefreshCw size={16}/>刷新状态</button>
       <Link href="/ai-screening/new" className={primaryButton}><Plus size={17}/>创建AI筛选任务</Link>
     </>}/>
 
@@ -123,10 +140,11 @@ export function TaskCenterView() {
         <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-500">任务名称 / 编号</span><input className={`${input} w-full`} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="搜索任务名称或任务编号"/></label>
         {data?.show_owner ? <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-500">数据范围</span><UserScopeSelect permission="ai.data_all" value={scopeUserId} onChange={(value) => { setScopeUserId(value); setPage(1); }} className={`${input} w-full`}/></label> : null}
         <fieldset className="min-w-0"><legend className="mb-1.5 text-xs font-medium text-slate-500">创建日期范围</legend><div className="flex h-[38px] items-center overflow-hidden rounded-[7px] border border-[#d8dfe9] bg-white focus-within:border-[#1763e8] focus-within:ring-2 focus-within:ring-blue-100"><CalendarRange className="ml-3 shrink-0 text-slate-400" size={16}/><span className="ml-2 shrink-0 text-xs text-slate-500">开始</span><input type="date" className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-sm outline-none" aria-label="开始日期" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)}/><span className="shrink-0 text-slate-400">至</span><span className="ml-2 shrink-0 text-xs text-slate-500">结束</span><input type="date" className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-sm outline-none" aria-label="结束日期" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)}/></div></fieldset>
-        <div className="flex gap-2"><button className={primaryButton}>查询</button><button type="button" className={button} onClick={() => { setSearchDraft(""); setSearch(""); setStatus(""); setDateFrom(""); setDateTo(""); setScopeUserId(""); setPage(1); }}>重置</button></div>
+        <div className="flex gap-2"><button className={primaryButton}>查询</button><button type="button" className={button} onClick={() => void load()}><RefreshCw size={16}/>刷新</button><button type="button" className={button} onClick={() => { setSearchDraft(""); setSearch(""); setStatus(""); setDateFrom(""); setDateTo(""); setScopeUserId(""); setPage(1); }}>重置</button></div>
       </form>
+      {data?.can_archive_tasks&&(data.data||[]).some(task=>["COMPLETED","CANCELLED","FAILED"].includes(task.status))?<div className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 px-4 py-3"><details className="relative"><summary className={`${button} cursor-pointer list-none`}>选择归档任务（已选 {archiveSelection.size} 个）</summary><div className="absolute left-0 top-11 z-20 max-h-72 w-[420px] overflow-y-auto rounded-lg border bg-white p-2 shadow-xl">{(data.data||[]).filter(task=>["COMPLETED","CANCELLED","FAILED"].includes(task.status)).map(task=><label key={task.id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 hover:bg-slate-50"><input type="checkbox" className="mt-1 accent-blue-600" checked={archiveSelection.has(task.id)} onChange={event=>setArchiveSelection(current=>{const next=new Set(current);if(event.target.checked)next.add(task.id);else next.delete(task.id);return next})}/><span className="min-w-0"><b className="block truncate text-sm">{task.name}</b><small className="text-slate-400">{task.task_number} · {task.status}</small></span></label>)}</div></details><div className="flex gap-2"><button type="button" className={button} onClick={()=>setArchiveSelection(new Set((data.data||[]).filter(task=>["COMPLETED","CANCELLED","FAILED"].includes(task.status)).map(task=>task.id)))}>选择本页可归档任务</button><button type="button" disabled={!archiveSelection.size} className={button} onClick={()=>setBatchArchiveOpen(true)}><Archive size={16}/>批量归档</button></div></div>:null}
       {error ? <ErrorState message={error} reload={() => void load()}/> : loading ? <Loading/> : <div className="overflow-x-auto"><table className="w-full min-w-[1580px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["任务名称 / 编号",...(data?.show_owner?["归属人"]:[]),"分析模式","筛选客户","状态","进度","成功 / 失败","任务耗时","总Token","OpenAI费用","Google调用","平均每位客户","创建时间","操作"].map((value) => <th key={value} className="px-4 py-3 font-medium">{value}</th>)}</tr></thead><tbody>{(data?.data || []).map((task) => { const itemControl = control(task); const processed = Number(task.processed_count || task.success_count + task.failed_count); const openAiCost = Number(task.openai_cost_usd ?? task.total_cost_usd); const avgTokens = processed ? task.total_tokens / processed : 0; const avgOpenAiCost = processed ? openAiCost / processed : 0; const progress = task.total_count ? Math.min(100, processed / task.total_count * 100) : 0; return <tr key={task.id} onDoubleClick={event=>{if(canOpenListRow(event.target))router.push(`/ai-screening/tasks/${task.id}`)}} className="cursor-pointer border-t border-slate-100 hover:bg-blue-50/30"><td className="px-4 py-3"><b className="block font-medium text-slate-900">{task.name}</b><span className="mt-1 block text-xs text-slate-400">{task.task_number}</span></td>{data?.show_owner?<td className="px-4 py-3"><b className="block font-medium">{task.owner?.name||"未命名用户"}</b><small className="text-slate-400">{task.owner?.email||"—"}</small></td>:null}<td className="px-4 py-3"><CostModeBadge mode={task.cost_mode}/>{task.task_cost_limit_usd!=null?<small className="mt-1 block text-slate-400">任务上限 {formatCost(task.task_cost_limit_usd)}</small>:null}</td><td className="px-4 py-3">{formatNumber(task.total_count)} 条</td><td className="px-4 py-3"><StatusBadge status={task.status}/></td><td className="w-40 px-4 py-3"><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }}/></div><span className="mt-1 block text-xs text-slate-400">{formatNumber(processed)} / {formatNumber(task.total_count)}</span></td><td className="px-4 py-3 whitespace-nowrap"><b className="font-medium text-emerald-600">{formatNumber(task.success_count)}</b><span className="mx-1.5 text-slate-300">/</span><b className="font-medium text-rose-600">{formatNumber(task.failed_count)}</b></td><td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(task, now))}</td><td className="px-4 py-3">{formatTokens(task.total_tokens)}</td><td className="px-4 py-3">{formatCost(openAiCost)}</td><td className="px-4 py-3 whitespace-nowrap">{formatNumber(task.google_places_call_count)} 次</td><td className="px-4 py-3"><span className="block">{formatTokens(avgTokens)} Token</span><small className="text-slate-400">OpenAI {formatCost(avgOpenAiCost)}</small></td><td className="px-4 py-3 text-slate-500">{new Date(task.created_at).toLocaleString("zh-CN")}</td><td className="px-4 py-3"><div className="flex items-center gap-3 whitespace-nowrap"><Link href={`/ai-screening/tasks/${task.id}`} className="font-medium text-blue-600">查看详情</Link>{task.status === "COMPLETED" ? <Link href={`/ai-screening/tasks/${task.id}/report`} className="font-medium text-blue-600">查看报告</Link> : null}{itemControl ? <button className={`font-medium ${itemControl.className}`} onClick={() => setPendingAction({ task, action: itemControl.action })}>{itemControl.label}</button> : null}</div></td></tr>; })}</tbody></table>{!data?.data.length ? <div className="p-14 text-center text-sm text-slate-400">暂无符合条件的AI筛选任务</div> : null}</div>}
       <Pagination page={page} pageSize={pageSize} total={data?.count || 0} itemLabel="个任务" onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }}/>
     </section>
-  </div>{toastNode}<ConfirmDialog open={Boolean(pendingAction)} title={pendingAction ? actionCopy[pendingAction.action]?.title || "确认操作" : ""} description={pendingAction ? actionCopy[pendingAction.action]?.description || "" : ""} confirmLabel={pendingAction ? actionCopy[pendingAction.action]?.confirm || "确认" : "确认"} busy={busy} onClose={() => setPendingAction(null)} onConfirm={() => void runAction()}/></main>;
+  </div>{toastNode}<ConfirmDialog open={Boolean(pendingAction)} title={pendingAction ? actionCopy[pendingAction.action]?.title || "确认操作" : ""} description={pendingAction ? actionCopy[pendingAction.action]?.description || "" : ""} confirmLabel={pendingAction ? actionCopy[pendingAction.action]?.confirm || "确认" : "确认"} busy={busy} onClose={() => setPendingAction(null)} onConfirm={() => void runAction()}/><ConfirmDialog open={batchArchiveOpen} title={`归档 ${archiveSelection.size} 个任务？`} description="归档后任务从任务中心隐藏，但客户结果、分析依据、Token及费用账本全部保留。任一任务不符合条件时整批不会执行。" confirmLabel="确认批量归档" busy={busy} onClose={()=>setBatchArchiveOpen(false)} onConfirm={()=>void runBatchArchive()}/></main>;
 }
