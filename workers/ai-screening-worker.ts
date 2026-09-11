@@ -3,7 +3,7 @@ import { createAdminClient } from "../lib/supabase/admin";
 import { executeClaimedAiTaskItem, type ClaimedAiTaskItem } from "../lib/ai/task-item-executor";
 import type { AiStrategy } from "../lib/ai/task-types";
 
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const workerId = process.env.AI_WORKER_ID || `dtsmart-${os.hostname().toLowerCase()}`;
 const displayName = process.env.AI_WORKER_NAME || `${os.hostname()} 本地分析节点`;
 const configuredConcurrency = String(process.env.AI_WORKER_CONCURRENCY || "AUTO").toUpperCase();
@@ -11,7 +11,7 @@ const autoMaxConcurrency = Math.min(5, Math.max(3, Math.floor(os.cpus().length *
 const maxConcurrency = configuredConcurrency === "AUTO"
   ? autoMaxConcurrency
   : Math.min(5, Math.max(1, Number(configuredConcurrency) || 4));
-const minConcurrency = Math.min(2, maxConcurrency);
+const minConcurrency = configuredConcurrency === "AUTO" ? Math.min(3, maxConcurrency) : maxConcurrency;
 let desiredConcurrency = Math.min(3, maxConcurrency);
 const pollMs = Math.min(15_000, Math.max(500, Number(process.env.AI_WORKER_POLL_MS || 1500)));
 const leaseSeconds = Math.min(3600, Math.max(300, Number(process.env.AI_WORKER_LEASE_SECONDS || 1800)));
