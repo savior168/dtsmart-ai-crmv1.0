@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as {
       name?: string; strategy?: string; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
-      cost_mode?: string; task_cost_limit_usd?: unknown;
+      cost_mode?: string; task_cost_limit_usd?: unknown; reanalysis?: boolean;
     };
     const name = body.name?.trim();
     // The product exposes one adaptive mode. Keep SMART as the stored legacy
@@ -221,12 +221,17 @@ export async function POST(request: NextRequest) {
     }
     const requestedIds = [...new Set((body.customer_ids || []).filter(Boolean))];
     if (!requestedIds.length) return NextResponse.json({ error: "请至少选择一条待筛选客户" }, { status: 400 });
+    // A user-selected reanalysis must start from live public sources rather
+    // than silently reusing its previous conclusion. Normal new-task creation
+    // remains limited to customers that have not yet received an AI score.
+    const isReanalysis = body.reanalysis === true;
     const ownerScope = await resolveAiOwnerScope(account, String(body.filters?.owner_id || ""));
 
     const allowedIds: string[] = [];
     for (let offset = 0; offset < requestedIds.length; offset += 200) {
       const ids = requestedIds.slice(offset, offset + 200);
-      let allowedQuery = createAdminClient().from("customers").select("id").in("id", ids).is("deleted_at", null).is("ai_score", null);
+      let allowedQuery = createAdminClient().from("customers").select("id").in("id", ids).is("deleted_at", null);
+      if (!isReanalysis) allowedQuery = allowedQuery.is("ai_score", null);
       if (ownerScope.ownerIds) allowedQuery = allowedQuery.in("owner_id", ownerScope.ownerIds);
       const allowed = await allowedQuery;
       if (allowed.error) throw allowed.error;
@@ -250,7 +255,10 @@ export async function POST(request: NextRequest) {
     const task = await admin.from("ai_screening_tasks").insert({
       user_id: user.id, task_number: taskNumber(), name, strategy, strategy_version: "1.0",
       status: "QUEUED", total_count: eligibleIds.length, pending_count: eligibleIds.length,
-      filters: body.filters || {}, selection_mode: "FILTERED", scheduled_at: scheduledAt,
+      filters: isReanalysis
+        ? { ...(body.filters || {}), force_fresh_analysis: true, reanalysis_scope: "MANUAL_CONFLICT" }
+        : body.filters || {},
+      selection_mode: "FILTERED", scheduled_at: scheduledAt,
       notification_mode: body.notification_mode || "IN_APP",
       request_key: requestKey,
       cost_mode: costMode,
@@ -267,7 +275,7 @@ export async function POST(request: NextRequest) {
       if (inserted.error) throw inserted.error;
     }
     const dispatch = await dispatchAiScreeningTask({ taskId: task.data.id, strategy, scheduledAt, executionMode, dispatchPolicy });
-    await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, execution_mode: executionMode, dispatch_policy: dispatchPolicy, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length } });
+    await admin.from("audit_logs").insert({ user_id: user.id, action: isReanalysis ? "AI_TASK_REANALYZE" : "AI_TASK_CREATE", target_type: "ai_screening_task", target_id: task.data.id, content: { task_number: task.data.task_number, strategy, cost_mode: costMode, execution_mode: executionMode, dispatch_policy: dispatchPolicy, task_cost_limit_usd: taskCostLimit, total_count: eligibleIds.length, reanalysis: isReanalysis } });
     return NextResponse.json({ task: { ...task.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务创建失败";
