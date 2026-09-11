@@ -19,6 +19,7 @@ assert.match(migration, /execution_mode in \('AUTO','LOCAL_ONLY','VERCEL_ONLY'\)
 assert.match(migration, /revoke all on function public\.claim_next_ai_screening_item[\s\S]+from public,anon,authenticated/i, "claim RPC must be service-role only");
 assert.match(worker, /AI_WORKER_CONCURRENCY \|\| "AUTO"/, "worker must default to adaptive concurrency");
 assert.match(worker, /configuredConcurrency === "AUTO" \? Math\.min\(3, maxConcurrency\)/, "automatic concurrency must not fall below three");
+assert.match(worker, /Math\.ceil\(os\.cpus\(\)\.length \* 0\.4\)/, "a twelve-thread idle worker must be able to scale to five slots");
 assert.match(worker, /renew_ai_screening_item_lease/, "worker must renew active leases");
 assert.match(worker, /SIGTERM/, "worker must shut down gracefully");
 assert.match(workflow, /claim_ai_screening_task_item/, "Vercel workflow must use the same atomic lease claim");
@@ -28,8 +29,12 @@ assert.match(dispatcher, /rescueStalledAutomaticTasks/, "cloud fallback recovery
 assert.match(runner, /AI_EXECUTION_LEASE_LOST/, "stale workers must be fenced before writeback or paid calls");
 assert.match(installer, /New-ScheduledTaskTrigger -AtStartup/, "Windows worker must start at boot");
 assert.match(installer, /RestartCount 999/, "Windows worker must restart after failure");
+assert.match(installer, /Read-WorkerEnvironment[\s\S]*Start-Process notepad\.exe[\s\S]*worker\.env 仍缺少必填项/, "installer must reopen and revalidate incomplete existing configuration");
+assert.match(installer, /worker_online[\s\S]*30秒内没有收到Worker上线日志/, "installer must verify an actual worker heartbeat log before reporting success");
 assert.match(installLauncher, /fltmc[\s\S]*Start-Process -FilePath[\s\S]*-Verb RunAs/, "Windows launcher must reliably self-elevate");
 assert.match(installLauncher, /INSTALL_EXIT_CODE/, "Windows launcher must preserve and display installation failures");
+assert.doesNotMatch(installLauncher, /[^\x00-\x7F]/, "Windows cmd launcher must remain pure ASCII for legacy cmd.exe compatibility");
+assert.match(installLauncher, /\r\n/, "Windows cmd launcher must use CRLF line endings");
 assert.match(createRoute, /execution_mode: executionMode/, "task creation must persist the chosen executor mode");
 
 console.log("AI hybrid executor regression tests passed");

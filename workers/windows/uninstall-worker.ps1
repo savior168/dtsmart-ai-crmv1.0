@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 $ErrorActionPreference = 'SilentlyContinue'
 $taskName = 'DTSmart-AI-Worker'
 $installDir = Join-Path $env:ProgramData 'DTSmart\AIWorker'

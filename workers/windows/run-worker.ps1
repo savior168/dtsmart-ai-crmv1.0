@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $installDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $envFile = Join-Path $installDir 'worker.env'
 $logDir = Join-Path $env:ProgramData 'DTSmart\AIWorker\logs'
