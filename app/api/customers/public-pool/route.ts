@@ -219,11 +219,11 @@ export async function GET(request: NextRequest) {
       query = query.or(anyIndustry.join(","));
     }
     if (["A", "B", "C", "D"].includes(aiLevel)) query = query.eq("ai_level", aiLevel);
-    // Score expresses priority, while this tri-state field records the gated
-    // business conclusion. Null therefore remains outside both target lists.
+    // Only completed AI analyses belong to the two business-result filters.
+    // Unscreened customers stay under the ordinary "all" condition rather
+    // than being presented as a third target-result value.
     if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false);
-    if (target === "pending") query = query.is("ai_score", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
     if (sourceType === "IMPORT") query = query.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);

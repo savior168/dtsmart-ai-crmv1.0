@@ -554,11 +554,18 @@ export function isPlausiblePhone(value?: string | null) {
   return true;
 }
 
-function extractPhones(html: string) {
+export function extractPhones(html: string) {
   // Only accept explicit telephone markup or a nearby telephone label. Scanning every
   // number on a page also captures prices, dates, product codes and analytics values.
   const labeledText = compactText(html);
+  const telephoneLinks = [...html.matchAll(/<a\b[^>]*href=["']tel:([^"'?#]+)["'][^>]*>([\s\S]{0,240}?)<\/a>/gi)];
   const candidates = [
+    // Prefer the visible text of a tel: link. Its href commonly uses E.164
+    // while the page shows the locally familiar form (for example
+    // "06021 4547 590"). Both normalize to the same number for matching, but
+    // the visible form is the truthful source value that sales should see.
+    ...telephoneLinks.map((match) => compactText(match[2]).replace(/^(?:tel(?:ephone)?|phone|telefon(?:nummer)?)\s*[:：]?\s*/i, "")),
+    ...telephoneLinks.map((match) => decodeURIComponent(match[1]).replace(/^\/\//, "")),
     ...[...html.matchAll(/href=["']tel:([^"'?#]+)["']/gi)].map((match) => decodeURIComponent(match[1]).replace(/^\/\//, "")),
     ...[...html.matchAll(/["'](?:telephone|phone)["']\s*:\s*["']([^"']+)["']/gi)].map((match) => match[1]),
       ...[...labeledText.matchAll(/(?:电话|联系电话|联系电话号码|tel(?:ephone)?|phone|mobile|mobil|handy|telefon(?:nummer)?|téléphone|teléfono|telefono|telefone)\s*[:：]?\s*(\+?\d[\d\s\-().]{5,}\d)/gi)].map((match) => match[1]),

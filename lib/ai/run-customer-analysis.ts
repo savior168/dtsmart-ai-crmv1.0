@@ -73,7 +73,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.09.21";
+const ANALYSIS_VERSION = "2026.09.11.01";
 const OPENAI_MIN_SAFE_RESERVATION_USD = 0.15;
 
 function openAiBudgetReservationUsd() {
@@ -522,8 +522,30 @@ export function normalizeAnalysisEvidence(analysis: CustomerAnalysis, records: C
     }];
     return { ...summary, original_excerpt: originalExcerpt || summary.original_excerpt };
   });
+  // The model may keep its narrative concise, but it must not choose which
+  // valid source survives the audit trail. Recover one factual summary from
+  // every actually collected channel so an official website, Google profile or
+  // official social page is not silently omitted from the evidence panel.
+  const recoveredSourceEvidence = records.flatMap((record) => {
+    if (record.status !== "COLLECTED" || !record.evidence || !record.source_url) return [];
+    const originalExcerpt = recordBusinessText(record);
+    const labels = [...new Set(verifiedFactLabels(originalExcerpt))];
+    if (!labels.length) return [];
+    const channelLabel = record.channel === "google_maps" ? "Google商家页"
+      : record.channel === "website" ? "企业官网"
+        : AI_CHANNEL_LABELS[record.channel as AiChannel] || "公开渠道";
+    return [{
+      channel: record.channel,
+      title_zh: `${channelLabel}已核验经营事实`,
+      fact_zh: `已核验经营内容：${labels.slice(0, 10).join("、")}。`,
+      source_url: record.source_url,
+      evidence_type: labels.every((label) => NON_TARGET_FACT_LABEL.test(label)) ? "矛盾" as const : "支持" as const,
+      confidence: 80,
+      original_excerpt: originalExcerpt.slice(0, 4000),
+    }];
+  });
   const seen = new Set<string>();
-  const evidenceSummaries = expandedEvidence.filter((item) => {
+  const evidenceSummaries = [...expandedEvidence, ...recoveredSourceEvidence].filter((item) => {
     const key = `${item.channel}|${item.source_url}|${item.fact_zh}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -1109,8 +1131,14 @@ function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
     const mobileName = /(?:phone|mobile|smartphone|smartfon|telefon|gsm|iphone|手机)/i.test(businessName);
     const repairReview = /(?:repair|repaired|fix|fixed|(?:screen|display|glass|battery)(?:\s+was)?\s+(?:replacement|replaced|changed|fixed)|napraw|serwis|repar|维修|修理|更换)/i.test(reviews);
     const independentlyAnchored = /(?:地址|电话|官网|具体Google|place.?id|address|phone|website|domain)/i.test((item.match_signals || []).join("；"));
+    // Places does not always return business_status. An omitted status is not
+    // a closure fact: when phone/address/domain already anchor the entity, an
+    // explicitly named repair service remains attributable unless Places
+    // explicitly says it is permanently closed. Requiring OPERATIONAL here
+    // caused exact matches such as "Laptop and PC repairs" to be discarded
+    // and incorrectly fall through to the low-evidence D-score path.
     const explicitNamedTargetBusiness = independentlyAnchored
-      && String(item.business_status || "OPERATIONAL") === "OPERATIONAL"
+      && String(item.business_status || "").toUpperCase() !== "CLOSED_PERMANENTLY"
       && RULE_INDUSTRIES.some((rule) => rule.target && rule.industry !== "进口商或分销商" && ruleIsSupported(rule, businessName));
     // The raw customer name remains a routing hint only. The public Google
     // business name may become a business fact only after phone/address/domain
@@ -1787,6 +1815,37 @@ export function applyVerifiedScaleToSalesConclusion(analysis: CustomerAnalysis, 
   };
 }
 
+/**
+ * Contact values discovered on a verified official website are independently
+ * auditable sales evidence. Keep their source-page trail visible in the
+ * customer-facing conclusion without repeating private contact values or
+ * pretending that a contact page proves an unobserved business activity.
+ */
+export function applyVerifiedWebsiteContactSummary(analysis: CustomerAnalysis, contacts: ContactCandidate[]) {
+  const verified = contacts.filter((item) => item.sourceChannel === "website"
+    && item.identityStatus === "MATCHED"
+    && ["EMAIL", "PHONE", "WHATSAPP"].includes(item.type)
+    && ["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus));
+  if (!verified.length) return analysis;
+  const count = (type: ContactType) => new Set(verified.filter((item) => item.type === type).map((item) => item.valueNormalized)).size;
+  const detail = [count("EMAIL") ? `邮箱${count("EMAIL")}个` : "", count("PHONE") ? `电话${count("PHONE")}个` : "", count("WHATSAPP") ? `WhatsApp${count("WHATSAPP")}个` : ""].filter(Boolean).join("、");
+  const pages = [...new Set(verified.map((item) => {
+    try { return new URL(item.sourceUrl).pathname.replace(/\/$/, "") || "官网首页"; } catch { return "官网页面"; }
+  }))].slice(0, 2).join("、");
+  const sentence = `官网联系方式核验：已从企业官网${pages ? `（${pages}）` : ""}确认${detail}，具体值及来源链接已回写。`;
+  const append = (value: string, fallback: string) => {
+    const base = String(value || fallback).replace(/\s+/g, " ").trim();
+    if (base.includes("官网联系方式核验：")) return base.slice(0, 220);
+    const available = Math.max(0, 220 - sentence.length - 1);
+    return `${base.slice(0, available).replace(/[。；,，\s]+$/, "")}。${sentence}`.slice(0, 220);
+  };
+  return {
+    ...analysis,
+    ai_reason: append(analysis.ai_reason, "已完成客户主体与经营范围核验"),
+    followup_suggestion: append(analysis.followup_suggestion, "优先使用已核验官网联系方式跟进"),
+  };
+}
+
 export function channelUrl(customer: CustomerRow, channel: AiChannel): string | null {
   if (channel === "website") return effectiveWebsite(customer);
   if (channel === "google_maps") return customer.google_url;
@@ -2442,6 +2501,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const businessScope = verifiedBusinessScope(analysis);
     const verifiedScale = verifiedCompanyScale(records);
     analysis = applyVerifiedScaleToSalesConclusion(analysis, verifiedScale);
+    analysis = applyVerifiedWebsiteContactSummary(analysis, reconciled.contacts);
     analysis = attachFinalScoreToReason(analysis);
     const publishedScore = analysis.ai_score;
     const publishedLevel = analysis.ai_level;
