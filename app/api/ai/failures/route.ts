@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { AI_DISPATCH_POLICIES, type AiDispatchPolicy, type AiExecutionMode, type AiStrategy } from "@/lib/ai/task-types";
+import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiDispatchPolicy, type AiExecutionMode, type AiStrategy } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 
 export async function GET(request: NextRequest) {
@@ -74,9 +74,8 @@ export async function POST(request: NextRequest) {
     for (const item of failedRows) {
       const task = Array.isArray(item.task) ? item.task[0] : item.task;
       if (!task || (task.user_id !== user.id && account.role !== "ADMIN")) continue;
-      const savedPolicy=task.dispatch_policy as AiDispatchPolicy;
-      const dispatchPolicy=AI_DISPATCH_POLICIES.includes(savedPolicy)?savedPolicy:task.execution_mode==="LOCAL_ONLY"?"LOCAL_ONLY":task.execution_mode==="VERCEL_ONLY"?"VERCEL_ONLY":"LOCAL_FIRST";
-      const current = groups.get(item.task_id) || { strategy: task.strategy as AiStrategy, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode, dispatchPolicy, ids: [] };
+      const dispatchPolicy: AiDispatchPolicy = AI_CLOUD_DISPATCH_POLICY;
+      const current = groups.get(item.task_id) || { strategy: task.strategy as AiStrategy, executionMode: AI_CLOUD_EXECUTION_MODE as AiExecutionMode, dispatchPolicy, ids: [] };
       current.ids.push(item.id);
       groups.set(item.task_id, current);
     }
@@ -95,7 +94,12 @@ export async function POST(request: NextRequest) {
         }).in("id", ids);
         if (reset.error) throw reset.error;
       }
-      await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", taskId);
+      await admin.from("ai_screening_tasks").update({
+        status: "QUEUED", completed_at: null, cancel_requested: false,
+        execution_mode: AI_CLOUD_EXECUTION_MODE, dispatch_policy: AI_CLOUD_DISPATCH_POLICY,
+        active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", taskId);
       await dispatchAiScreeningTask({ taskId, strategy: group.strategy, scheduledAt: null, executionMode: group.executionMode, dispatchPolicy:group.dispatchPolicy });
     }
     return NextResponse.json({ success: true, retried: [...groups.values()].reduce((sum, group) => sum + group.ids.length, 0) });

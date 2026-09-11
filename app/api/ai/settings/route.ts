@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { AI_DISPATCH_POLICIES, type AiDispatchPolicy } from "@/lib/ai/task-types";
+import { AI_CLOUD_DISPATCH_POLICY } from "@/lib/ai/task-types";
 
 const amountKeys = [
   "google_daily_limit_usd", "google_weekly_limit_usd", "google_monthly_limit_usd",
@@ -13,25 +13,19 @@ const integerLimits = {
   openai_max_paid_calls_per_customer: 1,
 } as const;
 
-const settingsSelect = "updated_at,updated_by,ai_default_dispatch_policy,google_paid_enabled,openai_paid_enabled,google_max_paid_calls_per_customer,openai_max_paid_calls_per_customer,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd";
+const settingsSelect = "updated_at,updated_by,google_paid_enabled,openai_paid_enabled,google_max_paid_calls_per_customer,openai_max_paid_calls_per_customer,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd";
 
 export async function GET() {
   try {
     await requirePermission("ai.settings.manage");
     const admin = createAdminClient();
-    const [settings, budgets, workers] = await Promise.all([
+    const [settings, budgets] = await Promise.all([
       admin.from("cost_center_settings").select(settingsSelect).eq("id", true).single(),
       admin.rpc("api_cost_budget_status"),
-      admin.from("ai_worker_nodes").select("worker_id,display_name,host_name,worker_version,status,concurrency,active_count,last_heartbeat_at,started_at,metadata").order("last_heartbeat_at", { ascending: false }),
     ]);
     if (settings.error) throw settings.error;
     if (budgets.error) throw budgets.error;
-    if (workers.error) throw workers.error;
-    const now = Date.now();
-    return NextResponse.json({ settings: settings.data, budgets: budgets.data || {}, workers: (workers.data || []).map((worker) => ({
-      ...worker,
-      healthy: worker.status === "ONLINE" && now - new Date(worker.last_heartbeat_at).getTime() <= 45_000 && (worker.metadata as Record<string, unknown> | null)?.analysis_ready === true,
-    })) });
+    return NextResponse.json({ settings: { ...settings.data, ai_default_dispatch_policy: AI_CLOUD_DISPATCH_POLICY }, budgets: budgets.data || {} });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI筛选设置加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
@@ -49,9 +43,7 @@ export async function PATCH(request: NextRequest) {
       updated_by: user.id,
       updated_at: new Date().toISOString(),
     };
-    const dispatchPolicy = ("ai_default_dispatch_policy" in body ? body.ai_default_dispatch_policy : current.data.ai_default_dispatch_policy || "VERCEL_FIRST") as AiDispatchPolicy;
-    if (!AI_DISPATCH_POLICIES.includes(dispatchPolicy)) return NextResponse.json({ error: "任务调度策略无效" }, { status: 400 });
-    updates.ai_default_dispatch_policy = dispatchPolicy;
+    updates.ai_default_dispatch_policy = AI_CLOUD_DISPATCH_POLICY;
     for (const key of amountKeys) {
       if (!(key in body)) {
         updates[key] = current.data[key] == null ? null : Number(current.data[key]);
@@ -89,7 +81,7 @@ export async function PATCH(request: NextRequest) {
       paid_channels: Object.fromEntries(booleanKeys.map((key) => [key, updates[key]])),
       budgets: Object.fromEntries(amountKeys.map((key) => [key, updates[key]])),
       customer_caps: Object.fromEntries(Object.keys(integerLimits).map((key) => [key, updates[key]])),
-      dispatch_policy: dispatchPolicy,
+      dispatch_policy: AI_CLOUD_DISPATCH_POLICY,
     });
     return NextResponse.json({ settings: saved.data });
   } catch (error) {

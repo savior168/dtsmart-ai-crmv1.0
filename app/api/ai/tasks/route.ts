@@ -3,8 +3,8 @@ import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/c
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
-import { AI_COST_MODES, AI_DISPATCH_POLICIES, type AiCostMode, type AiDispatchPolicy, type AiExecutionMode } from "@/lib/ai/task-types";
-import { dispatchAiScreeningTask, rescueStalledAutomaticTasks } from "@/lib/ai/task-dispatch";
+import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, AI_COST_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
+import { dispatchAiScreeningTask, rescueStalledCloudTasks } from "@/lib/ai/task-dispatch";
 
 function taskNumber() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -28,11 +28,10 @@ export async function GET(request: NextRequest) {
     const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     try {
-      await rescueStalledAutomaticTasks();
+      await rescueStalledCloudTasks();
     } catch (rescueError) {
-      // Fallback dispatch is best-effort. A temporary Workflow or database
-      // monitoring failure must not make the task list itself unavailable.
-      console.error("AI task fallback dispatch failed", rescueError);
+      // A best-effort recovery check must not prevent the task list loading.
+      console.error("AI task cloud recovery dispatch failed", rescueError);
     }
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).is("archived_at", null);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);
@@ -234,18 +233,8 @@ export async function POST(request: NextRequest) {
       allowedIds.push(...(allowed.data || []).map((item) => item.id));
     }
     const admin = createAdminClient();
-    const executionSettings = await admin.from("cost_center_settings").select("ai_default_dispatch_policy").eq("id", true).single();
-    if (executionSettings.error) throw executionSettings.error;
-    const rawDispatchPolicy = executionSettings.data.ai_default_dispatch_policy as AiDispatchPolicy;
-    const dispatchPolicy: AiDispatchPolicy = AI_DISPATCH_POLICIES.includes(rawDispatchPolicy) ? rawDispatchPolicy : "VERCEL_FIRST";
-    // Cloud-first policies begin cloud-locked so a polling local worker cannot
-    // race the initial Workflow claim. Dispatch relaxes this to AUTO only when
-    // an immediate cloud start fails and a healthy local fallback exists.
-    const executionMode: AiExecutionMode = dispatchPolicy === "LOCAL_ONLY"
-      ? "LOCAL_ONLY"
-      : dispatchPolicy === "VERCEL_ONLY" || dispatchPolicy === "VERCEL_FIRST"
-        ? "VERCEL_ONLY"
-        : "AUTO";
+    const dispatchPolicy = AI_CLOUD_DISPATCH_POLICY;
+    const executionMode: AiExecutionMode = AI_CLOUD_EXECUTION_MODE;
     const requestKey = body.request_key?.trim().slice(0, 120) || null;
     if (requestKey) {
       const existing = await admin.from("ai_screening_tasks").select("*").eq("user_id", user.id).eq("request_key", requestKey).maybeSingle();

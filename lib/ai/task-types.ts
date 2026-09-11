@@ -13,6 +13,11 @@ export type AiExecutionMode = (typeof AI_EXECUTION_MODES)[number];
 export const AI_DISPATCH_POLICIES = ["VERCEL_FIRST", "LOCAL_FIRST", "VERCEL_ONLY", "LOCAL_ONLY"] as const;
 export type AiDispatchPolicy = (typeof AI_DISPATCH_POLICIES)[number];
 
+// Legacy values remain typed so completed historical tasks can be displayed
+// faithfully. New work is always dispatched through the Vercel Workflow.
+export const AI_CLOUD_DISPATCH_POLICY = "VERCEL_ONLY" as const;
+export const AI_CLOUD_EXECUTION_MODE = "VERCEL_ONLY" as const;
+
 export const AI_DISPATCH_POLICY_LABELS: Record<AiDispatchPolicy, string> = {
   VERCEL_FIRST: "云端优先，本地接管（推荐）",
   LOCAL_FIRST: "本地优先，云端接管",

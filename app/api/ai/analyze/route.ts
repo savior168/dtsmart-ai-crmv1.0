@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
-import { AI_DISPATCH_POLICIES, type AiDispatchPolicy, type AiExecutionMode } from "@/lib/ai/task-types";
+import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiExecutionMode } from "@/lib/ai/task-types";
 
 export const runtime = "nodejs";
 
@@ -28,11 +28,8 @@ export async function POST(request: NextRequest) {
     if (visible.data.ai_score !== null) return NextResponse.json({ error: "该客户已经完成AI筛选" }, { status: 409 });
 
     const admin = createAdminClient();
-    const executionSettings = await admin.from("cost_center_settings").select("ai_default_dispatch_policy").eq("id", true).single();
-    if (executionSettings.error) throw executionSettings.error;
-    const configuredPolicy=executionSettings.data.ai_default_dispatch_policy as AiDispatchPolicy;
-    const dispatchPolicy:AiDispatchPolicy=AI_DISPATCH_POLICIES.includes(configuredPolicy)?configuredPolicy:"VERCEL_FIRST";
-    const executionMode:AiExecutionMode=dispatchPolicy==="LOCAL_ONLY"?"LOCAL_ONLY":dispatchPolicy==="LOCAL_FIRST"?"AUTO":"VERCEL_ONLY";
+    const dispatchPolicy = AI_CLOUD_DISPATCH_POLICY;
+    const executionMode: AiExecutionMode = AI_CLOUD_EXECUTION_MODE;
     const existing = await admin.from("ai_screening_task_items")
       .select("id,task:ai_screening_tasks!inner(id,user_id,status)")
       .eq("customer_id", visible.data.id).eq("task.user_id", user.id)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRun } from "workflow/api";
 import { hasPermission, requirePermission, type CurrentAccount } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { AI_DISPATCH_POLICIES, type AiDispatchPolicy, type AiExecutionMode, type AiStrategy } from "@/lib/ai/task-types";
+import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiDispatchPolicy, type AiStrategy } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 
@@ -11,10 +11,8 @@ function taskNumber() {
   return `AI-${stamp}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
 }
 
-function taskDispatchPolicy(task: { dispatch_policy?:string|null; execution_mode?:string|null }):AiDispatchPolicy {
-  const saved=task.dispatch_policy as AiDispatchPolicy;
-  if(AI_DISPATCH_POLICIES.includes(saved)) return saved;
-  return task.execution_mode==="LOCAL_ONLY"?"LOCAL_ONLY":task.execution_mode==="VERCEL_ONLY"?"VERCEL_ONLY":"LOCAL_FIRST";
+function taskDispatchPolicy(): AiDispatchPolicy {
+  return AI_CLOUD_DISPATCH_POLICY;
 }
 
 async function ownedTask(id: string, account: CurrentAccount) {
@@ -149,9 +147,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         }).in("id", legacyIds);
         if (requeue.error) throw requeue.error;
       }
-      const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, pause_started_at: null, completed_at: null, finished_at: null, error_message: null, updated_at: now }).eq("id", id);
+      const queued = await admin.from("ai_screening_tasks").update({
+        status: "QUEUED", cancel_requested: false, pause_started_at: null, completed_at: null, finished_at: null,
+        error_message: null, execution_mode: AI_CLOUD_EXECUTION_MODE, dispatch_policy: taskDispatchPolicy(),
+        active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now,
+      }).eq("id", id);
       if (queued.error) throw queued.error;
-      await dispatchAiScreeningTask({ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode, dispatchPolicy:taskDispatchPolicy(task) });
+      await dispatchAiScreeningTask({ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null, executionMode: AI_CLOUD_EXECUTION_MODE, dispatchPolicy: taskDispatchPolicy() });
     } else if (body.action === "retry") {
       if (!["FAILED", "COMPLETED"].includes(task.status)) return NextResponse.json({ error: "只有失败任务或含失败客户的已完成任务可以重试" }, { status: 409 });
       const failed = await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
@@ -175,9 +177,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const reset = await admin.from("ai_screening_task_items").update({ status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null, result_id: null, progress: 0, current_step: "WAITING", pipeline_stage: "NORMALIZED", error_message: null, error_code: null, error_context: {}, writeback_warning_count: 0, retry_at: null, completed_at: null, updated_at: new Date().toISOString() }).eq("task_id", id).eq("status", "FAILED").eq("retryable", true).lt("attempt_count", 3);
       if (reset.error) throw reset.error;
       await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: id });
-      const queued = await admin.from("ai_screening_tasks").update({ status: "QUEUED", completed_at: null, finished_at: null, error_message: null, cancel_requested: false, updated_at: new Date().toISOString() }).eq("id", id);
+      const queued = await admin.from("ai_screening_tasks").update({
+        status: "QUEUED", completed_at: null, finished_at: null, error_message: null, cancel_requested: false,
+        execution_mode: AI_CLOUD_EXECUTION_MODE, dispatch_policy: taskDispatchPolicy(),
+        active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: new Date().toISOString(),
+      }).eq("id", id);
       if (queued.error) throw queued.error;
-      await dispatchAiScreeningTask({ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode, dispatchPolicy:taskDispatchPolicy(task) });
+      await dispatchAiScreeningTask({ taskId: id, strategy: task.strategy as AiStrategy, scheduledAt: null, executionMode: AI_CLOUD_EXECUTION_MODE, dispatchPolicy: taskDispatchPolicy() });
     } else if (body.action === "reanalyze_invalid") {
       const sourceTaskIds = [...new Set([id, ...(body.source_task_ids || [])].filter(Boolean))].slice(0, 10);
       const sourceTasks = [];
@@ -222,8 +228,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         notification_mode: body.notification_mode || task.notification_mode || "IN_APP",
         cost_mode: task.cost_mode || "ADAPTIVE",
         task_cost_limit_usd: task.cost_mode === "FREE_ONLY" ? 0 : task.task_cost_limit_usd ?? null,
-        execution_mode: task.execution_mode || "AUTO",
-        dispatch_policy: taskDispatchPolicy(task),
+        execution_mode: AI_CLOUD_EXECUTION_MODE,
+        dispatch_policy: taskDispatchPolicy(),
       }).select("*").single();
       if (created.error || !created.data) throw created.error || new Error("无效客户复验任务创建失败");
       const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
@@ -232,7 +238,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
           const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
           if (inserted.error) throw inserted.error;
         }
-        const dispatch = await dispatchAiScreeningTask({ taskId: created.data.id, strategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode, dispatchPolicy:taskDispatchPolicy(task) });
+        const dispatch = await dispatchAiScreeningTask({ taskId: created.data.id, strategy, scheduledAt: null, executionMode: AI_CLOUD_EXECUTION_MODE, dispatchPolicy: taskDispatchPolicy() });
         await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_INVALID_RESULTS_REANALYZE", target_type: "ai_screening_task", target_id: created.data.id, content: { source_task_ids: sourceTaskIds, source_task_numbers: sourceTasks.map((item) => item.task_number), task_number: created.data.task_number, total_count: customerIds.length } });
         return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
       } catch (error) {
@@ -263,8 +269,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         notification_mode: task.notification_mode || "IN_APP",
         cost_mode: task.cost_mode || "ADAPTIVE",
         task_cost_limit_usd: task.cost_mode === "FREE_ONLY" ? 0 : task.task_cost_limit_usd ?? null,
-        execution_mode: task.execution_mode || "AUTO",
-        dispatch_policy: taskDispatchPolicy(task),
+        execution_mode: AI_CLOUD_EXECUTION_MODE,
+        dispatch_policy: taskDispatchPolicy(),
       }).select("*").single();
       if (created.error || !created.data) throw created.error || new Error("全量复核任务创建失败");
       const rows = customerIds.map((customerId) => ({ task_id: created.data.id, customer_id: customerId, status: "PENDING", strategy, strategy_version: "1.0" }));
@@ -273,7 +279,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
           const inserted = await admin.from("ai_screening_task_items").insert(rows.slice(offset, offset + 500));
           if (inserted.error) throw inserted.error;
         }
-        const dispatch = await dispatchAiScreeningTask({ taskId: created.data.id, strategy, scheduledAt: null, executionMode: (task.execution_mode || "AUTO") as AiExecutionMode, dispatchPolicy:taskDispatchPolicy(task) });
+        const dispatch = await dispatchAiScreeningTask({ taskId: created.data.id, strategy, scheduledAt: null, executionMode: AI_CLOUD_EXECUTION_MODE, dispatchPolicy: taskDispatchPolicy() });
         await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_TASK_REANALYZE", target_type: "ai_screening_task", target_id: created.data.id, content: { source_task_id: id, source_task_number: task.task_number, task_number: created.data.task_number, total_count: customerIds.length } });
         return NextResponse.json({ success: true, task: { ...created.data, workflow_run_id: dispatch.runId, active_executor: dispatch.executor } }, { status: 201 });
       } catch (error) {

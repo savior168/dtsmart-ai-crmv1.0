@@ -33,7 +33,7 @@ const modes = [
 export default function AiScreeningStrategiesPage() {
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="AI分析策略说明" description="本页与当前真实执行规则同步；两种模式的主体核验、证据标准和评分逻辑一致，仅允许使用的补证渠道不同。" actions={<Link href="/ai-screening" className={button}>返回任务中心</Link>}/>
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>执行器策略由管理员统一配置：</b><span>可选择云端优先、本地优先、仅云端或仅本地；创建页只读回显。无论选择哪种策略，均调用同一分析代码、规则版本与费用保护。</span></div>
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><b>执行环境：</b><span>所有AI筛选任务均由绑定账户的 Vercel 云端 Workflow 执行。执行环境不会改变分析代码、规则版本、费用保护或评分标准。</span></div>
     <section className="grid gap-4 lg:grid-cols-2">
       {modes.map(mode=><article key={mode.name} className={`${panel} overflow-hidden`}><div className="border-b border-[#e8ecf2] px-5 py-4"><span className={`rounded-md border px-2 py-1 text-xs ${mode.tone}`}>{mode.tag}</span><h2 className="mt-3 text-xl font-semibold">{mode.name}</h2><p className="mt-1 text-sm leading-6 text-[#68758a]">{mode.intro}</p></div><ul className="list-disc space-y-2 p-5 pl-10 text-sm leading-6 text-[#5e6b7f]">{mode.rules.map(rule=><li key={rule}>{rule}</li>)}</ul></article>)}
     </section>
