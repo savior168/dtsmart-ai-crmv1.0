@@ -532,18 +532,22 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     && evidenceSufficient
     && hasStrongDirectEvidence;
   if (verifiedTargetIndustry) {
-    const serviceDepthPoints = Math.min(12, directServiceSignalCount * 3);
+    // A single, identity-matched official source can establish the business
+    // itself. Its score still must reflect the *depth* of the verifiable
+    // operating facts rather than being mechanically compressed into C. A/B
+    // remain bounded by source independence, scale and commercial evidence.
+    const serviceDepthPoints = Math.min(18, directServiceSignalCount * 4);
     const sourcePoints = directTargetSources >= 2 ? 10 : 4;
     const commercialPoints = verifiedProcurement ? 12 : verifiedBuyingRole ? 8 : verifiedChain ? 7 : verifiedHighVolumeRepair ? 5 : 0;
     const riskPenalty = Math.min(12, Math.round(metric("contradiction_risk") * 0.12));
     const evidenceDerivedScore = 56 + sourcePoints + serviceDepthPoints + activityPoints
       + contactPoints + identityPoints + commercialPoints - riskPenalty;
-    const singleSourceEvidenceCeiling = Math.max(60, Math.min(69,
-      59 + Math.min(4, directServiceSignalCount * 2)
-      + Math.min(2, activityPoints)
-      + Math.min(2, contactPoints)
-      + Math.min(2, identityPoints)
-      - Math.min(4, riskPenalty),
+    const singleSourceEvidenceCeiling = Math.max(60, Math.min(82,
+      58 + Math.min(16, directServiceSignalCount * 4)
+      + Math.min(4, activityPoints)
+      + Math.min(3, contactPoints)
+      + Math.min(4, identityPoints)
+      - Math.min(6, riskPenalty),
     ));
     const evidenceCeiling = verifiedProcurement ? 96
       : verifiedBuyingRole || verifiedChain || verifiedHighVolumeRepair ? 94
@@ -561,15 +565,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     confidence = Math.min(confidence, evidence.length ? Math.max(30, evidenceRiskCeiling + 8) : 25);
   } else if (!strongEnoughForHighConfidence) {
     confidence = Math.min(confidence, hasStrongDirectEvidence ? 92 : 79);
-    // 单一直接来源可以确认业务，但不能形成A/B所需的跨来源闭环。
-    // 上限随实际服务深度、经营活跃度、可联系性、主体匹配度和风险变化，
-    // 不能把不同质量的客户机械压成同一个69分。
-    const singleSourceCeiling = Math.max(60, Math.min(69,
-      59 + Math.min(4, directServiceSignalCount * 2)
-      + Math.min(2, activityPoints)
-      + Math.min(2, contactPoints)
-      + Math.min(2, identityPoints)
-      - Math.min(4, Math.round(metric("contradiction_risk") * 0.12)),
+    // A/B must not be awarded merely because a page was fetched. However, an
+    // identity-matched official page with several independently specific
+    // repair facts is stronger than a one-line category and deserves a score
+    // in the B band when the evidence actually supports it.
+    const singleSourceCeiling = Math.max(60, Math.min(82,
+      58 + Math.min(16, directServiceSignalCount * 4)
+      + Math.min(4, activityPoints)
+      + Math.min(3, contactPoints)
+      + Math.min(4, identityPoints)
+      - Math.min(6, Math.round(metric("contradiction_risk") * 0.12)),
     ));
     score = Math.min(score, hasStrongDirectEvidence ? singleSourceCeiling : 59);
   }

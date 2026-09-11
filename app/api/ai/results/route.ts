@@ -87,7 +87,10 @@ export async function GET(request: NextRequest) {
       else if (item.target_decision === "REVIEW") value.review += 1;
       value.tokens += Number(item.total_tokens || 0);
       value.cost += Number(item.cost_usd || 0);
-      if (item.evidence_sufficiency === "SUFFICIENT") value.sufficient += 1;
+      // Persisted values are localized (充分/一般/不足). Keep the legacy enum
+      // for historical rows, otherwise the summary incorrectly reports zero
+      // sufficient-evidence customers.
+      if (item.evidence_sufficiency === "充分" || item.evidence_sufficiency === "SUFFICIENT") value.sufficient += 1;
       if (item.early_stop_reason) value.early_stopped += 1;
       grades[item.grade || "-"] = (grades[item.grade || "-"] || 0) + 1;
       return value;

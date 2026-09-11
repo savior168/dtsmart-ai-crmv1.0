@@ -711,6 +711,35 @@ export function reconcileFinalDecision(
     : analysis;
 }
 
+/** Keep the displayed reasoning and the persisted final score atomic. */
+export function attachFinalScoreToReason(analysis: CustomerAnalysis): CustomerAnalysis {
+  const score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
+  const level = scoreToLevel(score);
+  const finalScoreText = `最终评分：${level}级${score}分。`;
+  const base = String(analysis.ai_reason || "已完成客户主体与经营范围核验")
+    .replace(/最终评分[：:]?\s*[ABCD]级?\s*\d{1,3}\s*分[。；]?/g, "")
+    .trim()
+    .replace(/[。；\s]+$/, "");
+  return {
+    ...analysis,
+    ai_score: score,
+    ai_level: level,
+    ai_reason: `${base || "已完成客户主体与经营范围核验"}。${finalScoreText}`,
+  };
+}
+
+function evidenceSufficiencyScore(evidence: PolicyEvidence[]) {
+  const usable = evidence.filter((item) => item.kind !== "中性" && item.confidence >= 60 && /^https?:\/\//i.test(item.sourceUrl));
+  const strong = usable.filter((item) => item.strength === "STRONG_DIRECT").length;
+  const corroborating = usable.filter((item) => item.strength === "MEDIUM_CORROBORATING").length;
+  const sources = new Set(usable.map((item) => {
+    try { return new URL(item.sourceUrl).origin; } catch { return ""; }
+  }).filter(Boolean)).size;
+  // This is an evidence-quality indicator, not a count of sentences. One
+  // attributable direct fact is materially stronger than several weak hints.
+  return Math.min(100, strong * 60 + corroborating * 18 + Math.max(0, sources - 1) * 12);
+}
+
 function contactTypeForUrl(value?: string | null): ContactType {
   const url = String(value || "").toLowerCase();
   if (/google\.[^/]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/.test(url)) return "GOOGLE_MAPS";
@@ -1748,6 +1777,9 @@ export function applyVerifiedScaleToSalesConclusion(analysis: CustomerAnalysis, 
     const available = Math.max(0, 220 - scaleSentence.length - 1);
     return `${base.slice(0, available).replace(/[。；,，\s]+$/, "")}。${scaleSentence}`.slice(0, 220);
   };
+  // Store count is a scale fact, not a proxy for purchase intent, product
+  // relevance or service depth. Keep it visible for sales prioritisation but
+  // never change the score merely because the business has more branches.
   return {
     ...analysis,
     ai_reason: append(analysis.ai_reason, "已完成客户主体与经营范围核验"),
@@ -2396,8 +2428,6 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
     // Every persisted final result has
     // a real score and grade backed by a valid/invalid evidence-gate decision.
-    const publishedScore = analysis.ai_score;
-    const publishedLevel = analysis.ai_level;
     const reconciled = contactCandidatesFromRecords(customer, records, identity.status);
     // Conflicting official sources remain visible in customer_contacts for
     // manual verification, but are not written into the customer's usable
@@ -2412,6 +2442,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const businessScope = verifiedBusinessScope(analysis);
     const verifiedScale = verifiedCompanyScale(records);
     analysis = applyVerifiedScaleToSalesConclusion(analysis, verifiedScale);
+    analysis = attachFinalScoreToReason(analysis);
+    const publishedScore = analysis.ai_score;
+    const publishedLevel = analysis.ai_level;
     const scaleSignals = verifiedScale.companyScaleEvidence ? [verifiedScale.companyScaleEvidence] : [];
     const resultPayload = {
       customer_id: customer.id, task_id: input.taskId, task_item_id: input.taskItemId,
@@ -2424,7 +2457,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       company_scale_evidence: verifiedScale.companyScaleEvidence,
       industry_confidence: analysis.confidence_score, identity_confidence: identity.confidence,
       decision_confidence: analysis.confidence_score, contact_confidence: reconciled.preferred ? (reconciled.preferred.identityStatus === "MATCHED" ? 90 : 55) : 0,
-      scale_confidence: scaleSignals.length ? 90 : 0, evidence_sufficiency_score: Math.min(100, policyEvidence.filter((item) => item.kind !== "中性").length * 20),
+      scale_confidence: scaleSignals.length ? 90 : 0, evidence_sufficiency_score: evidenceSufficiencyScore(policyEvidence),
       identity_status: identity.status, identity_details: identity,
       verified_business_name: identity.verifiedBusinessName, verified_address: identity.verifiedAddress,
       verified_website: identity.verifiedWebsite, verified_google_maps_url: identity.verifiedGoogleMapsUrl,
