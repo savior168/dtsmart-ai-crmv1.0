@@ -17,8 +17,8 @@ export const AI_EXECUTION_MODE_LABELS: Record<AiExecutionMode, string> = {
 };
 
 export const AI_COST_MODE_LABELS: Record<AiCostMode, string> = {
-  ADAPTIVE: "智能分析（高性价比）",
-  FREE_ONLY: "快速分析（完全免费）",
+  ADAPTIVE: "智能增强分析",
+  FREE_ONLY: "全免费分析",
 };
 
 export const AI_STRATEGY_LABELS: Record<AiStrategy, string> = {

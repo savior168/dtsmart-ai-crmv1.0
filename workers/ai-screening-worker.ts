@@ -3,7 +3,7 @@ import { createAdminClient } from "../lib/supabase/admin";
 import { executeClaimedAiTaskItem, type ClaimedAiTaskItem } from "../lib/ai/task-item-executor";
 import type { AiStrategy } from "../lib/ai/task-types";
 
-const VERSION = "1.0.2";
+const VERSION = "1.0.3";
 const workerId = process.env.AI_WORKER_ID || `dtsmart-${os.hostname().toLowerCase()}`;
 const displayName = process.env.AI_WORKER_NAME || `${os.hostname()} 本地分析节点`;
 const configuredConcurrency = String(process.env.AI_WORKER_CONCURRENCY || "AUTO").toUpperCase();

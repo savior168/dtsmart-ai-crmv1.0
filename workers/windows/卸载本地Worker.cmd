@@ -6,7 +6,7 @@ goto uninstall
 
 :elevate
 echo Requesting administrator permission...
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""%~dp0uninstall-worker.ps1""'; exit $p.ExitCode"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -FilePath '%~f0' -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
 set "UNINSTALL_EXIT_CODE=%ERRORLEVEL%"
 goto finish
 

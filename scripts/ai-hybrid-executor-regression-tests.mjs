@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [migration, worker, workflow, dispatcher, runner, installer, installLauncher, createRoute] = await Promise.all([
+const [migration, worker, workflow, dispatcher, runner, installer, installLauncher, createRoute, createView, settingsView, strategiesView] = await Promise.all([
   read("supabase/migrations/202609100005_ai_screening_hybrid_executor.sql"),
   read("workers/ai-screening-worker.ts"),
   read("workflows/ai-screening.ts"),
@@ -11,6 +11,9 @@ const [migration, worker, workflow, dispatcher, runner, installer, installLaunch
   read("workers/windows/install-worker.ps1"),
   read("workers/windows/安装本地Worker.cmd"),
   read("app/api/ai/tasks/route.ts"),
+  read("components/ai-screening/create-task-view.tsx"),
+  read("components/ai-screening/settings-view.tsx"),
+  read("app/ai-screening/strategies/page.tsx"),
 ]);
 
 assert.match(migration, /for update of i skip locked/i, "queue claims must be atomic");
@@ -29,12 +32,22 @@ assert.match(dispatcher, /rescueStalledAutomaticTasks/, "cloud fallback recovery
 assert.match(runner, /AI_EXECUTION_LEASE_LOST/, "stale workers must be fenced before writeback or paid calls");
 assert.match(installer, /New-ScheduledTaskTrigger -AtStartup/, "Windows worker must start at boot");
 assert.match(installer, /RestartCount 999/, "Windows worker must restart after failure");
-assert.match(installer, /Read-WorkerEnvironment[\s\S]*Start-Process notepad\.exe[\s\S]*worker\.env 仍缺少必填项/, "installer must reopen and revalidate incomplete existing configuration");
+assert.match(installer, /Stop-ScheduledTask[\s\S]*installedNodePath[\s\S]*Get-Process -Name node[\s\S]*Stop-Process -Id/, "repair install must stop only the existing bundled worker before replacing its runtime");
+assert.match(installer, /Wait-Process -Id[\s\S]*旧版Worker进程未能停止/, "repair install must confirm the old runtime released its executable before copying files");
+assert.match(installer, /Start-Process notepad\.exe[\s\S]*configurationDeadline[\s\S]*Read-WorkerEnvironment[\s\S]*Start-Sleep -Seconds 2/, "installer must detect saved configuration without waiting for the Windows 11 Notepad process to exit");
+assert.doesNotMatch(installer, /Start-Process notepad\.exe[^\r\n]*-Wait/, "installer must not wait for the multi-tab Notepad process to exit");
 assert.match(installer, /worker_online[\s\S]*30秒内没有收到Worker上线日志/, "installer must verify an actual worker heartbeat log before reporting success");
-assert.match(installLauncher, /fltmc[\s\S]*Start-Process -FilePath[\s\S]*-Verb RunAs/, "Windows launcher must reliably self-elevate");
+assert.match(installer, /existingLogLineCount[\s\S]*Select-Object -Skip \$existingLogLineCount[\s\S]*worker_online/, "installer must only accept a fresh heartbeat written by the current start attempt");
+assert.match(installLauncher, /fltmc[\s\S]*Start-Process -FilePath '%~f0' -Verb RunAs -Wait -PassThru/, "Windows launcher must elevate by relaunching itself so detailed errors remain visible");
 assert.match(installLauncher, /INSTALL_EXIT_CODE/, "Windows launcher must preserve and display installation failures");
 assert.doesNotMatch(installLauncher, /[^\x00-\x7F]/, "Windows cmd launcher must remain pure ASCII for legacy cmd.exe compatibility");
 assert.match(installLauncher, /\r\n/, "Windows cmd launcher must use CRLF line endings");
 assert.match(createRoute, /execution_mode: executionMode/, "task creation must persist the chosen executor mode");
+assert.match(createRoute, /const executionMode = "AUTO" as const/, "the API must centrally enforce automatic scheduling");
+assert.doesNotMatch(createRoute, /body\.execution_mode/, "clients must not be able to force a specific execution node");
+assert.doesNotMatch(createView, /execution_mode:/, "task creation must leave node selection to the server scheduler");
+assert.doesNotMatch(createView, /setExecutionMode|仅本地 Worker|仅 Vercel 云端/, "task creation must not expose infrastructure node selection");
+assert.match(settingsView, /heartbeatAgeSeconds[\s\S]*setInterval\(\(\)=>void refreshWorkers\(\),10000\)[\s\S]*任务执行节点/, "worker health must be monitored live from the settings page");
+assert.match(strategiesView, /智能增强分析[\s\S]*全免费分析[\s\S]*执行节点自动调度/, "strategy documentation must reflect both real cost modes and automatic scheduling");
 
 console.log("AI hybrid executor regression tests passed");

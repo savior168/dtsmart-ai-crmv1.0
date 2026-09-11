@@ -29,6 +29,26 @@ if (-not $principalCheck.IsInRole([Security.Principal.WindowsBuiltInRole]::Admin
 }
 
 Write-Host '正在安装 DT Smart AI 本地 Worker...' -ForegroundColor Cyan
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($existingTask) {
+  Write-Host '正在停止旧版 Worker，以安全完成升级...' -ForegroundColor Cyan
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+}
+
+$installedNode = Join-Path $installDir 'runtime\node.exe'
+$installedNodePath = [IO.Path]::GetFullPath($installedNode)
+$oldWorkerProcesses = @(Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object {
+  try { $_.Path -and ([IO.Path]::GetFullPath($_.Path) -ieq $installedNodePath) } catch { $false }
+})
+foreach ($process in $oldWorkerProcesses) {
+  Stop-Process -Id $process.Id -Force -ErrorAction Stop
+  Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
+  if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+    throw "旧版Worker进程未能停止，无法安全替换运行文件。进程ID: $($process.Id)"
+  }
+}
+
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $sourceDir 'app') -Destination $installDir -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $sourceDir 'runtime') -Destination $installDir -Recurse -Force
@@ -58,9 +78,14 @@ $values = Read-WorkerEnvironment $targetEnv
 $missing = @($required | Where-Object { -not $values[$_] })
 if ($missing.Count -gt 0) {
   Write-Host "请在打开的配置文件中填写必填项：$($missing -join ', ')" -ForegroundColor Yellow
-  Start-Process notepad.exe -ArgumentList $targetEnv -Wait
-  $values = Read-WorkerEnvironment $targetEnv
-  $missing = @($required | Where-Object { -not $values[$_] })
+  Write-Host '保存文件后安装程序会自动继续，不需要关闭记事本。' -ForegroundColor Yellow
+  Start-Process notepad.exe -ArgumentList $targetEnv | Out-Null
+  $configurationDeadline = (Get-Date).AddMinutes(15)
+  do {
+    Start-Sleep -Seconds 2
+    $values = Read-WorkerEnvironment $targetEnv
+    $missing = @($required | Where-Object { -not $values[$_] })
+  } while ($missing.Count -gt 0 -and (Get-Date) -lt $configurationDeadline)
 }
 if ($missing.Count -gt 0) { throw "worker.env 仍缺少必填项：$($missing -join ', ')，安装已停止。" }
 
@@ -70,16 +95,17 @@ $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'DT Smart AI screening durable local worker' -Force | Out-Null
-Start-ScheduledTask -TaskName $taskName
-Start-Sleep -Seconds 2
 $online = $false
 $startupFailure = $null
 $logFile = Join-Path $installDir ("logs\worker-{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
+$existingLogLineCount = if (Test-Path -LiteralPath $logFile) { @(Get-Content -LiteralPath $logFile -ErrorAction SilentlyContinue).Count } else { 0 }
+Start-ScheduledTask -TaskName $taskName
+Start-Sleep -Seconds 2
 for ($attempt = 0; $attempt -lt 15; $attempt += 1) {
   if (Test-Path -LiteralPath $logFile) {
-    $tail = Get-Content -LiteralPath $logFile -Tail 60 -ErrorAction SilentlyContinue
-    if ($tail -match '"event":"worker_online"') { $online = $true; break }
-    $failedLine = $tail | Where-Object { $_ -match '"event":"startup_failed"' } | Select-Object -Last 1
+    $newLogLines = @(Get-Content -LiteralPath $logFile -ErrorAction SilentlyContinue | Select-Object -Skip $existingLogLineCount)
+    if ($newLogLines -match '"event":"worker_online"') { $online = $true; break }
+    $failedLine = $newLogLines | Where-Object { $_ -match '"event":"startup_failed"' } | Select-Object -Last 1
     if ($failedLine) { $startupFailure = $failedLine; break }
   }
   Start-Sleep -Seconds 2

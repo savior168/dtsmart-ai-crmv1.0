@@ -3,7 +3,7 @@ import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/c
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
-import { AI_COST_MODES, AI_EXECUTION_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
+import { AI_COST_MODES, type AiCostMode } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask, rescueStalledAutomaticTasks } from "@/lib/ai/task-dispatch";
 
 function taskNumber() {
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as {
       name?: string; strategy?: string; scheduled_at?: string | null; customer_ids?: string[];
       filters?: Record<string, unknown>; notification_mode?: string; request_key?: string;
-      cost_mode?: string; task_cost_limit_usd?: unknown; execution_mode?: string;
+      cost_mode?: string; task_cost_limit_usd?: unknown;
     };
     const name = body.name?.trim();
     // The product exposes one adaptive mode. Keep SMART as the stored legacy
@@ -209,8 +209,9 @@ export async function POST(request: NextRequest) {
     const costMode: AiCostMode = AI_COST_MODES.includes(body.cost_mode as AiCostMode)
       ? body.cost_mode as AiCostMode
       : "ADAPTIVE";
-    const executionMode: AiExecutionMode = AI_EXECUTION_MODES.includes(body.execution_mode as AiExecutionMode)
-      ? body.execution_mode as AiExecutionMode : "AUTO";
+    // Execution infrastructure is centrally managed. New tasks always use the
+    // local-first automatic scheduler; clients cannot force a fragile node.
+    const executionMode = "AUTO" as const;
     const rawTaskLimit = body.task_cost_limit_usd;
     const taskCostLimit = costMode === "FREE_ONLY"
       ? 0
