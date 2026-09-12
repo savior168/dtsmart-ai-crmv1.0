@@ -948,6 +948,16 @@ export function resolveGoogleCandidateIdentity(input: {
   const uniqueCandidate = input.runnerUpScore == null || input.score - input.runnerUpScore >= 10;
   const nameAndAddress = input.nameSimilarity >= 0.8 && input.addressSimilarity >= 0.72;
   const addressAndPhone = input.addressSimilarity >= 0.72 && input.phoneMatch;
+  // An imported company name can be stale, translated or abbreviated, while a
+  // full street/postal address is a stable locator. It is still not enough on
+  // its own (shared buildings exist), so require a unique candidate, a very
+  // high address match and at least a moderate name corroboration. A differing
+  // public phone is retained as a contact-change risk rather than rejecting
+  // the business entity.
+  const addressAnchoredName = uniqueCandidate
+    && input.addressSimilarity >= 0.9
+    && input.nameSimilarity >= 0.45
+    && !input.officialDomainConflict;
   const directPlaceCorroborated = input.directPlaceIdMatch
     && (input.nameSimilarity >= 0.55 || input.addressSimilarity >= 0.55 || input.phoneMatch || input.officialDomainMatch);
   // A broad Maps search can return a similarly named nearby merchant. A
@@ -961,8 +971,10 @@ export function resolveGoogleCandidateIdentity(input: {
   // still identity-critical.
   if (input.phoneConflict && input.officialDomainConflict) return "CONFLICTED" as const;
   if ((input.phoneConflict && !nameAndAddress && !input.officialDomainMatch && !input.directPlaceIdMatch)
+      && !addressAnchoredName
       || (input.officialDomainConflict && !input.phoneMatch && !input.directPlaceIdMatch)) return "AMBIGUOUS" as const;
   if (uniqueCandidate && (nameAndAddress || addressAndPhone || directPlaceCorroborated)) return "MATCHED" as const;
+  if (addressAnchoredName) return "LIKELY_MATCHED" as const;
   // A competing nearby result must not override the candidate whose exact
   // name/address is also tied to the imported official domain. Keep a phone
   // difference as a contact conflict instead of reopening entity discovery.
@@ -1098,6 +1110,15 @@ export async function collectPublicGooglePlaceEvidence(input: {
       phoneConflict: Boolean(input.phone && top.phone && !top.phoneMatch),
       officialDomainConflict: Boolean(domain(input.website) && domain(top.website) && domain(input.website) !== domain(top.website)),
     });
+    const addressAnchoredIdentity = identityStatus === "LIKELY_MATCHED"
+      && top.addressSimilarity >= 0.9
+      && top.nameSimilarity >= 0.45;
+    // The weighted score deliberately gives names only a small role. Preserve
+    // that scoring for ranking, but expose the independently satisfied
+    // address-anchor rule at the policy minimum so later stages do not discard
+    // an otherwise verified Google repair business as an arbitrary low-score
+    // candidate.
+    const identityConfidence = addressAnchoredIdentity ? Math.max(75, top.score) : top.score;
     const allStrings = nestedStrings(top.row);
     const imageUrls = uniqueOriginalMedia(
       allStrings.filter((item) => /^https:\/\/lh\d+\.googleusercontent\.com\/p\//i.test(item)),
@@ -1117,7 +1138,7 @@ export async function collectPublicGooglePlaceEvidence(input: {
     const verifiedUrl = isSpecificPlaceUrl ? providedUrl! : typeof top.row[42] === "string" ? top.row[42] : searchPage;
     const nameVariantConfirmed = top.nameSimilarity < 0.8 && top.addressSimilarity >= 0.72 && top.phoneMatch;
     const phoneChanged = Boolean(input.phone && top.phone && !top.phoneMatch);
-    const matchSignals = [top.nameSimilarity >= 0.8 ? "商家名称高度一致（辅助信号）" : "", nameVariantConfirmed ? "商家名称存在细微差异，完整地址与电话已确认同一主体" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", top.addressSimilarity >= 0.72 ? "完整地址一致" : "", countryInfo(input.country).code && countryInfo(input.country).code === top.countryCode ? "国家代码一致" : "", top.officialDomainMatch ? "公开网站一致" : "", top.phoneMatch ? "电话号码一致" : ""].filter(Boolean);
+    const matchSignals = [top.nameSimilarity >= 0.8 ? "商家名称高度一致（辅助信号）" : "", nameVariantConfirmed ? "商家名称存在细微差异，完整地址与电话已确认同一主体" : "", addressAnchoredIdentity ? "唯一候选的完整地址高度一致，名称具备辅助佐证" : "", isSpecificPlaceUrl ? "使用客户提供的具体Google商家页" : "", top.addressSimilarity >= 0.72 ? "完整地址一致" : "", countryInfo(input.country).code && countryInfo(input.country).code === top.countryCode ? "国家代码一致" : "", top.officialDomainMatch ? "公开网站一致" : "", top.phoneMatch ? "电话号码一致" : ""].filter(Boolean);
     const mismatchSignals = [
       input.address && top.addressSimilarity < 0.45 ? "地址信息不一致" : "",
       phoneChanged ? "Google商家电话与原始电话不一致，需核对是否为换号、分店或错误候选" : "",
@@ -1140,7 +1161,7 @@ export async function collectPublicGooglePlaceEvidence(input: {
       place_id: typeof top.row[78] === "string" ? top.row[78] : undefined,
       candidate_count: candidates.length,
       identity_status: identityStatus,
-      identity_confidence: top.score,
+      identity_confidence: identityConfidence,
       match_signals: matchSignals,
       mismatch_signals: identityStatus === "NOT_FOUND" ? ["公开地图结果与客户名称或地址不一致"] : mismatchSignals,
       verified_google_maps_url: verifiedUrl,
@@ -1509,6 +1530,10 @@ export async function collectGooglePlaceEvidence(input: {
       phoneConflict: top.phoneConflict,
       officialDomainConflict: top.officialDomainConflict,
     });
+    const addressAnchoredIdentity = identityStatus === "LIKELY_MATCHED"
+      && top.addressSimilarity >= 0.9
+      && top.nameSimilarity >= 0.45;
+    const identityConfidence = addressAnchoredIdentity ? Math.max(75, top.score) : top.score;
     const result = top.item;
     const googlePhone = result.internationalPhoneNumber || result.nationalPhoneNumber;
     const phoneChanged = Boolean(input.phone && googlePhone && !phoneIdentityMatch(input.phone, googlePhone));
@@ -1546,7 +1571,7 @@ export async function collectGooglePlaceEvidence(input: {
       place_id: result.id,
       candidate_count: details.length,
       identity_status: identityStatus,
-      identity_confidence: top.score,
+      identity_confidence: identityConfidence,
       match_signals: top.matchSignals,
       mismatch_signals: top.mismatchSignals,
       verified_google_maps_url: result.googleMapsUri || (result.id ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(result.id)}` : input.google_url || undefined),

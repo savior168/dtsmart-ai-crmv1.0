@@ -5,6 +5,8 @@ import {
   analyzeCustomer,
   groundCustomerAnalysis,
   isComputerHardwareRepairEvidence,
+  hasCoreDeviceRepairEvidence,
+  dominantNonTargetIndustryForText,
   isDirectNonTargetBusinessEvidence,
   hasDirectTargetBusinessEvidence,
   positiveTargetEvidenceText,
@@ -73,7 +75,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.11.01";
+const ANALYSIS_VERSION = "2026.09.12.02";
 const OPENAI_MIN_SAFE_RESERVATION_USD = 0.15;
 
 function openAiBudgetReservationUsd() {
@@ -363,7 +365,11 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   if (normalizedGoogleStatus
       && ["MATCHED", "LIKELY_MATCHED"].includes(normalizedGoogleStatus)
       && googleConfidence >= 70
-      && (googleConfidence >= 90 || !website?.reachable)) return {
+      // A reachable page that failed its own entity admission must not erase
+      // an independently address-anchored Google business. This commonly
+      // happens when a stale imported URL redirects or serves no business
+      // content, while the Maps candidate has the exact customer address.
+      && (googleConfidence >= 90 || !website?.reachable || !admittedWebsite)) return {
     status: normalizedGoogleStatus,
     confidence: googleConfidence,
     verifiedBusinessName: google?.name || null,
@@ -1106,11 +1112,12 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
   { pattern: /(?:computer repair|pc repair|pc mechanic|laptop repair|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:electronics? repairs?|repair(?:ed|s|ing)?[\s\S]{0,50}electronic devices?|electrical repairs?|electronic device repairs?|tv repairs?|television repairs?|turntable repairs?|audio equipment repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|电视维修|音响维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
-  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|chargers?|earbuds?|headphones?|tablets?|手机配件商店|手机配件|手机壳|保护膜|移动电源|车载手机支架|充电器|耳机|平板电脑)/i, industry: "手机外配件零售", baseScore: 45, target: true },
+  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone chargers?|phone earbuds?|phone headphones?|手机配件商店|手机配件|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|平板配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
   { pattern: /(?:cell[_ ]phone[_ ]store|mobile[_ ]phone[_ ]store|mobile[_ ]phone[_ ]shop|phone shop|smartphone shop|handyshop|手机店|手机成品零售)/i, industry: "手机成品零售", baseScore: 26, target: false },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
   { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|运营商营业厅|手机套餐|电信运营商|通信合约|宽带套餐)/i, industry: "运营商营业厅", baseScore: 22, target: false },
   { pattern: /(?:railway engineering|rail safety|railway safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i, industry: "铁路或电气工程", baseScore: 15, target: false },
+  { pattern: /(?:home appliance|appliance repair|white goods|household appliances?|elektroger[aä]t|haushaltsger[aä]t|电器维修|家电维修)/i, industry: "电器或家电维修", baseScore: 14, target: false },
   { pattern: /(?:food wholesale|food distributor|vegetable wholesale|fruit wholesale|食品批发|蔬菜批发|水果批发|餐饮供应)/i, industry: "食品批发或餐饮供应", baseScore: 10, target: false },
   { pattern: /(?:tobacco shop|tobacconist|vape shop|vaping store|e[- ]?cigarette|smoke shop|shisha shop|电子烟|烟草店|水烟店)/i, industry: "电子烟或烟草零售", baseScore: 8, target: false },
   { pattern: /(?:insolvency auction|liquidation auction|auction house|auction calendar|versteigerungskalender|insolvenzverfahren|拍卖行|破产拍卖|清算拍卖)/i, industry: "拍卖或资产处置", baseScore: 8, target: false },
@@ -1197,6 +1204,11 @@ export function shouldUseModelSupplement(customer: CustomerRow, records: Channel
 
 function ruleIsSupported(rule: (typeof RULE_INDUSTRIES)[number], text: string) {
   if (!rule.pattern.test(text)) return false;
+  // Telecom counters, IT support firms and appliance repairers can expose a
+  // generic repair link. Do not turn that incidental wording into a target
+  // industry unless the same collected source proves a physical device repair
+  // operation, component replacement or specialist repair workshop.
+  if (rule.target && dominantNonTargetIndustryForText(text) && !hasCoreDeviceRepairEvidence(text)) return false;
   if (/维修店/.test(rule.industry) && TELECOM_SERVICE_PATTERN.test(text) && !EXPLICIT_DEVICE_REPAIR_PATTERN.test(text)) return false;
   // 任何行业都可以出现“批发/分销”字样；必须同时证明手机、电脑或维修配件产品相关，才能归入高价值渠道客户。
   if (rule.industry === "进口商或分销商") return PRODUCT_RELEVANCE_PATTERN.test(text);
@@ -1330,17 +1342,17 @@ function deterministicScore(input: {
 const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "Apple设备维修", pattern: /(?:Apple|iPhone|iPad|MacBook|Apple Watch|iMac)[\s\S]{0,80}(?:repair|fix|napraw|serwis|repar|reparatur|维修|更换)|(?:repair|fix|napraw|serwis|repar|reparatur|维修|更换)[\s\S]{0,80}(?:Apple|iPhone|iPad|MacBook|Apple Watch|iMac)/i },
   { label: "手机维修", pattern: /(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)[\s\S]{0,60}(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair|fix|napraw|serwis|repar|reparasjon|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,60}(?:phone|mobile|cell ?phone|smartphone|iphone|gsm|telefon|smartfon|m[oó]vil|celular|t[eé]l[eé]phone|handy|telefono|mobil)|手机维修/i },
-  { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|service|fix(?:ed|es|ing)?|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair(?:ed|s|ing)?|service|fix(?:ed|es|ing)?|care|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|电脑维修|笔记本维修/i },
+  { label: "电脑或笔记本维修", pattern: /(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?|napraw|serwis|repar|r[eé]paration|riparazione|repara[cç][aã]o|reparatur)[\s\S]{0,80}(?:computer|laptop|notebook|macbook|pc|komputer|ordenador|ordinateur|computador)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|电脑维修|笔记本维修/i },
   { label: "电子设备维修", pattern: /(?:electronics? repairs?|electrical repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|游戏机维修)/i },
   { label: "屏幕或玻璃更换", pattern: /(?:sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela).{0,24}(?:replacement|repair|replaced|replacing|change|changed|changing|fixed|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|repair|replaced|replacing|change|changed|changing|fixed|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,24}(?:screen|display|glass|lcd|oled|digitizer|szyb|wyświetlacz|pantalla|[eé]cran|schermo|tela)|换屏|屏幕更换|玻璃更换/i },
-  { label: "电池更换", pattern: /(?:dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)?|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
+  { label: "电池更换", pattern: /(?:dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri)|(?:battery|bater|batterie|akku).{0,22}(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca)|(?:replacement|change|wymian|napraw|repar|r[eé]paration|sostituzione|substitui[cç][aã]o|troca).{0,22}(?:battery|bater|batterie|akku)|换电池|电池更换/i },
   { label: "充电口或接口维修", pattern: /(?:charging port|charge port|dock connector|usb port|ladebuchse|puerto de carga|port de charge|connettore di ricarica|充电口|尾插)/i },
   { label: "主板或逻辑板维修", pattern: /(?:motherboard|mainboard|logic board|logicboard|płyta gł[oó]wna|placa madre|carte m[eè]re|scheda madre|主板|逻辑板).{0,20}(?:repair|service|napraw|repar|r[eé]paration|riparazione|维修)/i },
   { label: "板级或元器件级维修", pattern: /(?:component[- ]level repair|board[- ]level repair|microsoldering|micro soldering|板级维修|元器件级维修)/i },
   { label: "键盘或触控板维修", pattern: /(?:keyboard|trackpad|touchpad|klawiatur|teclado|clavier|tastiera|键盘|触控板).{0,20}(?:replacement|repair|wymian|napraw|repar|r[eé]paration|sostituzione|更换|维修)/i },
   { label: "专业维修车间", pattern: /(?:repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|专业维修车间|专用维修车间)/i },
   { label: "使用手机或电脑维修备件", pattern: /(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)/i },
-  { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|adapters?|chargers?|earbuds?|earphones?|headphones?|tablets?|smart ?watch|手机壳|保护膜|移动电源|车载手机支架|充电器|耳机|手机配件|平板配件)/i },
+  { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone adapters?|phone chargers?|earbuds?|earphones?|headphones?|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|手机配件|平板配件)/i },
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "多门店或连锁经营", pattern: /(?:(?:at least|over|more than|拥有|设有|共有)\s*\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|门店|分店|直营网点|维修中心)|\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)|multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
@@ -2434,7 +2446,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       score: analysis.ai_score ?? 0, industry: primaryIndustry, evidence: policyEvidence,
       // Verified target and non-target activities may describe a legitimate
       // mixed business. Only unresolved identity conflicts block automation.
-      hasCriticalConflict: ["AMBIGUOUS", "CONFLICTED"].includes(identity.status),
+      hasCriticalConflict: identity.status === "CONFLICTED",
       explicitRejectEvidence,
     });
     const hasVerifiedDirectTarget = policyEvidence.some((item) => item.kind === "支持"
@@ -2458,7 +2470,18 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
     let finalAutomationStatus = gate.automationStatus;
     let finalGateReason = gate.reason;
-    if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {
+    if (gate.automationStatus === "AUTO_HOLD" && hasVerifiedDirectTarget) {
+      // A clear repair/parts fact must never be inverted into a D-grade
+      // invalid lead solely because identity collection is incomplete. Keep
+      // the evidence and score intact for a later locator retry instead of
+      // publishing a fabricated low-value conclusion.
+      const conciseGateReason = gate.reason.replace(/^重点核对：/, "").replace(/[。；\s]+$/, "");
+      finalGateReason = `重点核对：${conciseGateReason}。已保留直接目标经营证据，未将其降级为无效目标。`;
+      analysis = {
+        ...analysis,
+        evidence_conflicts: [...new Set([...analysis.evidence_conflicts, finalGateReason])],
+      };
+    } else if (gate.automationStatus === "AUTO_HOLD" || !analysis.evidence_summaries.length) {
       const boundedScore = rejectedConclusionScore(analysis, identity.confidence);
       const conciseGateReason = gate.reason.replace(/^重点核对：/, "").replace(/[。；\s]+$/, "");
       const verificationNote = `重点核对：${conciseGateReason}。系统已完成本轮自动分析；因该风险无法把候选经营事实安全归属于当前客户，当前按低相关无效目标处理。`;

@@ -4,7 +4,7 @@ const ANALYSIS_INDUSTRIES = [
   "手机成品零售", "二手或翻新手机销售", "运营商营业厅", "手机维修店", "Apple或MacBook维修店",
   "电脑维修店", "手机外配件零售", "维修内配件零售", "维修内配件批发", "进口商或分销商",
   "维修连锁", "综合电子产品零售", "电商卖家", "软件或IT服务", "其他维修行业", "混合经营", "其他",
-  "电子烟或烟草零售", "食品批发或餐饮供应", "铁路或电气工程", "拍卖或资产处置", "药房或医疗零售",
+  "电子烟或烟草零售", "食品批发或餐饮供应", "铁路或电气工程", "电器或家电维修", "拍卖或资产处置", "药房或医疗零售",
 ] as const;
 
 export type CustomerAnalysisInput = {
@@ -94,9 +94,31 @@ export function isItSupportWithoutHardwareRepair(text: string) {
   return IT_SUPPORT_EVIDENCE_PATTERN.test(text) && !isComputerHardwareRepairEvidence(text);
 }
 
+/**
+ * A phone contract, IT-support plan or appliance-repair listing can contain a
+ * generic "repair" link without making repair parts its primary business.
+ * This deliberately requires a physical device repair operation, part or
+ * specialist workshop. It is only used to arbitrate an already explicit
+ * non-target primary business; ordinary repair shops continue to accept a
+ * direct "phone/computer repair" service statement.
+ */
+export function hasCoreDeviceRepairEvidence(text: string) {
+  const positive = positiveTargetEvidenceText(text);
+  return /(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)[\s\S]{0,56}(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)[\s\S]{0,56}(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换|换屏|换电池)|(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)[\s\S]{0,56}(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换|换屏|换电池)[\s\S]{0,56}(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)|(?:repair workshop|speciali[sz]ed workshop|reparaturwerkstatt|fachwerkstatt|维修工作台|专业维修车间|拆机维修|板级维修|元器件级维修)/i.test(positive);
+}
+
+export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis["industry_type"] | null {
+  const positive = positiveTargetEvidenceText(text);
+  if (/(?:home appliance|appliance repair|white goods|household appliances?|elektroger[aä]t|haushaltsger[aä]t|电器维修|家电维修)/i.test(positive)) return "电器或家电维修";
+  if (/(?:mobile network operator|telecommunications service provider|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|sim card|mobile plan|mobile contract|phone contract|运营商营业厅|电信运营商|电信合作伙伴|通信合约|手机套餐|宽带套餐)/i.test(positive)) return "运营商营业厅";
+  if (/(?:software development|software company|cloud services|web hosting|managed IT|managed services|IT support|technical support|computer technical support|network (?:setup|configuration|maintenance|management|support)|server (?:setup|configuration|maintenance|support)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|软件开发|云服务|网络托管|IT系统|IT咨询|计算机技术支持|电脑技术支持|网络(?:设置|配置|维护|管理|支持)|服务器(?:设置|配置|维护|支持))/i.test(positive)) return "软件或IT服务";
+  if (/(?:railway engineering|rail safety|electrical installation|electrical safety|industrial electrical|铁路工程|铁路安全|电气安装|电气安全|工业电气)/i.test(positive)) return "铁路或电气工程";
+  return null;
+}
+
 export function isDirectNonTargetBusinessEvidence(text: string) {
-  return !hasDirectTargetBusinessEvidence(text)
-    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|pharmacy|pharmacist|tobacco|vape|shisha|auction)/i.test(text);
+  return (!hasDirectTargetBusinessEvidence(text) || (Boolean(dominantNonTargetIndustryForText(text)) && !hasCoreDeviceRepairEvidence(text)))
+    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|电器维修|家电维修|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|home appliance|appliance repair|pharmacy|pharmacist|tobacco|vape|shisha|auction)/i.test(text);
 }
 
 const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|手机、平板配件销售|手机壳|保护膜|移动电源|充电器|耳机|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
@@ -145,7 +167,7 @@ EXCEL_IMPORT、MANUAL、CSV、IMPORT及类似内部来源、导入方式或任�
 Google商家分类“手机维修服务”“电子产品维修”等只能作为行业定位线索，不能单独证明真实维修能力或配件采购价值。必须再取得至少一项直接佐证：商家描述或近期评论明确提到维修行为/更换部件；官网明确列出屏幕、电池、键盘、充电口、主板等硬件维修；或商家/官网图片提供可以直接复核的维修事实。
 图片证据实行硬门槛：只有画面清楚展示以下任一事实才可进入行业判断和评分：(1) 完整门店或门头，并能清晰读到手机/电脑维修、Phone Repair、Computer Repair等业务文字；(2) 真实拆机、部件更换或维修操作；(3) 清楚可辨的维修工作台以及正在维修的手机/电脑；(4) 清楚可辨的手机/电脑内配件货架或陈列，能够识别屏幕总成、电池、充电口、排线、摄像头、主板等维修配件。仅有图片URL、图片数量、普通门头、Logo、人物、地图、整机陈列、手机壳/耳机等外配件、宣传海报、模糊或无法辨认的画面，一律不得作为目标行业证据、不得增加评分。图片事实必须明确写出实际看到了什么，并使用图片所属的真实来源页面作为source_url；不确定时忽略该图片，严禁猜测。
 没有真实采购证据时只能写“采购能力待销售核验”，不得声称已有采购能力、采购规模或进口记录。无法确认所属行业时必须归类为“其他”，不得为了填满字段强行分类。
-行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、电子烟或烟草零售、食品批发或餐饮供应、铁路或电气工程、拍卖或资产处置、药房或医疗零售、其他。营业状态不是行业；永久停业只能写入矛盾证据和营业状态，不得作为所属行业。只有完成可用渠道采集后仍没有足以支持具体分类的事实时才可选择“其他”，不得把抓取失败或分类器未命中伪装成行业结论。
+行业必须从以下细分类中选择：手机成品零售、二手或翻新手机销售、运营商营业厅、手机维修店、Apple或MacBook维修店、电脑维修店、手机外配件零售、维修内配件零售、维修内配件批发、进口商或分销商、维修连锁、综合电子产品零售、电商卖家、软件或IT服务、其他维修行业、混合经营、电子烟或烟草零售、食品批发或餐饮供应、铁路或电气工程、电器或家电维修、拍卖或资产处置、药房或医疗零售、其他。营业状态不是行业；永久停业只能写入矛盾证据和营业状态，不得作为所属行业。只有完成可用渠道采集后仍没有足以支持具体分类的事实时才可选择“其他”，不得把抓取失败或分类器未命中伪装成行业结论。
 评分：85-100为A，70-84为B，60-69为C，0-59为D。评分表示对DTSmart手机/电脑维修配件外贸批发的目标价值，不代表证据置信度，也不能用固定行业模板打出相同分数。必须分别评估：业务匹配度、经营规模和采购潜力、真实采购事实、经营活跃度、证据完整性、可联系性与矛盾风险。进入A级不强制要求规模或采购记录：Google商家页与企业官网等至少两个独立来源若主体一致，分别给出直接、可核验且相互印证的目标业务事实，明确涉及屏幕、电池、键盘、充电口、主板等内配件使用或维修场景，证据链完整且没有关键矛盾，即使是单店维修企业也可以评为85-89分的A级。规模、连锁、高业务量、海关记录或近期采购事实用于进一步提高A级内的分值，而不是进入A级的必要条件。大型连锁手机配件批发/分销企业若多渠道证据闭环，并有身份匹配的近期海关采购或大额采购事实，应评为A中的高分。单一Google分类、企业名称关键词、资料字段齐全或联系方式齐全都不能单独提高价值等级。只有评分不低于60、企业主体一致且有可追溯外部业务证据时，is_target_customer才可为true。
 分值应随证据强弱拉开差异：95-100需要极高业务匹配、显著规模以及近期可核验的大额/批量采购事实；90-94需要高匹配、多渠道闭环，并有明确规模、连锁、持续高业务量或强采购证据；85-89需要两个以上独立来源形成完整直接证据链，充分证明其目标业务和内配件使用场景，即使暂无规模或采购记录也可进入；70-84为已证实且稳定的目标客户，但证据链完整度或经营价值尚未达到A级；60-69为存在一项直接目标业务证据但规模和证据覆盖有限；低于60为非目标、证据不足或存在关键矛盾。采购记录必须带可核验来源、相关产品以及日期/数量/金额至少一项，否则不得加采购事实分。
 confidence_score表示当前证据足以支持结论的可信度，不等同于客户价值分；没有公开证据时必须降低可信度并明确说明。
@@ -436,6 +458,8 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
   const supportingText = supporting.map((item) => item.fact_zh).join("；");
   const allEvidenceText = evidence.map((item) => item.fact_zh).join("；");
+  const primaryNonTargetIndustry = dominantNonTargetIndustryForText(supportingText);
+  const dominantNonTargetWithoutCoreRepair = Boolean(primaryNonTargetIndustry) && !hasCoreDeviceRepairEvidence(supportingText);
   const verifiedProductFit = /(?:手机|电脑|iPhone|iPad|MacBook|LCD|OLED|屏幕|电池|配件|维修件|触摸屏|尾插|排线|摄像头)/i.test(supportingText);
   const verifiedBuyingRole = /(?:配件批发|配件进口|配件分销|B2B|MOQ|批量供货|渠道供货|经销商|代理商|采购记录|海关记录|批发商|进口商|分销商)/i.test(supportingText);
   const verifiedChain = /(?:连锁|多家门店|多门店|分店)/.test(supportingText);
@@ -533,11 +557,13 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // the same company also sells operator contracts.
   const hasSpecificIndustryEvidence = hasDirectTargetBusinessEvidence(supportingText)
     || /(?:二手(?:手机|iPhone|智能手机)|翻新(?:手机|iPhone|设备)|used (?:phones?|iPhones?|smartphones?)|refurbished (?:phones?|iPhones?|devices?)|手机合约|移动通信套餐|移动通信服务|电信营业厅|运营商营业厅|mobile (?:phone )?(?:contracts?|plans?)|mobile carrier|telecom(?:munications)? (?:store|shop)|手机(?:成品|新机)(?:销售|零售)|new (?:phones?|smartphones?) (?:sales|retail)|mobile phone retail|电子产品零售|数码产品零售|消费电子零售|electronics? retail|consumer electronics? (?:store|retail)|电商(?:店|卖家|平台)|线上(?:商店|销售)|online (?:shop|store)|e-?commerce|webshop|软件开发|软件服务|IT服务|网络(?:支持|服务)|系统集成|software (?:development|services?)|IT (?:services?|support)|network (?:services?|support)|电子烟|烟草|水烟|食品批发|蔬菜批发|水果批发|餐饮供应|铁路工程|铁路安全|电气安装|电气安全|工业电气|拍卖|破产清算|资产处置|药房|药店|药剂师|疫苗接种)/i.test(supportingText);
-  const normalizedIndustry = hasSpecificIndustryEvidence
+  const normalizedIndustry = dominantNonTargetWithoutCoreRepair
+    ? primaryNonTargetIndustry!
+    : hasSpecificIndustryEvidence
     ? evidenceDerivedIndustry
     : analysis.industry_type;
   const repairOrRetail = /(?:维修店|外配件零售|维修内配件零售|手机成品零售|综合电子产品零售)/.test(normalizedIndustry);
-  const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|电子烟或烟草零售|食品批发或餐饮供应|铁路或电气工程|拍卖或资产处置|药房或医疗零售|已关闭|其他)$/.test(normalizedIndustry);
+  const unrelatedIndustry = /(?:软件或IT服务|运营商营业厅|电子烟或烟草零售|食品批发或餐饮供应|铁路或电气工程|电器或家电维修|拍卖或资产处置|药房或医疗零售|已关闭|其他)$/.test(normalizedIndustry);
   const computerRepairClaim = normalizedIndustry === "电脑维修店";
   const verifiedComputerHardwareRepair = isComputerHardwareRepairEvidence(supportingText);
   // Mixed businesses can legitimately offer IT/network support and device
@@ -576,6 +602,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     - metric("contradiction_risk") * 0.06,
   )));
   const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/.test(normalizedIndustry)
+    && !dominantNonTargetWithoutCoreRepair
     && !(computerRepairClaim && !verifiedComputerHardwareRepair)
     && !itSupportOnly
     && evidenceSufficient
@@ -650,7 +677,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // Computer support, network/NAS setup and generic troubleshooting are not
   // hardware repair. A model may not promote them into the target band unless
   // the saved evidence explicitly names hardware repair or part replacement.
-  if ((computerRepairClaim && !verifiedComputerHardwareRepair) || itSupportOnly) {
+  if ((computerRepairClaim && !verifiedComputerHardwareRepair) || itSupportOnly || dominantNonTargetWithoutCoreRepair) {
     score = Math.min(score, unrelatedBusinessCeiling);
     confidence = Math.min(confidence, evidence.length ? 90 : 25);
   }
@@ -671,7 +698,9 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // text and conceal the official page used for contact writeback.
   const evidenceLead = readableEvidenceLead(supporting.slice(0, 3));
   const allEvidenceLead = readableEvidenceLead(evidence.slice(0, 4));
-  const finalIndustry = itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : normalizedIndustry;
+  const finalIndustry = dominantNonTargetWithoutCoreRepair
+    ? primaryNonTargetIndustry!
+    : itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : normalizedIndustry;
   const lowEvidenceReason = evidence.length
     ? `公开来源实际识别到：${allEvidenceLead}。据此将该企业归类为“${finalIndustry}”；上述事实未证明其经营手机、电脑维修配件或相关批发分销业务，因此综合评为D级${score}分。每条事实均保留来源链接供核验。`
     : `已完成可用公开入口检索，但没有取得可追溯的目标经营事实，因此按低销售优先级D级${score}分处理；后续新增有效公开入口后可重新分析。`;
