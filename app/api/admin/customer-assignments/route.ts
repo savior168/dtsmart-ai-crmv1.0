@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { postgrestContains } from "@/lib/postgrest-search";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const userFilter = (value: string) => UUID.test(value) ? value : "";
@@ -21,13 +20,12 @@ export async function GET(request: NextRequest) {
       const createdBy = userFilter(request.nextUrl.searchParams.get("created_by")?.trim() || "");
       const dateFrom = request.nextUrl.searchParams.get("date_from")?.trim() || "";
       const dateTo = request.nextUrl.searchParams.get("date_to")?.trim() || "";
+      // A distribution record must be traceable down to the customer, not just
+      // to a batch summary.  Filter batches first, then merge the immutable
+      // assignment-item snapshot with the current customer information below.
       let query = admin.from("customer_assignment_batches")
-        .select("id,batch_number,batch_name,reason_type,reason,mode,customer_count,created_at,source:users!customer_assignment_batches_source_user_id_fkey(id,name,email),target:users!customer_assignment_batches_target_user_id_fkey(id,name,email),creator:users!customer_assignment_batches_created_by_fkey(id,name,email)", { count: "exact" })
+        .select("id,batch_number,batch_name,reason_type,reason,mode,customer_count,created_at,source_user_id,target_user_id,created_by,source:users!customer_assignment_batches_source_user_id_fkey(id,name,email),target:users!customer_assignment_batches_target_user_id_fkey(id,name,email),creator:users!customer_assignment_batches_created_by_fkey(id,name,email)")
         .order("created_at", { ascending: false });
-      if (search) {
-        const pattern = postgrestContains(search.replace(/[(),]/g, " "));
-        query = query.or(`batch_number.ilike.${pattern},batch_name.ilike.${pattern},reason.ilike.${pattern}`);
-      }
       if (historyType === "HANDOVER") query = query.eq("reason_type", "ACCOUNT_HANDOVER");
       if (historyType === "ASSIGN") query = query.eq("mode", "ASSIGN").neq("reason_type", "ACCOUNT_HANDOVER");
       if (historyType === "RELEASE") query = query.eq("mode", "RELEASE");
@@ -36,9 +34,92 @@ export async function GET(request: NextRequest) {
       if (createdBy) query = query.eq("created_by", createdBy);
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) query = query.gte("created_at", `${dateFrom}T00:00:00.000Z`);
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
-      const result = await query.range((page - 1) * pageSize, page * pageSize - 1);
+      const result = await query.range(0, 9999);
       if (result.error) throw result.error;
-      return NextResponse.json({ data: result.data || [], count: result.count || 0, page, page_size: pageSize });
+      const batches = result.data || [];
+      if (!batches.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize });
+
+      const batchIds = batches.map((batch) => batch.id);
+      const itemsResult = await admin
+        .from("customer_assignment_items")
+        .select("id,batch_id,customer_id,previous_owner_id,next_owner_id,previous_scope,previous_pool_status,created_at")
+        .in("batch_id", batchIds)
+        .order("created_at", { ascending: false })
+        .range(0, 99999);
+      if (itemsResult.error) throw itemsResult.error;
+      const items = itemsResult.data || [];
+      if (!items.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize });
+
+      const customerIds = [...new Set(items.map((item) => item.customer_id))];
+      const customersResult = await admin
+        .from("customers")
+        .select("id,company_name,contact_name,country,address,phone,email,website,google_url,owner_id,status,pool_status")
+        .in("id", customerIds);
+      if (customersResult.error) throw customersResult.error;
+      const customers = customersResult.data || [];
+      const ownerIds = [...new Set([
+        ...items.flatMap((item) => [item.previous_owner_id, item.next_owner_id]),
+        ...customers.map((customer) => customer.owner_id),
+      ].filter((id): id is string => Boolean(id)))];
+      const ownersResult = ownerIds.length
+        ? await admin.from("users").select("id,name,email").in("id", ownerIds)
+        : { data: [], error: null };
+      if (ownersResult.error) throw ownersResult.error;
+
+      const batchById = new Map(batches.map((batch) => [batch.id, batch]));
+      const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+      const ownerById = new Map((ownersResult.data || []).map((owner) => [owner.id, owner]));
+      const normalizedSearch = search.toLowerCase();
+      const rows = items
+        .map((item) => {
+          const batch = batchById.get(item.batch_id);
+          const customer = customerById.get(item.customer_id);
+          if (!batch || !customer) return null;
+          return {
+            id: item.id,
+            batch_id: item.batch_id,
+            customer_id: item.customer_id,
+            batch_number: batch.batch_number,
+            batch_name: batch.batch_name,
+            reason_type: batch.reason_type,
+            reason: batch.reason,
+            mode: batch.mode,
+            created_at: item.created_at,
+            batch_created_at: batch.created_at,
+            source: batch.source,
+            target: batch.target,
+            creator: batch.creator,
+            previous_owner: item.previous_owner_id ? ownerById.get(item.previous_owner_id) || null : null,
+            next_owner: item.next_owner_id ? ownerById.get(item.next_owner_id) || null : null,
+            current_owner: customer.owner_id ? ownerById.get(customer.owner_id) || null : null,
+            customer: {
+              id: customer.id,
+              company_name: customer.company_name,
+              contact_name: customer.contact_name,
+              country: customer.country,
+              address: customer.address,
+              phone: customer.phone,
+              email: customer.email,
+              website: customer.website,
+              google_url: customer.google_url,
+              status: customer.status,
+              pool_status: customer.pool_status,
+            },
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => Boolean(row))
+        .filter((row) => {
+          if (!normalizedSearch) return true;
+          return [
+            row.batch_number, row.batch_name, row.reason,
+            row.customer.company_name, row.customer.contact_name,
+            row.customer.country, row.customer.address, row.customer.phone,
+            row.customer.email, row.customer.website, row.customer.google_url,
+          ].some((value) => String(value || "").toLowerCase().includes(normalizedSearch));
+        });
+      const count = rows.length;
+      const start = (page - 1) * pageSize;
+      return NextResponse.json({ data: rows.slice(start, start + pageSize), count, page, page_size: pageSize });
     }
     if (mode === "history_options") {
       const batches = await admin.from("customer_assignment_batches")

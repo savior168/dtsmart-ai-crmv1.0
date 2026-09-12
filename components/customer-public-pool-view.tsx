@@ -46,7 +46,7 @@ import {
   normalizeCustomerListColumns,
   type CustomerListColumn,
 } from "@/lib/customers/list-fields";
-import { csvCell } from "@/lib/customer-export";
+import { CUSTOMER_FULL_EXPORT_HEADERS, csvCell, fullCustomerExportValues } from "@/lib/customer-export";
 import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
@@ -121,6 +121,8 @@ type Renewal = {
 };
 type History = {
   id: string;
+  batch_id: string;
+  customer_id: string;
   batch_number: string;
   batch_name: string;
   reason_type: string;
@@ -131,6 +133,22 @@ type History = {
   source?: Owner | null;
   target?: Owner | null;
   creator?: Owner | null;
+  previous_owner?: Owner | null;
+  next_owner?: Owner | null;
+  current_owner?: Owner | null;
+  customer?: {
+    id: string;
+    company_name: string;
+    contact_name?: string | null;
+    country?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    website?: string | null;
+    google_url?: string | null;
+    status?: string | null;
+    pool_status?: string | null;
+  } | null;
 };
 
 const tabLabels: Record<Tab, string> = {
@@ -480,8 +498,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         exported.push(...pageRows);
         if (pageRows.length < 100 || exported.length >= Number(body.count || 0)) break;
       }
-      const headers = fields.map((key) => CUSTOMER_LIST_COLUMNS.find((column) => column.key === key)?.label || key);
-      const lines = [headers.map(csvCell).join(","), ...exported.map((row) => fields.map((key) => csvCell(poolText(row, key))).join(","))];
+      const lines = [CUSTOMER_FULL_EXPORT_HEADERS.map(csvCell).join(","), ...exported.map((row) => fullCustomerExportValues(row as unknown as Record<string, unknown>).map(csvCell).join(","))];
       const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
@@ -556,8 +573,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.7fr)_repeat(7,minmax(132px,1fr))_96px]">
-                <label className="relative min-w-0">
+              <div className="flex min-w-max items-end gap-3 overflow-x-auto pb-1">
+                <label className="relative w-[300px] shrink-0">
                   <Search
                     size={17}
                     className="absolute left-3 top-3 text-slate-400"
@@ -573,7 +590,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
-                <div ref={industryRef} className="relative min-w-0">
+                <div ref={industryRef} className="relative w-44 shrink-0">
                   <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
                     <span className="truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
                   </button>
@@ -589,7 +606,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     setSourceType(next);
                     if (sourceBatch && next && !filterOptions.batches.some((item) => item.value === sourceBatch && item.source === next)) setSourceBatch("");
                   }}
-                  className={appFieldClass}
+                  className={`${appFieldClass} w-40 shrink-0`}
                   aria-label="按获客方式筛选"
                 >
                   <option value="">全部获客方式</option>
@@ -598,13 +615,13 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 <select
                   value={sourceBatch}
                   onChange={(event) => setSourceBatch(event.target.value)}
-                  className={appFieldClass}
+                  className={`${appFieldClass} w-44 shrink-0`}
                   aria-label="按导入批次筛选"
                 >
                   <option value="">全部导入批次</option>
                   {filterOptions.batches.filter((item) => !sourceType || item.source === sourceType).map((item) => <option key={`${item.source}:${item.value}`} value={item.value}>{item.label}</option>)}
                 </select>
-                {role === "ADMIN" ? <div ref={screeningTaskRef} className="relative min-w-0">
+                {role === "ADMIN" ? <div ref={screeningTaskRef} className="relative w-48 shrink-0">
                   <button type="button" onClick={() => setScreeningTaskOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={screeningTaskOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
                     <span className="truncate">{screeningTaskIds.length ? `AI筛选批次（${screeningTaskIds.length}）` : "全部AI筛选批次"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
                   </button>
@@ -613,11 +630,11 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     {filterOptions.screening_tasks.map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
                     {!filterOptions.screening_tasks.length ? <p className="px-2 py-3 text-sm text-slate-400">暂无可用AI筛选批次</p> : null}
                   </div> : null}
-                </div> : <span className="hidden xl:block" aria-hidden="true" />}
+                </div> : null}
                 <select
                   value={aiLevel}
                   onChange={(event) => setAiLevel(event.target.value)}
-                  className={appFieldClass}
+                  className={`${appFieldClass} w-36 shrink-0`}
                 >
                   <option value="">全部AI等级</option>
                   {["A", "B", "C", "D"].map((value) => (
@@ -627,7 +644,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                 <select
                   value={target}
                   onChange={(event) => setTarget(event.target.value)}
-                  className={appFieldClass}
+                  className={`${appFieldClass} w-36 shrink-0`}
                 >
                   <option value="">全部目标判断</option>
                   <option value="valid">有效目标</option>
@@ -645,12 +662,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="QUOTE">报价中</option>
                   <option value="DEAL">已成交</option>
                   <option value="RELEASED">无效客户</option>
-                </select> : <span className="hidden xl:block" aria-hidden="true" />}
+                </select> : null}
                 {tab === "claimed" && ["ADMIN", "SUPERVISOR"].includes(role) ? (
                   <select
                     value={ownerId}
                     onChange={(event) => setOwnerId(event.target.value)}
-                    className={appFieldClass}
+                    className={`${appFieldClass} w-40 shrink-0`}
                   >
                     <option value="">全部认领人</option>
                     {filterOptions.owners.map((value) => (
@@ -660,12 +677,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     ))}
                   </select>
                 ) : (
-                  <span className="hidden xl:block" />
+                  null
                 )}
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="h-10 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50"
+                  className="h-10 shrink-0 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50"
                 >
                   重置
                 </button>
@@ -1317,10 +1334,10 @@ function RenewalReview({
             : "显示所有待审核申请；通常由直属主管优先处理。"}
         </p>
       </header>
-      <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[minmax(260px,1fr)_220px_88px]">
-        <label className="relative"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索客户、国家/地区、申请人或申请内容" className={`${appFieldClass} w-full pl-9`}/></label>
-        <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className={appFieldClass}><option value="">全部申请人</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{displayUser(owner)}</option>)}</select>
-        <button type="button" onClick={() => { setSearch(""); setOwnerId(""); }} className="h-10 rounded-lg border px-3 text-sm hover:bg-slate-50">重置</button>
+      <div className="flex min-w-max items-center gap-3 overflow-x-auto border-b border-slate-100 p-4">
+        <label className="relative w-[320px] shrink-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索客户、国家/地区、申请人或申请内容" className={`${appFieldClass} w-full pl-9`}/></label>
+        <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className={`${appFieldClass} w-56 shrink-0`}><option value="">全部申请人</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{displayUser(owner)}</option>)}</select>
+        <button type="button" onClick={() => { setSearch(""); setOwnerId(""); }} className="h-10 shrink-0 rounded-lg border px-3 text-sm hover:bg-slate-50">重置</button>
       </div>
       {error ? (
         <div className="m-5">
@@ -1455,20 +1472,20 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
   return (
     <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
       <header className="border-b p-5">
-        <h3 className="font-semibold">客户分配与交接记录</h3>
+        <h3 className="font-semibold">客户分配明细与交接记录</h3>
         <p className="mt-1 text-sm text-slate-500">
-          每次分配生成唯一批次号，记录原归属人、接收人、原因、数量和操作人，不因客户后续变化而丢失。
+          每条记录对应一位实际被分配客户；保留分配时的原归属人、接收人和操作人，并显示客户当前归属，便于逐条核对。
         </p>
       </header>
-      <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.6fr)_repeat(4,minmax(150px,1fr))_140px_140px_88px]">
-        <label className="relative min-w-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索批次号、批次名称或分配原因" className={`${appFieldClass} w-full pl-9`}/></label>
-        <select value={historyType} onChange={(event) => setHistoryType(event.target.value)} className={appFieldClass} aria-label="筛选记录类型"><option value="">全部记录类型</option><option value="ASSIGN">客户分配</option><option value="HANDOVER">账号交接</option><option value="RELEASE">批量释放</option></select>
-        <select value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} className={appFieldClass} aria-label="筛选接收人"><option value="">全部接收人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <select value={sourceUserId} onChange={(event) => setSourceUserId(event.target.value)} className={appFieldClass} aria-label="筛选原归属人"><option value="">全部原归属人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <select value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} className={appFieldClass} aria-label="筛选操作人"><option value="">全部操作人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className={appFieldClass} aria-label="开始日期" title="开始日期"/>
-        <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className={appFieldClass} aria-label="结束日期" title="结束日期"/>
-        <button type="button" onClick={reset} className="h-10 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50">重置</button>
+      <div className="flex min-w-max items-center gap-3 overflow-x-auto border-b border-slate-100 p-4">
+        <label className="relative w-[320px] shrink-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索客户、电话、邮箱、批次或分配原因" className={`${appFieldClass} w-full pl-9`}/></label>
+        <select value={historyType} onChange={(event) => setHistoryType(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选记录类型"><option value="">全部记录类型</option><option value="ASSIGN">客户分配</option><option value="HANDOVER">账号交接</option><option value="RELEASE">批量释放</option></select>
+        <select value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选接收人"><option value="">全部接收人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
+        <select value={sourceUserId} onChange={(event) => setSourceUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选原归属人"><option value="">全部原归属人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
+        <select value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选操作人"><option value="">全部操作人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
+        <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className={`${appFieldClass} w-36 shrink-0`} aria-label="开始日期" title="开始日期"/>
+        <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className={`${appFieldClass} w-36 shrink-0`} aria-label="结束日期" title="结束日期"/>
+        <button type="button" onClick={reset} className="h-10 shrink-0 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50">重置</button>
       </div>
       {error ? (
         <div className="m-5">
@@ -1476,19 +1493,20 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
         </div>
       ) : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-left text-sm">
+        <table className="w-full min-w-[1560px] text-left text-sm">
           <thead className="bg-slate-50">
             <tr>
               {[
-                "批次号",
-                "批次名称",
+                "客户信息",
+                "分配批次",
                 "类型",
                 "原归属人",
                 "接收人",
-                "客户数",
+                "当前归属",
                 "操作人",
-                "时间",
+                "分配时间",
                 "原因",
+                "操作",
               ].map((value) => (
                 <th
                   key={value}
@@ -1502,10 +1520,8 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
           <tbody className="divide-y">
             {rows.map((row) => (
               <tr key={row.id}>
-                <td className="px-4 py-4 font-mono text-xs text-blue-700">
-                  {row.batch_number}
-                </td>
-                <td className="px-4 py-4 font-medium">{row.batch_name}</td>
+                <td className="px-4 py-4"><b className="block font-medium">{row.customer?.company_name || "—"}</b><small className="mt-1 block text-slate-500">{row.customer?.country || "—"}{row.customer?.phone ? ` · ${row.customer.phone}` : ""}</small><small className="block text-slate-400">{row.customer?.email || row.customer?.address || "—"}</small></td>
+                <td className="px-4 py-4"><span className="block font-mono text-xs text-blue-700">{row.batch_number}</span><small className="mt-1 block text-slate-500">{row.batch_name}</small></td>
                 <td className="px-4 py-4">
                   {row.reason_type === "ACCOUNT_HANDOVER"
                     ? "账号交接"
@@ -1513,14 +1529,15 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
                       ? "批量释放"
                       : "客户分配"}
                 </td>
-                <td className="px-4 py-4">{displayUser(row.source)}</td>
-                <td className="px-4 py-4">{displayUser(row.target)}</td>
-                <td className="px-4 py-4">{row.customer_count}</td>
+                <td className="px-4 py-4">{displayUser(row.previous_owner || row.source)}</td>
+                <td className="px-4 py-4">{displayUser(row.next_owner || row.target)}</td>
+                <td className="px-4 py-4">{displayUser(row.current_owner)}</td>
                 <td className="px-4 py-4">{displayUser(row.creator)}</td>
                 <td className="px-4 py-4">{formatDate(row.created_at)}</td>
                 <td className="max-w-72 px-4 py-4">
                   <span className="line-clamp-2">{row.reason}</span>
                 </td>
+                <td className="px-4 py-4"><Link href={`/customers/${row.customer_id}?from=pool`} className="font-medium text-blue-600">查看客户</Link></td>
               </tr>
             ))}
           </tbody>

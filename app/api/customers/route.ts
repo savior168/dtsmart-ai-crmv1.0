@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("customers.view");
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
+    const exportMode = request.nextUrl.searchParams.get("export") === "1";
     const pageSize = Math.min(idsOnly ? 1000 : 500, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
@@ -179,7 +180,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data, count: data.length });
     }
 
-    let query = supabase.from("customers").select(idsOnly ? "id,status" : customerListFields, { count: "exact" });
+    let query = supabase.from("customers").select(idsOnly ? "id,status" : exportMode ? "*" : customerListFields, { count: "exact" });
     // Older production databases may not have the additive followup_status
     // column yet. Probe once so filtering never turns into a generic reload
     // error; until migration is applied, legacy rows are treated as 待联系.
@@ -266,15 +267,23 @@ export async function GET(request: NextRequest) {
       ? rawRows.filter((item): item is Record<string, unknown> & { id: string } => Boolean(item && typeof item === "object" && "id" in item && typeof item.id === "string"))
       : [];
     if (!idsOnly && responseData.length) {
-      const creatorIds = [...new Set(responseData.map((item) => String(item.created_by || "")).filter(Boolean))];
+      const userIds = [...new Set(responseData.flatMap((item) => [String(item.created_by || ""), String(item.owner_id || "")]).filter(Boolean))];
       const [followupRows, creators] = await Promise.all([
         supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id)),
-        creatorIds.length ? createAdminClient().from("users").select("id,name,email").in("id", creatorIds) : Promise.resolve({ data: [], error: null }),
+        userIds.length ? createAdminClient().from("users").select("id,name,email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
       ]);
       const creatorById = new Map((creators.data || []).map((item) => [item.id, item]));
+      // Customer ownership is independent from the optional follow-up join.
+      // If an older database does not expose followup_status, exports must not
+      // silently lose the customer's real owner and creator.
+      responseData = responseData.map((item) => ({
+        ...item,
+        creator: creatorById.get(String(item.created_by || "")) || null,
+        owner: creatorById.get(String(item.owner_id || "")) || null,
+      }));
       if (!followupRows.error) {
         const byId = new Map((followupRows.data || []).map((item) => [item.id, item.followup_status || "WAITING_CONTACT"]));
-        responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT", creator: creatorById.get(String(item.created_by || "")) || null }));
+        responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT" }));
       }
     }
     return NextResponse.json({ data: responseData, count: count || responseData.length || 0, page, pageSize });

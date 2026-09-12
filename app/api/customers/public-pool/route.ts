@@ -101,7 +101,8 @@ export async function GET(request: NextRequest) {
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
     const elevated = account.role === "ADMIN" || account.role === "SUPERVISOR";
-    if (params.get("export") === "1" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以导出客户公海数据" }, { status: 403 });
+    const exportMode = params.get("export") === "1";
+    if (exportMode && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以导出客户公海数据" }, { status: 403 });
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
@@ -188,7 +189,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);

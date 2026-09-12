@@ -81,3 +81,34 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
 export function csvCell(value: unknown) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
+
+// Exports are an audit artifact, not a copy of the visible table.  Keep the
+// business-critical fields in one stable order and render structured values as
+// readable text instead of leaking JSON into Excel.
+export const CUSTOMER_FULL_EXPORT_HEADERS = [
+  "客户名称", "联系人", "国家/地区", "地址", "联系电话", "WhatsApp", "原始邮箱", "官网电话", "官网邮箱",
+  "官网网址", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "其他公开链接",
+  "AI核验行业", "原始类别", "AI等级", "AI评分", "目标判断", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据",
+  "客户阶段", "跟进状态", "当前归属人", "数据来源", "导入批次", "最近联系时间", "创建时间", "更新时间",
+] as const;
+
+function exportText(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join("；");
+  return String(value ?? "").trim() || "-";
+}
+
+export function fullCustomerExportValues(customer: Record<string, unknown>) {
+  const owner = customer.owner && typeof customer.owner === "object"
+    ? (customer.owner as { name?: unknown; email?: unknown }).name || (customer.owner as { email?: unknown }).email
+    : customer.owner_name || customer.owner_id;
+  const target = customer.is_target_customer === true ? "有效目标" : customer.is_target_customer === false ? "无效目标" : "AI未筛选";
+  const score = customer.ai_score == null ? "未筛选" : `${exportText(customer.ai_level)} · ${exportText(customer.ai_score)}`;
+  return [
+    customer.company_name, customer.contact_name, countryInfo(customer.country as string | null | undefined).name, customer.address,
+    formatCustomerPhone(customer.phone as string | null | undefined), formatCustomerPhone(customer.whatsapp as string | null | undefined), customer.email, customer.website_phone, customer.website_email,
+    customer.website, customer.google_url, customer.facebook_url, customer.instagram_url, customer.linkedin_url, customer.tiktok_url, customer.other_public_urls,
+    customer.industry, customer.category, customer.ai_level, score, target, customer.ai_reason, customer.business_scope, customer.business_relevance, customer.customer_value, customer.followup_suggestion, customer.company_scale, customer.company_scale_evidence,
+    STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || customer.status, FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系", owner,
+    customer.source === "EXCEL_IMPORT" ? "Excel导入" : customer.source, customer.source_batch, dateTime(customer.last_contact_time as string | null | undefined, "未跟进"), dateTime(customer.created_at as string | null | undefined), dateTime(customer.updated_at as string | null | undefined),
+  ].map(exportText);
+}

@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(200, Math.max(10, Number(params.get("pageSize") || 20)));
     const search = params.get("search")?.trim() || "";
-    const country = params.get("country")?.trim() || "";
     const sourceChannel = params.get("source_channel")?.trim() || "";
     const sourceBatches = params.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
+    const screeningTaskIds = params.getAll("screening_task_id").map((value) => value.trim()).filter(Boolean);
     const from = params.get("date_from")?.trim() || "";
     const to = params.get("date_to")?.trim() || "";
     const idsOnly = params.get("ids") === "all";
@@ -50,35 +50,17 @@ export async function GET(request: NextRequest) {
       return query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(start, end);
     };
 
-    const matchesFilters = (row: ReturnType<typeof mapCustomerForAi>) => {
+    const matchesFilters = (row: ReturnType<typeof mapCustomerForAi>, tasksByCustomer: ReadonlyMap<string, ReadonlySet<string>>) => {
       const needle = search.toLowerCase();
-      if (needle && ![row.company_name, row.contact_name, row.email, row.phone].some((value) => String(value || "").toLowerCase().includes(needle))) return false;
-      if (country && !String(row.country || "").toLowerCase().includes(country.toLowerCase())) return false;
+      if (needle && ![row.company_name, row.contact_name, row.email, row.phone, row.country].some((value) => String(value || "").toLowerCase().includes(needle))) return false;
       if (sourceChannel && sourceKind(row) !== sourceChannel) return false;
       if (sourceBatches.length && !sourceBatches.includes(batchFilterKey(row))) return false;
+      if (screeningTaskIds.length && !screeningTaskIds.some((taskId) => tasksByCustomer.get(row.id)?.has(taskId))) return false;
       if (from && String(row.created_at || "") < `${from}T00:00:00`) return false;
       if (to && String(row.created_at || "") > `${to}T23:59:59.999`) return false;
       return true;
     };
 
-    if (idsOnly) {
-      const ids: string[] = [];
-      let total = 0;
-      for (let offset = 0; ; offset += 1000) {
-        const result = await buildQuery(offset, offset + 999);
-        if (result.error) throw result.error;
-        total = result.count || 0;
-        for (const item of result.data || []) {
-          const mapped = mapCustomerForAi(item as Record<string, unknown>);
-          if (!excluded.has(mapped.id) && matchesFilters(mapped)) ids.push(mapped.id);
-        }
-        if (!result.data || result.data.length < 1000) break;
-      }
-      return NextResponse.json({ ids, count: ids.length, database_count: total });
-    }
-
-    // Fetch the complete filtered result before pagination so the count and
-    // "select all results" semantics stay exact after active-task exclusion.
     const eligible: MappedCustomer[] = [];
     for (let offset = 0; ; offset += 1000) {
       const result = await buildQuery(offset, offset + 999);
@@ -89,7 +71,41 @@ export async function GET(request: NextRequest) {
       }
       if (!result.data || result.data.length < 1000) break;
     }
-    const collected = eligible.filter(matchesFilters) as unknown as Array<Record<string, unknown>>;
+    const customerIdsForTasks = eligible.map((item) => item.id);
+    const taskIdsByCustomer = new Map<string, Set<string>>();
+    const taskIds = new Set<string>();
+    if (reverify && customerIdsForTasks.length) {
+      for (let offset = 0; offset < customerIdsForTasks.length; offset += 500) {
+        const result = await admin.from("ai_screening_results")
+          .select("customer_id,task_id")
+          .in("customer_id", customerIdsForTasks.slice(offset, offset + 500))
+          .eq("writeback_status", "COMPLETED");
+        if (result.error) throw result.error;
+        for (const row of result.data || []) {
+          const customerId = String(row.customer_id || "");
+          const taskId = String(row.task_id || "");
+          if (!customerId || !taskId) continue;
+          taskIds.add(taskId);
+          const current = taskIdsByCustomer.get(customerId) || new Set<string>();
+          current.add(taskId);
+          taskIdsByCustomer.set(customerId, current);
+        }
+      }
+    }
+    const taskOptionsResult = taskIds.size
+      ? await admin.from("ai_screening_tasks").select("id,name,task_number,created_at").in("id", [...taskIds]).order("created_at", { ascending: false })
+      : { data: [], error: null };
+    if (taskOptionsResult.error) throw taskOptionsResult.error;
+
+    if (idsOnly) {
+      const ids: string[] = [];
+      for (const item of eligible) if (matchesFilters(item, taskIdsByCustomer)) ids.push(item.id);
+      return NextResponse.json({ ids, count: ids.length, database_count: eligible.length });
+    }
+
+    // Fetch the complete filtered result before pagination so the count and
+    // "select all results" semantics stay exact after active-task exclusion.
+    const collected = eligible.filter((item) => matchesFilters(item, taskIdsByCustomer)) as unknown as Array<Record<string, unknown>>;
     const eligibleCount = collected.length;
     const start = (page - 1) * pageSize;
     const data = collected.slice(start, start + pageSize);
@@ -114,10 +130,10 @@ export async function GET(request: NextRequest) {
         legacy: !item.source_batch_id,
       });
     }
-    const taskIds = [...batchCounts.values()].filter((item) => !item.legacy).map((item) => item.id);
-    if (taskIds.length) {
-      for (let offset = 0; offset < taskIds.length; offset += 200) {
-        let taskQuery = admin.from("import_tasks").select("id,filename,success_count,created_at").gt("success_count", 0).in("id", taskIds.slice(offset, offset + 200));
+    const importTaskIds = [...batchCounts.values()].filter((item) => !item.legacy).map((item) => item.id);
+    if (importTaskIds.length) {
+      for (let offset = 0; offset < importTaskIds.length; offset += 200) {
+        let taskQuery = admin.from("import_tasks").select("id,filename,success_count,created_at").gt("success_count", 0).in("id", importTaskIds.slice(offset, offset + 200));
         if (ownerScope.ownerIds) taskQuery = taskQuery.in("created_by", ownerScope.ownerIds);
         const taskRows = await taskQuery;
         if (taskRows.error) throw taskRows.error;
@@ -154,7 +170,9 @@ export async function GET(request: NextRequest) {
         latest_analysis_version: current?.latest_analysis_version || result.analysis_version || null,
       });
     }
-    return NextResponse.json({ data: data.map((item) => ({ ...item, owner: item.owner_id ? ownerById.get(String(item.owner_id)) || null : null, ...(analysisByCustomer.get(String(item.id)) || {}) })), count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches, source_options: [...sourceCounts.entries()].map(([value, count]) => ({ value, count })).sort((left, right) => right.count - left.count), role: account.role, owner_options: ownerScope.options, selected_owner_id: ownerScope.selectedOwnerId, can_select_owner: ownerScope.canSelectOwner, scope_label: reverify ? "可复验的已完成分析客户" : ownerScope.scopeLabel, all_scope_label: ownerScope.allScopeLabel });
+    const taskCounts = new Map<string, number>();
+    for (const item of eligible) for (const taskId of taskIdsByCustomer.get(item.id) || []) taskCounts.set(taskId, (taskCounts.get(taskId) || 0) + 1);
+    return NextResponse.json({ data: data.map((item) => ({ ...item, owner: item.owner_id ? ownerById.get(String(item.owner_id)) || null : null, ...(analysisByCustomer.get(String(item.id)) || {}) })), count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches, source_options: [...sourceCounts.entries()].map(([value, count]) => ({ value, count })).sort((left, right) => right.count - left.count), screening_tasks: (taskOptionsResult.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}`, count: taskCounts.get(task.id) || 0 })).filter((task) => task.count > 0), role: account.role, owner_options: ownerScope.options, selected_owner_id: ownerScope.selectedOwnerId, can_select_owner: ownerScope.canSelectOwner, scope_label: reverify ? "可复验的已完成分析客户" : ownerScope.scopeLabel, all_scope_label: ownerScope.allScopeLabel });
   } catch (error) {
     const message = error instanceof Error ? error.message : "待筛选客户查询失败";
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录会话已失效，请重新登录" : message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

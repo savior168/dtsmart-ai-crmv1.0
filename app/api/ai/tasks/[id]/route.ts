@@ -194,7 +194,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       for (const sourceTaskId of sourceTaskIds) {
         const sourceTask = await ownedTask(sourceTaskId, account);
         if (sourceTask.user_id !== user.id && account.role !== "ADMIN") return NextResponse.json({ error: "其他用户的AI任务仅供查看，不能创建复验任务" }, { status: 403 });
-        if (!["COMPLETED", "FAILED"].includes(sourceTask.status)) return NextResponse.json({ error: `任务“${sourceTask.name}”尚未结束，不能创建无效结果复验任务` }, { status: 409 });
+        if (!["COMPLETED", "FAILED", "CANCELLED"].includes(sourceTask.status)) return NextResponse.json({ error: `任务“${sourceTask.name}”尚未结束，不能创建无效结果复验任务` }, { status: 409 });
         sourceTasks.push(sourceTask);
       }
       const sourceItems = await admin.from("ai_screening_task_items").select("customer_id").in("task_id", sourceTaskIds).eq("automation_status", "AUTO_REJECT");

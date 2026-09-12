@@ -28,7 +28,7 @@ import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/cu
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { AppPagination } from "@/components/ui/app-pagination";
-import { csvCell, customerListText, customerProtectionText, type CustomerExportColumn } from "@/lib/customer-export";
+import { CUSTOMER_FULL_EXPORT_HEADERS, csvCell, customerListText, customerProtectionText, fullCustomerExportValues, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
   CUSTOMER_LIST_COLUMN_STORAGE_KEY,
@@ -477,7 +477,7 @@ export function CustomersView() {
     setError("");
     const exportRows: Customer[] = [];
     const params = new URLSearchParams({
-      pageSize: "500", search, status, ai_level: level, target,
+      pageSize: "500", search, status, ai_level: level, target, export: "1",
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
     industries.forEach((industry) => params.append("industry", industry));
@@ -497,11 +497,8 @@ export function CustomersView() {
         currentPage += 1;
         if (!items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
       } while (exportRows.length < total);
-    const header = fields.map(
-      (key) => columns.find((item) => item.key === key)?.label || key,
-    );
-    const exportedAt = Date.now();
-    const lines = exportRows.map((row) => fields.map((key) => csvCell(customerListText(row, key, exportedAt))).join(","));
+    const header = CUSTOMER_FULL_EXPORT_HEADERS;
+    const lines = exportRows.map((row) => fullCustomerExportValues(row as unknown as Record<string, unknown>).map(csvCell).join(","));
     const blob = new Blob(
       ["\ufeff" + header.map(csvCell).join(",") + "\n" + lines.join("\n")],
       { type: "text/csv;charset=utf-8" },
@@ -553,7 +550,7 @@ export function CustomersView() {
         </div>
         {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(190px,1.5fr)_minmax(105px,.8fr)_minmax(140px,1fr)_minmax(130px,1fr)_minmax(90px,.7fr)_minmax(95px,.75fr)_minmax(100px,.8fr)_minmax(100px,.8fr)_minmax(90px,.7fr)_72px]">
+          <div className="overflow-x-auto pb-1"><div className="grid min-w-[1500px] grid-cols-[minmax(190px,1.5fr)_minmax(105px,.8fr)_minmax(140px,1fr)_minmax(130px,1fr)_minmax(90px,.7fr)_minmax(95px,.75fr)_minmax(100px,.8fr)_minmax(100px,.8fr)_minmax(90px,.7fr)_72px] gap-3">
             <label className="relative min-w-0">
               <Search
                 className="absolute left-3 top-2.5 text-slate-400"
@@ -665,7 +662,7 @@ export function CustomersView() {
             >
               重置
             </button>
-          </div>
+          </div></div>
           <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；评分用于表示销售优先级。AI未筛选客户不会被误归入两类，需切换“AI未筛选”查看。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">

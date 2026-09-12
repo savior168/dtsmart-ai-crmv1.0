@@ -261,7 +261,7 @@ assert.match(protectionApi, /requirePermission\("customers\.view"\)/, "保护到
 const workspacePanels = read("components/customer-workspace-panels-v2.tsx");
 assert.match(workspacePanels, /UserScopeSelect[\s\S]*customers\/protection\?\$\{params\}/, "保护到期页面必须提供生效的归属人筛选");
 assert.match(workspacePanels, /customer-conflicts\?\$\{params\}[\s\S]*filterLabel="冲突提交人"/, "冲突客户页面必须提供生效且语义清楚的冲突提交人筛选");
-assert.match(workspacePanels, /"当前归属人","冲突提交人"[\s\S]*row\.submitters/, "冲突列表必须显示当前归属人和完整冲突提交人");
+assert.match(workspacePanels, /conflictColumns[\s\S]*当前归属人[\s\S]*冲突提交人[\s\S]*row\.submitters/, "冲突列表必须显示当前归属人和完整冲突提交人");
 assert.match(workspacePanels, /共 \{row\.submitters\?\.length\} 位提交人[\s\S]*formatDate\(user\.submitted_at\)/, "多个冲突提交人必须可展开并按人显示提交时间");
 assert.doesNotMatch(workspacePanels, /认领客户|立即认领|submissionHistory/, "系统没有公海或认领交互");
 const adminAuditApi = read("app/api/admin/audit/route.ts");
