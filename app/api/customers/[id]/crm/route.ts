@@ -54,12 +54,12 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     });
     const aiCompleted = Boolean(customer.ai_screening_done && latestAi.data);
     const customerForDisplay = { ...customer, website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]), website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]), ...(!aiCompleted ? { industry: null, ai_score: null, ai_level: null, is_target_customer: null, ai_reason: null, business_scope: null, business_relevance: null, customer_value: null, followup_suggestion: null, company_scale_evidence: null } : {}) };
-    const base = { customer: customerForDisplay, profile: profileResult.data, can_edit: hasPermission(account, "customers.edit") && (account.role === "ADMIN" || isOwner), can_change_stage: hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || isOwner), can_sales_operate: account.role !== "ADMIN" && isOwner, access_scope: publicReadOnly ? "PUBLIC_POOL" : "BUSINESS", ai_result: aiCompleted ? latestAi.data : null, ai_facts: aiCompleted ? aiFacts : [], verified_contacts: aiCompleted ? dedupeVerifiedContactRows(verifiedContacts.data || []) : [] };
-    if (publicReadOnly) return NextResponse.json({ ...base, effective_protection: { source: "NONE", start_date: null, expire_date: null, status: "EXPIRED", remaining_days: 0, permanent: false }, followups: [], attachments: [], quotes: [], claims: [], audit_logs: [], protections: [], private_supplements: [], users: [] });
+    const base = { customer: customerForDisplay, profile: profileResult.data, can_edit: hasPermission(account, "customers.edit") && (account.role === "ADMIN" || isOwner), can_change_stage: hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || isOwner), can_sales_operate: hasPermission(account, "followups.create") && (account.role === "ADMIN" || isOwner), access_scope: publicReadOnly ? "PUBLIC_POOL" : "BUSINESS", ai_result: aiCompleted ? latestAi.data : null, ai_facts: aiCompleted ? aiFacts : [], verified_contacts: aiCompleted ? dedupeVerifiedContactRows(verifiedContacts.data || []) : [] };
+    if (publicReadOnly) return NextResponse.json({ ...base, current_owner: null, effective_protection: { source: "NONE", start_date: null, expire_date: null, status: "EXPIRED", remaining_days: 0, permanent: false }, followups: [], attachments: [], quotes: [], claims: [], audit_logs: [], protections: [], private_supplements: [], users: [] });
 
     const [followupsResult, claimsResult, protectionResult, auditLogsResult, attachmentsResult, quotesResult, privateSupplementsResult] = await Promise.all([
       admin.from("followups").select("*,creator:users(name,email)").eq("customer_id", id).order("created_at", { ascending: false }),
-      admin.from("customer_claims").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
+      admin.from("customer_claims").select("id,user_id,action,claim_type,owner_name,claimed_at,released_at,release_reason,source_owner_id,assignment_batch_id,created_at").eq("customer_id", id).order("created_at", { ascending: false }),
       admin.from("customer_protection").select("*").eq("customer_id", id).order("start_date", { ascending: false }),
       admin.from("audit_logs").select("id,action,content,created_at,user_id").eq("target_type", "customer").eq("target_id", id).order("created_at", { ascending: false }).limit(100),
       admin.from("attachments").select("id,followup_id,quote_id,filename,mime_type,size_bytes,kind,created_at").eq("customer_id", id).order("created_at", { ascending: false }),
@@ -67,17 +67,35 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       admin.from("customer_private_supplements").select("id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("customer_id", id).eq("submitted_by", user.id).order("created_at", { ascending: false }),
     ]);
     for (const result of [followupsResult, claimsResult, protectionResult, auditLogsResult, attachmentsResult, quotesResult, privateSupplementsResult]) if (result.error) throw result.error;
+    const historyUserIds = [...new Set([customer.owner_id, ...(claimsResult.data || []).flatMap((item) => [item.user_id, item.source_owner_id]), ...(followupsResult.data || []).map((item) => item.user_id)].filter(Boolean))] as string[];
+    const historyUsersResult = historyUserIds.length
+      ? await admin.from("users").select("id,name,email").in("id", historyUserIds)
+      : { data: [], error: null };
+    if (historyUsersResult.error) throw historyUsersResult.error;
+    const historyUsersById = new Map((historyUsersResult.data || []).map((item) => [item.id, item]));
+    const claims = (claimsResult.data || []).map((item) => ({ ...item, actor: historyUsersById.get(item.user_id) || null, source_owner: item.source_owner_id ? historyUsersById.get(item.source_owner_id) || null : null }));
+    const currentOwner = customer.owner_id ? historyUsersById.get(customer.owner_id) || null : null;
     const usersResult = ["ADMIN", "SUPERVISOR"].includes(profileResult.data.role) ? await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name") : { data: [], error: null };
     const latestProtection = (protectionResult.data || [])[0] || null;
     const activeProtection = latestProtection?.status === "ACTIVE" && (!latestProtection.expire_date || new Date(latestProtection.expire_date).getTime() > Date.now()) ? latestProtection : null;
-    const latestClaim = (claimsResult.data || []).find((item) => ["CLAIM", "TRANSFER", "RELEASE"].includes(String(item.action)));
+    const latestClaim = claims.find((item) => ["CLAIM", "TRANSFER", "RELEASE"].includes(String(item.action)));
     const isReleased = customer.status === "RELEASED" || latestClaim?.action === "RELEASE";
     const defaultStart = latestClaim && ["CLAIM", "TRANSFER"].includes(String(latestClaim.action)) ? latestClaim.created_at : customer.created_at;
     const defaultExpire = customer.owner_id && !isReleased && !latestProtection ? new Date(new Date(defaultStart).getTime() + 90 * 86400000).toISOString() : null;
     const expireDate = latestProtection?.expire_date || defaultExpire;
     const permanent = Boolean(activeProtection && !activeProtection.expire_date) || customer.status === "DEAL";
     const remainingDays = permanent ? null : expireDate ? Math.max(0, Math.ceil((new Date(expireDate).getTime() - Date.now()) / 86400000)) : 0;
-    return NextResponse.json({ ...base, effective_protection: { source: latestProtection ? "EXPLICIT" : customer.owner_id && !isReleased ? "DEFAULT_90_DAYS" : "NONE", start_date: latestProtection?.start_date || (customer.owner_id && !isReleased ? defaultStart : null), expire_date: permanent ? null : expireDate, status: permanent || ((activeProtection || !latestProtection) && (remainingDays ?? 0) > 0) ? "ACTIVE" : isReleased ? "RELEASED" : "EXPIRED", remaining_days: remainingDays, permanent }, followups: followupsResult.data || [], attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: claimsResult.data || [], audit_logs: auditLogsResult.data || [], protections: protectionResult.data || [], private_supplements: privateSupplementsResult.data || [], users: usersResult.data || [] });
+    const displayClaims = claims.map((item) => {
+      const actor = item.actor?.name || item.actor?.email || item.owner_name || "系统记录缺少姓名";
+      const previous = item.source_owner?.name || item.source_owner?.email || null;
+      const action = item.action === "RELEASE"
+        ? `释放客户：${actor}${previous ? `（原归属：${previous}）` : ""}${item.release_reason ? `；原因：${item.release_reason}` : ""}`
+        : item.action === "TRANSFER"
+          ? `转移客户归属：${actor}${previous ? `（原归属：${previous}）` : ""}`
+          : `认领客户：${actor}`;
+      return { ...item, action };
+    });
+    return NextResponse.json({ ...base, current_owner: currentOwner, effective_protection: { source: latestProtection ? "EXPLICIT" : customer.owner_id && !isReleased ? "DEFAULT_90_DAYS" : "NONE", start_date: latestProtection?.start_date || (customer.owner_id && !isReleased ? defaultStart : null), expire_date: permanent ? null : expireDate, status: permanent || ((activeProtection || !latestProtection) && (remainingDays ?? 0) > 0) ? "ACTIVE" : isReleased ? "RELEASED" : "EXPIRED", remaining_days: remainingDays, permanent }, followups: followupsResult.data || [], attachments: attachmentsResult.data || [], quotes: quotesResult.data || [], claims: displayClaims, audit_logs: auditLogsResult.data || [], protections: protectionResult.data || [], private_supplements: privateSupplementsResult.data || [], users: usersResult.data || [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CRM资料加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

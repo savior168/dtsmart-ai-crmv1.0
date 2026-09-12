@@ -30,7 +30,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "customers.delete", label: "删除客户", group: "客户中心", description: "单条或批量物理删除客户", kind: "ACTION" },
   { code: "customers.export", label: "导出客户", group: "客户中心", description: "导出当前查询范围的客户数据", kind: "ACTION" },
   { code: "customers.batch_edit", label: "批量维护客户", group: "客户中心", description: "执行系统明确支持的非阶段批量维护操作；客户阶段只能单条修改", kind: "ACTION" },
-  { code: "customers.release", label: "释放客户", group: "客户中心", description: "释放本人名下客户", kind: "ACTION" },
+    { code: "customers.release", label: "释放客户", group: "客户中心", description: "释放客户到公海；系统管理员可操作任意归属客户", kind: "ACTION" },
   { code: "customers.claim", label: "认领公海客户", group: "客户中心", description: "凭真实联系记录认领尚未归属的公海客户", kind: "ACTION" },
   { code: "customers.renew", label: "客户保护续期", group: "客户中心", description: "为本人仍持有且处于宽限期的客户续期45天", kind: "ACTION" },
   { code: "customers.renew.review", label: "审核下属续期", group: "客户中心", description: "审核直属销售员第三次及之后的保护续期", kind: "ACTION" },
@@ -42,6 +42,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "imports.create", label: "执行数据导入", group: "客户中心", description: "预览并提交客户文件导入", kind: "ACTION" },
   { code: "imports.data_all", label: "查看全部导入记录", group: "客户中心", description: "查看所有归属人的导入批次", kind: "DATA" },
 
+  { code: "ai.acquisition.view", label: "AI获客", group: "AI获客与筛选", description: "显示AI获客菜单入口；独立获客能力启用前保持为规划状态", kind: "PAGE" },
   { code: "ai.tasks.view", label: "AI筛选", group: "AI获客与筛选", description: "进入AI筛选并查看任务详情", kind: "PAGE" },
   { code: "ai.data_all", label: "查看全部AI筛选数据", group: "AI获客与筛选", description: "可按归属人查看任务、结果与用量", kind: "DATA" },
   { code: "ai.tasks.create", label: "创建AI筛选任务", group: "AI获客与筛选", description: "选择客户并创建筛选任务", kind: "ACTION" },
@@ -116,6 +117,7 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("dashboard.")) return "dashboard.view";
   if (code.startsWith("customers.")) return "customers.view";
   if (code.startsWith("imports.")) return "imports.view";
+  if (code.startsWith("ai.acquisition.")) return "ai.acquisition.view";
   if (code.startsWith("ai.")) return "ai.tasks.view";
   if (code.startsWith("followups.")) return "followups.view";
   if (code.startsWith("quotes.")) return "quotes.view";

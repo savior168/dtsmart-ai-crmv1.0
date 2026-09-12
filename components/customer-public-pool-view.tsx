@@ -46,7 +46,7 @@ import {
   normalizeCustomerListColumns,
   type CustomerListColumn,
 } from "@/lib/customers/list-fields";
-import { CUSTOMER_FULL_EXPORT_HEADERS, csvCell, fullCustomerExportValues } from "@/lib/customer-export";
+import { downloadCustomerWorkbook } from "@/lib/customer-export";
 import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
@@ -246,6 +246,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [industries, setIndustries] = useState<string[]>([]);
   const [industryOpen, setIndustryOpen] = useState(false);
   const [aiLevel, setAiLevel] = useState("");
+  const [aiStatus, setAiStatus] = useState<"all" | "done" | "pending" | "failed">("all");
   const [target, setTarget] = useState("");
   const [customerStatus, setCustomerStatus] = useState("");
   const [ownerId, setOwnerId] = useState("");
@@ -316,6 +317,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
       appendIndustryFilters(params);
       if (aiLevel) params.set("ai_level", aiLevel);
+      if (aiStatus !== "all") params.set("ai_status", aiStatus);
       if (target) params.set("target", target);
       if (customerStatus && tab === "claimed") params.set("status", customerStatus);
       if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
@@ -339,6 +341,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     }
   }, [
     aiLevel,
+    aiStatus,
     appendIndustryFilters,
     customerStatus,
     ownerId,
@@ -416,7 +419,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, customerStatus, industries, ownerId, query, screeningTaskIds, sourceBatch, sourceType, tab, target],
+    [aiLevel, aiStatus, customerStatus, industries, ownerId, query, screeningTaskIds, sourceBatch, sourceType, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -452,6 +455,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setQuery("");
     setIndustries([]);
     setAiLevel("");
+    setAiStatus("all");
     setTarget("");
     setCustomerStatus("");
     setOwnerId("");
@@ -499,13 +503,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         exported.push(...pageRows);
         if (pageRows.length < 100 || exported.length >= Number(body.count || 0)) break;
       }
-      const lines = [CUSTOMER_FULL_EXPORT_HEADERS.map(csvCell).join(","), ...exported.map((row) => fullCustomerExportValues(row as unknown as Record<string, unknown>).map(csvCell).join(","))];
-      const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `客户公海-${tabLabels[tab]}-${new Date().toISOString().slice(0, 10)}.csv`;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `客户公海-${tabLabels[tab]}`);
       setToast(`已导出当前筛选结果 ${exported.length} 条`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导出失败");
@@ -524,6 +522,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (query.trim()) params.set("q", query.trim());
         appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
+        if (aiStatus !== "all") params.set("ai_status", aiStatus);
+        if (aiStatus !== "all") params.set("ai_status", aiStatus);
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
@@ -651,6 +651,17 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="valid">有效目标</option>
                   <option value="invalid">无效目标</option>
                 </select>
+                <select
+                  value={aiStatus}
+                  onChange={(event) => setAiStatus(event.target.value as "all" | "done" | "pending" | "failed")}
+                  className={`${appFieldClass} w-36 shrink-0`}
+                  aria-label="AI分析状态"
+                >
+                  <option value="all">全部AI分析状态</option>
+                  <option value="done">已分析</option>
+                  <option value="pending">未分析</option>
+                  <option value="failed">分析失败</option>
+                </select>
                 {tab === "claimed" ? <select
                   value={customerStatus}
                   onChange={(event) => setCustomerStatus(event.target.value)}
@@ -698,7 +709,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   {newOpen ? <div className="absolute left-0 top-11 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                     <button type="button" onClick={() => { setNewOpen(false); setCreateOpen(true); }} className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-blue-50"><UserPlus size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">手动新增</span><small className="text-slate-500">新增后进入客户公海，暂不归属任何销售员</small></span></button>
                     <Link href="/import?destination=public" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><FileSpreadsheet size={20} className="mt-0.5 shrink-0 text-emerald-600" /><span><span className="block text-sm font-medium">批量导入</span><small className="text-slate-500">导入后进入客户公海，暂不归属任何销售员</small></span></Link>
-                    <a href="/api/import/template" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><Download size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">下载导入模板</span><small className="text-slate-500">.csv · 含字段说明和示例数据</small></span></a>
+                    <a href="/api/import/template" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><Download size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">下载导入模板</span><small className="text-slate-500">.xlsx · 含字段说明和示例数据</small></span></a>
                     <div className="border-t px-3 py-2 text-xs text-slate-400">请使用系统最新模板，勿修改第一行字段名称</div>
                   </div> : null}
                 </div> : null}
@@ -870,14 +881,8 @@ function PoolTable({
               <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                 {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`} aria-label={`查看${row.company_name}详情`}>详情</Link> : null}
-                {row.can_claim ? (
-                  <button
-                    onClick={() => claim(row)}
-                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
-                  >
-                    认领
-                  </button>
-                ) : !row.can_open_customer ? (
+                {row.can_claim ? <button onClick={() => claim(row)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-100">认领</button> : null}
+                {!row.can_claim && !row.can_open_customer ? (
                   <span className="text-xs text-slate-400">已被认领</span>
                 ) : null}
                 {canDelete ? <button type="button" onClick={() => remove(row)} title="永久删除客户" aria-label={`永久删除${row.company_name}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-50"><Trash2 size={14}/></button> : null}

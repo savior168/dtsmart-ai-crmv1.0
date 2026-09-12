@@ -6,7 +6,7 @@ import { CountryLabel } from "@/components/country-label";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { FOLLOWUP_STAGE_LABELS, type FollowupStage } from "@/lib/types";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
-import { CUSTOMER_FULL_EXPORT_HEADERS, csvCell, fullCustomerExportValues } from "@/lib/customer-export";
+import { downloadCustomerWorkbook } from "@/lib/customer-export";
 
 type CustomerData = Record<string, unknown> & { id?: string };
 type Protection = { id: string; customer_id: string; expire_date?: string; status?: string; release_type?: "MANUAL" | "AUTO"; extension_count?: number; can_renew?: boolean; renewal_block_reason?: string | null; customer?: CustomerData };
@@ -26,11 +26,7 @@ function Country({ value }: { value: unknown }) { return <CountryLabel value={va
 function Url({ value }: { value?: string }) { const raw = String(value || "").trim(); const href = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : ""; return href ? <a href={href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex max-w-36 items-center gap-1 text-blue-600 hover:underline"><span className="truncate">{raw}</span><ExternalLink size={12}/></a> : <span className="text-slate-400">-</span>; }
 
 function downloadCustomers(customers: CustomerData[], fileName: string) {
-  const rows = customers.filter((customer) => Boolean(customer.id || customer.company_name));
-  if (!rows.length) return;
-  const csv = [CUSTOMER_FULL_EXPORT_HEADERS.map(csvCell).join(","), ...rows.map((customer) => fullCustomerExportValues(customer).map(csvCell).join(","))].join("\n");
-  const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" }));
-  const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${fileName}-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); URL.revokeObjectURL(url);
+  downloadCustomerWorkbook(customers, fileName);
 }
 
 const protectionColumns: { label: string; key: keyof Row }[] = [

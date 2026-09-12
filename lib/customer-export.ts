@@ -1,5 +1,6 @@
 import { countryInfo } from "@/lib/countries";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
+import { downloadWorkbook } from "@/lib/xlsx-export";
 
 export type CustomerExportColumn =
   | "company_name"
@@ -111,4 +112,66 @@ export function fullCustomerExportValues(customer: Record<string, unknown>) {
     STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || customer.status, FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系", owner,
     customer.source === "EXCEL_IMPORT" ? "Excel导入" : customer.source, customer.source_batch, dateTime(customer.last_contact_time as string | null | undefined, "未跟进"), dateTime(customer.created_at as string | null | undefined), dateTime(customer.updated_at as string | null | undefined),
   ].map(exportText);
+}
+
+function ownerName(customer: Record<string, unknown>) {
+  const owner = customer.owner && typeof customer.owner === "object"
+    ? (customer.owner as { name?: unknown; email?: unknown }).name || (customer.owner as { email?: unknown }).email
+    : customer.owner_name || customer.owner_id;
+  return exportText(owner);
+}
+
+function targetText(customer: Record<string, unknown>) {
+  return customer.is_target_customer === true ? "有效目标" : customer.is_target_customer === false ? "无效目标" : "未出目标结论";
+}
+
+function scoreText(customer: Record<string, unknown>) {
+  return customer.ai_score == null ? "未筛选" : `${exportText(customer.ai_level)} · ${exportText(customer.ai_score)}`;
+}
+
+export function downloadCustomerWorkbook(customers: Array<Record<string, unknown>>, fileName: string) {
+  const rows = customers.filter((customer) => Boolean(customer.id || customer.company_name));
+  if (!rows.length) return;
+  const date = new Date().toISOString().slice(0, 10);
+  downloadWorkbook(`${fileName}-${date}.xlsx`, [
+    {
+      name: "客户清单",
+      widths: [26, 14, 16, 18, 18, 24, 18, 10, 10, 14, 14, 14, 16, 14, 16, 22, 20, 20, 20],
+      rows: [
+        ["客户名称", "国家/地区", "联系人", "联系电话", "WhatsApp", "邮箱", "AI核验行业", "AI等级", "AI评分", "目标判断", "客户阶段", "跟进状态", "当前归属人", "企业规模", "数据来源", "导入批次", "最近联系时间", "创建时间", "更新时间"],
+        ...rows.map((customer) => [
+          exportText(customer.company_name), countryInfo(customer.country as string | null | undefined).name, exportText(customer.contact_name),
+          formatCustomerPhone(customer.phone as string | null | undefined), formatCustomerPhone(customer.whatsapp as string | null | undefined), exportText(customer.email),
+          exportText(customer.industry), exportText(customer.ai_level), scoreText(customer), targetText(customer),
+          STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || exportText(customer.status), FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系",
+          ownerName(customer), exportText(customer.company_scale), customer.source === "EXCEL_IMPORT" ? "Excel导入" : exportText(customer.source), exportText(customer.source_batch),
+          dateTime(customer.last_contact_time as string | null | undefined, "未跟进"), dateTime(customer.created_at as string | null | undefined), dateTime(customer.updated_at as string | null | undefined),
+        ]),
+      ],
+    },
+    {
+      name: "分析详情",
+      widths: [26, 18, 52, 52, 52, 52, 52, 18, 52, 18],
+      wrapColumns: [2, 3, 4, 5, 6, 8],
+      rows: [
+        ["客户名称", "AI核验行业", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据", "原始类别"],
+        ...rows.map((customer) => [
+          exportText(customer.company_name), exportText(customer.industry), exportText(customer.ai_reason), exportText(customer.business_scope), exportText(customer.business_relevance),
+          exportText(customer.customer_value), exportText(customer.followup_suggestion), exportText(customer.company_scale), exportText(customer.company_scale_evidence), exportText(customer.category),
+        ]),
+      ],
+    },
+    {
+      name: "链接与社媒",
+      widths: [26, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
+      hyperlinkColumns: [2, 3, 4, 5, 6, 7, 8],
+      rows: [
+        ["客户名称", "地址", "官网网址", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "其他公开链接", "官网电话", "官网邮箱"],
+        ...rows.map((customer) => [
+          exportText(customer.company_name), exportText(customer.address), exportText(customer.website), exportText(customer.google_url), exportText(customer.facebook_url), exportText(customer.instagram_url),
+          exportText(customer.linkedin_url), exportText(customer.tiktok_url), exportText(customer.other_public_urls), formatCustomerPhone(customer.website_phone as string | null | undefined), exportText(customer.website_email),
+        ]),
+      ],
+    },
+  ]);
 }

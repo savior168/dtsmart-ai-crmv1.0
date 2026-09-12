@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
     const country = params.get("country")?.trim() || "";
     const industries = params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const aiLevel = params.get("ai_level")?.trim().toUpperCase() || "";
+    const aiStatus = params.get("ai_status")?.trim().toLowerCase() || "all";
     const target = params.get("target")?.trim() || "";
     const customerStatus = params.get("status")?.trim().toUpperCase() || "";
     const ownerId = params.get("owner_id")?.trim() || "";
@@ -205,7 +206,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -242,6 +243,9 @@ export async function GET(request: NextRequest) {
       query = query.or(anyIndustry.join(","));
     }
     if (["A", "B", "C", "D"].includes(aiLevel)) query = query.eq("ai_level", aiLevel);
+    if (aiStatus === "pending") query = query.eq("ai_status", "PENDING");
+    else if (aiStatus === "done") query = query.eq("ai_status", "COMPLETED");
+    else if (aiStatus === "failed") query = query.eq("ai_status", "FAILED");
     // Only completed AI analyses belong to the two business-result filters.
     // Unscreened customers stay under the ordinary "all" condition rather
     // than being presented as a third target-result value.

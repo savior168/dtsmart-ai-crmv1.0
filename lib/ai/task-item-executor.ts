@@ -90,6 +90,11 @@ export async function executeClaimedAiTaskItem(
       updated_at: new Date().toISOString(),
     }).eq("id", item.taskItemId).eq("lease_owner", lease.executorId).eq("lease_token", lease.leaseToken);
     if (failed.error) throw failed.error;
+    // Do not overwrite a newer completed conclusion from another task, but do
+    // persist the failure state for customers that still have no conclusion so
+    // list filters can distinguish failed work from never-submitted work.
+    const customerFailure = await admin.from("customers").update({ ai_status: "FAILED", ai_screening_done: false, updated_at: new Date().toISOString() }).eq("id", item.customerId).is("ai_score", null);
+    if (customerFailure.error) throw customerFailure.error;
     await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: item.taskId });
     return { status: "FAILED" as const, error: failure };
   }

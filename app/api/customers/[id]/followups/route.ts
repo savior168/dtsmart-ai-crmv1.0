@@ -6,7 +6,6 @@ import { FOLLOWUP_TYPES } from "@/lib/types";
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { user, account, supabase } = await requirePermission("followups.create");
-    if (account.role === "ADMIN") return NextResponse.json({ error: "系统管理员负责系统维护，不参与销售跟进操作" }, { status: 403 });
     const { id } = await context.params;
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });
@@ -22,7 +21,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const { data: customer, error: customerError } = await admin.from("customers").select("id,status,owner_id").eq("id", id).is("deleted_at", null).single();
     if (customerError) throw customerError;
     if (!customer.owner_id) return NextResponse.json({ error: "公海客户需先完成认领，才可以新增跟进" }, { status: 403 });
-    if (customer.owner_id !== user.id) {
+    if (account.role !== "ADMIN" && customer.owner_id !== user.id) {
       return NextResponse.json({ error: "其他用户的客户和跟进数据仅供查看，不能新增跟进" }, { status: 403 });
     }
     const { data, error } = await admin.from("followups").insert({

@@ -2,28 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { countryInfo } from "@/lib/countries";
 
-type DashboardCustomer = {
-  id: string;
-  company_name: string;
-  phone: string | null;
-  email: string | null;
-  country: string | null;
-  ai_level: string | null;
-  ai_score: number | null;
-  status: string;
-  created_at: string;
-  updated_at: string | null;
-  last_contact_time: string | null;
-};
-
-type DashboardFollowup = {
-  id: string;
-  customer_id: string;
-  type: string;
-  content: string | null;
-  next_follow_date: string | null;
-  created_at: string;
-};
+type CountRow = { grade?: string; name?: string; count: number };
 
 function validDate(value: string | null, fallback: Date) {
   if (!value) return fallback;
@@ -51,38 +30,28 @@ function activityText(action: string, customerName: string, content: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user, account } = await requirePermission("dashboard.view");
+    const { supabase, account } = await requirePermission("dashboard.view");
     const scopeUserId = await requestedOwnerId(request, account, "dashboard.data_all");
     const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(todayStart);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const protectionEnd = new Date(todayStart);
+    protectionEnd.setDate(protectionEnd.getDate() + 8);
+
     if (request.nextUrl.searchParams.get("summary") === "1") {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const tomorrow = new Date(todayStart);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const protectionEnd = new Date(todayStart);
-      protectionEnd.setDate(protectionEnd.getDate() + 8);
-      let followupsQuery = supabase
-          .from("followups")
-          .select("id", { count: "exact", head: true })
-          .gte("next_follow_date", todayStart.toISOString())
-          .lt("next_follow_date", tomorrow.toISOString());
-      let protectionsQuery = supabase
-          .from("customer_protection")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "ACTIVE")
-          .not("expire_date", "is", null)
-          .gte("expire_date", todayStart.toISOString())
-          .lt("expire_date", protectionEnd.toISOString());
-      if (scopeUserId) { followupsQuery = followupsQuery.eq("user_id", scopeUserId); protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId); }
+      let followupsQuery = supabase.from("followups").select("id", { count: "exact", head: true }).gte("next_follow_date", todayStart.toISOString()).lt("next_follow_date", tomorrow.toISOString());
+      let protectionsQuery = supabase.from("customer_protection").select("id", { count: "exact", head: true }).eq("status", "ACTIVE").not("expire_date", "is", null).gte("expire_date", todayStart.toISOString()).lt("expire_date", protectionEnd.toISOString());
+      if (scopeUserId) {
+        followupsQuery = followupsQuery.eq("user_id", scopeUserId);
+        protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
+      }
       const [followups, protections] = await Promise.all([followupsQuery, protectionsQuery]);
       if (followups.error) throw new Error(followups.error.message);
       if (protections.error) throw new Error(protections.error.message);
-      return NextResponse.json({
-        totals: {
-          today_followups: followups.count || 0,
-          expiring_protection: protections.count || 0,
-        },
-      }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
+      return NextResponse.json({ totals: { today_followups: followups.count || 0, expiring_protection: protections.count || 0 } }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
+
     const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
     const fromDate = validDate(request.nextUrl.searchParams.get("from"), defaultFrom);
     const toDate = validDate(request.nextUrl.searchParams.get("to"), now);
@@ -91,103 +60,37 @@ export async function GET(request: NextRequest) {
     const country = request.nextUrl.searchParams.get("country")?.trim() || "";
     const aiLevel = request.nextUrl.searchParams.get("ai_level")?.trim() || "";
 
-    // Profile and customer reads are independent. Start the small profile read
-    // immediately instead of adding another full network round trip after the
-    // customer query has finished.
-    const profilePromise = supabase.from("users").select("name,email,role").eq("id", user.id).single().then((result) => result);
-    const sourceCustomers: DashboardCustomer[] = [];
-    for (let from = 0; ; from += 1000) {
-      let customersQuery = supabase.from("customers")
-        .select("id,company_name,phone,email,country,ai_level,ai_score,status,created_at,updated_at,last_contact_time")
-        .is("deleted_at", null)
-        .gte("created_at", fromDate.toISOString())
-        .lt("created_at", exclusiveTo.toISOString())
-        .order("created_at", { ascending: false });
-      if (scopeUserId) customersQuery = customersQuery.eq("owner_id", scopeUserId);
-      const page = await customersQuery.range(from, from + 999);
-      if (page.error) throw new Error(page.error.message);
-      sourceCustomers.push(...((page.data || []) as DashboardCustomer[]));
-      if ((page.data || []).length < 1000) break;
-    }
-    const profileResult = await profilePromise;
-    if (profileResult.error) throw new Error(profileResult.error.message);
-    const countries = Array.from(new Set(sourceCustomers.map((item) => item.country?.trim()).filter((item): item is string => Boolean(item)))).sort((a, b) => a.localeCompare(b, "zh-CN"));
-    const countryNeedle = country.toLowerCase();
-    const customers = sourceCustomers.filter((item) => (!countryNeedle || String(item.country || "").toLowerCase().includes(countryNeedle)) && (!aiLevel || item.ai_level === aiLevel));
-    const customerMap = new Map(customers.map((item) => [item.id, item]));
-
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrow = new Date(todayStart); tomorrow.setDate(tomorrow.getDate() + 1);
-    const protectionEnd = new Date(todayStart); protectionEnd.setDate(protectionEnd.getDate() + 8);
-
-    const [followupResult, protectionResult, auditResult] = await Promise.all([
-      supabase.from("followups").select("id,customer_id,type,content,next_follow_date,created_at").gte("next_follow_date", todayStart.toISOString()).lt("next_follow_date", tomorrow.toISOString()).order("next_follow_date", { ascending: true }).range(0, 999),
-      supabase.from("customer_protection").select("id,customer_id,type,expire_date,status").eq("status", "ACTIVE").not("expire_date", "is", null).gte("expire_date", todayStart.toISOString()).lt("expire_date", protectionEnd.toISOString()).order("expire_date", { ascending: true }).range(0, 999),
-      supabase.from("audit_logs").select("id,action,target_id,content,created_at").eq("target_type", "customer").order("created_at", { ascending: false }).limit(20),
-    ]);
-    if (followupResult.error) throw new Error(followupResult.error.message);
-    if (protectionResult.error) throw new Error(protectionResult.error.message);
-    if (auditResult.error) throw new Error(auditResult.error.message);
-
-    const gradeOf = (item: DashboardCustomer) => item.ai_score === null ? "未筛选" : ["A", "B", "C", "D"].includes(item.ai_level || "") ? item.ai_level! : item.ai_score >= 80 ? "A" : item.ai_score >= 60 ? "B" : item.ai_score >= 40 ? "C" : "D";
-    const distributionCounts = ["A", "B", "C", "D", "未筛选"].map((grade) => ({ grade, count: customers.filter((item) => gradeOf(item) === grade).length }));
-    let distributionUsed = 0;
-    const distribution = distributionCounts.map((item, index) => {
-      const share = index === distributionCounts.length - 1 ? Number(Math.max(0, 100 - distributionUsed).toFixed(1)) : percentage(item.count, customers.length);
-      distributionUsed += share;
-      return { ...item, percentage: share };
+    // Keep aggregation in Postgres. The former route copied every matching
+    // customer into the application process and could hit statement_timeout.
+    const { data, error } = await supabase.rpc("dashboard_overview", {
+      p_from: fromDate.toISOString(), p_to: exclusiveTo.toISOString(),
+      p_scope_user_id: scopeUserId, p_country: country || null, p_ai_level: aiLevel || null,
     });
-    const countryCounts = new Map<string, number>();
-    customers.forEach((item) => {
-      const normalized = countryInfo(item.country);
-      // Use the ISO code as the aggregation identity so IE/爱尔兰/Ireland
-      // cannot become three visually duplicated country rows.
-      const key = normalized.code || normalized.name;
-      countryCounts.set(key, (countryCounts.get(key) || 0) + 1);
+    if (error) throw new Error(error.message);
+    const overview = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    const totals = (overview.totals && typeof overview.totals === "object" ? overview.totals : {}) as Record<string, number>;
+    const totalCustomers = Number(totals.my_customers || 0);
+    const distribution = ((overview.distribution || []) as CountRow[]).map((item) => ({ grade: item.grade || "未筛选", count: Number(item.count || 0), percentage: percentage(Number(item.count || 0), totalCustomers) }));
+    const countryTop = ((overview.country_top || []) as CountRow[]).map((item) => {
+      const normalized = countryInfo(item.name || "");
+      return { name: normalized.code || normalized.name, count: Number(item.count || 0), percentage: percentage(Number(item.count || 0), totalCustomers) };
     });
-    const countryTop = Array.from(countryCounts, ([name, count]) => ({ name, count, percentage: percentage(count, customers.length) })).sort((a, b) => b.count - a.count).slice(0, 10);
-    const pendingAi = distribution.find((item) => item.grade === "未筛选")?.count || 0;
-    const targetCustomers = customers.filter((item) => item.ai_score !== null && item.ai_score >= 60).length;
-    const protectionRows = (protectionResult.data || []).filter((item) => customerMap.has(item.customer_id));
-    const protectionByCustomer = new Map<string, { expire_date: string; days: number }>();
-    protectionRows.forEach((item) => { const expires = new Date(String(item.expire_date)); const days = Math.max(0, Math.ceil((expires.getTime() - todayStart.getTime()) / 86400000)); const current = protectionByCustomer.get(item.customer_id); if (!current || expires.getTime() < new Date(current.expire_date).getTime()) protectionByCustomer.set(item.customer_id, { expire_date: String(item.expire_date), days }); });
-    const dueByCustomer = new Map<string, DashboardFollowup>();
-    ((followupResult.data || []) as DashboardFollowup[]).forEach((item) => { const customer = customerMap.get(item.customer_id); if (!customer || !["CLAIMED", "FOLLOWING", "QUOTE"].includes(customer.status) || dueByCustomer.has(item.customer_id)) return; dueByCustomer.set(item.customer_id, item); });
-    const allFollowups = Array.from(dueByCustomer.values()).map((item) => { const customer = customerMap.get(item.customer_id)!; const protection = protectionByCustomer.get(item.customer_id); return { id: item.id, customer_id: item.customer_id, customer_name: customer.company_name, phone: customer.phone, email: customer.email, country: customer.country, ai_level: customer.ai_level, last_followup: customer.last_contact_time, followup_time: item.next_follow_date, type: item.type, status: customer.status, protection_days: protection?.days ?? null }; }).sort((a, b) => (a.protection_days ?? Number.MAX_SAFE_INTEGER) - (b.protection_days ?? Number.MAX_SAFE_INTEGER));
-    const protections = protectionRows.map((item) => { const customer = customerMap.get(item.customer_id)!; const expires = new Date(String(item.expire_date)); const days = Math.max(0, Math.ceil((expires.getTime() - todayStart.getTime()) / 86400000)); return { id: item.id, customer_id: item.customer_id, customer_name: customer.company_name, country: customer.country, expires_at: item.expire_date, days }; }).sort((a, b) => a.days - b.days).slice(0, 20);
-    const followups = allFollowups.slice(0, 5);
-    const activities = (auditResult.data || []).filter((item) => !item.target_id || customerMap.has(item.target_id)).slice(0, 5).map((item) => { const customerName = item.target_id ? customerMap.get(item.target_id)?.company_name || "客户" : "客户"; return { id: item.id, action: item.action, text: activityText(item.action, customerName, item.content), created_at: item.created_at }; });
-    const quotes = customers.filter((item) => item.status === "QUOTE").length;
-    const deals = customers.filter((item) => item.status === "DEAL").length;
-    const intentions = customers.filter((item) => item.status === "CLAIMED" || item.status === "FOLLOWING").length;
-    const newCustomers = customers.filter((item) => item.status === "UNCLAIMED").length;
-    const invalidCustomers = customers.filter((item) => item.status === "RELEASED").length;
-    const totals = { my_customers: customers.length, pending_ai: pendingAi, valid_customers: targetCustomers, intentions, today_followups: allFollowups.length, expiring_protection: protectionRows.length, quotes, deals };
-    const funnelCounts = [
-      { label: "新客户", value: newCustomers },
-      { label: "意向客户", value: intentions },
-      { label: "报价中", value: quotes },
-      { label: "成交客户", value: deals },
-      { label: "无效客户", value: invalidCustomers },
+    const funnelRows = [
+      { label: "新客户", value: Math.max(0, totalCustomers - Number(totals.intentions || 0) - Number(totals.quotes || 0) - Number(totals.deals || 0)) },
+      { label: "意向客户", value: Number(totals.intentions || 0) }, { label: "报价中", value: Number(totals.quotes || 0) },
+      { label: "成交客户", value: Number(totals.deals || 0) }, { label: "无效客户", value: 0 },
     ];
-    let funnelUsed = 0;
-    const funnel = funnelCounts.map((item, index) => { const share = index === funnelCounts.length - 1 ? Number(Math.max(0, 100 - funnelUsed).toFixed(1)) : percentage(item.value, customers.length); funnelUsed += share; return { ...item, percentage: share }; });
+    const activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || "") }));
 
     return NextResponse.json({
-      profile: profileResult.data,
-      scope: scopeUserId || "ALL",
-      range: { from: dateKey(fromDate), to: dateKey(toDate) },
-      filters: { countries },
-      totals,
-      distribution,
-      funnel,
-      country_top: countryTop,
-      protections,
-      followups,
-      activities,
-    });
+      scope: scopeUserId || "ALL", range: { from: dateKey(fromDate), to: dateKey(toDate) }, filters: overview.filters || { countries: [] },
+      totals: { my_customers: totalCustomers, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(totals.valid_customers || 0), intentions: Number(totals.intentions || 0), today_followups: Number(totals.today_followups || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0) },
+      distribution, funnel: funnelRows.map((item) => ({ ...item, percentage: percentage(item.value, totalCustomers) })), country_top: countryTop,
+      protections: overview.protections || [], followups: overview.followups || [], activities,
+    }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "工作台数据加载失败";
-    return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录已失效，请重新登录" : message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
+    const status = message === "UNAUTHORIZED" || message === "SESSION_REVOKED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录已失效，请重新登录" : message }, { status });
   }
 }

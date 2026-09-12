@@ -34,7 +34,7 @@ for (const route of requiredRoutes) {
 
 const customerApi = read("app/api/customers/route.ts");
 assert.doesNotMatch(customerApi, /query\s*=\s*query\.or\(`owner_id\.eq\.\$\{user\.id\},created_by\.eq\.\$\{user\.id\}`\)/, "客户查询必须由 Supabase RLS 统一控制，不能按创建人再次收窄");
-assert.match(customerApi, /ai_score.*null/i, "AI待筛选查询必须包含未评分条件");
+assert.match(customerApi, /ai_status[\s\S]*PENDING[\s\S]*COMPLETED[\s\S]*FAILED/, "AI分析状态必须由明确的待分析、已分析和失败状态区分，不能仅依赖评分是否为空");
 assert.match(customerApi, /customer_conflicts/, "手动新增的跨用户重复客户必须进入冲突队列");
 assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨归属人重复标记");
 assert.match(customerApi, /options === "industries"[\s\S]*new Set\(values\)/, "所属行业筛选项必须从当前用户全部客户中动态去重生成");

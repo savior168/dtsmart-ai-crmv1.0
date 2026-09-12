@@ -27,7 +27,8 @@ import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/cu
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { AppPagination } from "@/components/ui/app-pagination";
-import { CUSTOMER_FULL_EXPORT_HEADERS, csvCell, customerListText, customerProtectionText, fullCustomerExportValues, type CustomerExportColumn } from "@/lib/customer-export";
+import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
+import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
   CUSTOMER_LIST_COLUMN_STORAGE_KEY,
@@ -139,7 +140,7 @@ export function CustomersView() {
   const [canViewAll, setCanViewAll] = useState(false);
   // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
   // 个明确筛选项切换，避免过去用 boolean=false 表示“全部”造成歧义。
-  const [aiFilter, setAiFilter] = useState<"done" | "pending" | "all">("done");
+  const [aiFilter, setAiFilter] = useState<"done" | "pending" | "failed" | "all">("done");
   const [sort, setSort] = useState("updated_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [loading, setLoading] = useState(true);
@@ -205,7 +206,7 @@ export function CustomersView() {
     setLevel(params.get("ai_level") || "");
     setTarget(params.get("target") || "");
     setScopeUserId(params.get("user_id") || "");
-    setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "all" ? "all" : "done");
+    setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "failed" ? "failed" : params.get("ai_status") === "all" ? "all" : "done");
     setSort(params.get("sort") || "updated_at");
     setDirection(params.get("direction") === "asc" ? "asc" : "desc");
   }, []);
@@ -356,7 +357,7 @@ export function CustomersView() {
             }
           : null,
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
-        aiFilter !== "done" ? { key: "aiFilter", label: `AI筛选：${aiFilter === "pending" ? "未筛选" : "全部"}` } : null,
+        aiFilter !== "done" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "全部"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
     [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
@@ -498,17 +499,7 @@ export function CustomersView() {
         currentPage += 1;
         if (!items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
       } while (exportRows.length < total);
-    const header = CUSTOMER_FULL_EXPORT_HEADERS;
-    const lines = exportRows.map((row) => fullCustomerExportValues(row as unknown as Record<string, unknown>).map(csvCell).join(","));
-    const blob = new Blob(
-      ["\ufeff" + header.map(csvCell).join(",") + "\n" + lines.join("\n")],
-      { type: "text/csv;charset=utf-8" },
-    );
-    const anchor = document.createElement("a");
-    anchor.href = URL.createObjectURL(blob);
-    anchor.download = "客户列表.csv";
-    anchor.click();
-    URL.revokeObjectURL(anchor.href);
+    downloadCustomerWorkbook(exportRows as unknown as Array<Record<string, unknown>>, "客户列表");
       notify(`已导出当前筛选结果 ${exportRows.length} 条`);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "导出数据失败";
@@ -649,13 +640,14 @@ export function CustomersView() {
             </select>
             <select
               value={aiFilter}
-              onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "all"); setPage(1); setSelected(new Set()); setProtectedSelected(new Set()); }}
+              onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "failed" | "all"); setPage(1); setSelected(new Set()); setProtectedSelected(new Set()); }}
               className="h-10 min-w-0 w-full rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm text-blue-700"
               aria-label="AI筛选状态"
             >
-              <option value="done">AI已筛选</option>
-              <option value="pending">AI未筛选</option>
-              <option value="all">全部AI状态</option>
+              <option value="done">已分析</option>
+              <option value="pending">未分析</option>
+              <option value="failed">分析失败</option>
+              <option value="all">全部AI分析状态</option>
             </select>
             <button
               onClick={reset}
@@ -664,7 +656,7 @@ export function CustomersView() {
               重置
             </button>
           </div></div>
-          <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；评分用于表示销售优先级。AI未筛选客户不会被误归入两类，需切换“AI未筛选”查看。</p>
+          <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；评分用于表示销售优先级。未分析和分析失败客户不归入两类，可通过“AI分析状态”单独查看。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               <span className="text-xs text-slate-500">已应用筛选：</span>
@@ -909,7 +901,7 @@ export function CustomersView() {
                       </button>
                     </th>
                   ))}
-                  <th className="sticky right-0 z-30 w-32 bg-[#eef5fb] px-4 py-3">
+                  <th className="sticky right-0 z-30 w-44 bg-[#eef5fb] px-4 py-3">
                     操作
                   </th>
                 </tr>
@@ -983,8 +975,8 @@ export function CustomersView() {
                         )}
                       </td>
                     ))}
-                    <td className="sticky right-0 z-10 min-w-40 bg-white px-3 py-3">
-                      <div className="flex items-center gap-1 whitespace-nowrap">
+                    <td className="sticky right-0 z-10 min-w-44 bg-white px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}
                         prefetch={false}
@@ -995,20 +987,12 @@ export function CustomersView() {
                       >
                         详情
                       </Link>
-                      {row.owner_id === defaultScopeUserId && row.status !== "DEAL" ? <button onClick={(event) => { event.stopPropagation(); setReleaseTarget(row);setReleaseReason("");setReleaseAcknowledged(false); }} className="h-8 rounded-lg border border-amber-200 px-2 text-sm font-medium text-amber-700 hover:bg-amber-50" title="释放本人客户到公海" aria-label={`释放${row.company_name}`}>释放</button> : null}
-                      {!crossUserReadOnly ? (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteIds([row.id]);
-                        }}
-                        className="inline-grid h-8 w-8 place-items-center rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50"
-                        title="永久删除"
-                        aria-label={`删除${row.company_name}`}
-                      >
-                        <Trash2 size={17} />
-                      </button>
-                      ) : null}
+                      {!crossUserReadOnly ? <RowActionMenu ariaLabel={`${row.company_name}操作菜单`}>
+                        <RowActionItem onClick={() => router.push(`/customers/${row.id}?action=followup`)}>新增跟进</RowActionItem>
+                        <RowActionItem onClick={() => router.push(`/customers/${row.id}?action=stage`)}>更新客户阶段</RowActionItem>
+                        {(currentRole === "ADMIN" || row.owner_id === defaultScopeUserId) && row.status !== "DEAL" ? <RowActionItem tone="warning" onClick={() => { setReleaseTarget(row);setReleaseReason("");setReleaseAcknowledged(false); }}>释放到公海</RowActionItem> : null}
+                        {!crossUserReadOnly ? <RowActionItem tone="danger" onClick={() => setDeleteIds([row.id])}>永久删除</RowActionItem> : null}
+                      </RowActionMenu> : null}
                       </div>
                     </td>
                   </tr>
@@ -1059,7 +1043,7 @@ export function CustomersView() {
               <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
                 <p className="rounded-lg bg-blue-50 p-3"><b className="text-slate-900">我的客户：</b>当前归属自己的客户可查看、编辑、跟进、释放；报价中和成交客户不可删除。</p>
                 <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">冲突客户：</b>非归属人仅可查看自己新增或导入的基础字段和当前归属人，不能查看 AI 证据、跟进记录或修改客户。</p>
-                <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">主管和系统管理员：</b>可按归属人查看全部销售数据，但其他用户的数据始终只读，不能编辑、删除、释放、续期或批量修改。</p>
+                <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">主管：</b>可按归属人查看授权范围的数据，跨用户数据只读。<b className="text-slate-900">系统管理员：</b>拥有全系统客户数据的读取和维护权限，所有跨用户维护操作均保留审计记录。</p>
                 <p className="text-xs text-slate-400">最终可见范围由 Supabase RLS 与服务端权限共同校验，前端隐藏不代替服务端权限控制。</p>
               </div>
               <button type="button" onClick={() => setPermissionOpen(false)} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">我知道了</button>

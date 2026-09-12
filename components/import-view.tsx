@@ -691,7 +691,6 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
       "电商零售",
       "通讯设备进口商",
     ];
-    const csv = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const sampleRows = Array.from({ length: 500 }, (_, index) => {
       const country = countries[index % countries.length];
       const industry = industries[index % industries.length];
@@ -716,25 +715,9 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
         `https://images.example.com/products/${slug}.jpg`,
         `${industry}, mobile accessories, wholesale`,
         "2026-08-15",
-      ]
-        .map(csv)
-        .join(",");
+      ];
     });
-    const blob = new Blob(
-      [
-        "\ufeff" +
-          headers.map(csv).join(",") +
-          "\n" +
-          sampleRows.join("\n") +
-          "\n",
-      ],
-      { type: "text/csv;charset=utf-8" },
-    );
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "客户导入模板.csv";
-    link.click();
-    URL.revokeObjectURL(link.href);
+    downloadWorkbook("客户导入模板.xlsx", [{ name: "客户导入模板", rows: [headers, ...sampleRows], widths: [26, 14, 10, 18, 28, 26, 24, 28, 32, 22, 36, 16, 36, 42, 12, 42, 34, 18], hyperlinkColumns: [10, 12, 13, 15] }]);
   }
 
   return (

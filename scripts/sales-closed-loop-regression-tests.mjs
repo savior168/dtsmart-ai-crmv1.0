@@ -102,7 +102,7 @@ assert.match(googleBilling, /normalizeGoogleBillingTimestamp[\s\S]*seconds \* 10
 assert.match(googleBilling, /GOOGLE_BILLING_CACHE_MS[\s\S]*googleNextRefreshAt[\s\S]*if \(googleBillingRequest\) return googleBillingRequest[\s\S]*value: stale, expiresAt: Date\.now\(\) \+ 60_000/, "Google账单查询必须缓存、合并并发、限制手动刷新频率并在瞬时异常时短期保留最近成功结果");
 assert.match(googleBillingApi, /pendingSystemCostUsd[\s\S]*projectedOverageCalls[\s\S]*projectedOverageCostUsd/, "Google月度额度必须计入平台同步后的系统调用，并仅估算超出免费额度的费用");
 assert.match(costView, /官方费用接口未提供可核验的预付余额，系统不会伪造账户余额/, "OpenAI 不提供余额接口时必须明确展示真实能力边界");
-assert.match(costView, /<details[\s\S]*Google Places[\s\S]*<details[\s\S]*OpenAI/, "平台账单明细必须按需折叠，不能长期占满页面");
+assert.match(costView, /billingDetailsOpen[\s\S]*查看明细[\s\S]*Google Places SKU明细[\s\S]*OpenAI费用明细/, "平台账单明细必须通过一个统一入口按需展开，不能长期占满页面");
 assert.match(costView, /useEffect\(\(\)=>\{void loadBilling\(\)\},\[loadBilling\]\)/, "平台官方账单必须与台账筛选解耦，筛选输入不得重复请求官方接口");
 assert.match(openAiBilling, /cachedBilling[\s\S]*inFlight[\s\S]*nextAllowedRequestAt[\s\S]*5 \* 60_000/, "OpenAI Costs API 必须合并并发请求并缓存结果，避免触发每分钟限流");
 assert.match(costView, /CostFilterMultiSelect kind="task"[\s\S]*CostFilterMultiSelect kind="customer"[\s\S]*>重置<\/button>/, "任务和客户必须支持搜索多选，重置按钮须位于同一筛选行末尾");

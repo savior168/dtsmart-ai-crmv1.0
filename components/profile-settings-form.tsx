@@ -4,6 +4,7 @@ import Image from "next/image";
 import { KeyRound, Save, Upload } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
+import { createClient } from "@/lib/supabase/client";
 
 type Props = {
   initialName: string;
@@ -82,7 +83,14 @@ export function ProfileSettingsForm({
       return;
     }
     setPassword({ old_password: "", new_password: "", confirm_password: "" });
-    setMessage(result.message || "登录密码已更新");
+    // A password change must never leave the old browser session usable.
+    // Clear both the browser client state and the server-side auth cookie
+    // before navigating, even if one of the two cleanup calls is unavailable.
+    await Promise.allSettled([
+      createClient().auth.signOut(),
+      fetch("/api/auth/logout", { method: "POST" }),
+    ]);
+    window.location.replace("/login?password=changed");
   }
 
   return (

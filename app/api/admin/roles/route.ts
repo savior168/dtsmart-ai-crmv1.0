@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, authErrorStatus, clearPermissionCache } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, USER_ROLES, isKnownPermission } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, USER_ROLES, isKnownPermission, permissionPageCode } from "@/lib/auth/permissions";
 
 export async function GET() {
   try {
@@ -29,6 +29,21 @@ export async function PATCH(request: NextRequest) {
     const admin = createAdminClient();
     const { error } = await admin.from("role_permission_settings").upsert({ role_code: role, permission_code: permission, enabled, updated_by: user.id, updated_at: new Date().toISOString() });
     if (error) throw error;
+    // A hidden page must not retain enabled child permissions in storage. This
+    // makes the switch state, the effective authorization and the audit trail
+    // agree instead of merely dimming an apparently-on child switch in the UI.
+    if (!enabled && permissionPageCode(permission) === permission) {
+      const childCodes = PERMISSION_CATALOG
+        .filter((item) => item.code !== permission && permissionPageCode(item.code) === permission && !item.core)
+        .map((item) => item.code);
+      if (childCodes.length) {
+        const { error: childrenError } = await admin.from("role_permission_settings").upsert(
+          childCodes.map((permission_code) => ({ role_code: role, permission_code, enabled: false, updated_by: user.id, updated_at: new Date().toISOString() })),
+          { onConflict: "role_code,permission_code" },
+        );
+        if (childrenError) throw childrenError;
+      }
+    }
     clearPermissionCache(role as "SUPERVISOR" | "SALES" | "WAREHOUSE");
     await admin.from("audit_logs").insert({ user_id: user.id, action: "ADMIN_ROLE_PERMISSION_UPDATE", target_type: "role", target_id: null, content: { role, permission, enabled } });
     return NextResponse.json({ ok: true });

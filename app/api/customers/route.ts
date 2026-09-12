@@ -37,6 +37,7 @@ const customerListFields = [
   "ai_score",
   "ai_level",
   "ai_screening_done",
+  "ai_status",
   "status",
   "owner_id",
   "last_contact_time",
@@ -240,10 +241,12 @@ export async function GET(request: NextRequest) {
       else if (conditions.length === 1) query = query.in("source_batch", legacyNames);
       else if (conditions.length) query = query.or(conditions.join(","));
     }
-    // ai_score exists in every supported schema and is the stable completion flag.
-    if (aiStatus === "pending" || aiPending) query = query.is("ai_score", null);
-    else if (aiStatus === "done" || aiDone) query = query.not("ai_score", "is", null);
-    if (aiFailed) query = query.ilike("ai_reason", "%失败%");
+    // `ai_status` distinguishes a genuine technical failure from a customer
+    // that has not yet been submitted for analysis. Scores remain the business
+    // result, never the execution-state indicator.
+    if (aiStatus === "pending" || aiPending) query = query.eq("ai_status", "PENDING");
+    else if (aiStatus === "done" || aiDone) query = query.eq("ai_status", "COMPLETED");
+    else if (aiStatus === "failed" || aiFailed) query = query.eq("ai_status", "FAILED");
     // Score expresses priority, while this tri-state field records the gated
     // business conclusion. Null therefore remains outside both target lists.
     if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);

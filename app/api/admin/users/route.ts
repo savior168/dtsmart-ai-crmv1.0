@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * pageSize;
     const { data, count, error } = await query.order("created_at", { ascending: false }).range(from, from + pageSize - 1);
     if (error) throw error;
-    const supervisors = await admin.from("users").select("id,name,email").eq("role", "SUPERVISOR").eq("status", "ACTIVE").order("name");
+    const supervisors = await admin.from("users").select("id,name,email,role").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").order("role").order("name");
     if (supervisors.error) throw supervisors.error;
     return NextResponse.json({ data: data || [], count: count || 0, page, pageSize, supervisors: supervisors.data || [] });
   } catch (error) {
@@ -90,7 +90,7 @@ export async function PATCH(request: NextRequest) {
       } else {
         if (managerId === target.id) return NextResponse.json({ error: "用户不能设置自己为上级" }, { status: 400 });
         const { data: manager } = await admin.from("users").select("id,name,email,role,status").eq("id", managerId).maybeSingle();
-        if (!manager || manager.role !== "SUPERVISOR" || manager.status !== "ACTIVE") return NextResponse.json({ error: "请选择已启用的主管作为上级" }, { status: 400 });
+        if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE") return NextResponse.json({ error: "请选择已启用的主管或系统管理员作为上级" }, { status: 400 });
         Object.assign(update, { manager_id: manager.id, review_reason: reason || null });
       }
     } else if (action === "FORCE_LOGOUT") Object.assign(update, { force_logout_at: new Date().toISOString(), review_reason: reason || "管理员强制退出" });
@@ -149,12 +149,15 @@ export async function POST(request: NextRequest) {
       if (role === "SALES") {
         if (managerId) {
           const { data: manager } = await admin.from("users").select("id,role,status").eq("id", managerId).maybeSingle();
-          if (!manager || manager.role !== "SUPERVISOR" || manager.status !== "ACTIVE") return NextResponse.json({ error: "销售员必须选择已启用的直属主管" }, { status: 400 });
+          if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE") return NextResponse.json({ error: "销售员必须选择已启用的直属主管或系统管理员" }, { status: 400 });
           effectiveManager = manager.id;
         } else {
-          const { data: eva } = await admin.from("users").select("id").eq("role", "SUPERVISOR").eq("status", "ACTIVE").or("name.ilike.Eva,email.eq.3041624715@qq.com").order("created_at").limit(1).maybeSingle();
-          if (!eva) return NextResponse.json({ error: "未找到默认上级 Eva，请先启用主管账号或手动选择主管" }, { status: 400 });
-          effectiveManager = eva.id;
+          const { data: preferredManager } = await admin.from("users").select("id").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").or("name.ilike.Eva,email.eq.3041624715@qq.com").order("created_at").limit(1).maybeSingle();
+          if (!preferredManager) {
+            const { data: fallbackManager } = await admin.from("users").select("id").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").order("role").order("created_at").limit(1).maybeSingle();
+            if (!fallbackManager) return NextResponse.json({ error: "请先启用至少一名主管或系统管理员，或手动选择上级" }, { status: 400 });
+            effectiveManager = fallbackManager.id;
+          } else effectiveManager = preferredManager.id;
         }
       }
       const password = temporaryPassword();

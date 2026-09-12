@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { CUSTOMER_STATUS_LABELS, FOLLOWUP_TYPE_LABELS } from "@/lib/types";
-
-function csvCell(value: unknown) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
-}
+import { workbookResponse } from "@/lib/xlsx-export";
 
 type FollowupRow = {
   type: string;
@@ -55,10 +52,9 @@ export async function GET(request: NextRequest) {
         row.next_follow_date ? new Date(row.next_follow_date).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "",
         new Date(row.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }),
         owner?.name || owner?.email,
-      ].map(csvCell).join(",");
+      ];
     });
-    const csv = `\uFEFF${headings.map(csvCell).join(",")}\r\n${lines.join("\r\n")}`;
-    return new NextResponse(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`跟进记录_${new Date().toISOString().slice(0, 10)}.csv`)}`, "Cache-Control": "private, no-store" } });
+    return workbookResponse(`跟进记录_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "跟进记录", rows: [headings, ...lines], widths: [26, 16, 10, 10, 16, 16, 52, 20, 20, 18], wrapColumns: [6] }]);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "跟进记录导出失败" }, { status: 400 });
   }
