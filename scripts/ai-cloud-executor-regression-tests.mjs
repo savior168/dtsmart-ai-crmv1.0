@@ -25,6 +25,7 @@ assert.match(dispatcher, /execution_mode: AI_CLOUD_EXECUTION_MODE[\s\S]+dispatch
 assert.match(dispatcher, /rescueStalledCloudTasks[\s\S]+VERCEL_DISPATCHING/, "stalled cloud recovery must remain available without duplicate runs");
 assert.doesNotMatch(dispatcher, /has_healthy_ai_worker|LOCAL_NODE|LOCAL_FIRST|VERCEL_FIRST/, "dispatcher must not depend on a local worker");
 assert.match(runner, /allCollectedSourcesFailedTechnically[\s\S]*PUBLIC_SOURCE_NETWORK_UNAVAILABLE/, "transport failures must stop before business scoring");
+assert.match(runner, /publicSourceNetworkFailureDetails[\s\S]*record\.source_url[\s\S]*record\.error/, "public-source failures must retain the attempted endpoint and transport reason for audit");
 assert.match(createRoute, /const dispatchPolicy = AI_CLOUD_DISPATCH_POLICY[\s\S]+AI_CLOUD_EXECUTION_MODE/, "new tasks must be cloud-only server-side");
 assert.match(retryRoute, /AI_CLOUD_DISPATCH_POLICY[\s\S]+AI_CLOUD_EXECUTION_MODE/, "failed items must retry on Vercel");
 assert.match(settingsRoute, /ai_default_dispatch_policy: AI_CLOUD_DISPATCH_POLICY/, "settings API must enforce cloud-only execution");

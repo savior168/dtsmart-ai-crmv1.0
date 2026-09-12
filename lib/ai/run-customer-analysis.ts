@@ -2022,10 +2022,27 @@ async function analyzeWithRecovery(input: {
   }
 }
 
+const PUBLIC_SOURCE_NETWORK_ERROR = /(?:aborted|fetch failed|network|timeout|timed out|ECONN|EAI_AGAIN|ENOTFOUND|socket|TLS|certificate)/i;
+
 function allCollectedSourcesFailedTechnically(records: ChannelRecord[]) {
   if (records.some((record) => record.status === "COLLECTED")) return false;
   return records.some((record) => record.status === "FAILED"
-    && /(?:aborted|fetch failed|network|timeout|timed out|ECONN|EAI_AGAIN|ENOTFOUND|socket|TLS|certificate)/i.test(String(record.error || "")));
+    && PUBLIC_SOURCE_NETWORK_ERROR.test(String(record.error || "")));
+}
+
+/** Keep the actual failed public endpoints in the durable error context. This
+ * prevents a final www/protocol fallback attempt from being mistaken for the
+ * only URL the collector tried when an operator audits a failed item. */
+function publicSourceNetworkFailureDetails(records: ChannelRecord[]) {
+  return records
+    .filter((record) => record.status === "FAILED" && PUBLIC_SOURCE_NETWORK_ERROR.test(String(record.error || "")))
+    .slice(0, 6)
+    .map((record) => {
+      const url = String(record.source_url || record.evidence?.url || "未记录入口").slice(0, 500);
+      const error = String(record.error || "网络连接失败").replace(/\s+/g, " ").slice(0, 500);
+      return `${record.channel}: ${url} (${error})`;
+    })
+    .join(" | ");
 }
 
 async function saveVerifiedContacts(input: { taskId: string; resultId: string; customer: CustomerRow; contacts: ContactCandidate[]; preferred?: ContactCandidate | null }) {
@@ -2329,7 +2346,10 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     // A transport outage is a technical execution failure, not evidence that
     // the company is unrelated. Never turn an executor/network problem into a
     // low-score business conclusion.
-    if (allCollectedSourcesFailedTechnically(records)) throw new Error("PUBLIC_SOURCE_NETWORK_UNAVAILABLE");
+    if (allCollectedSourcesFailedTechnically(records)) {
+      const details = publicSourceNetworkFailureDetails(records);
+      throw new Error(`PUBLIC_SOURCE_NETWORK_UNAVAILABLE${details ? `: ${details}` : ""}`);
+    }
     analysis = deterministicAnalysis(customer, records);
     if (!isConclusiveChannelAnalysis(analysis) && hasTargetValueSignal(customer, records)) {
       // Google Places and the verified official website can reveal public
