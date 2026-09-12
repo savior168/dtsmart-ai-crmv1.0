@@ -11,11 +11,21 @@ export function CostFilterMultiSelect({
   value,
   onChange,
   placeholder,
+  filters,
 }: {
   kind: "task" | "customer";
   value: string[];
   onChange: (ids: string[]) => void;
   placeholder: string;
+  filters: {
+    from: string;
+    to: string;
+    provider: string;
+    operation: string;
+    userId: string;
+    taskIds: string[];
+    customerIds: string[];
+  };
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -37,7 +47,17 @@ export function CostFilterMultiSelect({
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const params = new URLSearchParams({ type: kind, q: search.trim() });
+        const params = new URLSearchParams({
+          type: kind,
+          q: search.trim(),
+          from: filters.from,
+          to: filters.to,
+        });
+        if (filters.provider) params.set("provider", filters.provider);
+        if (filters.operation) params.set("operation", filters.operation);
+        if (filters.userId) params.set("user_id", filters.userId);
+        filters.taskIds.forEach((id) => params.append("task_id", id));
+        filters.customerIds.forEach((id) => params.append("customer_id", id));
         value.forEach((id) => params.append("selected_id", id));
         const response = await fetch(`/api/cost-center/options?${params}`, { cache: "no-store", signal: controller.signal });
         const body = await response.json().catch(() => ({}));
@@ -47,7 +67,7 @@ export function CostFilterMultiSelect({
       }
     }, 220);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [kind, open, search, value]);
+  }, [filters, kind, open, search, value]);
 
   const selected = new Set(value);
   return (

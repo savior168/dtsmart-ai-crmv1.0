@@ -702,12 +702,12 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     ? primaryNonTargetIndustry!
     : itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : normalizedIndustry;
   const lowEvidenceReason = evidence.length
-    ? `公开来源实际识别到：${allEvidenceLead}。据此将该企业归类为“${finalIndustry}”；上述事实未证明其经营手机、电脑维修配件或相关批发分销业务，因此综合评为D级${score}分。每条事实均保留来源链接供核验。`
-    : `已完成可用公开入口检索，但没有取得可追溯的目标经营事实，因此按低销售优先级D级${score}分处理；后续新增有效公开入口后可重新分析。`;
+    ? `公开来源实际识别到：${allEvidenceLead}。据此将该企业归类为“${finalIndustry}”；上述事实未证明其经营手机、电脑维修配件或相关批发分销业务。每条事实均保留来源链接供核验。`
+    : "已完成可用公开入口检索，但没有取得可追溯的目标经营事实；后续新增有效公开入口后可重新分析。";
   const aiReason = itSupportOnly
-    ? `公开证据仅显示该企业提供IT系统、网络、NAS、服务器或计算机技术支持，未发现电脑硬件维修及配件更换服务，因此不属于目标客户，综合评分${score}分。`
+    ? "公开证据仅显示该企业提供IT系统、网络、NAS、服务器或计算机技术支持，未发现电脑硬件维修及配件更换服务，因此不属于目标客户。"
     : evidenceSufficient
-    ? `公开证据显示：${evidenceLead}。据此将其归类为“${finalIndustry}”，并按业务匹配、经营规模、采购事实、经营活跃度、证据闭环、可联系性及风险综合评分${score}分。`
+    ? `公开证据显示：${evidenceLead}。据此将其归类为“${finalIndustry}”。`
     : lowEvidenceReason;
   const scoreBreakdown = evidenceSufficient ? {
     ...analysis.score_breakdown,

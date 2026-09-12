@@ -107,7 +107,11 @@ assert.match(costView, /useEffect\(\(\)=>\{void loadBilling\(\)\},\[loadBilling\
 assert.match(openAiBilling, /cachedBilling[\s\S]*inFlight[\s\S]*nextAllowedRequestAt[\s\S]*5 \* 60_000/, "OpenAI Costs API 必须合并并发请求并缓存结果，避免触发每分钟限流");
 assert.match(costView, /CostFilterMultiSelect kind="task"[\s\S]*CostFilterMultiSelect kind="customer"[\s\S]*>重置<\/button>/, "任务和客户必须支持搜索多选，重置按钮须位于同一筛选行末尾");
 assert.match(costOptionsApi, /type === "task"[\s\S]*task_number[\s\S]*type === "customer"[\s\S]*company_name[\s\S]*phone[\s\S]*email/, "费用筛选选项必须支持按任务编号以及客户名称、电话、邮箱检索");
-assert.match(costView, /Math\.abs\(amount\)\s*>=\s*0\.00005\s*\?\s*amount\s*:\s*0/, "费用中心不得显示负零金额");
+assert.match(costOptionsApi, /costLedgerRange[\s\S]*api_cost_ledger/, "任务和客户候选项必须以当前日期范围内的真实调用台账为基础");
+assert.match(costOptionsApi, /type === "customer"[\s\S]*query\.in\("task_id", taskIds\)/, "选择任务后客户候选项必须仅来自所选任务的真实调用记录");
+assert.match(costOptionsApi, /type === "task"[\s\S]*query\.in\("customer_id", customerIds\)/, "选择客户后任务候选项必须仅来自该客户的真实调用记录");
+assert.match(costView, /setTaskIds\(ids\);setCustomerIds\(\[\]\)/, "更换任务时必须清除旧的客户限定，避免产生无关联的空结果");
+assert.match(costView, /amount>0\.00005\?amount:0/, "费用中心不得显示负零或负费用");
 assert.match(budgetMigration,/pg_advisory_xact_lock[\s\S]*api_cost_budget_reservations[\s\S]*api_cost_budget_events/,"并发任务必须通过数据库锁和预占防止突破API费用上限");
 assert.match(budgetMigration,/google_daily_limit_usd[\s\S]*google_weekly_limit_usd[\s\S]*google_monthly_limit_usd[\s\S]*openai_daily_limit_usd[\s\S]*openai_weekly_limit_usd[\s\S]*openai_monthly_limit_usd/,"Google和OpenAI必须分别支持日周月费用上限");
 assert.match(budgetStatusMigration,/daily_committed_usd[\s\S]*daily_reserved_usd[\s\S]*daily_used_usd[^\n]*v_day_committed\+v_day_reserved/, "费用占用必须同时包含已入账费用和执行中预留，避免并发超限");

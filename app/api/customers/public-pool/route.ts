@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
     const ownerId = params.get("owner_id")?.trim() || "";
     const sourceType = params.get("source_type")?.trim().toUpperCase() || "";
     const sourceBatch = params.get("source_batch")?.trim() || "";
+    const aiTaskIds = [...new Set(params.getAll("ai_task_id").flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)))];
     const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
@@ -164,6 +165,10 @@ export async function GET(request: NextRequest) {
           const value = String(item.source_batch || "").trim();
           return [value, { value, label: value, source: sourceGroup(item.source) }];
         })).values()].sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+      const screeningTasks = account.role === "ADMIN"
+        ? await admin.from("ai_screening_tasks").select("id,task_number,name,created_at").order("created_at", { ascending: false }).range(0, 499)
+        : { data: [], error: null };
+      if (screeningTasks.error) throw screeningTasks.error;
       return NextResponse.json({
         industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
@@ -173,6 +178,7 @@ export async function GET(request: NextRequest) {
           { value: "MANUAL", label: "手动新增" },
         ].filter((option) => optionRows.some((item) => sourceGroup(item.source) === option.value)),
         batches,
+        screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}` })),
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
@@ -230,6 +236,19 @@ export async function GET(request: NextRequest) {
     if (sourceType === "AI_ACQUISITION") query = query.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
     if (sourceType === "MANUAL") query = query.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
     if (sourceBatch) query = query.eq("source_batch", sourceBatch);
+    if (aiTaskIds.length) {
+      if (account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可按AI筛选批次查询" }, { status: 403 });
+      const matchedCustomerIds = new Set<string>();
+      for (let offset = 0; ; offset += 1000) {
+        const taskResults = await admin.from("ai_screening_results").select("customer_id").in("task_id", aiTaskIds).range(offset, offset + 999);
+        if (taskResults.error) throw taskResults.error;
+        for (const result of taskResults.data || []) if (result.customer_id) matchedCustomerIds.add(String(result.customer_id));
+        if ((taskResults.data || []).length < 1000) break;
+      }
+      const ids = [...matchedCustomerIds];
+      if (!ids.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize, role: account.role, can_assign: false, can_handover: false });
+      query = query.in("id", ids);
+    }
     if (customerId) query = query.eq("id", customerId);
     const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website", "google_url", "ai_score", "status", "last_contact_time", "owner_id", "source", "created_at", "updated_at"]);
     if (hasOptionalFields) ["website_email", "website_phone", "followup_status"].forEach((field) => allowedSort.add(field));

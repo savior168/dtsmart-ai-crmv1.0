@@ -36,12 +36,16 @@ export async function GET(request: NextRequest) {
     const from = params.get("date_from")?.trim() || "";
     const to = params.get("date_to")?.trim() || "";
     const idsOnly = params.get("ids") === "all";
+    const reverify = params.get("analysis_selection_mode") === "REVERIFY";
     const admin = createAdminClient();
     const ownerScope = await resolveAiOwnerScope(account, params.get("owner_id"));
     const excluded = await getReservedAiCustomerIds();
 
     const buildQuery = (start: number, end: number) => {
-      let query = admin.from("customers").select("*", { count: "exact" }).is("deleted_at", null).is("ai_score", null);
+      let query = admin.from("customers").select("*", { count: "exact" }).is("deleted_at", null);
+      // First analysis and re-verification are deliberately mutually exclusive.
+      // This avoids silently mixing new customers with historical conclusions.
+      query = reverify ? query.not("ai_score", "is", null) : query.is("ai_score", null);
       if (ownerScope.ownerIds) query = query.in("owner_id", ownerScope.ownerIds);
       return query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range(start, end);
     };
@@ -129,10 +133,28 @@ export async function GET(request: NextRequest) {
       .filter((item) => item.pending_count > 0)
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
     const ownerIds = ownerScope.canSelectOwner ? [...new Set(data.map((item) => String(item.owner_id || "")).filter(Boolean))] : [];
-    const ownerRows = ownerIds.length ? await admin.from("users").select("id,name,email").in("id", ownerIds) : { data: [], error: null };
+    const customerIds = data.map((item) => String(item.id));
+    const [ownerRows, resultRows] = await Promise.all([
+      ownerIds.length ? admin.from("users").select("id,name,email").in("id", ownerIds) : Promise.resolve({ data: [], error: null }),
+      reverify && customerIds.length
+        ? admin.from("ai_screening_results").select("customer_id,completed_at,analysis_version,created_at").in("customer_id", customerIds).eq("writeback_status", "COMPLETED").order("completed_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
     if (ownerRows.error) throw ownerRows.error;
+    if (resultRows.error) throw resultRows.error;
     const ownerById = new Map((ownerRows.data || []).map((item) => [item.id, item]));
-    return NextResponse.json({ data: data.map((item) => ({ ...item, owner: item.owner_id ? ownerById.get(String(item.owner_id)) || null : null })), count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches, source_options: [...sourceCounts.entries()].map(([value, count]) => ({ value, count })).sort((left, right) => right.count - left.count), role: account.role, owner_options: ownerScope.options, selected_owner_id: ownerScope.selectedOwnerId, can_select_owner: ownerScope.canSelectOwner, scope_label: ownerScope.scopeLabel, all_scope_label: ownerScope.allScopeLabel });
+    const analysisByCustomer = new Map<string, { completed_analysis_count: number; latest_analysis_at: string | null; latest_analysis_version: string | null }>();
+    for (const result of resultRows.data || []) {
+      const customerId = String(result.customer_id || "");
+      if (!customerId) continue;
+      const current = analysisByCustomer.get(customerId);
+      analysisByCustomer.set(customerId, {
+        completed_analysis_count: (current?.completed_analysis_count || 0) + 1,
+        latest_analysis_at: current?.latest_analysis_at || result.completed_at || result.created_at || null,
+        latest_analysis_version: current?.latest_analysis_version || result.analysis_version || null,
+      });
+    }
+    return NextResponse.json({ data: data.map((item) => ({ ...item, owner: item.owner_id ? ownerById.get(String(item.owner_id)) || null : null, ...(analysisByCustomer.get(String(item.id)) || {}) })), count: eligibleCount, page, pageSize, excluded_count: excluded.size, batches, source_options: [...sourceCounts.entries()].map(([value, count]) => ({ value, count })).sort((left, right) => right.count - left.count), role: account.role, owner_options: ownerScope.options, selected_owner_id: ownerScope.selectedOwnerId, can_select_owner: ownerScope.canSelectOwner, scope_label: reverify ? "可复验的已完成分析客户" : ownerScope.scopeLabel, all_scope_label: ownerScope.allScopeLabel });
   } catch (error) {
     const message = error instanceof Error ? error.message : "待筛选客户查询失败";
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录会话已失效，请重新登录" : message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

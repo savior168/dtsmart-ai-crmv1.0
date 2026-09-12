@@ -60,13 +60,6 @@ const menu = [
   },
 ] as const;
 
-const roleLabels = {
-  ADMIN: "系统管理员",
-  SUPERVISOR: "主管",
-  SALES: "销售员",
-  WAREHOUSE: "仓库员",
-} as const;
-
 type ShellNotice = { id:string; type:string; title:string; content:string|null; href:string|null; read_at:string|null; action_status:"INFO"|"PENDING"|"RESOLVED"; created_at:string };
 
 const pageTitles: Array<[RegExp, string]> = [
@@ -676,8 +669,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div ref={profileRef} className="relative">
             <button
               type="button"
-              title={profile ? `欢迎您，${profile.name}（${roleLabels[profile.role]}）` : "正在读取当前登录用户"}
-              aria-label={profile ? `当前用户：${profile.name}，${roleLabels[profile.role]}` : "正在读取当前登录用户"}
+              title={profile ? `欢迎您，${profile.name}！` : "正在读取当前登录用户"}
+              aria-label={profile ? `欢迎您，${profile.name}！` : "正在读取当前登录用户"}
               disabled={!profile}
               onClick={() => profile && setProfileOpen((value) => !value)}
               className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition hover:bg-slate-50"
@@ -695,14 +688,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ) : profile ? profile.name.slice(0, 1) : null}
               </span>
               {profile ? <>
-                <span className="hidden max-w-24 truncate text-sm font-medium text-slate-800 sm:block">{profile.name}</span>
+                <span className="hidden max-w-36 truncate text-sm font-medium text-slate-800 sm:block">欢迎您，{profile.name}！</span>
                 <ChevronDown size={15} className="hidden text-slate-500 sm:block" />
               </> : <span className="hidden h-4 w-16 animate-pulse rounded bg-slate-200 sm:block" aria-hidden="true" />}
             </button>
             {profileOpen && profile ? (
               <div className="absolute right-0 mt-3 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                 <div className="border-b border-slate-100 px-4 py-3">
-                  <b className="block text-sm">欢迎您，{profile.name}（{roleLabels[profile.role]}）</b>
+                  <b className="block text-sm">欢迎您，{profile.name}！</b>
                   <p className="mt-1 truncate text-xs text-slate-500">
                     {profile.email}
                   </p>

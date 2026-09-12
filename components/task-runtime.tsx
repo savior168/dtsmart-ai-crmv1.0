@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, LoaderCircle, X, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Task = { kind: "import" | "ai"; status: "running" | "completed" | "failed"; total: number | null; done: number; success: number; failed: number; failures: string[]; message?: string; updatedAt: number };
 type Notice = { id: number; message: string; type: "success" | "error"; generic: boolean; createdAt: number };
@@ -10,7 +10,7 @@ const AI_KEY = "dtsmart-ai-task";
 const EVENT_NAME = "dtsmart-task-update";
 function read(key: string): Task | null { try { const value = JSON.parse(localStorage.getItem(key) || "null"); return value && typeof value === "object" ? value : null; } catch { return null; } }
 function save(key: string, task: Task) { localStorage.setItem(key, JSON.stringify(task)); window.dispatchEvent(new Event(EVENT_NAME)); }
-function toast(message: string, type: "success" | "error" = "success", generic = false) { window.dispatchEvent(new CustomEvent("dtsmart-toast", { detail: { message, type, duration: 4500, generic } })); }
+function toast(message: string, type: "success" | "error" = "success", generic = false) { window.dispatchEvent(new CustomEvent("dtsmart-toast", { detail: { message, type, duration: type === "error" ? 6000 : 3000, generic } })); }
 
 function TaskNotice({ task }: { task: Task }) {
   const running = task.status === "running";
@@ -25,22 +25,54 @@ function TaskNotice({ task }: { task: Task }) {
   </div>;
 }
 
-function SuccessNotice({ notice }: { notice: Notice }) {
-  return <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-700 shadow-xl"><CheckCircle2 size={18}/>{notice.message}</div>;
+function SuccessNotice({ notice, onClose }: { notice: Notice; onClose: () => void }) {
+  return <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-700 shadow-xl"><CheckCircle2 size={18}/><span className="min-w-0 flex-1">{notice.message}</span><button type="button" aria-label="关闭提示" onClick={onClose} className="text-emerald-700/70 hover:text-emerald-900"><X size={16}/></button></div>;
 }
 
-function ErrorNotice({ notice }: { notice: Notice }) {
-  return <div className="pointer-events-auto flex items-start gap-3 rounded-2xl border border-rose-200 bg-white px-5 py-4 text-sm leading-6 text-rose-700 shadow-2xl"><XCircle className="mt-0.5 shrink-0" size={20}/><span>{notice.message}</span></div>;
+function ErrorNotice({ notice, onClose }: { notice: Notice; onClose: () => void }) {
+  return <div className="pointer-events-auto flex items-start gap-3 rounded-2xl border border-rose-200 bg-white px-5 py-4 text-sm leading-6 text-rose-700 shadow-2xl"><XCircle className="mt-0.5 shrink-0" size={20}/><span className="min-w-0 flex-1">{notice.message}</span><button type="button" aria-label="关闭提示" onClick={onClose} className="text-rose-700/70 hover:text-rose-900"><X size={17}/></button></div>;
 }
 
 export function TaskRuntime() {
   const [tasks, setTasks] = useState<{ import: Task | null; ai: Task | null }>({ import: null, ai: null });
   const [notices, setNotices] = useState<Notice[]>([]);
+  const noticeTimers = useRef(new Set<number>());
+  const recentNoticeAt = useRef(new Map<string, number>());
   useEffect(() => {
+    const timers = noticeTimers.current;
     const refresh = () => setTasks({ import: read(IMPORT_KEY), ai: read(AI_KEY) });
     refresh();
     const originalFetch = window.fetch.bind(window);
     let aiActive = 0; let aiFinishTimer: number | undefined; let importDismissTimer: number | undefined;
+    const dismiss = (id: number) => setNotices((current) => current.filter((item) => item.id !== id));
+    const showNotice = (detail: { message?: string; type?: "success" | "error"; duration?: number; generic?: boolean }) => {
+      if (!detail.message) return;
+      const message = detail.message.trim();
+      const type = detail.type || "success";
+      const createdAt = Date.now();
+      const key = `${type}:${message}`;
+      const duplicateWindow = type === "error" ? 5000 : 3000;
+      if (createdAt - (recentNoticeAt.current.get(key) || 0) < duplicateWindow) return;
+      recentNoticeAt.current.set(key, createdAt);
+      const id = createdAt + Math.random();
+      const append = () => {
+        // An explicit business message supersedes generic fetch feedback from
+        // the same action, so users see one useful message instead of two.
+        setNotices((current) => {
+          const withoutGeneric = detail.generic ? current : current.filter((item) => !item.generic);
+          if (withoutGeneric.some((item) => item.message === message && item.type === type)) return withoutGeneric;
+          return [...withoutGeneric.slice(-2), { id, message, type, generic: Boolean(detail.generic), createdAt }];
+        });
+        const timer = window.setTimeout(() => { noticeTimers.current.delete(timer); dismiss(id); }, detail.duration || (type === "error" ? 6000 : 3000));
+        noticeTimers.current.add(timer);
+      };
+      // Let an explicit component-level message arrive first; generic network
+      // feedback is only a fallback and must never duplicate it.
+      if (detail.generic) {
+        const timer = window.setTimeout(() => { noticeTimers.current.delete(timer); append(); }, 180);
+        noticeTimers.current.add(timer);
+      } else append();
+    };
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -75,28 +107,18 @@ export function TaskRuntime() {
     };
     const receiveToast = (event: Event) => {
       const detail = (event as CustomEvent<{ message?: string; type?: "success" | "error"; duration?: number; generic?: boolean }>).detail;
-      if (!detail?.message) return;
-      const message = detail.message;
-      const createdAt = Date.now();
-      const id = createdAt + Math.random();
-      setNotices((current) => {
-        const type = detail.type || "success";
-        if (current.some((item) => item.message === message && item.type === type && createdAt - item.createdAt < 1200)) return current;
-        const cleaned = detail.generic ? current : current.filter((item) => !(item.generic && item.type === type && createdAt - item.createdAt < 1200));
-        return [...cleaned.slice(-3), { id, message, type, generic: Boolean(detail.generic), createdAt }];
-      });
-      window.setTimeout(() => setNotices((current) => current.filter((item) => item.id !== id)), detail.duration || 3600);
+      showNotice(detail || {});
     };
     window.addEventListener(EVENT_NAME, refresh);
     window.addEventListener("dtsmart-toast", receiveToast);
-    return () => { window.fetch = originalFetch; window.clearTimeout(aiFinishTimer); window.clearTimeout(importDismissTimer); window.removeEventListener(EVENT_NAME, refresh); window.removeEventListener("dtsmart-toast", receiveToast); };
+    return () => { window.fetch = originalFetch; window.clearTimeout(aiFinishTimer); window.clearTimeout(importDismissTimer); timers.forEach((timer) => window.clearTimeout(timer)); timers.clear(); window.removeEventListener(EVENT_NAME, refresh); window.removeEventListener("dtsmart-toast", receiveToast); };
   }, []);
   const visible = [tasks.import, tasks.ai].filter((task): task is Task => Boolean(task && (task.status === "running" || Date.now() - task.updatedAt < 9000)));
   if (!visible.length && !notices.length) return null;
   const successNotices = notices.filter((notice) => notice.type === "success");
   const errorNotices = notices.filter((notice) => notice.type === "error");
   return <>
-    {visible.length || successNotices.length ? <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-[min(92vw,390px)] flex-col gap-3" aria-live="polite">{visible.map((task) => <TaskNotice key={task.kind} task={task}/>)}{successNotices.map((notice) => <SuccessNotice key={notice.id} notice={notice}/>)}</div> : null}
-    {errorNotices.length ? <div className="pointer-events-none fixed inset-0 z-[110] grid place-items-center p-4" aria-live="assertive"><div className="flex w-[min(92vw,440px)] flex-col gap-3">{errorNotices.map((notice) => <ErrorNotice key={notice.id} notice={notice}/>)}</div></div> : null}
+    {visible.length || successNotices.length ? <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-[min(92vw,390px)] flex-col gap-3" aria-live="polite">{visible.map((task) => <TaskNotice key={task.kind} task={task}/>)}{successNotices.map((notice) => <SuccessNotice key={notice.id} notice={notice} onClose={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}/>)}</div> : null}
+    {errorNotices.length ? <div className="pointer-events-none fixed inset-0 z-[110] grid place-items-center p-4" aria-live="assertive"><div className="flex w-[min(92vw,440px)] flex-col gap-3">{errorNotices.map((notice) => <ErrorNotice key={notice.id} notice={notice} onClose={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}/>)}</div></div> : null}
   </>;
 }

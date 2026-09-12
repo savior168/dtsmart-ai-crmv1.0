@@ -67,7 +67,7 @@ export function formatNumber(value: number | null | undefined) { return Number(v
 export function formatTokens(value: number | null | undefined) { const total = Number(value || 0); return total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)}M` : total >= 1_000 ? `${(total / 1_000).toFixed(2)}K` : String(total); }
 export function formatCost(value: number | string | null | undefined) {
   const amount = Number(value || 0);
-  const normalized = Number.isFinite(amount) && Math.abs(amount) >= 0.00005 ? amount : 0;
+  const normalized = Number.isFinite(amount) && amount >= 0.00005 ? amount : 0;
   return `$${normalized.toFixed(4)}`;
 }
 export function formatDuration(value: number | null | undefined) {

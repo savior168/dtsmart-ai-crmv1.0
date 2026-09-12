@@ -231,7 +231,10 @@ export async function POST(request: NextRequest) {
     for (let offset = 0; offset < requestedIds.length; offset += 200) {
       const ids = requestedIds.slice(offset, offset + 200);
       let allowedQuery = createAdminClient().from("customers").select("id").in("id", ids).is("deleted_at", null);
-      if (!isReanalysis) allowedQuery = allowedQuery.is("ai_score", null);
+      // A repeat run is explicit and may include only customers with an
+      // existing completed conclusion. A first run remains limited to data
+      // that has never been scored, so the two modes cannot be mixed.
+      allowedQuery = isReanalysis ? allowedQuery.not("ai_score", "is", null) : allowedQuery.is("ai_score", null);
       if (ownerScope.ownerIds) allowedQuery = allowedQuery.in("owner_id", ownerScope.ownerIds);
       const allowed = await allowedQuery;
       if (allowed.error) throw allowed.error;
@@ -249,7 +252,7 @@ export async function POST(request: NextRequest) {
     const allReserved = await getReservedAiCustomerIds();
     const reserved=new Set(allowedIds.filter((id)=>allReserved.has(id)));
     const eligibleIds=allowedIds.filter(id=>!reserved.has(id));
-    if (!eligibleIds.length) return NextResponse.json({ error: "所选客户已完成AI筛选、已删除、无权访问或已加入其他活动任务" }, { status: 409 });
+    if (!eligibleIds.length) return NextResponse.json({ error: isReanalysis ? "所选客户未完成历史AI分析、已删除、无权访问或已加入其他活动任务" : "所选客户已完成AI筛选、已删除、无权访问或已加入其他活动任务" }, { status: 409 });
 
     const scheduledAt = body.scheduled_at && new Date(body.scheduled_at).getTime() > Date.now() ? new Date(body.scheduled_at).toISOString() : null;
     const task = await admin.from("ai_screening_tasks").insert({

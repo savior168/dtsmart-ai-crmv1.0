@@ -60,7 +60,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /2026\.09\.11\.01/, "旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /AI_RULE_VERSION\s*=\s*"2026\.09\.12\.02"/, "规则版本升级后旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: finalAutomationStatus/, "任务客户必须保存最终自动处理状态");
@@ -240,6 +240,9 @@ assert.match(aiTaskApi, /resolveAiOwnerScope\(account, String\(body\.filters\?\.
 assert.match(aiTaskApi, /pendingScope\.ownerIds[\s\S]*pendingCustomersQuery = pendingCustomersQuery\.in\("owner_id", pendingScope\.ownerIds\)/, "待筛选统计必须与角色可选归属范围一致");
 assert.match(aiCreateTask, /changeOwner[\s\S]*source_batches: \[\][\s\S]*setSelected\(new Set\(\)\)/, "切换归属人必须清空批次和已选客户，避免跨用户混选");
 assert.match(aiCreateTask, /loadSequence[\s\S]*sequence !== loadSequence\.current/, "切换归属人时必须忽略旧请求，避免来源和批次数据串位");
+assert.match(taskRuntime, /duplicateWindow = type === "error" \? 5000 : 3000/, "短暂操作提示必须在合理时间内去重");
+assert.match(taskRuntime, /detail\.generic[\s\S]*180/, "通用网络提示必须延迟，以便显式业务提示优先显示");
+assert.match(taskRuntime, /type === "error" \? 6000 : 3000/, "成功和错误提示必须使用不同的自动关闭时长");
 assert.match(importTaskLinkMigration, /source_batch_id uuid references public\.import_tasks\(id\)/, "迁移必须建立客户到导入任务的唯一关联");
 const conflictApi = read("app/api/customer-conflicts/route.ts");
 assert.match(conflictApi, /owner, submitters, protection_days/, "冲突列表必须返回当前归属人和冲突提交人信息");
@@ -303,7 +306,13 @@ assert.equal(existsSync(resolve(root, "app/api/customers/[id]/restore/route.ts")
 const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");
 assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
-assert.match(appShell, /欢迎您，\{profile\.name\}（\{roleLabels\[profile\.role\]\}）/, "右上角用户菜单必须显示当前用户名和中文角色");
+assert.match(appShell, /欢迎您，\{profile\.name\}！/, "右上角用户菜单必须只显示当前用户名，不显示角色");
+const aiTaskDetail = read("components/ai-screening/task-detail-view.tsx");
+const aiTaskDetailApi = read("app/api/ai/tasks/[id]/route.ts");
+assert.match(aiTaskDetail, /任务进度[\s\S]*总数 \{formatNumber\(task\?\.total_count\)\}[\s\S]*已处理 \{formatNumber\(processed\)\}[\s\S]*待处理 \{formatNumber\(remaining\)\}/, "任务详情必须在同一卡片清楚展示总数、已处理和待处理数量");
+assert.match(aiTaskDetail, /创建人 \$\{task\?\.creator\?\.name/, "任务详情必须显示真实创建人");
+assert.doesNotMatch(aiTaskDetail, /仅云端执行/, "任务详情不得展示冗余的固定云端执行策略标签");
+assert.match(aiTaskDetailApi, /creator: creator\.data/, "任务详情接口必须返回任务创建人");
 const customersView = read("components/customers-view.tsx");
 const customerListFields = read("lib/customers/list-fields.ts");
 const currentUserAuth = read("lib/auth/current-user.ts");

@@ -107,6 +107,7 @@ type PoolFilterOptions = {
   owners: Owner[];
   sources: Array<{ value: string; label: string }>;
   batches: Array<{ value: string; label: string; source: string }>;
+  screening_tasks: Array<{ value: string; label: string }>;
 };
 type Renewal = {
   id: string;
@@ -231,6 +232,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [ownerId, setOwnerId] = useState("");
   const [sourceType, setSourceType] = useState("");
   const [sourceBatch, setSourceBatch] = useState("");
+  const [screeningTaskIds, setScreeningTaskIds] = useState<string[]>([]);
+  const [screeningTaskOpen, setScreeningTaskOpen] = useState(false);
   const [sort, setSort] = useState("updated_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [fields, setFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
@@ -242,12 +245,14 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
   const industryRef = useRef<HTMLDivElement>(null);
+  const screeningTaskRef = useRef<HTMLDivElement>(null);
   const requestVersion = useRef(0);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     industries: [],
     owners: [],
     sources: [],
     batches: [],
+    screening_tasks: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -257,6 +262,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const orderedFieldOptions = useMemo(() => {
     const ordered = draftFields.map((key) => CUSTOMER_LIST_COLUMNS.find((column) => column.key === key)).filter((column): column is (typeof CUSTOMER_LIST_COLUMNS)[number] => Boolean(column));
     CUSTOMER_LIST_COLUMNS.forEach((column) => { if (!draftFields.includes(column.key)) ordered.push(column); });
@@ -291,6 +302,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
       if (sourceType) params.set("source_type", sourceType);
       if (sourceBatch) params.set("source_batch", sourceBatch);
+      for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
       params.set("sort", sort);
       params.set("direction", direction);
       const body = await api(`/api/customers/public-pool?${params}`);
@@ -313,6 +325,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     ownerId,
     sourceType,
     sourceBatch,
+    screeningTaskIds,
     page,
     pageSize,
     query,
@@ -352,11 +365,16 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       .catch(() => undefined);
   }, []);
   useEffect(() => { loadTabCounts(); }, [loadTabCounts]);
+  const refreshAssignmentHistory = useCallback(() => {
+    setHistoryRefreshKey((value) => value + 1);
+    void loadTabCounts();
+  }, [loadTabCounts]);
   useEffect(() => {
     const close = (event: MouseEvent) => {
       const targetNode = event.target as Node;
       if (newRef.current && !newRef.current.contains(targetNode)) setNewOpen(false);
       if (industryRef.current && !industryRef.current.contains(targetNode)) setIndustryOpen(false);
+      if (screeningTaskRef.current && !screeningTaskRef.current.contains(targetNode)) setScreeningTaskOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -370,15 +388,16 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
           owners: body.owners || [],
           sources: body.sources || [],
           batches: body.batches || [],
+          screening_tasks: body.screening_tasks || [],
         }),
       )
       .catch(() =>
-        setFilterOptions({ industries: [], owners: [], sources: [], batches: [] }),
+        setFilterOptions({ industries: [], owners: [], sources: [], batches: [], screening_tasks: [] }),
       );
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, customerStatus, industries, ownerId, query, sourceBatch, sourceType, tab, target],
+    [aiLevel, customerStatus, industries, ownerId, query, screeningTaskIds, sourceBatch, sourceType, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -397,6 +416,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setCustomerStatus("");
     setSourceType("");
     setSourceBatch("");
+    setScreeningTaskIds([]);
+    setScreeningTaskOpen(false);
     if (value === "available" || value === "claimed" || value === "pending") {
       let next = POOL_DEFAULT_FIELDS[value];
       try {
@@ -406,6 +427,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       setFields(next);
       setDraftFields(next);
     }
+    if (value === "history") void loadTabCounts();
   }
   function resetFilters() {
     setQuery("");
@@ -416,6 +438,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setOwnerId("");
     setSourceType("");
     setSourceBatch("");
+    setScreeningTaskIds([]);
+    setScreeningTaskOpen(false);
     setPage(1);
   }
   function changeSort(key: CustomerListColumn) {
@@ -450,6 +474,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
         if (sourceType) params.set("source_type", sourceType);
         if (sourceBatch) params.set("source_batch", sourceBatch);
+        for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
         const body = await api(`/api/customers/public-pool?${params}`);
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
         exported.push(...pageRows);
@@ -486,6 +511,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
         if (sourceType) params.set("source_type", sourceType);
         if (sourceBatch) params.set("source_batch", sourceBatch);
+        for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
         const body = await api(`/api/customers/public-pool?${params}`);
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
         ids.push(...pageRows.map((row) => row.id));
@@ -578,6 +604,16 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="">全部导入批次</option>
                   {filterOptions.batches.filter((item) => !sourceType || item.source === sourceType).map((item) => <option key={`${item.source}:${item.value}`} value={item.value}>{item.label}</option>)}
                 </select>
+                {role === "ADMIN" ? <div ref={screeningTaskRef} className="relative min-w-0">
+                  <button type="button" onClick={() => setScreeningTaskOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={screeningTaskOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
+                    <span className="truncate">{screeningTaskIds.length ? `AI筛选批次（${screeningTaskIds.length}）` : "全部AI筛选批次"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
+                  </button>
+                  {screeningTaskOpen ? <div role="listbox" aria-label="AI筛选批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    <button type="button" onClick={() => { setScreeningTaskIds([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空AI筛选批次</button>
+                    {filterOptions.screening_tasks.map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
+                    {!filterOptions.screening_tasks.length ? <p className="px-2 py-3 text-sm text-slate-400">暂无可用AI筛选批次</p> : null}
+                  </div> : null}
+                </div> : <span className="hidden xl:block" aria-hidden="true" />}
                 <select
                   value={aiLevel}
                   onChange={(event) => setAiLevel(event.target.value)}
@@ -693,9 +729,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
           <RenewalReview role={role} toast={setToast} />
         ) : null}
         {tab === "handover" && role === "ADMIN" ? (
-          <HandoverPanel toast={setToast} />
+          <HandoverPanel toast={setToast} onHistoryChanged={refreshAssignmentHistory} />
         ) : null}
-        {tab === "history" && role === "ADMIN" ? <AssignmentHistory /> : null}
+        {tab === "history" && role === "ADMIN" ? <AssignmentHistory refreshKey={historyRefreshKey} /> : null}
         {claim ? (
           <ClaimDialog
             row={claim}
@@ -717,6 +753,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
               setAssignOpen(false);
               setToast(message);
               void load();
+              refreshAssignmentHistory();
             }}
           />
         ) : null}
@@ -1040,7 +1077,7 @@ function AssignDialog({
   );
 }
 
-function HandoverPanel({ toast }: { toast: (value: string) => void }) {
+function HandoverPanel({ toast, onHistoryChanged }: { toast: (value: string) => void; onHistoryChanged: () => void }) {
   const [options, setOptions] = useState<AssignmentOptions>({
     assignees: [],
     inactive_users: [],
@@ -1090,6 +1127,7 @@ function HandoverPanel({ toast }: { toast: (value: string) => void }) {
       setReason("");
       setConfirmOpen(false);
       void load();
+      onHistoryChanged();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "交接失败");
     } finally {
@@ -1373,22 +1411,47 @@ function RenewalReview({
   );
 }
 
-function AssignmentHistory() {
+function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
   const [rows, setRows] = useState<History[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const visibleRows = useMemo(
-    () => rows.slice((page - 1) * pageSize, page * pageSize),
-    [page, pageSize, rows],
-  );
+  const [count, setCount] = useState(0);
+  const [users, setUsers] = useState<Owner[]>([]);
+  const [search, setSearch] = useState("");
+  const [historyType, setHistoryType] = useState("");
+  const [sourceUserId, setSourceUserId] = useState("");
+  const [targetUserId, setTargetUserId] = useState("");
+  const [createdBy, setCreatedBy] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   useEffect(() => {
-    api("/api/admin/customer-assignments?mode=history")
-      .then((body) => setRows(body.data || []))
+    const params = new URLSearchParams({ mode: "history", page: String(page), page_size: String(pageSize) });
+    if (search.trim()) params.set("q", search.trim());
+    if (historyType) params.set("history_type", historyType);
+    if (sourceUserId) params.set("source_user_id", sourceUserId);
+    if (targetUserId) params.set("target_user_id", targetUserId);
+    if (createdBy) params.set("created_by", createdBy);
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    setLoading(true);
+    setError("");
+    api(`/api/admin/customer-assignments?${params}`)
+      .then((body) => { setRows(body.data || []); setCount(Number(body.count || 0)); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  }, [page, pageSize, search, historyType, sourceUserId, targetUserId, createdBy, dateFrom, dateTo, refreshKey]);
+  useEffect(() => {
+    api("/api/admin/customer-assignments?mode=history_options")
+      .then((body) => setUsers(body.users || []))
+      .catch(() => setUsers([]));
   }, []);
+  useEffect(() => { setPage(1); }, [search, historyType, sourceUserId, targetUserId, createdBy, dateFrom, dateTo]);
+  const reset = () => {
+    setSearch(""); setHistoryType(""); setSourceUserId(""); setTargetUserId("");
+    setCreatedBy(""); setDateFrom(""); setDateTo(""); setPage(1);
+  };
   return (
     <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
       <header className="border-b p-5">
@@ -1397,6 +1460,16 @@ function AssignmentHistory() {
           每次分配生成唯一批次号，记录原归属人、接收人、原因、数量和操作人，不因客户后续变化而丢失。
         </p>
       </header>
+      <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.6fr)_repeat(4,minmax(150px,1fr))_140px_140px_88px]">
+        <label className="relative min-w-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索批次号、批次名称或分配原因" className={`${appFieldClass} w-full pl-9`}/></label>
+        <select value={historyType} onChange={(event) => setHistoryType(event.target.value)} className={appFieldClass} aria-label="筛选记录类型"><option value="">全部记录类型</option><option value="ASSIGN">客户分配</option><option value="HANDOVER">账号交接</option><option value="RELEASE">批量释放</option></select>
+        <select value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} className={appFieldClass} aria-label="筛选接收人"><option value="">全部接收人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
+        <select value={sourceUserId} onChange={(event) => setSourceUserId(event.target.value)} className={appFieldClass} aria-label="筛选原归属人"><option value="">全部原归属人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
+        <select value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} className={appFieldClass} aria-label="筛选操作人"><option value="">全部操作人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
+        <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className={appFieldClass} aria-label="开始日期" title="开始日期"/>
+        <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className={appFieldClass} aria-label="结束日期" title="结束日期"/>
+        <button type="button" onClick={reset} className="h-10 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50">重置</button>
+      </div>
       {error ? (
         <div className="m-5">
           <ErrorText value={error} />
@@ -1427,7 +1500,7 @@ function AssignmentHistory() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {visibleRows.map((row) => (
+            {rows.map((row) => (
               <tr key={row.id}>
                 <td className="px-4 py-4 font-mono text-xs text-blue-700">
                   {row.batch_number}
@@ -1465,7 +1538,7 @@ function AssignmentHistory() {
       <AppPagination
         page={page}
         pageSize={pageSize}
-        total={rows.length}
+        total={count}
         itemLabel="条记录"
         onPage={setPage}
         onPageSize={(size) => {

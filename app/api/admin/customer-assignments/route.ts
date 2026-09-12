@@ -3,6 +3,9 @@ import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { postgrestContains } from "@/lib/postgrest-search";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const userFilter = (value: string) => UUID.test(value) ? value : "";
+
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin();
@@ -13,6 +16,9 @@ export async function GET(request: NextRequest) {
       const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("page_size") || 20)));
       const search = request.nextUrl.searchParams.get("q")?.trim() || "";
       const historyType = request.nextUrl.searchParams.get("history_type")?.trim().toUpperCase() || "";
+      const sourceUserId = userFilter(request.nextUrl.searchParams.get("source_user_id")?.trim() || "");
+      const targetUserId = userFilter(request.nextUrl.searchParams.get("target_user_id")?.trim() || "");
+      const createdBy = userFilter(request.nextUrl.searchParams.get("created_by")?.trim() || "");
       const dateFrom = request.nextUrl.searchParams.get("date_from")?.trim() || "";
       const dateTo = request.nextUrl.searchParams.get("date_to")?.trim() || "";
       let query = admin.from("customer_assignment_batches")
@@ -25,11 +31,24 @@ export async function GET(request: NextRequest) {
       if (historyType === "HANDOVER") query = query.eq("reason_type", "ACCOUNT_HANDOVER");
       if (historyType === "ASSIGN") query = query.eq("mode", "ASSIGN").neq("reason_type", "ACCOUNT_HANDOVER");
       if (historyType === "RELEASE") query = query.eq("mode", "RELEASE");
+      if (sourceUserId) query = query.eq("source_user_id", sourceUserId);
+      if (targetUserId) query = query.eq("target_user_id", targetUserId);
+      if (createdBy) query = query.eq("created_by", createdBy);
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) query = query.gte("created_at", `${dateFrom}T00:00:00.000Z`);
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
       const result = await query.range((page - 1) * pageSize, page * pageSize - 1);
       if (result.error) throw result.error;
       return NextResponse.json({ data: result.data || [], count: result.count || 0, page, page_size: pageSize });
+    }
+    if (mode === "history_options") {
+      const batches = await admin.from("customer_assignment_batches")
+        .select("source_user_id,target_user_id,created_by");
+      if (batches.error) throw batches.error;
+      const ids = [...new Set((batches.data || []).flatMap((item) => [item.source_user_id, item.target_user_id, item.created_by]).filter((id): id is string => Boolean(id)))];
+      if (!ids.length) return NextResponse.json({ users: [] });
+      const users = await admin.from("users").select("id,name,email").in("id", ids).order("name");
+      if (users.error) throw users.error;
+      return NextResponse.json({ users: users.data || [] });
     }
     const [activeUsers, inactiveUsers, owned] = await Promise.all([
       admin.from("users").select("id,name,email,role,manager_id").eq("status", "ACTIVE").in("role", ["SALES", "SUPERVISOR"]).order("name"),

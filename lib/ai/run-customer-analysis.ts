@@ -739,20 +739,24 @@ export function reconcileFinalDecision(
     : analysis;
 }
 
-/** Keep the displayed reasoning and the persisted final score atomic. */
+/** Keep summary text factual. Score and grade are rendered from their dedicated
+ * persisted fields, never embedded in evidence-facing prose. */
 export function attachFinalScoreToReason(analysis: CustomerAnalysis): CustomerAnalysis {
   const score = Math.max(0, Math.min(100, Math.round(Number(analysis.ai_score) || 0)));
   const level = scoreToLevel(score);
-  const finalScoreText = `最终评分：${level}级${score}分。`;
   const base = String(analysis.ai_reason || "已完成客户主体与经营范围核验")
     .replace(/最终评分[：:]?\s*[ABCD]级?\s*\d{1,3}\s*分[。；]?/g, "")
+    // Score belongs in the dedicated result fields. Remove stale rule-stage
+    // score phrases instead of rewriting them into evidence-facing prose.
+    .replace(/(?:因此|，|；)?\s*(?:综合评为|按低销售优先级)\s*[ABCD]级\s*\d{1,3}\s*分(?:处理)?/g, "")
+    .replace(/(?:，|；)?\s*综合评分\s*\d{1,3}\s*分/g, "")
     .trim()
     .replace(/[。；\s]+$/, "");
   return {
     ...analysis,
     ai_score: score,
     ai_level: level,
-    ai_reason: `${base || "已完成客户主体与经营范围核验"}。${finalScoreText}`,
+    ai_reason: base || "已完成客户主体与经营范围核验",
   };
 }
 
@@ -2038,7 +2042,11 @@ function publicSourceNetworkFailureDetails(records: ChannelRecord[]) {
     .filter((record) => record.status === "FAILED" && PUBLIC_SOURCE_NETWORK_ERROR.test(String(record.error || "")))
     .slice(0, 6)
     .map((record) => {
-      const url = String(record.source_url || record.evidence?.url || "未记录入口").slice(0, 500);
+      const evidenceUrl = record.evidence && typeof record.evidence === "object"
+        && "url" in record.evidence && typeof record.evidence.url === "string"
+        ? record.evidence.url
+        : "";
+      const url = String(record.source_url || evidenceUrl || "未记录入口").slice(0, 500);
       const error = String(record.error || "网络连接失败").replace(/\s+/g, " ").slice(0, 500);
       return `${record.channel}: ${url} (${error})`;
     })

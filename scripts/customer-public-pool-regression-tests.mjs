@@ -42,6 +42,7 @@ const aiRunner = read("lib/ai/run-customer-analysis.ts");
 const attachmentApi = read("app/api/attachments/[id]/route.ts");
 const followupApi = read("app/api/customers/[id]/followups/route.ts");
 const followupEditApi = read("app/api/followups/[id]/route.ts");
+const assignmentApi = read("app/api/admin/customer-assignments/route.ts");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -163,5 +164,10 @@ assert.match(attachmentApi, /Content-Disposition[\s\S]*preview \? "inline"/, "�
 assert.match(sidebar, /useLayoutEffect[\s\S]*URLSearchParams\(window\.location\.search\)\.get\("from"\) === "pool"[\s\S]*客户中心 \/ 客户公海 \/ 客户详情/, "从客户公海进入详情时面包屑必须在浏览器绘制前稳定为客户公海来源");
 assert.match(followupApi, /公海客户需先完成认领[\s\S]*customer\.owner_id !== user\.id/, "公海客户不得写入跟进，且跟进必须由当前归属销售员创建");
 assert.match(followupEditApi, /customer\?\.owner_id !== user\.id/, "客户转移后历史跟进创建人不得继续编辑记录");
+assert.match(assignmentApi, /source_user_id[\s\S]*target_user_id[\s\S]*created_by[\s\S]*date_from[\s\S]*date_to/, "分配记录接口必须支持原归属人、接收人、操作人与日期筛选");
+assert.match(assignmentApi, /mode === "history_options"[\s\S]*source_user_id[\s\S]*target_user_id[\s\S]*created_by/, "分配记录筛选下拉选项必须来自真实历史关联用户");
+assert.match(poolView, /全部记录类型[\s\S]*全部接收人[\s\S]*全部原归属人[\s\S]*全部操作人/, "分配记录页面必须按审计重要性提供类型、接收人、原归属人与操作人筛选");
+assert.match(poolView, /mode: "history", page: String\(page\), page_size: String\(pageSize\)/, "分配记录筛选必须服务端分页，避免仅前端筛选导致统计不准");
+assert.match(poolView, /refreshAssignmentHistory[\s\S]*loadTabCounts[\s\S]*historyRefreshKey/, "分配或交接完成后必须刷新分配记录页签计数和当前记录列表");
 
 console.log("customer public-pool regression tests passed");

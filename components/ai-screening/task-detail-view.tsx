@@ -102,7 +102,6 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
           : task?.active_executor === "VERCEL_WORKFLOW"
             ? "等待 Vercel 云端"
             : "尚未被执行器认领";
-  const dispatchPolicyLabel = task?.dispatch_policy === "LOCAL_FIRST" ? "本地优先，云端接管" : task?.dispatch_policy === "VERCEL_ONLY" ? "仅云端执行" : task?.dispatch_policy === "LOCAL_ONLY" ? "仅本地执行" : "云端优先，本地接管";
 
   function itemStepLabel(item: TaskItem) {
     if (item.status !== "FAILED") return aiStepLabel(item.current_step || item.pipeline_stage);
@@ -133,12 +132,11 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
 
   if (loading && !task) return <main className="min-h-full bg-[#f5f7fb] p-6"><Loading/></main>;
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-[14px]">
-    <PageHeader title={task?.name || "AI筛选任务详情"} description={`任务编号 ${task?.task_number || "-"} · 创建于 ${task?.created_at ? new Date(task.created_at).toLocaleString("zh-CN") : "-"}`} actions={<><Link href="/ai-screening" className={button}>返回任务中心</Link><Link href={`/ai-screening/tasks/${taskId}/report`} className={primaryButton}>查看任务报告</Link>{currentAction ? <button className={button} onClick={() => setConfirm(currentAction)}>{actionCopy[currentAction].label}</button> : null}</>}/>
+    <PageHeader title={task?.name || "AI筛选任务详情"} description={`任务编号 ${task?.task_number || "-"} · 创建人 ${task?.creator?.name || task?.creator?.email || "历史账号"} · 创建于 ${task?.created_at ? new Date(task.created_at).toLocaleString("zh-CN") : "-"}`} actions={<><Link href="/ai-screening" className={button}>返回任务中心</Link><Link href={`/ai-screening/tasks/${taskId}/report`} className={primaryButton}>查看任务报告</Link>{currentAction ? <button className={button} onClick={() => setConfirm(currentAction)}>{actionCopy[currentAction].label}</button> : null}</>}/>
     {error ? <ErrorState message={error} reload={() => void load()}/> : null}
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">{[
-      ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <span key="task-mode" className="flex flex-wrap items-center gap-1"><CostModeBadge mode={task?.cost_mode}/><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{dispatchPolicyLabel}</span><span className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">{executorLabel}</span></span>],
-      ["已处理", formatNumber(processed), `占任务总量${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
-      ["仍在分析", formatNumber(remaining), "排队与处理中客户"],
+      ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <span key="task-mode" className="flex flex-wrap items-start justify-start gap-1 text-left"><CostModeBadge mode={task?.cost_mode}/><span className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">{executorLabel}</span></span>],
+      ["任务进度", <span key="task-progress" className="block text-[15px] leading-7"><b>总数 {formatNumber(task?.total_count)}</b><span className="px-1.5 text-slate-300">/</span><b>已处理 {formatNumber(processed)}</b><span className="px-1.5 text-slate-300">/</span><b>待处理 {formatNumber(remaining)}</b></span>, `处理进度 ${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
       ["分析成功 / 分析失败", `${formatNumber(task?.success_count)} / ${formatNumber(task?.failed_count)}`, "真实业务结论 / 技术执行异常"],
       ["当前OpenAI消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(openAiCost)}`, "Token / OpenAI台账费用"],
       ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageOpenAiCost)}`, "每位客户平均Token / OpenAI费用"],

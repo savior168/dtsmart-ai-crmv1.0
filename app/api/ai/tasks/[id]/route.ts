@@ -74,14 +74,18 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       }
       if (rows.length < 1000) break;
     }
-    const budgetEvents = await admin.from("api_cost_budget_events").select("provider,blocked_period").eq("task_id", id);
+    const [budgetEvents, creator] = await Promise.all([
+      admin.from("api_cost_budget_events").select("provider,blocked_period").eq("task_id", id),
+      task.user_id ? admin.from("users").select("id,name,email").eq("id", task.user_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    ]);
     if (budgetEvents.error && budgetEvents.error.code !== "42P01") throw budgetEvents.error;
+    if (creator.error) throw creator.error;
     const paidApiBudgetBlocks = (budgetEvents.data || []).reduce((all, row) => {
       const key = `${row.provider}:${row.blocked_period}`;
       all[key] = (all[key] || 0) + 1;
       return all;
     }, {} as Record<string, number>);
-    return NextResponse.json({ task: { ...task, google_places_call_count: googlePlacesCallCount, google_places_sku_breakdown: googlePlacesSkuBreakdown, paid_api_budget_blocks: paidApiBudgetBlocks } });
+    return NextResponse.json({ task: { ...task, creator: creator.data, google_places_call_count: googlePlacesCallCount, google_places_sku_breakdown: googlePlacesSkuBreakdown, paid_api_budget_blocks: paidApiBudgetBlocks } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务查询失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 404 });

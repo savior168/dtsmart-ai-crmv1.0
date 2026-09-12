@@ -25,7 +25,7 @@ let googleBillingRequest: Promise<GoogleBillingStatus> | null = null;
 let googleNextRefreshAt = 0;
 export type GoogleBillingStatus =
   | { state: "NOT_CONFIGURED"; message: string }
-  | { state: "CONNECTED"; message: string; totalUsd: number; latestUsageAt: string | null; usageRows: number; periodStart: string; periodEnd: string; pricingRegion: "GLOBAL" | "INDIA"; skuUsage: GooglePlacesSkuUsage[] }
+  | { state: "CONNECTED"; message: string; totalUsd: number; creditUsd: number; latestUsageAt: string | null; usageRows: number; periodStart: string; periodEnd: string; pricingRegion: "GLOBAL" | "INDIA"; skuUsage: GooglePlacesSkuUsage[] }
   | { state: "NO_DATA"; message: string }
   | { state: "ERROR"; message: string };
 
@@ -187,11 +187,17 @@ async function readGoogleMapsActualBilling(): Promise<GoogleBillingStatus> {
     const latestUsageAt = rows.map((row) => row.latestUsageAt).filter((value): value is string => Boolean(value)).sort().at(-1) || null;
     const periodStart = rows.map((row) => row.periodStart).find((value): value is string => Boolean(value)) || new Date().toISOString();
     const periodEnd = rows.map((row) => row.periodEnd).find((value): value is string => Boolean(value)) || new Date().toISOString();
-    const totalUsd = normalizedUsd(rows.reduce((total, row) => total + row.netCostUsd, 0));
+    // BigQuery net cost can be slightly negative when credits or rounding
+    // exceed gross cost. A payable amount must never be displayed as negative;
+    // retain the credit separately so the platform ledger remains auditable.
+    const rawNetUsd = normalizedUsd(rows.reduce((total, row) => total + row.netCostUsd, 0));
+    const totalUsd = Math.max(0, rawNetUsd);
+    const creditUsd = Math.max(0, -rawNetUsd);
     return {
       state: "CONNECTED",
       message: usageRows ? "已连接 Google Cloud BigQuery；以下为当前结算账号本月已确认的 SKU 用量" : "已连接 Google Cloud；本月尚未同步这四项 Places SKU 用量",
       totalUsd,
+      creditUsd,
       latestUsageAt,
       usageRows,
       periodStart,
