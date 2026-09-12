@@ -40,7 +40,7 @@ export function RowActionMenu({ children, label = "操作", ariaLabel }: RowActi
         {label}
         <MoreHorizontal size={15} aria-hidden="true" />
       </button>
-      {open ? <div className="absolute right-0 z-50 mt-1.5 min-w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">{children}</div> : null}
+      {open ? <div className="absolute bottom-full right-0 z-50 mb-1.5 min-w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">{children}</div> : null}
     </div>
   );
 }

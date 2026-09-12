@@ -12,6 +12,7 @@ export function CostFilterMultiSelect({
   onChange,
   placeholder,
   filters,
+  className = "",
 }: {
   kind: "task" | "customer";
   value: string[];
@@ -26,6 +27,7 @@ export function CostFilterMultiSelect({
     taskIds: string[];
     customerIds: string[];
   };
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -71,7 +73,7 @@ export function CostFilterMultiSelect({
 
   const selected = new Set(value);
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    <div ref={rootRef} className={`relative min-w-0 ${className}`}>
       <button type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)} className="flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 outline-none transition hover:border-blue-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
         <span className="truncate">{value.length ? `已选 ${value.length} 项` : placeholder}</span>
         <ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/>

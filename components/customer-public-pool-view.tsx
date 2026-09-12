@@ -574,7 +574,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              <div className="flex min-w-max items-end gap-3 overflow-x-auto pb-1">
+              <div className="flex flex-wrap items-end gap-3">
                 <label className="relative w-[300px] shrink-0">
                   <Search
                     size={17}
@@ -1340,7 +1340,7 @@ function RenewalReview({
             : "显示所有待审核申请；通常由直属主管优先处理。"}
         </p>
       </header>
-      <div className="flex min-w-max items-center gap-3 overflow-x-auto border-b border-slate-100 p-4">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
         <label className="relative w-[320px] shrink-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索客户、国家/地区、申请人或申请内容" className={`${appFieldClass} w-full pl-9`}/></label>
         <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className={`${appFieldClass} w-56 shrink-0`}><option value="">全部申请人</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{displayUser(owner)}</option>)}</select>
         <button type="button" onClick={() => { setSearch(""); setOwnerId(""); }} className="h-10 shrink-0 rounded-lg border px-3 text-sm hover:bg-slate-50">重置</button>
@@ -1483,7 +1483,7 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
           每条记录对应一位实际被分配客户；保留分配时的原归属人、接收人和操作人，并显示客户当前归属，便于逐条核对。
         </p>
       </header>
-      <div className="flex min-w-max items-center gap-3 overflow-x-auto border-b border-slate-100 p-4">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
         <label className="relative w-[320px] shrink-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索客户、电话、邮箱、批次或分配原因" className={`${appFieldClass} w-full pl-9`}/></label>
         <select value={historyType} onChange={(event) => setHistoryType(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选记录类型"><option value="">全部记录类型</option><option value="ASSIGN">客户分配</option><option value="HANDOVER">账号交接</option><option value="RELEASE">批量释放</option></select>
         <select value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选接收人"><option value="">全部接收人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>

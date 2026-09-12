@@ -542,8 +542,8 @@ export function CustomersView() {
         </div>
         {workspace === "list" ? <>
         <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="overflow-x-auto pb-1"><div className="grid min-w-[1500px] grid-cols-[minmax(190px,1.5fr)_minmax(105px,.8fr)_minmax(140px,1fr)_minmax(130px,1fr)_minmax(90px,.7fr)_minmax(95px,.75fr)_minmax(100px,.8fr)_minmax(100px,.8fr)_minmax(90px,.7fr)_72px] gap-3">
-            <label className="relative min-w-0">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="relative w-[300px] shrink-0">
               <Search
                 className="absolute left-3 top-2.5 text-slate-400"
                 size={17}
@@ -563,7 +563,7 @@ export function CustomersView() {
                 className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500"
               />
             </label>
-            <div ref={industryRef} className="relative min-w-0">
+            <div ref={industryRef} className="relative w-44 shrink-0">
               <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
                 <span className="max-w-32 truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
               </button>
@@ -572,9 +572,9 @@ export function CustomersView() {
                 {industryOptions.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item)} onChange={() => { setIndustries((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]); setPage(1); }} /><span className="min-w-0 break-words">{item}</span></label>)}
               </div> : null}
             </div>
-            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 min-w-0 w-full rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
+            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
             <ImportBatchMultiSelect
-              className="min-w-0 w-full"
+              className="w-44 shrink-0"
               options={batchOptions}
               value={sourceBatches}
               onChange={(next) => {
@@ -592,7 +592,7 @@ export function CustomersView() {
                 setLevel(event.target.value);
                 setPage(1);
               }}
-              className="h-10 min-w-0 w-full rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部AI等级</option>
               {["A", "B", "C", "D"].map((item) => (
@@ -605,7 +605,7 @@ export function CustomersView() {
                 setTarget(event.target.value);
                 setPage(1);
               }}
-              className="h-10 min-w-0 w-full rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部目标客户</option>
               <option value="valid">有效目标</option>
@@ -617,7 +617,7 @@ export function CustomersView() {
                 setStatus(event.target.value);
                 setPage(1);
               }}
-              className="h-10 min-w-0 w-full rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部客户阶段</option>
               {(["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
@@ -632,7 +632,7 @@ export function CustomersView() {
                 setSelected(new Set());
                 setProtectedSelected(new Set());
               }}
-              className="h-10 min-w-0 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               aria-label="跟进状态"
             >
               <option value="">全部跟进状态</option>
@@ -641,7 +641,7 @@ export function CustomersView() {
             <select
               value={aiFilter}
               onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "failed" | "all"); setPage(1); setSelected(new Set()); setProtectedSelected(new Set()); }}
-              className="h-10 min-w-0 w-full rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm text-blue-700"
+              className="h-10 w-40 shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm text-blue-700"
               aria-label="AI筛选状态"
             >
               <option value="done">已分析</option>
@@ -651,11 +651,11 @@ export function CustomersView() {
             </select>
             <button
               onClick={reset}
-              className="h-10 min-w-0 rounded-lg border border-slate-200 px-3 text-sm hover:bg-slate-50 xl:col-start-[10]"
+              className="h-10 shrink-0 rounded-lg border border-slate-200 px-3 text-sm hover:bg-slate-50"
             >
               重置
             </button>
-          </div></div>
+          </div>
           <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；评分用于表示销售优先级。未分析和分析失败客户不归入两类，可通过“AI分析状态”单独查看。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
@@ -976,7 +976,7 @@ export function CustomersView() {
                       </td>
                     ))}
                     <td className="sticky right-0 z-10 min-w-44 bg-white px-4 py-3">
-                      <div className="flex items-center justify-between gap-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}
                         prefetch={false}

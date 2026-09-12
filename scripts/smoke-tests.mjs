@@ -359,7 +359,8 @@ assert.match(customersView, /aria-label="所属行业多选"[\s\S]*type="checkbo
 assert.match(customersView, /industries\.forEach\(\(industry\) => params\.append\("industry", industry\)\)/, "列表、全选和导出必须传递全部行业条件");
 assert.ok(customersView.indexOf('value={target}') < customersView.indexOf('value={status}'), "客户阶段筛选必须紧跟目标客户筛选之后");
 assert.ok(customersView.indexOf('value={status}') < customersView.indexOf('onClick={reset}'), "重置按钮必须与筛选条件位于同一筛选行末尾");
-assert.match(customersView, /onClick=\{reset\}[\s\S]*xl:col-start-\[10\]/, "客户列表重置按钮必须固定在筛选栏最后且不得溢出");
+assert.match(customersView, /flex flex-wrap items-end gap-3[\s\S]*onClick=\{reset\}/, "客户列表筛选控件必须在空间不足时自动换行，重置按钮保持在筛选区末尾");
+assert.doesNotMatch(customersView, /min-w-\[1500px\] grid-cols-\[/, "客户列表筛选区不得强制最小宽度导致横向溢出");
 assert.match(customersView, /if \(defaultScopeUserId\) setScopeUserId\(defaultScopeUserId\)/, "切换保护到期或冲突客户时必须默认恢复本人数据范围");
 assert.match(customersView, /搜索客户、联系人、电话、邮箱或国家\/地区/, "客户列表必须合并客户与国家关键词筛选框");
 assert.doesNotMatch(customersView, /JSON\.stringify\([\s\S]{0,200}value\(row, key\)/, "客户导出不得序列化React页面组件");

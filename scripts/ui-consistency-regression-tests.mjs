@@ -58,14 +58,17 @@ assert.match(read("components/customers-view.tsx"), /selected\.size >= count \? 
 assert.match(read("components/customers-view.tsx"), /w-44[\s\S]*min-w-44[\s\S]*RowActionMenu[\s\S]*新增跟进[\s\S]*更新客户阶段/, "我的客户操作列必须预留安全边距，并将高频详情与低频操作分层展示");
 assert.match(read("components/customer-public-pool-view.tsx"), /row\.can_claim[\s\S]*>认领<\//, "客户公海的高频认领操作必须直接展示，不得折叠到更多操作");
 assert.match(read("components/ui/row-action-menu.tsx"), /closeOnOutside[\s\S]*closeOnEscape[\s\S]*title="更多操作"/, "更多操作菜单必须支持点击、点击外部和 Escape 关闭");
+assert.match(read("components/ui/row-action-menu.tsx"), /bottom-full[\s\S]*mb-1\.5/, "更多操作菜单必须向上展开，避免被表格底部裁切");
 assert.match(read("components/ui/row-action-menu.tsx"), /<button[\s\S]*>\{children\}<\/button>/, "更多操作菜单项必须渲染明确的操作文字");
 assert.match(read("components/cost-center-view.tsx"), /billingDetailsOpen[\s\S]*查看明细[\s\S]*Google Places SKU明细[\s\S]*OpenAI费用明细/, "平台真实账单必须使用一个统一入口展开两个平台明细");
 assert.match(read("components/customer-crm-detail-view.tsx"), /归属与跟进历程[\s\S]*当前归属[\s\S]*曾跟进/, "客户详情必须集中展示当前归属和历史跟进人员");
 assert.match(read("app/api/customers/\[id\]/crm/route.ts"), /current_owner:[\s\S]*claims: displayClaims/, "客户详情接口必须返回当前归属和可读的归属变更记录");
 assert.match(read("components/customer-public-pool-view.tsx"), /selected\.size >= \(count \?\? 0\) \? "取消全选" : "全选筛选结果"/, "客户公海跨页全选与取消必须合并为同一按钮");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), />取消全选<\/button>/, "客户公海不得额外堆叠独立取消全选按钮");
-assert.match(read("components/customer-public-pool-view.tsx"), /flex min-w-max items-end gap-3 overflow-x-auto[\s\S]*重置/, "客户公海主筛选行必须保持重置按钮与筛选条件同一行，窄屏时横向滚动而非换行");
+assert.match(read("components/customer-public-pool-view.tsx"), /flex flex-wrap items-end gap-3[\s\S]*重置/, "客户公海主筛选行必须在空间不足时按完整控件自动换行");
+assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), /flex min-w-max items-(?:end|center) gap-3 overflow-x-auto/, "客户公海筛选条件不得强制横向溢出");
 const customerPanels = read("components/customer-workspace-panels-v2.tsx");
+assert.doesNotMatch(customerPanels, /flex min-w-max items-center gap-3 overflow-x-auto/, "客户续期和冲突列表筛选条件不得强制横向溢出");
 assert.match(customerPanels, /setReleaseType\(""\)[\s\S]*>重置<\/button>/, "保护到期与续期必须提供可一次清空全部条件的重置按钮");
 assert.match(customerPanels, /setSource\(""\)[\s\S]*>重置<\/button>/, "冲突客户必须提供可一次清空全部条件的重置按钮");
 assert.match(customerPanels, /downloadCustomers[\s\S]*客户保护与续期[\s\S]*冲突客户/, "客户保护和冲突列表导出必须采用完整客户字段且只导出当前筛选结果");
