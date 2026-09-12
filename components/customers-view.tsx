@@ -10,7 +10,6 @@ import {
   ChevronUp,
   FileSpreadsheet,
   Globe2,
-  MapPin,
   Plus,
   Search,
   Settings2,
@@ -28,6 +27,7 @@ import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
+import { GoogleMapsIcon } from "@/components/ui/google-maps-icon";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
@@ -77,8 +77,8 @@ function Website({ value, kind = "website" }: { value?: string | null; kind?: "w
       title={isWebsite ? "打开企业官网" : "打开 Google Maps"}
       className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"
     >
-      <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-rose-50 text-rose-600 group-hover:bg-rose-100"}`}>
-        {isWebsite ? <Globe2 size={14} strokeWidth={2.25} /> : <MapPin size={14} strokeWidth={2.25} />}
+      <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-blue-50 group-hover:bg-blue-100"}`}>
+        {isWebsite ? <Globe2 size={14} strokeWidth={2.25} /> : <GoogleMapsIcon size={16} />}
       </span>
       <span className="truncate group-hover:underline">{value}</span>
     </a>

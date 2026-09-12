@@ -75,7 +75,7 @@ export type ChannelRecord = {
   error?: string | null;
 };
 
-const ANALYSIS_VERSION = "2026.09.12.02";
+const ANALYSIS_VERSION = "2026.09.12.03";
 const OPENAI_MIN_SAFE_RESERVATION_USD = 0.15;
 
 function openAiBudgetReservationUsd() {
@@ -1247,6 +1247,11 @@ function deterministicScore(input: {
     try { return new URL(record.source_url || "").origin; } catch { return record.channel; }
   }).filter(Boolean)).size;
   const combinedText = matchingRecords.map(recordTargetText).join("；");
+  const directFactBreadth = new Set(
+    matchingRecords
+      .flatMap((record) => verifiedFactLabels(recordTargetText(record)))
+      .filter((label) => !NON_TARGET_FACT_LABEL.test(label)),
+  ).size;
   const specificServices = [
     /(?:(?:screen|display|glass) (?:replacement|repair|replaced|replacing|changed|changing|fixed)|sprukne? skjerm(?:er)?|skjerm(?:bytte|reparasjon)|lcd|oled|touch ?screen|wymian\w* (?:szyb|wyświetlacz)|napraw\w* (?:szyb|wyświetlacz)|(?:troca|substitui[cç][aã]o) (?:de )?tela|换屏|更换屏幕|玻璃更换|触摸屏)/i,
     /(?:battery (?:replacement|repair|replaced|replacing|changed|changing|fixed)|dårlig batterilevetid|batteri(?:bytte|reparasjon)|bytte batteri|wymian\w* bater|napraw\w* bater|(?:troca|substitui[cç][aã]o) (?:de )?bater|换电池|电池更换)/i,
@@ -1292,8 +1297,12 @@ function deterministicScore(input: {
   const procurementValue = verifiedProcurementEvidence ? 20 : wholesale ? (matchingSources >= 2 ? 10 : 6) : highVolumeRepair ? 8 : repairOnly ? 3 : 2;
   const evidenceValue = matchingSources >= 3 ? 15 : matchingSources >= 2 ? 12 : 10;
   const websiteReachable = input.records.some((record) => record.channel === "website" && record.status === "COLLECTED");
-  const activityValue = Math.min(8, (reviewCount >= 100 ? 7 : reviewCount >= 20 ? 5 : reviewCount > 0 ? 3 : 0) + (websiteReachable ? 2 : 0));
-  const contactValue = verifiedContacts ? (input.customer.phone && input.customer.email ? 5 : 4) : 0;
+  const reviewActivityValue = Math.min(6, Math.round(Math.log2(Math.max(0, reviewCount) + 1)));
+  const activityValue = Math.min(8, reviewActivityValue + (websiteReachable ? 2 : 0));
+  const contactValue = verifiedContacts
+    ? (input.customer.phone ? 2 : 0) + (input.customer.email ? 2 : 0) + (input.customer.whatsapp ? 1 : 0)
+    : 0;
+  const factBreadthValue = Math.min(8, Math.max(0, directFactBreadth - 1) * 2);
   const multiSourceOperatingBonus = matchingSources >= 2 ? 3 : 0;
   const completeDirectTargetChain = input.rule.target
     && matchingSources >= 2
@@ -1301,7 +1310,7 @@ function deterministicScore(input: {
     && googleDirectTargetEvidence
     && websiteDirectTargetEvidence
     && specificServices >= 1;
-  let rawScore = businessFit + scaleValue + procurementValue + evidenceValue + activityValue + contactValue
+  let rawScore = businessFit + scaleValue + procurementValue + evidenceValue + activityValue + contactValue + factBreadthValue
     + multiSourceOperatingBonus + (completeDirectTargetChain ? 12 : 0);
   // Concrete component-level services on the verified official website prove
   // a real repair-parts usage scenario. They must not collapse into D merely
@@ -1324,7 +1333,7 @@ function deterministicScore(input: {
     : accessoryRetail ? 69
       : qualifiesForA ? (verifiedProcurementEvidence ? 100 : 89) : 84;
   const score = Math.max(0, Math.min(input.rule.target ? targetMaximum : 39, input.rule.target ? Math.max(60, rawScore) : rawScore));
-  const evidenceCompleteness = Math.min(100, 35 + evidenceValue * 3 + contactValue * 3 + activityValue * 2);
+  const evidenceCompleteness = Math.min(100, 35 + evidenceValue * 3 + contactValue * 3 + activityValue * 2 + factBreadthValue);
   return {
     score,
     breakdown: {
@@ -1334,7 +1343,7 @@ function deterministicScore(input: {
       mobile_parts_match: input.rule.target ? Math.min(100, businessFit * 2.5) : Math.min(score, 40),
       macbook_parts_match: /apple|iphone|macbook/i.test(input.candidate.text) ? Math.min(100, score + 5) : 0,
       wholesale_import_distribution: wholesale ? Math.min(100, 55 + scaleValue + procurementValue) : Math.min(35, score),
-      repair_business_match: repairOnly ? Math.min(100, 55 + specificServices * 10 + Math.min(20, scaleValue)) : Math.min(45, score),
+      repair_business_match: repairOnly ? Math.min(100, 55 + specificServices * 10 + factBreadthValue + Math.min(20, scaleValue)) : Math.min(45, score),
       bulk_purchase_potential: Math.min(100, 25 + scaleValue * 2 + procurementValue * 2),
       contactability: input.customer.phone && input.customer.email ? 90 : input.customer.phone || input.customer.email ? 70 : 35,
       evidence_completeness: evidenceCompleteness,

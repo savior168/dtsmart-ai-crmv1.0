@@ -136,7 +136,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
     {error ? <ErrorState message={error} reload={() => void load()}/> : null}
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">{[
       ["任务状态", <StatusBadge key="status" status={task?.status || ""}/>, <span key="task-mode" className="flex flex-wrap items-start justify-start gap-1 text-left"><CostModeBadge mode={task?.cost_mode}/><span className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">{executorLabel}</span></span>],
-      ["任务进度", <span key="task-progress" className="block text-[15px] leading-7"><b>总数 {formatNumber(task?.total_count)}</b><span className="px-1.5 text-slate-300">/</span><b>已处理 {formatNumber(processed)}</b><span className="px-1.5 text-slate-300">/</span><b>待处理 {formatNumber(remaining)}</b></span>, `处理进度 ${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
+      ["总数 / 已处理 / 待处理", `${formatNumber(task?.total_count)} / ${formatNumber(processed)} / ${formatNumber(remaining)}`, `处理进度 ${task?.total_count ? (processed / task.total_count * 100).toFixed(1) : 0}%`],
       ["分析成功 / 分析失败", `${formatNumber(task?.success_count)} / ${formatNumber(task?.failed_count)}`, "真实业务结论 / 技术执行异常"],
       ["当前OpenAI消耗", `${formatTokens(task?.total_tokens)} / ${formatCost(openAiCost)}`, "Token / OpenAI台账费用"],
       ["平均每位消耗", `${formatTokens(averageTokens)} / ${formatCost(averageOpenAiCost)}`, "每位客户平均Token / OpenAI费用"],

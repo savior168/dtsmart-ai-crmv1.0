@@ -44,8 +44,9 @@ assert.match(read("components/customers-view.tsx"), /label: "我的客户"[\s\S]
 assert.match(read("components/customer-public-pool-view.tsx"), /tabCounts[\s\S]*counts=1[\s\S]*countTone/, "客户公海有数据列表的子页签必须显示语义颜色数量");
 assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"ai_score"[\s\S]*customerIndustryDisplay\(row\)/, "待认领客户必须在客户名称下统一显示行业并优先展示AI判断");
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
-assert.match(read("components/customer-public-pool-view.tsx"), /isWebsite[\s\S]*h-6 w-6 shrink-0[\s\S]*Globe2 size=\{14\}[\s\S]*MapPin size=\{14\}/, "客户公海官网与Google Maps图标必须使用统一尺寸的视觉徽标");
-assert.match(read("components/customers-view.tsx"), /isWebsite[\s\S]*h-6 w-6 shrink-0[\s\S]*Globe2 size=\{14\}[\s\S]*MapPin size=\{14\}/, "我的客户官网与Google Maps图标必须与客户公海统一");
+assert.match(read("components/customer-public-pool-view.tsx"), /isWebsite[\s\S]*h-6 w-6 shrink-0[\s\S]*Globe2 size=\{14\}[\s\S]*GoogleMapsIcon size=\{16\}/, "客户公海官网与 Google Maps 必须使用统一且清晰的链接图标");
+assert.match(read("components/customers-view.tsx"), /isWebsite[\s\S]*h-6 w-6 shrink-0[\s\S]*Globe2 size=\{14\}[\s\S]*GoogleMapsIcon size=\{16\}/, "我的客户 Google Maps 图标必须与客户公海统一");
+assert.match(read("components/ui/google-maps-icon.tsx"), /#1A73E8[\s\S]*#EA4335[\s\S]*#FBBC04[\s\S]*#34A853/, "Google Maps 链接必须使用四色定位标识");
 assert.match(read("components/customer-public-pool-view.tsx"), /selectAllResults[\s\S]*全选筛选结果[\s\S]*分配已选[\s\S]*删除已选/, "客户公海可操作列表必须在统一工具栏提供全选筛选结果和批量操作");
 assert.match(read("components/import-view.tsx"), /publicPoolMatches[\s\S]*条客户已存在于客户公海[\s\S]*前往客户公海认领/, "我的客户导入命中公海客户后必须提供醒目的认领引导");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), /mt-3 flex justify-end gap-2[\s\S]*分配已选/, "客户公海批量操作不得独占一行造成工具栏错位");
@@ -66,6 +67,7 @@ assert.match(read("app/api/customers/\[id\]/crm/route.ts"), /current_owner:[\s\S
 assert.match(read("components/customer-public-pool-view.tsx"), /selected\.size >= \(count \?\? 0\) \? "取消全选" : "全选筛选结果"/, "客户公海跨页全选与取消必须合并为同一按钮");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), />取消全选<\/button>/, "客户公海不得额外堆叠独立取消全选按钮");
 assert.match(read("components/customer-public-pool-view.tsx"), /flex flex-wrap items-end gap-3[\s\S]*重置/, "客户公海主筛选行必须在空间不足时按完整控件自动换行");
+assert.match(read("components/customer-public-pool-view.tsx"), /已按 \{screeningTaskIds\.length\} 个 AI 筛选批次加载当前/, "客户公海按AI筛选批次加载后必须明确显示当前页签实际加载数量");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), /flex min-w-max items-(?:end|center) gap-3 overflow-x-auto/, "客户公海筛选条件不得强制横向溢出");
 const customerPanels = read("components/customer-workspace-panels-v2.tsx");
 assert.doesNotMatch(customerPanels, /flex min-w-max items-center gap-3 overflow-x-auto/, "客户续期和冲突列表筛选条件不得强制横向溢出");

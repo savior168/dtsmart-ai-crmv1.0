@@ -481,10 +481,25 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const directTargetSources = new Set(supporting
     .filter((item) => hasDirectTargetBusinessEvidence(item.fact_zh))
     .map((item) => sourceOrigin(item.source_url)).filter(Boolean)).size;
+  // Count distinct saved business facts rather than repeatedly rewarding
+  // marketing wording from one source. This is a factual scoring dimension,
+  // not a random score splitter.
+  const directFactBreadth = [
+    hasVerifiedCoreRepair,
+    /(?:换屏|更换(?:手机|电脑|iPhone|iPad|MacBook)?(?:屏幕|玻璃)|屏幕更换|玻璃更换|LCD|OLED|触摸屏)/i.test(supportingText),
+    /(?:更换(?:手机|电脑|iPhone|iPad|MacBook)?电池|电池更换|换电池)/i.test(supportingText),
+    /(?:更换(?:手机|电脑|MacBook)?键盘|键盘更换|充电口|尾插|排线|摄像头|主板维修)/i.test(supportingText),
+    /(?:维修工作台|拆机维修|维修作业|内配件|维修配件)/i.test(supportingText),
+    /(?:配件批发|配件分销|配件进口|B2B|MOQ|trade account)/i.test(supportingText),
+  ].filter(Boolean).length;
+  const directFactBreadthPoints = Math.min(8, Math.max(0, directFactBreadth - 1) * 2);
   const googleReviewCount = Number(input.evidence?.google_place?.user_ratings_total || 0);
-  const activityPoints = googleReviewCount >= 500 ? 6 : googleReviewCount >= 100 ? 5 : googleReviewCount >= 20 ? 3 : googleReviewCount > 0 ? 1 : 0;
-  const contactPoints = input.phone && input.email ? 4 : input.phone || input.email || input.whatsapp ? 2 : 0;
-  const identityPoints = supporting.some((item) => item.confidence >= 95) ? 4 : supporting.some((item) => item.confidence >= 80) ? 2 : 0;
+  // Review activity is logarithmic: it reflects a verified operating signal,
+  // but is never treated as purchasing capacity.
+  const activityPoints = Math.min(6, Math.round(Math.log2(Math.max(0, googleReviewCount) + 1)));
+  const contactPoints = (input.phone ? 2 : 0) + (input.email ? 2 : 0) + (input.whatsapp ? 1 : 0);
+  const strongestSupportingConfidence = Math.max(0, ...supporting.map((item) => item.confidence));
+  const identityPoints = strongestSupportingConfidence >= 95 ? 4 : strongestSupportingConfidence >= 85 ? 3 : strongestSupportingConfidence >= 75 ? 2 : 0;
   const websiteDirectTargetEvidence = supporting.some((item) => item.channel === "website" && directTargetFactPattern.test(item.fact_zh));
   const googleDirectTargetEvidence = supporting.some((item) => item.channel === "google_maps" && directTargetFactPattern.test(item.fact_zh));
   const completeDirectTargetChain = verifiedProductFit
@@ -619,10 +634,11 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     // evidence factor, not a score per branch or an inferred purchase volume.
     const commercialPoints = verifiedProcurement ? 12 : verifiedBuyingRole ? 9 : verifiedChain ? 7 : verifiedHighVolumeRepair ? 5 : 0;
     const riskPenalty = Math.min(12, Math.round(metric("contradiction_risk") * 0.12));
-    const evidenceDerivedScore = 56 + sourcePoints + serviceDepthPoints + activityPoints
-      + contactPoints + identityPoints + commercialPoints - riskPenalty;
+    const evidenceDerivedScore = 56 + sourcePoints + serviceDepthPoints + directFactBreadthPoints
+      + activityPoints + contactPoints + identityPoints + commercialPoints - riskPenalty;
     const singleSourceEvidenceCeiling = Math.max(60, Math.min(82,
       58 + Math.min(16, directServiceSignalCount * 4)
+      + Math.min(6, directFactBreadthPoints)
       + Math.min(4, activityPoints)
       + Math.min(3, contactPoints)
       + Math.min(4, identityPoints)
@@ -650,6 +666,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     // in the B band when the evidence actually supports it.
     const singleSourceCeiling = Math.max(60, Math.min(82,
       58 + Math.min(16, directServiceSignalCount * 4)
+      + Math.min(6, directFactBreadthPoints)
       + Math.min(4, activityPoints)
       + Math.min(3, contactPoints)
       + Math.min(4, identityPoints)

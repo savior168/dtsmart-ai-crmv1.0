@@ -18,7 +18,6 @@ import {
   FileSpreadsheet,
   Globe2,
   LoaderCircle,
-  MapPin,
   Paperclip,
   Plus,
   Search,
@@ -35,6 +34,7 @@ import {
   DialogActions as SharedDialogActions,
 } from "@/components/ui/app-dialog";
 import { AppPagination } from "@/components/ui/app-pagination";
+import { GoogleMapsIcon } from "@/components/ui/google-maps-icon";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
@@ -228,7 +228,7 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
     if (!target) return <span className="text-slate-400">—</span>;
     const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
     const isWebsite = field === "website";
-    return <a href={url} target="_blank" rel="noreferrer" title={isWebsite ? "打开企业官网" : "打开 Google Maps"} className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"><span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-rose-50 text-rose-600 group-hover:bg-rose-100"}`}>{isWebsite ? <Globe2 size={14} strokeWidth={2.25}/> : <MapPin size={14} strokeWidth={2.25}/>}</span><span className="truncate group-hover:underline">{target}</span></a>;
+    return <a href={url} target="_blank" rel="noreferrer" title={isWebsite ? "打开企业官网" : "打开 Google Maps"} className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"><span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-blue-50 group-hover:bg-blue-100"}`}>{isWebsite ? <Globe2 size={14} strokeWidth={2.25}/> : <GoogleMapsIcon size={16}/>}</span><span className="truncate group-hover:underline">{target}</span></a>;
   }
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
 }
@@ -699,6 +699,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   重置
                 </button>
               </div>
+              {screeningTaskIds.length ? <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-blue-700">已按 {screeningTaskIds.length} 个 AI 筛选批次加载当前“{tabLabels[tab]}”中的 {count ?? 0} 家客户；同批客户若已进入其他公海页签，请切换到对应页签查看。</p> : null}
               <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
                 {role === "ADMIN" ? <div ref={newRef} className="relative">
                   <button type="button" onClick={() => setNewOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">

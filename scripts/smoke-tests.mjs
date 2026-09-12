@@ -60,7 +60,7 @@ assert.doesNotMatch(analysis, /add\(input\.website\);\s*add\(input\.google_url\)
 
 const reuseCache = read("lib/ai/reuse-cache.ts");
 assert.match(reuseCache, /reusableEvidenceIsTraceable/, "跨用户复用结果必须先验证可追溯中文证据");
-assert.match(reuseCache, /AI_RULE_VERSION\s*=\s*"2026\.09\.12\.02"/, "规则版本升级后旧版无证据或未完整写回的缓存必须失效");
+assert.match(reuseCache, /AI_RULE_VERSION\s*=\s*"2026\.09\.12\.03"/, "规则版本升级后旧版无证据或未完整写回的缓存必须失效");
 assert.match(reuseCache, /ai_screening_evidence[\s\S]*source_result_id/, "跨用户复用前必须核验来源结果和真实证据行");
 const taskRunner = read("lib/ai/run-customer-analysis.ts");
 assert.match(taskRunner, /automation_status: finalAutomationStatus/, "任务客户必须保存最终自动处理状态");
@@ -309,7 +309,7 @@ assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单
 assert.match(appShell, /欢迎您，\{profile\.name\}！/, "右上角用户菜单必须只显示当前用户名，不显示角色");
 const aiTaskDetail = read("components/ai-screening/task-detail-view.tsx");
 const aiTaskDetailApi = read("app/api/ai/tasks/[id]/route.ts");
-assert.match(aiTaskDetail, /任务进度[\s\S]*总数 \{formatNumber\(task\?\.total_count\)\}[\s\S]*已处理 \{formatNumber\(processed\)\}[\s\S]*待处理 \{formatNumber\(remaining\)\}/, "任务详情必须在同一卡片清楚展示总数、已处理和待处理数量");
+assert.match(aiTaskDetail, /总数 \/ 已处理 \/ 待处理[\s\S]*\$\{formatNumber\(task\?\.total_count\)\} \/ \$\{formatNumber\(processed\)\} \/ \$\{formatNumber\(remaining\)\}/, "任务详情必须按同一口径同一行展示总数、已处理和待处理数量");
 assert.match(aiTaskDetail, /创建人 \$\{task\?\.creator\?\.name/, "任务详情必须显示真实创建人");
 assert.doesNotMatch(aiTaskDetail, /仅云端执行/, "任务详情不得展示冗余的固定云端执行策略标签");
 assert.match(aiTaskDetailApi, /creator: creator\.data/, "任务详情接口必须返回任务创建人");
