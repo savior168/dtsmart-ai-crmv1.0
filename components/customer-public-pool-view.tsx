@@ -227,7 +227,8 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
     const target = String(raw || "").trim();
     if (!target) return <span className="text-slate-400">—</span>;
     const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
-    return <a href={url} target="_blank" rel="noreferrer" className="inline-flex max-w-40 items-center gap-1 truncate text-blue-600 hover:underline">{field === "website" ? <Globe2 size={13}/> : <MapPin size={13}/>}<span className="truncate">{target}</span></a>;
+    const isWebsite = field === "website";
+    return <a href={url} target="_blank" rel="noreferrer" title={isWebsite ? "打开企业官网" : "打开 Google Maps"} className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"><span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-rose-50 text-rose-600 group-hover:bg-rose-100"}`}>{isWebsite ? <Globe2 size={14} strokeWidth={2.25}/> : <MapPin size={14} strokeWidth={2.25}/>}</span><span className="truncate group-hover:underline">{target}</span></a>;
   }
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
 }
