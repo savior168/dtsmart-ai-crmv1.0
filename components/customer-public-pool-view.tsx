@@ -107,7 +107,7 @@ type PoolFilterOptions = {
   owners: Owner[];
   sources: Array<{ value: string; label: string }>;
   batches: Array<{ value: string; label: string; source: string }>;
-  screening_tasks: Array<{ value: string; label: string }>;
+  screening_tasks: Array<{ value: string; label: string; customer_count: number }>;
 };
 type Renewal = {
   id: string;
@@ -627,8 +627,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   </button>
                   {screeningTaskOpen ? <div role="listbox" aria-label="AI筛选批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
                     <button type="button" onClick={() => { setScreeningTaskIds([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空AI筛选批次</button>
-                    {filterOptions.screening_tasks.map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
-                    {!filterOptions.screening_tasks.length ? <p className="px-2 py-3 text-sm text-slate-400">暂无可用AI筛选批次</p> : null}
+                    {filterOptions.screening_tasks.map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words"><span className="block">{item.label}</span><small className="mt-0.5 block text-slate-400">当前页签关联 {item.customer_count} 条客户</small></span></label>)}
+                    {!filterOptions.screening_tasks.length ? <p className="px-2 py-3 text-sm text-slate-400">当前公海页签没有关联的AI筛选批次</p> : null}
                   </div> : null}
                 </div> : null}
                 <select

@@ -106,9 +106,9 @@ export async function GET(request: NextRequest) {
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionRows: Array<{ industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
+      const optionRows: Array<{ id: string; industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
-        let optionQuery = admin.from("customers").select("industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
+        let optionQuery = admin.from("customers").select("id,industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
         if (tab === "claimed") {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
@@ -166,8 +166,24 @@ export async function GET(request: NextRequest) {
           const value = String(item.source_batch || "").trim();
           return [value, { value, label: value, source: sourceGroup(item.source) }];
         })).values()].sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
-      const screeningTasks = account.role === "ADMIN"
-        ? await admin.from("ai_screening_tasks").select("id,task_number,name,created_at").order("created_at", { ascending: false }).range(0, 499)
+      // A screening batch is useful only when it actually contains a customer
+      // in the current public-pool tab.  Derive it from task items rather than
+      // results: failed/unfinished items still belong to the real task scope.
+      const screeningTaskCounts = new Map<string, number>();
+      if (account.role === "ADMIN") {
+        const optionCustomerIds = optionRows.map((item) => item.id);
+        for (let offset = 0; offset < optionCustomerIds.length; offset += 500) {
+          const taskItems = await admin.from("ai_screening_task_items").select("task_id,customer_id").in("customer_id", optionCustomerIds.slice(offset, offset + 500));
+          if (taskItems.error) throw taskItems.error;
+          for (const item of taskItems.data || []) {
+            if (!item.task_id) continue;
+            screeningTaskCounts.set(item.task_id, (screeningTaskCounts.get(item.task_id) || 0) + 1);
+          }
+        }
+      }
+      const screeningTaskIds = [...screeningTaskCounts.keys()];
+      const screeningTasks = screeningTaskIds.length
+        ? await admin.from("ai_screening_tasks").select("id,task_number,name,created_at").in("id", screeningTaskIds).order("created_at", { ascending: false })
         : { data: [], error: null };
       if (screeningTasks.error) throw screeningTasks.error;
       return NextResponse.json({
@@ -179,7 +195,7 @@ export async function GET(request: NextRequest) {
           { value: "MANUAL", label: "手动新增" },
         ].filter((option) => optionRows.some((item) => sourceGroup(item.source) === option.value)),
         batches,
-        screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}` })),
+        screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}`, customer_count: screeningTaskCounts.get(task.id) || 0 })),
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
@@ -241,10 +257,10 @@ export async function GET(request: NextRequest) {
       if (account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可按AI筛选批次查询" }, { status: 403 });
       const matchedCustomerIds = new Set<string>();
       for (let offset = 0; ; offset += 1000) {
-        const taskResults = await admin.from("ai_screening_results").select("customer_id").in("task_id", aiTaskIds).range(offset, offset + 999);
-        if (taskResults.error) throw taskResults.error;
-        for (const result of taskResults.data || []) if (result.customer_id) matchedCustomerIds.add(String(result.customer_id));
-        if ((taskResults.data || []).length < 1000) break;
+        const taskItems = await admin.from("ai_screening_task_items").select("customer_id").in("task_id", aiTaskIds).range(offset, offset + 999);
+        if (taskItems.error) throw taskItems.error;
+        for (const item of taskItems.data || []) if (item.customer_id) matchedCustomerIds.add(String(item.customer_id));
+        if ((taskItems.data || []).length < 1000) break;
       }
       const ids = [...matchedCustomerIds];
       if (!ids.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize, role: account.role, can_assign: false, can_handover: false });
