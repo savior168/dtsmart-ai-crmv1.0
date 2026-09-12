@@ -8,7 +8,6 @@ import {
   Download,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   FileSpreadsheet,
   Globe2,
   MapPin,
@@ -67,18 +66,20 @@ const href = (value?: string | null) => {
 function Website({ value, kind = "website" }: { value?: string | null; kind?: "website" | "map" }) {
   const target = href(value);
   if (!target) return <span className="text-slate-400">-</span>;
+  const isWebsite = kind === "website";
   return (
     <a
       href={target}
       target="_blank"
       rel="noreferrer"
       onClick={(e) => e.stopPropagation()}
-      title={value || ""}
-      className="inline-flex max-w-36 items-center gap-1.5 truncate text-blue-600 hover:underline"
+      title={isWebsite ? "打开企业官网" : "打开 Google Maps"}
+      className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"
     >
-      {kind === "map" ? <MapPin size={13} className="shrink-0" /> : <Globe2 size={13} className="shrink-0" />}
-      <span className="truncate">{value}</span>
-      <ExternalLink size={12} className="shrink-0" />
+      <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-rose-50 text-rose-600 group-hover:bg-rose-100"}`}>
+        {isWebsite ? <Globe2 size={14} strokeWidth={2.25} /> : <MapPin size={14} strokeWidth={2.25} />}
+      </span>
+      <span className="truncate group-hover:underline">{value}</span>
     </a>
   );
 }
