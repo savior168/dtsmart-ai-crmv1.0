@@ -75,10 +75,24 @@ export async function GET(request: NextRequest) {
       const normalized = countryInfo(item.name || "");
       return { name: normalized.code || normalized.name, count: Number(item.count || 0), percentage: percentage(Number(item.count || 0), totalCustomers) };
     });
+    // Funnel statuses are intentionally counted directly: they are mutually
+    // meaningful business states, not the remainder after later-stage totals.
+    // These indexed count queries preserve the selected scope and filters.
+    const statusCount = (status: "UNCLAIMED" | "RELEASED") => {
+      let query = supabase.from("customers").select("id", { count: "exact", head: true })
+        .is("deleted_at", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
+      if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+      if (country) query = query.ilike("country", `%${country.replace(/[\\%_]/g, "\\\\$&")}%`);
+      if (aiLevel) query = query.eq("ai_level", aiLevel);
+      return query;
+    };
+    const [newCustomersResult, invalidCustomersResult] = await Promise.all([statusCount("UNCLAIMED"), statusCount("RELEASED")]);
+    if (newCustomersResult.error) throw new Error(newCustomersResult.error.message);
+    if (invalidCustomersResult.error) throw new Error(invalidCustomersResult.error.message);
     const funnelRows = [
-      { label: "新客户", value: Math.max(0, totalCustomers - Number(totals.intentions || 0) - Number(totals.quotes || 0) - Number(totals.deals || 0)) },
+      { label: "新客户", value: Number(newCustomersResult.count || 0) },
       { label: "意向客户", value: Number(totals.intentions || 0) }, { label: "报价中", value: Number(totals.quotes || 0) },
-      { label: "成交客户", value: Number(totals.deals || 0) }, { label: "无效客户", value: 0 },
+      { label: "成交客户", value: Number(totals.deals || 0) }, { label: "无效客户", value: Number(invalidCustomersResult.count || 0) },
     ];
     const activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || "") }));
 

@@ -167,24 +167,12 @@ export async function GET(request: NextRequest) {
           const value = String(item.source_batch || "").trim();
           return [value, { value, label: value, source: sourceGroup(item.source) }];
         })).values()].sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
-      // A screening batch is useful only when it actually contains a customer
-      // in the current public-pool tab.  Derive it from task items rather than
-      // results: failed/unfinished items still belong to the real task scope.
-      const screeningTaskCounts = new Map<string, number>();
-      if (account.role === "ADMIN") {
-        const optionCustomerIds = optionRows.map((item) => item.id);
-        for (let offset = 0; offset < optionCustomerIds.length; offset += 500) {
-          const taskItems = await admin.from("ai_screening_task_items").select("task_id,customer_id").in("customer_id", optionCustomerIds.slice(offset, offset + 500));
-          if (taskItems.error) throw taskItems.error;
-          for (const item of taskItems.data || []) {
-            if (!item.task_id) continue;
-            screeningTaskCounts.set(item.task_id, (screeningTaskCounts.get(item.task_id) || 0) + 1);
-          }
-        }
-      }
-      const screeningTaskIds = [...screeningTaskCounts.keys()];
-      const screeningTasks = screeningTaskIds.length
-        ? await admin.from("ai_screening_tasks").select("id,task_number,name,created_at").in("id", screeningTaskIds).order("created_at", { ascending: false })
+      // Administrators must be able to load any real historical screening
+      // batch, including a batch whose customers have since moved between
+      // public-pool tabs.  Restricting this menu to the current tab hid valid
+      // history and made the batch filter appear unavailable.
+      const screeningTasks = account.role === "ADMIN"
+        ? await admin.from("ai_screening_tasks").select("id,task_number,name,total_count,created_at").gt("total_count", 0).order("created_at", { ascending: false }).limit(500)
         : { data: [], error: null };
       if (screeningTasks.error) throw screeningTasks.error;
       return NextResponse.json({
@@ -196,7 +184,7 @@ export async function GET(request: NextRequest) {
           { value: "MANUAL", label: "手动新增" },
         ].filter((option) => optionRows.some((item) => sourceGroup(item.source) === option.value)),
         batches,
-        screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}`, customer_count: screeningTaskCounts.get(task.id) || 0 })),
+        screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}`, customer_count: Number(task.total_count || 0) })),
       }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
