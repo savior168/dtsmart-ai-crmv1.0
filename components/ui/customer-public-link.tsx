@@ -20,11 +20,12 @@ function WebsiteIcon({ size = 14 }: { size?: number }) {
 }
 
 /** Compact, readable link used by customer lists instead of exposing raw URLs. */
-export function CustomerPublicLink({ value, kind }: { value?: string | null; kind: "website" | "map" }) {
+export function CustomerPublicLink({ value, kind, size = "compact" }: { value?: string | null; kind: "website" | "map"; size?: "compact" | "normal" }) {
   const target = urlTarget(value);
   if (!target) return <span className="text-slate-400">—</span>;
   const website = kind === "website";
   const label = website ? "官网" : "Google Maps";
+  const normal = size === "normal";
   return (
     <a
       href={target}
@@ -32,12 +33,14 @@ export function CustomerPublicLink({ value, kind }: { value?: string | null; kin
       rel="noreferrer"
       onClick={(event) => event.stopPropagation()}
       title={`打开${label}：${target}`}
-      className="group inline-flex max-w-44 items-center gap-1 rounded px-0.5 py-0.5 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"
+      className={normal
+        ? "group inline-flex max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+        : "group inline-flex max-w-44 items-center gap-1 rounded px-0.5 py-0.5 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"}
     >
-      <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-        {website ? <WebsiteIcon size={14} /> : <GoogleMapsIcon size={14} />}
+      <span className={`inline-flex shrink-0 items-center justify-center ${normal ? "h-4 w-4" : "h-3.5 w-3.5"}`}>
+        {website ? <WebsiteIcon size={normal ? 16 : 14} /> : <GoogleMapsIcon size={normal ? 16 : 14} />}
       </span>
-      <span className="min-w-0 truncate text-xs text-slate-500 group-hover:text-blue-600">{domainLabel(target)}</span>
+      <span className={`min-w-0 truncate ${normal ? "text-sm font-medium text-slate-700 group-hover:text-blue-700" : "text-xs text-slate-500 group-hover:text-blue-600"}`}>{domainLabel(target)}</span>
     </a>
   );
 }

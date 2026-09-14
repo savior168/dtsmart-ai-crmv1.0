@@ -152,7 +152,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         if (requeue.error) throw requeue.error;
       }
       const queued = await admin.from("ai_screening_tasks").update({
-        status: "QUEUED", cancel_requested: false, pause_started_at: null, completed_at: null, finished_at: null,
+        // beginTask records the paused interval and clears pause_started_at at
+        // the moment cloud execution really resumes. Clearing it here would
+        // make manual-stop time look like task execution time.
+        status: "QUEUED", cancel_requested: false, completed_at: null, finished_at: null,
         error_message: null, execution_mode: AI_CLOUD_EXECUTION_MODE, dispatch_policy: taskDispatchPolicy(),
         active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now,
       }).eq("id", id);

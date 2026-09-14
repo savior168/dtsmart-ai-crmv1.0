@@ -98,6 +98,10 @@ export function evaluateEvidenceGate(input: {
   evidence: PolicyEvidence[];
   hasCriticalConflict: boolean;
   explicitRejectEvidence?: boolean;
+  // Established by the collector, not inferred from a URL in model output.
+  // It requires a reachable, entity-matched official site with a concrete
+  // current service/contact signal.
+  hasCurrentOfficialWebsiteOperatingEvidence?: boolean;
 }): { automationStatus: AutomationStatus; reason: string; sufficient: boolean; evidenceIds: string[] } {
   const usable = input.evidence.filter((item) => item.kind !== "中性" && item.confidence >= 60 && /^https?:\/\//i.test(item.sourceUrl));
   const positive = usable.filter((item) => item.kind === "支持");
@@ -115,8 +119,6 @@ export function evaluateEvidenceGate(input: {
   const strongPositive = positive.some((item) => evidenceStrengthFor(item) === "STRONG_DIRECT");
   const strongNegative = negative.some((item) => evidenceStrengthFor(item) === "STRONG_DIRECT");
   const permanentClosure = negative.some((item) => /(?:永久关闭|永久停业|已永久关闭)/.test(item.fact));
-  const currentOfficialWebsitePositive = positive.some((item) => item.channel === "website"
-    && evidenceStrengthFor(item) === "STRONG_DIRECT");
   // MATCHED already means the collector found a strong exact-name, domain,
   // phone or address chain. Requiring 90 again rejected exact public entities
   // whose raw score was 80-89, even when an official page supplied direct
@@ -138,10 +140,10 @@ export function evaluateEvidenceGate(input: {
   // definitive decision. The 82-point cross-source threshold applies only to
   // indirect/corroborating evidence; applying it to direct facts forced clear
   // repair shops and clear non-target businesses into manual review.
-  // Google closure status can be stale or refer to an old branch. A reachable,
-  // identity-matched official website with direct current business facts takes
-  // precedence; the Google status remains visible as a verification warning.
-  if (permanentClosure && !currentOfficialWebsitePositive && input.decisionConfidence >= 60) {
+  // A Maps closure may concern an old branch, but an arbitrary reachable URL
+  // must never overturn it. Only collector-verified official-site activity
+  // can do so; otherwise the customer is conclusively not a valid lead.
+  if (permanentClosure && !input.hasCurrentOfficialWebsiteOperatingEvidence && input.decisionConfidence >= 60) {
     return { automationStatus: "AUTO_REJECT", reason: "已确认同一企业，且存在明确的非目标或停业证据。", sufficient: true, evidenceIds };
   }
   if (strongPositive && input.score >= 60 && input.industry !== "UNKNOWN" && input.industryConfidence >= 60 && input.decisionConfidence >= 60) {

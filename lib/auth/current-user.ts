@@ -8,7 +8,8 @@ function isTransientReadError(error: unknown) {
   const candidate = error as { code?: unknown; message?: unknown; status?: unknown } | null;
   const code = String(candidate?.code || candidate?.status || "");
   const message = String(candidate?.message || "");
-  return code === "504" || code === "503" || /(?:gateway timeout|temporar(?:y|ily)|timed? out)/i.test(message);
+  return ["502", "503", "504", "525", "529"].includes(code)
+    || /(?:gateway timeout|temporar(?:y|ily)|timed? out|ssl handshake failed|cloudflare)/i.test(message);
 }
 
 async function readCurrentAccount(admin: ReturnType<typeof createAdminClient>, userId: string) {
@@ -20,6 +21,15 @@ async function readCurrentAccount(admin: ReturnType<typeof createAdminClient>, u
   // Supabase/PostgREST may intermittently return a gateway timeout even when
   // the database is healthy. A single read-only retry prevents a transient
   // upstream failure from logging an authenticated user out of the CRM.
+  if (result.error && isTransientReadError(result.error)) result = await read();
+  return result;
+}
+
+async function readRolePermissions(admin: ReturnType<typeof createAdminClient>, role: UserRole) {
+  const read = () => admin.from("role_permission_settings")
+    .select("permission_code,enabled")
+    .eq("role_code", role);
+  let result = await read();
   if (result.error && isTransientReadError(result.error)) result = await read();
   return result;
 }
@@ -56,7 +66,11 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
   const cachedPermissions = permissionCache.get(role);
   let rolePermissions = cachedPermissions && cachedPermissions.expires > Date.now() ? cachedPermissions.values : [];
   if (!rolePermissions.length && role !== "ADMIN") {
-    const { data: permissionRows } = await admin.from("role_permission_settings").select("permission_code,enabled").eq("role_code", role);
+    const { data: permissionRows, error: permissionError } = await readRolePermissions(admin, role);
+    // A database gateway failure is not an authorization decision. Never turn
+    // it into an empty permission set, otherwise an active user is shown the
+    // misleading "no permission" page during a transient upstream outage.
+    if (permissionError) throw new Error("AUTHORIZATION_UNAVAILABLE");
     rolePermissions = (permissionRows || []).filter((item) => item.enabled).map((item) => String(item.permission_code));
     permissionCache.set(role, { expires: Date.now() + 15000, values: rolePermissions });
   }

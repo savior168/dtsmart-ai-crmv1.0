@@ -78,9 +78,15 @@ function contactLinkHref(contact: VerifiedContactDisplayItem) {
   const type = effectiveContactType(contact);
   const value = contact.value_raw.trim();
   if (!value) return "";
-  // Number-like contacts are deliberately copy-only. A user can decide which
-  // local calling/messaging client to use without the browser rewriting it.
-  if (["EMAIL", "PHONE", "WHATSAPP"].includes(type) && !/^https?:\/\//i.test(value)) return "";
+  // A verified WhatsApp number is actionable: keep its evidence link separate
+  // and make the number itself open the conversation. The wa.me endpoint only
+  // accepts international digits, without a leading plus or punctuation.
+  if (type === "WHATSAPP" && !/^https?:\/\//i.test(value)) {
+    const digits = String(contact.value_normalized || value).trim().replace(/^00/, "").replace(/\D/g, "");
+    return digits.length >= 7 ? `https://wa.me/${digits}` : "";
+  }
+  // Phone and email stay copy-only; no local client is assumed by the browser.
+  if (["EMAIL", "PHONE"].includes(type) && !/^https?:\/\//i.test(value)) return "";
   if (["WEBSITE", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN", "TIKTOK", "YOUTUBE"].includes(type)) return ensureUrl(value);
   return /^https?:\/\//i.test(value) ? value : "";
 }

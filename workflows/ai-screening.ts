@@ -11,8 +11,11 @@ type WorkflowInput = {
 };
 
 function isTransientFetchFailure(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "");
-  return /(?:fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT)/i.test(message);
+  const candidate = error && typeof error === "object" ? error as { message?: unknown; code?: unknown; status?: unknown } : null;
+  const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
+  const code = String(candidate?.code || candidate?.status || "");
+  return ["502", "503", "504", "525", "529"].includes(code)
+    || /(?:fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|error code 52[59]|cloudflare)/i.test(message);
 }
 
 async function withTransientFetchRetry<T>(operation: () => PromiseLike<T>, attempts = 4): Promise<T> {
@@ -40,9 +43,25 @@ async function beginTask(taskId: string) {
   "use step";
   const admin = createAdminClient();
   const now = new Date().toISOString();
-  // elapsed_ms already contains previous active intervals after pause/retry.
-  // Always start a fresh interval here to avoid counting old time twice.
-  const updated = await withTransientFetchRetry(() => admin.from("ai_screening_tasks").update({ status: "RUNNING", started_at: now, finished_at: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "PENDING", "RUNNING"]));
+  const current = await withTransientFetchRetry(() => admin.from("ai_screening_tasks")
+    .select("started_at,pause_started_at,paused_duration_ms")
+    .eq("id", taskId)
+    .single());
+  if (current.error || !current.data) throw current.error || new Error("TASK_NOT_FOUND");
+  // A cloud recovery continues the same task. Keep the first real execution
+  // time so the task duration cannot reset when a temporary upstream outage
+  // causes a new workflow run to take over.
+  const pauseStarted = current.data.pause_started_at ? new Date(current.data.pause_started_at).getTime() : NaN;
+  const pausedDuration = Number(current.data.paused_duration_ms || 0)
+    + (Number.isFinite(pauseStarted) ? Math.max(0, Date.now() - pauseStarted) : 0);
+  const updated = await withTransientFetchRetry(() => admin.from("ai_screening_tasks").update({
+    status: "RUNNING",
+    started_at: current.data.started_at || now,
+    pause_started_at: null,
+    paused_duration_ms: pausedDuration,
+    finished_at: null,
+    updated_at: now,
+  }).eq("id", taskId).in("status", ["QUEUED", "PENDING", "RUNNING"]));
   if (updated.error) throw updated.error;
 }
 
@@ -91,6 +110,32 @@ async function nextPendingItems(taskId: string, limit: number) {
     throw error;
   }
   return (data || []).map((item) => item.id);
+}
+
+async function pauseForTransientRecovery(taskId: string, error: unknown) {
+  "use step";
+  const admin = createAdminClient();
+  const current = await withTransientFetchRetry(() => admin.from("ai_screening_tasks")
+    .select("status,elapsed_ms,started_at")
+    .eq("id", taskId)
+    .single());
+  if (current.error || !current.data || !["RUNNING", "PAUSING"].includes(String(current.data.status))) return;
+  const now = new Date();
+  const started = current.data.started_at ? new Date(current.data.started_at).getTime() : NaN;
+  const elapsedMs = Number(current.data.elapsed_ms || 0)
+    + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
+  const message = error instanceof Error ? error.message : String(error || "");
+  const updated = await withTransientFetchRetry(() => admin.from("ai_screening_tasks").update({
+    status: "QUEUED",
+    started_at: null,
+    pause_started_at: now.toISOString(),
+    elapsed_ms: elapsedMs,
+    active_executor: null,
+    executor_heartbeat_at: null,
+    dispatch_error: `上游连接暂时不可用，正在自动恢复：${message}`.slice(0, 1000),
+    updated_at: now.toISOString(),
+  }).eq("id", taskId).in("status", ["RUNNING", "PAUSING"]));
+  if (updated.error) throw updated.error;
 }
 
 async function hasPendingItems(taskId: string) {
@@ -225,6 +270,25 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     // Supabase/PostgREST failures are plain objects rather than Error
     // instances. Normalize them so the task page and runtime logs retain the
     // actual database code/message instead of the unhelpful generic text.
+    if (isTransientFetchFailure(error)) {
+      // Do not falsely mark a customer-analysis task as failed merely because
+      // the Supabase gateway is briefly unavailable. Persist elapsed active
+      // time before releasing the executor so automatic recovery excludes the
+      // waiting interval from the user-visible task duration.
+      console.warn("[ai-screening] transient upstream outage; pausing task for safe recovery", {
+        taskId: input.taskId,
+        message: error instanceof Error ? error.message : String(error || ""),
+      });
+      try {
+        await pauseForTransientRecovery(input.taskId, error);
+      } catch (pauseError) {
+        // If the database itself is unreachable, leave recovery to the
+        // stalled-task watchdog instead of turning a transient outage into a
+        // terminal workflow failure.
+        console.error("[ai-screening] could not persist transient recovery pause", pauseError);
+      }
+      return { status: "RETRY_PENDING" };
+    }
     const normalized = normalizeError(error, { stage: "TASK" });
     const message = `${normalized.error_code}：${normalized.error_message}`;
     await failTask(input.taskId, message);

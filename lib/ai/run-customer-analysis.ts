@@ -605,6 +605,35 @@ function sourceUrlMatchesRecord(sourceUrl: string, record: ChannelRecord) {
 }
 
 /**
+ * A live URL alone is not proof that a permanently closed Maps listing has
+ * reopened. To overturn that negative signal, the page must be the same
+ * verified official entity, contain direct target-business evidence, and
+ * expose a current contact channel for that business.
+ */
+function hasVerifiedOfficialWebsiteOperatingEvidence(
+  customer: CustomerRow,
+  records: ChannelRecord[],
+  policyEvidence: PolicyEvidence[],
+) {
+  const officialHosts = new Set(records
+    .filter((record) => record.channel === "website" && websiteRecordMatchesEntity(customer, records, record))
+    .map((record) => websiteHost((record.evidence as WebsiteEvidence).url))
+    .filter(Boolean));
+  if (!officialHosts.size) return false;
+  const hasContact = records.some((record) => {
+    if (record.channel !== "website" || !websiteRecordMatchesEntity(customer, records, record)) return false;
+    const website = record.evidence as WebsiteEvidence;
+    return Boolean(website.phones.length || website.emails.length || website.whatsapps?.length);
+  });
+  return hasContact && policyEvidence.some((item) => item.kind === "支持"
+    && item.channel === "website"
+    && item.confidence >= 60
+    && item.strength === "STRONG_DIRECT"
+    && hasDirectTargetBusinessEvidence(item.fact)
+    && officialHosts.has(websiteHost(item.sourceUrl)));
+}
+
+/**
  * Recover evidence provenance from collected records rather than trusting a
  * free-form model label. This runs before normalization and the policy gate,
  * preventing direct official-site facts from being treated as weak hints.
@@ -2487,6 +2516,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     const policyEvidence = policyEvidenceFromAnalysis(analysis);
     let primaryIndustry = primaryIndustryFor(analysis.industry_type);
     const explicitRejectEvidence = policyEvidence.some((item) => item.kind === "矛盾" && isDirectNonTargetBusinessEvidence(item.fact));
+    const hasCurrentOfficialWebsiteOperatingEvidence = hasVerifiedOfficialWebsiteOperatingEvidence(customer, records, policyEvidence);
     const gate = evaluateEvidenceGate({
       strategy: input.strategy, identityStatus: identity.status, identityConfidence: identity.confidence,
       industryConfidence: analysis.confidence_score, decisionConfidence: analysis.confidence_score,
@@ -2495,18 +2525,16 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       // mixed business. Only unresolved identity conflicts block automation.
       hasCriticalConflict: identity.status === "CONFLICTED",
       explicitRejectEvidence,
+      hasCurrentOfficialWebsiteOperatingEvidence,
     });
     const hasVerifiedDirectTarget = policyEvidence.some((item) => item.kind === "支持"
       && item.confidence >= 60 && item.strength === "STRONG_DIRECT"
       && hasDirectTargetBusinessEvidence(item.fact));
     const hasPermanentClosureEvidence = policyEvidence.some((item) => item.kind === "矛盾"
       && /永久关闭|永久停业|已永久关闭/.test(item.fact));
-    const hasCurrentOfficialWebsiteTarget = policyEvidence.some((item) => item.kind === "支持"
-      && item.channel === "website" && item.confidence >= 60
-      && item.strength === "STRONG_DIRECT" && hasDirectTargetBusinessEvidence(item.fact));
     const acceptedIdentity = ["MATCHED", "LIKELY_MATCHED"].includes(identity.status);
     if (acceptedIdentity && identity.confidence >= 70 && hasVerifiedDirectTarget
-        && (!hasPermanentClosureEvidence || hasCurrentOfficialWebsiteTarget)
+        && (!hasPermanentClosureEvidence || hasCurrentOfficialWebsiteOperatingEvidence)
         && primaryIndustry !== "UNKNOWN" && Number(analysis.ai_score || 0) >= 60
         && analysis.confidence_score >= 60 && gate.automationStatus !== "AUTO_DEVELOP") {
       // This is an internal consistency failure, not a business conclusion.

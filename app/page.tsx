@@ -1,8 +1,8 @@
 import { CrmDashboard } from "@/components/crm-dashboard";
 import { WarehouseDashboard } from "@/components/warehouse-dashboard";
-import { requirePermission } from "@/lib/auth/current-user";
+import { protectPage } from "@/lib/auth/page-access";
 
 export default async function Home() {
-  const { account } = await requirePermission("dashboard.view");
+  const { account } = await protectPage("dashboard.view");
   return account.role === "WAREHOUSE" ? <WarehouseDashboard /> : <CrmDashboard />;
 }
