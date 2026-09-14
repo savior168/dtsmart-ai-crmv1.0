@@ -80,7 +80,7 @@ export function formatDuration(value: number | null | undefined) {
   return `${seconds}秒`;
 }
 
-export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number | null; started_at?: string | null; finished_at?: string | null; completed_at?: string | null; updated_at?: string | null }, now = Date.now()) {
+export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number | null; started_at?: string | null; finished_at?: string | null; completed_at?: string | null; updated_at?: string | null; executor_heartbeat_at?: string | null }, now = Date.now()) {
   const accumulated = Number(task.elapsed_ms || 0);
   const terminalAt = task.finished_at || task.completed_at;
   if (terminalAt) {
@@ -91,7 +91,12 @@ export function effectiveElapsedMs(task: { status?: string; elapsed_ms?: number 
   }
   if (["RUNNING", "PAUSING"].includes(String(task.status)) && task.started_at) {
     const started = new Date(task.started_at).getTime();
-    return accumulated + (Number.isFinite(started) ? Math.max(0, now - started) : 0);
+    const heartbeat = new Date(task.executor_heartbeat_at || "").getTime();
+    // A crashed or isolated workflow can leave the database status as RUNNING
+    // until the cloud watchdog takes it over. Do not count that recovery wait
+    // as execution time just because the stale status has not been reconciled.
+    const activeUntil = Number.isFinite(heartbeat) && now - heartbeat > 120_000 ? heartbeat : now;
+    return accumulated + (Number.isFinite(started) ? Math.max(0, activeUntil - started) : 0);
   }
   if (accumulated > 0 || !task.started_at) return accumulated;
   const started = new Date(task.started_at).getTime();

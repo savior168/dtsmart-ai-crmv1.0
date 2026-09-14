@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, settingsView, strategiesView] = await Promise.all([
+const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, settingsView, strategiesView, taskUi] = await Promise.all([
   read("supabase/migrations/202609110002_ai_screening_vercel_only.sql"),
   read("workflows/ai-screening.ts"),
   read("lib/ai/task-dispatch.ts"),
@@ -13,6 +13,7 @@ const [migration, workflow, dispatcher, runner, createRoute, retryRoute, setting
   read("components/ai-screening/create-task-view.tsx"),
   read("components/ai-screening/settings-view.tsx"),
   read("app/ai-screening/strategies/page.tsx"),
+  read("components/ai-screening/ui.tsx"),
 ]);
 
 assert.match(migration, /ai_default_dispatch_policy = 'VERCEL_ONLY'/, "system default must be cloud-only");
@@ -23,6 +24,7 @@ assert.match(workflow, /claim_ai_screening_task_item[\s\S]+p_executor_type: "VER
 assert.doesNotMatch(workflow, /handoffWorkflowFailureToLocal|LOCAL_NODE/, "workflow must never hand failures to a local worker");
 assert.match(workflow, /pauseForTransientRecovery[\s\S]+status: "QUEUED"[\s\S]+started_at: null[\s\S]+elapsed_ms: elapsedMs/, "temporary upstream outages must pause rather than inflate effective task duration");
 assert.match(workflow, /pause_started_at: null[\s\S]+paused_duration_ms: pausedDuration/, "cloud recovery must record paused time separately before resuming execution");
+assert.match(taskUi, /now - heartbeat > 120_000[\s\S]+activeUntil - started/, "a stale workflow heartbeat must stop task duration from counting recovery wait");
 assert.match(dispatcher, /execution_mode: AI_CLOUD_EXECUTION_MODE[\s\S]+dispatch_policy: AI_CLOUD_DISPATCH_POLICY/, "all dispatches must persist cloud-only execution");
 assert.match(dispatcher, /rescueStalledCloudTasks[\s\S]+VERCEL_DISPATCHING/, "stalled cloud recovery must remain available without duplicate runs");
 assert.doesNotMatch(dispatcher, /has_healthy_ai_worker|LOCAL_NODE|LOCAL_FIRST|VERCEL_FIRST/, "dispatcher must not depend on a local worker");
