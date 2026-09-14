@@ -917,7 +917,7 @@ export function CustomersView() {
                     {fields.map((key) => (
                       <td
                         key={key}
-                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} max-w-48 overflow-hidden px-3 py-3 align-middle`}
+                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} max-w-48 overflow-hidden px-3 py-3 align-top`}
                         title={
                           key === "company_name" ? row.company_name : undefined
                         }
