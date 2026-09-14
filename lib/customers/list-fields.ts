@@ -13,7 +13,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "protection", label: "保护期剩余" },
   { key: "last_contact_time", label: "最近跟进" },
   { key: "owner", label: "归属人" },
-  { key: "phone", label: "联系电话" },
+  { key: "phone", label: "原始联系方式" },
   { key: "whatsapp", label: "WhatsApp" },
   { key: "email", label: "邮箱" },
   { key: "website_email", label: "官网邮箱" },
@@ -28,23 +28,22 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
 
 export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "company_name",
-  "country",
   "ai_score",
-  "industry",
+  "country",
   "status",
   "followup_status",
   "last_contact_time",
   "phone",
-  "whatsapp",
-  "email",
+  "verified_contacts",
   "website",
   "google_url",
+  "social",
   "protection",
   "source",
   "updated_at",
 ];
 
-export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v9";
+export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v10";
 
 const columnKeys = new Set<CustomerListColumn>(CUSTOMER_LIST_COLUMNS.map((column) => column.key));
 
@@ -63,6 +62,5 @@ export function customerListSortField(key: CustomerListColumn) {
   if (key === "owner") return "owner_id";
   if (key === "protection") return "updated_at";
   if (key === "followup_status") return "followup_status";
-  if (key === "social") return "updated_at";
   return key;
 }

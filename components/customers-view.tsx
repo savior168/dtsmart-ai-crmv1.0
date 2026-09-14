@@ -27,6 +27,8 @@ import { AppTabs } from "@/components/ui/app-tabs";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
+import { CustomerContactSummary } from "@/components/customer-contact-summary";
+import { CustomerSocialSummary } from "@/components/customer-social-summary";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
@@ -941,6 +943,12 @@ export function CustomersView() {
                           >
                             {stageLabels[row.status] || row.status}
                           </span>
+                        ) : key === "phone" ? (
+                          <CustomerContactSummary customer={row} source="original" />
+                        ) : key === "verified_contacts" ? (
+                          <CustomerContactSummary customer={row} source="ai" />
+                        ) : key === "social" ? (
+                          <CustomerSocialSummary customer={row} />
                         ) : key === "website" ? (
                           <CustomerPublicLink value={row.website} kind="website" />
                         ) : key === "google_url" ? (

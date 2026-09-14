@@ -39,6 +39,7 @@ export type Customer = {
   ai_status?: AiStatus | null;
   website_email?: string | null;
   website_phone?: string | null;
+  verified_contacts?: Array<{ type?: string | null; value_raw?: string | null; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null }> | null;
   business_relevance?: string | null;
   customer_value?: string | null;
   followup_suggestion?: string | null;

@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
     // pending or all explicitly so an omitted parameter is never ambiguous.
     const aiStatus = request.nextUrl.searchParams.get("ai_status") || "done";
     const aiFailed = request.nextUrl.searchParams.get("ai_failed") === "true";
-    const sort = request.nextUrl.searchParams.get("sort") || "created_at";
+    const sort = request.nextUrl.searchParams.get("sort") || "updated_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
     if (options === "industries") {
@@ -276,11 +276,18 @@ export async function GET(request: NextRequest) {
       : [];
     if (!idsOnly && responseData.length) {
       const userIds = [...new Set(responseData.flatMap((item) => [String(item.created_by || ""), String(item.owner_id || "")]).filter(Boolean))];
-      const [followupRows, creators] = await Promise.all([
+      const [followupRows, creators, verifiedContacts] = await Promise.all([
         supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id)),
         userIds.length ? createAdminClient().from("users").select("id,name,email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
+        createAdminClient().from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status").in("customer_id", responseData.map((item) => item.id)).in("verification_status", ["NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }),
       ]);
       const creatorById = new Map((creators.data || []).map((item) => [item.id, item]));
+      const contactsByCustomer = new Map<string, unknown[]>();
+      if (!verifiedContacts.error) for (const contact of verifiedContacts.data || []) {
+        const current = contactsByCustomer.get(contact.customer_id) || [];
+        current.push(contact);
+        contactsByCustomer.set(contact.customer_id, current);
+      }
       // Customer ownership is independent from the optional follow-up join.
       // If an older database does not expose followup_status, exports must not
       // silently lose the customer's real owner and creator.
@@ -288,6 +295,7 @@ export async function GET(request: NextRequest) {
         ...item,
         creator: creatorById.get(String(item.created_by || "")) || null,
         owner: creatorById.get(String(item.owner_id || "")) || null,
+        verified_contacts: contactsByCustomer.get(item.id) || [],
       }));
       if (!followupRows.error) {
         const byId = new Map((followupRows.data || []).map((item) => [item.id, item.followup_status || "WAITING_CONTACT"]));
