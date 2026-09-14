@@ -44,6 +44,7 @@ import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
 import { customerSourceLabel } from "@/lib/customers/source-display";
+import { displayCustomerName } from "@/lib/customer-display";
 import {
   CUSTOMER_LIST_COLUMNS,
   CUSTOMER_LIST_DEFAULT_COLUMNS,
@@ -307,7 +308,7 @@ function SocialLinks({ row }: { row: PoolRow }) {
   return <div className="flex flex-wrap gap-1.5">{visible.map(([kind, label, raw], index) => { const text = String(raw).trim(); const url = /^https?:\/\//i.test(text) ? text : `https://${text}`; return <a key={`${kind}:${text}:${index}`} href={url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} title={`打开${label}`} aria-label={`打开${label}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"><PlatformIcon kind={kind}/></a>; })}</div>;
 }
 function poolText(row: PoolRow, key: CustomerListColumn) {
-  if (key === "company_name") return row.company_name || "—";
+  if (key === "company_name") return displayCustomerName(row.company_name);
   if (key === "contact_name") return row.contact_name || "—";
   if (key === "country") return row.country || "—";
   if (key === "industry") return customerIndustryDisplay(row).text;
@@ -337,7 +338,7 @@ function PoolScore({ row }: { row: PoolRow }) {
 function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{row.company_name}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
+    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;

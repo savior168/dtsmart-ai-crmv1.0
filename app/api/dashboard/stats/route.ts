@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     // These indexed count queries preserve the selected scope and filters.
     const statusCount = (status: "UNCLAIMED" | "RELEASED") => {
       let query = supabase.from("customers").select("id", { count: "exact", head: true })
-        .is("deleted_at", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
+        .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
       if (country) query = query.ilike("country", `%${country.replace(/[\\%_]/g, "\\\\$&")}%`);
       if (aiLevel) query = query.eq("ai_level", aiLevel);

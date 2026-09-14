@@ -39,6 +39,7 @@ import {
 } from "@/lib/customers/list-fields";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { customerSourceLabel } from "@/lib/customers/source-display";
+import { displayCustomerName } from "@/lib/customer-display";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -936,12 +937,12 @@ export function CustomersView() {
                         key={key}
                         className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} overflow-hidden px-3 py-3 align-top`}
                         title={
-                          key === "company_name" ? row.company_name : undefined
+                          key === "company_name" ? displayCustomerName(row.company_name) : undefined
                         }
                       >
                         {key === "company_name" ? (
                           <span className="block truncate font-medium text-blue-600">
-                            {row.company_name}
+                            {displayCustomerName(row.company_name)}
                             <small className={`block truncate text-xs font-normal ${customerIndustryDisplay(row).verified ? "text-emerald-600" : "text-slate-500"}`} title={customerIndustryDisplay(row).title}>
                               {customerIndustryDisplay(row).verified ? "AI核验：" : "原始类别："}{customerIndustryDisplay(row).text}
                             </small>

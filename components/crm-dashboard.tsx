@@ -103,32 +103,40 @@ function relativeTime(value: string) {
   return new Date(value).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
-function DonutChart({ rows, total }: { rows: GradeRow[]; total: number }) {
+function scopedHref(path: string, scopeUserId: string) {
+  if (!scopeUserId) return path;
+  const [pathname, query = ""] = path.split("?");
+  const params = new URLSearchParams(query);
+  params.set("user_id", scopeUserId);
+  return `${pathname}?${params.toString()}`;
+}
+
+function DonutChart({ rows, total, scopeUserId }: { rows: GradeRow[]; total: number; scopeUserId: string }) {
   const router = useRouter();
   const hasData = rows.some((item) => item.count > 0);
   let cursor = 0;
   const gradient = hasData ? rows.map((item) => { const start = cursor; cursor += item.percentage; return `${gradeColors[item.grade] || "#94a3b8"} ${start}% ${cursor}%`; }).join(",") : "#e2e8f0 0 100%";
-  function openGrade(grade: string) { router.push(grade === "未筛选" ? "/ai-screening" : `/customers?ai_level=${encodeURIComponent(grade)}`); }
+  function openGrade(grade: string) { router.push(scopedHref(grade === "未筛选" ? "/ai-screening" : `/customers?ai_level=${encodeURIComponent(grade)}`, scopeUserId)); }
   return <button type="button" onClick={() => openGrade(rows.find((item) => item.count > 0)?.grade || "未筛选")} className="relative h-[182px] w-[182px] shrink-0 rounded-full transition hover:scale-[1.02]" style={{ background: `conic-gradient(from -90deg,${gradient})` }} aria-label="AI筛选分布图，点击查看客户">
     <span className="absolute inset-[34px] rounded-full bg-white shadow-inner" />
     <span className="pointer-events-none absolute inset-0 grid place-items-center text-center"><span><small className="block text-xs text-slate-500">总客户数</small><b className="mt-1 block text-xl">{number(total)}</b></span></span>
   </button>;
 }
 
-function funnelHref(label: string) {
-  if (label === "新客户") return "/customers?status=UNCLAIMED";
-  if (label === "意向客户") return "/customers?status=CLAIMED";
-  if (label === "报价中") return "/customers?status=QUOTE";
-  if (label === "成交客户") return "/customers?status=DEAL";
-  if (label === "无效客户") return "/customers?status=RELEASED";
-  return "/customers";
+function funnelHref(label: string, scopeUserId: string) {
+  if (label === "新客户") return scopedHref("/customers?status=UNCLAIMED", scopeUserId);
+  if (label === "意向客户") return scopedHref("/customers?status=CLAIMED", scopeUserId);
+  if (label === "报价中") return scopedHref("/customers?status=QUOTE", scopeUserId);
+  if (label === "成交客户") return scopedHref("/customers?status=DEAL", scopeUserId);
+  if (label === "无效客户") return scopedHref("/customers?status=RELEASED", scopeUserId);
+  return scopedHref("/customers", scopeUserId);
 }
 
-function FunnelChart({ rows }: { rows: FunnelRow[] }) {
+function FunnelChart({ rows, scopeUserId }: { rows: FunnelRow[]; scopeUserId: string }) {
   const colors = ["#2563eb", "#2498e9", "#21b8c5", "#45c994", "#f4b51f"];
   return <div className="grid grid-cols-[minmax(180px,1fr)_88px] items-center gap-3 px-5 pb-5 pt-1">
     <div className="flex min-h-[210px] flex-col items-center justify-center" aria-label="销售漏斗图">
-      {rows.map((item, index) => <Link key={item.label} href={funnelHref(item.label)} aria-label={`查看${item.label}客户，共${item.value}条`} title={`点击查看${item.label}：${number(item.value)} 条`} className="dashboard-funnel-layer dashboard-funnel-enter grid h-[42px] place-items-center text-center text-xs font-medium text-white outline-none" style={{ width: `${100 - index * 14}%`, backgroundColor: colors[index], clipPath: "polygon(0 0,100% 0,90% 100%,10% 100%)", animationDelay: `${index * 65}ms` }}>{item.label}</Link>)}
+      {rows.map((item, index) => <Link key={item.label} href={funnelHref(item.label, scopeUserId)} aria-label={`查看${item.label}客户，共${item.value}条`} title={`点击查看${item.label}：${number(item.value)} 条`} className="dashboard-funnel-layer dashboard-funnel-enter grid h-[42px] place-items-center text-center text-xs font-medium text-white outline-none" style={{ width: `${100 - index * 14}%`, backgroundColor: colors[index], clipPath: "polygon(0 0,100% 0,90% 100%,10% 100%)", animationDelay: `${index * 65}ms` }}>{item.label}</Link>)}
     </div>
     <div className="flex min-h-[210px] flex-col justify-center">{rows.map((item) => <div key={item.label} className="flex h-[42px] items-center justify-end whitespace-nowrap text-[11px] text-slate-600"><b className="font-medium text-slate-900">{number(item.value)}</b>（{item.percentage}%）</div>)}</div>
   </div>;
@@ -175,12 +183,12 @@ export function CrmDashboard() {
   }
 
   const cards = data ? [
-    { label: "客户总数", value: data.totals.my_customers, href: "/customers", icon: UsersRound, color: "text-blue-600", background: "bg-blue-50", trend: "当前筛选范围", trendColor: "text-blue-600" },
-    { label: "待AI筛选", value: data.totals.pending_ai, href: "/ai-screening", icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "尚未AI评分", trendColor: "text-violet-600" },
-    { label: "有效客户数", value: data.totals.valid_customers, href: "/customers?target=valid&ai_status=done", icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI评分 ≥ 60", trendColor: "text-emerald-600" },
-    { label: "意向客户", value: data.totals.intentions, href: "/customers?status=CLAIMED", icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已确认潜在需求", trendColor: "text-indigo-600" },
-    { label: "报价中", value: data.totals.quotes, href: "/customers?status=QUOTE", icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "已提供报价", trendColor: "text-sky-600" },
-    { label: "已成交", value: data.totals.deals, href: "/customers?status=DEAL", icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
+    { label: "我的客户", value: data.totals.my_customers, href: scopedHref("/customers", scopeUserId), icon: UsersRound, color: "text-blue-600", background: "bg-blue-50", trend: "当前归属人范围", trendColor: "text-blue-600" },
+    { label: "待AI筛选", value: data.totals.pending_ai, href: scopedHref("/ai-screening/new", scopeUserId), icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "尚未AI评分", trendColor: "text-violet-600" },
+    { label: "有效客户数", value: data.totals.valid_customers, href: scopedHref("/customers?target=valid&ai_status=done", scopeUserId), icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI评分 ≥ 60", trendColor: "text-emerald-600" },
+    { label: "意向客户", value: data.totals.intentions, href: scopedHref("/customers?status=CLAIMED", scopeUserId), icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已确认潜在需求", trendColor: "text-indigo-600" },
+    { label: "报价中", value: data.totals.quotes, href: scopedHref("/customers?status=QUOTE", scopeUserId), icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "已提供报价", trendColor: "text-sky-600" },
+    { label: "已成交", value: data.totals.deals, href: scopedHref("/customers?status=DEAL", scopeUserId), icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
     { label: "今日待跟进", value: data.totals.today_followups, href: "/followups", icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
     { label: "即将保护到期", value: data.totals.expiring_protection, href: "/customers?tab=protection", icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
   ] : [];
@@ -213,8 +221,8 @@ export function CrmDashboard() {
           </section>
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1.05fr_.88fr_1fr]">
-            <article className={`${panelClass} dashboard-reveal min-h-[290px]`}><DashboardHeader title="AI筛选分布" href="/reports" /><div className="flex items-center justify-center gap-6 px-4 pb-5 pt-2"><DonutChart rows={data.distribution} total={data.totals.my_customers} /><div className="min-w-[180px] space-y-1.5">{data.distribution.map((item) => { const pending = item.grade === "未筛选"; return <Link href={pending ? "/ai-screening" : `/customers?ai_level=${item.grade}&ai_status=done`} key={item.grade} title={pending ? "查看待AI筛选客户" : `查看${item.grade}级客户`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-2 py-2 text-xs transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{pending ? "未筛选" : `${item.grade}级（${item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）`}</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></Link>; })}</div></div></article>
-            <article className={`${panelClass} dashboard-reveal min-h-[290px]`} style={{ animationDelay: "130ms" }}><DashboardHeader title="销售漏斗" href="/reports" /><FunnelChart rows={data.funnel} /></article>
+            <article className={`${panelClass} dashboard-reveal min-h-[290px]`}><DashboardHeader title="AI筛选分布" href="/reports" /><div className="flex items-center justify-center gap-6 px-4 pb-5 pt-2"><DonutChart rows={data.distribution} total={data.totals.my_customers} scopeUserId={scopeUserId} /><div className="min-w-[180px] space-y-1.5">{data.distribution.map((item) => { const pending = item.grade === "未筛选"; return <Link href={scopedHref(pending ? "/ai-screening" : `/customers?ai_level=${item.grade}&ai_status=done`, scopeUserId)} key={item.grade} title={pending ? "查看待AI筛选客户" : `查看${item.grade}级客户`} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-2 py-2 text-xs transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"><i className="h-2.5 w-2.5 rounded-full" style={{ background: gradeColors[item.grade] }} /><span className="text-slate-600">{pending ? "未筛选" : `${item.grade}级（${item.grade === "A" ? "高潜力" : item.grade === "B" ? "有潜力" : item.grade === "C" ? "待观察" : "低潜力"}）`}</span><b className="whitespace-nowrap font-medium">{number(item.count)}（{item.percentage}%）</b></Link>; })}</div></div></article>
+            <article className={`${panelClass} dashboard-reveal min-h-[290px]`} style={{ animationDelay: "130ms" }}><DashboardHeader title="销售漏斗" href="/reports" /><FunnelChart rows={data.funnel} scopeUserId={scopeUserId} /></article>
             <article className={`${panelClass} dashboard-reveal min-h-[290px]`} style={{ animationDelay: "190ms" }}><DashboardHeader title="国家分布TOP10" href="/reports" /><div className="space-y-2 px-4 pb-4">{data.country_top.length ? data.country_top.map((item, index) => { const countryDetails = countryInfo(item.name); return <div key={item.name} title={`${countryDetails.name}：${number(item.count)} 条客户`} className="dashboard-country-row grid grid-cols-[92px_1fr_78px] items-center gap-2 text-xs" style={{ animationDelay: `${index * 48}ms` }}><span className="flex min-w-0 items-center gap-2 text-slate-700"><CountryFlag code={countryDetails.code} name={countryDetails.name} /><span className="truncate">{countryDetails.name}</span></span><span className="h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="dashboard-bar-grow block h-full rounded-full bg-blue-600" style={{ width: `${Math.max(3, item.percentage)}%`, animationDelay: `${index * 48 + 50}ms` }} /></span><span className="text-right text-slate-500">{number(item.count)}（{item.percentage}%）</span></div>; }) : <div className="grid h-48 place-items-center text-sm text-slate-400">暂无国家分布数据</div>}</div></article>
             <article className={`${panelClass} dashboard-reveal flex h-[290px] min-h-0 flex-col overflow-hidden`} style={{ animationDelay: "250ms" }}><div className="flex h-12 shrink-0 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold">保护到期提醒<Info size={14} className="text-slate-400" /></h3><Link href="/customers/protection" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="min-h-0 flex-1 divide-y divide-slate-100 px-4">{data.protections.length ? visibleProtections.map((item) => <Link key={item.id} href={`/customers/${item.customer_id}`} className="flex h-[48px] items-center justify-between gap-3 text-xs hover:text-blue-700"><span className="min-w-0"><b className="block truncate font-medium text-slate-700">{item.customer_name}</b><span className="mt-0.5 block text-slate-500"><CountryLabel country={item.country} /></span></span><span className="shrink-0 text-right"><b className="block text-red-500">{item.days} 天后到期</b><time className="mt-0.5 block text-slate-500">{new Date(item.expires_at).toLocaleDateString("zh-CN")}</time></span></Link>) : <div className="grid h-full place-items-center text-sm text-slate-400"><div className="text-center"><ShieldCheck className="mx-auto mb-2 text-slate-300" /><p>7天内没有保护到期客户</p></div></div>}</div>{data.protections.length ? <footer className="flex h-[46px] shrink-0 items-center justify-between border-t border-slate-100 px-4 text-xs text-slate-500"><span>共 {data.protections.length} 条</span><div className="flex items-center gap-2"><button type="button" aria-label="上一页保护到期提醒" disabled={protectionPage <= 1} onClick={() => setProtectionPage((page) => Math.max(1, page - 1))} className="grid h-7 w-7 place-items-center rounded border border-slate-200 text-slate-600 disabled:opacity-35"><ChevronLeft size={14} /></button><span>{protectionPage} / {protectionPages}</span><button type="button" aria-label="下一页保护到期提醒" disabled={protectionPage >= protectionPages} onClick={() => setProtectionPage((page) => Math.min(protectionPages, page + 1))} className="grid h-7 w-7 place-items-center rounded border border-slate-200 text-slate-600 disabled:opacity-35"><ChevronRight size={14} /></button></div></footer> : null}</article>
           </section>

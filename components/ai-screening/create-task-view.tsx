@@ -41,13 +41,19 @@ export function CreateTaskView() {
   const searchParams = useSearchParams();
   const initialReverify = searchParams.get("analysis_selection_mode") === "REVERIFY";
   const initialTaskId = String(searchParams.get("screening_task_id") || "").trim();
+  const initialOwnerId = String(searchParams.get("owner_id") || "").trim();
+  const initialFilters = (): Filters => ({
+    ...emptyFilters,
+    owner_id: initialOwnerId,
+    ...(initialReverify ? { analysis_selection_mode: "REVERIFY" as const, screening_task_ids: initialTaskId ? [initialTaskId] : [] } : {}),
+  });
   const [name, setName] = useState("");
   const [scheduleType, setScheduleType] = useState<"now" | "scheduled">("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [costMode, setCostMode] = useState<"ADAPTIVE" | "FREE_ONLY">("ADAPTIVE");
   const [taskCostLimit, setTaskCostLimit] = useState("");
-  const [draft, setDraft] = useState<Filters>(() => initialReverify ? { ...emptyFilters, analysis_selection_mode: "REVERIFY", screening_task_ids: initialTaskId ? [initialTaskId] : [] } : emptyFilters);
-  const [filters, setFilters] = useState<Filters>(() => initialReverify ? { ...emptyFilters, analysis_selection_mode: "REVERIFY", screening_task_ids: initialTaskId ? [initialTaskId] : [] } : emptyFilters);
+  const [draft, setDraft] = useState<Filters>(initialFilters);
+  const [filters, setFilters] = useState<Filters>(initialFilters);
   const [items, setItems] = useState<CustomerRow[]>([]);
   const [queryIds, setQueryIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());

@@ -1,4 +1,5 @@
 import { countryInfo } from "@/lib/countries";
+import { displayCustomerName } from "@/lib/customer-display";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
 import { downloadWorkbook, type WorkbookSheet } from "@/lib/xlsx-export";
 
@@ -64,7 +65,7 @@ function dateTime(value?: string | null, empty = "-") {
 }
 
 export function customerListText(customer: Customer, key: CustomerExportColumn, now = Date.now()) {
-  if (key === "company_name") return customer.company_name || "-";
+  if (key === "company_name") return displayCustomerName(customer.company_name, "-");
   if (key === "contact_name") return customer.contact_name || "-";
   if (key === "country") return countryInfo(customer.country).name;
   if (key === "industry") return customer.industry || customer.category || "其他";
@@ -184,7 +185,7 @@ function expandExportColumns(columns: CustomerExportColumn[]) {
 }
 
 function exportColumnText(customer: Record<string, unknown>, key: CustomerExportColumn) {
-  if (key === "company_name") return exportText(customer.company_name);
+  if (key === "company_name") return exportText(displayCustomerName(customer.company_name, ""));
   if (key === "contact_name") return exportText(customer.contact_name);
   if (key === "country") return countryInfo(customer.country as string | null | undefined).name;
   if (key === "industry") return exportText(customer.industry || customer.category);
@@ -280,7 +281,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
       rows: [
         ["客户名称", "AI核验行业", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据", "原始类别"],
         ...evidenceRows.map((customer) => [
-          exportText(customer.company_name), exportText(customer.industry), exportText(customer.ai_reason), exportText(customer.business_scope), exportText(customer.business_relevance),
+          exportText(displayCustomerName(customer.company_name, "")), exportText(customer.industry), exportText(customer.ai_reason), exportText(customer.business_scope), exportText(customer.business_relevance),
           exportText(customer.customer_value), exportText(customer.followup_suggestion), exportText(customer.company_scale), exportText(customer.company_scale_evidence), exportText(customer.category),
         ]),
       ],
