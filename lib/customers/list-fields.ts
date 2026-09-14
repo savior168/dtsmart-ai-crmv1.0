@@ -30,20 +30,20 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "company_name",
   "ai_score",
   "country",
-  "status",
-  "followup_status",
-  "last_contact_time",
   "phone",
   "verified_contacts",
   "website",
   "google_url",
   "social",
+  "status",
+  "followup_status",
+  "last_contact_time",
   "protection",
   "source",
   "updated_at",
 ];
 
-export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v10";
+export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v11";
 
 const columnKeys = new Set<CustomerListColumn>(CUSTOMER_LIST_COLUMNS.map((column) => column.key));
 
