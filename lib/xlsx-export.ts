@@ -6,6 +6,7 @@ export type WorkbookSheet = {
   widths?: number[];
   wrapColumns?: number[];
   hyperlinkColumns?: number[];
+  externalHyperlinks?: Array<{ row: number; column: number; target: string; tooltip?: string }>;
   internalHyperlinks?: Array<{ row: number; column: number; target: string; tooltip?: string }>;
   headerRows?: number;
 };
@@ -67,6 +68,14 @@ function styleWorksheet(sheet: XLSX.WorkSheet, spec: WorkbookSheet) {
     const cell = sheet[address];
     if (!cell) continue;
     cell.l = { Target: link.target, Tooltip: link.tooltip || "查看AI分析依据" };
+    cell.s = { ...cell.s, font: { color: { rgb: "0563C1" }, underline: true } };
+  }
+
+  for (const link of spec.externalHyperlinks || []) {
+    const address = XLSX.utils.encode_cell({ r: link.row, c: link.column });
+    const cell = sheet[address];
+    if (!cell) continue;
+    cell.l = { Target: link.target, Tooltip: link.tooltip || "打开来源核验" };
     cell.s = { ...cell.s, font: { color: { rgb: "0563C1" }, underline: true } };
   }
 }
