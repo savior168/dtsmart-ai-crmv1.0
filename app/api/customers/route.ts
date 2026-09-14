@@ -99,6 +99,8 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const country = request.nextUrl.searchParams.get("country")?.trim();
+    const fromDate = request.nextUrl.searchParams.get("from")?.trim() || "";
+    const toDate = request.nextUrl.searchParams.get("to")?.trim() || "";
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
@@ -207,6 +209,12 @@ export async function GET(request: NextRequest) {
     // “我的客户”无论按本人、指定归属人还是全部归属人查看，都只包含
     // 当前已经归属的客户。无归属客户只能在客户公海查看与处理。
     query = query.not("owner_id", "is", null);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) query = query.gte("created_at", `${fromDate}T00:00:00.000Z`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+      const exclusive = new Date(`${toDate}T00:00:00.000Z`);
+      exclusive.setUTCDate(exclusive.getUTCDate() + 1);
+      query = query.lt("created_at", exclusive.toISOString());
+    }
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) {

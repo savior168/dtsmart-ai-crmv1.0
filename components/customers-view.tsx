@@ -118,6 +118,8 @@ export function CustomersView() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [industries, setIndustries] = useState<string[]>([]);
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
   const [industryOpen, setIndustryOpen] = useState(false);
@@ -194,6 +196,8 @@ export function CustomersView() {
     setWorkspace(tab === "protection" || tab === "conflicts" ? tab : "list");
     // 旧链接中的独立国家条件自动并入统一关键词框，保证历史收藏链接仍可用。
     setSearch(params.get("search") || params.get("country") || "");
+    setFromDate(params.get("from") || "");
+    setToDate(params.get("to") || "");
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
     setStatus(params.get("status") || "");
@@ -239,6 +243,8 @@ export function CustomersView() {
       sort,
       direction,
     });
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
     if (scopeUserId) params.set("user_id", scopeUserId);
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
@@ -260,6 +266,8 @@ export function CustomersView() {
     page,
     pageSize,
     search,
+    fromDate,
+    toDate,
     industries,
     sourceBatches,
     status,
@@ -336,6 +344,7 @@ export function CustomersView() {
     () =>
       [
         search ? { key: "search", label: `关键词：${search}` } : null,
+        fromDate || toDate ? { key: "date", label: `创建日期：${fromDate || "不限"} 至 ${toDate || "不限"}` } : null,
         industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
         sourceBatches.length ? { key: "sourceBatches", label: `导入批次：已选 ${sourceBatches.length} 个` } : null,
         level ? { key: "level", label: `AI等级：${level}` } : null,
@@ -355,10 +364,11 @@ export function CustomersView() {
         aiFilter !== "done" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "全部"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
+    [search, fromDate, toDate, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
+    if (key === "date") { setFromDate(""); setToDate(""); }
     if (key === "industry") setIndustries([]);
     if (key === "sourceBatches") setSourceBatches([]);
     if (key === "level") setLevel("");
@@ -371,6 +381,8 @@ export function CustomersView() {
   }
   function reset() {
     setSearch("");
+    setFromDate("");
+    setToDate("");
     setIndustries([]);
     setSourceBatches([]);
     setStatus("");
