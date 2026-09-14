@@ -5,6 +5,7 @@ import { createWorkbookFile } from "../lib/xlsx-export.ts";
 
 const customerExport = await readFile(new URL("../lib/customer-export.ts", import.meta.url), "utf8");
 assert.match(customerExport, /name: "AI分析依据"/, "导出必须保留AI依据页");
+assert.match(customerExport, /"company_name", "ai_score", "industry", "country"/, "默认导出必须在AI评分后显示所属行业");
 assert.doesNotMatch(customerExport, /name: "链接与社媒"/, "导出不得再生成链接与社媒子页");
 assert.match(customerExport, /original_phone: "原始电话"/, "导出必须将原始电话单列显示");
 assert.match(customerExport, /original_email: "原始邮箱号"/, "导出必须将原始邮箱单列显示");

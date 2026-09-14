@@ -112,7 +112,7 @@ const CUSTOMER_EXPORT_LABELS: Record<CustomerExportColumn, string> = {
 };
 
 const DEFAULT_EXPORT_COLUMNS: CustomerExportColumn[] = [
-  "company_name", "ai_score", "country", "phone", "verified_contacts", "website", "google_url", "social", "status", "followup_status", "protection", "source", "updated_at",
+  "company_name", "ai_score", "industry", "country", "phone", "verified_contacts", "website", "google_url", "social", "status", "followup_status", "protection", "source", "updated_at",
 ];
 
 type ContactKind = "PHONE" | "WHATSAPP" | "EMAIL";

@@ -73,17 +73,22 @@ export function CreateTaskView() {
     setLoading(true); setError("");
     const [listResponse, idsResponse] = await Promise.all([
       fetch(`/api/ai/customers?${queryString(activeFilters, activePage, pageSize)}`, { cache: "no-store" }),
-      selectAll || !queryIds.length ? fetch(`/api/ai/customers?${queryString(activeFilters, 1, 20, true)}`, { cache: "no-store" }) : null,
+      // The result count must follow the active mode and filters.  Reusing IDs
+      // from the previous mode made the re-verification list show rows while
+      // the header still displayed “current query 0”.
+      fetch(`/api/ai/customers?${queryString(activeFilters, 1, 20, true)}`, { cache: "no-store" }),
     ]);
     const listBody = await listResponse.json().catch(() => ({}));
-    const idsBody = idsResponse ? await idsResponse.json().catch(() => ({})) : null;
+    const idsBody = await idsResponse.json().catch(() => ({}));
     // 切换归属人时，忽略先前请求的迟到结果，避免把旧用户的来源/批次混入当前选择。
     if (sequence !== loadSequence.current) return;
     setLoading(false);
-    if (!listResponse.ok || (idsResponse && !idsResponse.ok)) { setError(listBody.error || idsBody?.error || "待筛选客户查询失败"); return; }
+    if (!listResponse.ok || !idsResponse.ok) { setError(listBody.error || idsBody?.error || "待筛选客户查询失败"); return; }
     setItems(listBody.data || []); setCount(listBody.count || 0); setBatches(listBody.batches || []); setOwners(listBody.owner_options || []); setSourceOptions(listBody.source_options || []); setScreeningTasks(listBody.screening_tasks || []); setCanSelectOwner(Boolean(listBody.can_select_owner)); setScopeLabel(String(listBody.scope_label || "我的待筛选客户")); setAllScopeLabel(String(listBody.all_scope_label || "全部可选客户"));
     if (!activeFilters.owner_id && listBody.selected_owner_id && String(listBody.selected_owner_id) !== "all") setDraft((current) => current.owner_id ? current : { ...current, owner_id: String(listBody.selected_owner_id) });
-    if (idsBody) { const ids = idsBody.ids || []; setQueryIds(ids); if (selectAll) setSelected(new Set(ids)); }
+    const ids = idsBody.ids || [];
+    setQueryIds(ids);
+    if (selectAll) setSelected(new Set(ids));
   }, [filters, page, pageSize, queryIds.length]);
   useEffect(() => { void load(true); /* initial query intentionally selects every eligible customer */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (queryIds.length) void load(false); }, [page, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -114,7 +119,7 @@ export function CreateTaskView() {
 
   return <main className="ai-create-task-page min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="创建AI筛选任务" description="设置任务并选择客户，系统会根据证据复杂度自动选择分析深度。" actions={<Link href="/ai-screening" className={button}>返回任务中心</Link>}/>
-    <section className={panel}><div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务基本信息</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">任务名称用于后续查询、费用统计和报告归档；所有任务由 Vercel 云端 Workflow 执行。</p></div><div className="grid gap-3 p-4 lg:grid-cols-[minmax(420px,1.4fr)_minmax(360px,1fr)]"><label className="space-y-[5px]"><span className="block text-sm font-medium">任务名称</span><input className={`${input} w-full`} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：西班牙8月新客户智能分析" maxLength={80}/></label><div className="space-y-[5px]"><span className="block text-sm font-medium">执行时间</span><div className={`grid gap-3 ${scheduleType === "scheduled" ? "grid-cols-[120px_1fr]" : "grid-cols-[160px]"}`}><select className={`${input} w-full`} value={scheduleType} onChange={(event) => setScheduleType(event.target.value as "now" | "scheduled")}><option value="now">立即执行</option><option value="scheduled">预约执行</option></select>{scheduleType === "scheduled" ? <label className="relative"><CalendarClock className="absolute left-3 top-[11px] text-slate-400" size={16}/><input type="datetime-local" className={`${input} w-full pl-10`} value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}/></label> : null}</div></div></div></section>
+    <section className={panel}><div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务基本信息</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">任务名称用于后续查询、费用统计和报告归档；所有任务由 Vercel 云端 Workflow 执行。</p></div><div className="grid gap-3 p-4 lg:grid-cols-[minmax(420px,1.4fr)_minmax(360px,1fr)]"><label className="space-y-[5px]"><span className="block text-sm font-medium">任务名称</span><input className={`${input} w-full`} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：西班牙8月新客户智能分析" maxLength={80}/></label><div className="space-y-[5px]"><span className="block text-sm font-medium">执行时间</span><div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[#dfe5ee] bg-[#f7f9fc] p-1"><button type="button" onClick={() => setScheduleType("now")} className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${scheduleType === "now" ? "bg-white text-[#1763e8] shadow-sm" : "text-[#657187] hover:text-[#334158]"}`}>立即执行</button><button type="button" onClick={() => setScheduleType("scheduled")} className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition ${scheduleType === "scheduled" ? "bg-white text-[#1763e8] shadow-sm" : "text-[#657187] hover:text-[#334158]"}`}><CalendarClock size={15}/>预约执行</button></div>{scheduleType === "scheduled" ? <label className="relative min-w-[240px] flex-1"><CalendarClock className="absolute left-3 top-[11px] text-slate-400" size={16}/><input type="datetime-local" aria-label="预约执行时间" className={`${input} w-full pl-10`} value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}/></label> : <span className="text-sm text-[#778397]">任务创建后立即进入队列执行</span>}</div></div></div></section>
 
     <section className={`${panel} overflow-hidden`}>
       <div className="border-b border-[#e8ecf2] px-4 py-[14px]">

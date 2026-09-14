@@ -64,6 +64,7 @@ const defaults = CUSTOMER_LIST_DEFAULT_COLUMNS;
 const listColumnWidth: Partial<Record<ColumnKey, string>> = {
   company_name: "w-48",
   ai_score: "w-20",
+  industry: "w-36",
   country: "w-24",
   phone: "w-44",
   verified_contacts: "w-52",
