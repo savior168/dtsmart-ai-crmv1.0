@@ -197,9 +197,9 @@ const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", C
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
   // Sales action order: identify value first, then use the best contact and
   // public entry points, and finally inspect provenance and freshness.
-  available: ["company_name", "ai_score", "industry", "country", "phone", "verified_contacts", "website", "google_url", "social", "source", "updated_at"],
-  claimed: ["company_name", "ai_score", "industry", "country", "status", "followup_status", "last_contact_time", "owner", "protection"],
-  pending: ["company_name", "ai_score", "industry", "country", "phone", "email", "source", "updated_at"],
+  available: ["company_name", "ai_score", "country", "phone", "verified_contacts", "website", "google_url", "social", "source", "updated_at"],
+  claimed: ["company_name", "ai_score", "country", "status", "followup_status", "last_contact_time", "owner", "protection"],
+  pending: ["company_name", "ai_score", "country", "phone", "email", "source", "updated_at"],
 };
 
 const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {

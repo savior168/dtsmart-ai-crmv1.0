@@ -6,7 +6,6 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "company_name", label: "客户名称" },
   { key: "contact_name", label: "联系人" },
   { key: "country", label: "国家/地区" },
-  { key: "industry", label: "所属行业" },
   { key: "ai_score", label: "AI评分" },
   { key: "status", label: "客户阶段" },
   { key: "followup_status", label: "跟进状态" },
@@ -29,7 +28,6 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
 export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "company_name",
   "ai_score",
-  "industry",
   "country",
   "phone",
   "verified_contacts",
@@ -52,7 +50,9 @@ export function normalizeCustomerListColumns(value: unknown, includeOwner = fals
   const saved = Array.isArray(value)
     ? value.filter((key): key is CustomerListColumn => typeof key === "string" && columnKeys.has(key as CustomerListColumn))
     : [];
-  const normalized = saved.length ? saved : [...CUSTOMER_LIST_DEFAULT_COLUMNS];
+  // 行业已经作为客户名称下的“AI核验/原始类别”说明展示；列表再单列展示会重复。
+  // 同时清理旧版浏览器保存的字段偏好，确保刷新后也不会继续出现重复列。
+  const normalized = (saved.length ? saved : [...CUSTOMER_LIST_DEFAULT_COLUMNS]).filter((key) => key !== "industry");
   const withoutOwner = includeOwner ? normalized : normalized.filter((key) => key !== "owner");
   if (!withoutOwner.includes("protection")) withoutOwner.splice(Math.min(5, withoutOwner.length), 0, "protection");
   if (includeOwner && !withoutOwner.includes("owner")) withoutOwner.push("owner");
