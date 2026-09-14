@@ -78,6 +78,7 @@ assert.match(poolView, /原始邮箱[\s\S]*未提供/, "待认领列表必须明
 assert.match(poolView, /function SocialLinks[\s\S]*Facebook[\s\S]*Instagram[\s\S]*LinkedIn[\s\S]*TikTok/, "待认领列表必须将各平台社媒链接集中到单一紧凑入口列");
 assert.match(poolApi, /facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls/, "客户公海接口必须提供已授权读取的社媒链接字段");
 assert.match(poolApi, /customer_contacts[\s\S]*MATCHED_ORIGINAL[\s\S]*NEW_VERIFIED[\s\S]*CONFLICTING_VERIFIED/, "客户公海接口必须加载结构化联系方式证据，不能只依赖官网汇总字段");
+assert.match(poolApi, /verifiedContacts\.error \? \[\] : verifiedContacts\.data \|\| \[\]/, "结构化联系方式增强读取失败不得阻断客户公海主列表");
 assert.doesNotMatch(poolView, /潜在客户（未认领）|潜在客户（已归属）|提交凭证并认领<\/button>/, "客户公海不得出现阶段和归属状态混用的歧义文案");
 assert.match(poolView, /border-blue-200 bg-blue-50[\s\S]*认领/, "认领按钮必须采用克制的浅色操作样式");
 assert.match(poolDeleteApi, /requireAdmin\(\)[\s\S]*请填写永久删除原因[\s\S]*permanentlyDeleteCustomers/, "公海永久删除必须仅限系统管理员并要求原因");

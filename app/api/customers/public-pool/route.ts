@@ -283,14 +283,17 @@ export async function GET(request: NextRequest) {
     if (owners.error) throw owners.error;
     if (protections.error) throw protections.error;
     if (supplements.error) throw supplements.error;
-    if (verifiedContacts.error) throw verifiedContacts.error;
+    // Contact evidence enriches the list only.  A production schema/cache
+    // rollout that temporarily cannot expose this optional table must never
+    // make the entire customer public pool unavailable.
+    const verifiedContactsData = verifiedContacts.error ? [] : verifiedContacts.data || [];
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
     const protectionByCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
     const supplementsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
     const verifiedContactsByCustomer = new Map<string, Record<string, unknown>[]>();
-    for (const item of verifiedContacts.data || []) verifiedContactsByCustomer.set(item.customer_id, [...(verifiedContactsByCustomer.get(item.customer_id) || []), item]);
+    for (const item of verifiedContactsData) verifiedContactsByCustomer.set(item.customer_id, [...(verifiedContactsByCustomer.get(item.customer_id) || []), item]);
     const directReportIds = new Set(account.role === "SUPERVISOR" ? (directReports.data || []).map((item) => item.id) : []);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
