@@ -32,10 +32,9 @@ export function CustomerPublicLink({ value, kind }: { value?: string | null; kin
       className="group inline-flex max-w-44 items-center gap-1.5 rounded px-0.5 py-0.5 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"
     >
       <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${website ? "text-sky-600" : ""}`}>
-        {website ? <Globe2 size={13} strokeWidth={2.25} /> : <GoogleMapsIcon size={14} />}
+        {website ? <Globe2 size={15} strokeWidth={2.25} /> : <GoogleMapsIcon size={16} />}
       </span>
-      <span className="shrink-0 text-xs font-medium">{label}</span>
-      <span className="min-w-0 truncate text-xs text-slate-400 group-hover:text-blue-600">{domainLabel(target)}</span>
+      <span className="min-w-0 truncate text-xs text-slate-500 group-hover:text-blue-600">{domainLabel(target)}</span>
     </a>
   );
 }
