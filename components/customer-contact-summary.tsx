@@ -68,5 +68,5 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
     const counts = contactKinds.map(([type, label]) => ({ label, count: contacts.filter((item) => item.type === type).length })).filter((item) => item.count);
     return <div><button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-blue-50"><span className="font-medium text-blue-700">AI核验 {contacts.length} 项</span>{counts.map((item) => <span key={item.label} className="rounded bg-white px-1.5 py-0.5">{item.label} {item.count}</span>)}<span className="ml-auto text-blue-600">{expanded ? "收起" : "查看全部"}</span></button>{expanded ? <div className="mt-2 border-l border-blue-100 pl-2">{renderGroups()}</div> : null}</div>;
   }
-  return renderGroups();
+  return <div className="space-y-1">{contacts.map((item, index) => renderContact(item, index))}</div>;
 }
