@@ -1,7 +1,7 @@
 "use client";
 
 import { Mail, Phone } from "lucide-react";
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
 
 type VerifiedContact = { type?: string | null; value_raw?: string | null; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null };
@@ -20,6 +20,7 @@ function iconFor(type: ContactKind) { return type === "EMAIL" ? <Mail size={14}/
 
 /** One presentation rule for original and AI-collected contacts in every customer view. */
 export function CustomerContactSummary({ customer, source }: { customer: ContactCustomer; source: "original" | "ai" }) {
+  const [expanded, setExpanded] = useState(false);
   const originals: DisplayContact[] = [
     { label: "电话", value: customer.phone || "未提供", type: "PHONE", icon: iconFor("PHONE"), source: "original" },
     { label: "WhatsApp", value: customer.whatsapp || "未提供", type: "WHATSAPP", icon: iconFor("WHATSAPP"), source: "original" },
@@ -51,10 +52,10 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
     const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, customer.country).replace(/\D/g, "") : "";
     const sourceHref = item.source !== "original" ? item.sourceUrl : null;
     const text = sourceHref
-      ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className="min-w-0 flex-1 break-all leading-5 text-blue-700 hover:underline">{display}</a>
+      ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className="min-w-0 flex-1 break-all whitespace-normal leading-5 text-blue-700 hover:underline">{display}</a>
       : whatsappDigits
-        ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 break-all leading-5 text-[#128C7E] hover:underline">{display}</a>
-        : <span className="min-w-0 flex-1 break-all leading-5">{display}{item.source !== "original" ? <small className="ml-1 text-[10px] text-amber-700">来源页未留存</small> : null}</span>;
+        ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 break-all whitespace-normal leading-5 text-[#128C7E] hover:underline">{display}</a>
+        : <span className="min-w-0 flex-1 break-all whitespace-normal leading-5">{display}{item.source !== "original" ? <small className="ml-1 text-[10px] text-amber-700">来源页未留存</small> : null}</span>;
     return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span>{item.source === "original" ? null : <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>}{text}</span>;
   };
   const contactKinds: Array<[ContactKind, string]> = [["PHONE", "电话"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "邮箱"]];
@@ -65,7 +66,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
   })}</div>;
   if (source === "ai" && contacts.length > 3) {
     const counts = contactKinds.map(([type, label]) => ({ label, count: contacts.filter((item) => item.type === type).length })).filter((item) => item.count);
-    return <details className="group"><summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600 hover:bg-blue-50"><span className="font-medium text-blue-700">AI核验 {contacts.length} 项</span>{counts.map((item) => <span key={item.label} className="rounded bg-white px-1.5 py-0.5">{item.label} {item.count}</span>)}<span className="ml-auto text-blue-600 group-open:hidden">展开</span><span className="ml-auto hidden text-blue-600 group-open:inline">收起</span></summary><div className="mt-2 border-l border-blue-100 pl-2">{renderGroups()}</div></details>;
+    return <div><button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-blue-50"><span className="font-medium text-blue-700">AI核验 {contacts.length} 项</span>{counts.map((item) => <span key={item.label} className="rounded bg-white px-1.5 py-0.5">{item.label} {item.count}</span>)}<span className="ml-auto text-blue-600">{expanded ? "收起" : "查看全部"}</span></button>{expanded ? <div className="mt-2 border-l border-blue-100 pl-2">{renderGroups()}</div> : null}</div>;
   }
   return renderGroups();
 }
