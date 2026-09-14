@@ -1,6 +1,5 @@
 "use client";
 
-import { Globe2 } from "lucide-react";
 import { GoogleMapsIcon } from "@/components/ui/google-maps-icon";
 
 function urlTarget(value?: string | null) {
@@ -16,6 +15,10 @@ function domainLabel(target: string) {
   }
 }
 
+function WebsiteIcon({ size = 14 }: { size?: number }) {
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="28" fill="#B9E6F5" stroke="#1A73E8" strokeWidth="5"/><path d="M4 32h56M32 4c9 7.8 14 17.2 14 28S41 52.2 32 60M32 4c-9 7.8-14 17.2-14 28S23 52.2 32 60" stroke="#1A73E8" strokeWidth="5" strokeLinecap="round"/><path d="M9 18c7.3 5.2 14.9 7.8 23 7.8S47.7 23.2 55 18M9 46c7.3-5.2 14.9-7.8 23-7.8S47.7 40.8 55 46" stroke="#1A73E8" strokeWidth="5" strokeLinecap="round"/></svg>;
+}
+
 /** Compact, readable link used by customer lists instead of exposing raw URLs. */
 export function CustomerPublicLink({ value, kind }: { value?: string | null; kind: "website" | "map" }) {
   const target = urlTarget(value);
@@ -29,10 +32,10 @@ export function CustomerPublicLink({ value, kind }: { value?: string | null; kin
       rel="noreferrer"
       onClick={(event) => event.stopPropagation()}
       title={`打开${label}：${target}`}
-      className="group inline-flex max-w-44 items-center gap-1.5 rounded px-0.5 py-0.5 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"
+      className="group inline-flex max-w-44 items-center gap-1 rounded px-0.5 py-0.5 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"
     >
-      <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${website ? "text-sky-600" : ""}`}>
-        {website ? <Globe2 size={15} strokeWidth={2.25} /> : <GoogleMapsIcon size={16} />}
+      <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+        {website ? <WebsiteIcon size={14} /> : <GoogleMapsIcon size={14} />}
       </span>
       <span className="min-w-0 truncate text-xs text-slate-500 group-hover:text-blue-600">{domainLabel(target)}</span>
     </a>

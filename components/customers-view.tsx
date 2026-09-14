@@ -976,7 +976,7 @@ export function CustomersView() {
                         )}
                       </td>
                     ))}
-                    <td className="sticky right-0 z-10 min-w-44 bg-white px-4 py-3">
+                    <td className="sticky right-0 z-10 min-w-44 align-top bg-white px-4 py-3">
                       <div className="flex items-center gap-1.5 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}
