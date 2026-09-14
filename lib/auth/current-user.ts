@@ -4,6 +4,26 @@ import { normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus,
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
+function isTransientReadError(error: unknown) {
+  const candidate = error as { code?: unknown; message?: unknown; status?: unknown } | null;
+  const code = String(candidate?.code || candidate?.status || "");
+  const message = String(candidate?.message || "");
+  return code === "504" || code === "503" || /(?:gateway timeout|temporar(?:y|ily)|timed? out)/i.test(message);
+}
+
+async function readCurrentAccount(admin: ReturnType<typeof createAdminClient>, userId: string) {
+  const read = () => admin.from("users")
+    .select("id,name,email,role,status,must_change_password,force_logout_at,manager_id")
+    .eq("id", userId)
+    .maybeSingle();
+  let result = await read();
+  // Supabase/PostgREST may intermittently return a gateway timeout even when
+  // the database is healthy. A single read-only retry prevents a transient
+  // upstream failure from logging an authenticated user out of the CRM.
+  if (result.error && isTransientReadError(result.error)) result = await read();
+  return result;
+}
+
 export type CurrentAccount = {
   id: string;
   name: string;
@@ -30,10 +50,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) throw new Error("UNAUTHORIZED");
   const admin = createAdminClient();
-  const { data, error: accountError } = await admin.from("users")
-    .select("id,name,email,role,status,must_change_password,force_logout_at,manager_id")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data, error: accountError } = await readCurrentAccount(admin, user.id);
   if (accountError || !data) throw new Error("ACCOUNT_NOT_FOUND");
   const role = normalizeRole(data.role);
   const cachedPermissions = permissionCache.get(role);
