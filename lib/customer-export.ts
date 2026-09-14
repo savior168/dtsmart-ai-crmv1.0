@@ -1,6 +1,6 @@
 import { countryInfo } from "@/lib/countries";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
-import { downloadWorkbook } from "@/lib/xlsx-export";
+import { downloadWorkbook, type WorkbookSheet } from "@/lib/xlsx-export";
 
 export type CustomerExportColumn =
   | "company_name"
@@ -24,6 +24,11 @@ export type CustomerExportColumn =
   | "social"
   | "source"
   | "updated_at";
+
+export type CustomerWorkbookOptions = {
+  columns?: CustomerExportColumn[];
+  includeOwner?: boolean;
+};
 
 const STAGE_LABELS: Record<CustomerStatus, string> = {
   UNCLAIMED: "待认领",
@@ -87,35 +92,9 @@ export function csvCell(value: unknown) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
 
-// Exports are an audit artifact, not a copy of the visible table.  Keep the
-// business-critical fields in one stable order and render structured values as
-// readable text instead of leaking JSON into Excel.
-export const CUSTOMER_FULL_EXPORT_HEADERS = [
-  "客户名称", "联系人", "国家/地区", "地址", "联系电话", "WhatsApp", "原始邮箱", "官网电话", "官网邮箱",
-  "官网网址", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "其他公开链接",
-  "AI核验行业", "原始类别", "AI等级", "AI评分", "目标判断", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据",
-  "客户阶段", "跟进状态", "当前归属人", "数据来源", "导入批次", "最近联系时间", "创建时间", "更新时间",
-] as const;
-
 function exportText(value: unknown) {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join("；");
   return String(value ?? "").trim() || "-";
-}
-
-export function fullCustomerExportValues(customer: Record<string, unknown>) {
-  const owner = customer.owner && typeof customer.owner === "object"
-    ? (customer.owner as { name?: unknown; email?: unknown }).name || (customer.owner as { email?: unknown }).email
-    : customer.owner_name || customer.owner_id;
-  const target = customer.is_target_customer === true ? "有效目标" : customer.is_target_customer === false ? "无效目标" : "AI未筛选";
-  const score = customer.ai_score == null ? "未筛选" : `${exportText(customer.ai_level)} · ${exportText(customer.ai_score)}`;
-  return [
-    customer.company_name, customer.contact_name, countryInfo(customer.country as string | null | undefined).name, customer.address,
-    formatCustomerPhone(customer.phone as string | null | undefined), formatCustomerPhone(customer.whatsapp as string | null | undefined), customer.email, customer.website_phone, customer.website_email,
-    customer.website, customer.google_url, customer.facebook_url, customer.instagram_url, customer.linkedin_url, customer.tiktok_url, customer.other_public_urls,
-    customer.industry, customer.category, customer.ai_level, score, target, customer.ai_reason, customer.business_scope, customer.business_relevance, customer.customer_value, customer.followup_suggestion, customer.company_scale, customer.company_scale_evidence,
-    STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || customer.status, FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系", owner,
-    customer.source === "EXCEL_IMPORT" ? "Excel导入" : customer.source, customer.source_batch, dateTime(customer.last_contact_time as string | null | undefined, "未跟进"), dateTime(customer.created_at as string | null | undefined), dateTime(customer.updated_at as string | null | undefined),
-  ].map(exportText);
 }
 
 function ownerName(customer: Record<string, unknown>) {
@@ -125,57 +104,164 @@ function ownerName(customer: Record<string, unknown>) {
   return exportText(owner);
 }
 
-function targetText(customer: Record<string, unknown>) {
-  return customer.is_target_customer === true ? "有效目标" : customer.is_target_customer === false ? "无效目标" : "未出目标结论";
+const CUSTOMER_EXPORT_LABELS: Record<CustomerExportColumn, string> = {
+  company_name: "客户名称", contact_name: "联系人", country: "国家/地区", industry: "所属行业", ai_score: "AI评分",
+  status: "客户阶段", followup_status: "跟进状态", protection: "保护期剩余", last_contact_time: "最近跟进", owner: "归属人",
+  phone: "原始联系方式", whatsapp: "WhatsApp", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
+  verified_contacts: "AI采集联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", updated_at: "更新时间",
+};
+
+const DEFAULT_EXPORT_COLUMNS: CustomerExportColumn[] = [
+  "company_name", "ai_score", "country", "phone", "verified_contacts", "website", "google_url", "social", "status", "followup_status", "protection", "source", "updated_at",
+];
+
+type VerifiedContact = { type?: unknown; value_raw?: unknown; verification_status?: unknown };
+type ContactCopyKind = "PHONE" | "WHATSAPP" | "EMAIL";
+
+const COPY_CONTACT_HEADERS: Array<[ContactCopyKind, string]> = [
+  ["PHONE", "电话（复制）"],
+  ["WHATSAPP", "WhatsApp（复制）"],
+  ["EMAIL", "邮箱（复制）"],
+];
+
+function contactCopyValues(customer: Record<string, unknown>, kind: ContactCopyKind) {
+  const values: string[] = [];
+  const add = (value: unknown) => {
+    const raw = String(value || "").trim();
+    if (!raw) return;
+    const display = kind === "EMAIL" ? raw : formatCustomerPhone(raw);
+    const key = kind === "EMAIL" ? raw.toLowerCase() : raw.replace(/\D/g, "") || raw.toLowerCase();
+    if (!values.some((item) => (kind === "EMAIL" ? item.toLowerCase() : item.replace(/\D/g, "") || item.toLowerCase()) === key)) values.push(display);
+  };
+  if (kind === "PHONE") { add(customer.phone); add(customer.website_phone); }
+  if (kind === "WHATSAPP") add(customer.whatsapp);
+  if (kind === "EMAIL") { add(customer.email); add(customer.website_email); }
+  const contacts = Array.isArray(customer.verified_contacts) ? customer.verified_contacts as VerifiedContact[] : [];
+  for (const item of contacts) {
+    if (String(item.type || "").toUpperCase() !== kind || !["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || ""))) continue;
+    add(item.value_raw);
+  }
+  return values.join("\n") || "-";
 }
 
-function scoreText(customer: Record<string, unknown>) {
-  return customer.ai_score == null ? "未筛选" : `${exportText(customer.ai_level)} · ${exportText(customer.ai_score)}`;
+function originalContactsText(customer: Record<string, unknown>) {
+  const contacts = [
+    customer.phone ? `电话：${formatCustomerPhone(String(customer.phone))}` : "",
+    customer.whatsapp ? `WhatsApp：${formatCustomerPhone(String(customer.whatsapp))}` : "",
+    customer.email ? `邮箱：${exportText(customer.email)}` : "",
+  ].filter(Boolean);
+  return contacts.join("\n") || "-";
 }
 
-export function downloadCustomerWorkbook(customers: Array<Record<string, unknown>>, fileName: string) {
+function verifiedContactsText(customer: Record<string, unknown>) {
+  const contacts = Array.isArray(customer.verified_contacts) ? customer.verified_contacts as VerifiedContact[] : [];
+  const grouped: Record<"PHONE" | "WHATSAPP" | "EMAIL", string[]> = { PHONE: [], WHATSAPP: [], EMAIL: [] };
+  const seen = new Set<string>();
+  for (const item of contacts) {
+    const type = String(item.type || "").toUpperCase();
+    const value = String(item.value_raw || "").trim();
+    if (!value || !["PHONE", "WHATSAPP", "EMAIL"].includes(type) || !["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || ""))) continue;
+    const key = `${type}:${value.toLowerCase()}`;
+    if (!seen.has(key)) grouped[type as keyof typeof grouped].push(type === "EMAIL" ? value : formatCustomerPhone(value));
+    seen.add(key);
+  }
+  for (const [type, value] of [["PHONE", customer.website_phone], ["EMAIL", customer.website_email]] as const) {
+    const text = String(value || "").trim();
+    const key = `${type}:${text.toLowerCase()}`;
+    if (text && !seen.has(key)) grouped[type].push(type === "EMAIL" ? text : formatCustomerPhone(text));
+  }
+  const labels: Array<[keyof typeof grouped, string]> = [["PHONE", "电话"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "邮箱"]];
+  return labels.filter(([type]) => grouped[type].length).map(([type, label]) => `${label}：${grouped[type].join("；")}`).join("\n") || "-";
+}
+
+function exportColumnText(customer: Record<string, unknown>, key: CustomerExportColumn) {
+  if (key === "company_name") return exportText(customer.company_name);
+  if (key === "contact_name") return exportText(customer.contact_name);
+  if (key === "country") return countryInfo(customer.country as string | null | undefined).name;
+  if (key === "industry") return exportText(customer.industry || customer.category);
+  // Keep the score as a score. The AI grade is deliberately not exported.
+  if (key === "ai_score") return customer.ai_score == null ? "未分析" : exportText(customer.ai_score);
+  if (key === "status") return STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || exportText(customer.status);
+  if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系";
+  if (key === "protection") return customerProtectionText(customer as Customer);
+  if (key === "last_contact_time") return dateTime(customer.last_contact_time as string | null | undefined, "未跟进");
+  if (key === "owner") return ownerName(customer);
+  if (key === "phone") return originalContactsText(customer);
+  if (key === "whatsapp") return formatCustomerPhone(customer.whatsapp as string | null | undefined);
+  if (key === "email") return exportText(customer.email);
+  if (key === "website_email") return exportText(customer.website_email);
+  if (key === "website_phone") return formatCustomerPhone(customer.website_phone as string | null | undefined);
+  if (key === "verified_contacts") return verifiedContactsText(customer);
+  if (key === "website") return exportText(customer.website);
+  if (key === "google_url") return exportText(customer.google_url);
+  if (key === "social") return exportText([customer.facebook_url, customer.instagram_url, customer.linkedin_url, customer.tiktok_url, ...(Array.isArray(customer.other_public_urls) ? customer.other_public_urls : [])]);
+  if (key === "source") return customer.source === "EXCEL_IMPORT" ? "Excel导入" : exportText(customer.source);
+  if (key === "updated_at") return dateTime(customer.updated_at as string | null | undefined);
+  return "-";
+}
+
+function hasAiEvidence(customer: Record<string, unknown>) {
+  return [customer.ai_reason, customer.business_scope, customer.business_relevance, customer.customer_value, customer.followup_suggestion, customer.company_scale, customer.company_scale_evidence].some((value) => String(value || "").trim());
+}
+
+export function buildCustomerWorkbookSheets(customers: Array<Record<string, unknown>>, options: CustomerWorkbookOptions = {}): WorkbookSheet[] {
   const rows = customers.filter((customer) => Boolean(customer.id || customer.company_name));
-  if (!rows.length) return;
-  const date = new Date().toISOString().slice(0, 10);
-  downloadWorkbook(`${fileName}-${date}.xlsx`, [
+  if (!rows.length) return [];
+  const configured = options.columns?.length ? options.columns : DEFAULT_EXPORT_COLUMNS;
+  const visibleColumns = configured.filter((key, index, all) => (options.includeOwner !== false || key !== "owner") && all.indexOf(key) === index);
+  const scoreIndex = visibleColumns.indexOf("ai_score");
+  const headers = [
+    ...visibleColumns.flatMap((key) => key === "ai_score" ? [CUSTOMER_EXPORT_LABELS[key], "AI依据"] : [CUSTOMER_EXPORT_LABELS[key]]),
+    ...COPY_CONTACT_HEADERS.map(([, label]) => label),
+  ];
+  const evidenceColumn = scoreIndex < 0 ? -1 : scoreIndex + 1;
+  const evidenceRows = rows.filter(hasAiEvidence);
+  const evidenceRowById = new Map(evidenceRows.map((customer, index) => [String(customer.id || customer.company_name), index + 2]));
+  const mainRows = rows.map((customer) => [
+    ...visibleColumns.flatMap((key) => {
+    if (key !== "ai_score") return [exportColumnText(customer, key)];
+    const evidenceRow = evidenceRowById.get(String(customer.id || customer.company_name));
+    return [exportColumnText(customer, key), evidenceRow ? "查看依据" : "-"];
+    }),
+    ...COPY_CONTACT_HEADERS.map(([kind]) => contactCopyValues(customer, kind)),
+  ]);
+  const hyperlinkColumns = visibleColumns.flatMap((key, index) => {
+    const offset = visibleColumns.slice(0, index).filter((item) => item === "ai_score").length;
+    return ["website", "google_url"].includes(key) ? [index + offset] : [];
+  });
+  return [
     {
       name: "客户清单",
-      widths: [26, 14, 16, 18, 18, 24, 18, 10, 10, 14, 14, 14, 16, 14, 16, 22, 20, 20, 20],
+      widths: headers.map((header) => header === "客户名称" ? 28 : ["原始联系方式", "AI采集联系方式"].includes(header) ? 42 : header.endsWith("（复制）") ? 28 : header === "AI依据" ? 14 : 20),
+      wrapColumns: headers.map((header, index) => ["原始联系方式", "AI采集联系方式", "社媒渠道"].includes(header) || header.endsWith("（复制）") ? index : -1).filter((index) => index >= 0),
+      hyperlinkColumns,
+      internalHyperlinks: evidenceColumn < 0 ? [] : rows.flatMap((customer, index) => {
+        const evidenceRow = evidenceRowById.get(String(customer.id || customer.company_name));
+        return evidenceRow ? [{ row: index + 1, column: evidenceColumn, target: `#'AI分析依据'!A${evidenceRow}` }] : [];
+      }),
       rows: [
-        ["客户名称", "国家/地区", "联系人", "联系电话", "WhatsApp", "邮箱", "AI核验行业", "AI等级", "AI评分", "目标判断", "客户阶段", "跟进状态", "当前归属人", "企业规模", "数据来源", "导入批次", "最近联系时间", "创建时间", "更新时间"],
-        ...rows.map((customer) => [
-          exportText(customer.company_name), countryInfo(customer.country as string | null | undefined).name, exportText(customer.contact_name),
-          formatCustomerPhone(customer.phone as string | null | undefined), formatCustomerPhone(customer.whatsapp as string | null | undefined), exportText(customer.email),
-          exportText(customer.industry), exportText(customer.ai_level), scoreText(customer), targetText(customer),
-          STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || exportText(customer.status), FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系",
-          ownerName(customer), exportText(customer.company_scale), customer.source === "EXCEL_IMPORT" ? "Excel导入" : exportText(customer.source), exportText(customer.source_batch),
-          dateTime(customer.last_contact_time as string | null | undefined, "未跟进"), dateTime(customer.created_at as string | null | undefined), dateTime(customer.updated_at as string | null | undefined),
-        ]),
+        headers,
+        ...mainRows,
       ],
     },
     {
-      name: "分析详情",
+      name: "AI分析依据",
       widths: [26, 18, 52, 52, 52, 52, 52, 18, 52, 18],
       wrapColumns: [2, 3, 4, 5, 6, 8],
       rows: [
         ["客户名称", "AI核验行业", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据", "原始类别"],
-        ...rows.map((customer) => [
+        ...evidenceRows.map((customer) => [
           exportText(customer.company_name), exportText(customer.industry), exportText(customer.ai_reason), exportText(customer.business_scope), exportText(customer.business_relevance),
           exportText(customer.customer_value), exportText(customer.followup_suggestion), exportText(customer.company_scale), exportText(customer.company_scale_evidence), exportText(customer.category),
         ]),
       ],
     },
-    {
-      name: "链接与社媒",
-      widths: [26, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
-      hyperlinkColumns: [2, 3, 4, 5, 6, 7, 8],
-      rows: [
-        ["客户名称", "地址", "官网网址", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "其他公开链接", "官网电话", "官网邮箱"],
-        ...rows.map((customer) => [
-          exportText(customer.company_name), exportText(customer.address), exportText(customer.website), exportText(customer.google_url), exportText(customer.facebook_url), exportText(customer.instagram_url),
-          exportText(customer.linkedin_url), exportText(customer.tiktok_url), exportText(customer.other_public_urls), formatCustomerPhone(customer.website_phone as string | null | undefined), exportText(customer.website_email),
-        ]),
-      ],
-    },
-  ]);
+  ];
+}
+
+export function downloadCustomerWorkbook(customers: Array<Record<string, unknown>>, fileName: string, options: CustomerWorkbookOptions = {}) {
+  const sheets = buildCustomerWorkbookSheets(customers, options);
+  if (!sheets.length) return;
+  const date = new Date().toISOString().slice(0, 10);
+  downloadWorkbook(`${fileName}-${date}.xlsx`, sheets);
 }

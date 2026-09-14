@@ -634,7 +634,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         exported.push(...pageRows);
         if (pageRows.length < 100 || exported.length >= Number(body.count || 0)) break;
       }
-      downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `客户公海-${tabLabels[tab]}`);
+      downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `客户公海-${tabLabels[tab]}`, { columns: fields, includeOwner: false });
       setToast(`已导出当前筛选结果 ${exported.length} 条`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导出失败");

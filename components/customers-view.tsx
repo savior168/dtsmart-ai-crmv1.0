@@ -494,7 +494,7 @@ export function CustomersView() {
         currentPage += 1;
         if (!items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
       } while (exportRows.length < total);
-    downloadCustomerWorkbook(exportRows as unknown as Array<Record<string, unknown>>, "客户列表");
+    downloadCustomerWorkbook(exportRows as unknown as Array<Record<string, unknown>>, "客户列表", { columns: fields, includeOwner: canViewAll });
       notify(`已导出当前筛选结果 ${exportRows.length} 条`);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "导出数据失败";
