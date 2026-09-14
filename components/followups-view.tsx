@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, FileDown, LoaderCircle, Search } from "lucide-react";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -17,7 +17,8 @@ const tabs=[{key:"today",label:"今日待办"},{key:"overdue",label:"已逾期"}
 
 export function FollowupsView(){
   const router=useRouter();
-  const [scope,setScope]=useState("today");const [scopeUserId,setScopeUserId]=useState("");const [query,setQuery]=useState("");const [page,setPage]=useState(1);const [pageSize,setPageSize]=useState(20);const [payload,setPayload]=useState<Payload|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState("");
+  const searchParams=useSearchParams();
+  const [scope,setScope]=useState(()=>searchParams.get("scope")||"today");const [scopeUserId,setScopeUserId]=useState(()=>searchParams.get("user_id")||"");const [query,setQuery]=useState("");const [page,setPage]=useState(1);const [pageSize,setPageSize]=useState(20);const [payload,setPayload]=useState<Payload|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState("");
   const load=useCallback(async()=>{setLoading(true);setError("");const params=new URLSearchParams({scope,page:String(page),page_size:String(pageSize)});if(scopeUserId)params.set("user_id",scopeUserId);if(query.trim())params.set("q",query.trim());const response=await fetch(`/api/followups?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));setLoading(false);if(!response.ok){setError(body.error||"跟进数据加载失败");return}setPayload(body)},[page,pageSize,query,scope,scopeUserId]);
   useEffect(()=>{void load()},[load]);
   const exportParams=new URLSearchParams({scope});if(scopeUserId)exportParams.set("user_id",scopeUserId);if(query.trim())exportParams.set("q",query.trim());

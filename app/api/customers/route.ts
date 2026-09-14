@@ -201,7 +201,9 @@ export async function GET(request: NextRequest) {
     query = query.is("deleted_at", null);
     // 客户列表以当前归属为准。客户的创建时间不能决定其是否仍属于
     // 销售员，否则历史客户被重新认领后会从“我的客户”中消失。
-    query = query.neq("status", "RELEASED");
+    // “无效客户”看板需要能够打开与卡片完全相同的 RELEASED 集合；
+    // 其他“我的客户”场景仍默认排除已释放记录。
+    if (status !== "RELEASED") query = query.neq("status", "RELEASED");
     // “我的客户”无论按本人、指定归属人还是全部归属人查看，都只包含
     // 当前已经归属的客户。无归属客户只能在客户公海查看与处理。
     query = query.not("owner_id", "is", null);

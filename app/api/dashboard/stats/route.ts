@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     // Funnel statuses are intentionally counted directly: they are mutually
     // meaningful business states, not the remainder after later-stage totals.
     // These indexed count queries preserve the selected scope and filters.
-    const statusCount = (status: "UNCLAIMED" | "RELEASED") => {
+    const statusCount = (status: "UNCLAIMED" | "CLAIMED" | "RELEASED") => {
       let query = supabase.from("customers").select("id", { count: "exact", head: true })
         .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
@@ -86,19 +86,29 @@ export async function GET(request: NextRequest) {
       if (aiLevel) query = query.eq("ai_level", aiLevel);
       return query;
     };
-    const [newCustomersResult, invalidCustomersResult] = await Promise.all([statusCount("UNCLAIMED"), statusCount("RELEASED")]);
+    let validCustomersQuery = supabase.from("customers").select("id", { count: "exact", head: true })
+      .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString())
+      .eq("ai_screening_done", true).eq("is_target_customer", true);
+    if (scopeUserId) validCustomersQuery = validCustomersQuery.eq("owner_id", scopeUserId);
+    if (country) validCustomersQuery = validCustomersQuery.ilike("country", `%${country.replace(/[\\%_]/g, "\\\\$&")}%`);
+    if (aiLevel) validCustomersQuery = validCustomersQuery.eq("ai_level", aiLevel);
+    const [newCustomersResult, potentialCustomersResult, invalidCustomersResult, validCustomersResult] = await Promise.all([
+      statusCount("UNCLAIMED"), statusCount("CLAIMED"), statusCount("RELEASED"), validCustomersQuery,
+    ]);
     if (newCustomersResult.error) throw new Error(newCustomersResult.error.message);
+    if (potentialCustomersResult.error) throw new Error(potentialCustomersResult.error.message);
     if (invalidCustomersResult.error) throw new Error(invalidCustomersResult.error.message);
+    if (validCustomersResult.error) throw new Error(validCustomersResult.error.message);
     const funnelRows = [
       { label: "新客户", value: Number(newCustomersResult.count || 0) },
-      { label: "意向客户", value: Number(totals.intentions || 0) }, { label: "报价中", value: Number(totals.quotes || 0) },
+      { label: "潜在客户", value: Number(potentialCustomersResult.count || 0) }, { label: "报价中", value: Number(totals.quotes || 0) },
       { label: "成交客户", value: Number(totals.deals || 0) }, { label: "无效客户", value: Number(invalidCustomersResult.count || 0) },
     ];
     const activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || "") }));
 
     return NextResponse.json({
       scope: scopeUserId || "ALL", range: { from: dateKey(fromDate), to: dateKey(toDate) }, filters: overview.filters || { countries: [] },
-      totals: { my_customers: totalCustomers, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(totals.valid_customers || 0), intentions: Number(totals.intentions || 0), today_followups: Number(totals.today_followups || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0) },
+      totals: { my_customers: totalCustomers, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(validCustomersResult.count || 0), intentions: Number(potentialCustomersResult.count || 0), today_followups: Number(totals.today_followups || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0) },
       distribution, funnel: funnelRows.map((item) => ({ ...item, percentage: percentage(item.value, totalCustomers) })), country_top: countryTop,
       protections: overview.protections || [], followups: overview.followups || [], activities,
     }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
