@@ -192,7 +192,7 @@ const formatDate = (value?: string | null) =>
 const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
-  available: ["company_name", "country", "ai_score", "phone", "website", "google_url", "social", "source"],
+  available: ["company_name", "country", "ai_score", "phone", "verified_contacts", "website", "google_url", "social", "source"],
   claimed: ["company_name", "country", "ai_score", "owner", "status", "followup_status", "protection", "last_contact_time"],
   pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
 };
@@ -205,16 +205,18 @@ function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: un
   // A customer without an owner has no protection period.  Ignore a stale
   // browser preference rather than showing a meaningless empty column.
   if (value !== "available") return normalized;
-  const compact = normalized.filter((field) => !["protection", "whatsapp", "email", "website_phone", "website_email", "social"].includes(field));
+  const compact = normalized.filter((field) => !["protection", "whatsapp", "email", "website_phone", "website_email", "social", "verified_contacts"].includes(field));
   const contactIndex = compact.indexOf("phone");
   if (contactIndex < 0) compact.splice(Math.min(3, compact.length), 0, "phone");
+  const originalContactIndex = compact.indexOf("phone");
+  compact.splice(originalContactIndex + 1, 0, "verified_contacts");
   const mapIndex = compact.indexOf("google_url");
   compact.splice(mapIndex < 0 ? compact.length : mapIndex + 1, 0, "social");
   return [...new Set(compact)];
 }
 
 function fieldLabel(field: CustomerListColumn, tab: Tab) {
-  if (tab === "available" && field === "phone") return "联系方式";
+  if (tab === "available" && field === "phone") return "原联系方式";
   return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
 }
 
@@ -226,15 +228,22 @@ function PlatformIcon({ kind }: { kind: "facebook" | "instagram" | "linkedin" | 
   return <Globe2 size={14} strokeWidth={2.2}/>;
 }
 
-function ContactLinks({ row }: { row: PoolRow }) {
+function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai" }) {
   const [copied, setCopied] = useState("");
   type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
   const iconFor = (type: string) => type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> : <Phone size={14}/>;
-  const candidates: DisplayContact[] = [
+  const originals: DisplayContact[] = [
     { label: "原始电话", value: row.phone || "未提供", type: "PHONE", icon: <Phone size={14}/>, source: "original" },
     { label: "原始 WhatsApp", value: row.whatsapp || "未提供", type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" },
     { label: "原始邮箱", value: row.email || "未提供", type: "EMAIL", icon: <Mail size={14}/>, source: "original" },
-    ...(row.verified_contacts || []).filter((contact) => ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type || "").toUpperCase()) && String(contact.value_raw || "").trim()).map((contact): DisplayContact => ({
+  ];
+  const contactKey = (type: string, value: string) => {
+    if (type === "EMAIL") return `${type}:${value.trim().toLowerCase()}`;
+    return `${type}:${normalizePhoneInternational(value, row.country).replace(/\D/g, "") || value.replace(/\D/g, "")}`;
+  };
+  const originalKeys = new Set(originals.filter((item) => item.value !== "未提供").map((item) => contactKey(item.type, item.value)));
+  const collected: DisplayContact[] = [
+    ...(row.verified_contacts || []).filter((contact) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(contact.verification_status || "")) && ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type || "").toUpperCase()) && String(contact.value_raw || "").trim()).map((contact): DisplayContact => ({
       label: `${String(contact.source_channel || "public").toLowerCase() === "website" ? "官网" : String(contact.source_channel || "").toLowerCase() === "google_maps" ? "Google Maps" : "公开来源"}核验${String(contact.type).toUpperCase() === "EMAIL" ? "邮箱" : String(contact.type).toUpperCase() === "WHATSAPP" ? "WhatsApp" : "电话"}`,
       value: String(contact.value_raw).trim(), type: String(contact.type).toUpperCase() as "PHONE" | "EMAIL" | "WHATSAPP", icon: iconFor(String(contact.type).toUpperCase()),
       source: contact.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified",
@@ -245,10 +254,11 @@ function ContactLinks({ row }: { row: PoolRow }) {
   // it visible for older analysis records, while avoiding a second identical
   // row once the structured customer_contacts record is available.
   for (const [label, value, type] of [["官网核验电话", row.website_phone, "PHONE"], ["官网核验邮箱", row.website_email, "EMAIL"]] as const) {
-    if (!value || candidates.some((item) => item.source !== "original" && item.value === value)) continue;
-    candidates.push({ label, value, type, icon: iconFor(type), source: "verified", channel: "website" });
+    if (!value || collected.some((item) => contactKey(item.type, item.value) === contactKey(type, value))) continue;
+    collected.push({ label, value, type, icon: iconFor(type), source: "verified", channel: "website" });
   }
-  const contacts = candidates.filter((item, index, all) => item.source === "original" || all.findIndex((candidate) => `${candidate.source}|${candidate.channel || ""}|${candidate.value}` === `${item.source}|${item.channel || ""}|${item.value}`) === index);
+  const contacts = (source === "original" ? originals : collected)
+    .filter((item, index, all) => source === "original" || (!originalKeys.has(contactKey(item.type, item.value)) && all.findIndex((candidate) => contactKey(candidate.type, candidate.value) === contactKey(item.type, item.value)) === index));
   if (!contacts.length) return <span className="text-slate-400">—</span>;
   return <div className="space-y-1">{contacts.map((item, index) => {
     const muted = item.value === "未提供";
@@ -308,7 +318,8 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;
-  if (field === "phone" && !row.owner_id) return <ContactLinks row={row}/>;
+  if (field === "phone" && !row.owner_id) return <ContactLinks row={row} source="original"/>;
+  if (field === "verified_contacts" && !row.owner_id) return <ContactLinks row={row} source="ai"/>;
   if (field === "social") return <SocialLinks row={row}/>;
   if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
   if (field === "website" || field === "google_url") {
@@ -967,7 +978,7 @@ function PoolTable({
                 />
               </th>
             ) : null}
-            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 w-56 bg-slate-50` : field === "phone" || field === "social" ? "w-48" : field === "country" || field === "ai_score" ? "w-28" : "w-36"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
+            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 w-56 bg-slate-50` : field === "phone" || field === "verified_contacts" || field === "social" ? "w-48" : field === "country" || field === "ai_score" ? "w-28" : "w-36"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
             <th className="sticky right-0 z-30 w-28 bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
           </tr>
         </thead>

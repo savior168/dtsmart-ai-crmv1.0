@@ -70,7 +70,7 @@ assert.match(poolApi, /tab === "available"[\s\S]*eq\("status", "UNCLAIMED"\)[\s\
 assert.match(poolApi, /tab === "claimed"[\s\S]*neq\("status", "UNCLAIMED"\)[\s\S]*not\("owner_id", "is", null\)/, "已认领公海记录必须与待认领客户严格隔离");
 assert.match(poolView, /available: "待认领客户"[\s\S]*claimed: "认领记录"/, "公海页签必须区分可认领数据与历史认领记录");
 assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s\S]*"protection"/, "待认领客户不得因历史列偏好显示无意义的保护期字段");
-assert.match(poolView, /function ContactLinks[\s\S]*原始电话[\s\S]*原始邮箱[\s\S]*官网核验电话[\s\S]*官网核验邮箱/, "待认领列表必须合并显示原始与官网核验联系方式且保留来源区分");
+assert.match(poolView, /function ContactLinks\(\{ row, source \}[\s\S]*"original" \| "ai"[\s\S]*originalKeys[\s\S]*NEW_VERIFIED/, "待认领列表必须分列展示原联系方式与去重后的AI采集联系方式");
 assert.match(poolView, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");
 assert.match(poolView, /normalizePhoneInternational\(item\.value, row\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
 assert.match(poolView, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");

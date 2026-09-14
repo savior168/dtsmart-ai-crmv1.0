@@ -18,6 +18,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "email", label: "邮箱" },
   { key: "website_email", label: "官网邮箱" },
   { key: "website_phone", label: "官网电话" },
+  { key: "verified_contacts", label: "AI采集联系方式" },
   { key: "website", label: "官网" },
   { key: "google_url", label: "Google Maps" },
   { key: "social", label: "社媒" },

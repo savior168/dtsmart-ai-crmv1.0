@@ -18,6 +18,7 @@ export type CustomerExportColumn =
   | "email"
   | "website_email"
   | "website_phone"
+  | "verified_contacts"
   | "website"
   | "google_url"
   | "social"
@@ -74,6 +75,7 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
   if (key === "email") return customer.email || "-";
   if (key === "website_email") return customer.website_email || "-";
   if (key === "website_phone") return customer.website_phone || "-";
+  if (key === "verified_contacts") return "-";
   if (key === "website") return customer.website || "-";
   if (key === "google_url") return customer.google_url || "-";
   if (key === "social") return [customer.facebook_url, customer.instagram_url, customer.linkedin_url, customer.tiktok_url, ...(customer.other_public_urls || [])].filter(Boolean).join("；") || "-";
