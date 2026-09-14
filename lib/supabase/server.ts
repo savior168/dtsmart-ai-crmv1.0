@@ -16,8 +16,15 @@ export async function createClient() {
   return createServerClient(url, key, {
     cookies: {
       getAll: () => cookieStore.getAll(),
-      setAll: (items: Array<{ name: string; value: string; options: CookieOptions }>) =>
-        items.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      setAll: (items: Array<{ name: string; value: string; options: CookieOptions }>) => {
+        try {
+          items.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+        } catch {
+          // Server Components are read-only with respect to cookies. Session
+          // persistence still occurs in Route Handlers; attempting it here
+          // would otherwise fail the entire page render on token refresh.
+        }
+      },
     },
   });
 }
