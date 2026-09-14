@@ -217,6 +217,36 @@ function allowedEvidenceUrls(input: CustomerAnalysisInput) {
   return urls;
 }
 
+/**
+ * Contactability is valuable only when the contact was actually found on a
+ * collected, attributable public source. Imported phone/email values are
+ * locator hints and must never increase a lead score.
+ */
+function verifiedContactabilityPoints(input: CustomerAnalysisInput) {
+  let hasPhone = false;
+  let hasEmail = false;
+  let hasWhatsapp = false;
+  const addWebsiteContacts = (source: CustomerEvidence["website"] | undefined) => {
+    if (!source?.reachable) return;
+    hasPhone ||= Boolean(source.phones?.length);
+    hasEmail ||= Boolean(source.emails?.length);
+    hasWhatsapp ||= Boolean(source.whatsapps?.length);
+    for (const page of source.pages || []) {
+      hasPhone ||= Boolean(page.phones?.length);
+      hasEmail ||= Boolean(page.emails?.length);
+      hasWhatsapp ||= Boolean(page.whatsapps?.length);
+    }
+  };
+  addWebsiteContacts(input.evidence?.website);
+  Object.values(input.evidence?.public_channels || {}).forEach(addWebsiteContacts);
+  const google = input.evidence?.google_place;
+  if (google && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) {
+    hasPhone ||= Boolean(google.phone);
+    hasEmail ||= Boolean(google.emails?.length);
+  }
+  return (hasPhone ? 2 : 0) + (hasEmail ? 2 : 0) + (hasWhatsapp ? 1 : 0);
+}
+
 function translatedGoogleType(value: string) {
   const normalized = value.trim().toLowerCase();
   const translations: Record<string, string> = {
@@ -497,7 +527,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // Review activity is logarithmic: it reflects a verified operating signal,
   // but is never treated as purchasing capacity.
   const activityPoints = Math.min(6, Math.round(Math.log2(Math.max(0, googleReviewCount) + 1)));
-  const contactPoints = (input.phone ? 2 : 0) + (input.email ? 2 : 0) + (input.whatsapp ? 1 : 0);
+  const contactPoints = verifiedContactabilityPoints(input);
   const strongestSupportingConfidence = Math.max(0, ...supporting.map((item) => item.confidence));
   const identityPoints = strongestSupportingConfidence >= 95 ? 4 : strongestSupportingConfidence >= 85 ? 3 : strongestSupportingConfidence >= 75 ? 2 : 0;
   const websiteDirectTargetEvidence = supporting.some((item) => item.channel === "website" && directTargetFactPattern.test(item.fact_zh));

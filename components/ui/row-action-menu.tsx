@@ -1,7 +1,8 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 type RowActionMenuProps = {
   children: ReactNode;
@@ -13,9 +14,13 @@ type RowActionMenuProps = {
 export function RowActionMenu({ children, label = "操作", ariaLabel }: RowActionMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; openUpward: boolean } | null>(null);
   useEffect(() => {
     function closeOnOutside(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
@@ -27,9 +32,36 @@ export function RowActionMenu({ children, label = "操作", ariaLabel }: RowActi
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, []);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const placeMenu = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = Math.max(160, menuRef.current?.offsetWidth || 160);
+      const menuHeight = Math.max(40, menuRef.current?.offsetHeight || 40);
+      const edge = 8;
+      const openUpward = rect.top >= menuHeight + edge;
+      setPosition({
+        top: openUpward ? rect.top - edge : rect.bottom + edge,
+        left: Math.max(edge, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - edge)),
+        openUpward,
+      });
+    };
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    // Capture inner table scrolling too, so the floating panel never lingers
+    // at an old coordinate or becomes clipped by a scroll container.
+    window.addEventListener("scroll", placeMenu, true);
+    return () => {
+      window.removeEventListener("resize", placeMenu);
+      window.removeEventListener("scroll", placeMenu, true);
+    };
+  }, [open]);
   return (
-    <div ref={rootRef} className="relative" onClick={(event) => event.stopPropagation()}>
+    <div ref={rootRef} className="shrink-0" onClick={(event) => event.stopPropagation()}>
       <button
+        ref={triggerRef}
         type="button"
         aria-label={ariaLabel}
         title="更多操作"
@@ -40,7 +72,21 @@ export function RowActionMenu({ children, label = "操作", ariaLabel }: RowActi
         {label}
         <MoreHorizontal size={15} aria-hidden="true" />
       </button>
-      {open ? <div className="absolute bottom-full right-0 z-50 mb-1.5 min-w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">{children}</div> : null}
+      {open && typeof document !== "undefined" ? createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[100] min-w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+          style={position ? {
+            top: position.top,
+            left: position.left,
+            transform: position.openUpward ? "translateY(-100%)" : undefined,
+          } : { visibility: "hidden", left: 0, top: 0 }}
+        >
+          {children}
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }

@@ -1267,11 +1267,21 @@ function deterministicScore(input: {
   const websiteDirectTargetEvidence = matchingRecords.some((record) => record.channel === "website" && directTargetPattern.test(recordTargetText(record)));
   const googleDirectBusinessEvidence = matchingRecords.some((record) => record.channel === "google_maps"
     && verifiedFactLabels(recordTargetText(record)).some((label) => !NON_TARGET_FACT_LABEL.test(label)));
-  const verifiedContacts = input.records.some((record) => {
-    if (record.status !== "COLLECTED" || !record.evidence) return false;
+  let verifiedPhone = false;
+  let verifiedEmail = false;
+  let verifiedWhatsapp = false;
+  for (const record of input.records) {
+    if (record.status !== "COLLECTED" || !record.evidence) continue;
     const evidence = record.evidence as WebsiteEvidence & GooglePlaceEvidence;
-    return Boolean(evidence.phone || evidence.phones?.length || evidence.emails?.length);
-  });
+    const attributable = record.channel === "website"
+      || (record.channel === "google_maps" && ["MATCHED", "LIKELY_MATCHED"].includes(String(evidence.identity_status)))
+      || (record.channel !== "google_maps" && recoveryRecordMatchesEntity(input.customer, input.records, record));
+    if (!attributable) continue;
+    verifiedPhone ||= Boolean(evidence.phone || evidence.phones?.length);
+    verifiedEmail ||= Boolean(evidence.emails?.length);
+    verifiedWhatsapp ||= Boolean(evidence.whatsapps?.length);
+  }
+  const verifiedContacts = verifiedPhone || verifiedEmail || verifiedWhatsapp;
   const reviewCount = Number(input.google?.user_ratings_total || 0);
   const repairOnly = /维修店/.test(input.rule.industry);
   const wholesale = input.rule.industry === "进口商或分销商";
@@ -1300,7 +1310,7 @@ function deterministicScore(input: {
   const reviewActivityValue = Math.min(6, Math.round(Math.log2(Math.max(0, reviewCount) + 1)));
   const activityValue = Math.min(8, reviewActivityValue + (websiteReachable ? 2 : 0));
   const contactValue = verifiedContacts
-    ? (input.customer.phone ? 2 : 0) + (input.customer.email ? 2 : 0) + (input.customer.whatsapp ? 1 : 0)
+    ? (verifiedPhone ? 2 : 0) + (verifiedEmail ? 2 : 0) + (verifiedWhatsapp ? 1 : 0)
     : 0;
   const factBreadthValue = Math.min(8, Math.max(0, directFactBreadth - 1) * 2);
   const multiSourceOperatingBonus = matchingSources >= 2 ? 3 : 0;
