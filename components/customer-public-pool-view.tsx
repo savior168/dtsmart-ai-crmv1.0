@@ -233,7 +233,7 @@ function ContactLinks({ row }: { row: PoolRow }) {
   ];
   const contacts = candidates.filter((item): item is NonNullable<typeof item> => item !== null);
   if (!contacts.length) return <span className="text-slate-400">—</span>;
-  return <div className="space-y-1">{contacts.map((item) => { const verified = item.label.startsWith("官网核验"); return <span key={`${item.label}:${item.value}`} title={`${item.label}：${item.value}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={verified ? "shrink-0 text-emerald-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${verified ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{verified ? "官网" : "原始"}</span><span className="truncate">{item.value}</span></span>; })}</div>;
+  return <div className="space-y-1">{contacts.map((item) => { const verified = item.label.startsWith("官网核验"); return <span key={`${item.label}:${item.value}`} title={`${item.label}：${item.value}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={verified ? "shrink-0 text-emerald-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${verified ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{verified ? "已核验" : "原始"}</span><span className="truncate">{item.value}</span></span>; })}</div>;
 }
 
 function SocialLinks({ row }: { row: PoolRow }) {
