@@ -22,7 +22,7 @@ function iconFor(type: ContactKind) { return type === "EMAIL" ? <Mail size={14}/
 export function CustomerContactSummary({ customer, source }: { customer: ContactCustomer; source: "original" | "ai" }) {
   const [expanded, setExpanded] = useState(false);
   const originals: DisplayContact[] = [
-    { label: "电话", value: customer.phone || "未提供", type: "PHONE", icon: iconFor("PHONE"), source: "original" },
+    { label: "电话", value: customer.phone || "未提供", type: "PHONE", icon: <Phone size={14} className="text-blue-600"/>, source: "original" },
     { label: "WhatsApp", value: customer.whatsapp || "未提供", type: "WHATSAPP", icon: iconFor("WHATSAPP"), source: "original" },
     { label: "邮箱", value: customer.email || "未提供", type: "EMAIL", icon: iconFor("EMAIL"), source: "original" },
   ];
