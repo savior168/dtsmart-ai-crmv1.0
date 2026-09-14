@@ -208,7 +208,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
   const rows = customers.filter((customer) => Boolean(customer.id || customer.company_name));
   if (!rows.length) return [];
   const configured = options.columns?.length ? options.columns : DEFAULT_EXPORT_COLUMNS;
-  const visibleColumns = configured.filter((key, index, all) => (options.includeOwner !== false || key !== "owner") && all.indexOf(key) === index);
+  const visibleColumns = configured.filter((key, index, all) => key !== "last_contact_time" && (options.includeOwner !== false || key !== "owner") && all.indexOf(key) === index);
   const scoreIndex = visibleColumns.indexOf("ai_score");
   const headers = [
     ...visibleColumns.flatMap((key) => key === "ai_score" ? [CUSTOMER_EXPORT_LABELS[key], "AI依据"] : [CUSTOMER_EXPORT_LABELS[key]]),

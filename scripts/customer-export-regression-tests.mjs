@@ -10,7 +10,7 @@ assert.match(customerExport, /"电话（复制）"/, "必须提供电话批量�
 assert.match(customerExport, /"WhatsApp（复制）"/, "必须提供WhatsApp批量复制列");
 assert.match(customerExport, /"邮箱（复制）"/, "必须提供邮箱批量复制列");
 assert.match(customerExport, /if \(key === "ai_score"\) return customer\.ai_score == null \? "未分析" : exportText\(customer\.ai_score\)/, "AI评分必须只导出数值，不得混入AI等级");
-assert.match(customerExport, /options\.includeOwner !== false \|\| key !== "owner"/, "客户公海必须能排除归属人");
+assert.match(customerExport, /key !== "last_contact_time" && \(options\.includeOwner !== false \|\| key !== "owner"\)/, "导出必须排除最近联系时间，并让客户公海排除归属人");
 assert.match(customerExport, /target: `#'AI分析依据'!A\$\{evidenceRow\}`/, "AI依据必须跳转到对应客户的依据行");
 
 const sheets = [
