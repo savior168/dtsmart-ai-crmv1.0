@@ -69,6 +69,10 @@ assert.match(manualStatusRules, /drop trigger if exists quotes_promote_customer_
 assert.match(poolApi, /tab === "available"[\s\S]*eq\("status", "UNCLAIMED"\)[\s\S]*is\("owner_id", null\)/, "待认领公海必须只包含无归属待认领客户");
 assert.match(poolApi, /tab === "claimed"[\s\S]*neq\("status", "UNCLAIMED"\)[\s\S]*not\("owner_id", "is", null\)/, "已认领公海记录必须与待认领客户严格隔离");
 assert.match(poolView, /available: "待认领客户"[\s\S]*claimed: "认领记录"/, "公海页签必须区分可认领数据与历史认领记录");
+assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s\S]*"protection"/, "待认领客户不得因历史列偏好显示无意义的保护期字段");
+assert.match(poolView, /function ContactLinks[\s\S]*原始电话[\s\S]*原始邮箱[\s\S]*官网核验电话[\s\S]*官网核验邮箱/, "待认领列表必须合并显示原始与官网核验联系方式且保留来源区分");
+assert.match(poolView, /function SocialLinks[\s\S]*Facebook[\s\S]*Instagram[\s\S]*LinkedIn[\s\S]*TikTok/, "待认领列表必须将各平台社媒链接集中到单一紧凑入口列");
+assert.match(poolApi, /facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls/, "客户公海接口必须提供已授权读取的社媒链接字段");
 assert.doesNotMatch(poolView, /潜在客户（未认领）|潜在客户（已归属）|提交凭证并认领<\/button>/, "客户公海不得出现阶段和归属状态混用的歧义文案");
 assert.match(poolView, /border-blue-200 bg-blue-50[\s\S]*认领/, "认领按钮必须采用克制的浅色操作样式");
 assert.match(poolDeleteApi, /requireAdmin\(\)[\s\S]*请填写永久删除原因[\s\S]*permanentlyDeleteCustomers/, "公海永久删除必须仅限系统管理员并要求原因");

@@ -16,6 +16,11 @@ type PoolDbRow = Record<string, unknown> & {
   address?: unknown;
   website?: unknown;
   google_url?: unknown;
+  facebook_url?: unknown;
+  instagram_url?: unknown;
+  linkedin_url?: unknown;
+  tiktok_url?: unknown;
+  other_public_urls?: unknown;
 };
 
 function maskPhone(value: unknown) {
@@ -194,7 +199,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,ai_level,ai_score,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -300,6 +305,11 @@ export async function GET(request: NextRequest) {
         address: full ? row.address : maskAddress(row.address),
         website: full ? row.website : null,
         google_url: full ? row.google_url : null,
+        facebook_url: full ? row.facebook_url : null,
+        instagram_url: full ? row.instagram_url : null,
+        linkedin_url: full ? row.linkedin_url : null,
+        tiktok_url: full ? row.tiktok_url : null,
+        other_public_urls: full ? row.other_public_urls : [],
         contact_masked: !full,
         owner: row.owner_id ? ownerById.get(row.owner_id) || null : null,
         creator: row.created_by ? ownerById.get(String(row.created_by)) || null : null,

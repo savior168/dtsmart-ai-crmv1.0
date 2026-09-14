@@ -20,6 +20,7 @@ export type CustomerExportColumn =
   | "website_phone"
   | "website"
   | "google_url"
+  | "social"
   | "source"
   | "updated_at";
 
@@ -75,6 +76,7 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
   if (key === "website_phone") return customer.website_phone || "-";
   if (key === "website") return customer.website || "-";
   if (key === "google_url") return customer.google_url || "-";
+  if (key === "social") return [customer.facebook_url, customer.instagram_url, customer.linkedin_url, customer.tiktok_url, ...(customer.other_public_urls || [])].filter(Boolean).join("；") || "-";
   if (key === "source") return customer.source === "EXCEL_IMPORT" ? "Excel导入" : customer.source || "-";
   return "-";
 }

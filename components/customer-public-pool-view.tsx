@@ -18,7 +18,9 @@ import {
   FileSpreadsheet,
   Globe2,
   LoaderCircle,
+  Mail,
   Paperclip,
+  Phone,
   Plus,
   Search,
   Settings2,
@@ -75,6 +77,11 @@ type PoolRow = {
   website_phone: string | null;
   website: string | null;
   google_url: string | null;
+  facebook_url?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  tiktok_url?: string | null;
+  other_public_urls?: string[] | null;
   ai_level: string | null;
   ai_score: number | null;
   ai_screening_done?: boolean | null;
@@ -182,10 +189,62 @@ const formatDate = (value?: string | null) =>
 const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
-  available: ["company_name", "country", "ai_score", "phone", "email", "website", "google_url", "source"],
+  available: ["company_name", "country", "ai_score", "phone", "website", "google_url", "social", "source"],
   claimed: ["company_name", "country", "ai_score", "owner", "status", "followup_status", "protection", "last_contact_time"],
   pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
 };
+
+function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: unknown) {
+  const defaults = POOL_DEFAULT_FIELDS[value];
+  const normalized = Array.isArray(saved)
+    ? normalizeCustomerListColumns(saved, value === "claimed")
+    : defaults;
+  // A customer without an owner has no protection period.  Ignore a stale
+  // browser preference rather than showing a meaningless empty column.
+  if (value !== "available") return normalized;
+  const compact = normalized.filter((field) => !["protection", "whatsapp", "email", "website_phone", "website_email", "social"].includes(field));
+  const contactIndex = compact.indexOf("phone");
+  if (contactIndex < 0) compact.splice(Math.min(3, compact.length), 0, "phone");
+  const mapIndex = compact.indexOf("google_url");
+  compact.splice(mapIndex < 0 ? compact.length : mapIndex + 1, 0, "social");
+  return [...new Set(compact)];
+}
+
+function fieldLabel(field: CustomerListColumn, tab: Tab) {
+  if (tab === "available" && field === "phone") return "联系方式";
+  return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
+}
+
+function PlatformIcon({ kind }: { kind: "facebook" | "instagram" | "linkedin" | "tiktok" | "other" }) {
+  if (kind === "facebook") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 20v-7h2.35l.35-2.72H13.5V8.55c0-.79.22-1.33 1.36-1.33h1.45V4.79c-.25-.03-1.1-.11-2.08-.11-2.06 0-3.47 1.26-3.47 3.57v2.03H8.43V13h2.33v7h2.74Z"/></svg>;
+  if (kind === "instagram") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><rect width="24" height="24" rx="6" fill="#E4405F"/><rect x="6" y="6" width="12" height="12" rx="3.5" fill="none" stroke="#fff" strokeWidth="1.8"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="#fff" strokeWidth="1.8"/><circle cx="16.8" cy="7.4" r="1" fill="#fff"/></svg>;
+  if (kind === "linkedin") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><rect width="24" height="24" rx="4" fill="#0A66C2"/><path fill="#fff" d="M6.3 9.1h2.6V18H6.3V9.1Zm1.3-4.2a1.52 1.52 0 1 1 0 3.04 1.52 1.52 0 0 1 0-3.04ZM10.5 9.1H13v1.21h.04c.35-.66 1.2-1.36 2.47-1.36 2.64 0 3.13 1.74 3.13 4V18h-2.6v-4.48c0-1.07-.02-2.44-1.49-2.44-1.49 0-1.72 1.16-1.72 2.36V18h-2.6V9.1Z"/></svg>;
+  if (kind === "tiktok") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><rect width="24" height="24" rx="5" fill="#111827"/><path fill="#fff" d="M14.5 5c.35 1.87 1.47 3.05 3.2 3.31v2.3a6.45 6.45 0 0 1-3.19-1.06v4.87a4.4 4.4 0 1 1-3.78-4.35v2.36a2.1 2.1 0 1 0 1.47 2V5h2.3Z"/></svg>;
+  return <Globe2 size={14} strokeWidth={2.2}/>;
+}
+
+function ContactLinks({ row }: { row: PoolRow }) {
+  const candidates: Array<{ label: string; value: string; icon: React.ReactNode } | null> = [
+    row.phone ? { label: "原始电话", value: row.phone, icon: <Phone size={14}/> } : null,
+    row.whatsapp ? { label: "原始 WhatsApp", value: row.whatsapp, icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> } : null,
+    row.email ? { label: "原始邮箱", value: row.email, icon: <Mail size={14}/> } : null,
+    row.website_phone ? { label: "官网核验电话", value: row.website_phone, icon: <Phone size={14}/> } : null,
+    row.website_email ? { label: "官网核验邮箱", value: row.website_email, icon: <Mail size={14}/> } : null,
+  ];
+  const contacts = candidates.filter((item): item is NonNullable<typeof item> => item !== null);
+  if (!contacts.length) return <span className="text-slate-400">—</span>;
+  return <div className="space-y-1">{contacts.map((item) => { const verified = item.label.startsWith("官网核验"); return <span key={`${item.label}:${item.value}`} title={`${item.label}：${item.value}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={verified ? "shrink-0 text-emerald-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${verified ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{verified ? "官网" : "原始"}</span><span className="truncate">{item.value}</span></span>; })}</div>;
+}
+
+function SocialLinks({ row }: { row: PoolRow }) {
+  const links = [
+    ["facebook", "Facebook", row.facebook_url], ["instagram", "Instagram", row.instagram_url], ["linkedin", "LinkedIn", row.linkedin_url], ["tiktok", "TikTok", row.tiktok_url],
+    ...(row.other_public_urls || []).map((url) => ["other", "公开链接", url] as const),
+  ] as Array<["facebook" | "instagram" | "linkedin" | "tiktok" | "other", string, string | null | undefined]>;
+  const visible = links.filter(([, , url]) => Boolean(String(url || "").trim()));
+  if (!visible.length) return <span className="text-slate-400">—</span>;
+  return <div className="flex flex-wrap gap-1.5">{visible.map(([kind, label, raw], index) => { const text = String(raw).trim(); const url = /^https?:\/\//i.test(text) ? text : `https://${text}`; return <a key={`${kind}:${text}:${index}`} href={url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} title={`打开${label}`} aria-label={`打开${label}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"><PlatformIcon kind={kind}/></a>; })}</div>;
+}
 function poolText(row: PoolRow, key: CustomerListColumn) {
   if (key === "company_name") return row.company_name || "—";
   if (key === "contact_name") return row.contact_name || "—";
@@ -221,6 +280,8 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;
+  if (field === "phone" && !row.owner_id) return <ContactLinks row={row}/>;
+  if (field === "social") return <SocialLinks row={row}/>;
   if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
   if (field === "website" || field === "google_url") {
     const raw = field === "website" ? row.website : row.google_url;
@@ -369,8 +430,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v2") || "null");
-      const normalized = normalizeCustomerListColumns(saved);
-      const next = saved ? normalized : POOL_DEFAULT_FIELDS.available;
+      const next = poolFieldsForTab("available", saved);
       setFields(next);
       setDraftFields(next);
     } catch {
@@ -444,7 +504,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       let next = POOL_DEFAULT_FIELDS[value];
       try {
         const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v2`) || "null");
-        if (saved) next = normalizeCustomerListColumns(saved, value === "claimed");
+        if (saved) next = poolFieldsForTab(value, saved);
       } catch {}
       setFields(next);
       setDraftFields(next);
@@ -730,6 +790,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
             ) : null}
             <PoolTable
               rows={rows}
+              tab={tab as "available" | "claimed" | "pending"}
               loading={loading}
               fields={fields}
               sort={sort}
@@ -809,6 +870,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
 
 function PoolTable({
   rows,
+  tab,
   loading,
   fields,
   sort,
@@ -822,6 +884,7 @@ function PoolTable({
   remove,
 }: {
   rows: PoolRow[];
+  tab: "available" | "claimed" | "pending";
   loading: boolean;
   fields: CustomerListColumn[];
   sort: string;
@@ -861,7 +924,7 @@ function PoolTable({
                 />
               </th>
             ) : null}
-            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 w-56 bg-slate-50` : field === "country" || field === "ai_score" ? "w-28" : "w-36"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
+            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 w-56 bg-slate-50` : field === "phone" || field === "social" ? "w-48" : field === "country" || field === "ai_score" ? "w-28" : "w-36"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
             <th className="sticky right-0 z-30 w-28 bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
           </tr>
         </thead>
