@@ -42,7 +42,7 @@ assert.match(read("components/customers-view.tsx"), /保护到期与续期[\s\S]
 assert.match(read("components/ui/app-tabs.tsx"), /countTone\?: "success" \| "warning" \| "danger"[\s\S]*bg-rose-50[\s\S]*bg-amber-50[\s\S]*bg-emerald-50/, "统一子页签必须支持成功、冲突和预警语义数量徽标");
 assert.match(read("components/customers-view.tsx"), /label: "我的客户"[\s\S]*count: totalCustomerCount[\s\S]*countTone: "success"/, "我的客户总数必须移入页签并以绿色显示");
 assert.match(read("components/customer-public-pool-view.tsx"), /tabCounts[\s\S]*counts=1[\s\S]*countTone/, "客户公海有数据列表的子页签必须显示语义颜色数量");
-assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"ai_score"[\s\S]*customerIndustryDisplay\(row\)/, "待认领客户必须在客户名称下统一显示行业并优先展示AI判断");
+assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"ai_score",\s*"country"[\s\S]*customerIndustryDisplay\(row\)/, "待认领客户必须按销售优先级显示客户价值并在名称下统一显示行业");
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
 assert.match(read("components/customer-public-pool-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicLink[\s\S]*kind="map"/, "客户公海官网与 Google Maps 必须复用统一入口组件");
 assert.match(read("components/customers-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicLink[\s\S]*kind="map"/, "我的客户 Google Maps 图标必须与客户公海统一");

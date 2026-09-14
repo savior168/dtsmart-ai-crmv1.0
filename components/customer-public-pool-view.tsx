@@ -193,9 +193,11 @@ const formatDate = (value?: string | null) =>
 const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
-  available: ["company_name", "country", "ai_score", "phone", "verified_contacts", "website", "google_url", "social", "source"],
-  claimed: ["company_name", "country", "ai_score", "owner", "status", "followup_status", "protection", "last_contact_time"],
-  pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
+  // Sales action order: identify value first, then use the best contact and
+  // public entry points, and finally inspect provenance and freshness.
+  available: ["company_name", "ai_score", "country", "phone", "verified_contacts", "website", "google_url", "social", "source", "updated_at"],
+  claimed: ["company_name", "ai_score", "country", "status", "followup_status", "last_contact_time", "owner", "protection"],
+  pending: ["company_name", "ai_score", "country", "phone", "email", "source", "updated_at"],
 };
 
 function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: unknown) {
