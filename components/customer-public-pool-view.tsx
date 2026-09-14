@@ -37,7 +37,8 @@ import {
   DialogActions as SharedDialogActions,
 } from "@/components/ui/app-dialog";
 import { AppPagination } from "@/components/ui/app-pagination";
-import { GoogleMapsIcon } from "@/components/ui/google-maps-icon";
+import { CustomerPublicLink } from "@/components/ui/customer-public-link";
+import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
@@ -54,7 +55,7 @@ import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { AttachmentPreview } from "@/components/ui/attachment-preview";
-import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
+import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
 
 type Role = UserRole;
 type Tab =
@@ -318,18 +319,12 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <PoolScore row={row}/>;
-  if (field === "phone" && !row.owner_id) return <ContactLinks row={row} source="original"/>;
-  if (field === "verified_contacts" && !row.owner_id) return <ContactLinks row={row} source="ai"/>;
+  if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="original"/>;
+  if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
   if (field === "social") return <SocialLinks row={row}/>;
   if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
-  if (field === "website" || field === "google_url") {
-    const raw = field === "website" ? row.website : row.google_url;
-    const target = String(raw || "").trim();
-    if (!target) return <span className="text-slate-400">—</span>;
-    const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
-    const isWebsite = field === "website";
-    return <a href={url} target="_blank" rel="noreferrer" title={isWebsite ? "打开企业官网" : "打开 Google Maps"} className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"><span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-blue-50 group-hover:bg-blue-100"}`}>{isWebsite ? <Globe2 size={14} strokeWidth={2.25}/> : <GoogleMapsIcon size={16}/>}</span><span className="truncate group-hover:underline">{target}</span></a>;
-  }
+  if (field === "website") return <CustomerPublicLink value={row.website} kind="website"/>;
+  if (field === "google_url") return <CustomerPublicLink value={row.google_url} kind="map"/>;
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
 }
 
@@ -549,6 +544,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setSourceBatchQuery("");
     setScreeningTaskIds([]);
     setScreeningTaskOpen(false);
+    setSort("updated_at");
+    setDirection("desc");
     if (value === "available" || value === "claimed" || value === "pending") {
       let next = POOL_DEFAULT_FIELDS[value];
       try {
@@ -574,6 +571,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setSourceBatchQuery("");
     setScreeningTaskIds([]);
     setScreeningTaskOpen(false);
+    setSort("updated_at");
+    setDirection("desc");
     setPage(1);
   }
   function changeSort(key: CustomerListColumn) {

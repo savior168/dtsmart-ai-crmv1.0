@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   FileSpreadsheet,
-  Globe2,
   Plus,
   Search,
   Settings2,
@@ -27,7 +26,7 @@ import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
-import { GoogleMapsIcon } from "@/components/ui/google-maps-icon";
+import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
@@ -60,30 +59,6 @@ const stageClass: Record<CustomerStatus, string> = {
 type ColumnKey = CustomerExportColumn;
 const columns = CUSTOMER_LIST_COLUMNS;
 const defaults = CUSTOMER_LIST_DEFAULT_COLUMNS;
-const href = (value?: string | null) => {
-  const text = String(value || "").trim();
-  return text ? (/^https?:\/\//i.test(text) ? text : `https://${text}`) : "";
-};
-function Website({ value, kind = "website" }: { value?: string | null; kind?: "website" | "map" }) {
-  const target = href(value);
-  if (!target) return <span className="text-slate-400">-</span>;
-  const isWebsite = kind === "website";
-  return (
-    <a
-      href={target}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      title={isWebsite ? "打开企业官网" : "打开 Google Maps"}
-      className="group inline-flex max-w-40 items-center gap-2 truncate text-blue-700 hover:text-blue-800"
-    >
-      <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isWebsite ? "bg-sky-50 text-sky-600 group-hover:bg-sky-100" : "bg-blue-50 group-hover:bg-blue-100"}`}>
-        {isWebsite ? <Globe2 size={14} strokeWidth={2.25} /> : <GoogleMapsIcon size={16} />}
-      </span>
-      <span className="truncate group-hover:underline">{value}</span>
-    </a>
-  );
-}
 function Score({ customer }: { customer: Customer }) {
   return customer.ai_score == null ? (
     <span className="text-slate-400">未筛选</span>
@@ -384,6 +359,8 @@ export function CustomersView() {
     setFollowupStatus("");
     setAiFilter("done");
     setScopeUserId(defaultScopeUserId);
+    setSort("updated_at");
+    setDirection("desc");
     setPage(1);
     setSelected(new Set());
     setProtectedSelected(new Set());
@@ -965,9 +942,9 @@ export function CustomersView() {
                             {stageLabels[row.status] || row.status}
                           </span>
                         ) : key === "website" ? (
-                          <Website value={row.website} kind="website" />
+                          <CustomerPublicLink value={row.website} kind="website" />
                         ) : key === "google_url" ? (
-                          <Website value={row.google_url} kind="map" />
+                          <CustomerPublicLink value={row.google_url} kind="map" />
                         ) : key === "source" ? (
                           <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={row.creator?.name||row.creator?.email||""}>由：{row.creator?.name||row.creator?.email||"未知用户"}</small></span>
                         ) : (
@@ -1093,11 +1070,11 @@ export function CustomersView() {
               </p>
               <p>
                 <span className="text-slate-500">官网：</span>
-                <Website value={detail.website} />
+                <CustomerPublicLink value={detail.website} kind="website" />
               </p>
               <p>
                 <span className="text-slate-500">Google Maps：</span>
-                <Website value={detail.google_url} />
+                <CustomerPublicLink value={detail.google_url} kind="map" />
               </p>
             </div>
             <Link

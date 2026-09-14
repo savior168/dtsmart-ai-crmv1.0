@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarClock, Check, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CountryLabel } from "@/components/country-label";
@@ -37,13 +37,16 @@ function compactBatchTime(value: string | null) {
 
 export function CreateTaskView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialReverify = searchParams.get("analysis_selection_mode") === "REVERIFY";
+  const initialTaskId = String(searchParams.get("screening_task_id") || "").trim();
   const [name, setName] = useState("");
   const [scheduleType, setScheduleType] = useState<"now" | "scheduled">("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [costMode, setCostMode] = useState<"ADAPTIVE" | "FREE_ONLY">("ADAPTIVE");
   const [taskCostLimit, setTaskCostLimit] = useState("");
-  const [draft, setDraft] = useState<Filters>(emptyFilters);
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [draft, setDraft] = useState<Filters>(() => initialReverify ? { ...emptyFilters, analysis_selection_mode: "REVERIFY", screening_task_ids: initialTaskId ? [initialTaskId] : [] } : emptyFilters);
+  const [filters, setFilters] = useState<Filters>(() => initialReverify ? { ...emptyFilters, analysis_selection_mode: "REVERIFY", screening_task_ids: initialTaskId ? [initialTaskId] : [] } : emptyFilters);
   const [items, setItems] = useState<CustomerRow[]>([]);
   const [queryIds, setQueryIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());

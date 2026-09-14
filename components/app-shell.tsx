@@ -690,8 +690,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   />
                 ) : profile ? profile.name.slice(0, 1) : null}
               </span>
+              {profile ? <span className="hidden max-w-32 truncate text-sm font-medium text-slate-800 sm:block">{profile.name}</span> : null}
               {profile ? <>
-                <span className="hidden max-w-36 truncate text-sm font-medium text-slate-800 sm:block">欢迎您，{profile.name}！</span>
                 <ChevronDown size={15} className="hidden text-slate-500 sm:block" />
               </> : <span className="hidden h-4 w-16 animate-pulse rounded bg-slate-200 sm:block" aria-hidden="true" />}
             </button>

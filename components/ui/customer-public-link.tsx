@@ -1,0 +1,41 @@
+"use client";
+
+import { Globe2 } from "lucide-react";
+import { GoogleMapsIcon } from "@/components/ui/google-maps-icon";
+
+function urlTarget(value?: string | null) {
+  const raw = String(value || "").trim();
+  return raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : "";
+}
+
+function domainLabel(target: string) {
+  try {
+    return new URL(target).hostname.replace(/^www\./i, "") || target;
+  } catch {
+    return target.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  }
+}
+
+/** Compact, readable link used by customer lists instead of exposing raw URLs. */
+export function CustomerPublicLink({ value, kind }: { value?: string | null; kind: "website" | "map" }) {
+  const target = urlTarget(value);
+  if (!target) return <span className="text-slate-400">—</span>;
+  const website = kind === "website";
+  const label = website ? "官网" : "Google Maps";
+  return (
+    <a
+      href={target}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      title={`打开${label}：${target}`}
+      className="group inline-flex max-w-44 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+    >
+      <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded ${website ? "bg-sky-50 text-sky-600" : "bg-blue-50"}`}>
+        {website ? <Globe2 size={13} strokeWidth={2.25} /> : <GoogleMapsIcon size={14} />}
+      </span>
+      <span className="shrink-0 text-xs font-medium">{label}</span>
+      <span className="min-w-0 truncate text-xs text-slate-400 group-hover:text-blue-600">{domainLabel(target)}</span>
+    </a>
+  );
+}

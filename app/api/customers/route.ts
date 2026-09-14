@@ -263,7 +263,7 @@ export async function GET(request: NextRequest) {
     // “待联系” by the client and the filter probe above safely handles
     // migrated databases without taking the whole customer list down.
     const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
-    const sortField = allowedSort.has(sort) ? sort : "created_at";
+    const sortField = allowedSort.has(sort) ? sort : "updated_at";
     const from = (page - 1) * pageSize;
     const rangeEnd = from + pageSize - 1;
     const { data: allData, count, error } = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, rangeEnd);
