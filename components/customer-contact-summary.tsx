@@ -40,6 +40,8 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
   }
   const contacts = (source === "original" ? originals.filter((item) => item.value !== "未提供") : collected).filter((item, index, all) => source === "original" || (!originalKeys.has(contactKey(item.type, item.value, customer.country)) && all.findIndex((candidate) => contactKey(candidate.type, candidate.value, customer.country) === contactKey(item.type, item.value, customer.country)) === index));
   if (!contacts.length) return <span className="text-slate-400">—</span>;
+  const visible = source === "ai" ? contacts.slice(0, 2) : contacts;
+  const hidden = source === "ai" ? contacts.slice(2) : [];
   const renderContact = (item: DisplayContact, index: number) => {
     const muted = false;
     const key = `${item.label}:${item.value}:${index}`;
@@ -55,5 +57,5 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
         : <span className="min-w-0 flex-1 truncate">{display}</span>;
     return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span>{item.source === "original" ? null : <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>}{text}</span>;
   };
-  return <div className={`space-y-1 ${source === "ai" ? "max-h-52 overflow-y-auto pr-1" : ""}`}>{contacts.map(renderContact)}</div>;
+  return <div className="space-y-1">{visible.map(renderContact)}{hidden.length ? <details className="group"><summary className="cursor-pointer list-none text-xs font-medium text-blue-600 hover:text-blue-800">查看全部 {contacts.length} 项<span className="ml-1 text-slate-400 group-open:hidden">⌄</span><span className="ml-1 hidden text-slate-400 group-open:inline">⌃</span></summary><div className="mt-1 space-y-1 border-l border-blue-100 pl-2">{hidden.map((item, index) => renderContact(item, index + visible.length))}</div></details> : null}</div>;
 }
