@@ -485,7 +485,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const titleParts = title.split(" / ");
   const effectiveWidth = collapsed ? 76 : sidebarWidth;
   const sidebarDark = sidebarMode === "dark";
-  const canSeePermission = (permission: string) => profile?.role === "ADMIN" || Boolean(profile?.permissions.includes(permission));
+  // Do not turn a transient profile refresh into an empty sidebar.  The API
+  // remains the permission boundary; this only keeps the shell usable while
+  // the current session profile is still loading or a request briefly fails.
+  const canSeePermission = (permission: string) => !profile || profile.role === "ADMIN" || profile.permissions.includes(permission);
   function toggleSidebarMode() {
     const next = sidebarDark ? "light" : "dark";
     setSidebarMode(next);

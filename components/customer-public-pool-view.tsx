@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   CheckCircle2,
+  Copy,
   Download,
   FileSpreadsheet,
   Globe2,
@@ -53,6 +54,7 @@ import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { AttachmentPreview } from "@/components/ui/attachment-preview";
+import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
 
 type Role = UserRole;
 type Tab =
@@ -104,6 +106,7 @@ type PoolRow = {
   can_open_customer: boolean;
   protection?: { expire_date?: string; extension_count?: number } | null;
   my_supplements?: Array<{ id: string; field_name: string; value_raw: string; source_type: string; source_batch?: string | null; source_row?: number | null; created_at: string }>;
+  verified_contacts?: Array<{ type: string; value_raw: string; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null; contact_status?: string | null; captured_at?: string | null }>;
 };
 type AssignmentOptions = {
   assignees: Owner[];
@@ -224,16 +227,41 @@ function PlatformIcon({ kind }: { kind: "facebook" | "instagram" | "linkedin" | 
 }
 
 function ContactLinks({ row }: { row: PoolRow }) {
-  const candidates: Array<{ label: string; value: string; icon: React.ReactNode } | null> = [
-    row.phone ? { label: "原始电话", value: row.phone, icon: <Phone size={14}/> } : null,
-    row.whatsapp ? { label: "原始 WhatsApp", value: row.whatsapp, icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> } : null,
-    row.email ? { label: "原始邮箱", value: row.email, icon: <Mail size={14}/> } : null,
-    row.website_phone ? { label: "官网核验电话", value: row.website_phone, icon: <Phone size={14}/> } : null,
-    row.website_email ? { label: "官网核验邮箱", value: row.website_email, icon: <Mail size={14}/> } : null,
+  const [copied, setCopied] = useState("");
+  type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
+  const iconFor = (type: string) => type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> : <Phone size={14}/>;
+  const candidates: DisplayContact[] = [
+    { label: "原始电话", value: row.phone || "未提供", type: "PHONE", icon: <Phone size={14}/>, source: "original" },
+    { label: "原始 WhatsApp", value: row.whatsapp || "未提供", type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" },
+    { label: "原始邮箱", value: row.email || "未提供", type: "EMAIL", icon: <Mail size={14}/>, source: "original" },
+    ...(row.verified_contacts || []).filter((contact) => ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type || "").toUpperCase()) && String(contact.value_raw || "").trim()).map((contact): DisplayContact => ({
+      label: `${String(contact.source_channel || "public").toLowerCase() === "website" ? "官网" : String(contact.source_channel || "").toLowerCase() === "google_maps" ? "Google Maps" : "公开来源"}核验${String(contact.type).toUpperCase() === "EMAIL" ? "邮箱" : String(contact.type).toUpperCase() === "WHATSAPP" ? "WhatsApp" : "电话"}`,
+      value: String(contact.value_raw).trim(), type: String(contact.type).toUpperCase() as "PHONE" | "EMAIL" | "WHATSAPP", icon: iconFor(String(contact.type).toUpperCase()),
+      source: contact.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified",
+      channel: contact.source_channel, sourceUrl: contact.exact_source_url,
+    })),
   ];
-  const contacts = candidates.filter((item): item is NonNullable<typeof item> => item !== null);
+  // A discovered contact can also be saved in the compatibility fields. Keep
+  // it visible for older analysis records, while avoiding a second identical
+  // row once the structured customer_contacts record is available.
+  for (const [label, value, type] of [["官网核验电话", row.website_phone, "PHONE"], ["官网核验邮箱", row.website_email, "EMAIL"]] as const) {
+    if (!value || candidates.some((item) => item.source !== "original" && item.value === value)) continue;
+    candidates.push({ label, value, type, icon: iconFor(type), source: "verified", channel: "website" });
+  }
+  const contacts = candidates.filter((item, index, all) => item.source === "original" || all.findIndex((candidate) => `${candidate.source}|${candidate.channel || ""}|${candidate.value}` === `${item.source}|${item.channel || ""}|${item.value}`) === index);
   if (!contacts.length) return <span className="text-slate-400">—</span>;
-  return <div className="space-y-1">{contacts.map((item) => { const verified = item.label.startsWith("官网核验"); return <span key={`${item.label}:${item.value}`} title={`${item.label}：${item.value}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={verified ? "shrink-0 text-emerald-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${verified ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{verified ? "已核验" : "原始"}</span><span className="truncate">{item.value}</span></span>; })}</div>;
+  return <div className="space-y-1">{contacts.map((item, index) => {
+    const muted = item.value === "未提供";
+    const key = `${item.label}:${item.value}:${index}`;
+    const badge = item.source === "original" ? "原始" : item.source === "conflict" ? "待核对" : "已核验";
+    const tone = item.source === "original" ? "bg-slate-100 text-slate-500" : item.source === "conflict" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-amber-700";
+    const display = muted || item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, row.country);
+    const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, row.country).replace(/\D/g, "") : "";
+    const text = whatsappDigits
+      ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 truncate text-[#128C7E] hover:underline">{display}</a>
+      : <span className="min-w-0 flex-1 truncate">{display}</span>;
+    return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n来源：${item.sourceUrl}` : ""}`} className={`flex min-w-0 items-center gap-1.5 text-xs ${muted ? "text-slate-400" : "text-slate-700"}`}><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>{text}<button type="button" disabled={muted} onClick={() => { void navigator.clipboard?.writeText(item.value).then(() => { setCopied(key); window.setTimeout(() => setCopied((current) => current === key ? "" : current), 1400); }).catch(() => undefined); }} aria-label={`复制${item.label}`} title={copied === key ? "已复制" : `复制${item.label}`} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-blue-600 disabled:pointer-events-none disabled:opacity-30">{copied === key ? <CheckCircle2 size={13} className="text-emerald-600"/> : <Copy size={13}/>}</button></span>;
+  })}</div>;
 }
 
 function SocialLinks({ row }: { row: PoolRow }) {
@@ -312,9 +340,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [customerStatus, setCustomerStatus] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [sourceType, setSourceType] = useState("");
-  const [sourceBatch, setSourceBatch] = useState("");
+  const [sourceBatches, setSourceBatches] = useState<string[]>([]);
+  const [sourceBatchOpen, setSourceBatchOpen] = useState(false);
+  const [sourceBatchQuery, setSourceBatchQuery] = useState("");
   const [screeningTaskIds, setScreeningTaskIds] = useState<string[]>([]);
   const [screeningTaskOpen, setScreeningTaskOpen] = useState(false);
+  const [screeningTaskQuery, setScreeningTaskQuery] = useState("");
   const [sort, setSort] = useState("updated_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [fields, setFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
@@ -326,6 +357,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
   const industryRef = useRef<HTMLDivElement>(null);
+  const sourceBatchRef = useRef<HTMLDivElement>(null);
   const screeningTaskRef = useRef<HTMLDivElement>(null);
   const requestVersion = useRef(0);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
@@ -360,6 +392,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (const filterValue of option?.values || []) params.append("industry", filterValue);
     }
   }, [filterOptions.industries, industries]);
+  const appendSourceBatchFilters = useCallback((params: URLSearchParams) => {
+    for (const value of sourceBatches) params.append("source_batch", value);
+  }, [sourceBatches]);
   const load = useCallback(async () => {
     if (!["available", "claimed", "pending"].includes(tab)) {
       setLoading(false);
@@ -383,7 +418,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       if (customerStatus && tab === "claimed") params.set("status", customerStatus);
       if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
       if (sourceType) params.set("source_type", sourceType);
-      if (sourceBatch) params.set("source_batch", sourceBatch);
+      appendSourceBatchFilters(params);
       for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
       params.set("sort", sort);
       params.set("direction", direction);
@@ -407,7 +442,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     customerStatus,
     ownerId,
     sourceType,
-    sourceBatch,
+    appendSourceBatchFilters,
     screeningTaskIds,
     page,
     pageSize,
@@ -456,6 +491,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       const targetNode = event.target as Node;
       if (newRef.current && !newRef.current.contains(targetNode)) setNewOpen(false);
       if (industryRef.current && !industryRef.current.contains(targetNode)) setIndustryOpen(false);
+      if (sourceBatchRef.current && !sourceBatchRef.current.contains(targetNode)) setSourceBatchOpen(false);
       if (screeningTaskRef.current && !screeningTaskRef.current.contains(targetNode)) setScreeningTaskOpen(false);
     };
     document.addEventListener("mousedown", close);
@@ -479,7 +515,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, aiStatus, customerStatus, industries, ownerId, query, screeningTaskIds, sourceBatch, sourceType, tab, target],
+    [aiLevel, aiStatus, customerStatus, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -497,7 +533,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setOwnerId("");
     setCustomerStatus("");
     setSourceType("");
-    setSourceBatch("");
+    setSourceBatches([]);
+    setSourceBatchOpen(false);
+    setSourceBatchQuery("");
     setScreeningTaskIds([]);
     setScreeningTaskOpen(false);
     if (value === "available" || value === "claimed" || value === "pending") {
@@ -520,7 +558,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setCustomerStatus("");
     setOwnerId("");
     setSourceType("");
-    setSourceBatch("");
+    setSourceBatches([]);
+    setSourceBatchOpen(false);
+    setSourceBatchQuery("");
     setScreeningTaskIds([]);
     setScreeningTaskOpen(false);
     setPage(1);
@@ -556,7 +596,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
         if (sourceType) params.set("source_type", sourceType);
-        if (sourceBatch) params.set("source_batch", sourceBatch);
+        appendSourceBatchFilters(params);
         for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
         const body = await api(`/api/customers/public-pool?${params}`);
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
@@ -588,7 +628,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
         if (sourceType) params.set("source_type", sourceType);
-        if (sourceBatch) params.set("source_batch", sourceBatch);
+        appendSourceBatchFilters(params);
         for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
         const body = await api(`/api/customers/public-pool?${params}`);
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
@@ -665,7 +705,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   onChange={(event) => {
                     const next = event.target.value;
                     setSourceType(next);
-                    if (sourceBatch && next && !filterOptions.batches.some((item) => item.value === sourceBatch && item.source === next)) setSourceBatch("");
+                    if (next) setSourceBatches((current) => current.filter((value) => filterOptions.batches.some((item) => item.value === value && item.source === next)));
                   }}
                   className={`${appFieldClass} w-40 shrink-0`}
                   aria-label="按获客方式筛选"
@@ -673,23 +713,26 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="">全部获客方式</option>
                   {filterOptions.sources.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
-                <select
-                  value={sourceBatch}
-                  onChange={(event) => setSourceBatch(event.target.value)}
-                  className={`${appFieldClass} w-44 shrink-0`}
-                  aria-label="按导入批次筛选"
-                >
-                  <option value="">全部导入批次</option>
-                  {filterOptions.batches.filter((item) => !sourceType || item.source === sourceType).map((item) => <option key={`${item.source}:${item.value}`} value={item.value}>{item.label}</option>)}
-                </select>
+                <div ref={sourceBatchRef} className="relative w-52 shrink-0">
+                  <button type="button" onClick={() => setSourceBatchOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={sourceBatchOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
+                    <span className="truncate">{sourceBatches.length ? `导入批次（${sourceBatches.length}）` : "全部导入批次"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
+                  </button>
+                  {sourceBatchOpen ? <div role="listbox" aria-label="导入批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    <input value={sourceBatchQuery} onChange={(event) => setSourceBatchQuery(event.target.value)} placeholder="搜索导入批次" className={`${appFieldClass} mb-2 h-9 w-full`} />
+                    <button type="button" onClick={() => { setSourceBatches([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空导入批次</button>
+                    {filterOptions.batches.filter((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())).map((item) => <label key={`${item.source}:${item.value}`} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={sourceBatches.includes(item.value)} onChange={() => { setSourceBatches((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
+                    {!filterOptions.batches.some((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">没有匹配的导入批次</p> : null}
+                  </div> : null}
+                </div>
                 {role === "ADMIN" ? <div ref={screeningTaskRef} className="relative w-48 shrink-0">
                   <button type="button" onClick={() => setScreeningTaskOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={screeningTaskOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
                     <span className="truncate">{screeningTaskIds.length ? `AI筛选批次（${screeningTaskIds.length}）` : "全部AI筛选批次"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
                   </button>
-                  {screeningTaskOpen ? <div role="listbox" aria-label="AI筛选批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                  {screeningTaskOpen ? <div role="listbox" aria-label="AI筛选批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    <input value={screeningTaskQuery} onChange={(event) => setScreeningTaskQuery(event.target.value)} placeholder="搜索任务编号或任务名称" className={`${appFieldClass} mb-2 h-9 w-full`} />
                     <button type="button" onClick={() => { setScreeningTaskIds([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空AI筛选批次</button>
-                    {filterOptions.screening_tasks.map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words"><span className="block">{item.label}</span><small className="mt-0.5 block text-slate-400">该任务共 {item.customer_count} 条；仅加载当前页签内的客户</small></span></label>)}
-                    {!filterOptions.screening_tasks.length ? <p className="px-2 py-3 text-sm text-slate-400">暂无可加载的历史AI筛选批次</p> : null}
+                    {filterOptions.screening_tasks.filter((item) => item.label.toLowerCase().includes(screeningTaskQuery.trim().toLowerCase())).map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words"><span className="block">{item.label}</span><small className="mt-0.5 block text-slate-400">该任务共 {item.customer_count} 条；仅加载当前页签内的客户</small></span></label>)}
+                    {!filterOptions.screening_tasks.some((item) => item.label.toLowerCase().includes(screeningTaskQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">没有匹配的AI筛选批次</p> : null}
                   </div> : null}
                 </div> : null}
                 <select

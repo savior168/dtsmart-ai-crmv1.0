@@ -20,7 +20,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "website_phone", label: "官网电话" },
   { key: "website", label: "官网" },
   { key: "google_url", label: "Google Maps" },
-  { key: "social", label: "社媒链接" },
+  { key: "social", label: "社媒" },
   { key: "source", label: "数据来源" },
   { key: "updated_at", label: "更新时间" },
 ];

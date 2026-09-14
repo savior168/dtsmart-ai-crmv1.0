@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     const customerStatus = params.get("status")?.trim().toUpperCase() || "";
     const ownerId = params.get("owner_id")?.trim() || "";
     const sourceType = params.get("source_type")?.trim().toUpperCase() || "";
-    const sourceBatch = params.get("source_batch")?.trim() || "";
+    const sourceBatches = [...new Set(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean))];
     const aiTaskIds = [...new Set(params.getAll("ai_task_id").flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)))];
     const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
@@ -249,7 +249,8 @@ export async function GET(request: NextRequest) {
     if (sourceType === "IMPORT") query = query.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);
     if (sourceType === "AI_ACQUISITION") query = query.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
     if (sourceType === "MANUAL") query = query.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
-    if (sourceBatch) query = query.eq("source_batch", sourceBatch);
+    if (sourceBatches.length === 1) query = query.eq("source_batch", sourceBatches[0]);
+    else if (sourceBatches.length > 1) query = query.in("source_batch", sourceBatches);
     if (aiTaskIds.length) {
       if (account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可按AI筛选批次查询" }, { status: 403 });
       const matchedCustomerIds = new Set<string>();
@@ -273,19 +274,23 @@ export async function GET(request: NextRequest) {
     const rows = (result.data || []) as unknown as PoolDbRow[];
     const ownerIds = [...new Set(rows.flatMap((item) => [item.owner_id, item.created_by]).filter(Boolean))] as string[];
     const customerIds = rows.map((item) => item.id);
-    const [owners, protections, supplements] = await Promise.all([
+    const [owners, protections, supplements, verifiedContacts] = await Promise.all([
       ownerIds.length ? admin.from("users").select("id,name,email").in("id", ownerIds) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_protection").select("customer_id,owner_id,expire_date,status,extension_count,start_date").in("customer_id", customerIds).order("start_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_private_supplements").select("id,customer_id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("submitted_by", account.id).in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      customerIds.length ? admin.from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ]);
     if (owners.error) throw owners.error;
     if (protections.error) throw protections.error;
     if (supplements.error) throw supplements.error;
+    if (verifiedContacts.error) throw verifiedContacts.error;
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
     const protectionByCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
     const supplementsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
+    const verifiedContactsByCustomer = new Map<string, Record<string, unknown>[]>();
+    for (const item of verifiedContacts.data || []) verifiedContactsByCustomer.set(item.customer_id, [...(verifiedContactsByCustomer.get(item.customer_id) || []), item]);
     const directReportIds = new Set(account.role === "SUPERVISOR" ? (directReports.data || []).map((item) => item.id) : []);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
@@ -315,6 +320,7 @@ export async function GET(request: NextRequest) {
         creator: row.created_by ? ownerById.get(String(row.created_by)) || null : null,
         protection: protectionByCustomer.get(row.id) || null,
         my_supplements: supplementsByCustomer.get(row.id) || [],
+        verified_contacts: full ? verifiedContactsByCustomer.get(row.id) || [] : [],
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
         // 未认领公海客户对所有具备客户查看权限的用户开放基础详情；
         // 已认领客户仍仅归属人和具备全量数据权限的角色可打开完整详情。

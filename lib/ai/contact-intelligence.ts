@@ -81,6 +81,23 @@ export function normalizePhoneInternational(value?: string | null, country?: str
   return digits ? `${code}${digits}` : "";
 }
 
+/** Stable, readable display format for a normalized international number.
+ * It never changes the stored raw value; it only presents it consistently. */
+export function formatPhoneInternational(value?: string | null, country?: string | null) {
+  const normalized = normalizePhoneInternational(value, country);
+  if (!normalized.startsWith("+")) return String(value || "").trim() || "未提供";
+  const isoCode = countryInfo(country).code || String(country || "").trim().toUpperCase();
+  const knownCode = dialCodes[isoCode] || Object.keys(dialCodes).map((key) => dialCodes[key]).sort((a, b) => b.length - a.length).find((item) => normalized.startsWith(item)) || "";
+  const prefix = knownCode || `+${normalized.slice(1, Math.min(4, normalized.length))}`;
+  const national = normalized.slice(prefix.length);
+  if (!national) return normalized;
+  const lastGroupLength = national.length % 3 === 1 && national.length > 4 ? 4 : 3;
+  const head = national.slice(0, -lastGroupLength);
+  const groups: string[] = head.match(/.{1,3}/g) || [];
+  groups.push(national.slice(-lastGroupLength));
+  return `${prefix} ${groups.join(" ")}`;
+}
+
 export function normalizePublicContactUrl(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "";

@@ -71,8 +71,13 @@ assert.match(poolApi, /tab === "claimed"[\s\S]*neq\("status", "UNCLAIMED"\)[\s\S
 assert.match(poolView, /available: "待认领客户"[\s\S]*claimed: "认领记录"/, "公海页签必须区分可认领数据与历史认领记录");
 assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s\S]*"protection"/, "待认领客户不得因历史列偏好显示无意义的保护期字段");
 assert.match(poolView, /function ContactLinks[\s\S]*原始电话[\s\S]*原始邮箱[\s\S]*官网核验电话[\s\S]*官网核验邮箱/, "待认领列表必须合并显示原始与官网核验联系方式且保留来源区分");
+assert.match(poolView, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");
+assert.match(poolView, /normalizePhoneInternational\(item\.value, row\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
+assert.match(poolView, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");
+assert.match(poolView, /原始邮箱[\s\S]*未提供/, "待认领列表必须明确原始资料缺失，而不是静默隐藏");
 assert.match(poolView, /function SocialLinks[\s\S]*Facebook[\s\S]*Instagram[\s\S]*LinkedIn[\s\S]*TikTok/, "待认领列表必须将各平台社媒链接集中到单一紧凑入口列");
 assert.match(poolApi, /facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls/, "客户公海接口必须提供已授权读取的社媒链接字段");
+assert.match(poolApi, /customer_contacts[\s\S]*MATCHED_ORIGINAL[\s\S]*NEW_VERIFIED[\s\S]*CONFLICTING_VERIFIED/, "客户公海接口必须加载结构化联系方式证据，不能只依赖官网汇总字段");
 assert.doesNotMatch(poolView, /潜在客户（未认领）|潜在客户（已归属）|提交凭证并认领<\/button>/, "客户公海不得出现阶段和归属状态混用的歧义文案");
 assert.match(poolView, /border-blue-200 bg-blue-50[\s\S]*认领/, "认领按钮必须采用克制的浅色操作样式");
 assert.match(poolDeleteApi, /requireAdmin\(\)[\s\S]*请填写永久删除原因[\s\S]*permanentlyDeleteCustomers/, "公海永久删除必须仅限系统管理员并要求原因");
@@ -82,6 +87,7 @@ assert.match(poolApi, /params\.get\("options"\) === "1"[\s\S]*industries[\s\S]*o
 assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得使用存在双外键歧义的嵌套关系");
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");
+assert.match(sidebar, /!profile \|\| profile\.role === "ADMIN"/, "侧栏在当前用户资料短暂加载或刷新失败时不得被清空");
 assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客户公海入口");
 assert.doesNotMatch(sidebar, /label: "客户导入"/, "客户中心不得保留含义不清的独立客户导入二级菜单");
 assert.match(poolView, /CUSTOMER_LIST_COLUMNS[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS[\s\S]*customerListSortField/, "客户公海和我的客户必须共用字段及排序规则");
@@ -147,10 +153,14 @@ assert.match(poolApi, /searchable\.push\("contact_name", "phone", "whatsapp", "e
 assert.match(poolApi, /tab !== "claimed" \|\| account\.role === "ADMIN"/, "已认领客户的他人联系方式不得被非管理员通过搜索探测");
 assert.match(poolApi, /customerIndustryLabels\(item\)[\s\S]*rawIndustryMap[\s\S]*industryOptionMap/, "公海所属行业必须按标准化行业去重");
 assert.match(poolView, /所属行业多选[\s\S]*type="checkbox"/, "公海所属行业必须支持多选");
+assert.match(poolView, /导入批次多选[\s\S]*搜索导入批次[\s\S]*type="checkbox"/, "导入批次必须支持搜索与多选");
+assert.match(poolView, /AI筛选批次多选[\s\S]*搜索任务编号或任务名称[\s\S]*type="checkbox"/, "AI筛选批次必须支持搜索与多选");
+assert.match(poolView, /appendSourceBatchFilters\(params\)/, "列表、导出与全选必须复用同一导入批次多选条件");
+assert.match(poolApi, /params\.getAll\("source_batch"\)[\s\S]*query\.in\("source_batch", sourceBatches\)/, "公海接口必须按多个导入批次返回并集结果");
 assert.match(poolView, /appendIndustryFilters\(params\)/, "公海列表、导出与全选必须复用同一行业筛选条件");
 assert.match(poolApi, /source_type[\s\S]*source_batch[\s\S]*const batches = \[\.\.\.new Map[\s\S]*sources:/, "客户公海必须返回真实去重的获客方式与批次筛选项");
 assert.match(poolView, /全部获客方式[\s\S]*全部导入批次/, "客户公海各数据页签必须提供获客方式和批次筛选");
-assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType\)[\s\S]*if \(sourceBatch\) params\.set\("source_batch", sourceBatch\)/, "客户公海列表请求必须携带获客方式与批次筛选");
+assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType\)[\s\S]*appendSourceBatchFilters\(params\)/, "客户公海列表请求必须携带获客方式与批次筛选");
 assert.match(poolApi, /target === "valid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", true\)/, "客户公海有效目标必须来自明确的有效结论");
 assert.match(poolApi, /target === "invalid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", false\)/, "客户公海无效目标不得混入待复核或未筛选客户");
 assert.match(poolApi, /ai_screening_tasks[\s\S]*total_count[\s\S]*limit\(500\)[\s\S]*customer_count/, "系统管理员必须能从客户公海加载有客户的历史AI筛选批次");
