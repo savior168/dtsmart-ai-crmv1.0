@@ -29,9 +29,9 @@ export function CustomerPublicLink({ value, kind }: { value?: string | null; kin
       rel="noreferrer"
       onClick={(event) => event.stopPropagation()}
       title={`打开${label}：${target}`}
-      className="group inline-flex max-w-44 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+      className="group inline-flex max-w-44 items-center gap-1.5 rounded px-0.5 py-0.5 text-slate-600 transition hover:bg-blue-50 hover:text-blue-700"
     >
-      <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded ${website ? "bg-sky-50 text-sky-600" : "bg-blue-50"}`}>
+      <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${website ? "text-sky-600" : ""}`}>
         {website ? <Globe2 size={13} strokeWidth={2.25} /> : <GoogleMapsIcon size={14} />}
       </span>
       <span className="shrink-0 text-xs font-medium">{label}</span>
