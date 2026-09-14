@@ -49,11 +49,21 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
     const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, customer.country).replace(/\D/g, "") : "";
     const sourceHref = item.source !== "original" ? item.sourceUrl : null;
     const text = sourceHref
-      ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className="min-w-0 flex-1 truncate text-blue-700 hover:underline">{display}</a>
+      ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className="min-w-0 flex-1 break-all leading-5 text-blue-700 hover:underline">{display}</a>
       : whatsappDigits
-        ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 truncate text-[#128C7E] hover:underline">{display}</a>
-        : <span className="min-w-0 flex-1 truncate">{display}</span>;
+        ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 break-all leading-5 text-[#128C7E] hover:underline">{display}</a>
+        : <span className="min-w-0 flex-1 break-all leading-5">{display}</span>;
     return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span>{item.source === "original" ? null : <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>}{text}</span>;
   };
-  return <div className="space-y-1">{contacts.map(renderContact)}</div>;
+  const contactKinds: Array<[ContactKind, string]> = [["PHONE", "电话"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "邮箱"]];
+  const renderGroups = () => <div className="space-y-2">{contactKinds.map(([type, label]) => {
+    const items = contacts.filter((item) => item.type === type);
+    if (!items.length) return null;
+    return <section key={type}><span className="mb-1 block text-[11px] font-medium text-slate-500">{label}（{items.length}）</span><div className="space-y-1">{items.map((item, index) => renderContact(item, index))}</div></section>;
+  })}</div>;
+  if (source === "ai" && contacts.length > 3) {
+    const counts = contactKinds.map(([type, label]) => ({ label, count: contacts.filter((item) => item.type === type).length })).filter((item) => item.count);
+    return <details className="group"><summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600 hover:bg-blue-50"><span className="font-medium text-blue-700">AI核验 {contacts.length} 项</span>{counts.map((item) => <span key={item.label} className="rounded bg-white px-1.5 py-0.5">{item.label} {item.count}</span>)}<span className="ml-auto text-blue-600 group-open:hidden">展开</span><span className="ml-auto hidden text-blue-600 group-open:inline">收起</span></summary><div className="mt-2 border-l border-blue-100 pl-2">{renderGroups()}</div></details>;
+  }
+  return renderGroups();
 }
