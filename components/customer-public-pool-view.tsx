@@ -201,6 +201,24 @@ const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerL
   pending: ["company_name", "ai_score", "country", "phone", "email", "source", "updated_at"],
 };
 
+const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {
+  company_name: "w-48",
+  ai_score: "w-20",
+  country: "w-24",
+  phone: "w-44",
+  verified_contacts: "w-52",
+  website: "w-36",
+  google_url: "w-40",
+  social: "w-28",
+  status: "w-28",
+  followup_status: "w-28",
+  last_contact_time: "w-32",
+  protection: "w-28",
+  owner: "w-32",
+  source: "w-32",
+  updated_at: "w-36",
+};
+
 function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: unknown) {
   const defaults = POOL_DEFAULT_FIELDS[value];
   const normalized = Array.isArray(saved)
@@ -963,7 +981,7 @@ function PoolTable({
   }
   return (
     <section className="mt-4 overflow-x-auto rounded-t-xl border bg-white shadow-sm">
-      <table className="w-full min-w-[1080px] table-fixed text-left text-sm">
+      <table className="w-full min-w-[1440px] table-fixed text-left text-sm">
         <thead className="bg-slate-50 text-slate-500">
           <tr>
             {selectable ? (
@@ -980,7 +998,7 @@ function PoolTable({
                 />
               </th>
             ) : null}
-            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 w-56 bg-slate-50` : field === "phone" || field === "verified_contacts" || field === "social" ? "w-48" : field === "country" || field === "ai_score" ? "w-28" : "w-36"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
+            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 bg-slate-50` : ""} ${poolColumnWidth[field] || "w-32"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
             <th className="sticky right-0 z-30 w-28 bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
           </tr>
         </thead>
@@ -997,7 +1015,7 @@ function PoolTable({
                   />
                 </td>
               ) : null}
-              {fields.map((field) => <td key={field} className={`max-w-64 overflow-hidden px-3 py-4 align-top ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
+              {fields.map((field) => <td key={field} className={`overflow-hidden px-3 py-4 align-top ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
               <td className="sticky right-0 z-20 bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                 {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`} aria-label={`查看${row.company_name}详情`}>详情</Link> : null}

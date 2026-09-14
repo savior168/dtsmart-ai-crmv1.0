@@ -61,6 +61,22 @@ const stageClass: Record<CustomerStatus, string> = {
 type ColumnKey = CustomerExportColumn;
 const columns = CUSTOMER_LIST_COLUMNS;
 const defaults = CUSTOMER_LIST_DEFAULT_COLUMNS;
+const listColumnWidth: Partial<Record<ColumnKey, string>> = {
+  company_name: "w-48",
+  ai_score: "w-20",
+  country: "w-24",
+  phone: "w-44",
+  verified_contacts: "w-52",
+  website: "w-36",
+  google_url: "w-40",
+  social: "w-28",
+  status: "w-28",
+  followup_status: "w-28",
+  last_contact_time: "w-32",
+  protection: "w-28",
+  source: "w-32",
+  updated_at: "w-36",
+};
 function Score({ customer }: { customer: Customer }) {
   return customer.ai_score == null ? (
     <span className="text-slate-400">未筛选</span>
@@ -836,7 +852,7 @@ export function CustomersView() {
         )}
         <section className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="max-h-[calc(100vh-360px)] overflow-auto">
-            <table className="w-full min-w-[1650px] table-fixed text-left text-sm">
+            <table className="w-full min-w-[1440px] table-fixed text-left text-sm">
               <thead className="sticky top-0 z-20 bg-[#eef5fb] text-xs text-slate-700">
                 <tr>
                   <th className="sticky left-0 z-30 w-12 bg-[#eef5fb] px-4 py-3">
@@ -865,7 +881,7 @@ export function CustomersView() {
                   {fields.map((key) => (
                     <th
                       key={key}
-                      className={`${key === "company_name" ? "sticky left-12 z-30 w-52 bg-[#eef5fb]" : "w-36"} px-3 py-3`}
+                      className={`${key === "company_name" ? "sticky left-12 z-30 bg-[#eef5fb]" : ""} ${listColumnWidth[key] || "w-32"} px-3 py-3`}
                     >
                       <button
                         type="button"
@@ -917,7 +933,7 @@ export function CustomersView() {
                     {fields.map((key) => (
                       <td
                         key={key}
-                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} max-w-48 overflow-hidden px-3 py-3 align-top`}
+                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} overflow-hidden px-3 py-3 align-top`}
                         title={
                           key === "company_name" ? row.company_name : undefined
                         }
