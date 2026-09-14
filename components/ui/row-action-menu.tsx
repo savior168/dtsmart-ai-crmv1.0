@@ -92,6 +92,8 @@ export function RowActionMenu({ children, label = "操作", ariaLabel }: RowActi
 }
 
 export function RowActionItem({ children, tone = "default", onClick, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "default" | "warning" | "danger" }) {
-  const color = tone === "danger" ? "text-rose-700 hover:bg-rose-50" : tone === "warning" ? "text-amber-700 hover:bg-amber-50" : "text-slate-700 hover:bg-slate-50";
+  const label = typeof children === "string" ? children : "";
+  const semanticTone = tone !== "default" ? tone : /重试/.test(label) ? "warning" : /查看报告/.test(label) ? "info" : /复验|全量复核/.test(label) ? "accent" : "default";
+  const color = semanticTone === "danger" ? "text-rose-700 hover:bg-rose-50" : semanticTone === "warning" ? "text-amber-700 hover:bg-amber-50" : semanticTone === "info" ? "text-blue-700 hover:bg-blue-50" : semanticTone === "accent" ? "text-violet-700 hover:bg-violet-50" : "text-slate-700 hover:bg-slate-50";
   return <button type="button" {...props} onClick={onClick} className={`flex w-full items-center px-3 py-2 text-left text-sm transition ${color} ${props.className || ""}`}>{children}</button>;
 }
