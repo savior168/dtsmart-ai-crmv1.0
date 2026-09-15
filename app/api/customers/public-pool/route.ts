@@ -24,7 +24,7 @@ type PoolDbRow = Record<string, unknown> & {
 };
 
 const RESTRICTED_POOL_EMAILS = new Set(["laura@dt-smart.com", "xavia@dt-smart.com"]);
-const RESTRICTED_POOL_BATCHES = ["255 WT谷歌数据 波兰 (2).xlsx", "500 WT谷歌数据 波兰(1).xlsx"] as const;
+const RESTRICTED_POOL_BATCHES = ["255 WT谷歌数据 波兰 (2).xlsx", "500 WT谷歌数据 波兰 (1).xlsx"] as const;
 
 function maskPhone(value: unknown) {
   const text = String(value || "").trim();

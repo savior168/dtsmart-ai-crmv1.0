@@ -461,7 +461,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       setRole(body.role || "SALES");
       const scopedBatches = Array.isArray(body.restricted_batches) ? body.restricted_batches.map(String) : [];
       setRestrictedBatches(scopedBatches);
-      if (scopedBatches.length && tab === "available") setSourceBatches(scopedBatches);
+      if (scopedBatches.length && tab === "available") {
+        setSourceBatches((current) => current.length === scopedBatches.length && current.every((value, index) => value === scopedBatches[index]) ? current : scopedBatches);
+      }
       setSelected(new Set());
     } catch (caught) {
       if (version === requestVersion.current) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
