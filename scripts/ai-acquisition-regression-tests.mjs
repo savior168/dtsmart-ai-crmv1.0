@@ -10,9 +10,12 @@ assert.equal(evaluateAcquisitionGate({...base,evidenceUrls:[{source_url:"https:/
 assert.equal(evaluateAcquisitionGate({...base,contacts:[{type:"PHONE",verification_status:"SOURCE_CONFIRMED",exact_source_url:null}]}).accepted,false,"联系方式无具体来源页面不得入池");
 
 const migration=fs.readFileSync(new URL("../supabase/migrations/202609150004_ai_acquisition_core.sql",import.meta.url),"utf8");
+const multiIndustryMigration=fs.readFileSync(new URL("../supabase/migrations/202609150005_ai_acquisition_multi_industry.sql",import.meta.url),"utf8");
 assert.match(migration,/AI_STAGING/);
 assert.match(migration,/claim_stalled_ai_acquisition_tasks/);
 assert.match(migration,/revoke all on public\.ai_acquisition_tasks/);
+assert.match(multiIndustryMigration,/industries text\[\]/);
+assert.match(multiIndustryMigration,/get_ai_acquisition_usage_summary/);
 const workflow=fs.readFileSync(new URL("../workflows/ai-acquisition.ts",import.meta.url),"utf8");
 assert.match(workflow,/CLOSED_PERMANENTLY/);
 assert.match(workflow,/Google Place ID已存在/);
@@ -25,7 +28,20 @@ const config=fs.readFileSync(new URL("../lib/ai-acquisition/config.ts",import.me
 assert.doesNotMatch(config,/"CN"/);
 assert.match(config,/Handyreparatur/);
 assert.match(config,/reparação de telemóveis/);
+assert.match(config,/industries\.map/);
 const create=fs.readFileSync(new URL("../components/ai-acquisition/create-view.tsx",import.meta.url),"utf8");
 assert.match(create,/全免费获客/);
 assert.match(create,/智能增强获客/);
+assert.match(create,/IndustryPicker/);
+assert.doesNotMatch(create,/期望进入公海/);
+assert.match(create,/<details/);
+const listRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/route.ts",import.meta.url),"utf8");
+assert.match(listRoute,/contains\("industries"/);
+assert.match(listRoute,/ALL_QUALIFIED_WITHIN_SUPPORTED_SOURCES/);
+const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.ts",import.meta.url),"utf8");
+assert.match(usageRoute,/ai\.acquisition\.usage\.view/);
+assert.match(usageRoute,/amount_type/);
+const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
+assert.match(detail,/核验具体来源/);
+assert.match(detail,/发起WhatsApp对话/);
 console.log("AI acquisition regression tests passed");

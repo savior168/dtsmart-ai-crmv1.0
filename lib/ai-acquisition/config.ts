@@ -7,6 +7,15 @@ export const ACQUISITION_COUNTRIES = [
 
 export type AcquisitionCountry = (typeof ACQUISITION_COUNTRIES)[number];
 
+export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
+  "手机维修店": "mobile phone repair",
+  "手机配件批发商": "phone parts wholesale",
+  "手机配件零售商": "mobile phone accessories store",
+  "手机进口商": "mobile phone importer",
+  "电脑维修店": "computer repair",
+  "电脑配件批发商": "computer parts wholesale",
+};
+
 const COMMON_LOCAL_TERMS: Partial<Record<AcquisitionCountry, Record<string, string>>> = {
   DE: { "mobile phone repair": "Handyreparatur", "computer repair": "Computerreparatur", "phone parts wholesale": "Handy Ersatzteile Großhandel" },
   FR: { "mobile phone repair": "réparation téléphone mobile", "computer repair": "réparation ordinateur", "phone parts wholesale": "grossiste pièces téléphone" },
@@ -24,11 +33,14 @@ export function normalizeAcquisitionCountries(values: unknown): AcquisitionCount
   return [...new Set(values.map((value) => countryInfo(String(value)).code).filter((code): code is AcquisitionCountry => ACQUISITION_COUNTRIES.includes(code as AcquisitionCountry)))];
 }
 
-export function localizedSearchTerms(country: AcquisitionCountry, industry: string, keywords: string[]) {
-  const requested = [...new Set([industry, ...keywords].map((value) => value.trim()).filter(Boolean))].slice(0, 5);
+export function localizedSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+  const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
+  // Every selected industry must receive search coverage. Optional keywords add
+  // narrower query variants, but never displace an explicitly selected industry.
+  const requested = [...new Set([...industryTerms, ...keywords].map((value) => value.trim()).filter(Boolean))].slice(0, 20);
   const translations = COMMON_LOCAL_TERMS[country] || {};
   return [...new Set(requested.flatMap((term) => {
     const translated = translations[term.toLowerCase()];
     return translated && translated.toLowerCase() !== term.toLowerCase() ? [translated, term] : [term];
-  }))].slice(0, 6);
+  }))].slice(0, 24);
 }

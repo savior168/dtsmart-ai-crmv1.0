@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { RefreshCw, Search, Sparkles } from "lucide-react";
+import { ChevronDown, Filter, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   CostModeBadge,
@@ -17,6 +17,9 @@ import {
   primaryButton,
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask } from "./types";
+import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
+
+const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 
 export function AcquisitionTaskCenter() {
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
@@ -24,11 +27,18 @@ export function AcquisitionTaskCenter() {
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
+    [industry, setIndustry] = useState(""),
+    [country, setCountry] = useState(""),
+    [costMode, setCostMode] = useState(""),
+    [from, setFrom] = useState(""),
+    [to, setTo] = useState(""),
     [search, setSearch] = useState(""),
     [draft, setDraft] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [canCreate, setCanCreate] = useState(false);
+    [canCreate, setCanCreate] = useState(false),
+    [canViewUsage, setCanViewUsage] = useState(false),
+    [advancedOpen, setAdvancedOpen] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -40,6 +50,11 @@ export function AcquisitionTaskCenter() {
       });
       if (status) p.set("status", status);
       if (search) p.set("search", search);
+      if (industry) p.set("industry", industry);
+      if (country) p.set("country", country);
+      if (costMode) p.set("cost_mode", costMode);
+      if (from) p.set("from", from);
+      if (to) p.set("to", to);
       const r = await fetch(`/api/ai-acquisition/tasks?${p}`, {
         cache: "no-store",
       });
@@ -48,12 +63,13 @@ export function AcquisitionTaskCenter() {
       setTasks(b.data || []);
       setCount(b.count || 0);
       setCanCreate(Boolean(b.can_create));
+      setCanViewUsage(Boolean(b.can_view_usage));
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, status, search]);
+  }, [page, pageSize, status, search, industry, country, costMode, from, to]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -76,6 +92,7 @@ export function AcquisitionTaskCenter() {
                 创建AI获客
               </Link>
             ) : null}
+            {canViewUsage ? <Link href="/ai-acquisition/usage" className={button}>用量与费用</Link> : null}
             <button className={button} onClick={() => void load()}>
               <RefreshCw size={15} />
               刷新
@@ -85,14 +102,15 @@ export function AcquisitionTaskCenter() {
       />
       <section className={`${panel} p-4`}>
         <form
-          className="flex flex-wrap gap-3"
+          className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
             setPage(1);
             setSearch(draft.trim());
           }}
         >
-          <label className="relative min-w-[260px] flex-1">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.7fr)_repeat(4,minmax(145px,1fr))_auto]">
+          <label className="relative min-w-[240px]">
             <Search
               size={16}
               className="absolute left-3 top-3 text-slate-400"
@@ -105,7 +123,7 @@ export function AcquisitionTaskCenter() {
             />
           </label>
           <select
-            className={`${input} min-w-40`}
+            className={`${input} w-full`}
             value={status}
             onChange={(e) => {
               setPage(1);
@@ -113,13 +131,24 @@ export function AcquisitionTaskCenter() {
             }}
           >
             <option value="">全部状态</option>
+            <option value="QUEUED">排队中</option>
             <option value="RUNNING">执行中</option>
+            <option value="PAUSING">暂停中</option>
             <option value="PAUSED">已暂停</option>
             <option value="COMPLETED">已完成</option>
             <option value="FAILED">失败</option>
             <option value="CANCELLED">已取消</option>
           </select>
-          <button className={button}>查询</button>
+          <select className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}}><option value="">全部目标行业</option>{Object.keys(ACQUISITION_INDUSTRY_TERMS).map((item)=><option key={item} value={item}>{item}</option>)}</select>
+          <select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRIES.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</select>
+          <select className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部成本模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
+          <button type="submit" className={button}><Search size={14}/>查询</button>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+            <button type="button" className={button} onClick={()=>setAdvancedOpen((value)=>!value)} aria-expanded={advancedOpen}><Filter size={14}/>更多筛选<ChevronDown size={14} className={advancedOpen ? "rotate-180" : ""}/></button>
+            {advancedOpen ? <><span className="text-xs text-slate-500">创建时间</span><input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/><span className="text-slate-300">—</span><input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/></> : null}
+            {(search || status || industry || country || costMode || from || to) ? <button type="button" className="text-sm text-blue-700 hover:underline" onClick={()=>{setDraft("");setSearch("");setStatus("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setPage(1)}}>清除全部筛选</button> : null}
+          </div>
         </form>
       </section>
       <section className={panel}>
@@ -134,8 +163,9 @@ export function AcquisitionTaskCenter() {
                 <tr>
                   {[
                     "任务",
-                    "模式 / 市场",
                     "状态",
+                    "目标行业",
+                    "市场 / 模式",
                     "发现 / 核验",
                     "入池 / 待复核",
                     "未通过 / 重复",
@@ -164,18 +194,20 @@ export function AcquisitionTaskCenter() {
                       </small>
                     </td>
                     <td className="px-4 py-4">
-                      <CostModeBadge mode={t.cost_mode} />
-                      <small className="mt-2 block text-slate-500">
-                        {t.countries.join("、")}
-                      </small>
-                    </td>
-                    <td className="px-4 py-4">
                       <StatusBadge status={t.status} />
                       {t.error_message ? (
                         <small className="mt-2 block max-w-52 text-rose-600">
                           {t.error_message}
                         </small>
                       ) : null}
+                    </td>
+                    <td className="max-w-56 px-4 py-4 text-slate-700">
+                      {(t.industries?.length ? t.industries : [t.industry]).slice(0, 2).join("、")}
+                      {(t.industries?.length || 1) > 2 ? <small className="ml-1 text-blue-600">+{(t.industries?.length || 1) - 2}</small> : null}
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="text-slate-700">{t.countries.slice(0, 2).map((code)=>COUNTRY_NAMES.of(code) || code).join("、")}{t.countries.length > 2 ? ` +${t.countries.length - 2}` : ""}</div>
+                      <div className="mt-2"><CostModeBadge mode={t.cost_mode} /></div>
                     </td>
                     <td className="px-4 py-4">
                       {t.discovered_count} / {t.processed_count}

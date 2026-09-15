@@ -22,15 +22,15 @@ async function currentMonthSkuCalls(sku: string) {
 
 export async function discoverBusinesses(input: {
   acquisitionTaskId: string; screeningTaskId: string; userId: string; costMode: "FREE_ONLY" | "ADAPTIVE";
-  country: AcquisitionCountry; industry: string; keywords: string[]; excludedKeywords: string[]; limit: number;
+  country: AcquisitionCountry; industries: string[]; keywords: string[]; excludedKeywords: string[]; limit: number;
 }) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY_NOT_CONFIGURED");
   const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(input.country) || input.country;
-  const terms = localizedSearchTerms(input.country, input.industry, input.keywords);
+  const terms = localizedSearchTerms(input.country, input.industries, input.keywords);
   const results = new Map<string, DiscoveredBusiness>();
+  const perTermLimit = Math.min(20, Math.max(5, Math.ceil(input.limit / Math.max(1, terms.length))));
   for (const term of terms) {
-    if (results.size >= input.limit) break;
     const used = await currentMonthSkuCalls("PLACES_TEXT_SEARCH_PRO");
     const insideFreeCap = used < GOOGLE_TEXT_SEARCH_PRO_FREE_CAP;
     if (input.costMode === "FREE_ONLY" && !insideFreeCap) break;
@@ -43,7 +43,7 @@ export async function discoverBusinesses(input: {
       response = await fetch("https://places.googleapis.com/v1/places:searchText", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.businessStatus,places.types,places.googleMapsUri" },
-        body: JSON.stringify({ textQuery: query, pageSize: Math.min(20, input.limit - results.size), languageCode: "en", regionCode: input.country }),
+        body: JSON.stringify({ textQuery: query, pageSize: perTermLimit, languageCode: "en", regionCode: input.country }),
         signal: AbortSignal.timeout(15_000),
       });
       const requestId = response.headers.get("x-request-id") || response.headers.get("x-goog-request-id") || randomUUID();
@@ -73,9 +73,9 @@ export async function discoverBusinesses(input: {
   return [...results.values()].slice(0, input.limit);
 }
 
-export function discoveryCandidateLooksRelevant(candidate: DiscoveredBusiness, industry: string, keywords: string[]) {
+export function discoveryCandidateLooksRelevant(candidate: DiscoveredBusiness, industries: string[], keywords: string[]) {
   const text = `${candidate.companyName} ${candidate.types.join(" ")}`.toLowerCase().replace(/[_-]+/g, " ");
-  const requested = [industry, ...keywords].flatMap((value) => value.toLowerCase().split(/[^\p{L}\p{N}]+/u)).filter((value) => value.length >= 3);
+  const requested = [...industries, ...keywords].flatMap((value) => value.toLowerCase().split(/[^\p{L}\p{N}]+/u)).filter((value) => value.length >= 3);
   const directType = candidate.types.some((value) => !/^(?:establishment|point_of_interest|store|service)$/i.test(value));
   return candidate.businessStatus !== "CLOSED_PERMANENTLY" && (requested.some((term) => text.includes(term)) || directType);
 }

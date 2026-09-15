@@ -20,17 +20,32 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const decision = request.nextUrl.searchParams.get("decision") || "";
+    const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
+    const country = request.nextUrl.searchParams.get("country") || "";
+    const level = request.nextUrl.searchParams.get("level") || "";
+    const readiness = request.nextUrl.searchParams.get("readiness") || "";
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
     if (decision) query = query.eq("decision", decision);
+    if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
+    if (country) query = query.eq("country", country);
+    if (["A","B","C","D"].includes(level)) query = query.eq("ai_level", level);
+    if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true).eq("evidence_complete", true);
+    if (readiness === "NO_CONTACT") query = query.eq("has_actionable_contact", false);
+    if (readiness === "EVIDENCE_GAP") query = query.eq("evidence_complete", false);
     const candidates = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (candidates.error) throw candidates.error;
     const screeningTaskRows = await createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500);
     if (screeningTaskRows.error) throw screeningTaskRows.error;
     const screeningIds = [...new Set((screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")).filter(Boolean))];
     const taskIds = [id, ...screeningIds];
-    const costs = hasPermission(account, "ai.acquisition.usage.view") ? await createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200) : { data: [], error: null };
+    const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
+    const [costs, usageSummary] = canViewUsage ? await Promise.all([
+      createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200),
+      createAdminClient().rpc("get_ai_acquisition_usage_summary", { p_task_id: id }),
+    ]) : [{ data: [], error: null }, { data: null, error: null }];
     if (costs.error) throw costs.error;
-    return NextResponse.json({ task, candidates: candidates.data || [], count: candidates.count || 0, costs: costs.data || [], can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    if (usageSummary.error) throw usageSummary.error;
+    return NextResponse.json({ task, candidates: candidates.data || [], count: candidates.count || 0, costs: costs.data || [], usage_summary: usageSummary.data, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 400 });

@@ -8,8 +8,8 @@ import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
 
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
-  countries: AcquisitionCountry[]; industry: string; keywords: string[]; excluded_keywords: string[];
-  target_count: number; task_cost_limit_usd: number | null; status: string; cancel_requested: boolean;
+  countries: AcquisitionCountry[]; industry: string; industries?: string[]; keywords: string[]; excluded_keywords: string[];
+  target_count: number; discovered_count: number; task_cost_limit_usd: number | null; status: string; cancel_requested: boolean;
 };
 
 async function readTask(taskId: string) {
@@ -46,23 +46,30 @@ async function createScreeningTask(task: AcquisitionTask) {
 async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
+  const industries = task.industries?.length ? task.industries : [task.industry];
   const existingRows = await admin.from("ai_acquisition_candidates").select("id,decision").eq("task_id", task.id).limit(1000);
   if (existingRows.error) throw existingRows.error;
   // A recovered or manually retried task resumes the already discovered set.
   // This prevents duplicate Places calls and preserves the original audit trail.
-  if (existingRows.data?.length) {
+  if (existingRows.data?.length && task.discovered_count > 0) {
     const analyzing = existingRows.data.filter((row) => row.decision === "ANALYZING").length;
     await admin.from("ai_screening_tasks").update({ total_count: analyzing, pending_count: analyzing, updated_at: new Date().toISOString() }).eq("id", screeningTaskId);
     return analyzing;
   }
-  const wanted = Math.max(1, task.target_count);
-  const perCountry = Math.min(60, Math.max(10, Math.ceil((wanted * 3) / task.countries.length)));
+  // target_count is an internal discovery safety ceiling, not a requested
+  // number of successful public-pool imports. The UI intentionally does not
+  // ask users to predict how many qualified businesses exist.
+  const discoveryCeiling = Math.max(1, task.target_count);
+  const perCountry = Math.min(200, Math.max(20, Math.ceil(discoveryCeiling / task.countries.length)));
   const unique = new Map<string, DiscoveredBusiness>();
   for (const country of task.countries) {
+    if (unique.size >= discoveryCeiling) break;
     const latest = await readTask(task.id);
     if (latest.cancel_requested) break;
-    const businesses = await discoverBusinesses({ acquisitionTaskId: task.id, screeningTaskId, userId: task.user_id, costMode: task.cost_mode, country, industry: task.industry, keywords: task.keywords, excludedKeywords: task.excluded_keywords, limit: perCountry });
-    businesses.forEach((business) => unique.set(business.placeId, business));
+    const businesses = await discoverBusinesses({ acquisitionTaskId: task.id, screeningTaskId, userId: task.user_id, costMode: task.cost_mode, country, industries, keywords: task.keywords, excludedKeywords: task.excluded_keywords, limit: perCountry });
+    businesses.forEach((business) => {
+      if (unique.size < discoveryCeiling) unique.set(business.placeId, business);
+    });
   }
   for (const candidate of unique.values()) {
     const already = await admin.from("ai_acquisition_candidates").select("id").eq("task_id", task.id).eq("place_id", candidate.placeId).maybeSingle();
@@ -80,7 +87,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
       if (closed.error) throw closed.error;
       continue;
     }
-    if (!discoveryCandidateLooksRelevant(candidate, task.industry, task.keywords)) {
+    if (!discoveryCandidateLooksRelevant(candidate, industries, task.keywords)) {
       const rejected = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "REJECTED", decision_reason: "公开商家基础类别与目标行业缺少直接相关信号，已在补证前停止", processed_at: new Date().toISOString() });
       if (rejected.error) throw rejected.error;
       continue;

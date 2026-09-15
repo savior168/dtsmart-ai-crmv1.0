@@ -164,6 +164,14 @@ function ChipInput({
   );
 }
 
+function IndustryPicker({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+  const options = AI_INDUSTRIES.filter((item) => item !== "其他");
+  return <div className="grid gap-2 sm:grid-cols-2">{options.map((item) => {
+    const checked = value.includes(item);
+    return <button key={item} type="button" aria-pressed={checked} onClick={() => onChange(checked ? value.filter((value) => value !== item) : [...value, item])} className={`flex h-11 items-center justify-between rounded-lg border px-3 text-left text-sm transition ${checked ? "border-blue-500 bg-blue-50 font-medium text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}><span>{item}</span><span className={`grid size-5 place-items-center rounded-full border ${checked ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-transparent"}`}><Check size={12}/></span></button>;
+  })}</div>;
+}
+
 export function AcquisitionCreateView() {
   const router = useRouter();
   const { toast, node } = useToast();
@@ -171,19 +179,17 @@ export function AcquisitionCreateView() {
     [confirm, setConfirm] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    industry: "手机维修店",
+    industries: AI_INDUSTRIES.filter((item) => item !== "其他") as string[],
     countries: [] as string[],
     keywords: [] as string[],
     excluded_keywords: [] as string[],
-    target_count: 20,
     cost_mode: "FREE_ONLY",
     task_cost_limit_usd: 5,
   });
   const invalid =
     !form.name.trim() ||
-    !form.industry.trim() ||
+    !form.industries.length ||
     !form.countries.length ||
-    !form.keywords.length ||
     (form.cost_mode === "ADAPTIVE" && form.task_cost_limit_usd <= 0);
   async function submit() {
     setBusy(true);
@@ -207,7 +213,7 @@ export function AcquisitionCreateView() {
     <main className="space-y-5 p-5">
       <PageHeader
         title="创建AI获客任务"
-        description="行业与关键词共同限定目标客户；系统会自动生成本地语言检索词，并在发现明显非目标、永久停业、身份冲突或重复时立即停止后续付费补证。"
+        description="选择目标国家和一个或多个目标行业即可开始；关键词用于补充更具体的业务特征。无需填写目标数量，系统会在本次任务的来源、免费额度和费用上限范围内尽可能发现更多合格客户。"
         actions={
           <Link href="/ai-acquisition" className={button}>
             返回任务中心
@@ -226,18 +232,7 @@ export function AcquisitionCreateView() {
               placeholder="例如：葡萄牙手机维修店获客"
             />
           </label>
-          <label>
-            <span className="mb-1.5 block text-sm font-medium">目标行业 *</span>
-            <select
-              className={`${input} w-full`}
-              value={form.industry}
-              onChange={(e) => setForm({ ...form, industry: e.target.value })}
-            >
-              {AI_INDUSTRIES.filter((x) => x !== "其他").map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-          </label>
+          <div className="md:col-span-2"><div className="mb-2 flex items-center justify-between gap-3"><span className="text-sm font-medium">目标行业 *</span><span className="text-xs text-slate-400">多个行业按“任一匹配”扩大覆盖</span></div><IndustryPicker value={form.industries} onChange={(industries) => setForm({ ...form, industries })}/></div>
           <div>
             <span className="mb-1.5 block text-sm font-medium">
               目标国家/地区 *
@@ -247,40 +242,15 @@ export function AcquisitionCreateView() {
               onChange={(countries) => setForm({ ...form, countries })}
             />
           </div>
-          <label>
-            <span className="mb-1.5 block text-sm font-medium">
-              期望进入公海的客户数 *
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={500}
-              className={`${input} w-full`}
-              value={form.target_count}
-              onChange={(e) =>
-                setForm({ ...form, target_count: Number(e.target.value) })
-              }
-            />
-            <small className="mt-1 block text-slate-400">
-              这是通过全部核验后的目标数，不是原始搜索结果数
-            </small>
-          </label>
           <ChipInput
             label="精准业务关键词"
-            required
             values={form.keywords}
             onChange={(keywords) => setForm({ ...form, keywords })}
-            placeholder="建议填写客户提供的服务或产品，如 mobile phone repair、phone parts wholesale"
+            placeholder="选填。用于描述更具体的产品、服务或客户特征；系统会自动生成常用本地语言检索词"
           />
-          <ChipInput
-            label="排除关键词"
-            values={form.excluded_keywords}
-            onChange={(excluded_keywords) =>
-              setForm({ ...form, excluded_keywords })
-            }
-            placeholder="例如 training、school、job，用于发现阶段立即排除无关商家"
-          />
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm leading-6 text-emerald-800"><b>默认尽可能多获取</b><p>系统持续处理已发现的候选，只把通过目标行业、主体、在营、联系方式、证据和去重校验的客户送入公海。</p></div>
         </div>
+        <details className="mt-5 rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-medium text-slate-700">高级精准条件（通常无需设置）</summary><div className="mt-4 max-w-2xl"><ChipInput label="排除关键词" values={form.excluded_keywords} onChange={(excluded_keywords) => setForm({ ...form, excluded_keywords })} placeholder="仅在已知某类同名噪声很多时填写，例如 training、school、job；不填写时由行业证据规则自动排除"/></div></details>
         <section className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <h3 className="font-semibold">成本模式</h3>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -357,7 +327,7 @@ export function AcquisitionCreateView() {
         <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6">
           <b>{form.name}</b>
           <p>
-            行业：{form.industry} · 国家/地区：{form.countries.join("、")}
+            行业：{form.industries.join("、")} · 国家/地区：{form.countries.join("、")}
           </p>
           <p>
             模式：

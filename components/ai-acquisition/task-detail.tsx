@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ExternalLink, Pause, Play, RefreshCw, Square } from "lucide-react";
+import { ExternalLink, Pause, Play, RefreshCw, Search, Square } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import {
@@ -15,6 +15,7 @@ import {
   effectiveElapsedMs,
   formatCost,
   formatDuration,
+  input,
   panel,
   useToast,
 } from "@/components/ai-screening/ui";
@@ -29,6 +30,14 @@ type Cost = {
   quantity: number;
   occurred_at: string;
   metadata: Record<string, unknown> | null;
+};
+type UsageSummary = {
+  total_calls: number;
+  free_calls: number;
+  google_calls: number;
+  openai_calls: number;
+  total_cost_usd: number;
+  sku_breakdown: Array<{ provider: string; model_or_sku: string; operation: string; calls: number; free_calls: number; amount_usd: number }>;
 };
 type EvidenceData = {
   candidate: Candidate;
@@ -73,6 +82,12 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [decision, setDecision] = useState(""),
+    [search, setSearch] = useState(""),
+    [draft, setDraft] = useState(""),
+    [country, setCountry] = useState(""),
+    [level, setLevel] = useState(""),
+    [readiness, setReadiness] = useState(""),
+    [usage, setUsage] = useState<UsageSummary | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [canControl, setCanControl] = useState(false),
@@ -91,6 +106,10 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
         pageSize: String(pageSize),
       });
       if (decision) p.set("decision", decision);
+      if (search) p.set("search", search);
+      if (country) p.set("country", country);
+      if (level) p.set("level", level);
+      if (readiness) p.set("readiness", readiness);
       const r = await fetch(`/api/ai-acquisition/tasks/${taskId}?${p}`, {
         cache: "no-store",
       });
@@ -100,6 +119,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
       setRows(b.candidates || []);
       setCount(b.count || 0);
       setCosts(b.costs || []);
+      setUsage(b.usage_summary || null);
       setCanControl(Boolean(b.can_control));
       setCanEvidence(Boolean(b.can_view_evidence));
     } catch (e) {
@@ -107,7 +127,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [taskId, page, pageSize, decision]);
+  }, [taskId, page, pageSize, decision, search, country, level, readiness]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -174,7 +194,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
       </main>
     );
   if (!task) return null;
-  const totalCost = costs.reduce((s, c) => s + Number(c.amount_usd || 0), 0);
+  const totalCost = usage?.total_cost_usd ?? costs.reduce((s, c) => s + Number(c.amount_usd || 0), 0);
   return (
     <main className="space-y-5 p-5">
       <PageHeader
@@ -255,8 +275,10 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
               未通过、待复核和重复记录不会进入客户公海。
             </p>
           </div>
+          <form className="grid w-full gap-2 md:grid-cols-2 xl:w-auto xl:grid-cols-[minmax(220px,1fr)_repeat(4,minmax(130px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
+          <label className="relative"><Search size={15} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={(event)=>setDraft(event.target.value)} placeholder="搜索客户名称或地址"/></label>
           <select
-            className="h-9 rounded-lg border px-3 text-sm"
+            className={`${input} w-full`}
             value={decision}
             onChange={(e) => {
               setPage(1);
@@ -270,6 +292,11 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
               </option>
             ))}
           </select>
+          <select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{task.countries.map((item)=><option key={item} value={item}>{item}</option>)}</select>
+          <select className={`${input} w-full`} value={readiness} onChange={(event)=>{setPage(1);setReadiness(event.target.value)}}><option value="">全部开发条件</option><option value="ACTIONABLE">可直接开发</option><option value="NO_CONTACT">缺少有效联系方式</option><option value="EVIDENCE_GAP">依据不足</option></select>
+          <select className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
+          <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||country||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountry("");setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
+          </form>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] text-left text-sm">
@@ -404,10 +431,12 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
         <div className="border-b p-4">
           <h2 className="font-semibold">第三方调用与费用明细</h2>
           <p className="mt-1 text-xs text-slate-500">
-            共 {costs.length} 条已记录调用 · 费用 {formatCost(totalCost)}
+            共 {usage?.total_calls ?? costs.length} 条已记录调用 · 费用 {formatCost(totalCost)}
             ；最终费用以服务商账单为准。
           </p>
         </div>
+        {usage ? <><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-5">{[["累计费用",formatCost(usage.total_cost_usd)],["全部调用",usage.total_calls],["免费额度调用",usage.free_calls],["Google Places",usage.google_calls],["大模型",usage.openai_calls]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div>{usage.sku_breakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">SKU / 模型汇总</h3><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="text-xs text-slate-500"><tr><th className="py-2">服务商</th><th>SKU / 模型</th><th>用途</th><th>调用</th><th>免费</th><th>金额</th></tr></thead><tbody>{usage.sku_breakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-2">{item.provider}</td><td>{item.model_or_sku}</td><td>{item.operation}</td><td>{item.calls}</td><td>{item.free_calls}</td><td>{formatCost(item.amount_usd)}</td></tr>)}</tbody></table></div></div>:null}</> : null}
+        <div className="px-4 pt-4 text-xs text-slate-500">最近调用记录（完整累计以汇总数据为准）</div>
         <div className="max-h-80 overflow-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
@@ -522,29 +551,14 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
               <h3 className="font-semibold">可开发联系方式</h3>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {evidence.contacts.map((c) => (
-                  <a
-                    key={c.id}
-                    href={
-                      c.type === "WHATSAPP"
-                        ? `https://wa.me/${String(c.value_raw).replace(/\D/g, "")}`
-                        : c.exact_source_url
-                    }
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-lg border p-3 text-sm hover:border-blue-300"
-                  >
-                    <b>
-                      {c.type === "WHATSAPP"
-                        ? "WhatsApp"
-                        : c.type === "EMAIL"
-                          ? "邮箱"
-                          : "电话"}
-                    </b>
-                    <span className="ml-2 text-blue-700">{c.value_raw}</span>
-                    <small className="mt-1 block text-slate-500">
-                      {c.verification_status} · 查看具体来源
-                    </small>
-                  </a>
+                  <div key={c.id} className="rounded-lg border p-3 text-sm">
+                    <div><b>{c.type === "WHATSAPP" ? "WhatsApp" : c.type === "EMAIL" ? "邮箱" : "电话"}</b><span className="ml-2 break-all text-blue-700">{c.value_raw}</span></div>
+                    <small className="mt-1 block text-slate-500">{c.verification_status} · {c.source_channel}</small>
+                    <div className="mt-2 flex flex-wrap gap-3">
+                      <a href={c.exact_source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline">核验具体来源<ExternalLink size={12}/></a>
+                      {c.type === "WHATSAPP" ? <a href={`https://wa.me/${String(c.value_raw).replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">发起WhatsApp对话<ExternalLink size={12}/></a> : null}
+                    </div>
+                  </div>
                 ))}
                 {!evidence.contacts.length ? (
                   <p className="text-sm text-slate-400">
