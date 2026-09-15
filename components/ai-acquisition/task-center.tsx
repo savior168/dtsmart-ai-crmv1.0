@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
-import { CircleHelp, ListChecks, LoaderCircle, RefreshCw, Search, SearchCheck, Settings2, Sparkles, TriangleAlert, UserRoundPlus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { BarChart3, Check, ChevronDown, CircleHelp, ListChecks, LoaderCircle, Plus, RefreshCw, Search, Settings2, TriangleAlert, UserRoundPlus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CostModeBadge,
   ErrorState,
@@ -21,15 +21,81 @@ import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acqu
 import { UserScopeSelect } from "@/components/user-scope-select";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
-type TaskSummary = { tasks:number; active_tasks:number; discovered:number; accepted:number; review:number; failed_tasks:number };
+const ACQUISITION_INDUSTRY_OPTIONS = Object.keys(ACQUISITION_INDUSTRY_TERMS);
+type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; accepted:number; review:number; failed_tasks:number };
+type SummaryMetric = "" | "active" | "completed" | "accepted" | "review" | "failed";
+
+function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:string)=>void }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const options = ACQUISITION_INDUSTRY_OPTIONS;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = options.filter((item) => item.toLowerCase().includes(normalizedQuery));
+  const canUseCustom = Boolean(query.trim()) && !options.some((item) => item.toLowerCase() === normalizedQuery);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event:MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const handleKeyDown = (event:KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    requestAnimationFrame(() => searchRef.current?.focus());
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const select = (next:string) => {
+    onChange(next);
+    setQuery("");
+    setOpen(false);
+  };
+
+  return <div ref={rootRef} className="relative min-w-0">
+    <button
+      type="button"
+      aria-label="目标行业"
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={() => setOpen((current) => !current)}
+      className={`${input} flex w-full items-center justify-between gap-2 text-left`}
+    >
+      <span className={`truncate ${value ? "text-slate-700" : "text-slate-400"}`}>{value || "全部目标行业"}</span>
+      <ChevronDown size={15} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}/>
+    </button>
+    {open ? <div className="absolute left-0 top-full z-50 mt-1 w-[320px] max-w-[min(320px,calc(100vw-3rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl" role="listbox" aria-label="选择目标行业">
+      <div className="border-b border-slate-100 p-2">
+        <label className="relative block">
+          <Search size={15} className="absolute left-3 top-2.5 text-slate-400"/>
+          <input ref={searchRef} value={query} onChange={(event)=>setQuery(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter"&&query.trim()){event.preventDefault();select(query.trim())}}} className={`${input} h-9 w-full pl-9`} placeholder="搜索或输入任意行业"/>
+        </label>
+      </div>
+      <div className="max-h-64 overflow-y-auto p-1.5">
+        <button type="button" onClick={()=>select("")} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 ${!value ? "bg-blue-50 text-blue-700" : "text-slate-600"}`}><span>全部目标行业</span>{!value?<Check size={15}/>:null}</button>
+        {canUseCustom ? <button type="button" onClick={()=>select(query.trim())} className="mt-1 flex w-full items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-left text-sm text-blue-700 hover:bg-blue-100"><span className="min-w-0 truncate">按“{query.trim()}”筛选</span><Check size={15} className="shrink-0"/></button> : null}
+        {filtered.map((item)=><button type="button" role="option" aria-selected={value===item} key={item} onClick={()=>select(item)} className={`mt-1 flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 ${value===item?"bg-blue-50 text-blue-700":"text-slate-700"}`}><span className="min-w-0 truncate">{item}</span>{value===item?<Check size={15} className="shrink-0"/>:null}</button>)}
+        {!filtered.length && !canUseCustom ? <p className="px-3 py-6 text-center text-sm text-slate-400">没有匹配的行业</p> : null}
+      </div>
+      <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-400">可选择常用行业，也可输入任务中使用的其他行业</p>
+    </div> : null}
+  </div>;
+}
 
 export function AcquisitionTaskCenter() {
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
-    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, discovered:0, accepted:0, review:0, failed_tasks:0 }),
+    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, accepted:0, review:0, failed_tasks:0 }),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
+    [metric, setMetric] = useState<SummaryMetric>(""),
     [industry, setIndustry] = useState(""),
     [country, setCountry] = useState(""),
     [costMode, setCostMode] = useState(""),
@@ -54,6 +120,7 @@ export function AcquisitionTaskCenter() {
         user_id: scopeUserId || "all",
       });
       if (status) p.set("status", status);
+      if (metric) p.set("metric", metric);
       if (search) p.set("search", search);
       if (industry) p.set("industry", industry);
       if (country) p.set("country", country);
@@ -67,7 +134,7 @@ export function AcquisitionTaskCenter() {
       if (!r.ok) throw new Error(b.error || "加载失败");
       setTasks(b.data || []);
       setCount(b.count || 0);
-      setSummary(b.summary || { tasks:0, active_tasks:0, discovered:0, accepted:0, review:0, failed_tasks:0 });
+      setSummary(b.summary || { tasks:0, active_tasks:0, completed_tasks:0, accepted:0, review:0, failed_tasks:0 });
       setCanCreate(Boolean(b.can_create));
       setCanViewUsage(Boolean(b.can_view_usage));
       setCanManageSettings(Boolean(b.can_manage_settings));
@@ -77,7 +144,7 @@ export function AcquisitionTaskCenter() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, status, search, industry, country, costMode, from, to, scopeUserId]);
+  }, [page, pageSize, status, metric, search, industry, country, costMode, from, to, scopeUserId]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -93,31 +160,27 @@ export function AcquisitionTaskCenter() {
         title="AI获客任务中心"
         description="低成本发现 → 非目标早停 → 主体与在营核验 → 联系方式和依据补全 → 系统去重 → 仅高可信目标客户进入客户公海"
         actions={
-          <>
-            {canViewUsage ? <Link href="/ai-acquisition/usage" className={button}>用量与费用</Link> : null}
-            {canManageSettings ? <Link href="/ai-acquisition/settings" className={button}><Settings2 size={15}/>AI获客设置</Link> : null}
-            <button className={button} onClick={() => void load()}>
-              <RefreshCw size={15} />
-              刷新
-            </button>
+          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+            {canViewUsage ? <Link href="/ai-usage?module=acquisition" className={`${button} shrink-0`}><BarChart3 size={16}/>AI用量与费用</Link> : null}
+            {canManageSettings ? <Link href="/ai-acquisition/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI获客设置</Link> : null}
             {canCreate ? (
-              <Link href="/ai-acquisition/new" className={primaryButton}>
-                <Sparkles size={16} />
-                创建AI获客
+              <Link href="/ai-acquisition/new" className={`${primaryButton} shrink-0`}>
+                <Plus size={17} />
+                创建AI获客任务
               </Link>
             ) : null}
-          </>
+          </div>
         }
       />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         {[
-          { label:"当前任务", value:summary.tasks, note:"当前筛选与权限范围", icon:ListChecks, tone:"bg-blue-50 text-blue-700" },
-          { label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
-          { label:"已记录候选", value:summary.discovered, note:"任务累计发现并留痕", icon:SearchCheck, tone:"bg-cyan-50 text-cyan-700" },
-          { label:"已入客户公海", value:summary.accepted, note:"已通过全部准入门槛", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
-          { label:"待复核", value:summary.review, note:"证据不足，未进入公海", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
-          { label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
-        ].map((item)=><article key={item.label} className={`${panel} flex min-w-0 items-center gap-3 p-4`}><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><small className="block truncate text-slate-500">{item.label}</small><b className="mt-0.5 block text-xl leading-6">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="mt-1 block truncate text-xs text-slate-400" title={item.note}>{item.note}</small></span></article>)}
+          { key:"" as const, label:"全部任务", value:summary.tasks, note:"当前条件下的全部任务", icon:ListChecks, tone:"bg-blue-50 text-blue-700" },
+          { key:"active" as const, label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
+          { key:"completed" as const, label:"已完成", value:summary.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
+          { key:"accepted" as const, label:"成功入池客户", value:summary.accepted, note:"已通过准入门槛", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
+          { key:"review" as const, label:"待人工复核", value:summary.review, note:"需核对证据后处理", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
+          { key:"failed" as const, label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
+        ].map((item)=><button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`}><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击筛选任务`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></button>)}
       </section>
       <section className={`${panel} p-4`}>
         <form
@@ -147,6 +210,7 @@ export function AcquisitionTaskCenter() {
             value={status}
             onChange={(e) => {
               setPage(1);
+              setMetric("");
               setStatus(e.target.value);
             }}
           >
@@ -160,17 +224,17 @@ export function AcquisitionTaskCenter() {
             <option value="CANCELLED">已取消</option>
           </select>
           <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRIES.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</select>
-          <label className="min-w-0"><input aria-label="目标行业" list="ai-acquisition-industry-options" className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}} placeholder="全部目标行业"/><datalist id="ai-acquisition-industry-options">{Object.keys(ACQUISITION_INDUSTRY_TERMS).map((item)=><option key={item} value={item}/>)}</datalist></label>
+          <IndustryFilter value={industry} onChange={(value)=>{setPage(1);setIndustry(value)}}/>
           <select aria-label="成本模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部成本模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
           {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
-          <button type="submit" className={button}><Search size={14}/>查询</button>
+          <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
             <span className="text-xs text-slate-500">创建时间</span>
             <input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/>
             <span className="text-slate-300">—</span>
             <input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/>
-            {(search || status || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
+            {(search || status || metric || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setMetric("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
           </div>
         </form>
       </section>
@@ -232,7 +296,7 @@ export function AcquisitionTaskCenter() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="text-slate-700">{t.countries.slice(0, 2).map((code)=>COUNTRY_NAMES.of(code) || code).join("、")}{t.countries.length > 2 ? ` +${t.countries.length - 2}` : ""}</div>
-                      <div className="mt-2"><CostModeBadge mode={t.cost_mode} /></div>
+                      <div className="mt-2"><CostModeBadge mode={t.cost_mode} context="acquisition" /></div>
                     </td>
                     <td className="px-4 py-4">
                       {t.discovered_count} / {t.processed_count}
@@ -256,9 +320,9 @@ export function AcquisitionTaskCenter() {
                     <td className="px-4 py-4">
                       <Link
                         className={button}
-                        href={`/ai-acquisition/tasks/${t.id}`}
+                        href={`/ai-acquisition/tasks/${t.id}?decision=${metric==="review"?"REVIEW":"ACCEPTED"}`}
                       >
-                        查看详情
+                        {metric==="review"?"查看待复核":"查看客户数据"}
                       </Link>
                     </td>
                   </tr>

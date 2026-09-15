@@ -28,7 +28,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
   ];
   const originalKeys = new Set(originals.filter((item) => item.value !== "未提供").map((item) => contactKey(item.type, item.value, customer.country)));
   const collected: DisplayContact[] = (customer.verified_contacts || [])
-    .filter((item) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || "")) && ["PHONE", "EMAIL", "WHATSAPP"].includes(String(item.type || "").toUpperCase()) && String(item.value_raw || "").trim())
+    .filter((item) => ["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || "")) && ["PHONE", "EMAIL", "WHATSAPP"].includes(String(item.type || "").toUpperCase()) && String(item.value_raw || "").trim())
     .map((item) => {
       const type = String(item.type).toUpperCase() as ContactKind;
       const channel = String(item.source_channel || "").toLowerCase();

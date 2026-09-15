@@ -1,5 +1,7 @@
-import { AcquisitionUsageView } from "@/components/ai-acquisition/usage-view";
+import { requirePermission } from "@/lib/auth/current-user";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return <AcquisitionUsageView />;
+export default async function Page() {
+  await requirePermission("ai.acquisition.usage.view");
+  redirect("/ai-usage?module=acquisition");
 }

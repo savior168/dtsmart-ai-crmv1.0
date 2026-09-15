@@ -74,6 +74,7 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/ai-acquisition\/new$/, "AI获客 / 创建任务"],
   [/^\/ai-acquisition\/tasks\/[^/]+$/, "AI获客 / 任务详情"],
   [/^\/ai-acquisition\/usage$/, "AI获客 / 用量与费用"],
+  [/^\/ai-usage$/, "AI获客与筛选 / AI用量与费用"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
   [/^\/ai-screening\/strategies$/, "AI筛选 / 任务中心 / 策略说明"],

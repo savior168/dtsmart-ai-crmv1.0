@@ -3,7 +3,7 @@
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { Activity, Archive, BarChart3, CalendarRange, ChevronRight, Plus, RefreshCw, RotateCcw, Settings2, Target, Users } from "lucide-react";
+import { Activity, Archive, BarChart3, CalendarRange, Plus, RefreshCw, RotateCcw, Settings2, Target, Users } from "lucide-react";
 import type { AiTask } from "@/components/ai-screening/types";
 import { ConfirmDialog, CostModeBadge, ErrorState, Loading, PageHeader, Pagination, StatusBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, panel, primaryButton, input, useToast } from "@/components/ai-screening/ui";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -161,7 +161,7 @@ export function TaskCenterView() {
 
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="AI筛选任务中心" description="创建、监控和处理AI筛选任务，查看客户结果与失败重试。" actions={<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-      {data?.show_ai_usage ? <Link href="/ai-screening/usage" className="group inline-flex h-[42px] shrink-0 items-center gap-3 rounded-[8px] border border-blue-200 bg-blue-50 px-3.5 text-left text-blue-700 transition hover:border-blue-400 hover:bg-blue-100" title="查看AI筛选Token与费用明细"><span className="grid h-7 w-7 place-items-center rounded-md bg-white text-blue-600 shadow-sm"><BarChart3 size={16}/></span><span className="leading-tight"><b className="block text-[13px] font-semibold">查看AI筛选用量</b><small className="text-[11px] text-blue-500">今日 {formatCost(data?.today_cost)}</small></span><ChevronRight size={15} className="transition group-hover:translate-x-0.5"/></Link> : null}
+      {data?.show_ai_usage ? <Link href="/ai-usage?module=screening" className={`${button} shrink-0`} title="查看AI筛选与AI获客用量明细"><BarChart3 size={16}/>AI用量与费用</Link> : null}
       {data?.show_ai_settings ? <Link href="/ai-screening/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI筛选设置</Link> : null}
       <Link href="/ai-screening/new" className={`${primaryButton} shrink-0`}><Plus size={17}/>创建AI筛选任务</Link>
     </div>}/>

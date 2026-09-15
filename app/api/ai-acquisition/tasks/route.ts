@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const status = request.nextUrl.searchParams.get("status") || "";
+    const metric = request.nextUrl.searchParams.get("metric") || "";
     const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
     const costMode = request.nextUrl.searchParams.get("cost_mode") || "";
     const country = request.nextUrl.searchParams.get("country") || "";
@@ -35,6 +36,11 @@ export async function GET(request: NextRequest) {
     let query = admin.from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
     if (ownerId) query = query.eq("user_id", ownerId);
     if (status) query = query.eq("status", status);
+    else if (metric === "active") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+    else if (metric === "completed") query = query.eq("status", "COMPLETED");
+    else if (metric === "failed") query = query.eq("status", "FAILED");
+    if (metric === "accepted") query = query.gt("accepted_count", 0);
+    if (metric === "review") query = query.gt("review_count", 0);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
     if (country) query = query.contains("countries", [country]);
     if (industry) query = query.contains("industries", [industry]);
@@ -43,11 +49,10 @@ export async function GET(request: NextRequest) {
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
     const result = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
-    const summaryRows: Array<{ status: string; discovered_count: number | null; accepted_count: number | null; review_count: number | null }> = [];
+    const summaryRows: Array<{ status: string; accepted_count: number | null; review_count: number | null }> = [];
     for (let offset = 0; ; offset += 1000) {
-      let summaryQuery = admin.from("ai_acquisition_tasks").select("status,discovered_count,accepted_count,review_count");
+      let summaryQuery = admin.from("ai_acquisition_tasks").select("status,accepted_count,review_count");
       if (ownerId) summaryQuery = summaryQuery.eq("user_id", ownerId);
-      if (status) summaryQuery = summaryQuery.eq("status", status);
       if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) summaryQuery = summaryQuery.eq("cost_mode", costMode);
       if (country) summaryQuery = summaryQuery.contains("countries", [country]);
       if (industry) summaryQuery = summaryQuery.contains("industries", [industry]);
@@ -59,11 +64,11 @@ export async function GET(request: NextRequest) {
       summaryRows.push(...(chunk.data || []));
       if ((chunk.data || []).length < 1000) break;
     }
-    const sum = (key: "discovered_count" | "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    const sum = (key: "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
     const summary = {
-      tasks: result.count || 0,
+      tasks: summaryRows.length,
       active_tasks: summaryRows.filter((row) => ["QUEUED", "RUNNING", "PAUSING"].includes(row.status)).length,
-      discovered: sum("discovered_count"),
+      completed_tasks: summaryRows.filter((row) => row.status === "COMPLETED").length,
       accepted: sum("accepted_count"),
       review: sum("review_count"),
       failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
@@ -94,13 +99,18 @@ export async function POST(request: NextRequest) {
       : null;
     const targetCount = 500;
     const costMode = body.cost_mode === "FREE_ONLY" ? "FREE_ONLY" : "ADAPTIVE";
-    const taskCostLimit = costMode === "FREE_ONLY" ? 0 : Number(body.task_cost_limit_usd);
+    const rawTaskCostLimit = body.task_cost_limit_usd;
+    const taskCostLimit = costMode === "FREE_ONLY"
+      ? 0
+      : rawTaskCostLimit === "" || rawTaskCostLimit == null
+        ? null
+        : Number(rawTaskCostLimit);
     if (!name) return NextResponse.json({ error: "请输入任务名称" }, { status: 400 });
     if (!industries.length) return NextResponse.json({ error: "请至少选择或输入一个明确的目标行业" }, { status: 400 });
     if (!countries.length || countries.length > 8) return NextResponse.json({ error: "请选择1至8个已支持的目标国家" }, { status: 400 });
     if (!/^[0-9a-f-]{36}$/i.test(requestKey)) return NextResponse.json({ error: "任务请求标识无效，请刷新后重试" }, { status: 400 });
     if (body.scheduled_at && !scheduledAt) return NextResponse.json({ error: "请选择晚于当前时间的预约执行时间" }, { status: 400 });
-    if (costMode === "ADAPTIVE" && (!Number.isFinite(taskCostLimit) || taskCostLimit <= 0)) return NextResponse.json({ error: "智能增强模式必须设置大于0的单任务费用上限" }, { status: 400 });
+    if (taskCostLimit !== null && (!Number.isFinite(taskCostLimit) || taskCostLimit <= 0)) return NextResponse.json({ error: "单任务费用上限必须大于0；留空表示仅遵循AI获客全局费用限制" }, { status: 400 });
     const admin = createAdminClient();
     const number = taskNumber(user.id, requestKey);
     const existing = await admin.from("ai_acquisition_tasks").select("*").eq("task_number", number).eq("user_id", user.id).maybeSingle();

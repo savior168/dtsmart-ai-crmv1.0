@@ -31,9 +31,10 @@ export function StrategyBadge({ strategy }: { strategy: string }) {
   return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${strategy === "DEEP" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>{strategy === "DEEP" ? "深度分析" : "智能分析"} v1.0</span>;
 }
 
-export function CostModeBadge({ mode }: { mode?: string | null }) {
+export function CostModeBadge({ mode, context="screening" }: { mode?: string | null; context?:"screening"|"acquisition" }) {
   const freeOnly = mode === "FREE_ONLY";
-  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{freeOnly ? "全免费分析" : "智能增强分析"}</span>;
+  const suffix=context==="acquisition"?"获客":"分析";
+  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{freeOnly ? `全免费${suffix}` : `智能增强${suffix}`}</span>;
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description: ReactNode; actions?: ReactNode }) {

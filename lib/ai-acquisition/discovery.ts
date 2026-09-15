@@ -7,6 +7,7 @@ export type DiscoveredBusiness = {
   placeId: string; companyName: string; address: string; country: AcquisitionCountry;
   businessStatus: string; types: string[]; googleUrl: string; query: string;
 };
+export type DiscoveryControl = "PAUSED" | "CANCELLED" | "BUDGET_LIMITED" | null;
 
 const GOOGLE_TEXT_SEARCH_PRO_FREE_CAP = 5000;
 const GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE = 0.032;
@@ -32,14 +33,40 @@ export async function discoverBusinesses(input: {
   const perTermLimit = Math.min(20, Math.max(5, Math.ceil(input.limit / Math.max(1, terms.length))));
   for (const term of terms) {
     const query = `${term} in ${countryName}`;
-    let pageToken = "";
-    for (let page = 1; page <= 3 && results.size < input.limit; page += 1) {
+    const admin = createAdminClient();
+    const existing = await admin.from("ai_acquisition_discovery_checkpoints").select("next_page,next_page_token,status,results").eq("task_id",input.acquisitionTaskId).eq("country",input.country).eq("query_text",query).maybeSingle();
+    if(existing.error) throw existing.error;
+    const savedResults = Array.isArray(existing.data?.results) ? existing.data.results as DiscoveredBusiness[] : [];
+    savedResults.forEach((business)=>business?.placeId&&results.set(business.placeId,business));
+    if(["COMPLETED","BUDGET_LIMITED"].includes(String(existing.data?.status||""))) continue;
+    let pageToken = String(existing.data?.next_page_token||"");
+    const firstPage = Math.max(1,Number(existing.data?.next_page||1));
+    const queryResults = new Map(savedResults.filter((business)=>business?.placeId).map((business)=>[business.placeId,business]));
+    for (let page = firstPage; page <= 3 && results.size < input.limit; page += 1) {
+      const control = await admin.from("ai_acquisition_tasks").select("status,cancel_requested").eq("id",input.acquisitionTaskId).single();
+      if(control.error) throw control.error;
+      if(control.data.cancel_requested) return { businesses:[...results.values()].slice(0,input.limit), control:"CANCELLED" as const };
+      if(["PAUSING","PAUSED"].includes(String(control.data.status))) {
+        const paused=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"PAUSED",result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        if(paused.error)throw paused.error;
+        return { businesses:[...results.values()].slice(0,input.limit), control:"PAUSED" as const };
+      }
+      const heartbeat=await admin.from("ai_acquisition_tasks").update({executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",input.acquisitionTaskId).eq("status","RUNNING");
+      if(heartbeat.error)throw heartbeat.error;
       const used = await currentMonthSkuCalls("PLACES_TEXT_SEARCH_PRO");
       const insideFreeCap = used < GOOGLE_TEXT_SEARCH_PRO_FREE_CAP;
-      if (input.costMode === "FREE_ONLY" && !insideFreeCap) return [...results.values()].slice(0, input.limit);
+      if (input.costMode === "FREE_ONLY" && !insideFreeCap) {
+        const limited=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"BUDGET_LIMITED",stop_reason:"FREE_MODE",result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        if(limited.error)throw limited.error;
+        return { businesses:[...results.values()].slice(0,input.limit), control:"BUDGET_LIMITED" as const };
+      }
       const effectivePrice = insideFreeCap ? 0 : GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE;
       const reservation = await reserveApiCostBudget("GOOGLE_PLACES", effectivePrice, { userId: input.userId, taskId: input.screeningTaskId, operation: "AI获客目标商家搜索" });
-      if (!reservation.allowed) return [...results.values()].slice(0, input.limit);
+      if (!reservation.allowed) {
+        const limited=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"BUDGET_LIMITED",stop_reason:reservation.period||"BUDGET",result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        if(limited.error)throw limited.error;
+        return { businesses:[...results.values()].slice(0,input.limit), control:"BUDGET_LIMITED" as const };
+      }
       try {
         const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
           method: "POST",
@@ -65,16 +92,22 @@ export async function discoverBusinesses(input: {
           const address = String(place.formattedAddress || "").trim();
           const searchable = `${companyName} ${address} ${(place.types || []).join(" ")}`.toLowerCase();
           if (!placeId || !companyName || excluded.some((word) => searchable.includes(word))) continue;
-          if (!results.has(placeId)) results.set(placeId, { placeId, companyName, address, country: input.country, businessStatus: String(place.businessStatus || ""), types: place.types || [], googleUrl: place.googleMapsUri || `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`, query });
+          if (!results.has(placeId)) {
+            const business={ placeId, companyName, address, country: input.country, businessStatus: String(place.businessStatus || ""), types: place.types || [], googleUrl: place.googleMapsUri || `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`, query };
+            results.set(placeId,business);queryResults.set(placeId,business);
+          }
         }
         pageToken = String(payload.nextPageToken || "").trim();
+        const completed=!pageToken||page>=3||results.size>=input.limit;
+        const checkpoint=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:Math.min(4,page+1),next_page_token:completed?null:pageToken,status:completed?"COMPLETED":"RUNNING",stop_reason:null,result_count:queryResults.size,results:[...queryResults.values()],last_request_id:requestId,updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        if(checkpoint.error)throw checkpoint.error;
         if (!pageToken) break;
       } finally {
         await releaseApiCostBudget(reservation.reservationId);
       }
     }
   }
-  return [...results.values()].slice(0, input.limit);
+  return { businesses:[...results.values()].slice(0, input.limit), control:null };
 }
 
 export function discoveryCandidateLooksRelevant(candidate: DiscoveredBusiness, industries: string[], keywords: string[]) {

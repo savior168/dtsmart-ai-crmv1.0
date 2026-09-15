@@ -11,7 +11,7 @@ export function evaluateAcquisitionGate(input: AcquisitionGateInput) {
   const evidenceComplete = input.evidenceUrls.some((row) => /^https?:\/\//i.test(String(row.source_url || "")) && String(row.evidence_strength || "") !== "WEAK_HINT");
   const actionableContacts = input.contacts.filter((contact) =>
     ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type)) &&
-    ["SOURCE_CONFIRMED", "MATCHED_ORIGINAL"].includes(String(contact.verification_status)) &&
+    ["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL"].includes(String(contact.verification_status)) &&
     /^https?:\/\//i.test(String(contact.exact_source_url || "")),
   );
   const accepted = input.automationStatus === "AUTO_DEVELOP" && input.targetDecision === "VALID" &&

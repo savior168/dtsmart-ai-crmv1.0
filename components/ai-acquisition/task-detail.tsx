@@ -3,6 +3,8 @@ import Link from "next/link";
 import { CalendarClock, ExternalLink, Pause, Play, RefreshCw, Search, Square } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { CustomerContactSummary } from "@/components/customer-contact-summary";
+import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import {
   ConfirmDialog,
   CostModeBadge,
@@ -17,6 +19,7 @@ import {
   formatDuration,
   input,
   panel,
+  primaryButton,
   useToast,
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask, Candidate } from "./types";
@@ -74,21 +77,35 @@ const tone: Record<string, string> = {
   FAILED: "bg-rose-50 text-rose-700",
   ANALYZING: "bg-blue-50 text-blue-700",
 };
+type CompletionInfo = { budget_limited: boolean; blocked_periods: string[] };
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
-export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
+function SocialChannels({candidate}:{candidate:Candidate}) {
+  const profile=candidate.customer_profile;
+  const links=[
+    ["Facebook",profile?.facebook_url,"bg-blue-50 text-blue-700"],
+    ["Instagram",profile?.instagram_url,"bg-pink-50 text-pink-700"],
+    ["LinkedIn",profile?.linkedin_url,"bg-sky-50 text-sky-700"],
+    ["TikTok",profile?.tiktok_url,"bg-slate-100 text-slate-700"],
+    ...(profile?.other_public_urls||[]).map((url)=>["公开渠道",url,"bg-slate-50 text-slate-600"]),
+  ].filter((item)=>Boolean(String(item[1]||"").trim()));
+  if(!links.length)return <span className="text-slate-400">—</span>;
+  return <div className="flex max-w-44 flex-wrap gap-1">{links.map(([label,raw,tone],index)=>{const value=String(raw);const href=/^https?:\/\//i.test(value)?value:`https://${value}`;return <a key={`${label}-${index}`} href={href} target="_blank" rel="noreferrer" title={`打开${label}来源`} className={`rounded-md px-2 py-1 text-xs hover:underline ${tone}`}>{label}</a>})}</div>;
+}
+export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: string; initialDecision?:string }) {
   const [task, setTask] = useState<AcquisitionTask | null>(null),
     [rows, setRows] = useState<Candidate[]>([]),
     [costs, setCosts] = useState<Cost[]>([]),
     [count, setCount] = useState(0),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
-    [decision, setDecision] = useState(""),
+    [decision, setDecision] = useState(initialDecision),
     [search, setSearch] = useState(""),
     [draft, setDraft] = useState(""),
     [country, setCountry] = useState(""),
     [level, setLevel] = useState(""),
     [readiness, setReadiness] = useState(""),
     [usage, setUsage] = useState<UsageSummary | null>(null),
+    [completion, setCompletion] = useState<CompletionInfo>({budget_limited:false,blocked_periods:[]}),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [canControl, setCanControl] = useState(false),
@@ -96,7 +113,8 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
     [busy, setBusy] = useState(false),
     [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | null>(null),
     [evidence, setEvidence] = useState<EvidenceData | null>(null),
-    [evidenceLoading, setEvidenceLoading] = useState(false);
+    [evidenceLoading, setEvidenceLoading] = useState(false),
+    [reviewAction, setReviewAction] = useState<{action:"DISCARD" | "RECHECK_AND_ACCEPT";candidateId:string} | null>(null);
   const { toast, node } = useToast();
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,6 +139,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
       setCount(b.count || 0);
       setCosts(b.costs || []);
       setUsage(b.usage_summary || null);
+      setCompletion(b.completion || {budget_limited:false,blocked_periods:[]});
       setCanControl(Boolean(b.can_control));
       setCanEvidence(Boolean(b.can_view_evidence));
     } catch (e) {
@@ -181,6 +200,18 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
     } finally {
       setEvidenceLoading(false);
     }
+  }
+  async function runReviewAction() {
+    if (!reviewAction) return;
+    setBusy(true);
+    try {
+      const response=await fetch(`/api/ai-acquisition/candidates/${reviewAction.candidateId}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:reviewAction.action})});
+      const body=await response.json().catch(()=>({}));
+      if(!response.ok) throw new Error(body.error||"复核处理失败");
+      toast(reviewAction.action==="DISCARD"?"该客户已确认舍弃":"重新校验通过，客户已进入公海");
+      setReviewAction(null);setEvidence(null);await load();
+    } catch(error) { toast(error instanceof Error?error.message:"复核处理失败","error"); }
+    finally { setBusy(false); }
   }
   if (loading && !task)
     return (
@@ -249,7 +280,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {[
           ["状态", <StatusBadge key="s" status={task.status} />],
-          ["成本模式", <CostModeBadge key="m" mode={task.cost_mode} />],
+          ["成本模式", <CostModeBadge key="m" mode={task.cost_mode} context="acquisition" />],
           [
             "发现 / 已处理",
             `${task.discovered_count} / ${task.processed_count}`,
@@ -269,49 +300,52 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
           {task.error_message}
         </div>
       ) : null}
+      <div className={`rounded-lg border px-4 py-3 text-sm ${task.status==="COMPLETED"?"border-emerald-200 bg-emerald-50 text-emerald-800":"border-blue-100 bg-blue-50/60 text-blue-800"}`}>
+        <b>{task.status==="COMPLETED"?(completion.budget_limited?"已按费用边界完成":"本次获客已完成"):"任务完成条件"}：</b>
+        {task.status==="COMPLETED"
+          ? completion.budget_limited
+            ? "付费路径达到任务或全局限制后停止，已发现候选仍已完成去重与质量判定；未通过准入门槛的数据不会进入客户公海。"
+            : "本次国家/地区、目标行业、本地化检索表达和已支持来源均已执行，全部新候选已完成去重与质量判定。"
+          : "执行完本次有限检索计划并处理完全部新候选后自动结束；连续分页无新候选会提前结束，不会无限采集。"}
+      </div>
       <section className={panel}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+        <div className="border-b px-5 pt-5">
           <div>
-            <h2 className="font-semibold">候选客户与处理依据</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              未通过、待复核和重复记录不会进入客户公海。
+            <h2 className="text-lg font-semibold">本次获取的客户</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              优先核对成功入池客户的数据质量；待复核、未通过和重复记录均不会进入客户公海。
             </p>
           </div>
-          <form className="grid w-full gap-2 md:grid-cols-2 xl:w-auto xl:grid-cols-[minmax(220px,1fr)_repeat(4,minmax(130px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
+          <nav className="mt-4 flex gap-6 overflow-x-auto" aria-label="客户结果分类">
+            {([
+              ["","全部候选",task.processed_count],
+              ["ACCEPTED","成功入池",task.accepted_count],
+              ["REVIEW","待复核",task.review_count],
+              ["REJECTED","未通过",task.rejected_count],
+              ["DUPLICATE","重复",task.duplicate_count],
+            ] as const).map(([value,label,total])=><button key={label} type="button" onClick={()=>{setDecision(value);setPage(1)}} className={`whitespace-nowrap border-b-2 pb-3 text-sm ${decision===value?"border-blue-600 font-medium text-blue-600":"border-transparent text-slate-500 hover:text-slate-800"}`}>{label}<span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">{total}</span></button>)}
+          </nav>
+        </div>
+          <form className="grid w-full gap-2 border-b p-4 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(3,minmax(140px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
           <label className="relative"><Search size={15} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={(event)=>setDraft(event.target.value)} placeholder="搜索客户名称或地址"/></label>
-          <select
-            className={`${input} w-full`}
-            value={decision}
-            onChange={(e) => {
-              setPage(1);
-              setDecision(e.target.value);
-            }}
-          >
-            <option value="">全部判断</option>
-            {Object.entries(decisionLabels).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
           <select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{task.countries.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)||item}</option>)}</select>
           <select className={`${input} w-full`} value={readiness} onChange={(event)=>{setPage(1);setReadiness(event.target.value)}}><option value="">全部开发条件</option><option value="ACTIONABLE">可直接开发</option><option value="NO_CONTACT">缺少有效联系方式</option><option value="EVIDENCE_GAP">依据不足</option></select>
           <select className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
           <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||country||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountry("");setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
           </form>
-        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-sm">
+          <table className="w-full min-w-[1540px] text-left text-sm">
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
                 {[
                   "客户",
-                  "判断",
                   "AI评分",
-                  "开发条件",
                   "国家 / 地址",
-                  "发现来源",
-                  "处理说明",
+                  "已核验联系方式",
+                  "官网",
+                  "Google Maps",
+                  "社媒渠道",
+                  "结果与说明",
                   "操作",
                 ].map((x) => (
                   <th key={x} className="px-4 py-3 font-medium">
@@ -324,40 +358,13 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
               {rows.map((r) => (
                 <tr key={r.id} className="border-t align-top">
                   <td className="px-4 py-4 font-medium text-slate-800">
-                    {r.company_name}
-                  </td>
-                  <td className="px-4 py-4">
-                    <span
-                      className={`rounded-md px-2 py-1 text-xs ${tone[r.decision] || "bg-slate-100"}`}
-                    >
-                      {decisionLabels[r.decision] || r.decision}
-                    </span>
+                    <span className="block max-w-56">{r.company_name}</span>
+                    <small className="mt-1 block text-emerald-700">AI核验：{r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}</small>
                   </td>
                   <td className="px-4 py-4">
                     {r.ai_score == null
                       ? "—"
                       : `${r.ai_level || "—"} · ${r.ai_score}`}
-                  </td>
-                  <td className="px-4 py-4">
-                    <span
-                      className={
-                        r.evidence_complete
-                          ? "text-emerald-700"
-                          : "text-slate-400"
-                      }
-                    >
-                      依据{r.evidence_complete ? "通过" : "不足"}
-                    </span>
-                    <br />
-                    <span
-                      className={
-                        r.has_actionable_contact
-                          ? "text-emerald-700"
-                          : "text-slate-400"
-                      }
-                    >
-                      联系路径{r.has_actionable_contact ? "通过" : "不足"}
-                    </span>
                   </td>
                   <td className="max-w-60 px-4 py-4">
                     <b>{COUNTRY_NAMES.of(r.country) || r.country}</b>
@@ -365,26 +372,16 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
                       {r.address || "—"}
                     </small>
                   </td>
-                  <td className="px-4 py-4">
-                    {r.google_url ? (
-                      <a
-                        href={r.google_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-blue-700 hover:underline"
-                      >
-                        Google Maps
-                        <ExternalLink size={12} />
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                    <small className="mt-1 block text-slate-400">
-                      {r.source_query}
-                    </small>
+                  <td className="max-w-64 px-4 py-4">
+                    <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
                   </td>
-                  <td className="max-w-72 px-4 py-4 text-slate-600">
-                    {r.decision_reason || "—"}
+                  <td className="px-4 py-4"><CustomerPublicLink value={r.customer_profile?.website} kind="website"/></td>
+                  <td className="px-4 py-4"><CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/></td>
+                  <td className="px-4 py-4"><SocialChannels candidate={r}/></td>
+                  <td className="max-w-80 px-4 py-4 text-slate-600">
+                    <span className={`rounded-md px-2 py-1 text-xs ${tone[r.decision] || "bg-slate-100"}`}>{decisionLabels[r.decision] || r.decision}</span>
+                    <small className="mt-2 block leading-5">{r.decision_reason || "—"}</small>
+                    <small className={`mt-1 block ${r.evidence_complete&&r.has_actionable_contact?"text-emerald-700":"text-amber-700"}`}>{r.evidence_complete?"依据通过":"依据不足"} · {r.has_actionable_contact?"联系方式通过":"联系方式不足"}</small>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex gap-2">
@@ -598,9 +595,11 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
                 ))}
               </div>
             </section>
+            {canControl&&evidence.candidate.decision==="REVIEW"?<section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="max-w-2xl text-sm leading-6 text-slate-500">人工操作不会绕过质量门槛。重新校验仅在行业、主体在营、具体来源页和有效联系方式全部通过后入池。</p><div className="flex gap-2"><button type="button" className={`${button} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={()=>{setReviewAction({action:"DISCARD",candidateId:evidence.candidate.id});setEvidence(null)}}>确认舍弃</button><button type="button" className={primaryButton} onClick={()=>{setReviewAction({action:"RECHECK_AND_ACCEPT",candidateId:evidence.candidate.id});setEvidence(null)}}>重新校验并入池</button></div></section>:null}
           </div>
         ) : null}
       </AppDialog>
+      <ConfirmDialog open={Boolean(reviewAction)} title={reviewAction?.action==="DISCARD"?"确认舍弃该客户？":"重新校验该客户？"} description={reviewAction?.action==="DISCARD"?"舍弃后该客户不会进入客户公海，处理依据与审计记录仍会保留。":"系统将重新执行全部准入条件校验；只有证据和有效联系方式均达标且无重复时才会进入客户公海。"} confirmLabel={reviewAction?.action==="DISCARD"?"确认舍弃":"重新校验"} busy={busy} onClose={()=>setReviewAction(null)} onConfirm={()=>void runReviewAction()}/>
     </div></main>
   );
 }

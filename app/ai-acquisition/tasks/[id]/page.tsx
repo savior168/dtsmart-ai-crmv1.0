@@ -1,2 +1,2 @@
 import { AcquisitionTaskDetail } from "@/components/ai-acquisition/task-detail";
-export default async function AcquisitionDetailPage({params}:{params:Promise<{id:string}>}){const{id}=await params;return <AcquisitionTaskDetail taskId={id}/>;}
+export default async function AcquisitionDetailPage({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<{decision?:string}>}){const{id}=await params;const requested=(await searchParams).decision||"";const initialDecision=["ACCEPTED","REVIEW","REJECTED","DUPLICATE","FAILED"].includes(requested)?requested:"";return <AcquisitionTaskDetail taskId={id} initialDecision={initialDecision}/>;}

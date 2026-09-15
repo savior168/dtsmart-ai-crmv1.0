@@ -41,18 +41,46 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (readiness === "EVIDENCE_GAP") query = query.eq("evidence_complete", false);
     const candidates = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (candidates.error) throw candidates.error;
-    const screeningTaskRows = await createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500);
-    if (screeningTaskRows.error) throw screeningTaskRows.error;
-    const screeningIds = [...new Set((screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")).filter(Boolean))];
+    const candidateRows = candidates.data || [];
+    const customerIds = [...new Set(candidateRows.flatMap((row) => [row.staging_customer_id, row.imported_customer_id]).filter(Boolean).map(String))];
+    const [customerProfiles, verifiedContacts] = await Promise.all([
+      customerIds.length
+        ? createAdminClient().from("customers").select("id,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls").in("id", customerIds)
+        : Promise.resolve({ data: [], error: null }),
+      customerIds.length
+        ? createAdminClient().from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).in("verification_status", ["MATCHED_ORIGINAL","NEW_VERIFIED","SOURCE_CONFIRMED"]).not("exact_source_url", "is", null).order("captured_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (customerProfiles.error || verifiedContacts.error) throw customerProfiles.error || verifiedContacts.error;
+    const profileById = new Map((customerProfiles.data || []).map((row) => [String(row.id), row]));
+    const contactsByCustomer = new Map<string, Record<string, unknown>[]>();
+    for (const contact of verifiedContacts.data || []) {
+      const key = String(contact.customer_id);
+      contactsByCustomer.set(key, [...(contactsByCustomer.get(key) || []), contact]);
+    }
+    const enrichedCandidates = candidateRows.map((row) => {
+      const customerId = String(row.staging_customer_id || row.imported_customer_id || "");
+      return { ...row, customer_profile: profileById.get(customerId) || null, verified_contacts: contactsByCustomer.get(customerId) || [] };
+    });
+    const [screeningTaskRows, acquisitionChild] = await Promise.all([
+      createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500),
+      createAdminClient().from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle(),
+    ]);
+    if (screeningTaskRows.error || acquisitionChild.error) throw screeningTaskRows.error || acquisitionChild.error;
+    const screeningIds = [...new Set([...(screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")),String(acquisitionChild.data?.id||"")].filter(Boolean))];
     const taskIds = [id, ...screeningIds];
     const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
-    const [costs, usageSummary] = canViewUsage ? await Promise.all([
+    const discoveryCheckpoints = await createAdminClient().from("ai_acquisition_discovery_checkpoints").select("status,stop_reason").eq("task_id",id);
+    const [costs, usageSummary, budgetEvents] = canViewUsage ? await Promise.all([
       createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200),
       createAdminClient().rpc("get_ai_acquisition_usage_summary", { p_task_id: id }),
-    ]) : [{ data: [], error: null }, { data: null, error: null }];
-    if (costs.error) throw costs.error;
+      createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds),
+    ]) : [{ data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
+    if (costs.error || budgetEvents.error || discoveryCheckpoints.error) throw costs.error || budgetEvents.error || discoveryCheckpoints.error;
     if (usageSummary.error) throw usageSummary.error;
-    return NextResponse.json({ task: presentTask(task), candidates: candidates.data || [], count: candidates.count || 0, costs: costs.data || [], usage_summary: usageSummary.data, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    const checkpointBlocks=(discoveryCheckpoints.data||[]).filter((row)=>row.status==="BUDGET_LIMITED").map((row)=>String(row.stop_reason||"BUDGET"));
+    const blockedPeriods=[...new Set([...(budgetEvents.data||[]).map((row)=>String(row.blocked_period||"")),...checkpointBlocks].filter(Boolean))];
+    return NextResponse.json({ task: presentTask(task), candidates: enrichedCandidates, count: candidates.count || 0, costs: costs.data || [], usage_summary: usageSummary.data, completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods}, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 400 });
