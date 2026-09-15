@@ -46,6 +46,15 @@ async function createScreeningTask(task: AcquisitionTask) {
 async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
+  const existingRows = await admin.from("ai_acquisition_candidates").select("id,decision").eq("task_id", task.id).limit(1000);
+  if (existingRows.error) throw existingRows.error;
+  // A recovered or manually retried task resumes the already discovered set.
+  // This prevents duplicate Places calls and preserves the original audit trail.
+  if (existingRows.data?.length) {
+    const analyzing = existingRows.data.filter((row) => row.decision === "ANALYZING").length;
+    await admin.from("ai_screening_tasks").update({ total_count: analyzing, pending_count: analyzing, updated_at: new Date().toISOString() }).eq("id", screeningTaskId);
+    return analyzing;
+  }
   const wanted = Math.max(1, task.target_count);
   const perCountry = Math.min(60, Math.max(10, Math.ceil((wanted * 3) / task.countries.length)));
   const unique = new Map<string, DiscoveredBusiness>();

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { start } from "workflow/api";
+import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*").eq("id", id).maybeSingle();
@@ -57,6 +59,30 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const result = await admin.from("ai_acquisition_tasks").update({ status: "RUNNING", started_at: now.toISOString(), pause_started_at: null, paused_duration_ms: pausedDuration, executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", id).eq("status", "PAUSED");
       if (result.error) throw result.error;
       await admin.from("ai_screening_tasks").update({ status: "RUNNING", updated_at: now.toISOString() }).eq("request_key", `acquisition:${id}`).in("status", ["PAUSING","PAUSED"]);
+    } else if (action === "RETRY") {
+      if (task.status !== "FAILED") return NextResponse.json({ error: "只有失败任务可以重试" }, { status: 409 });
+      const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
+      if (child.error) throw child.error;
+      if (child.data) {
+        const failedItems = await admin.from("ai_screening_task_items").select("id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
+        if (failedItems.error) throw failedItems.error;
+        const itemIds = (failedItems.data || []).map((row) => String(row.id));
+        if (itemIds.length) {
+          const invalidated = await admin.from("ai_screening_results").update({ is_latest_valid: false }).in("task_item_id", itemIds);
+          if (invalidated.error) throw invalidated.error;
+          const resetItems = await admin.from("ai_screening_task_items").update({ status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null, result_id: null, progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).in("id", itemIds);
+          if (resetItems.error) throw resetItems.error;
+        }
+        await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: child.data.id });
+        const resetChild = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, error_message: null, completed_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: new Date().toISOString() }).eq("id", child.data.id);
+        if (resetChild.error) throw resetChild.error;
+      }
+      const now = new Date().toISOString();
+      const resetTask = await admin.from("ai_acquisition_tasks").update({ status: "QUEUED", cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now }).eq("id", id).eq("status", "FAILED");
+      if (resetTask.error) throw resetTask.error;
+      const run = await start(aiAcquisitionWorkflow, [id]);
+      const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
+      if (saved.error) throw saved.error;
     } else return NextResponse.json({ error: "不支持的任务操作" }, { status: 400 });
     await admin.from("audit_logs").insert({ user_id: account.id, action: `AI_ACQUISITION_TASK_${action}`, target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number } });
     return NextResponse.json({ ok: true });

@@ -1,15 +1,384 @@
 "use client";
 import Link from "next/link";
-import {Check,ChevronDown,Search,X} from "lucide-react";
-import {useRouter}from "next/navigation";
-import {useMemo,useRef,useState,useEffect}from "react";
-import {AI_INDUSTRIES}from "@/lib/types";
-import {ACQUISITION_COUNTRIES}from "@/lib/ai-acquisition/config";
-import {PageHeader,button,input,panel,primaryButton,useToast}from "@/components/ai-screening/ui";
-import {AppDialog,DialogActions}from "@/components/ui/app-dialog";
+import { Check, ChevronDown, Search, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo, useRef, useState, useEffect } from "react";
+import { AI_INDUSTRIES } from "@/lib/types";
+import { ACQUISITION_COUNTRIES } from "@/lib/ai-acquisition/config";
+import {
+  PageHeader,
+  button,
+  input,
+  panel,
+  primaryButton,
+  useToast,
+} from "@/components/ai-screening/ui";
+import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 
-function CountryPicker({value,onChange}:{value:string[];onChange:(v:string[])=>void}){const[open,setOpen]=useState(false),[q,setQ]=useState("");const ref=useRef<HTMLDivElement>(null);const names=useMemo(()=>new Intl.DisplayNames(["zh-CN"],{type:"region"}),[]);useEffect(()=>{const close=(e:MouseEvent)=>{if(ref.current&&!ref.current.contains(e.target as Node))setOpen(false)};document.addEventListener("mousedown",close);return()=>document.removeEventListener("mousedown",close)},[]);const options=ACQUISITION_COUNTRIES.filter(c=>`${c} ${names.of(c)}`.toLowerCase().includes(q.toLowerCase()));return <div ref={ref} className="relative"><button type="button" onClick={()=>setOpen(!open)} className={`${input} flex w-full items-center justify-between text-left`}><span className="truncate">{value.length?`已选 ${value.length} 个国家/地区`:"请选择1至8个国家/地区"}</span><ChevronDown size={15}/></button>{open?<div className="absolute z-40 mt-1 w-full min-w-[360px] rounded-xl border bg-white p-2 shadow-xl"><label className="relative block"><Search size={15} className="absolute left-3 top-2.5 text-slate-400"/><input autoFocus value={q} onChange={e=>setQ(e.target.value)} className="h-9 w-full rounded-lg border pl-9 pr-3 text-sm outline-none focus:border-blue-400" placeholder="搜索国家/地区"/></label><div className="mt-2 grid max-h-64 grid-cols-2 overflow-auto">{options.map(c=>{const checked=value.includes(c);return <button key={c} type="button" disabled={!checked&&value.length>=8} onClick={()=>onChange(checked?value.filter(x=>x!==c):[...value,c])} className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 ${checked?"bg-blue-50 text-blue-700":"hover:bg-slate-50"}`}><span>{names.of(c)} <small>{c}</small></span>{checked?<Check size={14}/>:null}</button>})}</div></div>:null}</div>}
+function CountryPicker({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false),
+    [q, setQ] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const names = useMemo(
+    () => new Intl.DisplayNames(["zh-CN"], { type: "region" }),
+    [],
+  );
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  const options = ACQUISITION_COUNTRIES.filter((c) =>
+    `${c} ${names.of(c)}`.toLowerCase().includes(q.toLowerCase()),
+  );
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`${input} flex w-full items-center justify-between text-left`}
+      >
+        <span className="truncate">
+          {value.length
+            ? `已选 ${value.length} 个国家/地区`
+            : "请选择1至8个国家/地区"}
+        </span>
+        <ChevronDown size={15} />
+      </button>
+      {open ? (
+        <div className="absolute z-40 mt-1 w-full min-w-[360px] rounded-xl border bg-white p-2 shadow-xl">
+          <label className="relative block">
+            <Search
+              size={15}
+              className="absolute left-3 top-2.5 text-slate-400"
+            />
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="h-9 w-full rounded-lg border pl-9 pr-3 text-sm outline-none focus:border-blue-400"
+              placeholder="搜索国家/地区"
+            />
+          </label>
+          <div className="mt-2 grid max-h-64 grid-cols-2 overflow-auto">
+            {options.map((c) => {
+              const checked = value.includes(c);
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  disabled={!checked && value.length >= 8}
+                  onClick={() =>
+                    onChange(
+                      checked ? value.filter((x) => x !== c) : [...value, c],
+                    )
+                  }
+                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 ${checked ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50"}`}
+                >
+                  <span>
+                    {names.of(c)} <small>{c}</small>
+                  </span>
+                  {checked ? <Check size={14} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
-function ChipInput({label,values,onChange,required=false,placeholder}:{label:string;values:string[];onChange:(v:string[])=>void;required?:boolean;placeholder:string}){const[draft,setDraft]=useState("");const add=()=>{const v=draft.trim();if(v&&!values.some(x=>x.toLowerCase()===v.toLowerCase())&&values.length<8)onChange([...values,v]);setDraft("")};return <label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700">{label}{required?<b className="text-rose-500"> *</b>:null}</span><div className="min-h-11 rounded-lg border border-slate-200 bg-white p-1.5 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"><div className="flex flex-wrap gap-1.5">{values.map(v=><span key={v} className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700">{v}<button type="button" onClick={()=>onChange(values.filter(x=>x!==v))}><X size={12}/></button></span>)}<input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"||e.key===","){e.preventDefault();add()}}} onBlur={add} placeholder={values.length?"继续输入":"输入后按回车"} className="min-w-36 flex-1 px-1 py-1 text-sm outline-none"/></div></div><small className="mt-1 block text-slate-400">{placeholder}</small></label>}
+function ChipInput({
+  label,
+  values,
+  onChange,
+  required = false,
+  placeholder,
+}: {
+  label: string;
+  values: string[];
+  onChange: (v: string[]) => void;
+  required?: boolean;
+  placeholder: string;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const v = draft.trim();
+    if (
+      v &&
+      !values.some((x) => x.toLowerCase() === v.toLowerCase()) &&
+      values.length < 8
+    )
+      onChange([...values, v]);
+    setDraft("");
+  };
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">
+        {label}
+        {required ? <b className="text-rose-500"> *</b> : null}
+      </span>
+      <div className="min-h-11 rounded-lg border border-slate-200 bg-white p-1.5 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+        <div className="flex flex-wrap gap-1.5">
+          {values.map((v) => (
+            <span
+              key={v}
+              className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700"
+            >
+              {v}
+              <button
+                type="button"
+                onClick={() => onChange(values.filter((x) => x !== v))}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            onBlur={add}
+            placeholder={values.length ? "继续输入" : "输入后按回车"}
+            className="min-w-36 flex-1 px-1 py-1 text-sm outline-none"
+          />
+        </div>
+      </div>
+      <small className="mt-1 block text-slate-400">{placeholder}</small>
+    </label>
+  );
+}
 
-export function AcquisitionCreateView(){const router=useRouter();const{toast,node}=useToast();const[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false);const[form,setForm]=useState({name:"",industry:"手机维修店",countries:[] as string[],keywords:[] as string[],excluded_keywords:[] as string[],target_count:20,cost_mode:"FREE_ONLY",task_cost_limit_usd:5});const invalid=!form.name.trim()||!form.industry.trim()||!form.countries.length||!form.keywords.length||(form.cost_mode==="ADAPTIVE"&&form.task_cost_limit_usd<=0);async function submit(){setBusy(true);try{const r=await fetch("/api/ai-acquisition/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});const b=await r.json();if(!r.ok)throw new Error(b.error||"创建失败");router.push(`/ai-acquisition/tasks/${b.task.id}`)}catch(e){toast(e instanceof Error?e.message:"创建失败","error");setConfirm(false)}finally{setBusy(false)}}return <main className="space-y-5 p-5"><PageHeader title="创建AI获客任务" description="行业与关键词共同限定目标客户；系统会自动生成本地语言检索词，并在发现明显非目标、永久停业、身份冲突或重复时立即停止后续付费补证。" actions={<Link href="/ai-acquisition" className={button}>返回任务中心</Link>}/><section className={`${panel} mx-auto max-w-5xl p-6`}><div className="grid gap-5 md:grid-cols-2"><label><span className="mb-1.5 block text-sm font-medium">任务名称 *</span><input className={`${input} w-full`} value={form.name} maxLength={100} onChange={e=>setForm({...form,name:e.target.value})} placeholder="例如：葡萄牙手机维修店获客"/></label><label><span className="mb-1.5 block text-sm font-medium">目标行业 *</span><select className={`${input} w-full`} value={form.industry} onChange={e=>setForm({...form,industry:e.target.value})}>{AI_INDUSTRIES.filter(x=>x!=="其他").map(x=><option key={x}>{x}</option>)}</select></label><div><span className="mb-1.5 block text-sm font-medium">目标国家/地区 *</span><CountryPicker value={form.countries} onChange={countries=>setForm({...form,countries})}/></div><label><span className="mb-1.5 block text-sm font-medium">期望进入公海的客户数 *</span><input type="number" min={1} max={500} className={`${input} w-full`} value={form.target_count} onChange={e=>setForm({...form,target_count:Number(e.target.value)})}/><small className="mt-1 block text-slate-400">这是通过全部核验后的目标数，不是原始搜索结果数</small></label><ChipInput label="精准业务关键词" required values={form.keywords} onChange={keywords=>setForm({...form,keywords})} placeholder="建议填写客户提供的服务或产品，如 mobile phone repair、phone parts wholesale"/><ChipInput label="排除关键词" values={form.excluded_keywords} onChange={excluded_keywords=>setForm({...form,excluded_keywords})} placeholder="例如 training、school、job，用于发现阶段立即排除无关商家"/></div><section className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="font-semibold">成本模式</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{[{id:"FREE_ONLY",title:"全免费获客",text:"允许使用系统可核对的 Google Places 各 SKU 免费额度；任何正金额调用均由后端拦截。"},{id:"ADAPTIVE",title:"智能增强获客",text:"先免费发现和核验，仅对仍有潜力但证据不足的候选在单任务上限内增强补证。"}].map(m=><button type="button" key={m.id} onClick={()=>setForm({...form,cost_mode:m.id})} className={`rounded-xl border p-4 text-left ${form.cost_mode===m.id?"border-blue-500 bg-white ring-2 ring-blue-100":"border-slate-200 bg-white"}`}><b>{m.title}</b><p className="mt-2 text-sm leading-6 text-slate-500">{m.text}</p></button>)}</div>{form.cost_mode==="ADAPTIVE"?<label className="mt-4 block max-w-xs"><span className="mb-1.5 block text-sm font-medium">单任务费用上限（USD）</span><input type="number" min="0.01" step="0.01" className={`${input} w-full`} value={form.task_cost_limit_usd} onChange={e=>setForm({...form,task_cost_limit_usd:Number(e.target.value)})}/></label>:null}<p className="mt-3 text-xs leading-5 text-slate-500">创建前不展示伪精确耗时或费用。实际调用、免费/计费状态、SKU、价格快照和来源会在任务详情逐项留痕。</p></section><div className="mt-6 flex justify-end gap-3 border-t pt-5"><Link href="/ai-acquisition" className={button}>取消</Link><button disabled={invalid} onClick={()=>setConfirm(true)} className={primaryButton}>创建并自动执行</button></div></section>{node}<AppDialog open={confirm} title="确认创建AI获客任务" description="系统只会把通过行业、主体、在营、证据、有效联系方式和去重校验的企业送入客户公海。证据不足的候选保留在任务明细，不会交给销售员。" onClose={()=>!busy&&setConfirm(false)} width="max-w-lg"><div className="rounded-xl bg-slate-50 p-4 text-sm leading-6"><b>{form.name}</b><p>行业：{form.industry} · 国家/地区：{form.countries.join("、")}</p><p>模式：{form.cost_mode==="FREE_ONLY"?"全免费获客":`智能增强，上限 $${form.task_cost_limit_usd.toFixed(2)}`}</p></div><form onSubmit={e=>{e.preventDefault();void submit()}}><DialogActions busy={busy} onCancel={()=>setConfirm(false)} confirmLabel="确认创建"/></form></AppDialog></main>}
+export function AcquisitionCreateView() {
+  const router = useRouter();
+  const { toast, node } = useToast();
+  const [busy, setBusy] = useState(false),
+    [confirm, setConfirm] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    industry: "手机维修店",
+    countries: [] as string[],
+    keywords: [] as string[],
+    excluded_keywords: [] as string[],
+    target_count: 20,
+    cost_mode: "FREE_ONLY",
+    task_cost_limit_usd: 5,
+  });
+  const invalid =
+    !form.name.trim() ||
+    !form.industry.trim() ||
+    !form.countries.length ||
+    !form.keywords.length ||
+    (form.cost_mode === "ADAPTIVE" && form.task_cost_limit_usd <= 0);
+  async function submit() {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/ai-acquisition/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || "创建失败");
+      router.push(`/ai-acquisition/tasks/${b.task.id}`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "创建失败", "error");
+      setConfirm(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="space-y-5 p-5">
+      <PageHeader
+        title="创建AI获客任务"
+        description="行业与关键词共同限定目标客户；系统会自动生成本地语言检索词，并在发现明显非目标、永久停业、身份冲突或重复时立即停止后续付费补证。"
+        actions={
+          <Link href="/ai-acquisition" className={button}>
+            返回任务中心
+          </Link>
+        }
+      />
+      <section className={`${panel} mx-auto max-w-5xl p-6`}>
+        <div className="grid gap-5 md:grid-cols-2">
+          <label>
+            <span className="mb-1.5 block text-sm font-medium">任务名称 *</span>
+            <input
+              className={`${input} w-full`}
+              value={form.name}
+              maxLength={100}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="例如：葡萄牙手机维修店获客"
+            />
+          </label>
+          <label>
+            <span className="mb-1.5 block text-sm font-medium">目标行业 *</span>
+            <select
+              className={`${input} w-full`}
+              value={form.industry}
+              onChange={(e) => setForm({ ...form, industry: e.target.value })}
+            >
+              {AI_INDUSTRIES.filter((x) => x !== "其他").map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <span className="mb-1.5 block text-sm font-medium">
+              目标国家/地区 *
+            </span>
+            <CountryPicker
+              value={form.countries}
+              onChange={(countries) => setForm({ ...form, countries })}
+            />
+          </div>
+          <label>
+            <span className="mb-1.5 block text-sm font-medium">
+              期望进入公海的客户数 *
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              className={`${input} w-full`}
+              value={form.target_count}
+              onChange={(e) =>
+                setForm({ ...form, target_count: Number(e.target.value) })
+              }
+            />
+            <small className="mt-1 block text-slate-400">
+              这是通过全部核验后的目标数，不是原始搜索结果数
+            </small>
+          </label>
+          <ChipInput
+            label="精准业务关键词"
+            required
+            values={form.keywords}
+            onChange={(keywords) => setForm({ ...form, keywords })}
+            placeholder="建议填写客户提供的服务或产品，如 mobile phone repair、phone parts wholesale"
+          />
+          <ChipInput
+            label="排除关键词"
+            values={form.excluded_keywords}
+            onChange={(excluded_keywords) =>
+              setForm({ ...form, excluded_keywords })
+            }
+            placeholder="例如 training、school、job，用于发现阶段立即排除无关商家"
+          />
+        </div>
+        <section className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <h3 className="font-semibold">成本模式</h3>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {[
+              {
+                id: "FREE_ONLY",
+                title: "全免费获客",
+                text: "允许使用系统可核对的 Google Places 各 SKU 免费额度；任何正金额调用均由后端拦截。",
+              },
+              {
+                id: "ADAPTIVE",
+                title: "智能增强获客",
+                text: "先免费发现和核验，仅对仍有潜力但证据不足的候选在单任务上限内增强补证。",
+              },
+            ].map((m) => (
+              <button
+                type="button"
+                key={m.id}
+                onClick={() => setForm({ ...form, cost_mode: m.id })}
+                className={`rounded-xl border p-4 text-left ${form.cost_mode === m.id ? "border-blue-500 bg-white ring-2 ring-blue-100" : "border-slate-200 bg-white"}`}
+              >
+                <b>{m.title}</b>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  {m.text}
+                </p>
+              </button>
+            ))}
+          </div>
+          {form.cost_mode === "ADAPTIVE" ? (
+            <label className="mt-4 block max-w-xs">
+              <span className="mb-1.5 block text-sm font-medium">
+                单任务费用上限（USD）
+              </span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                className={`${input} w-full`}
+                value={form.task_cost_limit_usd}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    task_cost_limit_usd: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+          ) : null}
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            创建前不展示伪精确耗时或费用。实际调用、免费/计费状态、SKU、价格快照和来源会在任务详情逐项留痕。
+          </p>
+        </section>
+        <div className="mt-6 flex justify-end gap-3 border-t pt-5">
+          <Link href="/ai-acquisition" className={button}>
+            取消
+          </Link>
+          <button
+            disabled={invalid}
+            onClick={() => setConfirm(true)}
+            className={primaryButton}
+          >
+            创建并自动执行
+          </button>
+        </div>
+      </section>
+      {node}
+      <AppDialog
+        open={confirm}
+        title="确认创建AI获客任务"
+        description="系统只会把通过行业、主体、在营、证据、有效联系方式和去重校验的企业送入客户公海。证据不足的候选保留在任务明细，不会交给销售员。"
+        onClose={() => !busy && setConfirm(false)}
+        width="max-w-lg"
+      >
+        <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6">
+          <b>{form.name}</b>
+          <p>
+            行业：{form.industry} · 国家/地区：{form.countries.join("、")}
+          </p>
+          <p>
+            模式：
+            {form.cost_mode === "FREE_ONLY"
+              ? "全免费获客"
+              : `智能增强，上限 $${form.task_cost_limit_usd.toFixed(2)}`}
+          </p>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <DialogActions
+            busy={busy}
+            onCancel={() => setConfirm(false)}
+            confirmLabel="确认创建"
+          />
+        </form>
+      </AppDialog>
+    </main>
+  );
+}

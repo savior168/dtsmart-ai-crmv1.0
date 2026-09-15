@@ -1,13 +1,230 @@
 "use client";
 import Link from "next/link";
-import {RefreshCw,Search,Sparkles} from "lucide-react";
-import {useCallback,useEffect,useState} from "react";
-import {CostModeBadge,ErrorState,Loading,PageHeader,Pagination,StatusBadge,button,effectiveElapsedMs,formatDuration,input,panel,primaryButton} from "@/components/ai-screening/ui";
-import type{AcquisitionTask}from "./types";
+import { RefreshCw, Search, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  CostModeBadge,
+  ErrorState,
+  Loading,
+  PageHeader,
+  Pagination,
+  StatusBadge,
+  button,
+  effectiveElapsedMs,
+  formatDuration,
+  input,
+  panel,
+  primaryButton,
+} from "@/components/ai-screening/ui";
+import type { AcquisitionTask } from "./types";
 
-export function AcquisitionTaskCenter(){
- const[tasks,setTasks]=useState<AcquisitionTask[]>([]),[count,setCount]=useState(0),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(20),[status,setStatus]=useState(""),[search,setSearch]=useState(""),[draft,setDraft]=useState(""),[loading,setLoading]=useState(true),[error,setError]=useState(""),[canCreate,setCanCreate]=useState(false);
- const load=useCallback(async()=>{setLoading(true);setError("");try{const p=new URLSearchParams({page:String(page),pageSize:String(pageSize),user_id:"all"});if(status)p.set("status",status);if(search)p.set("search",search);const r=await fetch(`/api/ai-acquisition/tasks?${p}`,{cache:"no-store"});const b=await r.json();if(!r.ok)throw new Error(b.error||"加载失败");setTasks(b.data||[]);setCount(b.count||0);setCanCreate(Boolean(b.can_create));}catch(e){setError(e instanceof Error?e.message:"加载失败");}finally{setLoading(false)}},[page,pageSize,status,search]);
- useEffect(()=>{void load()},[load]);useEffect(()=>{if(!tasks.some(t=>["QUEUED","RUNNING","PAUSING"].includes(t.status)))return;const id=setInterval(()=>void load(),8000);return()=>clearInterval(id)},[tasks,load]);
- return <main className="space-y-5 p-5"><PageHeader title="AI获客任务中心" description="低成本发现 → 非目标早停 → 主体与在营核验 → 联系方式和依据补全 → 系统去重 → 仅高可信目标客户进入客户公海" actions={<>{canCreate?<Link href="/ai-acquisition/new" className={primaryButton}><Sparkles size={16}/>创建AI获客</Link>:null}<button className={button} onClick={()=>void load()}><RefreshCw size={15}/>刷新</button></>}/><section className={`${panel} p-4`}><form className="flex flex-wrap gap-3" onSubmit={e=>{e.preventDefault();setPage(1);setSearch(draft.trim())}}><label className="relative min-w-[260px] flex-1"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={e=>setDraft(e.target.value)} placeholder="搜索任务名称或任务编号"/></label><select className={`${input} min-w-40`} value={status} onChange={e=>{setPage(1);setStatus(e.target.value)}}><option value="">全部状态</option><option value="RUNNING">执行中</option><option value="PAUSED">已暂停</option><option value="COMPLETED">已完成</option><option value="FAILED">失败</option><option value="CANCELLED">已取消</option></select><button className={button}>查询</button></form></section><section className={panel}>{loading?<Loading/>:error?<ErrorState message={error} reload={()=>void load()}/>:tasks.length?<div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["任务","模式 / 市场","状态","发现 / 核验","入池 / 待复核","未通过 / 重复","有效耗时","创建时间","操作"].map(x=><th key={x} className="px-4 py-3 font-medium">{x}</th>)}</tr></thead><tbody>{tasks.map(t=><tr key={t.id} className="border-t align-top"><td className="px-4 py-4"><Link className="font-semibold text-blue-700 hover:underline" href={`/ai-acquisition/tasks/${t.id}`}>{t.name}</Link><small className="mt-1 block text-slate-400">{t.task_number}</small></td><td className="px-4 py-4"><CostModeBadge mode={t.cost_mode}/><small className="mt-2 block text-slate-500">{t.countries.join("、")}</small></td><td className="px-4 py-4"><StatusBadge status={t.status}/>{t.error_message?<small className="mt-2 block max-w-52 text-rose-600">{t.error_message}</small>:null}</td><td className="px-4 py-4">{t.discovered_count} / {t.processed_count}</td><td className="px-4 py-4"><b className="text-emerald-700">{t.accepted_count}</b> / {t.review_count}</td><td className="px-4 py-4">{t.rejected_count} / {t.duplicate_count}</td><td className="px-4 py-4">{formatDuration(effectiveElapsedMs(t))}</td><td className="px-4 py-4 text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}</td><td className="px-4 py-4"><Link className={button} href={`/ai-acquisition/tasks/${t.id}`}>查看详情</Link></td></tr>)}</tbody></table></div>:<div className="grid min-h-64 place-items-center text-sm text-slate-500">暂无AI获客任务</div>}<Pagination page={page} pageSize={pageSize} total={count} onPage={setPage} onPageSize={s=>{setPage(1);setPageSize(s)}} itemLabel="个任务"/></section></main>;
+export function AcquisitionTaskCenter() {
+  const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
+    [count, setCount] = useState(0),
+    [page, setPage] = useState(1),
+    [pageSize, setPageSize] = useState(20),
+    [status, setStatus] = useState(""),
+    [search, setSearch] = useState(""),
+    [draft, setDraft] = useState(""),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [canCreate, setCanCreate] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const p = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        user_id: "all",
+      });
+      if (status) p.set("status", status);
+      if (search) p.set("search", search);
+      const r = await fetch(`/api/ai-acquisition/tasks?${p}`, {
+        cache: "no-store",
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || "加载失败");
+      setTasks(b.data || []);
+      setCount(b.count || 0);
+      setCanCreate(Boolean(b.can_create));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, status, search]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useEffect(() => {
+    if (!tasks.some((t) => ["QUEUED", "RUNNING", "PAUSING"].includes(t.status)))
+      return;
+    const id = setInterval(() => void load(), 8000);
+    return () => clearInterval(id);
+  }, [tasks, load]);
+  return (
+    <main className="space-y-5 p-5">
+      <PageHeader
+        title="AI获客任务中心"
+        description="低成本发现 → 非目标早停 → 主体与在营核验 → 联系方式和依据补全 → 系统去重 → 仅高可信目标客户进入客户公海"
+        actions={
+          <>
+            {canCreate ? (
+              <Link href="/ai-acquisition/new" className={primaryButton}>
+                <Sparkles size={16} />
+                创建AI获客
+              </Link>
+            ) : null}
+            <button className={button} onClick={() => void load()}>
+              <RefreshCw size={15} />
+              刷新
+            </button>
+          </>
+        }
+      />
+      <section className={`${panel} p-4`}>
+        <form
+          className="flex flex-wrap gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPage(1);
+            setSearch(draft.trim());
+          }}
+        >
+          <label className="relative min-w-[260px] flex-1">
+            <Search
+              size={16}
+              className="absolute left-3 top-3 text-slate-400"
+            />
+            <input
+              className={`${input} w-full pl-9`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="搜索任务名称或任务编号"
+            />
+          </label>
+          <select
+            className={`${input} min-w-40`}
+            value={status}
+            onChange={(e) => {
+              setPage(1);
+              setStatus(e.target.value);
+            }}
+          >
+            <option value="">全部状态</option>
+            <option value="RUNNING">执行中</option>
+            <option value="PAUSED">已暂停</option>
+            <option value="COMPLETED">已完成</option>
+            <option value="FAILED">失败</option>
+            <option value="CANCELLED">已取消</option>
+          </select>
+          <button className={button}>查询</button>
+        </form>
+      </section>
+      <section className={panel}>
+        {loading ? (
+          <Loading />
+        ) : error ? (
+          <ErrorState message={error} reload={() => void load()} />
+        ) : tasks.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1040px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500">
+                <tr>
+                  {[
+                    "任务",
+                    "模式 / 市场",
+                    "状态",
+                    "发现 / 核验",
+                    "入池 / 待复核",
+                    "未通过 / 重复",
+                    "有效耗时",
+                    "创建时间",
+                    "操作",
+                  ].map((x) => (
+                    <th key={x} className="px-4 py-3 font-medium">
+                      {x}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => (
+                  <tr key={t.id} className="border-t align-top">
+                    <td className="px-4 py-4">
+                      <Link
+                        className="font-semibold text-blue-700 hover:underline"
+                        href={`/ai-acquisition/tasks/${t.id}`}
+                      >
+                        {t.name}
+                      </Link>
+                      <small className="mt-1 block text-slate-400">
+                        {t.task_number}
+                      </small>
+                    </td>
+                    <td className="px-4 py-4">
+                      <CostModeBadge mode={t.cost_mode} />
+                      <small className="mt-2 block text-slate-500">
+                        {t.countries.join("、")}
+                      </small>
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge status={t.status} />
+                      {t.error_message ? (
+                        <small className="mt-2 block max-w-52 text-rose-600">
+                          {t.error_message}
+                        </small>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-4">
+                      {t.discovered_count} / {t.processed_count}
+                    </td>
+                    <td className="px-4 py-4">
+                      <b className="text-emerald-700">{t.accepted_count}</b> /{" "}
+                      {t.review_count}
+                    </td>
+                    <td className="px-4 py-4">
+                      {t.rejected_count} / {t.duplicate_count}
+                    </td>
+                    <td className="px-4 py-4">
+                      {formatDuration(effectiveElapsedMs(t))}
+                    </td>
+                    <td className="px-4 py-4 text-slate-500">
+                      {new Date(t.created_at).toLocaleString("zh-CN", {
+                        hour12: false,
+                      })}
+                    </td>
+                    <td className="px-4 py-4">
+                      <Link
+                        className={button}
+                        href={`/ai-acquisition/tasks/${t.id}`}
+                      >
+                        查看详情
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid min-h-64 place-items-center text-sm text-slate-500">
+            暂无AI获客任务
+          </div>
+        )}
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={count}
+          onPage={setPage}
+          onPageSize={(s) => {
+            setPage(1);
+            setPageSize(s);
+          }}
+          itemLabel="个任务"
+        />
+      </section>
+    </main>
+  );
 }
