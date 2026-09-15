@@ -786,6 +786,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="">全部目标判断</option>
                   <option value="valid">有效目标</option>
                   <option value="invalid">无效目标</option>
+                  <option value="review">待复核</option>
                 </select>
                 <select
                   value={aiStatus}

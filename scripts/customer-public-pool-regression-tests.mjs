@@ -164,10 +164,12 @@ assert.match(poolView, /全部获客方式[\s\S]*全部导入批次/, "客户公
 assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType\)[\s\S]*appendSourceBatchFilters\(params\)/, "客户公海列表请求必须携带获客方式与批次筛选");
 assert.match(poolApi, /target === "valid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", true\)/, "客户公海有效目标必须来自明确的有效结论");
 assert.match(poolApi, /target === "invalid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", false\)/, "客户公海无效目标不得混入待复核或未筛选客户");
+assert.match(poolApi, /target === "review"[\s\S]*eq\("ai_screening_done", true\)\.is\("is_target_customer", null\)/, "客户公海待复核必须只查询已分析但尚未形成最终结论的客户");
 assert.match(poolApi, /ai_screening_tasks[\s\S]*total_count[\s\S]*limit\(500\)[\s\S]*customer_count/, "系统管理员必须能从客户公海加载有客户的历史AI筛选批次");
 assert.match(poolApi, /if \(aiTaskIds\.length\)[\s\S]*ai_screening_task_items[\s\S]*matchedCustomerIds/, "客户公海按AI筛选批次查询必须以任务项为范围，不能遗漏没有结果行的客户");
 assert.match(poolView, /该任务共 \{item\.customer_count\} 条；仅加载当前页签内的客户/, "AI筛选批次下拉必须说明任务总量与当前页签加载边界");
 assert.match(customersApi, /target === "valid"[\s\S]*eq\("is_target_customer", true\)[\s\S]*target === "invalid"[\s\S]*eq\("is_target_customer", false\)/, "我的客户目标筛选必须按明确业务结论查询");
+assert.match(customersApi, /target === "review"[\s\S]*eq\("ai_screening_done", true\)\.is\("is_target_customer", null\)/, "我的客户必须提供独立待复核目标筛选");
 assert.doesNotMatch(poolApi, /eq\("is_target_customer", false\)\.lt\("ai_score", 60\)/, "客户公海无效目标不得再用评分二次过滤而漏掉历史矛盾记录");
 assert.doesNotMatch(customersApi, /eq\("is_target_customer", false\)\.lt\("ai_score", 60\)/, "我的客户无效目标不得再用评分二次过滤而漏掉历史矛盾记录");
 assert.match(aiResultsApi, /\.in\("target_decision", \["VALID", "INVALID"\]\)[\s\S]*\.not\("score", "is", null\)[\s\S]*\.not\("grade", "is", null\)/, "AI最终结果只能加载已评分的有效或无效结论");

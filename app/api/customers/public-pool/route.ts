@@ -244,6 +244,7 @@ export async function GET(request: NextRequest) {
     // than being presented as a third target-result value.
     if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false);
+    if (target === "review") query = query.eq("ai_screening_done", true).is("is_target_customer", null);
     if (tab === "claimed" && ["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(customerStatus)) query = query.eq("status", customerStatus);
     if (ownerId && tab === "claimed") query = query.eq("owner_id", ownerId);
     if (sourceType === "IMPORT") query = query.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);

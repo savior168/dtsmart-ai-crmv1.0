@@ -266,6 +266,7 @@ export async function GET(request: NextRequest) {
     // business conclusion. Null therefore remains outside both target lists.
     if (target === "valid") query = query.eq("ai_screening_done", true).eq("is_target_customer", true);
     if (target === "invalid") query = query.eq("ai_screening_done", true).eq("is_target_customer", false);
+    if (target === "review") query = query.eq("ai_screening_done", true).is("is_target_customer", null);
 
     // `followup_status` was added by a compatibility migration and is still
     // absent from some production databases. Do not request or sort by that

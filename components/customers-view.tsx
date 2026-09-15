@@ -619,6 +619,7 @@ export function CustomersView() {
               <option value="">全部目标客户</option>
               <option value="valid">有效目标</option>
               <option value="invalid">无效目标</option>
+              <option value="review">待复核</option>
             </select>
             <select
               value={status}
@@ -665,7 +666,7 @@ export function CustomersView() {
               重置
             </button>
           </div>
-          <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；评分用于表示销售优先级。未分析和分析失败客户不归入两类，可通过“AI分析状态”单独查看。</p>
+          <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；待复核表示已有初步评分但证据不足或主体待确认。评分仅表示销售优先级，未分析和分析失败可通过“AI分析状态”单独查看。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               <span className="text-xs text-slate-500">已应用筛选：</span>
