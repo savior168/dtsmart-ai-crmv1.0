@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { RefreshCw, Search, Settings2, Sparkles } from "lucide-react";
+import { CircleHelp, ListChecks, LoaderCircle, RefreshCw, Search, SearchCheck, Settings2, Sparkles, TriangleAlert, UserRoundPlus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   CostModeBadge,
@@ -21,10 +21,12 @@ import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acqu
 import { UserScopeSelect } from "@/components/user-scope-select";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
+type TaskSummary = { tasks:number; active_tasks:number; discovered:number; accepted:number; review:number; failed_tasks:number };
 
 export function AcquisitionTaskCenter() {
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
+    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, discovered:0, accepted:0, review:0, failed_tasks:0 }),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
@@ -65,6 +67,7 @@ export function AcquisitionTaskCenter() {
       if (!r.ok) throw new Error(b.error || "加载失败");
       setTasks(b.data || []);
       setCount(b.count || 0);
+      setSummary(b.summary || { tasks:0, active_tasks:0, discovered:0, accepted:0, review:0, failed_tasks:0 });
       setCanCreate(Boolean(b.can_create));
       setCanViewUsage(Boolean(b.can_view_usage));
       setCanManageSettings(Boolean(b.can_manage_settings));
@@ -106,6 +109,16 @@ export function AcquisitionTaskCenter() {
           </>
         }
       />
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        {[
+          { label:"当前任务", value:summary.tasks, note:"当前筛选与权限范围", icon:ListChecks, tone:"bg-blue-50 text-blue-700" },
+          { label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
+          { label:"已记录候选", value:summary.discovered, note:"任务累计发现并留痕", icon:SearchCheck, tone:"bg-cyan-50 text-cyan-700" },
+          { label:"已入客户公海", value:summary.accepted, note:"已通过全部准入门槛", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
+          { label:"待复核", value:summary.review, note:"证据不足，未进入公海", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
+          { label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
+        ].map((item)=><article key={item.label} className={`${panel} flex min-w-0 items-center gap-3 p-4`}><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><small className="block truncate text-slate-500">{item.label}</small><b className="mt-0.5 block text-xl leading-6">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="mt-1 block truncate text-xs text-slate-400" title={item.note}>{item.note}</small></span></article>)}
+      </section>
       <section className={`${panel} p-4`}>
         <form
           className="space-y-3"

@@ -31,7 +31,8 @@ export async function GET(request: NextRequest) {
     const industry = request.nextUrl.searchParams.get("industry") || "";
     const from = request.nextUrl.searchParams.get("from") || "";
     const to = request.nextUrl.searchParams.get("to") || "";
-    let query = createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
+    const admin = createAdminClient();
+    let query = admin.from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
     if (ownerId) query = query.eq("user_id", ownerId);
     if (status) query = query.eq("status", status);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
@@ -42,7 +43,32 @@ export async function GET(request: NextRequest) {
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
     const result = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
-    return NextResponse.json({ data: (result.data || []).map(presentTask), count: result.count || 0, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    const summaryRows: Array<{ status: string; discovered_count: number | null; accepted_count: number | null; review_count: number | null }> = [];
+    for (let offset = 0; ; offset += 1000) {
+      let summaryQuery = admin.from("ai_acquisition_tasks").select("status,discovered_count,accepted_count,review_count");
+      if (ownerId) summaryQuery = summaryQuery.eq("user_id", ownerId);
+      if (status) summaryQuery = summaryQuery.eq("status", status);
+      if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) summaryQuery = summaryQuery.eq("cost_mode", costMode);
+      if (country) summaryQuery = summaryQuery.contains("countries", [country]);
+      if (industry) summaryQuery = summaryQuery.contains("industries", [industry]);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(from)) summaryQuery = summaryQuery.gte("created_at", `${from}T00:00:00.000+08:00`);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(to)) summaryQuery = summaryQuery.lte("created_at", `${to}T23:59:59.999+08:00`);
+      if (search) summaryQuery = summaryQuery.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
+      const chunk = await summaryQuery.order("created_at", { ascending: false }).range(offset, offset + 999);
+      if (chunk.error) throw chunk.error;
+      summaryRows.push(...(chunk.data || []));
+      if ((chunk.data || []).length < 1000) break;
+    }
+    const sum = (key: "discovered_count" | "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    const summary = {
+      tasks: result.count || 0,
+      active_tasks: summaryRows.filter((row) => ["QUEUED", "RUNNING", "PAUSING"].includes(row.status)).length,
+      discovered: sum("discovered_count"),
+      accepted: sum("accepted_count"),
+      review: sum("review_count"),
+      failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
+    };
+    return NextResponse.json({ data: (result.data || []).map(presentTask), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
