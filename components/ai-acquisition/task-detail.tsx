@@ -74,6 +74,7 @@ const tone: Record<string, string> = {
   FAILED: "bg-rose-50 text-rose-700",
   ANALYZING: "bg-blue-50 text-blue-700",
 };
+const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
   const [task, setTask] = useState<AcquisitionTask | null>(null),
     [rows, setRows] = useState<Candidate[]>([]),
@@ -183,25 +184,25 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
   }
   if (loading && !task)
     return (
-      <main className="p-5">
+      <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]">
         <Loading />
       </main>
     );
   if (error && !task)
     return (
-      <main className="p-5">
+      <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]">
         <ErrorState message={error} reload={() => void load()} />
       </main>
     );
   if (!task) return null;
   const totalCost = usage?.total_cost_usd ?? costs.reduce((s, c) => s + Number(c.amount_usd || 0), 0);
   return (
-    <main className="space-y-5 p-5">
+    <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
         title={task.name}
         description={
           <span>
-            {task.task_number} · {task.industry} · {task.countries.join("、")}
+            {task.task_number} · {(task.industries?.length ? task.industries : [task.industry]).join("、")} · {task.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}
           </span>
         }
         actions={
@@ -292,7 +293,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
               </option>
             ))}
           </select>
-          <select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{task.countries.map((item)=><option key={item} value={item}>{item}</option>)}</select>
+          <select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{task.countries.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)||item}</option>)}</select>
           <select className={`${input} w-full`} value={readiness} onChange={(event)=>{setPage(1);setReadiness(event.target.value)}}><option value="">全部开发条件</option><option value="ACTIONABLE">可直接开发</option><option value="NO_CONTACT">缺少有效联系方式</option><option value="EVIDENCE_GAP">依据不足</option></select>
           <select className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
           <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||country||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountry("");setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
@@ -304,10 +305,10 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
               <tr>
                 {[
                   "客户",
-                  "国家 / 地址",
                   "判断",
                   "AI评分",
-                  "入池条件",
+                  "开发条件",
+                  "国家 / 地址",
                   "发现来源",
                   "处理说明",
                   "操作",
@@ -323,12 +324,6 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
                 <tr key={r.id} className="border-t align-top">
                   <td className="px-4 py-4 font-medium text-slate-800">
                     {r.company_name}
-                  </td>
-                  <td className="max-w-60 px-4 py-4">
-                    <b>{r.country}</b>
-                    <small className="mt-1 block text-slate-500">
-                      {r.address || "—"}
-                    </small>
                   </td>
                   <td className="px-4 py-4">
                     <span
@@ -362,6 +357,12 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
                     >
                       联系路径{r.has_actionable_contact ? "通过" : "不足"}
                     </span>
+                  </td>
+                  <td className="max-w-60 px-4 py-4">
+                    <b>{COUNTRY_NAMES.of(r.country) || r.country}</b>
+                    <small className="mt-1 block text-slate-500">
+                      {r.address || "—"}
+                    </small>
                   </td>
                   <td className="px-4 py-4">
                     {r.google_url ? (
@@ -599,6 +600,6 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
           </div>
         ) : null}
       </AppDialog>
-    </main>
+    </div></main>
   );
 }

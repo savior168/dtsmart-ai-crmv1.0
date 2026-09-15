@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorStatus, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type CostRow = { task_id: string | null; provider: string; model_or_sku: string | null; operation: string; amount_type: string; amount_usd: number; occurred_at: string };
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const admin = createAdminClient();
-    let taskQuery = admin.from("ai_acquisition_tasks").select("id,task_number,name,status,cost_mode,discovered_count,processed_count,accepted_count,elapsed_ms,created_at,updated_at");
+    let taskQuery = admin.from("ai_acquisition_tasks").select("id,user_id,task_number,name,status,cost_mode,discovered_count,processed_count,accepted_count,elapsed_ms,created_at,updated_at,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)");
     if (ownerId) taskQuery = taskQuery.eq("user_id", ownerId);
     if (status) taskQuery = taskQuery.eq("status", status);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) taskQuery = taskQuery.eq("cost_mode", costMode);
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       return { ...task, calls: taskCosts.length, free_calls: taskCosts.filter((cost) => cost.amount_type === "FREE").length, google_calls: taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES").length, openai_calls: taskCosts.filter((cost) => cost.provider === "OPENAI").length, total_cost_usd: taskCosts.reduce((sum, cost) => sum + Number(cost.amount_usd || 0), 0) };
     }).filter((task) => task.calls > 0 || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
     const summary = { tasks: rows.length, discovered: rows.reduce((sum, row) => sum + Number(row.discovered_count || 0), 0), accepted: rows.reduce((sum, row) => sum + Number(row.accepted_count || 0), 0), calls: costs.length, free_calls: costs.filter((row) => row.amount_type === "FREE").length, google_calls: costs.filter((row) => row.provider === "GOOGLE_PLACES").length, openai_calls: costs.filter((row) => row.provider === "OPENAI").length, total_cost_usd: costs.reduce((sum, row) => sum + Number(row.amount_usd || 0), 0) };
-    return NextResponse.json({ summary, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length });
+    return NextResponse.json({ summary, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客用量查询失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });

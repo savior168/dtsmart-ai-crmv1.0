@@ -39,7 +39,6 @@ const menu = [
   {
     label: "AI获客与筛选", icon: Sparkles, defaultHref: "/ai-screening", children: [
       { label: "AI获客", href: "/ai-acquisition", permission: "ai.acquisition.view" },
-      { label: "获客用量与费用", href: "/ai-acquisition/usage", permission: "ai.acquisition.usage.view" },
       { label: "AI筛选", href: "/ai-screening", permission: "ai.tasks.view" },
     ],
   },

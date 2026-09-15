@@ -35,12 +35,15 @@ export function normalizeAcquisitionCountries(values: unknown): AcquisitionCount
 
 export function localizedSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
   const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
-  // Every selected industry must receive search coverage. Optional keywords add
-  // narrower query variants, but never displace an explicitly selected industry.
-  const requested = [...new Set([...industryTerms, ...keywords].map((value) => value.trim()).filter(Boolean))].slice(0, 20);
   const translations = COMMON_LOCAL_TERMS[country] || {};
-  return [...new Set(requested.flatMap((term) => {
+  const normalizedKeywords = [...new Set(keywords.map((value) => value.trim()).filter(Boolean))];
+  const requested = industryTerms.flatMap((term) => {
     const translated = translations[term.toLowerCase()];
-    return translated && translated.toLowerCase() !== term.toLowerCase() ? [translated, term] : [term];
-  }))].slice(0, 24);
+    const bases = translated && translated.toLowerCase() !== term.toLowerCase() ? [translated, term] : [term];
+    if (!normalizedKeywords.length) return bases;
+    // Keywords may refine a selected industry, but must never become a
+    // standalone broad search that escapes the user's target industry.
+    return [...bases, ...bases.flatMap((base) => normalizedKeywords.map((keyword) => `${base} ${keyword}`))];
+  });
+  return [...new Set(requested)].slice(0, 24);
 }

@@ -18,6 +18,7 @@ import {
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask } from "./types";
 import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
+import { UserScopeSelect } from "@/components/user-scope-select";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 
@@ -38,6 +39,8 @@ export function AcquisitionTaskCenter() {
     [error, setError] = useState(""),
     [canCreate, setCanCreate] = useState(false),
     [canViewUsage, setCanViewUsage] = useState(false),
+    [showOwner, setShowOwner] = useState(false),
+    [scopeUserId, setScopeUserId] = useState(""),
     [advancedOpen, setAdvancedOpen] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,7 +49,7 @@ export function AcquisitionTaskCenter() {
       const p = new URLSearchParams({
         page: String(page),
         pageSize: String(pageSize),
-        user_id: "all",
+        user_id: scopeUserId || "all",
       });
       if (status) p.set("status", status);
       if (search) p.set("search", search);
@@ -64,12 +67,13 @@ export function AcquisitionTaskCenter() {
       setCount(b.count || 0);
       setCanCreate(Boolean(b.can_create));
       setCanViewUsage(Boolean(b.can_view_usage));
+      setShowOwner(Boolean(b.show_owner));
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, status, search, industry, country, costMode, from, to]);
+  }, [page, pageSize, status, search, industry, country, costMode, from, to, scopeUserId]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -80,23 +84,23 @@ export function AcquisitionTaskCenter() {
     return () => clearInterval(id);
   }, [tasks, load]);
   return (
-    <main className="space-y-5 p-5">
+    <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
         title="AI获客任务中心"
         description="低成本发现 → 非目标早停 → 主体与在营核验 → 联系方式和依据补全 → 系统去重 → 仅高可信目标客户进入客户公海"
         actions={
           <>
+            {canViewUsage ? <Link href="/ai-acquisition/usage" className={button}>用量与费用</Link> : null}
+            <button className={button} onClick={() => void load()}>
+              <RefreshCw size={15} />
+              刷新
+            </button>
             {canCreate ? (
               <Link href="/ai-acquisition/new" className={primaryButton}>
                 <Sparkles size={16} />
                 创建AI获客
               </Link>
             ) : null}
-            {canViewUsage ? <Link href="/ai-acquisition/usage" className={button}>用量与费用</Link> : null}
-            <button className={button} onClick={() => void load()}>
-              <RefreshCw size={15} />
-              刷新
-            </button>
           </>
         }
       />
@@ -109,7 +113,7 @@ export function AcquisitionTaskCenter() {
             setSearch(draft.trim());
           }}
         >
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.7fr)_repeat(4,minmax(145px,1fr))_auto]">
+          <div className={`grid gap-3 md:grid-cols-2 ${showOwner ? "xl:grid-cols-[minmax(230px,1.5fr)_repeat(5,minmax(145px,1fr))_auto]" : "xl:grid-cols-[minmax(260px,1.7fr)_repeat(4,minmax(145px,1fr))_auto]"}`}>
           <label className="relative min-w-[240px]">
             <Search
               size={16}
@@ -123,6 +127,7 @@ export function AcquisitionTaskCenter() {
             />
           </label>
           <select
+            aria-label="任务状态"
             className={`${input} w-full`}
             value={status}
             onChange={(e) => {
@@ -139,15 +144,16 @@ export function AcquisitionTaskCenter() {
             <option value="FAILED">失败</option>
             <option value="CANCELLED">已取消</option>
           </select>
-          <select className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}}><option value="">全部目标行业</option>{Object.keys(ACQUISITION_INDUSTRY_TERMS).map((item)=><option key={item} value={item}>{item}</option>)}</select>
-          <select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRIES.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</select>
-          <select className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部成本模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
+          <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRIES.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</select>
+          <select aria-label="目标行业" className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}}><option value="">全部目标行业</option>{Object.keys(ACQUISITION_INDUSTRY_TERMS).map((item)=><option key={item} value={item}>{item}</option>)}</select>
+          <select aria-label="成本模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部成本模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
+          {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
           <button type="submit" className={button}><Search size={14}/>查询</button>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
             <button type="button" className={button} onClick={()=>setAdvancedOpen((value)=>!value)} aria-expanded={advancedOpen}><Filter size={14}/>更多筛选<ChevronDown size={14} className={advancedOpen ? "rotate-180" : ""}/></button>
             {advancedOpen ? <><span className="text-xs text-slate-500">创建时间</span><input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/><span className="text-slate-300">—</span><input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/></> : null}
-            {(search || status || industry || country || costMode || from || to) ? <button type="button" className="text-sm text-blue-700 hover:underline" onClick={()=>{setDraft("");setSearch("");setStatus("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setPage(1)}}>清除全部筛选</button> : null}
+            {(search || status || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className="text-sm text-blue-700 hover:underline" onClick={()=>{setDraft("");setSearch("");setStatus("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>清除全部筛选</button> : null}
           </div>
         </form>
       </section>
@@ -163,6 +169,7 @@ export function AcquisitionTaskCenter() {
                 <tr>
                   {[
                     "任务",
+                    ...(showOwner ? ["归属人"] : []),
                     "状态",
                     "目标行业",
                     "市场 / 模式",
@@ -193,6 +200,7 @@ export function AcquisitionTaskCenter() {
                         {t.task_number}
                       </small>
                     </td>
+                    {showOwner ? <td className="px-4 py-4"><b className="block font-medium text-slate-800">{t.owner?.name?.trim() || "未命名用户"}</b><small className="mt-1 block text-slate-400">{t.owner?.email || "—"}</small></td> : null}
                     <td className="px-4 py-4">
                       <StatusBadge status={t.status} />
                       {t.error_message ? (
@@ -257,6 +265,6 @@ export function AcquisitionTaskCenter() {
           itemLabel="个任务"
         />
       </section>
-    </main>
+    </div></main>
   );
 }
