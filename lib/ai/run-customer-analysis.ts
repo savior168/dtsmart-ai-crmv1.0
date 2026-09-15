@@ -1936,6 +1936,16 @@ async function assertExecutionLease(taskItemId: string, lease?: ExecutionLease) 
     || current.data.lease_token !== lease.leaseToken || expiresAt <= Date.now()) {
     throw new Error("AI_EXECUTION_LEASE_LOST");
   }
+  // Each durable checkpoint and billable request renews the lease and task
+  // heartbeat. A live long-running analysis must never be mistaken for an
+  // abandoned executor by the 75-second cloud recovery watchdog.
+  const renewed = await admin.rpc("renew_ai_screening_item_lease", {
+    p_item_id: taskItemId,
+    p_lease_token: lease.leaseToken,
+    p_executor_id: lease.executorId,
+    p_lease_seconds: 1800,
+  });
+  if (renewed.error || !renewed.data) throw new Error("AI_EXECUTION_LEASE_LOST");
 }
 
 async function collectChannel(customer: CustomerRow, channel: AiChannel, signal: AbortSignal, costContext?:{taskId:string;taskItemId:string;customerId:string;userId:string|null;executionLease?:ExecutionLease}): Promise<ChannelRecord> {
@@ -2250,7 +2260,7 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
     ai_score: normalizedCachedResult.score,
     ai_level: normalizedCachedResult.grade,
       ai_reason: cachedResult.ai_reason || cachedResult.summary,
-      is_target_customer: cachedTargetDecision === "VALID",
+      is_target_customer: cachedTargetDecision === "VALID" ? true : cachedTargetDecision === "INVALID" ? false : null,
       ai_screening_done: true,
       ai_status: "COMPLETED",
       business_relevance: cachedResult.business_relevance,
@@ -2786,7 +2796,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       ai_reason: analysis.ai_reason,
       // Review is a third state. A score alone must never turn uncertain
       // evidence into a definitive customer classification.
-      is_target_customer: finalAutomationStatus === "AUTO_DEVELOP",
+      is_target_customer: finalAutomationStatus === "AUTO_DEVELOP" ? true : finalAutomationStatus === "AUTO_REJECT" ? false : null,
       ai_screening_done: true, ai_status: "COMPLETED",
       business_relevance: analysis.business_relevance, customer_value: analysis.customer_value,
       followup_suggestion: analysis.followup_suggestion, website_email: websiteEmail || null,

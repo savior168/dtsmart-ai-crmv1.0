@@ -1070,6 +1070,7 @@ function ClaimDialog({
   saved: (message: string) => void;
 }) {
   const [channel, setChannel] = useState("WHATSAPP");
+  const [stage, setStage] = useState("CLAIMED");
   const [result, setResult] = useState("");
   const [nextPlan, setNextPlan] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -1077,15 +1078,16 @@ function ClaimDialog({
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!file) return setError("请上传真实联系凭证");
+    if (stage !== "CLAIMED" && !file) return setError("潜在客户以外的阶段必须上传真实凭证附件");
     setBusy(true);
     setError("");
     const form = new FormData();
     form.set("customer_id", row.id);
     form.set("channel", channel);
+    form.set("stage", stage);
     form.set("result", result);
     form.set("next_plan", nextPlan);
-    form.set("file", file);
+    if (file) form.set("file", file);
     try {
       const body = await api("/api/customers/public-pool/claim", {
         method: "POST",
@@ -1101,48 +1103,37 @@ function ClaimDialog({
   return (
     <Modal
       title="认领客户"
-      subtitle={`${row.company_name} · 提交真实首次联系凭证后，开始90天保护期`}
+      subtitle={`${row.company_name} · 完成真实首次联系后开始90天保护期；潜在客户可仅填写联系纪要，其他阶段须附可核验凭证。`}
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
         {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"联系人",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
+        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"QUOTE",label:"报价中",description:"已有询价或报价沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"},{value:"RELEASED",label:"无效客户",description:"确认不匹配或无法开发，需上传凭证"}]}/>
+        <ClaimChoice label="实际联系渠道" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"邮箱"},{value:"PHONE",label:"电话"},{value:"LINKEDIN",label:"LinkedIn / 其他社媒"},{value:"OTHER",label:"官网表单 / 其他方式"}]}/>
+        <ClaimChoice label="本次真实联系结果" placeholder="请选择联系结果" value={result} onChange={setResult} options={[{value:"已发送首条开发信息，待回复",label:"已发送首条开发信息，待回复"},{value:"已联系到对方，需求待确认",label:"已联系到对方，需求待确认"},{value:"对方要求后续跟进",label:"对方要求后续跟进"},{value:"确认存在采购或合作需求",label:"确认存在采购或合作需求"},{value:"暂不匹配或明确无需求",label:"暂不匹配或明确无需求"},{value:"联系方式无效或无法触达",label:"联系方式无效或无法触达"},{value:"其他真实联系结果",label:"其他真实联系结果"}]}/>
         <label className="block text-sm font-medium">
-          首次联系渠道 <span className="text-rose-600">*</span>
-          <select
-            value={channel}
-            onChange={(e) => setChannel(e.target.value)}
-            className={`${field} mt-2 w-full`}
-          >
-            <option value="WHATSAPP">whatsapp</option>
-            <option value="EMAIL">邮件</option>
-            <option value="PHONE">电话</option>
-            <option value="LINKEDIN">LinkedIn</option>
-            <option value="OTHER">其他</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          真实联系结果 <span className="text-rose-600">*</span>
-          <select required value={result} onChange={(e) => setResult(e.target.value)} className={`${field} mt-2 w-full`}>
-            <option value="">请选择</option><option value="未回复">未回复</option><option value="已回复，待确认需求">已回复，待确认需求</option><option value="明确有需求">明确有需求</option><option value="明确无需求">明确无需求</option><option value="联系方式无效">联系方式无效</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          下一步计划 <span className="font-normal text-slate-400">（选填）</span>
+          联系纪要与下一步安排 <span className="text-rose-600">*</span>
           <textarea
             value={nextPlan}
             onChange={(e) => setNextPlan(e.target.value)}
             rows={2}
-            className="mt-2 w-full rounded-lg border p-3 text-sm"
-            placeholder="可选；不填则系统标记为待首次跟进"
+            className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            placeholder="例如：已向采购负责人发送产品目录，约定周三确认维修配件需求。"
+            required
           />
         </label>
-        <EvidenceInput file={file} setFile={setFile} />
-        {!result || !file ? <p className="text-xs text-amber-700">请先选择真实联系结果并上传联系凭证，才能确认认领。</p> : null}
+        <EvidenceInput file={file} setFile={setFile} required={stage !== "CLAIMED"} />
+        {!result || (stage !== "CLAIMED" && !file) ? <p className="text-xs text-amber-700">请先选择真实联系结果；潜在客户以外的阶段还必须上传真实凭证。</p> : null}
         {error ? <ErrorText value={error} /> : null}
-        <DialogActions busy={busy} disabled={!result||!file} close={close} label="确认认领" />
+        <DialogActions busy={busy} disabled={!result || (stage !== "CLAIMED" && !file)} close={close} label="确认认领" />
       </form>
     </Modal>
   );
+}
+
+function ClaimChoice({ label, value, onChange, options, placeholder = "请选择" }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string; description?: string }>; placeholder?: string }) {
+  const selected = options.find((option) => option.value === value);
+  return <div className="text-sm font-medium text-slate-800"><span>{label} <span className="text-rose-600">*</span></span><details className="group relative mt-2"><summary className="flex h-11 cursor-pointer list-none items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-700 outline-none transition hover:border-blue-300 hover:bg-blue-50/30 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100"><span className={selected ? "truncate" : "text-slate-400"}>{selected?.label || placeholder}</span><ChevronDown size={16} className="shrink-0 text-slate-400 transition group-open:rotate-180"/></summary><div className="absolute z-30 mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">{options.map((option) => <button key={option.value} type="button" onClick={(event) => { onChange(option.value); event.currentTarget.closest("details")?.removeAttribute("open"); }} className={`block w-full rounded-lg px-3 py-2 text-left transition ${option.value === value ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"}`}><span className="block text-sm font-medium">{option.label}</span>{option.description ? <span className="mt-0.5 block text-xs leading-5 text-slate-500">{option.description}</span> : null}</button>)}</div></details>{label === "认领后客户阶段" ? <span className="mt-1.5 block text-xs font-normal text-slate-500">潜在客户无需附件；其他阶段必须提供可核验凭证。</span> : null}</div>;
 }
 
 function AssignDialog({
@@ -1716,27 +1707,34 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
 function EvidenceInput({
   file,
   setFile,
+  required,
 }: {
   file: File | null;
   setFile: (file: File | null) => void;
+  required: boolean;
 }) {
   return (
-    <label className="block rounded-xl border border-dashed p-4 text-sm">
+    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-4 text-sm">
       <span className="flex items-center gap-2 font-medium">
         <Paperclip size={17} />
-        真实联系凭证 <span className="text-rose-600">*</span>
+        真实联系凭证 {required ? <span className="text-rose-600">*</span> : <span className="font-normal text-slate-400">（潜在客户选填）</span>}
       </span>
       <input
-        required
+        id="claim-evidence-file"
+        required={required}
         type="file"
         accept="image/jpeg,image/png,image/webp,application/pdf"
         onChange={(event) => setFile(event.target.files?.[0] || null)}
-        className="mt-3 block w-full text-sm"
+        className="sr-only"
       />
+      <label htmlFor="claim-evidence-file" className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition hover:border-blue-300 hover:bg-blue-50/30">
+        <span className={`min-w-0 truncate ${file ? "text-slate-700" : "text-slate-500"}`}>{file ? file.name : "选择凭证文件"}</span>
+        <span className="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{file ? "更换" : "选择文件"}</span>
+      </label>
       <small className="mt-2 block text-slate-500">
-        {file ? `已选择：${file.name}` : "支持 JPG、PNG、WebP、PDF，最大15MB"}
+        {file ? `已选择：${file.name}` : required ? "当前阶段必须上传；支持 JPG、PNG、WebP、PDF，最大15MB" : "潜在客户可不上传；支持 JPG、PNG、WebP、PDF，最大15MB"}
       </small>
-    </label>
+    </div>
   );
 }
 function DialogActions({

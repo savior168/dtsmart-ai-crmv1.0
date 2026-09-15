@@ -47,6 +47,7 @@ export async function rescueStalledCloudTasks() {
   const admin = createAdminClient();
   const claimed = await admin.rpc("claim_stalled_ai_tasks_for_vercel", { p_limit: 3 });
   if (claimed.error) throw claimed.error;
+  let recovered = 0;
   for (const task of claimed.data || []) {
     let run: Awaited<ReturnType<typeof start>>;
     try {
@@ -67,6 +68,9 @@ export async function rescueStalledCloudTasks() {
         dispatch_error: `云端恢复运行已启动，但运行编号写回失败：${update.error.message}`.slice(0, 1000),
         updated_at: new Date().toISOString(),
       }).eq("id", task.task_id).eq("active_executor", "VERCEL_DISPATCHING");
+    } else {
+      recovered += 1;
     }
   }
+  return recovered;
 }

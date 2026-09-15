@@ -25,6 +25,7 @@ test("05 普通电脑维修与Apple维修分离",()=>assert.notEqual(policy.prim
 test("06 明确换屏换电池是强直接证据",()=>assert.equal(policy.evidenceStrengthFor(evidence("官网明确提供手机换屏和电池更换服务")),"STRONG_DIRECT"));
 test("07 只有原始标签归UNKNOWN",()=>assert.equal(policy.primaryIndustryFor("其他"),"UNKNOWN"));
 test("08 无外部证据不得自动开发",()=>assert.equal(gate({evidence:[]}).automationStatus,"AUTO_HOLD"));
+test("08a 待复核不得写入无效目标",()=>{const s=source("lib/ai/run-customer-analysis.ts");assert.match(s,/is_target_customer: cachedTargetDecision === "VALID" \? true : cachedTargetDecision === "INVALID" \? false : null/);assert.match(s,/is_target_customer: finalAutomationStatus === "AUTO_DEVELOP" \? true : finalAutomationStatus === "AUTO_REJECT" \? false : null/);});
 test("09 Google候选按匹配分排序而非首条",()=>assert.match(source("lib/ai/web-enrichment.ts"),/scoreDetails[\s\S]*sort\(\(a, b\) => b\.score - a\.score\)/));
 test("10 社媒登录页不能成为证据",()=>assert.match(source("lib/ai/web-enrichment.ts"),/社媒登录页或Cookie页/));
 test("11 官网新电话可标准化",()=>assert.equal(contacts.normalizePhoneInternational("020 7946 0958","GB"),"+442079460958"));

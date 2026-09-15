@@ -9,17 +9,23 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
     const customerId = String(form.get("customer_id") || "");
     if (!customerId) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
-    const file = validateWorkflowEvidence(form.get("file"));
-    uploaded = await uploadWorkflowEvidence(user.id, "claim", file);
+    const stage = String(form.get("stage") || "CLAIMED").toUpperCase();
+    if (!["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(stage)) return NextResponse.json({ error: "客户阶段无效" }, { status: 400 });
+    const fileValue = form.get("file");
+    if (stage !== "CLAIMED" && !(fileValue instanceof File)) return NextResponse.json({ error: "潜在客户以外的阶段必须上传真实凭证附件" }, { status: 400 });
+    if (!String(form.get("next_plan") || "").trim()) return NextResponse.json({ error: "请填写本次联系纪要及下一步安排" }, { status: 400 });
+    const file = fileValue instanceof File ? validateWorkflowEvidence(fileValue) : null;
+    if (file) uploaded = await uploadWorkflowEvidence(user.id, "claim", file);
     const result = await supabase.rpc("claim_public_customer", {
       p_customer_id: customerId,
       p_channel: String(form.get("channel") || ""),
       p_result: String(form.get("result") || ""),
       p_next_plan: String(form.get("next_plan") || ""),
-      p_storage_path: uploaded.storagePath,
-      p_filename: uploaded.filename,
-      p_mime_type: uploaded.mimeType,
-      p_size_bytes: uploaded.sizeBytes,
+      p_storage_path: uploaded?.storagePath || null,
+      p_filename: uploaded?.filename || null,
+      p_mime_type: uploaded?.mimeType || null,
+      p_size_bytes: uploaded?.sizeBytes || null,
+      p_stage: stage,
     });
     if (result.error) throw result.error;
     return NextResponse.json({ success: true, data: result.data, message: "客户认领成功，90天保护期已经开始" });
