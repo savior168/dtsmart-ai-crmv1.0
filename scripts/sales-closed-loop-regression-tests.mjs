@@ -74,7 +74,7 @@ assert.match(menu, /label: "客户中心"[\s\S]*客户公海[\s\S]*我的客户[
 assert.doesNotMatch(menu, /label: "客户导入"/, "客户导入只能从目标客户列表进入，不能保留歧义二级菜单");
 assert.match(menu, /label: "销售管理"[\s\S]*报价单[\s\S]*销售订单/, "报价单与销售订单必须归入销售管理");
 assert.match(menu, /label: "仓库管理"[\s\S]*stock\.view/, "备货单必须归入仓库管理");
-assert.match(menu, /label: "AI获客"[\s\S]*disabled: true/, "AI获客本期只能预留，不能伪装成已开发功能");
+assert.match(menu, /label: "AI获客", href: "\/ai-acquisition", permission: "ai\.acquisition\.view"/, "AI获客菜单必须受独立页面权限控制");
 assert.match(menu, /label: "系统管理"[\s\S]*用户与权限[\s\S]*费用中心[\s\S]*操作日志[\s\S]*安全设置/, "系统管理必须使用清晰二级菜单");
 
 const costView = read("components/cost-center-view.tsx");

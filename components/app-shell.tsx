@@ -38,7 +38,7 @@ const menu = [
   },
   {
     label: "AI获客与筛选", icon: Sparkles, defaultHref: "/ai-screening", children: [
-      { label: "AI获客", href: "/ai-acquisition", permission: "ai.acquisition.view", disabled: true },
+      { label: "AI获客", href: "/ai-acquisition", permission: "ai.acquisition.view" },
       { label: "AI筛选", href: "/ai-screening", permission: "ai.tasks.view" },
     ],
   },
@@ -70,6 +70,10 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/customers\/[^/]+$/, "客户管理 / 客户详情"],
   [/^\/customers$/, "客户中心 / 我的客户"],
   [/^\/import$/, "客户中心 / 批量导入"],
+  [/^\/ai-acquisition$/, "AI获客 / 任务中心"],
+  [/^\/ai-acquisition\/new$/, "AI获客 / 创建任务"],
+  [/^\/ai-acquisition\/tasks\/[^/]+$/, "AI获客 / 任务详情"],
+  [/^\/ai-acquisition\/usage$/, "AI获客 / 用量与费用"],
   [/^\/ai-screening$/, "AI筛选 / 任务中心"],
   [/^\/ai-screening\/new$/, "AI筛选 / 任务中心 / 创建任务"],
   [/^\/ai-screening\/strategies$/, "AI筛选 / 任务中心 / 策略说明"],
