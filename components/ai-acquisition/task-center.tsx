@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ChevronDown, Filter, RefreshCw, Search, Sparkles } from "lucide-react";
+import { RefreshCw, Search, Settings2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   CostModeBadge,
@@ -39,9 +39,9 @@ export function AcquisitionTaskCenter() {
     [error, setError] = useState(""),
     [canCreate, setCanCreate] = useState(false),
     [canViewUsage, setCanViewUsage] = useState(false),
+    [canManageSettings, setCanManageSettings] = useState(false),
     [showOwner, setShowOwner] = useState(false),
-    [scopeUserId, setScopeUserId] = useState(""),
-    [advancedOpen, setAdvancedOpen] = useState(false);
+    [scopeUserId, setScopeUserId] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -67,6 +67,7 @@ export function AcquisitionTaskCenter() {
       setCount(b.count || 0);
       setCanCreate(Boolean(b.can_create));
       setCanViewUsage(Boolean(b.can_view_usage));
+      setCanManageSettings(Boolean(b.can_manage_settings));
       setShowOwner(Boolean(b.show_owner));
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
@@ -91,6 +92,7 @@ export function AcquisitionTaskCenter() {
         actions={
           <>
             {canViewUsage ? <Link href="/ai-acquisition/usage" className={button}>用量与费用</Link> : null}
+            {canManageSettings ? <Link href="/ai-acquisition/settings" className={button}><Settings2 size={15}/>AI获客设置</Link> : null}
             <button className={button} onClick={() => void load()}>
               <RefreshCw size={15} />
               刷新
@@ -145,15 +147,17 @@ export function AcquisitionTaskCenter() {
             <option value="CANCELLED">已取消</option>
           </select>
           <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRIES.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</select>
-          <select aria-label="目标行业" className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}}><option value="">全部目标行业</option>{Object.keys(ACQUISITION_INDUSTRY_TERMS).map((item)=><option key={item} value={item}>{item}</option>)}</select>
+          <label className="min-w-0"><input aria-label="目标行业" list="ai-acquisition-industry-options" className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}} placeholder="全部目标行业"/><datalist id="ai-acquisition-industry-options">{Object.keys(ACQUISITION_INDUSTRY_TERMS).map((item)=><option key={item} value={item}/>)}</datalist></label>
           <select aria-label="成本模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部成本模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
           {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
           <button type="submit" className={button}><Search size={14}/>查询</button>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
-            <button type="button" className={button} onClick={()=>setAdvancedOpen((value)=>!value)} aria-expanded={advancedOpen}><Filter size={14}/>更多筛选<ChevronDown size={14} className={advancedOpen ? "rotate-180" : ""}/></button>
-            {advancedOpen ? <><span className="text-xs text-slate-500">创建时间</span><input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/><span className="text-slate-300">—</span><input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/></> : null}
-            {(search || status || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className="text-sm text-blue-700 hover:underline" onClick={()=>{setDraft("");setSearch("");setStatus("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>清除全部筛选</button> : null}
+            <span className="text-xs text-slate-500">创建时间</span>
+            <input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/>
+            <span className="text-slate-300">—</span>
+            <input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/>
+            {(search || status || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
           </div>
         </form>
       </section>
@@ -231,6 +235,7 @@ export function AcquisitionTaskCenter() {
                       {formatDuration(effectiveElapsedMs(t))}
                     </td>
                     <td className="px-4 py-4 text-slate-500">
+                      {t.scheduled_at ? <small className="mb-1 block font-medium text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN", { hour12: false })}</small> : null}
                       {new Date(t.created_at).toLocaleString("zh-CN", {
                         hour12: false,
                       })}

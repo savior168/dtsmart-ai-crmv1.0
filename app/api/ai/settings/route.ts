@@ -15,9 +15,18 @@ const integerLimits = {
 
 const settingsSelect = "updated_at,updated_by,google_paid_enabled,openai_paid_enabled,google_max_paid_calls_per_customer,openai_max_paid_calls_per_customer,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd";
 
-export async function GET() {
+function settingsContext(request: NextRequest) {
+  const acquisition = request.nextUrl.searchParams.get("scope") === "acquisition";
+  return {
+    acquisition,
+    permission: acquisition ? "ai.acquisition.settings.manage" : "ai.settings.manage",
+  };
+}
+
+export async function GET(request: NextRequest) {
   try {
-    await requirePermission("ai.settings.manage");
+    const context = settingsContext(request);
+    await requirePermission(context.permission);
     const admin = createAdminClient();
     const [settings, budgets] = await Promise.all([
       admin.from("cost_center_settings").select(settingsSelect).eq("id", true).single(),
@@ -27,14 +36,15 @@ export async function GET() {
     if (budgets.error) throw budgets.error;
     return NextResponse.json({ settings: { ...settings.data, ai_default_dispatch_policy: AI_CLOUD_DISPATCH_POLICY }, budgets: budgets.data || {} });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "AI筛选设置加载失败";
+    const message = error instanceof Error ? error.message : "AI设置加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { supabase, user } = await requirePermission("ai.settings.manage");
+    const context = settingsContext(request);
+    const { supabase, user } = await requirePermission(context.permission);
     const body = await request.json() as Record<string, unknown>;
     const admin = createAdminClient();
     const current = await admin.from("cost_center_settings").select("*").eq("id", true).single();
@@ -77,7 +87,7 @@ export async function PATCH(request: NextRequest) {
     }
     const saved = await admin.from("cost_center_settings").update(updates).eq("id", true).select("*").single();
     if (saved.error) throw saved.error;
-    await writeAudit(supabase, user.id, "AI_SCREENING_COST_SETTINGS_UPDATED", "cost_center_settings", null, {
+    await writeAudit(supabase, user.id, context.acquisition ? "AI_ACQUISITION_COST_SETTINGS_UPDATED" : "AI_SCREENING_COST_SETTINGS_UPDATED", "cost_center_settings", null, {
       paid_channels: Object.fromEntries(booleanKeys.map((key) => [key, updates[key]])),
       budgets: Object.fromEntries(amountKeys.map((key) => [key, updates[key]])),
       customer_caps: Object.fromEntries(Object.keys(integerLimits).map((key) => [key, updates[key]])),
@@ -85,7 +95,7 @@ export async function PATCH(request: NextRequest) {
     });
     return NextResponse.json({ settings: saved.data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "AI筛选设置保存失败";
+    const message = error instanceof Error ? error.message : "AI设置保存失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }

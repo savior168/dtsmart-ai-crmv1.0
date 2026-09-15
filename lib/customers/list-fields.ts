@@ -22,6 +22,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "google_url", label: "Google Maps" },
   { key: "social", label: "社媒渠道" },
   { key: "source", label: "数据来源" },
+  { key: "source_batch", label: "来源批次" },
   { key: "updated_at", label: "更新时间" },
 ];
 

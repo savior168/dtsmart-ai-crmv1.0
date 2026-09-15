@@ -154,14 +154,14 @@ assert.match(poolApi, /searchable\.push\("contact_name", "phone", "whatsapp", "e
 assert.match(poolApi, /tab !== "claimed" \|\| account\.role === "ADMIN"/, "已认领客户的他人联系方式不得被非管理员通过搜索探测");
 assert.match(poolApi, /customerIndustryLabels\(item\)[\s\S]*rawIndustryMap[\s\S]*industryOptionMap/, "公海所属行业必须按标准化行业去重");
 assert.match(poolView, /所属行业多选[\s\S]*type="checkbox"/, "公海所属行业必须支持多选");
-assert.match(poolView, /导入批次多选[\s\S]*搜索导入批次[\s\S]*type="checkbox"/, "导入批次必须支持搜索与多选");
+assert.match(poolView, /来源批次多选[\s\S]*搜索来源批次[\s\S]*type="checkbox"/, "来源批次必须支持搜索与多选");
 assert.match(poolView, /AI筛选批次多选[\s\S]*搜索任务编号或任务名称[\s\S]*type="checkbox"/, "AI筛选批次必须支持搜索与多选");
 assert.match(poolView, /appendSourceBatchFilters\(params\)/, "列表、导出与全选必须复用同一导入批次多选条件");
 assert.match(poolApi, /params\.getAll\("source_batch"\)[\s\S]*query\.in\("source_batch", sourceBatches\)/, "公海接口必须按多个导入批次返回并集结果");
 assert.match(poolView, /appendIndustryFilters\(params\)/, "公海列表、导出与全选必须复用同一行业筛选条件");
-assert.match(poolApi, /source_type[\s\S]*source_batch[\s\S]*const batches = \[\.\.\.new Map[\s\S]*sources:/, "客户公海必须返回真实去重的获客方式与批次筛选项");
-assert.match(poolView, /全部获客方式[\s\S]*全部导入批次/, "客户公海各数据页签必须提供获客方式和批次筛选");
-assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType\)[\s\S]*appendSourceBatchFilters\(params\)/, "客户公海列表请求必须携带获客方式与批次筛选");
+assert.match(poolApi, /source_type[\s\S]*source_batch[\s\S]*const batches = \[\.\.\.new Map[\s\S]*sources:/, "客户公海必须返回真实去重的数据来源与批次筛选项");
+assert.match(poolView, /全部数据来源[\s\S]*全部来源批次/, "客户公海各数据页签必须提供数据来源和来源批次筛选");
+assert.match(poolView, /if \(sourceType\) params\.set\("source_type", sourceType\)[\s\S]*appendSourceBatchFilters\(params\)/, "客户公海列表请求必须携带数据来源与来源批次筛选");
 assert.match(poolApi, /target === "valid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", true\)/, "客户公海有效目标必须来自明确的有效结论");
 assert.match(poolApi, /target === "invalid"[\s\S]*eq\("ai_screening_done", true\)\.eq\("is_target_customer", false\)/, "客户公海无效目标不得混入待复核或未筛选客户");
 assert.match(poolApi, /target === "review"[\s\S]*eq\("ai_screening_done", true\)\.is\("is_target_customer", null\)/, "客户公海待复核必须只查询已分析但尚未形成最终结论的客户");

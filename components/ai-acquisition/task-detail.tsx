@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ExternalLink, Pause, Play, RefreshCw, Search, Square } from "lucide-react";
+import { CalendarClock, ExternalLink, Pause, Play, RefreshCw, Search, Square } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import {
@@ -245,6 +245,7 @@ export function AcquisitionTaskDetail({ taskId }: { taskId: string }) {
           </>
         }
       />
+      {task.scheduled_at ? <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><CalendarClock size={16}/><b>预约执行：</b>{new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false})}<span className="text-blue-600">（预约等待时间不计入有效耗时）</span></div> : null}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {[
           ["状态", <StatusBadge key="s" status={task.status} />],

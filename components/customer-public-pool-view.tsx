@@ -218,6 +218,7 @@ const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {
   protection: "w-28",
   owner: "w-32",
   source: "w-32",
+  source_batch: "w-36",
   updated_at: "w-36",
 };
 
@@ -325,6 +326,7 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
   if (key === "website") return row.website || "—";
   if (key === "google_url") return row.google_url || "—";
   if (key === "source") return row.source === "EXCEL_IMPORT" ? "Excel导入" : row.source || "—";
+  if (key === "source_batch") return row.source_batch || "—";
   if (key === "updated_at") return formatDate(row.updated_at);
   return "—";
 }
@@ -345,7 +347,7 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="original"/>;
   if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
   if (field === "social") return <CustomerSocialSummary customer={row}/>;
-  if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
+  if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span>{row.source_batch ? <small className="mt-0.5 block truncate text-xs text-slate-500" title={row.source_batch}>批次：{row.source_batch}</small> : null}<small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
   if (field === "website") return <CustomerPublicLink value={row.website} kind="website"/>;
   if (field === "google_url") return <CustomerPublicLink value={row.google_url} kind="map"/>;
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
@@ -713,7 +715,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              {tab === "available" && restrictedBatches.length ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700" role="status">当前账号仅可查看以下导入批次（筛选范围只读）：{restrictedBatches.join("、")}</div> : null}
+              {tab === "available" && restrictedBatches.length ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700" role="status">当前账号仅可查看以下来源批次（筛选范围只读）：{restrictedBatches.join("、")}</div> : null}
               <div className="flex flex-wrap items-end gap-3">
                 <label className="relative w-[300px] shrink-0">
                   <Search
@@ -748,20 +750,20 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     if (next) setSourceBatches((current) => current.filter((value) => filterOptions.batches.some((item) => item.value === value && item.source === next)));
                   }}
                   className={`${appFieldClass} w-40 shrink-0`}
-                  aria-label="按获客方式筛选"
+                  aria-label="按数据来源筛选"
                 >
-                  <option value="">全部获客方式</option>
+                  <option value="">全部数据来源</option>
                   {filterOptions.sources.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
                 <div ref={sourceBatchRef} className="relative w-52 shrink-0">
                   <button type="button" onClick={() => setSourceBatchOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={sourceBatchOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
-                    <span className="truncate">{sourceBatches.length ? `导入批次（${sourceBatches.length}）` : "全部导入批次"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
+                    <span className="truncate">{sourceBatches.length ? `来源批次（${sourceBatches.length}）` : "全部来源批次"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
                   </button>
-                  {sourceBatchOpen ? <div role="listbox" aria-label="导入批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
-                    <input value={sourceBatchQuery} onChange={(event) => setSourceBatchQuery(event.target.value)} placeholder="搜索导入批次" className={`${appFieldClass} mb-2 h-9 w-full`} />
-                    <button type="button" disabled={restrictedBatches.length > 0 && tab === "available"} onClick={() => { setSourceBatches([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">清空导入批次</button>
+                  {sourceBatchOpen ? <div role="listbox" aria-label="来源批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    <input value={sourceBatchQuery} onChange={(event) => setSourceBatchQuery(event.target.value)} placeholder="搜索来源批次" className={`${appFieldClass} mb-2 h-9 w-full`} />
+                    <button type="button" disabled={restrictedBatches.length > 0 && tab === "available"} onClick={() => { setSourceBatches([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">清空来源批次</button>
                     {filterOptions.batches.filter((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())).map((item) => <label key={`${item.source}:${item.value}`} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" disabled={restrictedBatches.length > 0 && tab === "available"} checked={sourceBatches.includes(item.value)} onChange={() => { setSourceBatches((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
-                    {!filterOptions.batches.some((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">没有匹配的导入批次</p> : null}
+                    {!filterOptions.batches.some((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">没有匹配的来源批次</p> : null}
                   </div> : null}
                 </div>
                 {role === "ADMIN" ? <div ref={screeningTaskRef} className="relative w-48 shrink-0">

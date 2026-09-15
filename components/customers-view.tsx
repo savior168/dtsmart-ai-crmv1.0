@@ -124,6 +124,7 @@ export function CustomersView() {
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
   const [industryOpen, setIndustryOpen] = useState(false);
   const [sourceBatches, setSourceBatches] = useState<string[]>([]);
+  const [sourceType, setSourceType] = useState("");
   const [batchOptions, setBatchOptions] = useState<ImportBatchOption[]>([]);
   const [status, setStatus] = useState("");
   const [followupStatus, setFollowupStatus] = useState("");
@@ -200,6 +201,7 @@ export function CustomersView() {
     setToDate(params.get("to") || "");
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
+    setSourceType(params.get("source_type") || "");
     setStatus(params.get("status") || "");
     setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
@@ -248,6 +250,7 @@ export function CustomersView() {
     if (scopeUserId) params.set("user_id", scopeUserId);
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
+    if (sourceType) params.set("source_type", sourceType);
     try {
       const response = await fetch(`/api/customers?${params}`);
       const body = await response.json().catch(() => ({}));
@@ -270,6 +273,7 @@ export function CustomersView() {
     toDate,
     industries,
     sourceBatches,
+    sourceType,
     status,
     level,
     target,
@@ -346,7 +350,8 @@ export function CustomersView() {
         search ? { key: "search", label: `关键词：${search}` } : null,
         fromDate || toDate ? { key: "date", label: `创建日期：${fromDate || "不限"} 至 ${toDate || "不限"}` } : null,
         industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
-        sourceBatches.length ? { key: "sourceBatches", label: `导入批次：已选 ${sourceBatches.length} 个` } : null,
+        sourceType ? { key: "sourceType", label: `数据来源：${sourceType === "AI_ACQUISITION" ? "AI获客" : sourceType === "IMPORT" ? "批量导入" : "手动新增"}` } : null,
+        sourceBatches.length ? { key: "sourceBatches", label: `来源批次：已选 ${sourceBatches.length} 个` } : null,
         level ? { key: "level", label: `AI等级：${level}` } : null,
         status
           ? {
@@ -364,13 +369,14 @@ export function CustomersView() {
         aiFilter !== "done" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "全部"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, fromDate, toDate, industries, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
+    [search, fromDate, toDate, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
     if (key === "date") { setFromDate(""); setToDate(""); }
     if (key === "industry") setIndustries([]);
     if (key === "sourceBatches") setSourceBatches([]);
+    if (key === "sourceType") { setSourceType(""); setSourceBatches([]); }
     if (key === "level") setLevel("");
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
@@ -385,6 +391,7 @@ export function CustomersView() {
     setToDate("");
     setIndustries([]);
     setSourceBatches([]);
+    setSourceType("");
     setStatus("");
     setLevel("");
     setTarget("");
@@ -444,6 +451,7 @@ export function CustomersView() {
     });
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
+    if (sourceType) params.set("source_type", sourceType);
     if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       const ids = new Set<string>();
@@ -493,6 +501,7 @@ export function CustomersView() {
     });
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
+    if (sourceType) params.set("source_type", sourceType);
     if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       let currentPage = 1;
@@ -582,6 +591,7 @@ export function CustomersView() {
               </div> : null}
             </div>
             {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
+            <select value={sourceType} onChange={(event)=>{setSourceType(event.target.value);setSourceBatches([]);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="数据来源"><option value="">全部数据来源</option><option value="AI_ACQUISITION">AI获客</option><option value="IMPORT">批量导入</option><option value="MANUAL">手动新增</option></select>
             <ImportBatchMultiSelect
               className="w-44 shrink-0"
               options={batchOptions}
@@ -592,8 +602,8 @@ export function CustomersView() {
                 setSelected(new Set());
                 setProtectedSelected(new Set());
               }}
-              placeholder="全部导入批次"
-              emptyText="当前客户列表暂无导入批次"
+              placeholder="全部来源批次"
+              emptyText="当前客户列表暂无来源批次"
             />
             <select
               value={level}
@@ -985,7 +995,7 @@ export function CustomersView() {
                         ) : key === "google_url" ? (
                           <CustomerPublicLink value={row.google_url} kind="map" />
                         ) : key === "source" ? (
-                          <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span><small className="mt-0.5 block truncate text-xs text-slate-500" title={row.creator?.name||row.creator?.email||""}>由：{row.creator?.name||row.creator?.email||"未知用户"}</small></span>
+                          <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span>{row.source_batch ? <small className="mt-0.5 block truncate text-xs text-slate-500" title={row.source_batch}>批次：{row.source_batch}</small> : null}<small className="mt-0.5 block truncate text-xs text-slate-500" title={row.creator?.name||row.creator?.email||""}>由：{row.creator?.name||row.creator?.email||"未知用户"}</small></span>
                         ) : (
                           value(row, key)
                         )}

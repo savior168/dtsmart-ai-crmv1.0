@@ -28,7 +28,8 @@ assert.match(migration, /if v_amount > 0 then[\s\S]*api_cost_budget_reservations
 assert.match(budget, /FREE_MODE:[^\n]*本任务采用免费分析模式/);
 assert.match(budget, /CUSTOMER:[^\n]*本客户付费调用次数已达到上限/);
 
-assert.match(settingsApi, /requirePermission\("ai\.settings\.manage"\)/);
+assert.match(settingsApi, /permission: acquisition \? "ai\.acquisition\.settings\.manage" : "ai\.settings\.manage"/);
+assert.match(settingsApi, /requirePermission\(context\.permission\)/);
 assert.match(taskCenter, /show_ai_settings/);
 assert.match(taskCenter, /CostModeBadge/);
 assert.doesNotMatch(costCenter, /付费API硬性上限/);

@@ -1,5 +1,6 @@
 import { countryInfo } from "@/lib/countries";
 import { displayCustomerName } from "@/lib/customer-display";
+import { customerSourceLabel } from "@/lib/customers/source-display";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
 import { downloadWorkbook, type WorkbookSheet } from "@/lib/xlsx-export";
 
@@ -24,6 +25,7 @@ export type CustomerExportColumn =
   | "google_url"
   | "social"
   | "source"
+  | "source_batch"
   | "updated_at";
 
 export type CustomerWorkbookOptions = {
@@ -85,7 +87,8 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
   if (key === "website") return customer.website || "-";
   if (key === "google_url") return customer.google_url || "-";
   if (key === "social") return [customer.facebook_url, customer.instagram_url, customer.linkedin_url, customer.tiktok_url, ...(customer.other_public_urls || [])].filter(Boolean).join("；") || "-";
-  if (key === "source") return customer.source === "EXCEL_IMPORT" ? "Excel导入" : customer.source || "-";
+  if (key === "source") return customerSourceLabel(customer.source);
+  if (key === "source_batch") return customer.source_batch || "-";
   return "-";
 }
 
@@ -109,11 +112,11 @@ const CUSTOMER_EXPORT_LABELS: Record<CustomerExportColumn, string> = {
   company_name: "客户名称", contact_name: "联系人", country: "国家/地区", industry: "所属行业", ai_score: "AI评分",
   status: "客户阶段", followup_status: "跟进状态", protection: "保护期剩余", last_contact_time: "最近跟进", owner: "归属人",
   phone: "原始联系方式", whatsapp: "WhatsApp", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
-  verified_contacts: "AI采集联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", updated_at: "更新时间",
+  verified_contacts: "AI采集联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", source_batch: "来源批次", updated_at: "更新时间",
 };
 
 const DEFAULT_EXPORT_COLUMNS: CustomerExportColumn[] = [
-  "company_name", "ai_score", "industry", "country", "phone", "verified_contacts", "website", "google_url", "social", "status", "followup_status", "protection", "source", "updated_at",
+  "company_name", "ai_score", "industry", "country", "phone", "verified_contacts", "website", "google_url", "social", "status", "followup_status", "protection", "source", "source_batch", "updated_at",
 ];
 
 type ContactKind = "PHONE" | "WHATSAPP" | "EMAIL";
@@ -204,7 +207,8 @@ function exportColumnText(customer: Record<string, unknown>, key: CustomerExport
   if (key === "website") return exportText(customer.website);
   if (key === "google_url") return exportText(customer.google_url);
   if (key === "social") return "-";
-  if (key === "source") return customer.source === "EXCEL_IMPORT" ? "Excel导入" : exportText(customer.source);
+  if (key === "source") return customerSourceLabel(customer.source);
+  if (key === "source_batch") return exportText(customer.source_batch);
   if (key === "updated_at") return dateTime(customer.updated_at as string | null | undefined);
   return "-";
 }

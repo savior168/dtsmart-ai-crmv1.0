@@ -104,6 +104,7 @@ export async function GET(request: NextRequest) {
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
+    const sourceType = request.nextUrl.searchParams.get("source_type")?.trim().toUpperCase() || "";
     const options = request.nextUrl.searchParams.get("options");
     const aiPending = request.nextUrl.searchParams.get("ai_pending") === "true";
     const aiDone = request.nextUrl.searchParams.get("ai_done") === "true";
@@ -246,6 +247,9 @@ export async function GET(request: NextRequest) {
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));
+    if (sourceType === "IMPORT") query = query.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);
+    if (sourceType === "AI_ACQUISITION") query = query.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
+    if (sourceType === "MANUAL") query = query.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
     if (sourceBatches.length) {
       const linkedIds = sourceBatches.filter((value) => !value.startsWith("legacy:"));
       const legacyNames = sourceBatches.filter((value) => value.startsWith("legacy:")).map((value) => value.slice(7));
@@ -273,7 +277,7 @@ export async function GET(request: NextRequest) {
     // optional column in the base list query: legacy rows are rendered as
     // “待联系” by the client and the filter probe above safely handles
     // migrated databases without taking the whole customer list down.
-    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "ai_score", "status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
+    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "source_batch", "ai_score", "status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
     const sortField = allowedSort.has(sort) ? sort : "updated_at";
     const from = (page - 1) * pageSize;
     const rangeEnd = from + pageSize - 1;

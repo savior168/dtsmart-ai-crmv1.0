@@ -82,6 +82,19 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
       if (duplicate.error) throw duplicate.error;
       continue;
     }
+    const historyCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const previous = await admin.from("ai_acquisition_candidates").select("id,task_id,decision,processed_at").eq("place_id", candidate.placeId).neq("task_id", task.id).gte("created_at", historyCutoff).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (previous.error) throw previous.error;
+    if (previous.data) {
+      const repeated = await admin.from("ai_acquisition_candidates").insert({
+        task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address,
+        google_url: candidate.googleUrl, source_query: candidate.query,
+        source_snapshot: { ...candidate, previous_candidate_id: previous.data.id, previous_task_id: previous.data.task_id, previous_decision: previous.data.decision },
+        decision: "DUPLICATE", decision_reason: "近90天已有AI获客核验记录，本次保留检索命中但不重复产生补证费用", processed_at: new Date().toISOString(),
+      });
+      if (repeated.error) throw repeated.error;
+      continue;
+    }
     if (candidate.businessStatus === "CLOSED_PERMANENTLY") {
       const closed = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "REJECTED", decision_reason: "Google 商家明确标记永久停业，已在补证前停止", processed_at: new Date().toISOString() });
       if (closed.error) throw closed.error;
@@ -95,10 +108,29 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     const customer = await admin.from("customers").insert({
       company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl,
       google_place_id: candidate.placeId, industry: task.industry, category: task.industry, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
-      source_batch: task.task_number, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: task.user_id,
+      source_batch: task.task_number, source_reference: task.id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: task.user_id,
       owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING", assigned_via: null,
     }).select("id").single();
     if (customer.error || !customer.data) throw customer.error || new Error("ACQUISITION_STAGING_CUSTOMER_FAILED");
+    const source = await admin.from("customer_sources").insert({
+      customer_id: customer.data.id,
+      source_type: "AI_ACQUISITION",
+      source_reference: task.id,
+      metadata: {
+        acquisition_task_id: task.id,
+        acquisition_task_number: task.task_number,
+        acquisition_task_name: task.name,
+        acquisition_user_id: task.user_id,
+        discovered_at: new Date().toISOString(),
+        source_channel: "GOOGLE_MAPS",
+        exact_source_url: candidate.googleUrl,
+        source_query: candidate.query,
+        country: candidate.country,
+        target_industries: industries,
+        cost_mode: task.cost_mode,
+      },
+    });
+    if (source.error) throw source.error;
     const item = await admin.from("ai_screening_task_items").insert({ task_id: screeningTaskId, customer_id: customer.data.id, status: "PENDING", strategy: "SMART", strategy_version: "1.0" }).select("id").single();
     if (item.error || !item.data) throw item.error || new Error("ACQUISITION_SCREENING_ITEM_FAILED");
     const row = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, screening_task_id: screeningTaskId, screening_task_item_id: item.data.id, staging_customer_id: customer.data.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "ANALYZING" });
@@ -206,9 +238,10 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   if (update.error) throw update.error;
 }
 
-export async function aiAcquisitionWorkflow(taskId: string) {
+export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string | null = null) {
   "use workflow";
   try {
+    if (scheduledAt && new Date(scheduledAt).getTime() > Date.now()) await sleep(new Date(scheduledAt));
     const task = await readTask(taskId);
     if (task.cancel_requested) { await finishTask(taskId, "CANCELLED"); return; }
     await beginTask(taskId);

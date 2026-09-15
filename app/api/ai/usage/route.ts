@@ -89,12 +89,23 @@ export async function GET(request: NextRequest) {
       if (rows.length < 1000) break;
     }
 
-    const models = [...new Set(calls.map((call) => call.model).filter((value): value is string => Boolean(value)))].sort();
     const sourceTaskIds = [...new Set([
       ...calls.map((row) => row.task_id),
       ...completions.map((row) => row.task_id),
       ...thirdPartyCalls.map((row) => row.task_id || ""),
     ].filter(Boolean))];
+    // AI获客会创建内部AI筛选子任务。它们应完整计入获客用量，
+    // 但不能再次出现在独立AI筛选用量中造成重复统计。
+    const acquisitionChildIds = new Set<string>();
+    for (let offset = 0; offset < sourceTaskIds.length; offset += 200) {
+      const linked = await admin.from("ai_acquisition_candidates").select("screening_task_id").in("screening_task_id", sourceTaskIds.slice(offset, offset + 200));
+      if (linked.error) throw linked.error;
+      for (const row of linked.data || []) if (row.screening_task_id) acquisitionChildIds.add(String(row.screening_task_id));
+    }
+    const independentCalls = calls.filter((row) => !acquisitionChildIds.has(row.task_id));
+    const independentCompletions = completions.filter((row) => !acquisitionChildIds.has(row.task_id));
+    const independentThirdPartyCalls = thirdPartyCalls.filter((row) => !row.task_id || !acquisitionChildIds.has(row.task_id));
+    const models = [...new Set(independentCalls.map((call) => call.model).filter((value): value is string => Boolean(value)))].sort();
     const existing = new Set<string>();
     const currentStatus = new Map<string, string>();
     for (let offset = 0; offset < sourceTaskIds.length; offset += 200) {
@@ -108,16 +119,16 @@ export async function GET(request: NextRequest) {
       }
     }
     const snapshotStatus = new Map<string, string>();
-    for (const row of [...calls, ...completions]) {
+    for (const row of [...independentCalls, ...independentCompletions]) {
       if (row.task_id && row.task_status) snapshotStatus.set(row.task_id, row.task_status);
     }
     const taskMatchesStatus = (id: string) => !status || (currentStatus.get(id) || snapshotStatus.get(id) || "") === status;
-    const statusTaskIds = new Set(sourceTaskIds.filter(taskMatchesStatus));
-    const filteredCalls = calls.filter((call) => (!model || call.model === model) && statusTaskIds.has(call.task_id));
+    const statusTaskIds = new Set(sourceTaskIds.filter((id) => !acquisitionChildIds.has(id) && taskMatchesStatus(id)));
+    const filteredCalls = independentCalls.filter((call) => (!model || call.model === model) && statusTaskIds.has(call.task_id));
     const modelCustomerKeys = model
       ? new Set(filteredCalls.map((call) => `${call.task_id}:${call.customer_id}`))
       : null;
-    const filteredCompletions = completions.filter((item) => statusTaskIds.has(item.task_id)
+    const filteredCompletions = independentCompletions.filter((item) => statusTaskIds.has(item.task_id)
       && (!modelCustomerKeys || modelCustomerKeys.has(`${item.task_id}:${item.customer_id}`)));
     const taskMap = new Map<string, TaskUsage>();
     const ensureTask = (row: UsageCall | Completion) => {
@@ -144,7 +155,7 @@ export async function GET(request: NextRequest) {
       task.total_cost_usd += Number(call.cost_usd || 0);
       task.openai_cost_usd += Number(call.cost_usd || 0);
     }
-    const scopedThirdPartyCalls = thirdPartyCalls.filter((call) => call.task_id
+    const scopedThirdPartyCalls = independentThirdPartyCalls.filter((call) => call.task_id
       && statusTaskIds.has(call.task_id)
       && (!modelCustomerKeys || modelCustomerKeys.has(`${call.task_id}:${call.customer_id}`)));
     for (const call of scopedThirdPartyCalls) {

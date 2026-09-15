@@ -75,6 +75,7 @@ export function CreateTaskView() {
   const { toast, node: toastNode } = useToast();
   const requestKey = useRef(crypto.randomUUID());
   const loadSequence = useRef(0);
+  const previousAutomaticName = useRef("");
 
   const load = useCallback(async (selectAll = false, activeFilters = filters, activePage = page) => {
     const sequence = ++loadSequence.current;
@@ -109,6 +110,16 @@ export function CreateTaskView() {
   }, []);
   const allPage = items.length > 0 && items.every((item) => selected.has(item.id));
   const selectedRows = useMemo(() => selected.size, [selected]);
+  const automaticName = useMemo(() => {
+    const mode = filters.analysis_selection_mode === "REVERIFY" ? "指定客户复验" : "首次筛选";
+    const source = filters.source_channel === "BATCH_IMPORT" ? "批量导入" : filters.source_channel === "MANUAL" ? "手动新增" : filters.source_channel || "全部来源";
+    const analysis = costMode === "FREE_ONLY" ? "全免费分析" : "智能增强分析";
+    return `${mode}｜${source}｜${selectedRows}位客户｜${analysis}`.slice(0,80);
+  }, [costMode, filters.analysis_selection_mode, filters.source_channel, selectedRows]);
+  useEffect(() => {
+    setName((current) => !current || current === previousAutomaticName.current ? automaticName : current);
+    previousAutomaticName.current = automaticName;
+  }, [automaticName]);
 
   function applyFilters() { const next={...draft};setFilters(next);setPage(1);setQueryIds([]);setSelected(new Set());void load(next.analysis_selection_mode === "FIRST",next,1); }
   function resetFilters() { setDraft(emptyFilters);setFilters(emptyFilters);setPage(1);setQueryIds([]);setSelected(new Set());void load(true,emptyFilters,1); }

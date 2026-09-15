@@ -12,6 +12,13 @@ async function authorizedTask(id: string, account: Awaited<ReturnType<typeof req
   return result.data;
 }
 
+function presentTask<T extends Record<string, unknown>>(task: T) {
+  const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
+    ? String(task.last_dispatch_at)
+    : null;
+  return { ...task, scheduled_at: scheduled };
+}
+
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
@@ -45,7 +52,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     ]) : [{ data: [], error: null }, { data: null, error: null }];
     if (costs.error) throw costs.error;
     if (usageSummary.error) throw usageSummary.error;
-    return NextResponse.json({ task, candidates: candidates.data || [], count: candidates.count || 0, costs: costs.data || [], usage_summary: usageSummary.data, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    return NextResponse.json({ task: presentTask(task), candidates: candidates.data || [], count: candidates.count || 0, costs: costs.data || [], usage_summary: usageSummary.data, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 400 });
