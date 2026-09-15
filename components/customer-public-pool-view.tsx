@@ -355,6 +355,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [tab, setTab] = useState<Tab>("available");
   const [rows, setRows] = useState<PoolRow[]>([]);
   const [role, setRole] = useState<Role>(initialRole);
+  const [restrictedBatches, setRestrictedBatches] = useState<string[]>([]);
+  const [restrictedBatches, setRestrictedBatches] = useState<string[]>([]);
   const [count, setCount] = useState<number | null>(null);
   const [tabCounts, setTabCounts] = useState<Partial<Record<Tab, number>>>({});
   const [page, setPage] = useState(1);
@@ -458,6 +460,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       setCount(nextCount);
       setTabCounts((current) => ({ ...current, [tab]: nextCount }));
       setRole(body.role || "SALES");
+      const scopedBatches = Array.isArray(body.restricted_batches) ? body.restricted_batches.map(String) : [];
+      setRestrictedBatches(scopedBatches);
+      if (scopedBatches.length && tab === "available") setSourceBatches(scopedBatches);
+      setRestrictedBatches(Array.isArray(body.restricted_batches) ? body.restricted_batches : []);
       setSelected(new Set());
     } catch (caught) {
       if (version === requestVersion.current) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
@@ -707,6 +713,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
+              {tab === "available" && restrictedBatches.length ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700" role="status">当前账号仅可查看以下导入批次（筛选范围只读）：{restrictedBatches.join("、")}</div> : null}
+              {tab === "available" && restrictedBatches.length ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700" role="status">当前账号仅可查看以下导入批次（筛选范围只读）：{restrictedBatches.join("、")}</div> : null}
               <div className="flex flex-wrap items-end gap-3">
                 <label className="relative w-[300px] shrink-0">
                   <Search
@@ -752,8 +760,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   </button>
                   {sourceBatchOpen ? <div role="listbox" aria-label="导入批次多选" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
                     <input value={sourceBatchQuery} onChange={(event) => setSourceBatchQuery(event.target.value)} placeholder="搜索导入批次" className={`${appFieldClass} mb-2 h-9 w-full`} />
-                    <button type="button" onClick={() => { setSourceBatches([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空导入批次</button>
-                    {filterOptions.batches.filter((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())).map((item) => <label key={`${item.source}:${item.value}`} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={sourceBatches.includes(item.value)} onChange={() => { setSourceBatches((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
+                    <button type="button" disabled={restrictedBatches.length > 0 && tab === "available"} onClick={() => { setSourceBatches([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">清空导入批次</button>
+                    {filterOptions.batches.filter((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())).map((item) => <label key={`${item.source}:${item.value}`} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" disabled={restrictedBatches.length > 0 && tab === "available"} checked={sourceBatches.includes(item.value)} onChange={() => { setSourceBatches((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
                     {!filterOptions.batches.some((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">没有匹配的导入批次</p> : null}
                   </div> : null}
                 </div>
