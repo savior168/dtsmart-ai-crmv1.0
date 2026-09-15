@@ -1,7 +1,8 @@
 import { CostCenterView } from "@/components/cost-center-view";
-import { requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 
 export default async function CostSettingsPage() {
-  await requirePermission("costs.view");
-  return <CostCenterView embedded />;
+  const { account } = await requirePermission("costs.view");
+  const canViewAiUsage = hasPermission(account,"ai.usage.view") || hasPermission(account,"ai.acquisition.usage.view");
+  return <CostCenterView embedded canViewAiUsage={canViewAiUsage} />;
 }

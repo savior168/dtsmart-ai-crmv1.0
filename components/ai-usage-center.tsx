@@ -9,9 +9,10 @@ import { AppTabs } from "@/components/ui/app-tabs";
 
 type UsageModule = "screening" | "acquisition";
 
-export function AiUsageCenter({ canViewScreening, canViewAcquisition, initialModule }:{
+export function AiUsageCenter({ canViewScreening, canViewAcquisition, canViewCostCenter, initialModule }:{
   canViewScreening:boolean;
   canViewAcquisition:boolean;
+  canViewCostCenter:boolean;
   initialModule:UsageModule;
 }) {
   const router = useRouter();
@@ -27,7 +28,7 @@ export function AiUsageCenter({ canViewScreening, canViewAcquisition, initialMod
       <PageHeader
         title="AI用量与费用"
         description="在一个页面统一查询AI筛选与AI获客用量；两类业务分别核算、互不重复，调用与费用均可追溯到具体任务。"
-        actions={<Link href={active==="acquisition"?"/ai-acquisition":"/ai-screening"} className={button}>返回{active==="acquisition"?"AI获客":"AI筛选"}任务中心</Link>}
+        actions={<div className="flex flex-wrap justify-end gap-2">{canViewCostCenter?<Link href="/settings/costs" className={button}>费用中心</Link>:null}<Link href={active==="acquisition"?"/ai-acquisition":"/ai-screening"} className={button}>返回{active==="acquisition"?"AI获客":"AI筛选"}任务中心</Link></div>}
       />
       <AppTabs
         value={active}

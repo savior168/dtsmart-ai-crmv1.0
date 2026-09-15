@@ -32,8 +32,9 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.usage.view");
     const params = request.nextUrl.searchParams;
-    const from = params.get("from") || "2026-08-01";
-    const to = params.get("to") || new Date().toISOString().slice(0, 10);
+    const today = businessDate(new Date().toISOString());
+    const from = params.get("from") || today;
+    const to = params.get("to") || from;
     const model = params.get("model")?.trim() || "";
     const status = params.get("status")?.trim() || "";
     const taskId = params.get("task_id")?.trim() || "";

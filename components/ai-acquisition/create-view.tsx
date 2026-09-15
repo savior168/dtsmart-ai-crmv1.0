@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
-import { Check, ChevronDown, Globe2, Plus, Search, ShieldCheck, Target, WalletCards, X } from "lucide-react";
+import { Check, ChevronDown, Plus, Search, ShieldCheck, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect } from "react";
-import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
 import {
   PageHeader,
   button,
@@ -191,7 +191,7 @@ function IndustryPicker({ value, onChange }: { value: string[]; onChange: (value
     </label>
     {value.length ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/40 p-3"><span className="text-xs font-medium text-slate-500">已选 {value.length}/8</span>{value.map((item)=><button key={item} type="button" aria-label={`移除${item}`} onClick={()=>toggle(item)} className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-sm text-blue-700 shadow-sm ring-1 ring-blue-100">{item}<X size={13}/></button>)}<button type="button" onClick={()=>onChange([])} className="ml-auto text-xs text-slate-500 hover:text-blue-700">清空</button></div>:null}
     <div>
-      <p className="mb-2 text-xs text-slate-500">{normalized ? "匹配的标准行业" : "当前账号常用行业（快捷选择，不限制可获客行业）"}</p>
+      {normalized ? <p className="mb-2 text-xs text-slate-500">匹配的标准行业</p> : null}
       <div className="flex flex-wrap gap-2">
         {(normalized ? options : [...ACQUISITION_COMMON_INDUSTRIES]).map((item)=>{const checked=value.includes(item);return <button key={item} type="button" disabled={!checked&&value.length>=8} aria-pressed={checked} onClick={()=>toggle(item)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm transition disabled:opacity-40 ${checked?"border-blue-500 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{checked?<Check size={13}/>:<Plus size={13}/>} {item}</button>})}
         {canAddCustom?<button type="button" onClick={addCustom} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-blue-400 bg-blue-50/40 px-3 text-sm font-medium text-blue-700"><Plus size={14}/>添加“{normalized}”</button>:null}
@@ -220,6 +220,7 @@ export function AcquisitionCreateView() {
     schedule_type: "now" as "now" | "scheduled",
     scheduled_at: "",
   });
+  const keywordRecommendations = acquisitionKeywordRecommendations(form.industries);
   const requestKeyRef = useRef(crypto.randomUUID());
   useEffect(() => {
     try {
@@ -282,16 +283,16 @@ export function AcquisitionCreateView() {
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
         title="创建AI获客任务"
-        description="设置目标市场、行业与成本边界；系统自动发现、早停排除、核验补证、去重，并只将通过质量门槛的客户送入客户公海。"
+        description="设置目标市场、行业、执行时间和获客模式。"
         actions={
-          <><button type="button" onClick={()=>setFlowOpen(true)} className={button}>查看AI获客全流程</button><Link href="/ai-acquisition" className={button}>返回任务中心</Link></>
+          <Link href="/ai-acquisition" className={button}>返回任务中心</Link>
         }
       />
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <section className={`${panel} overflow-visible`}>
-        <div className="border-b border-slate-100 p-5">
-          <div className="mb-4 flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700"><Globe2 size={18}/></span><div><h2 className="font-semibold">1. 任务与目标市场</h2><p className="mt-1 text-xs leading-5 text-slate-500">每个任务最多选择8个国家/地区，便于控制检索范围、执行时间和费用追溯。</p></div></div>
-          <div className="grid gap-4 lg:grid-cols-2"><label>
+      <div className="space-y-4">
+        <section className={`${panel} overflow-visible`}>
+          <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务与目标市场</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">设置任务名称、目标国家和执行时间。</p></div>
+          <div className="grid gap-3 p-4 lg:grid-cols-2"><label>
             <span className="mb-1.5 block text-sm font-medium">任务名称 <b className="text-rose-500">*</b></span>
             <input
               className={`${input} w-full`}
@@ -307,9 +308,10 @@ export function AcquisitionCreateView() {
               onChange={(countries) => setForm({ ...form, countries })}
             />
           </div><div className="lg:col-span-2"><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
-        </div>
-        <div className="border-b border-slate-100 p-5">
-          <div className="mb-4 flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-700"><Target size={18}/></span><div className="min-w-0 flex-1"><h2 className="font-semibold">2. 目标客户条件</h2><p className="mt-1 text-xs leading-5 text-slate-500">可选择或输入任意行业，常用行业仅用于快捷选择。多选表示匹配其中任一行业；系统仍会逐家核验真实业务，不会因关键词命中直接判定为目标客户。</p></div></div>
+        </section>
+        <section className={`${panel} overflow-visible`}>
+          <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>
+          <div className="p-4">
           <IndustryPicker value={form.industries} onChange={(industries) => setForm({ ...form, industries })}/>
           <div className="mt-4">
           <ChipInput
@@ -318,24 +320,26 @@ export function AcquisitionCreateView() {
             onChange={(keywords) => setForm({ ...form, keywords })}
             placeholder="选填。用于增加更具体的检索表达；目标行业始终是核验硬门槛，关键词不会单独放宽行业范围。"
           />
+          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="flex flex-wrap items-center gap-2"><span className="mr-1 text-xs font-medium text-slate-500">行业推荐关键词</span>{keywordRecommendations.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={keyword} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=8} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div><p className="mt-2 text-xs text-slate-400">按所选行业即时推荐，按需选择；执行时会与目标国家的本地化行业表达组合，也可在上方手动补充。</p></div>:null}
           </div>
-        </div>
-        <section className="p-5">
-          <div className="mb-4 flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards size={18}/></span><div><h2 className="font-semibold">3. AI获客模式</h2><p className="mt-1 text-xs leading-5 text-slate-500">两种模式执行相同的行业、主体、在营、联系方式来源和系统去重校验；区别在于证据不足时是否允许在预算内继续付费补证。</p></div></div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          </div>
+        </section>
+        <section className={panel}>
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e8ecf2] px-4 py-[14px]"><div><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">3</span>AI获客模式</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">质量门槛相同，仅付费补证权限不同。</p></div><button type="button" onClick={()=>setFlowOpen(true)} className={`${button} h-8 px-3 text-xs`}>查看获客规则</button></div>
+          <div className="p-4"><div className="grid gap-[14px] md:grid-cols-2">
             {[
               {
                 id: "ADAPTIVE",
                 title: "智能增强获客",
-                text: "先执行全部免费发现与核验；仅当候选与目标行业高度相关、主体无冲突但缺少关键证据时，才在单任务费用上限内调用付费能力继续补证。",
-                points: ["默认模式，优先消耗可用免费额度", "非目标候选提前停止，避免无效费用", "达到证据门槛或预算上限立即停止"],
+                text: "免费渠道优先；必要时在费用限制内付费补证。",
+                summary: "免费优先 · 按需增强",
                 recommended: true,
               },
               {
                 id: "FREE_ONLY",
                 title: "全免费获客",
-                text: "使用企业官网、公开页面及系统可核对的 Google Places 各 SKU 免费额度；一旦需要产生正金额费用立即停止该付费路径。证据不足的候选保留在任务明细，不进入客户公海。",
-                points: ["只允许实际金额为0的调用", "免费证据足够即完成并停止", "不因免费模式降低入池质量门槛"],
+                text: "仅使用实际费用为 0 的渠道，质量门槛不降低。",
+                summary: "零付费调用 · 同等质量门槛",
                 recommended: false,
               },
             ].map((m) => (
@@ -344,13 +348,13 @@ export function AcquisitionCreateView() {
                 key={m.id}
                 onClick={() => setForm({ ...form, cost_mode: m.id })}
                 aria-pressed={form.cost_mode === m.id}
-                className={`rounded-lg border p-4 text-left transition ${form.cost_mode === m.id ? "border-blue-500 bg-blue-50/40 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-blue-300"}`}
+                className={`relative rounded-xl border p-[18px] text-left transition ${form.cost_mode === m.id ? "border-[#1763e8] shadow-[0_0_0_2px_#e7efff]" : "border-[#dfe5ee] hover:border-blue-300"}`}
               >
                 <span className="flex items-center gap-2"><b>{m.title}</b>{m.recommended ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">推荐</span> : null}</span>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   {m.text}
                 </p>
-                <ul className="mt-3 space-y-1.5 text-xs leading-5 text-slate-500">{m.points.map((point)=><li key={point} className="flex gap-2"><Check size={13} className="mt-1 shrink-0 text-emerald-600"/><span>{point}</span></li>)}</ul>
+                <span className="mt-3 inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500">{m.summary}</span>
               </button>
             ))}
           </div>
@@ -375,25 +379,18 @@ export function AcquisitionCreateView() {
                 }
               />
             </label>
-            <p className="mt-2 text-xs leading-5 text-slate-500">本项是该任务的额外费用保护，不是默认收费金额。实际调用同时受“AI获客设置”中的付费渠道开关、每日/每周/每月费用上限及单客户调用次数限制；任一限制先触发即停止付费调用。</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">留空遵循“AI获客设置”；所有费用限制以先触发者为准。</p>
             </div>
-          ) : null}
-          <p className="mt-3 text-xs leading-5 text-slate-500">
-            创建前不展示伪精确耗时或费用。实际调用、免费/计费状态、SKU、价格快照和来源会在任务详情逐项留痕。
-          </p>
-          <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
-            <h3 className="text-sm font-semibold text-slate-800">任务何时完成</h3>
-            <p className="mt-1 text-xs leading-5 text-slate-600">系统执行完本次“国家/地区 × 目标行业 × 本地化检索表达 × 已支持来源”的有限检索计划，并完成全部新候选的去重与质量判定后自动结束；连续分页没有新候选时会提前结束，不会无限采集，也不会为凑数量降低准入标准。</p>
-          </div>
+          ) : null}</div>
         </section>
-      </section>
+      </div>
       <aside className={`${panel} p-5 xl:sticky xl:top-5`}><div className="flex items-center gap-2"><ShieldCheck size={18} className="text-emerald-600"/><h2 className="font-semibold">任务确认</h2></div><dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-slate-500">目标国家/地区</dt><dd className="mt-1 leading-6">{form.countries.length ? form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、") : "尚未选择"}</dd></div><div><dt className="text-xs text-slate-500">目标行业</dt><dd className="mt-1 leading-6">{form.industries.length ? form.industries.join("、") : "尚未选择"}</dd></div><div><dt className="text-xs text-slate-500">执行时间</dt><dd className="mt-1">{form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行"}</dd></div><div><dt className="text-xs text-slate-500">成本模式</dt><dd className="mt-1">{form.cost_mode==="FREE_ONLY"?"全免费获客":form.task_cost_limit_usd?`智能增强 · 任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"智能增强 · 遵循全局费用限制"}</dd></div></dl><div className="mt-4 rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">非目标、永久停业、证据不足、无可追溯有效联系方式或系统重复的候选均不会进入客户公海。</div>{invalid?<p className="mt-4 text-xs leading-5 text-amber-700">请完整填写任务名称、行业、国家/地区和有效执行时间。</p>:null}<div className="mt-5 grid gap-2"><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} w-full`}>{form.schedule_type==="scheduled"?"预约并创建任务":"创建并自动执行"}</button><Link href="/ai-acquisition" className={`${button} w-full`}>取消</Link></div></aside>
       </div>
       {node}
       <AppDialog
         open={flowOpen}
-        title="AI获客全流程"
-        description="从目标条件到客户公海的完整执行口径；每一步均保留来源、状态、耗时和费用记录。"
+        title="AI获客规则与底层执行链路"
+        description="查看说明不会离开创建页，当前已填写的任务内容会完整保留。"
         onClose={()=>setFlowOpen(false)}
         width="max-w-4xl"
       >
@@ -411,7 +408,7 @@ export function AcquisitionCreateView() {
             ].map(([title,text])=><li key={title} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><b className="text-slate-800">{title}</b><p className="mt-1.5 leading-6">{text}</p></li>)}
           </ol>
           <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h3 className="font-semibold text-blue-900">暂停、恢复、重试与完成</h3><p className="mt-1.5 leading-6 text-blue-800">暂停在安全节点停止新调用，恢复应从最近成功检查点继续；失败重试只处理未完成步骤，不重复已入账调用和已处理客户。有限检索计划执行完且全部候选完成判定后自动结束；用户取消、异常失败和费用受限会分别留痕。</p></section>
-          <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">质量与费用边界</h3><p className="mt-1.5 leading-6 text-amber-800">系统通过多来源交叉验证和严格准入降低误判，但公开数据可能变化，因此不作绝对无误承诺。任务详情会展示具体来源页、判断依据、API SKU、免费/计费状态及实际费用，便于人工核对和追溯。</p></section>
+          <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能增强任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；全免费模式只允许实际金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计费状态、实际费用和有效执行耗时。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
           <section className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"><h3 className="font-semibold text-violet-900">候选进入AI筛选后的底层核验</h3><p className="mt-1.5 leading-6 text-violet-800">候选先规范化名称、地址、电话、邮箱域名、官网和 Place ID，再按“官网与关键子页 → 免费公开来源 → 必要时 Google 主体候选 → 已核验社媒”的顺序采集。确定性规则先判断明确经营事实；仅在主体通过且证据确有歧义时，模型才综合已采集证据。最后执行证据门控、评分一致性校准、联系方式具体来源校验和原子写回；抓取失败、主体冲突或证据不足不会被伪造成有效或无效结论。</p></section>
         </div>
       </AppDialog>

@@ -21,8 +21,8 @@ const accountSkuKey:Record<string,string>={TEXT_SEARCH_IDS_ONLY:"PLACES_TEXT_SEA
 const skuSummary=(rows:Record<string,SkuUsage>={})=>Object.entries(rows).filter(([,value])=>Number(value.count)>0).map(([key,value])=>`${skuLabels[key]||key} ${formatNumber(value.count)}次`).join(" · ")||"未调用";
 const monthLabel=(value?:string)=>value&&/^\d{4}-\d{2}/.test(value)?`${value.slice(0,4)}年${Number(value.slice(5,7))}月`:"当前结算月";
 export function UsageView({ embedded=false }:{ embedded?:boolean }) {
-  const initialRange=quickCostDateRange("MONTH");
-  const [from,setFrom]=useState(initialRange.from); const [to,setTo]=useState(initialRange.to); const [datePreset,setDatePreset]=useState<CostDateRangePreset>("MONTH"); const [model,setModel]=useState(""); const [status,setStatus]=useState(""); const [scopeUserId,setScopeUserId]=useState("");
+  const initialRange=quickCostDateRange("TODAY");
+  const [from,setFrom]=useState(initialRange.from); const [to,setTo]=useState(initialRange.to); const [datePreset,setDatePreset]=useState<CostDateRangePreset>("TODAY"); const [model,setModel]=useState(""); const [status,setStatus]=useState(""); const [scopeUserId,setScopeUserId]=useState("");
   const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(20); const [data,setData]=useState<UsageBody|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
   const [googleExpanded,setGoogleExpanded]=useState(false); const [googleBilling,setGoogleBilling]=useState<GoogleBilling|null>(null); const [billingLoading,setBillingLoading]=useState(false);
   const {toast,node}=useToast();
@@ -34,7 +34,7 @@ export function UsageView({ embedded=false }:{ embedded?:boolean }) {
   const accountBySku=useMemo(()=>new Map((googleBilling?.skuUsage||[]).map(row=>[accountSkuKey[row.key]||row.key,row])),[googleBilling]);
   async function exportUsage(){const params=new URLSearchParams({from,to,model,status,all:"true"});if(scopeUserId)params.set("user_id",scopeUserId);const response=await fetch(`/api/ai/usage?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));if(!response.ok)return toast(body.error||"用量明细查询失败","error");const tasks:UsageTask[]=body.tasks||[];if(!tasks.length)return toast("当前筛选范围没有可导出的用量","error");const header=["任务名称","任务编号","完成分析","OpenAI调用","输入Token","缓存Token","输出Token","Google Places调用","Google SKU明细","OpenAI台账估算","Google价目估算","成本参考合计","单次分析成本参考"];const rows=tasks.map(task=>[task.name,task.task_number,`${task.processed_count}/${task.total_count}`,task.model_call_count,task.input_tokens,task.cached_input_tokens,task.output_tokens,task.google_places_call_count,skuSummary(task.google_places_skus),task.openai_cost_usd,task.google_places_cost_usd,task.total_cost_usd,task.processed_count?task.total_cost_usd/task.processed_count:0]);downloadWorkbook(`AI筛选成本参考_${from}_${to}.xlsx`,[{name:"筛选成本明细",rows:[header,...rows],widths:[28,20,14,14,16,16,16,18,42,18,18,18,20]}]);toast(`已导出 ${tasks.length} 个任务的筛选范围明细`)}
   const selectDatePreset=(preset:Exclude<CostDateRangePreset,"CUSTOM">)=>{const range=quickCostDateRange(preset);setFrom(range.from);setTo(range.to);setDatePreset(preset);setPage(1)};
-  const reset=()=>{selectDatePreset("MONTH");setModel("");setStatus("");setScopeUserId("");setPage(1)};
+  const reset=()=>{selectDatePreset("TODAY");setModel("");setStatus("");setScopeUserId("");setPage(1)};
   return <div className={embedded?"space-y-4":"min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"}><div className={embedded?"space-y-4":"mx-auto max-w-[1680px] space-y-4"}>
     {embedded
       ? <div className="flex justify-end"><button className={primaryButton} onClick={exportUsage}><Download size={16}/>导出筛选明细</button></div>

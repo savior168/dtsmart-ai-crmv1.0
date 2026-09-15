@@ -52,7 +52,7 @@ function control(task: AiTask) {
   return null;
 }
 
-export function TaskCenterView() {
+export function TaskCenterView({ canViewUsage, canManageSettings, canCreate }:{ canViewUsage:boolean; canManageSettings:boolean; canCreate:boolean }) {
   const router = useRouter();
   const [data, setData] = useState<ResponseBody | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,9 +161,9 @@ export function TaskCenterView() {
 
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="AI筛选任务中心" description="创建、监控和处理AI筛选任务，查看客户结果与失败重试。" actions={<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-      {data?.show_ai_usage ? <Link href="/ai-usage?module=screening" className={`${button} shrink-0`} title="查看AI筛选与AI获客用量明细"><BarChart3 size={16}/>AI用量与费用</Link> : null}
-      {data?.show_ai_settings ? <Link href="/ai-screening/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI筛选设置</Link> : null}
-      <Link href="/ai-screening/new" className={`${primaryButton} shrink-0`}><Plus size={17}/>创建AI筛选任务</Link>
+      {canViewUsage ? <Link href="/ai-usage?module=screening" className={`${button} shrink-0`} title="查看AI筛选与AI获客用量明细"><BarChart3 size={16}/>AI用量与费用</Link> : null}
+      {canManageSettings ? <Link href="/ai-screening/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI筛选设置</Link> : null}
+      {canCreate ? <Link href="/ai-screening/new" className={`${primaryButton} shrink-0`}><Plus size={17}/>创建AI筛选任务</Link> : null}
     </div>}/>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

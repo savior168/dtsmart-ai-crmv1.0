@@ -60,6 +60,34 @@ export const ACQUISITION_COMMON_INDUSTRIES = [
   "电脑配件批发商",
 ] as const;
 
+const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
+  "手机维修店": ["screen repair", "battery replacement", "board repair", "phone parts"],
+  "手机配件批发商": ["LCD screens", "replacement parts", "spare parts", "B2B supplier"],
+  "手机配件零售商": ["phone cases", "chargers", "screen protectors", "mobile accessories"],
+  "手机进口商": ["mobile devices", "wholesale", "distributor", "B2B"],
+  "电脑维修店": ["laptop repair", "hardware repair", "motherboard repair", "computer parts"],
+  "电脑配件批发商": ["laptop parts", "replacement parts", "spare parts", "B2B supplier"],
+};
+
+const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, string[]]> = [
+  [/批发|wholesale/i, ["B2B supplier", "distributor", "bulk order"]],
+  [/进口|import/i, ["importer", "distributor", "wholesale"]],
+  [/经销|distribut/i, ["authorized distributor", "B2B supplier", "wholesale"]],
+  [/供应|supplier/i, ["B2B supplier", "manufacturer", "wholesale"]],
+  [/零售|retail|商店|store/i, ["retail store", "shop", "dealer"]],
+  [/维修|repair/i, ["repair service", "spare parts", "replacement"]],
+  [/服务|service/i, ["service company", "commercial service", "business service"]],
+];
+
+export function acquisitionKeywordRecommendations(industries: string[]) {
+  const values = industries.flatMap((industry) => {
+    const exact = INDUSTRY_KEYWORD_RECOMMENDATIONS[industry];
+    if (exact) return exact;
+    return ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(industry))?.[1] || [];
+  });
+  return [...new Set(values)].slice(0, 8);
+}
+
 const COMMON_LOCAL_TERMS: Partial<Record<AcquisitionCountry, Record<string, string>>> = {
   DE: { "mobile phone repair": "Handyreparatur", "computer repair": "Computerreparatur", "phone parts wholesale": "Handy Ersatzteile Großhandel" },
   FR: { "mobile phone repair": "réparation téléphone mobile", "computer repair": "réparation ordinateur", "phone parts wholesale": "grossiste pièces téléphone" },
