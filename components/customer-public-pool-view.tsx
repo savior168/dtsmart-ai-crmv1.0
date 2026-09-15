@@ -356,7 +356,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [rows, setRows] = useState<PoolRow[]>([]);
   const [role, setRole] = useState<Role>(initialRole);
   const [restrictedBatches, setRestrictedBatches] = useState<string[]>([]);
-  const [restrictedBatches, setRestrictedBatches] = useState<string[]>([]);
   const [count, setCount] = useState<number | null>(null);
   const [tabCounts, setTabCounts] = useState<Partial<Record<Tab, number>>>({});
   const [page, setPage] = useState(1);
@@ -463,7 +462,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       const scopedBatches = Array.isArray(body.restricted_batches) ? body.restricted_batches.map(String) : [];
       setRestrictedBatches(scopedBatches);
       if (scopedBatches.length && tab === "available") setSourceBatches(scopedBatches);
-      setRestrictedBatches(Array.isArray(body.restricted_batches) ? body.restricted_batches : []);
       setSelected(new Set());
     } catch (caught) {
       if (version === requestVersion.current) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
@@ -713,7 +711,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              {tab === "available" && restrictedBatches.length ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700" role="status">当前账号仅可查看以下导入批次（筛选范围只读）：{restrictedBatches.join("、")}</div> : null}
               {tab === "available" && restrictedBatches.length ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700" role="status">当前账号仅可查看以下导入批次（筛选范围只读）：{restrictedBatches.join("、")}</div> : null}
               <div className="flex flex-wrap items-end gap-3">
                 <label className="relative w-[300px] shrink-0">
