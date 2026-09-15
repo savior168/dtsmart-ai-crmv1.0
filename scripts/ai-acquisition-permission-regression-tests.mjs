@@ -22,7 +22,8 @@ assert.match(layout, /protectPage\("ai\.acquisition\.view"\)/, "AI获客页面�
 const migration = read("supabase/migrations/202609150002_ai_acquisition_permissions.sql");
 const defaultLock = read("supabase/migrations/202609150003_ai_acquisition_admin_default.sql");
 assert.match(defaultLock, /\('SUPERVISOR'\), \('SALES'\), \('WAREHOUSE'\)/, "非管理员角色必须进入AI获客默认锁定矩阵");
-assert.match(defaultLock, /\('ai\.acquisition\.view'\)[\s\S]*\('ai\.acquisition\.create'\)[\s\S]*select role_code, permission_code, false/, "AI获客菜单与创建动作必须默认关闭");
+assert.match(defaultLock, /select role_code, permission_code, false/, "AI获客默认权限写入必须关闭");
+assert.match(defaultLock, /\('ai\.acquisition\.view'\)[\s\S]*\('ai\.acquisition\.create'\)/, "AI获客菜单与创建动作必须包含在默认锁定矩阵");
 assert.doesNotMatch(defaultLock, /\('SALES','ai\.acquisition\.data_all',true\)/, "销售员不得被授予跨用户获客数据权限");
 
 console.log("AI acquisition permission regression tests passed.");
