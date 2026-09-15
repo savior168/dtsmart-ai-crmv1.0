@@ -1,2 +1,11 @@
 import { AcquisitionTaskCenter } from "@/components/ai-acquisition/task-center";
-export default function AiAcquisitionPage(){ return <AcquisitionTaskCenter/>; }
+import { hasPermission, requireUser } from "@/lib/auth/current-user";
+
+export default async function AiAcquisitionPage(){
+  const { account } = await requireUser();
+  return <AcquisitionTaskCenter
+    canCreate={hasPermission(account,"ai.acquisition.create")}
+    canViewUsage={hasPermission(account,"ai.acquisition.usage.view")}
+    canManageSettings={hasPermission(account,"ai.acquisition.settings.manage")}
+  />;
+}

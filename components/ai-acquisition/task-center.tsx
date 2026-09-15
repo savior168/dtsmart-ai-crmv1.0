@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { BarChart3, Check, ChevronDown, CircleHelp, ListChecks, LoaderCircle, Plus, RefreshCw, Search, Settings2, TriangleAlert, UserRoundPlus } from "lucide-react";
+import { CalendarCheck2, Check, ChevronDown, CircleHelp, LoaderCircle, Plus, RefreshCw, Search, Settings2, TriangleAlert, UserRoundPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CostModeBadge,
@@ -11,7 +11,9 @@ import {
   StatusBadge,
   button,
   effectiveElapsedMs,
+  formatCost,
   formatDuration,
+  formatNumber,
   input,
   panel,
   primaryButton,
@@ -19,11 +21,14 @@ import {
 import type { AcquisitionTask } from "./types";
 import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
 import { UserScopeSelect } from "@/components/user-scope-select";
+import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
+import { quickCostDateRange } from "@/lib/cost-center";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const ACQUISITION_INDUSTRY_OPTIONS = Object.keys(ACQUISITION_INDUSTRY_TERMS);
-type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; accepted:number; review:number; failed_tasks:number };
-type SummaryMetric = "" | "active" | "completed" | "accepted" | "review" | "failed";
+type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; review:number; failed_tasks:number };
+type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted" | "review" | "failed";
+type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; googleCalls:number; freeCalls:number };
 
 function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:string)=>void }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -88,10 +93,10 @@ function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:stri
   </div>;
 }
 
-export function AcquisitionTaskCenter() {
+export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean }) {
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
-    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, accepted:0, review:0, failed_tasks:0 }),
+    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 }),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
@@ -105,9 +110,7 @@ export function AcquisitionTaskCenter() {
     [draft, setDraft] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [canCreate, setCanCreate] = useState(false),
-    [canViewUsage, setCanViewUsage] = useState(false),
-    [canManageSettings, setCanManageSettings] = useState(false),
+    [costOverview, setCostOverview] = useState<CostOverview | null>(null),
     [showOwner, setShowOwner] = useState(false),
     [scopeUserId, setScopeUserId] = useState("");
   const load = useCallback(async () => {
@@ -134,10 +137,7 @@ export function AcquisitionTaskCenter() {
       if (!r.ok) throw new Error(b.error || "加载失败");
       setTasks(b.data || []);
       setCount(b.count || 0);
-      setSummary(b.summary || { tasks:0, active_tasks:0, completed_tasks:0, accepted:0, review:0, failed_tasks:0 });
-      setCanCreate(Boolean(b.can_create));
-      setCanViewUsage(Boolean(b.can_view_usage));
-      setCanManageSettings(Boolean(b.can_manage_settings));
+      setSummary(b.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 });
       setShowOwner(Boolean(b.show_owner));
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
@@ -148,6 +148,30 @@ export function AcquisitionTaskCenter() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!canViewUsage) return;
+    let active = true;
+    setCostOverview(null);
+    const today = quickCostDateRange("TODAY");
+    const scope = scopeUserId || "all";
+    const todayParams = new URLSearchParams({ from:today.from, to:today.to, user_id:scope, page:"1", pageSize:"10" });
+    const historyParams = new URLSearchParams({ all_time:"1", user_id:scope, page:"1", pageSize:"10" });
+    void Promise.all([
+      fetch(`/api/ai-acquisition/usage?${todayParams}`, { cache:"no-store" }).then(async (response)=>response.ok?response.json():null),
+      fetch(`/api/ai-acquisition/usage?${historyParams}`, { cache:"no-store" }).then(async (response)=>response.ok?response.json():null),
+    ]).then(([todayBody, historyBody])=>{
+      if (!active || !todayBody || !historyBody) return;
+      setCostOverview({
+        todayCalls:Number(todayBody.summary?.calls||0),
+        todayCost:Number(todayBody.summary?.total_cost_usd||0),
+        totalCost:Number(historyBody.summary?.total_cost_usd||0),
+        accepted:Number(historyBody.summary?.accepted||0),
+        googleCalls:Number(historyBody.summary?.google_calls||0),
+        freeCalls:Number(historyBody.summary?.google_free_calls||0),
+      });
+    }).catch(()=>undefined);
+    return ()=>{active=false};
+  }, [canViewUsage, scopeUserId]);
   useEffect(() => {
     if (!tasks.some((t) => ["QUEUED", "RUNNING", "PAUSING"].includes(t.status)))
       return;
@@ -161,7 +185,7 @@ export function AcquisitionTaskCenter() {
         description="低成本发现 → 非目标早停 → 主体与在营核验 → 联系方式和依据补全 → 系统去重 → 仅高可信目标客户进入客户公海"
         actions={
           <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-            {canViewUsage ? <Link href="/ai-usage?module=acquisition" className={`${button} shrink-0`}><BarChart3 size={16}/>AI用量与费用</Link> : null}
+            {canViewUsage ? <TodayUsageLink module="acquisition" scopeUserId={scopeUserId || "all"} todayUsage={costOverview?{calls:costOverview.todayCalls,cost:costOverview.todayCost}:null}/> : null}
             {canManageSettings ? <Link href="/ai-acquisition/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI获客设置</Link> : null}
             {canCreate ? (
               <Link href="/ai-acquisition/new" className={`${primaryButton} shrink-0`}>
@@ -174,14 +198,26 @@ export function AcquisitionTaskCenter() {
       />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         {[
-          { key:"" as const, label:"全部任务", value:summary.tasks, note:"当前条件下的全部任务", icon:ListChecks, tone:"bg-blue-50 text-blue-700" },
+          { key:"today_accepted" as const, label:"今日获客", value:summary.today_accepted, note:"今日核验通过并成功入池", icon:CalendarCheck2, tone:"bg-blue-50 text-blue-700" },
+          { key:"accepted" as const, label:"历史总获客", value:summary.accepted, note:"累计核验通过并成功入池", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
           { key:"active" as const, label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
-          { key:"completed" as const, label:"已完成", value:summary.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
-          { key:"accepted" as const, label:"成功入池客户", value:summary.accepted, note:"已通过准入门槛", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
           { key:"review" as const, label:"待人工复核", value:summary.review, note:"需核对证据后处理", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
+          { key:"completed" as const, label:"已完成任务", value:summary.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
           { key:"failed" as const, label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
         ].map((item)=><button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`}><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击筛选任务`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></button>)}
       </section>
+      {canViewUsage ? <section className={`${panel} p-4`}>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div><h2 className="font-semibold">获客成本总览</h2><p className="mt-1 text-xs text-slate-500">费用来自可核验调用账本；平均成本仅以成功核验并进入系统的有效目标客户为分母。</p></div>
+          <Link href="/ai-usage?module=acquisition" className="text-sm font-medium text-blue-600 hover:text-blue-700">查看用量与费用明细</Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">今日费用</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日实际记账费用</span></article>
+          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">历史累计费用</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">Google Places 与 OpenAI 合计</span></article>
+          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">平均每位有效客户成本</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计费用 ÷ 成功入池客户</span></article>
+          <Link href="/ai-usage?module=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><small className="flex items-center justify-between text-slate-500"><span>Google Places累计调用</span><span className="text-blue-600">查看明细</span></small><b className="mt-1 block text-xl">{costOverview?`${formatNumber(costOverview.googleCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">累计免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次</span></Link>
+        </div>
+      </section> : null}
       <section className={`${panel} p-4`}>
         <form
           className="space-y-3"

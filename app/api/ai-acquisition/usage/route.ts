@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const to = /^\d{4}-\d{2}-\d{2}$/.test(rawTo) ? rawTo : from;
     const status = params.get("status") || "";
     const costMode = params.get("cost_mode") || "";
+    const allTime = params.get("all_time") === "1";
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const admin = createAdminClient();
@@ -36,7 +37,9 @@ export async function GET(request: NextRequest) {
     const costIds = [...parentByCostTask.keys()];
     const costs: CostRow[] = [];
     for (let offset = 0; offset < costIds.length; offset += 150) {
-      const result = await admin.from("api_cost_ledger").select("task_id,provider,model_or_sku,operation,amount_type,amount_usd,quantity,occurred_at").in("task_id", costIds.slice(offset, offset + 150)).gte("occurred_at", `${from}T00:00:00.000+08:00`).lte("occurred_at", `${to}T23:59:59.999+08:00`);
+      let costQuery = admin.from("api_cost_ledger").select("task_id,provider,model_or_sku,operation,amount_type,amount_usd,quantity,occurred_at").in("task_id", costIds.slice(offset, offset + 150));
+      if (!allTime) costQuery = costQuery.gte("occurred_at", `${from}T00:00:00.000+08:00`).lte("occurred_at", `${to}T23:59:59.999+08:00`);
+      const result = await costQuery;
       if (result.error) throw result.error;
       costs.push(...((result.data || []) as CostRow[]));
     }
@@ -46,9 +49,17 @@ export async function GET(request: NextRequest) {
       const taskCosts = costs.filter((cost) => cost.task_id && parentByCostTask.get(cost.task_id) === task.id);
       const quantity = (rows: CostRow[]) => rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
       return { ...task, calls: quantity(taskCosts), free_calls: quantity(taskCosts.filter((cost) => cost.amount_type === "FREE")), google_calls: quantity(taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES")), openai_calls: quantity(taskCosts.filter((cost) => cost.provider === "OPENAI")), total_cost_usd: taskCosts.reduce((sum, cost) => sum + Number(cost.amount_usd || 0), 0) };
-    }).filter((task) => task.calls > 0 || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
+    }).filter((task) => allTime || task.calls > 0 || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
     const quantity = (items: CostRow[]) => items.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
-    const summary = { tasks: rows.length, discovered: rows.reduce((sum, row) => sum + Number(row.discovered_count || 0), 0), accepted: rows.reduce((sum, row) => sum + Number(row.accepted_count || 0), 0), calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), total_cost_usd: costs.reduce((sum, row) => sum + Number(row.amount_usd || 0), 0) };
+    let accepted = 0;
+    for (let offset = 0; offset < parentIds.length; offset += 150) {
+      let acceptedQuery = admin.from("ai_acquisition_candidates").select("id", { count:"exact", head:true }).in("task_id", parentIds.slice(offset, offset + 150)).eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
+      if (!allTime) acceptedQuery = acceptedQuery.gte("processed_at", `${from}T00:00:00.000+08:00`).lte("processed_at", `${to}T23:59:59.999+08:00`);
+      const result = await acceptedQuery;
+      if (result.error) throw result.error;
+      accepted += result.count || 0;
+    }
+    const summary = { tasks: rows.length, discovered: rows.reduce((sum, row) => sum + Number(row.discovered_count || 0), 0), accepted, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), total_cost_usd: costs.reduce((sum, row) => sum + Number(row.amount_usd || 0), 0) };
     return NextResponse.json({ summary, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客用量查询失败";

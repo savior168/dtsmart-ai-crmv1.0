@@ -214,8 +214,20 @@ async function finalizeCandidates(task: AcquisitionTask) {
       if (duplicateContacts.data?.length) { decision = "DUPLICATE"; reason = "核验联系方式已存在于系统其他客户，未重复入池"; }
     }
     if (decision === "ACCEPTED") {
-      const promoted = await admin.from("customers").update({ source: "AI_ACQUISITION", acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", status: "UNCLAIMED", owner_id: null, owner_user_id: null, assigned_via: null, updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING");
+      const promoted = await admin.from("customers").update({ source: "AI_ACQUISITION", acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", status: "UNCLAIMED", owner_id: null, owner_user_id: null, assigned_via: null, updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING").select("id").maybeSingle();
       if (promoted.error) throw promoted.error;
+      if (!promoted.data) {
+        const current = await admin.from("customers").select("source,acquisition_scope,pool_status,deleted_at").eq("id", customerId).maybeSingle();
+        if (current.error) throw current.error;
+        const alreadyInSystem = current.data?.source === "AI_ACQUISITION"
+          && current.data?.acquisition_scope === "PUBLIC_POOL"
+          && ["AVAILABLE", "CLAIMED"].includes(String(current.data?.pool_status || ""))
+          && !current.data?.deleted_at;
+        if (!alreadyInSystem) {
+          decision = "REVIEW";
+          reason = "质量门槛已通过，但客户入池写入未确认，等待人工复核或重试";
+        }
+      }
     } else {
       const hidden = await admin.from("customers").update({ deleted_at: new Date().toISOString(), pool_status: "INVALID", updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING");
       if (hidden.error) throw hidden.error;

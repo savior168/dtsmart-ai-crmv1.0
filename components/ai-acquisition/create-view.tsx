@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
-import { Check, ChevronDown, Plus, Search, ShieldCheck, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardPaste, Plus, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect } from "react";
-import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
 import {
   PageHeader,
   button,
@@ -16,6 +16,22 @@ import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { ScheduleControl } from "@/components/ai-screening/schedule-control";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
+const splitBulkValues = (text: string) => text.split(/[\r\n,，;；|]+/).map((item)=>item.trim()).filter(Boolean);
+function mergeUniqueValues(current: string[], incoming: string[], max: number, valid: (value:string)=>boolean) {
+  const next = [...current];
+  for (const value of incoming) if (valid(value) && !next.some((item)=>item.toLowerCase()===value.toLowerCase()) && next.length < max) next.push(value);
+  return next;
+}
+async function readClipboard(onText:(text:string)=>void,onError:()=>void) {
+  try {
+    if (!navigator.clipboard?.readText) throw new Error("CLIPBOARD_UNAVAILABLE");
+    const text = await navigator.clipboard.readText();
+    if (!text.trim()) throw new Error("CLIPBOARD_EMPTY");
+    onText(text);
+  } catch {
+    onError();
+  }
+}
 
 function CountryPicker({
   value,
@@ -109,29 +125,41 @@ function ChipInput({
   onChange,
   required = false,
   placeholder,
+  onNotice,
 }: {
   label: string;
   values: string[];
   onChange: (v: string[]) => void;
   required?: boolean;
   placeholder: string;
+  onNotice: (message:string, tone?:"error")=>void;
 }) {
   const [draft, setDraft] = useState("");
+  const addMany = (text:string) => {
+    const incoming = splitBulkValues(text);
+    const next = mergeUniqueValues(values, incoming, MAX_ACQUISITION_KEYWORDS, (value)=>value.length<=80);
+    onChange(next);
+    setDraft("");
+    if (incoming.length > 1) onNotice(`已批量加入 ${next.length-values.length} 个关键词${incoming.length > next.length-values.length ? "，重复或超出上限的内容已忽略" : ""}`);
+  };
   const add = () => {
     const v = draft.trim();
     if (
       v &&
       !values.some((x) => x.toLowerCase() === v.toLowerCase()) &&
-      values.length < 8
+      values.length < MAX_ACQUISITION_KEYWORDS
     )
       onChange([...values, v]);
     setDraft("");
   };
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-slate-700">
+    <div className="block">
+      <span className="mb-1.5 flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+        <span>
         {label}
         {required ? <b className="text-rose-500"> *</b> : null}
+        </span>
+        <span className="flex items-center gap-3"><button type="button" onClick={()=>void readClipboard(addMany,()=>onNotice("无法读取剪贴板，请使用 Ctrl+V 粘贴","error"))} className="inline-flex items-center gap-1 text-xs font-normal text-blue-700 hover:underline"><ClipboardPaste size={13}/>粘贴</button>{values.length ? <button type="button" onClick={()=>onChange([])} className="text-xs font-normal text-blue-700 hover:underline">清空关键词</button> : null}</span>
       </span>
       <div className="min-h-11 rounded-lg border border-slate-200 bg-white p-1.5 transition focus-within:border-[#1763e8]">
         <div className="flex flex-wrap gap-1.5">
@@ -151,8 +179,10 @@ function ChipInput({
             </span>
           ))}
           <input
+            aria-label={label}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={(event)=>{const text=event.clipboardData.getData("text");if(splitBulkValues(text).length>1){event.preventDefault();addMany(text)}}}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === ",") {
                 e.preventDefault();
@@ -166,63 +196,76 @@ function ChipInput({
         </div>
       </div>
       <small className="mt-1 block text-slate-400">{placeholder}</small>
-    </label>
+    </div>
   );
 }
 
-function IndustryPicker({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+function IndustryPicker({ value, onChange, onNotice }: { value: string[]; onChange: (value: string[]) => void; onNotice:(message:string,tone?:"error")=>void }) {
   const [query, setQuery] = useState("");
   const normalized = query.trim();
-  const options = Object.keys(ACQUISITION_INDUSTRY_TERMS).filter((item) => item.toLowerCase().includes(normalized.toLowerCase())).slice(0, 12);
-  const canAddCustom = normalized.length >= 2 && normalized.length <= 60 && !value.some((item) => item.toLowerCase() === normalized.toLowerCase()) && !options.includes(normalized) && value.length < 8;
+  const options = normalized ? acquisitionIndustrySuggestions(normalized, 12) : [];
+  const canAddCustom = normalized.length >= 2 && normalized.length <= 60 && !value.some((item) => item.toLowerCase() === normalized.toLowerCase()) && !options.includes(normalized) && value.length < MAX_ACQUISITION_INDUSTRIES;
   const toggle = (item: string) => {
     if (value.includes(item)) onChange(value.filter((selected) => selected !== item));
-    else if (value.length < 8) onChange([...value, item]);
+    else if (value.length < MAX_ACQUISITION_INDUSTRIES) onChange([...value, item]);
   };
   const addCustom = () => {
     if (!canAddCustom) return;
     onChange([...value, normalized]);
     setQuery("");
   };
+  const addMany = (text:string) => {
+    const incoming = splitBulkValues(text);
+    const next = mergeUniqueValues(value, incoming, MAX_ACQUISITION_INDUSTRIES, (item)=>item.length>=2&&item.length<=60&&!/[<>\r\n]/.test(item));
+    onChange(next);
+    setQuery("");
+    if (incoming.length > 1) onNotice(`已批量加入 ${next.length-value.length} 个行业${incoming.length > next.length-value.length ? "，重复、无效或超出上限的内容已忽略" : ""}`);
+  };
   return <div className="space-y-3">
     <label className="relative block">
       <Search size={16} className="absolute left-3 top-3 text-slate-400"/>
-      <input value={query} onChange={(event)=>setQuery(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();addCustom();}}} className={`${input} w-full pl-9`} placeholder="搜索标准行业，或输入任意明确行业后按回车添加" maxLength={60}/>
+      <input value={query} onChange={(event)=>setQuery(event.target.value)} onPaste={(event)=>{const text=event.clipboardData.getData("text");if(splitBulkValues(text).length>1){event.preventDefault();addMany(text)}}} onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();addCustom();}}} className={`${input} w-full pl-9 pr-20`} placeholder="搜索或输入明确行业" maxLength={60}/>
+      <button type="button" onClick={()=>void readClipboard(addMany,()=>onNotice("无法读取剪贴板，请使用 Ctrl+V 粘贴","error"))} className="absolute right-3 top-[10px] inline-flex items-center gap-1 text-xs text-blue-700 hover:underline"><ClipboardPaste size={13}/>粘贴</button>
     </label>
-    {value.length ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/40 p-3"><span className="text-xs font-medium text-slate-500">已选 {value.length}/8</span>{value.map((item)=><button key={item} type="button" aria-label={`移除${item}`} onClick={()=>toggle(item)} className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-sm text-blue-700 shadow-sm ring-1 ring-blue-100">{item}<X size={13}/></button>)}<button type="button" onClick={()=>onChange([])} className="ml-auto text-xs text-slate-500 hover:text-blue-700">清空</button></div>:null}
+    <p className="text-xs text-slate-400">可搜索相近行业或批量粘贴；多项用逗号、分号或换行分隔。</p>
+    {value.length ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/40 p-3"><span className="text-xs font-medium text-slate-500">已选 {value.length}/{MAX_ACQUISITION_INDUSTRIES}</span>{value.map((item)=><button key={item} type="button" aria-label={`移除${item}`} onClick={()=>toggle(item)} className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-sm text-blue-700 shadow-sm ring-1 ring-blue-100">{item}<X size={13}/></button>)}<button type="button" onClick={()=>onChange([])} className="ml-auto text-xs text-slate-500 hover:text-blue-700">清空</button></div>:null}
     <div>
-      {normalized ? <p className="mb-2 text-xs text-slate-500">匹配的标准行业</p> : null}
+      {normalized ? <p className="mb-2 text-xs text-slate-500">相近标准行业（按匹配度）</p> : null}
       <div className="flex flex-wrap gap-2">
-        {(normalized ? options : [...ACQUISITION_COMMON_INDUSTRIES]).map((item)=>{const checked=value.includes(item);return <button key={item} type="button" disabled={!checked&&value.length>=8} aria-pressed={checked} onClick={()=>toggle(item)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm transition disabled:opacity-40 ${checked?"border-blue-500 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{checked?<Check size={13}/>:<Plus size={13}/>} {item}</button>})}
+        {(normalized ? options : [...ACQUISITION_COMMON_INDUSTRIES]).map((item)=>{const checked=value.includes(item);return <button key={item} type="button" disabled={!checked&&value.length>=MAX_ACQUISITION_INDUSTRIES} aria-pressed={checked} onClick={()=>toggle(item)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm transition disabled:opacity-40 ${checked?"border-blue-500 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{checked?<Check size={13}/>:<Plus size={13}/>} {item}</button>})}
         {canAddCustom?<button type="button" onClick={addCustom} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-blue-400 bg-blue-50/40 px-3 text-sm font-medium text-blue-700"><Plus size={14}/>添加“{normalized}”</button>:null}
       </div>
-      {normalized && !options.length && !canAddCustom ? <p className="mt-2 text-xs text-slate-400">行业名称需为2–60个字符，且最多选择8个。</p> : null}
+      {normalized && !options.length && !canAddCustom ? <p className="mt-2 text-xs text-slate-400">行业名称需为2–60个字符，且最多选择{MAX_ACQUISITION_INDUSTRIES}个。</p> : null}
     </div>
   </div>;
 }
 
-const DRAFT_KEY = "dtsmart-ai-acquisition-create:v4";
+const LEGACY_DRAFT_KEY = "dtsmart-ai-acquisition-create:v4";
+const DRAFT_KEY = "dtsmart-ai-acquisition-create:manual:v1";
+const emptyAcquisitionForm = () => ({
+  name: "",
+  name_mode: "AUTO" as "AUTO" | "MANUAL",
+  industries: [] as string[],
+  countries: [] as string[],
+  keywords: [] as string[],
+  cost_mode: "ADAPTIVE",
+  task_cost_limit_usd: "",
+  schedule_type: "now" as "now" | "scheduled",
+  scheduled_at: "",
+});
 
 export function AcquisitionCreateView() {
   const router = useRouter();
   const { toast, node } = useToast();
   const [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState(false),
-    [flowOpen, setFlowOpen] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    name_mode: "AUTO" as "AUTO" | "MANUAL",
-    industries: [] as string[],
-    countries: [] as string[],
-    keywords: [] as string[],
-    cost_mode: "ADAPTIVE",
-    task_cost_limit_usd: "",
-    schedule_type: "now" as "now" | "scheduled",
-    scheduled_at: "",
-  });
+    [flowOpen, setFlowOpen] = useState(false),
+    [hasSavedDraft, setHasSavedDraft] = useState(false);
+  const [form, setForm] = useState(emptyAcquisitionForm);
   const keywordRecommendations = acquisitionKeywordRecommendations(form.industries);
   const requestKeyRef = useRef(crypto.randomUUID());
   useEffect(() => {
+    window.sessionStorage.removeItem(LEGACY_DRAFT_KEY);
     try {
       const saved = JSON.parse(window.sessionStorage.getItem(DRAFT_KEY) || "null") as Partial<typeof form> | null;
       if (!saved) return;
@@ -238,6 +281,7 @@ export function AcquisitionCreateView() {
         schedule_type: saved.schedule_type === "scheduled" ? "scheduled" : "now",
         scheduled_at: typeof saved.scheduled_at === "string" ? saved.scheduled_at : "",
       }));
+      setHasSavedDraft(true);
     } catch { window.sessionStorage.removeItem(DRAFT_KEY); }
   }, []);
   const automaticName = (() => {
@@ -245,11 +289,23 @@ export function AcquisitionCreateView() {
     const industry = form.industries.length === 1 ? form.industries[0] : form.industries.length > 1 ? `${form.industries[0]}等${form.industries.length}行业` : "";
     return [country, industry, form.cost_mode === "FREE_ONLY" ? "全免费获客" : "智能增强获客"].filter(Boolean).join("｜").slice(0, 100);
   })();
+  const hasDraftContent = Boolean(form.name.trim() || form.countries.length || form.industries.length || form.keywords.length || form.task_cost_limit_usd || form.schedule_type === "scheduled");
   useEffect(() => {
     if (form.name_mode !== "AUTO" || form.name === automaticName) return;
     setForm((current)=>current.name_mode === "AUTO" ? {...current,name:automaticName} : current);
   }, [automaticName, form.name, form.name_mode]);
-  useEffect(() => { window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form)); }, [form]);
+  function saveDraft() {
+    window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    setHasSavedDraft(true);
+    toast("草稿已暂存，下次进入本页可继续填写");
+  }
+  function clearDraft() {
+    window.sessionStorage.removeItem(DRAFT_KEY);
+    setHasSavedDraft(false);
+    setForm(emptyAcquisitionForm());
+    requestKeyRef.current = crypto.randomUUID();
+    toast("草稿和当前填写内容已清空");
+  }
   const invalid =
     !form.name.trim() ||
     !form.industries.length ||
@@ -271,6 +327,7 @@ export function AcquisitionCreateView() {
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || "创建失败");
       window.sessionStorage.removeItem(DRAFT_KEY);
+      setHasSavedDraft(false);
       router.push(`/ai-acquisition/tasks/${b.task.id}`);
     } catch (e) {
       toast(e instanceof Error ? e.message : "创建失败", "error");
@@ -284,15 +341,14 @@ export function AcquisitionCreateView() {
       <PageHeader
         title="创建AI获客任务"
         description="设置目标市场、行业、执行时间和获客模式。"
-        actions={
-          <Link href="/ai-acquisition" className={button}>返回任务中心</Link>
-        }
+        actions={<div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={!hasDraftContent} onClick={saveDraft} className={button}>{hasSavedDraft?"更新草稿":"暂存草稿"}</button><Link href="/ai-acquisition" className={button}>返回任务中心</Link></div>}
       />
+      {hasSavedDraft?<div className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm text-blue-800"><span>存在已暂存草稿</span><button type="button" onClick={clearDraft} className="shrink-0 font-medium text-blue-700 hover:underline">清空并新建</button></div>:null}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-4">
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务与目标市场</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">设置任务名称、目标国家和执行时间。</p></div>
-          <div className="grid gap-3 p-4 lg:grid-cols-2"><label>
+          <div className="grid gap-3 p-4 lg:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_minmax(250px,1fr)_minmax(300px,1.25fr)]"><label>
             <span className="mb-1.5 block text-sm font-medium">任务名称 <b className="text-rose-500">*</b></span>
             <input
               className={`${input} w-full`}
@@ -307,20 +363,21 @@ export function AcquisitionCreateView() {
               value={form.countries}
               onChange={(countries) => setForm({ ...form, countries })}
             />
-          </div><div className="lg:col-span-2"><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
+          </div><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
         </section>
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>
           <div className="p-4">
-          <IndustryPicker value={form.industries} onChange={(industries) => setForm({ ...form, industries })}/>
+          <IndustryPicker value={form.industries} onChange={(industries) => setForm({ ...form, industries })} onNotice={(message,tone)=>toast(message,tone)}/>
           <div className="mt-4">
           <ChipInput
-            label="补充业务关键词"
+            label="搜索关键词"
             values={form.keywords}
             onChange={(keywords) => setForm({ ...form, keywords })}
-            placeholder="选填。用于增加更具体的检索表达；目标行业始终是核验硬门槛，关键词不会单独放宽行业范围。"
+            placeholder="选填，用于细化检索；多项用逗号、分号或换行分隔，不会放宽目标行业范围。"
+            onNotice={(message,tone)=>toast(message,tone)}
           />
-          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="flex flex-wrap items-center gap-2"><span className="mr-1 text-xs font-medium text-slate-500">行业推荐关键词</span>{keywordRecommendations.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={keyword} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=8} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div><p className="mt-2 text-xs text-slate-400">按所选行业即时推荐，按需选择；执行时会与目标国家的本地化行业表达组合，也可在上方手动补充。</p></div>:null}
+          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-2 flex items-center justify-between gap-3"><span className="text-xs font-medium text-slate-500">行业推荐关键词</span><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">批量选择推荐</button></div><div className="flex flex-wrap items-center gap-2">{keywordRecommendations.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={keyword} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div><p className="mt-2 text-xs text-slate-400">按所选行业即时推荐，按需选择；执行时会与目标国家的本地化行业表达组合，也可在上方手动补充。</p></div>:null}
           </div>
           </div>
         </section>
@@ -331,15 +388,15 @@ export function AcquisitionCreateView() {
               {
                 id: "ADAPTIVE",
                 title: "智能增强获客",
-                text: "免费渠道优先；必要时在费用限制内付费补证。",
-                summary: "免费优先 · 按需增强",
+                text: "先用官网、公开页面和可核对免费额度发现与核验；仅对高度相关但证据不足的候选，在费用限制内付费补证。",
+                steps: ["免费发现", "目标初判", "按需付费补证", "高可信入池"],
                 recommended: true,
               },
               {
                 id: "FREE_ONLY",
                 title: "全免费获客",
-                text: "仅使用实际费用为 0 的渠道，质量门槛不降低。",
-                summary: "零付费调用 · 同等质量门槛",
+                text: "使用官网、公开页面及实际费用为 0 的 Google Places 各 SKU 免费额度；需要产生正金额费用时停止补证并留痕。",
+                steps: ["免费发现", "免费核验", "同等证据门槛", "入池或待复核"],
                 recommended: false,
               },
             ].map((m) => (
@@ -351,10 +408,10 @@ export function AcquisitionCreateView() {
                 className={`relative rounded-xl border p-[18px] text-left transition ${form.cost_mode === m.id ? "border-[#1763e8] shadow-[0_0_0_2px_#e7efff]" : "border-[#dfe5ee] hover:border-blue-300"}`}
               >
                 <span className="flex items-center gap-2"><b>{m.title}</b>{m.recommended ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">推荐</span> : null}</span>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
+                <p className="mb-3 mt-2 min-h-12 text-sm leading-6 text-slate-500">
                   {m.text}
                 </p>
-                <span className="mt-3 inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500">{m.summary}</span>
+                <span className="flex flex-wrap items-center gap-1 text-xs text-[#46546a]">{m.steps.map((step,index)=><span key={step} className="contents"><span className="rounded-md border border-[#dfe5ee] bg-[#f4f7fb] px-2 py-[5px]">{step}</span>{index<m.steps.length-1?<span className="text-[#9aa6b6]">→</span>:null}</span>)}</span>
               </button>
             ))}
           </div>
@@ -379,12 +436,19 @@ export function AcquisitionCreateView() {
                 }
               />
             </label>
-            <p className="mt-2 text-xs leading-5 text-slate-500">留空遵循“AI获客设置”；所有费用限制以先触发者为准。</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">留空不代表不限额：仍受“AI获客设置”的 Google/OpenAI 日、周、月费用上限及单客户调用上限约束；任一限制先触发即停止付费补证。</p>
             </div>
           ) : null}</div>
         </section>
       </div>
-      <aside className={`${panel} p-5 xl:sticky xl:top-5`}><div className="flex items-center gap-2"><ShieldCheck size={18} className="text-emerald-600"/><h2 className="font-semibold">任务确认</h2></div><dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-slate-500">目标国家/地区</dt><dd className="mt-1 leading-6">{form.countries.length ? form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、") : "尚未选择"}</dd></div><div><dt className="text-xs text-slate-500">目标行业</dt><dd className="mt-1 leading-6">{form.industries.length ? form.industries.join("、") : "尚未选择"}</dd></div><div><dt className="text-xs text-slate-500">执行时间</dt><dd className="mt-1">{form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行"}</dd></div><div><dt className="text-xs text-slate-500">成本模式</dt><dd className="mt-1">{form.cost_mode==="FREE_ONLY"?"全免费获客":form.task_cost_limit_usd?`智能增强 · 任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"智能增强 · 遵循全局费用限制"}</dd></div></dl><div className="mt-4 rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">非目标、永久停业、证据不足、无可追溯有效联系方式或系统重复的候选均不会进入客户公海。</div>{invalid?<p className="mt-4 text-xs leading-5 text-amber-700">请完整填写任务名称、行业、国家/地区和有效执行时间。</p>:null}<div className="mt-5 grid gap-2"><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} w-full`}>{form.schedule_type==="scheduled"?"预约并创建任务":"创建并自动执行"}</button><Link href="/ai-acquisition" className={`${button} w-full`}>取消</Link></div></aside>
+      <aside className="xl:sticky xl:top-[78px] rounded-[9px] border border-[#dce5f4] bg-[#f8faff] p-[14px]"><h3 className="mb-[10px] font-semibold">创建前确认</h3><dl className="text-sm">{[
+        ["目标国家/地区",form.countries.length ? (form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`) : "尚未选择",form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")],
+        ["目标行业",form.industries.length ? (form.industries.length<=2?form.industries.join("、"):`已选 ${form.industries.length} 个`) : "尚未选择",form.industries.join("、")],
+        ["搜索关键词",form.keywords.length?`已选择 ${form.keywords.length} 个`:"按行业自动生成",form.keywords.join("、")],
+        ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行",""],
+        ["获客模式",form.cost_mode==="FREE_ONLY"?"全免费获客":"智能增强获客",""],
+        ["任务费用上限",form.cost_mode==="FREE_ONLY"?"$0.00":form.task_cost_limit_usd?`$${Number(form.task_cost_limit_usd).toFixed(2)}`:"继承全局上限",""],
+      ].map(([label,value,title])=><div key={label} className="flex justify-between gap-[10px] border-b border-dashed border-[#dbe2ec] py-[7px]"><dt className="shrink-0 text-[#6f7c90]">{label}</dt><dd title={title||undefined} className="max-w-[190px] break-words text-right font-semibold">{value}</dd></div>)}</dl><p className={`mt-2 text-xs leading-5 ${invalid?"text-amber-700":"text-slate-500"}`}>{invalid?"请完整填写任务名称、行业、国家/地区和有效执行时间。":"仅通过目标、在营、证据、联系方式和系统去重门槛的客户进入公海。"}</p><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} mt-[14px] w-full`}>{form.schedule_type==="scheduled"?"预约并创建任务":"创建并自动执行"}</button></aside>
       </div>
       {node}
       <AppDialog
@@ -397,7 +461,7 @@ export function AcquisitionCreateView() {
         <div className="space-y-4 text-sm text-slate-600">
           <ol className="grid gap-3 md:grid-cols-2">
             {[
-              ["1. 固定任务范围","根据国家/地区、目标行业和补充关键词生成有限任务快照；关键词按目标国家常用语言扩展，但不能绕过行业门槛。"],
+              ["1. 固定任务范围","根据国家/地区、目标行业和搜索关键词生成有限任务快照；关键词按目标国家常用语言扩展，但不能绕过行业门槛。"],
               ["2. 低成本发现","优先使用公开来源和可核对免费额度，按本地化检索表达发现商家；连续分页无新候选即提前结束。"],
               ["3. 前置早停","Google 商家永久停业、基础类别明显不相关或系统已有相同 Place ID 的候选立即停止，不继续产生补证费用。"],
               ["4. 主体与在营核验","交叉核对名称、地址、电话、官网域名、Google 商家和公开页面，主体冲突或缺少当前在营依据不进入公海。"],

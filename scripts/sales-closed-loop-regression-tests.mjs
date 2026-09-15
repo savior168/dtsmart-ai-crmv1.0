@@ -129,7 +129,7 @@ assert.match(read("lib/auth/permissions.ts"), /ai\.usage\.view[\s\S]*默认仅�
 assert.match(aiUsagePermissionMigration, /ADMIN'[\s\S]*ai\.usage\.view'[\s\S]*true[\s\S]*SUPERVISOR'[\s\S]*false[\s\S]*SALES'[\s\S]*false[\s\S]*WAREHOUSE'[\s\S]*false/, "数据库默认权限必须只为系统管理员开放AI筛选用量");
 assert.match(aiTaskListApi, /hasPermission\(account, "ai\.usage\.view"\)[\s\S]*show_ai_usage: canViewAiUsage/, "任务中心必须由服务端权限结果控制AI筛选用量入口");
 assert.match(aiTaskPage, /requireUser\(\)[\s\S]*canViewUsage=\{hasPermission\(account,"ai\.usage\.view"\)\}[\s\S]*canManageSettings=\{hasPermission\(account,"ai\.settings\.manage"\)\}[\s\S]*canCreate=\{hasPermission\(account,"ai\.tasks\.create"\)\}/, "AI筛选顶部操作必须由服务端首屏权限同步决定");
-assert.match(aiTaskCenter, /canViewUsage \? <Link href="\/ai-usage\?module=screening"[\s\S]*canManageSettings \? <Link href="\/ai-screening\/settings"[\s\S]*canCreate \? <Link href="\/ai-screening\/new"/, "AI筛选三个顶部操作必须首屏同时渲染且分别按权限控制");
+assert.match(aiTaskCenter, /canViewUsage \? <TodayUsageLink module="screening"[\s\S]*canManageSettings \? <Link href="\/ai-screening\/settings"[\s\S]*canCreate \? <Link href="\/ai-screening\/new"/, "AI筛选三个顶部操作必须首屏同时渲染且分别按权限控制");
 assert.match(aiUsagePage, /requirePermission\("ai\.usage\.view"\)/, "直接访问AI筛选用量页面必须执行服务端权限校验");
 assert.match(aiUsageApi, /requirePermission\("ai\.usage\.view"\)[\s\S]*hasPermission\(account, "ai\.cost_summary\.view"\)[\s\S]*show_google_account_quota: canViewAccountQuota/, "用量接口必须分别保护页面用量与Google账号月度额度");
 assert.match(aiUsageApi, /taskMatchesStatus[\s\S]*filteredCalls[\s\S]*filteredCompletions[\s\S]*selected/, "任务状态必须同步影响所选范围汇总、趋势和任务列表");

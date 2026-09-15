@@ -3,13 +3,14 @@
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { Activity, Archive, BarChart3, CalendarRange, Plus, RefreshCw, RotateCcw, Settings2, Target, Users } from "lucide-react";
+import { Activity, Archive, CalendarRange, Plus, RefreshCw, RotateCcw, Settings2, Target, Users } from "lucide-react";
 import type { AiTask } from "@/components/ai-screening/types";
 import { ConfirmDialog, CostModeBadge, ErrorState, Loading, PageHeader, Pagination, StatusBadge, button, effectiveElapsedMs, formatCost, formatDuration, formatNumber, formatTokens, panel, primaryButton, input, useToast } from "@/components/ai-screening/ui";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
+import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 
 function Link(props: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={false} {...props} />;
@@ -161,7 +162,7 @@ export function TaskCenterView({ canViewUsage, canManageSettings, canCreate }:{ 
 
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title="AI筛选任务中心" description="创建、监控和处理AI筛选任务，查看客户结果与失败重试。" actions={<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-      {canViewUsage ? <Link href="/ai-usage?module=screening" className={`${button} shrink-0`} title="查看AI筛选与AI获客用量明细"><BarChart3 size={16}/>AI用量与费用</Link> : null}
+      {canViewUsage ? <TodayUsageLink module="screening" scopeUserId={scopeUserId}/> : null}
       {canManageSettings ? <Link href="/ai-screening/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI筛选设置</Link> : null}
       {canCreate ? <Link href="/ai-screening/new" className={`${primaryButton} shrink-0`}><Plus size={17}/>创建AI筛选任务</Link> : null}
     </div>}/>

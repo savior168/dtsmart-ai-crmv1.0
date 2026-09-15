@@ -110,7 +110,8 @@ assert.match(taskCenter, /status === "RUNNING"[\s\S]*action: "pause"[\s\S]*停�
 assert.match(taskCenter, /status === "QUEUED"[\s\S]*action: "cancel"[\s\S]*取消任务/, "排队中任务必须显示取消任务");
 assert.match(taskCenter, /status === "PAUSED"[\s\S]*action: "resume"[\s\S]*继续执行/, "已停止任务必须显示继续执行");
 assert.match(taskCenter, /status === "FAILED"[\s\S]*action: "retry"[\s\S]*重试失败项/, "失败任务必须显示重试失败项");
-assert.match(taskCenter, /AI用量与费用/, "任务中心顶部必须提供清晰可识别的统一AI用量入口");
+assert.match(taskCenter, /TodayUsageLink module="screening"/, "任务中心顶部必须使用统一AI用量入口并同步展示今日摘要");
+assert.match(read("components/ai-usage/today-usage-link.tsx"), /AI用量与费用/, "统一AI用量入口必须有清晰可识别的名称");
 assert.match(taskCenter, /成功 \/ 失败[\s\S]*任务耗时/, "任务列表必须显示实时成功失败数量和任务耗时");
 const taskActionApi = read("app/api/ai/tasks/[id]/route.ts");
 assert.match(taskActionApi, /requestedCustomerIds[\s\S]*historicalInvalidIds[\s\S]*已阻止混入复验任务/, "历史无效客户复验必须支持精确子集并阻止混入非历史无效客户");
@@ -168,9 +169,10 @@ const aiUi = read("components/ai-screening/ui.tsx");
 assert.match(aiUi, /finished_at \|\| task\.completed_at \|\| task\.updated_at/, "历史任务缺少elapsed_ms时必须用开始和结束时间计算真实耗时");
 const elapsedBackfill = read("supabase/migrations/202608240001_backfill_ai_task_elapsed.sql");
 assert.match(elapsedBackfill, /coalesce\(finished_at, completed_at, updated_at\) - started_at/, "生产迁移必须回填历史任务执行耗时");
-for (const href of ["/ai-screening/new", "/ai-screening/results", "/ai-screening/failures", "/ai-usage?module=screening", "/ai-screening/tasks/"]) {
+for (const href of ["/ai-screening/new", "/ai-screening/results", "/ai-screening/failures", "/ai-screening/tasks/"]) {
   assert.match(taskCenter, new RegExp(href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `任务中心缺少入口：${href}`);
 }
+assert.match(taskCenter, /TodayUsageLink module="screening"/, "AI筛选任务中心必须通过统一组件进入筛选用量页");
 const createTaskView = read("components/ai-screening/create-task-view.tsx");
 assert.match(createTaskView, /useEffect\(\(\) => \{ void load\(true\)/, "创建任务首次进入必须加载并选中全部待筛选客户");
 assert.match(createTaskView, /ScheduleControl/, "预约执行必须使用统一日期时间组合组件");

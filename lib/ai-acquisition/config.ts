@@ -6,6 +6,9 @@ export const ACQUISITION_COUNTRIES = [
 ] as const;
 
 export type AcquisitionCountry = (typeof ACQUISITION_COUNTRIES)[number];
+export const MAX_ACQUISITION_INDUSTRIES = 20;
+export const MAX_ACQUISITION_KEYWORDS = 30;
+export const MAX_ACQUISITION_SEARCH_TERMS = 80;
 
 export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
   "手机维修店": "mobile phone repair",
@@ -60,6 +63,34 @@ export const ACQUISITION_COMMON_INDUSTRIES = [
   "电脑配件批发商",
 ] as const;
 
+function industryFeatures(value: string) {
+  const normalized = value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const features = new Set(normalized.split(/\s+/).filter(Boolean));
+  const compactHan = normalized.replace(/[^\p{Script=Han}]/gu, "");
+  for (let index = 0; index < compactHan.length - 1; index += 1) features.add(compactHan.slice(index, index + 2));
+  return features;
+}
+
+export function acquisitionIndustrySuggestions(query: string, limit = 8) {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length < 2) return [];
+  const queryFeatures = industryFeatures(normalized);
+  return Object.entries(ACQUISITION_INDUSTRY_TERMS)
+    .map(([label, searchTerm]) => {
+      const candidate = `${label} ${searchTerm}`.toLowerCase();
+      const candidateFeatures = industryFeatures(candidate);
+      const matched = [...queryFeatures].filter((feature) => candidateFeatures.has(feature)).length;
+      const coverage = queryFeatures.size ? matched / queryFeatures.size : 0;
+      const candidateCoverage = candidateFeatures.size ? matched / candidateFeatures.size : 0;
+      const exactBoost = candidate.includes(normalized) || normalized.includes(label.toLowerCase()) ? 2 : 0;
+      return { label, score: exactBoost + coverage * 0.8 + candidateCoverage * 0.2 };
+    })
+    .filter((item) => item.score >= 0.22)
+    .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label, "zh-CN"))
+    .slice(0, limit)
+    .map((item) => item.label);
+}
+
 const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
   "手机维修店": ["screen repair", "battery replacement", "board repair", "phone parts"],
   "手机配件批发商": ["LCD screens", "replacement parts", "spare parts", "B2B supplier"],
@@ -85,7 +116,7 @@ export function acquisitionKeywordRecommendations(industries: string[]) {
     if (exact) return exact;
     return ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(industry))?.[1] || [];
   });
-  return [...new Set(values)].slice(0, 8);
+  return [...new Set(values)].slice(0, MAX_ACQUISITION_KEYWORDS);
 }
 
 const COMMON_LOCAL_TERMS: Partial<Record<AcquisitionCountry, Record<string, string>>> = {
@@ -109,7 +140,7 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
   const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
   const translations = COMMON_LOCAL_TERMS[country] || {};
   const normalizedKeywords = [...new Set(keywords.map((value) => value.trim()).filter(Boolean))];
-  const requested = industryTerms.flatMap((term) => {
+  const groups = industryTerms.map((term) => {
     const translated = translations[term.toLowerCase()];
     const bases = translated && translated.toLowerCase() !== term.toLowerCase() ? [translated, term] : [term];
     if (!normalizedKeywords.length) return bases;
@@ -117,5 +148,11 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
     // standalone broad search that escapes the user's target industry.
     return [...bases, ...bases.flatMap((base) => normalizedKeywords.map((keyword) => `${base} ${keyword}`))];
   });
-  return [...new Set(requested)].slice(0, 24);
+  const requested: string[] = [];
+  for (let round = 0; requested.length < MAX_ACQUISITION_SEARCH_TERMS; round += 1) {
+    let added = false;
+    for (const group of groups) if (group[round]) { requested.push(group[round]); added = true; }
+    if (!added) break;
+  }
+  return [...new Set(requested)].slice(0, MAX_ACQUISITION_SEARCH_TERMS);
 }

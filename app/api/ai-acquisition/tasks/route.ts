@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
+import { MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 
 function taskNumber(userId: string, requestKey: string) {
@@ -33,13 +33,27 @@ export async function GET(request: NextRequest) {
     const from = request.nextUrl.searchParams.get("from") || "";
     const to = request.nextUrl.searchParams.get("to") || "";
     const admin = createAdminClient();
+    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    let acceptedMetricTaskIds: string[] = [];
+    if (["accepted", "today_accepted"].includes(metric)) {
+      for (let offset = 0; ; offset += 1000) {
+        let acceptedRows = admin.from("ai_acquisition_candidates").select("task_id").eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
+        if (metric === "today_accepted") acceptedRows = acceptedRows.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+        const chunk = await acceptedRows.range(offset, offset + 999);
+        if (chunk.error) throw chunk.error;
+        acceptedMetricTaskIds.push(...(chunk.data || []).map((row) => row.task_id));
+        if ((chunk.data || []).length < 1000) break;
+      }
+      acceptedMetricTaskIds = [...new Set(acceptedMetricTaskIds)];
+    }
     let query = admin.from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
     if (ownerId) query = query.eq("user_id", ownerId);
     if (status) query = query.eq("status", status);
     else if (metric === "active") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
     else if (metric === "completed") query = query.eq("status", "COMPLETED");
     else if (metric === "failed") query = query.eq("status", "FAILED");
-    if (metric === "accepted") query = query.gt("accepted_count", 0);
+    if (metric === "accepted") query = acceptedMetricTaskIds.length ? query.in("id", acceptedMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
+    if (metric === "today_accepted") query = acceptedMetricTaskIds.length ? query.in("id", acceptedMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (metric === "review") query = query.gt("review_count", 0);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
     if (country) query = query.contains("countries", [country]);
@@ -49,9 +63,9 @@ export async function GET(request: NextRequest) {
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
     const result = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
-    const summaryRows: Array<{ status: string; accepted_count: number | null; review_count: number | null }> = [];
+    const summaryRows: Array<{ id:string; status: string; accepted_count: number | null; review_count: number | null }> = [];
     for (let offset = 0; ; offset += 1000) {
-      let summaryQuery = admin.from("ai_acquisition_tasks").select("status,accepted_count,review_count");
+      let summaryQuery = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");
       if (ownerId) summaryQuery = summaryQuery.eq("user_id", ownerId);
       if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) summaryQuery = summaryQuery.eq("cost_mode", costMode);
       if (country) summaryQuery = summaryQuery.contains("countries", [country]);
@@ -65,11 +79,23 @@ export async function GET(request: NextRequest) {
       if ((chunk.data || []).length < 1000) break;
     }
     const sum = (key: "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    let totalAccepted = 0;
+    let todayAccepted = 0;
+    const summaryTaskIds = summaryRows.map((row) => row.id);
+    for (let offset = 0; offset < summaryTaskIds.length; offset += 150) {
+      const result = await admin.from("ai_acquisition_candidates").select("id", { count:"exact", head:true }).in("task_id", summaryTaskIds.slice(offset, offset + 150)).eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+      if (result.error) throw result.error;
+      todayAccepted += result.count || 0;
+      const allResult = await admin.from("ai_acquisition_candidates").select("id", { count:"exact", head:true }).in("task_id", summaryTaskIds.slice(offset, offset + 150)).eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
+      if (allResult.error) throw allResult.error;
+      totalAccepted += allResult.count || 0;
+    }
     const summary = {
       tasks: summaryRows.length,
       active_tasks: summaryRows.filter((row) => ["QUEUED", "RUNNING", "PAUSING"].includes(row.status)).length,
       completed_tasks: summaryRows.filter((row) => row.status === "COMPLETED").length,
-      accepted: sum("accepted_count"),
+      today_accepted: todayAccepted,
+      accepted: totalAccepted,
       review: sum("review_count"),
       failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
     };
@@ -87,11 +113,11 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "").trim().slice(0, 100);
     const validIndustry = (value: string) => value.length >= 2 && value.length <= 60 && !/[<>\r\n]/.test(value);
     const industries = Array.isArray(body.industries)
-      ? [...new Set(body.industries.map(String).map((value) => value.trim()).filter(validIndustry))].slice(0, 8)
+      ? [...new Set(body.industries.map(String).map((value) => value.trim()).filter(validIndustry))].slice(0, MAX_ACQUISITION_INDUSTRIES)
       : validIndustry(String(body.industry || "").trim()) ? [String(body.industry).trim()] : [];
     const industry = industries.join("、");
     const countries = normalizeAcquisitionCountries(body.countries);
-    const keywords = Array.isArray(body.keywords) ? [...new Set(body.keywords.map(String).map((value) => value.trim()).filter(Boolean))].slice(0, 8) : [];
+    const keywords = Array.isArray(body.keywords) ? [...new Set(body.keywords.map(String).map((value) => value.trim()).filter((value) => value.length <= 80))].slice(0, MAX_ACQUISITION_KEYWORDS) : [];
     const requestKey = String(body.request_key || "").trim();
     const requestedSchedule = body.scheduled_at ? new Date(String(body.scheduled_at)) : null;
     const scheduledAt = requestedSchedule && Number.isFinite(requestedSchedule.getTime()) && requestedSchedule.getTime() > Date.now()

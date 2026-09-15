@@ -54,10 +54,16 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const updated=await admin.from("ai_acquisition_candidates").update({decision:"ACCEPTED",decision_reason:"人工发起重新校验，全部自动准入门槛通过",imported_customer_id:customerId,has_actionable_contact:true,evidence_complete:true,processed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id).eq("decision","REVIEW").select("id");
       if (updated.error) throw updated.error;
       if (!updated.data?.length) return NextResponse.json({error:"该客户已被其他人处理"},{status:409});
-      const promoted=await admin.from("customers").update({source:"AI_ACQUISITION",acquisition_scope:"PUBLIC_POOL",pool_status:"AVAILABLE",status:"UNCLAIMED",owner_id:null,owner_user_id:null,assigned_via:null,deleted_at:null,updated_at:new Date().toISOString()}).eq("id",customerId);
-      if (promoted.error) {
+      const promoted=await admin.from("customers").update({source:"AI_ACQUISITION",acquisition_scope:"PUBLIC_POOL",pool_status:"AVAILABLE",status:"UNCLAIMED",owner_id:null,owner_user_id:null,assigned_via:null,deleted_at:null,updated_at:new Date().toISOString()}).eq("id",customerId).select("id").maybeSingle();
+      let promotionConfirmed=Boolean(promoted.data);
+      if (!promoted.error&&!promotionConfirmed) {
+        const current=await admin.from("customers").select("source,acquisition_scope,pool_status,deleted_at").eq("id",customerId).maybeSingle();
+        if (current.error) throw current.error;
+        promotionConfirmed=current.data?.source==="AI_ACQUISITION"&&current.data?.acquisition_scope==="PUBLIC_POOL"&&["AVAILABLE","CLAIMED"].includes(String(current.data?.pool_status||""))&&!current.data?.deleted_at;
+      }
+      if (promoted.error||!promotionConfirmed) {
         await admin.from("ai_acquisition_candidates").update({decision:"REVIEW",decision_reason:"重新校验通过，但客户入池写入失败，等待重试",imported_customer_id:null,updated_at:new Date().toISOString()}).eq("id",id).eq("decision","ACCEPTED");
-        throw promoted.error;
+        throw promoted.error||new Error("客户公海写入未确认，请稍后重试");
       }
     }
     await refreshTaskCounts(task.id);
