@@ -24,6 +24,7 @@ assert.match(workflow, /claim_ai_screening_task_item[\s\S]+p_executor_type: "VER
 assert.doesNotMatch(workflow, /handoffWorkflowFailureToLocal|LOCAL_NODE/, "workflow must never hand failures to a local worker");
 assert.match(workflow, /pauseForTransientRecovery[\s\S]+status: "QUEUED"[\s\S]+started_at: null[\s\S]+elapsed_ms: elapsedMs/, "temporary upstream outages must pause rather than inflate effective task duration");
 assert.match(workflow, /pause_started_at: null[\s\S]+paused_duration_ms: pausedDuration/, "cloud recovery must record paused time separately before resuming execution");
+assert.match(workflow, /WAITING_FOR_RECOVERY[\s\S]+lease_expires_at\.lt\.\$\{now\}/, "a replacement workflow must requeue expired item leases before looking for pending work");
 assert.match(taskUi, /now - heartbeat > 120_000[\s\S]+activeUntil - started/, "a stale workflow heartbeat must stop task duration from counting recovery wait");
 assert.match(dispatcher, /execution_mode: AI_CLOUD_EXECUTION_MODE[\s\S]+dispatch_policy: AI_CLOUD_DISPATCH_POLICY/, "all dispatches must persist cloud-only execution");
 assert.match(dispatcher, /rescueStalledCloudTasks[\s\S]+VERCEL_DISPATCHING/, "stalled cloud recovery must remain available without duplicate runs");

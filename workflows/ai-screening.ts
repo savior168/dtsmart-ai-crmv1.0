@@ -43,6 +43,25 @@ async function beginTask(taskId: string) {
   "use step";
   const admin = createAdminClient();
   const now = new Date().toISOString();
+  // A process can die after leasing an item but before it writes a terminal
+  // result. A replacement workflow must return only expired leases to the
+  // durable queue before looking for PENDING work; otherwise it exits without
+  // processing anything while task totals remain permanently incomplete.
+  const recovered = await withTransientFetchRetry(() => admin.from("ai_screening_task_items").update({
+    status: "PENDING",
+    analysis_status: "PENDING",
+    writeback_status: "PENDING",
+    progress: 0,
+    current_step: "WAITING_FOR_RECOVERY",
+    pipeline_stage: "NORMALIZED",
+    lease_owner: null,
+    lease_token: null,
+    lease_expires_at: null,
+    executor_heartbeat_at: null,
+    updated_at: now,
+  }).eq("task_id", taskId).eq("status", "RUNNING").neq("analysis_status", "COMPLETED")
+    .or(`lease_expires_at.lt.${now},lease_expires_at.is.null`));
+  if (recovered.error) throw recovered.error;
   const current = await withTransientFetchRetry(() => admin.from("ai_screening_tasks")
     .select("started_at,pause_started_at,paused_duration_ms")
     .eq("id", taskId)
