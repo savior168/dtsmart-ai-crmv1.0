@@ -135,6 +135,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [costOverview, setCostOverview] = useState<CostOverview | null>(null),
+    [costSummaryOpen, setCostSummaryOpen] = useState(false),
     [googleDetailsOpen, setGoogleDetailsOpen] = useState(false),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
     [googleBillingLoading, setGoogleBillingLoading] = useState(false),
@@ -252,8 +253,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         {[
           { key:"today_accepted" as const, label:"今日获客", value:summary.today_accepted, note:"今日核验通过并成功入池", icon:CalendarCheck2, tone:"bg-blue-50 text-blue-700" },
           { key:"accepted" as const, label:"历史总获客", value:summary.accepted, note:"累计核验通过并成功入池", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
-          { key:"active" as const, label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
           { key:"review" as const, label:"待人工复核", value:summary.review, note:"需核对证据后处理", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
+          { key:"active" as const, label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
           { key:"completed" as const, label:"已完成任务", value:summary.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
           { key:"failed" as const, label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
         ].map((item)=>{
@@ -265,14 +266,17 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       </section>
       {toastNode}
       <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
-      {canViewUsage ? <section className={`${panel} p-4`}>
-        <div className="mb-3"><h2 className="font-semibold">获客成本参考</h2><p className="mt-1 text-xs text-slate-500">金额由系统调用账本按对应 SKU / 模型价目估算，未扣除账号共享免费额度、赠金或账单调整；最终结算以服务商账单为准。</p></div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {canViewUsage ? <section className={`${panel} overflow-hidden`}>
+        <button type="button" aria-expanded={costSummaryOpen} aria-controls="acquisition-cost-summary" onClick={()=>setCostSummaryOpen(open=>!open)} className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-50">
+          <span className="min-w-0"><b className="block font-semibold">历史获客成本</b><span className="mt-1 block truncate text-xs text-slate-500">今日 {costOverview?formatCost(costOverview.todayCost):"—"} · 累计 {costOverview?formatCost(costOverview.totalCost):"—"} · Google {costOverview?formatNumber(costOverview.googleCalls):"—"} 次</span></span>
+          <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-blue-600">{costSummaryOpen?"收起":"查看成本明细"}<ChevronDown size={16} className={`transition ${costSummaryOpen?"rotate-180":""}`}/></span>
+        </button>
+        {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><p className="mb-3 text-xs text-slate-500">金额由系统调用账本按对应 SKU / 模型价目估算，未扣除账号共享免费额度、赠金或账单调整；最终结算以服务商账单为准。</p><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link href="/ai-usage?module=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>今日成本参考</span><span className="text-blue-600">查看今日明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日 {costOverview?formatNumber(costOverview.todayCalls):"—"} 次调用</span></Link>
           <Link href="/ai-usage?module=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>历史累计成本参考</span><span className="text-blue-600">查看用量明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">OpenAI 与 Google 分业务记账</span></Link>
           <Link href="/ai-acquisition/customers?scope=accepted" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>平均每位有效客户成本参考</span><span className="text-blue-600">查看入池客户</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计成本参考 ÷ 成功入池客户</span></Link>
           <button type="button" disabled={!canViewGoogleBilling} onClick={()=>void openGoogleDetails()} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-slate-50"><small className="flex items-center justify-between text-slate-500"><span>Google Places累计调用</span>{canViewGoogleBilling?<span className="text-blue-600">查看明细</span>:null}</small><b className="mt-1 block text-xl">{costOverview?`${formatNumber(costOverview.googleCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">累计免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次</span></button>
-        </div>
+        </div></div>:null}
       </section> : null}
       <section className={`${panel} overflow-hidden`}>
         <div className="border-b border-slate-100 px-5 pt-5">
@@ -322,7 +326,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRY_GROUPS.map((group)=><optgroup key={group.key} label={group.label}>{group.countries.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</optgroup>)}</select>
           <IndustryFilter value={industry} onChange={(value)=>{setPage(1);setIndustry(value)}}/>
           <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
-          {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
+          {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} initializeDefault={false} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
           <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">

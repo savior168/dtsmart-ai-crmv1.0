@@ -481,7 +481,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                       {r.imported_customer_id ? (
                         <Link
                           className={button}
-                          href={`/customers/${r.imported_customer_id}`}
+                          href={`/customers/${r.imported_customer_id}?from=pool`}
                         >
                           客户详情
                         </Link>

@@ -347,6 +347,9 @@ for (const [name, source] of Object.entries({
   assert.doesNotMatch(source, /负责人/, `${name} 不得混用负责人和归属人口径`);
 }
 assert.match(taskCenter, /show_owner[\s\S]*归属人/, "主管和系统管理员的AI任务列表必须显示归属人");
+assert.match(taskCenter, /UserScopeSelect[^>]*initializeDefault=\{false\}/, "AI筛选任务中心首次进入不得因归属人默认值回写而重复刷新");
+assert.match(taskCenter, /setInterval\(refresh, 15000\)/, "AI筛选任务中心仅在存在活动任务时低频静默刷新");
+assert.doesNotMatch(taskCenter, /addEventListener\("focus", refresh\)|addEventListener\("visibilitychange", refresh\)/, "AI筛选任务中心不得因焦点或可见性事件额外重复刷新列表");
 assert.doesNotMatch(customersView, />\s*跟进待办/, "客户管理页签不得保留跟进待办");
 assert.match(customersView, /CustomerProtectionPanel/, "保护到期必须在客户管理同页切换");
 assert.match(customersView, /CustomerConflictsPanel/, "冲突客户必须在客户管理同页切换");

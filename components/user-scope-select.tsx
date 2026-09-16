@@ -11,6 +11,7 @@ export function UserScopeSelect({
   allLabel = "全部归属人",
   filterLabel = "归属人",
   permission,
+  initializeDefault = true,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -18,6 +19,7 @@ export function UserScopeSelect({
   allLabel?: string;
   filterLabel?: string;
   permission: string;
+  initializeDefault?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [elevated, setElevated] = useState(false);
@@ -40,24 +42,24 @@ export function UserScopeSelect({
         setLoaded(true);
         setUsers(Array.isArray(body.users) ? body.users : []);
         setDefaultValue(body.profile.id || "");
-        if (elevated && !valueRef.current) {
+        if (initializeDefault && elevated && !valueRef.current) {
           // 主管和系统管理员也默认查看自己的数据；只有主动选择时才扩大范围。
           onChangeRef.current(body.profile.id);
         }
       })
       .catch(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, [permission]);
+  }, [initializeDefault, permission]);
 
   useEffect(() => {
-    if (loaded && elevated && !value && defaultValue) onChangeRef.current(defaultValue);
-  }, [defaultValue, elevated, loaded, value]);
+    if (initializeDefault && loaded && elevated && !value && defaultValue) onChangeRef.current(defaultValue);
+  }, [defaultValue, elevated, initializeDefault, loaded, value]);
 
   // 普通销售员没有跨用户数据权限，不渲染归属人筛选控件，也避免
   // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
   if (!loaded || !elevated) return null;
   return (
-    <select aria-label="按归属人筛选" value={value} onChange={(event) => onChange(event.target.value)} className={className}>
+    <select aria-label="按归属人筛选" value={value || (!initializeDefault ? defaultValue : "")} onChange={(event) => onChange(event.target.value)} className={className}>
       <option value="all">{filterLabel}：{allLabel}</option>
       {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}
     </select>
