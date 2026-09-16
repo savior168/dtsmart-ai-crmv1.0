@@ -6,6 +6,14 @@ export const ACQUISITION_COUNTRIES = [
 ] as const;
 
 export type AcquisitionCountry = (typeof ACQUISITION_COUNTRIES)[number];
+export const ACQUISITION_COUNTRY_GROUPS = [
+  { key: "EUROPE", label: "欧洲", countries: ["GB","IE","DE","FR","ES","PT","IT","NL","BE","PL","CZ","RO","GR","NO","SE","DK","FI","AT","CH"] },
+  { key: "ASIA", label: "亚洲", countries: ["AE","SA","TR","IN","ID","MY","SG","PH","TH","VN","JP","KR"] },
+  { key: "AFRICA", label: "非洲", countries: ["ZA","NG","KE","GH","TZ","UG","MA","EG"] },
+  { key: "NORTH_AMERICA", label: "北美洲", countries: ["US","CA","MX"] },
+  { key: "SOUTH_AMERICA", label: "南美洲", countries: ["BR","AR","CL","CO","PE"] },
+  { key: "OCEANIA", label: "大洋洲", countries: ["AU","NZ"] },
+] as const satisfies ReadonlyArray<{key:string;label:string;countries:ReadonlyArray<AcquisitionCountry>}>;
 export const MAX_ACQUISITION_INDUSTRIES = 20;
 export const MAX_ACQUISITION_KEYWORDS = 30;
 export const MAX_ACQUISITION_SEARCH_TERMS = 80;

@@ -2,7 +2,7 @@
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect } from "react";
-import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, ACQUISITION_COUNTRY_GROUPS, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
 import {
   PageHeader,
   ConfirmDialog,
@@ -30,7 +30,8 @@ function CountryPicker({
   onChange: (v: string[]) => void;
 }) {
   const [open, setOpen] = useState(false),
-    [q, setQ] = useState("");
+    [q, setQ] = useState(""),
+    [groupKey, setGroupKey] = useState<(typeof ACQUISITION_COUNTRY_GROUPS)[number]["key"]>("EUROPE");
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -42,9 +43,9 @@ function CountryPicker({
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, []);
-  const options = ACQUISITION_COUNTRIES.filter((c) =>
-    `${c} ${COUNTRY_NAMES.of(c)}`.toLowerCase().includes(q.toLowerCase()),
-  );
+  const activeGroup=ACQUISITION_COUNTRY_GROUPS.find((group)=>group.key===groupKey)||ACQUISITION_COUNTRY_GROUPS[0];
+  const normalizedQuery=q.trim().toLowerCase();
+  const options = (normalizedQuery?ACQUISITION_COUNTRIES:activeGroup.countries).filter((c) => `${c} ${COUNTRY_NAMES.of(c)}`.toLowerCase().includes(normalizedQuery));
   return (
     <div ref={ref} className="relative">
       <button
@@ -77,7 +78,9 @@ function CountryPicker({
             />
           </label>
           {value.length ? <div className="mt-2 flex flex-wrap items-center gap-1.5 border-b border-slate-100 pb-2"><span className="mr-1 text-xs text-slate-500">已选 {value.length}/8</span>{value.map((code)=><button key={code} type="button" aria-label={`移除${COUNTRY_NAMES.of(code) || code}`} onClick={()=>onChange(value.filter((item)=>item!==code))} className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700">{COUNTRY_NAMES.of(code) || code}<X size={11}/></button>)}<button type="button" onClick={()=>onChange([])} className="ml-auto text-xs text-slate-500 hover:text-blue-700">清空</button></div> : null}
-          <div role="listbox" aria-multiselectable="true" className="mt-2 grid max-h-64 grid-cols-1 overflow-auto sm:grid-cols-2">
+          {!normalizedQuery?<div className="mt-2 flex gap-1 overflow-x-auto border-b border-slate-100 pb-2">{ACQUISITION_COUNTRY_GROUPS.map((group)=><button key={group.key} type="button" aria-pressed={groupKey===group.key} onClick={()=>setGroupKey(group.key)} className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs transition ${groupKey===group.key?"bg-blue-600 font-medium text-white":"text-slate-600 hover:bg-slate-100"}`}>{group.label}<span className={`ml-1 ${groupKey===group.key?"text-blue-100":"text-slate-400"}`}>{group.countries.length}</span></button>)}</div>:<p className="mt-2 border-b border-slate-100 pb-2 text-xs text-slate-500">跨全部洲别搜索 · {options.length} 个结果</p>}
+          <div className="mt-2 flex items-center justify-between px-1 text-xs text-slate-500"><span>{normalizedQuery?"搜索结果":activeGroup.label}</span><span>最多选择8个</span></div>
+          <div role="listbox" aria-multiselectable="true" className="mt-1 grid max-h-56 grid-cols-1 overflow-auto sm:grid-cols-2">
             {options.map((c) => {
               const checked = value.includes(c);
               return (
@@ -102,6 +105,7 @@ function CountryPicker({
               );
             })}
           </div>
+          {!options.length?<p className="px-3 py-6 text-center text-sm text-slate-400">没有匹配的国家/地区</p>:null}
         </div>
       ) : null}
     </div>
