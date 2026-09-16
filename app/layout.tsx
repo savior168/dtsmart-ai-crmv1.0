@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     default: "智客云｜AI客户分析与管理系统",
     template: "%s｜智客云",
   },
-  description: "真实识别客户，精准驱动成交",
+  description: "智能获客、精准筛选与销售转化",
   applicationName: "智客云",
 };
 

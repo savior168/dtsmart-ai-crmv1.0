@@ -15,7 +15,6 @@ export default function LoginPage() {
       <div className="tradeos-auth-orb tradeos-auth-orb-one" />
       <div className="tradeos-auth-orb tradeos-auth-orb-two" />
       <div className="tradeos-auth-grid" />
-      <div className="tradeos-auth-scan" />
       <svg className="tradeos-auth-network" viewBox="0 0 920 820" fill="none" aria-hidden="true">
         <g className="tradeos-auth-network-lines" stroke="url(#network-gradient)" strokeWidth="1.25">
           <path d="M35 612C155 566 203 466 318 453S501 510 604 402 715 185 886 146" />
@@ -30,18 +29,18 @@ export default function LoginPage() {
       </svg>
       <div className="relative z-10 grid min-h-screen lg:grid-cols-[minmax(0,1.08fr)_minmax(500px,0.92fr)]">
         <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden px-9 py-8 text-white lg:flex xl:px-14 xl:py-10 2xl:px-16">
-          <div className="flex items-center gap-3">
+            <div className="tradeos-auth-brand flex items-center gap-3">
             <Image src="/zhikeyun-logo.svg" width={48} height={48} priority alt="智客云" className="h-12 w-12 rounded-2xl shadow-2xl shadow-blue-500/25" />
             <div><p className="text-[19px] font-bold tracking-tight">智客云</p><p className="text-sm text-blue-100/65">AI 客户分析与销售转化平台</p></div>
           </div>
 
           <div className="max-w-[700px] py-7">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/[0.08] px-3.5 py-1.5 text-[13px] font-medium text-cyan-50 backdrop-blur-xl"><Sparkles size={15} className="text-cyan-300" />AI 驱动的全球精准获客引擎<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300 shadow-[0_0_12px_#6ee7b7]" /></div>
-            <h1 className="max-w-[680px] text-[46px] font-bold leading-[1.12] tracking-[-0.045em] xl:text-[56px]">从全球公开数据<br /><span className="bg-gradient-to-r from-cyan-300 via-blue-200 to-violet-300 bg-clip-text text-transparent">发现可直接跟进的客户</span></h1>
+            <h1 className="max-w-[700px] text-[46px] font-bold leading-[1.12] tracking-[-0.045em] xl:text-[56px]">AI精准获客<br /><span className="bg-gradient-to-r from-cyan-300 via-blue-200 to-violet-300 bg-clip-text text-transparent">让全球潜客更快进入销售跟进</span></h1>
             <p className="mt-5 max-w-[640px] text-[16px] leading-7 text-blue-100/72 xl:text-[17px]">AI 自动发现潜在企业，逐项核验主体、业务与联系方式；全程记录来源、进度和费用，让销售拿到清晰、可核验、可行动的客户数据。</p>
 
             <div className="mt-6 flex max-w-[650px] items-center gap-1.5 overflow-hidden rounded-xl border border-white/10 bg-slate-950/20 px-3 py-2.5 backdrop-blur-xl">
-              {['全球发现','主体核验','AI精准筛选','进入销售跟进'].map((step,index)=><span key={step} className="contents"><span className="whitespace-nowrap rounded-lg bg-white/[0.07] px-2.5 py-1.5 text-xs font-medium text-blue-50">{step}</span>{index<3?<ArrowRight size={14} className="shrink-0 text-cyan-300/70"/>:null}</span>)}
+              {['全球发现','主体核验','AI精准筛选','进入销售跟进'].map((step,index)=><span key={step} className="contents"><span className="tradeos-auth-step whitespace-nowrap rounded-lg bg-white/[0.07] px-2.5 py-1.5 text-xs font-medium text-blue-50">{step}</span>{index<3?<ArrowRight size={14} className="shrink-0 text-cyan-300/70"/>:null}</span>)}
             </div>
 
             <div className="mt-5 grid max-w-[650px] grid-cols-3 gap-2.5">
@@ -51,14 +50,14 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-white/[0.08] pt-4 text-xs text-blue-100/50"><span>© 2026 智客云 · 真实识别与精准转化</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-emerald-300"/>企业级权限、费用与数据审计 <ArrowUpRight size={12} /></span></div>
+          <div className="flex items-center justify-between border-t border-white/[0.08] pt-4 text-xs text-blue-100/50"><span>© 2026 智客云 · 智能获客 &amp; 精准筛选</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-emerald-300"/>企业级权限、费用与数据审计 <ArrowUpRight size={12} /></span></div>
         </section>
 
         <section className="flex min-h-screen items-center justify-center bg-white/96 px-4 py-8 backdrop-blur-3xl sm:px-8 lg:bg-white/95 xl:px-14">
           <div className="w-full max-w-[560px]">
             <div className="mb-8 flex items-center gap-3 lg:hidden">
               <Image src="/zhikeyun-logo.svg" width={44} height={44} priority alt="智客云" className="h-11 w-11 rounded-xl" />
-              <div><p className="font-bold text-slate-950">智客云</p><p className="text-xs text-slate-500">真实识别 &amp; 精准转化</p></div>
+              <div><p className="font-bold text-slate-950">智客云</p><p className="text-xs text-slate-500">智能获客 &amp; 精准筛选</p></div>
             </div>
             <div className="mb-7">
               <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-600"><CheckCircle2 size={16} />安全访问企业工作台</p>
@@ -74,5 +73,5 @@ export default function LoginPage() {
 }
 
 function Feature({ icon: Icon, title, text }: { icon: typeof Globe2; title: string; text: string }) {
-  return <div className="group rounded-xl border border-white/[0.09] bg-white/[0.065] p-3.5 backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:border-cyan-300/25 hover:bg-white/[0.09]"><span className="mb-3 grid h-8 w-8 place-items-center rounded-lg border border-cyan-200/10 bg-cyan-300/[0.08] text-cyan-200 shadow-[inset_0_0_18px_rgba(56,189,248,.06)]"><Icon size={17} /></span><p className="text-[13px] font-semibold text-white">{title}</p><p className="mt-1 text-[11px] leading-4 text-blue-100/52">{text}</p></div>;
+  return <div className="tradeos-auth-feature group rounded-xl border border-white/[0.09] bg-white/[0.065] p-3.5 backdrop-blur-xl"><span className="mb-3 grid h-8 w-8 place-items-center rounded-lg border border-cyan-200/10 bg-cyan-300/[0.08] text-cyan-200 shadow-[inset_0_0_18px_rgba(56,189,248,.06)]"><Icon size={17} /></span><p className="text-[13px] font-semibold text-white">{title}</p><p className="mt-1 text-[11px] leading-4 text-blue-100/52">{text}</p></div>;
 }

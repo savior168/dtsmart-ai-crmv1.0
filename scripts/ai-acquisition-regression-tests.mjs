@@ -165,7 +165,11 @@ assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得�
 assert.match(taskCenter,/今日获客[\s\S]*历史总获客[\s\S]*进行中[\s\S]*待人工复核[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
 assert.match(taskCenter,/aria-pressed=\{metric===item\.key\}[\s\S]*setMetric\(item\.key\)/,"任务中心概览必须可以点击定位对应任务列表");
-assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S]*市场 \/ 获客模式/,"任务中心必须统一使用获客模式，不能误称为成本模式");
+assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S]*"获客模式"/,"任务中心必须统一使用获客模式，不能误称为成本模式");
+assert.doesNotMatch(taskCenter,/\{t\.error_message\}/,"任务中心不得直接暴露数据库或工作流原始错误");
+assert.match(taskCenter,/search_completed_count[\s\S]*search_raw_hits/,"任务中心必须展示实际检索进度和原始命中");
+assert.match(acquisitionWorkflow,/\.eq\("google_maps_place_id", candidate\.placeId\)/,"AI获客去重必须使用客户表真实Google Place字段");
+assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI获客暂存客户必须写入真实Google Place字段");
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
 assert.match(taskCenter,/ACQUISITION_COUNTRY_GROUPS\.map[\s\S]*<optgroup[\s\S]*group\.countries\.map/,"任务中心国家筛选也必须按洲分组，不能退化为无分组长列表");
 assert.match(taskCenter,/获客成本总览[\s\S]*今日费用[\s\S]*历史累计费用[\s\S]*平均每位有效客户成本[\s\S]*Google Places累计调用/,"任务中心必须直观对应真实获客结果与可核验成本");

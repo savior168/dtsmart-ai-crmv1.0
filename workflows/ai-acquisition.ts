@@ -79,7 +79,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     const already = await admin.from("ai_acquisition_candidates").select("id").eq("task_id", task.id).eq("place_id", candidate.placeId).maybeSingle();
     if (already.error) throw already.error;
     if (already.data) continue;
-    const existingCustomer = await admin.from("customers").select("id").eq("google_place_id", candidate.placeId).is("deleted_at", null).limit(1).maybeSingle();
+    const existingCustomer = await admin.from("customers").select("id").eq("google_maps_place_id", candidate.placeId).is("deleted_at", null).limit(1).maybeSingle();
     if (existingCustomer.error) throw existingCustomer.error;
     if (existingCustomer.data) {
       const duplicate = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "DUPLICATE", decision_reason: "Google Place ID已存在于系统客户资料", imported_customer_id: existingCustomer.data.id, processed_at: new Date().toISOString() });
@@ -111,7 +111,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     }
     const customer = await admin.from("customers").insert({
       company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl,
-      google_place_id: candidate.placeId, industry: task.industry, category: task.industry, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
+      google_maps_place_id: candidate.placeId, industry: task.industry, category: task.industry, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
       source_batch: task.task_number, source_reference: task.id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: task.user_id,
       owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING", assigned_via: null, acquisition_match_keywords: candidate.matchedTerms,
     }).select("id").single();
@@ -285,7 +285,7 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   const started = task.data.started_at ? new Date(task.data.started_at).getTime() : NaN;
   const elapsed = Number(task.data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
   const finalStage=status==="COMPLETED"?"FINISHED":status;
-  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?"检索、去重、核验和准入判定均已完成":errorMessage?.slice(0,500)||null, processed_count: rows.data?.length || 0, accepted_count: count("ACCEPTED"), review_count: count("REVIEW"), rejected_count: count("REJECTED"), duplicate_count: count("DUPLICATE"), elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message: errorMessage?.slice(0, 1000) || null, updated_at: now.toISOString() }).eq("id", taskId);
+  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?"检索、去重、核验和准入判定均已完成":status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, processed_count: rows.data?.length || 0, accepted_count: count("ACCEPTED"), review_count: count("REVIEW"), rejected_count: count("REJECTED"), duplicate_count: count("DUPLICATE"), elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message: errorMessage?.slice(0, 1000) || null, updated_at: now.toISOString() }).eq("id", taskId);
   if (update.error) throw update.error;
 }
 

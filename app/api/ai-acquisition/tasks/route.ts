@@ -64,6 +64,19 @@ export async function GET(request: NextRequest) {
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
     const result = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
+    const pageTaskIds = (result.data || []).map((row) => String(row.id));
+    const checkpointResult = pageTaskIds.length
+      ? await admin.from("ai_acquisition_discovery_checkpoints").select("task_id,status,result_count").in("task_id", pageTaskIds)
+      : { data: [], error: null };
+    if (checkpointResult.error) throw checkpointResult.error;
+    const checkpointByTask = new Map<string, { completed:number; rawHits:number }>();
+    for (const checkpoint of checkpointResult.data || []) {
+      const taskId = String(checkpoint.task_id);
+      const current = checkpointByTask.get(taskId) || { completed:0, rawHits:0 };
+      if (["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(checkpoint.status))) current.completed += 1;
+      current.rawHits += Number(checkpoint.result_count || 0);
+      checkpointByTask.set(taskId, current);
+    }
     const summaryRows: Array<{ id:string; status: string; accepted_count: number | null; review_count: number | null }> = [];
     for (let offset = 0; ; offset += 1000) {
       let summaryQuery = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");
@@ -100,7 +113,7 @@ export async function GET(request: NextRequest) {
       review: sum("review_count"),
       failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
     };
-    return NextResponse.json({ data: (result.data || []).map(presentTask), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    return NextResponse.json({ data: (result.data || []).map((row) => { const progress=checkpointByTask.get(String(row.id)); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0 }); }), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });

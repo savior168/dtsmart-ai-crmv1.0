@@ -24,6 +24,7 @@ import { UserScopeSelect } from "@/components/user-scope-select";
 import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 import { quickCostDateRange } from "@/lib/cost-center";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const ACQUISITION_INDUSTRY_OPTIONS = Object.keys(ACQUISITION_INDUSTRY_TERMS);
@@ -298,20 +299,18 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <ErrorState message={error} reload={() => void load()} />
         ) : tasks.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-left text-sm">
+            <table className="w-full min-w-[1180px] table-fixed text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
                   {[
                     "任务",
                     ...(showOwner ? ["归属人"] : []),
                     "状态",
-                    "目标行业",
-                    "市场 / 获客模式",
-                    "发现 / 核验",
-                    "入池 / 待复核",
-                    "未通过 / 重复",
-                    "有效耗时",
-                    "创建时间",
+                    "目标范围",
+                    "获客模式",
+                    "检索进度",
+                    "客户结果",
+                    "耗时 / 创建时间",
                     "操作",
                   ].map((x) => (
                     <th key={x} className="px-4 py-3 font-medium">
@@ -338,44 +337,30 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-4">
                       <StatusBadge status={t.status} />
                       {t.error_message ? (
-                        <small className="mt-2 block max-w-52 text-rose-600">
-                          {t.error_message}
+                        <small title={acquisitionErrorMessageZh(t.error_message)} className="mt-2 block line-clamp-2 text-rose-600">
+                          {acquisitionFailureStage(t.error_message)}
                         </small>
                       ) : null}
                     </td>
-                    <td className="max-w-56 px-4 py-4 text-slate-700">
-                      {(t.industries?.length ? t.industries : [t.industry]).slice(0, 2).join("、")}
-                      {(t.industries?.length || 1) > 2 ? <small className="ml-1 text-blue-600">+{(t.industries?.length || 1) - 2}</small> : null}
-                    </td>
                     <td className="px-4 py-4">
-                      <div className="text-slate-700">{t.countries.slice(0, 2).map((code)=>COUNTRY_NAMES.of(code) || code).join("、")}{t.countries.length > 2 ? ` +${t.countries.length - 2}` : ""}</div>
-                      <div className="mt-2"><CostModeBadge mode={t.cost_mode} context="acquisition" /></div>
+                      <div className="max-w-52 truncate font-medium text-slate-700" title={(t.industries?.length ? t.industries : [t.industry]).join("、")}>{(t.industries?.length ? t.industries : [t.industry]).slice(0, 2).join("、")}{(t.industries?.length || 1) > 2 ? ` +${(t.industries?.length || 1) - 2}` : ""}</div>
+                      <small className="mt-1 block text-slate-500">{t.countries.slice(0, 2).map((code)=>COUNTRY_NAMES.of(code) || code).join("、")}{t.countries.length > 2 ? ` +${t.countries.length - 2}` : ""}</small>
                     </td>
-                    <td className="px-4 py-4">
-                      {t.discovered_count} / {t.processed_count}
-                    </td>
-                    <td className="px-4 py-4">
-                      <b className="text-emerald-700">{t.accepted_count}</b> /{" "}
-                      {t.review_count}
-                    </td>
-                    <td className="px-4 py-4">
-                      {t.rejected_count} / {t.duplicate_count}
-                    </td>
-                    <td className="px-4 py-4">
-                      {formatDuration(effectiveElapsedMs(t))}
-                    </td>
-                    <td className="px-4 py-4 text-slate-500">
+                    <td className="px-4 py-4"><CostModeBadge mode={t.cost_mode} context="acquisition" /></td>
+                    <td className="px-4 py-4"><b className="text-slate-800">{t.search_completed_count||0} 个表达</b><small className="mt-1 block text-slate-500">原始命中 {formatNumber(t.search_raw_hits||0)} 条</small></td>
+                    <td className="px-4 py-4"><b className="text-emerald-700">入池 {t.accepted_count}</b><small className="mt-1 block text-slate-500">候选 {t.discovered_count} · 待复核 {t.review_count}</small><small className="mt-1 block text-slate-400">未通过/重复 {t.rejected_count}/{t.duplicate_count}</small></td>
+                    <td className="px-4 py-4 text-slate-500"><b className="block font-medium text-slate-700">{formatDuration(effectiveElapsedMs(t))}</b>
                       {t.scheduled_at ? <small className="mb-1 block font-medium text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN", { hour12: false })}</small> : null}
-                      {new Date(t.created_at).toLocaleString("zh-CN", {
+                      <small className="mt-1 block">{new Date(t.created_at).toLocaleString("zh-CN", {
                         hour12: false,
-                      })}
+                      })}</small>
                     </td>
                     <td className="px-4 py-4">
                       <Link
                         className={button}
-                        href={`/ai-acquisition/tasks/${t.id}?decision=${metric==="review"?"REVIEW":"ACCEPTED"}`}
+                        href={t.status==="FAILED"?`/ai-acquisition/tasks/${t.id}`:`/ai-acquisition/tasks/${t.id}?decision=${metric==="review"?"REVIEW":"ACCEPTED"}`}
                       >
-                        {metric==="review"?"查看待复核":"查看客户数据"}
+                        {t.status==="FAILED"?"查看并重试":metric==="review"?"查看待复核":"查看客户数据"}
                       </Link>
                     </td>
                   </tr>

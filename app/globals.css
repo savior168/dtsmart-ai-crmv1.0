@@ -60,12 +60,6 @@ table th { font-weight:600; }
   to { transform: perspective(700px) rotateX(61deg) translateY(48px); }
 }
 
-@keyframes tradeos-auth-scan {
-  0% { transform: translate3d(0, -35vh, 0); opacity: 0; }
-  18%, 72% { opacity: .75; }
-  100% { transform: translate3d(0, 135vh, 0); opacity: 0; }
-}
-
 @keyframes tradeos-auth-network-flow {
   to { stroke-dashoffset: -96; }
 }
@@ -138,19 +132,6 @@ table th { font-weight:600; }
   mask-image: linear-gradient(to top, black, transparent 78%);
 }
 
-.tradeos-auth-scan {
-  position: absolute;
-  z-index: -1;
-  left: 0;
-  top: 0;
-  width: 58%;
-  height: 140px;
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, rgba(34,211,238,.09), rgba(96,165,250,.22), transparent);
-  filter: blur(10px);
-  animation: tradeos-auth-scan 9s linear infinite;
-}
-
 .tradeos-auth-network {
   position: absolute;
   z-index: -1;
@@ -160,6 +141,7 @@ table th { font-weight:600; }
   height: 91%;
   pointer-events: none;
   opacity: .82;
+  transition: opacity .55s ease, filter .55s ease, transform .75s cubic-bezier(.2,.8,.2,1);
 }
 
 .tradeos-auth-network-lines {
@@ -178,12 +160,40 @@ table th { font-weight:600; }
 .tradeos-auth-network-nodes circle:nth-child(3n + 1) { animation-delay: -1.1s; fill:#c4b5fd; }
 .tradeos-auth-network-nodes circle:nth-child(3n + 2) { animation-delay: -2.2s; }
 
+.tradeos-auth-shell:hover .tradeos-auth-network {
+  opacity: 1;
+  filter: saturate(1.2) drop-shadow(0 0 18px rgba(56,189,248,.12));
+  transform: scale(1.012) translate3d(4px,-3px,0);
+}
+
+.tradeos-auth-shell:hover .tradeos-auth-network-lines {
+  animation-duration: 4.6s;
+  stroke-width: 1.55px;
+}
+
+.tradeos-auth-shell:hover .tradeos-auth-network-nodes circle { animation-duration: 2s; }
+.tradeos-auth-brand { transition: transform .35s ease, filter .35s ease; }
+.tradeos-auth-brand:hover { transform: translateX(4px); filter: drop-shadow(0 8px 18px rgba(56,189,248,.16)); }
+.tradeos-auth-step { transition: transform .22s ease, background-color .22s ease, box-shadow .22s ease; }
+.tradeos-auth-step:hover { transform: translateY(-2px); background:rgba(125,211,252,.15); box-shadow:0 8px 18px rgba(14,165,233,.12); }
+.tradeos-auth-feature { position:relative; overflow:hidden; transition:transform .3s ease,border-color .3s ease,background-color .3s ease,box-shadow .3s ease; }
+.tradeos-auth-feature::after { position:absolute; inset:-60% auto -60% -45%; width:36%; content:""; pointer-events:none; background:linear-gradient(90deg,transparent,rgba(255,255,255,.16),transparent); transform:rotate(16deg) translateX(-220%); transition:transform .65s ease; }
+.tradeos-auth-feature:hover { transform:translateY(-4px); border-color:rgba(103,232,249,.3); background:rgba(255,255,255,.1); box-shadow:0 18px 34px rgba(2,132,199,.12); }
+.tradeos-auth-feature:hover::after { transform:rotate(16deg) translateX(620%); }
+.tradeos-auth-feature span { transition:transform .3s ease,background-color .3s ease; }
+.tradeos-auth-feature:hover span { transform:scale(1.08) rotate(-3deg); background:rgba(103,232,249,.14); }
+
 @media (prefers-reduced-motion: reduce) {
   .tradeos-auth-orb,
   .tradeos-auth-grid,
-  .tradeos-auth-scan,
   .tradeos-auth-network-lines,
   .tradeos-auth-network-nodes circle { animation: none; }
+  .tradeos-auth-network,
+  .tradeos-auth-brand,
+  .tradeos-auth-step,
+  .tradeos-auth-feature,
+  .tradeos-auth-feature::after,
+  .tradeos-auth-feature span { transition: none; }
 }
 
 @keyframes dashboard-chart-pop {

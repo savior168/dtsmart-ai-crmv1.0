@@ -14,9 +14,8 @@ import {
   Pagination,
   StatusBadge,
   button,
-  effectiveElapsedMs,
   formatCost,
-  formatDuration,
+  formatNumber,
   input,
   panel,
   primaryButton,
@@ -24,6 +23,7 @@ import {
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask, Candidate } from "./types";
 import { decisionLabels } from "./types";
+import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
 type Cost = {
   provider: string;
   model_or_sku: string;
@@ -270,7 +270,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             {canControl && task.status === "FAILED" ? (
               <button className={button} onClick={() => setAction("RETRY")}>
                 <RefreshCw size={15} />
-                重试未完成项
+                从检查点重试
               </button>
             ) : null}
             {canControl &&
@@ -292,13 +292,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         {[
           ["状态", <StatusBadge key="s" status={task.status} />],
           ["获客模式", <CostModeBadge key="m" mode={task.cost_mode} context="acquisition" />],
-          [
-            "发现 / 已处理",
-            `${task.discovered_count} / ${task.processed_count}`,
-          ],
+          ["已完成检索", `${discoveryProgress?.completed || 0} 个表达`],
+          ["保存 / 已核验", `${task.discovered_count} / ${task.processed_count}`],
           ["已入公海", task.accepted_count],
           ["待复核", task.review_count],
-          ["有效耗时", formatDuration(effectiveElapsedMs(task))],
+          ["实际费用", formatCost(totalCost)],
         ].map(([l, v]) => (
           <article key={String(l)} className={`${panel} p-4`}>
             <small className="text-slate-500">{l}</small>
@@ -307,8 +305,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         ))}
       </section>
       {task.error_message ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-          {task.error_message}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          <div><b>{acquisitionFailureStage(task.error_message)}</b><p className="mt-1 leading-6">{acquisitionErrorMessageZh(task.error_message)}</p>{discoveryProgress?<small className="mt-1 block text-rose-500">已保留 {discoveryProgress.completed} 个检索检查点、{formatNumber(discoveryProgress.raw_hits)} 条原始命中和全部费用记录。</small>:null}</div>
+          {canControl&&task.status==="FAILED"?<button className={primaryButton} onClick={()=>setAction("RETRY")}><RefreshCw size={15}/>从检查点重试</button>:null}
         </div>
       ) : null}
       <div className={`rounded-lg border px-4 py-3 text-sm ${task.status==="COMPLETED"?"border-emerald-200 bg-emerald-50 text-emerald-800":"border-blue-100 bg-blue-50/60 text-blue-800"}`}>
@@ -426,8 +425,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             </tbody>
           </table>
           {!rows.length ? (
-            <div className="grid h-40 place-items-center text-sm text-slate-400">
-              暂无匹配记录
+            <div className="grid h-40 place-items-center px-6 text-center text-sm text-slate-400">
+              {task.status==="FAILED"&&discoveryProgress?.completed?"检索结果已保留，但候选尚未完成保存与核验；从检查点重试后将在这里展示客户数据。":"当前筛选条件下暂无客户记录"}
             </div>
           ) : null}
         </div>
@@ -508,7 +507,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             : action === "RESUME"
               ? "恢复AI获客任务？"
               : action === "RETRY"
-                ? "重试未完成候选？"
+                ? "从检查点重试任务？"
               : "取消AI获客任务？"
         }
         description={

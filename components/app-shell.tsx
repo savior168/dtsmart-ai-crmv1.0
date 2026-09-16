@@ -532,7 +532,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 智客云
               </b>
               <small className={`block whitespace-nowrap text-[12px] ${sidebarDark ? "text-slate-400" : "text-slate-500"}`}>
-                真实识别&amp;精准转化
+                智能获客&amp;精准筛选
               </small>
             </span>
           ) : null}
