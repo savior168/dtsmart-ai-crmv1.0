@@ -36,7 +36,7 @@ export default function LoginPage() {
 
           <div className="max-w-[700px] py-7">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/[0.08] px-3.5 py-1.5 text-[13px] font-medium text-cyan-50 backdrop-blur-xl"><Sparkles size={15} className="text-cyan-300" />AI 驱动的全球精准获客引擎<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300 shadow-[0_0_12px_#6ee7b7]" /></div>
-            <h1 className="max-w-[700px] text-[46px] font-bold leading-[1.12] tracking-[-0.045em] xl:text-[56px]">AI精准获客<br /><span className="bg-gradient-to-r from-cyan-300 via-blue-200 to-violet-300 bg-clip-text text-transparent">让全球潜客更快进入销售跟进</span></h1>
+            <h1 className="max-w-[700px] text-[46px] font-bold leading-[1.12] tracking-[-0.045em] xl:text-[56px]">AI精准获客<br /><span className="bg-gradient-to-r from-cyan-300 via-blue-200 to-violet-300 bg-clip-text text-transparent">让全球潜客更快转化</span></h1>
             <p className="mt-5 max-w-[640px] text-[16px] leading-7 text-blue-100/72 xl:text-[17px]">AI 自动发现潜在企业，逐项核验主体、业务与联系方式；全程记录来源、进度和费用，让销售拿到清晰、可核验、可行动的客户数据。</p>
 
             <div className="mt-6 flex max-w-[650px] items-center gap-1.5 overflow-hidden rounded-xl border border-white/10 bg-slate-950/20 px-3 py-2.5 backdrop-blur-xl">
