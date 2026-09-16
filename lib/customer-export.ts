@@ -111,8 +111,8 @@ function ownerName(customer: Record<string, unknown>) {
 const CUSTOMER_EXPORT_LABELS: Record<CustomerExportColumn, string> = {
   company_name: "客户名称", contact_name: "联系人", country: "国家/地区", industry: "所属行业", ai_score: "AI评分",
   status: "客户阶段", followup_status: "跟进状态", protection: "保护期剩余", last_contact_time: "最近跟进", owner: "归属人",
-  phone: "原始联系方式", whatsapp: "WhatsApp", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
-  verified_contacts: "AI采集联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", source_batch: "来源批次", updated_at: "更新时间",
+  phone: "来源联系方式", whatsapp: "WhatsApp", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
+  verified_contacts: "已核验联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", source_batch: "来源批次", updated_at: "更新时间",
 };
 
 const DEFAULT_EXPORT_COLUMNS: CustomerExportColumn[] = [

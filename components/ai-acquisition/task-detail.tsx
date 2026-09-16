@@ -58,7 +58,6 @@ type EvidenceData = {
     score?: number;
     grade?: string;
     short_reason?: string;
-    reason?: string;
     identity_status?: string;
     evidence_sufficiency_score?: number;
     business_scope?: string;
@@ -425,17 +424,17 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           </form>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[2190px] table-fixed text-left text-sm">
-            <colgroup><col className="w-[230px]"/><col className="w-[120px]"/><col className="w-[280px]"/><col className="w-[110px]"/><col className="w-[190px]"/><col className="w-[250px]"/><col className="w-[190px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/></colgroup>
+            <colgroup><col className="w-[230px]"/><col className="w-[120px]"/><col className="w-[110px]"/><col className="w-[190px]"/><col className="w-[250px]"/><col className="w-[190px]"/><col className="w-[280px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/></colgroup>
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
                 {[
                   "客户名称",
                   "国家/地区",
-                  "Google地址",
                   "AI评分",
                   "匹配关键词",
                   "已核验联系方式",
                   "公开来源",
+                  "Google地址",
                   "商机线索",
                   "销售建议",
                   "核验结论",
@@ -454,13 +453,13 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                     <span className="block min-w-0"><span className="block truncate font-medium text-blue-700" title={r.company_name}>{r.company_name}</span><small className={`mt-0.5 block truncate text-xs font-normal ${r.customer_profile?.industry||r.customer_profile?.category?"text-emerald-600":"text-slate-500"}`} title={r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}>{r.customer_profile?.industry||r.customer_profile?.category?"AI核验：":""}{r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}</small></span>
                   </td>
                   <td className="px-3 py-4"><CountryLabel value={r.country}/></td>
-                  <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
                   <td className="px-3 py-4"><CustomerScoreBadge score={r.ai_score} level={r.ai_level}/></td>
                   <td className="px-4 py-4">{r.matched_keywords?.length?<div className="space-y-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="block max-w-[166px] truncate whitespace-nowrap rounded bg-blue-50 px-2 py-1 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="block text-[11px] font-normal text-slate-400">另有 {r.matched_keywords.length-3} 项</span>:null}</div>:<small className="text-slate-400">未记录</small>}</td>
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
                   </td>
                   <td className="px-4 py-4"><div className="space-y-2">{r.customer_profile?.website?<CustomerPublicLink value={r.customer_profile.website} kind="website"/>:null}{r.customer_profile?.google_url||r.google_url?<CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/>:null}<SocialChannels candidate={r}/>{!r.customer_profile?.website&&!r.customer_profile?.google_url&&!r.google_url&&!r.customer_profile?.facebook_url&&!r.customer_profile?.instagram_url&&!r.customer_profile?.linkedin_url&&!r.customer_profile?.tiktok_url&&!r.customer_profile?.other_public_urls?.length?<span className="text-slate-400">—</span>:null}</div></td>
+                  <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-slate-600">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>
                   <td className="max-w-80 px-4 py-4 text-slate-600">

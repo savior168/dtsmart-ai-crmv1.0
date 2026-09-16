@@ -978,7 +978,7 @@ export function CustomersView() {
                             {stageLabels[row.status] || row.status}
                           </span>
                         ) : key === "phone" ? (
-                          <CustomerContactSummary customer={row} source="original" />
+                          <CustomerContactSummary customer={row} source="all" />
                         ) : key === "verified_contacts" ? (
                           <CustomerContactSummary customer={row} source="ai" />
                         ) : key === "social" ? (

@@ -152,8 +152,8 @@ assert.match(detail,/任务编号 \{task\.task_number\}[\s\S]*创建人[\s\S]*�
 assert.match(detail,/CompactTags[\s\S]*另有 \{remaining\.length\} 项[\s\S]*任务条件与执行规则[\s\S]*目标国家\/地区[\s\S]*执行设置[\s\S]*目标行业[\s\S]*搜索关键词/,"任务条件必须使用紧凑标签和按需展开，不能把长行业及关键词文本整段铺开");
 assert.match(detail,/已执行[\s\S]*组检索组合[\s\S]*检索组合数不是客户数量上限/,"实时搜索进度必须明确计划总数不是客户数量上限");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
-assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"Google地址"[\s\S]*"AI评分"[\s\S]*"匹配关键词"[\s\S]*"已核验联系方式"[\s\S]*"公开来源"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将国家与Google地址独立分列，并按业务重要性排列");
-assert.match(detail,/text-blue-700[\s\S]*AI核验：[\s\S]*customer_profile\?\.industry[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*r\.address/,"客户名称与AI核验行业必须复用客户公海层级样式，国家与地址必须分列");
+assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"匹配关键词"[\s\S]*"已核验联系方式"[\s\S]*"公开来源"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将国家与Google地址独立分列，并按业务重要性排列");
+assert.match(detail,/text-blue-700[\s\S]*AI核验：[\s\S]*customer_profile\?\.industry[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CustomerScoreBadge[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*r\.address/,"客户名称与AI核验行业必须复用客户公海样式，公开来源必须先于Google地址展示");
 assert.doesNotMatch(detail,/"客户与地区"|"AI匹配"|"商机线索与销售建议"/,"本次客户列表不得继续使用混合字段标题");
 assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*平均入池成本参考/,"搜索策略效果必须默认折叠并保留从发现到转化的质量与成本闭环");
 assert.match(detail,/本任务 OpenAI 模型汇总[\s\S]*本任务 Google Places SKU用量与账号额度[\s\S]*结算月账号总量[\s\S]*免费上限[\s\S]*剩余 \/ 已超[\s\S]*超额预计费用/,'OpenAI只展示本任务模型汇总，Google同时展示本任务SKU用量与结算月共享额度');
@@ -172,6 +172,10 @@ assert.match(detail,/placeholder="搜索客户名称或地址"[\s\S]*全部AI等
 assert.match(detail,/task\.industries\?\.length\|\|1\)>1[\s\S]*task\.countries\.length>1/,"单行业或单国家任务不得显示无意义的筛选项");
 const scoreBadge=fs.readFileSync(new URL("../components/customer-score-badge.tsx",import.meta.url),"utf8");
 const publicPool=fs.readFileSync(new URL("../components/customer-public-pool-view.tsx",import.meta.url),"utf8");
+const contactSummary=fs.readFileSync(new URL("../components/customer-contact-summary.tsx",import.meta.url),"utf8");
+assert.match(contactSummary,/useState\(false\)[\s\S]*if \(source !== "original"\)[\s\S]*aria-expanded=\{expanded\}[\s\S]*查看全部/,"AI核验及合并联系方式必须在获客详情和客户公海中统一默认收起并按需展开");
+assert.match(contactSummary,/google_maps: "Google Maps"[\s\S]*facebook: "Facebook"[\s\S]*instagram: "Instagram"[\s\S]*linkedin: "LinkedIn"[\s\S]*tiktok: "TikTok"/,"展开联系方式后必须明确标注Google、官网及各社媒来源");
+assert.match(contactSummary,/EXCEL_IMPORT[\s\S]*BATCH_IMPORT[\s\S]*Excel导入[\s\S]*MANUAL_CREATE[\s\S]*手工录入/,"导入与手工客户的来源联系方式必须显示真实录入渠道");
 assert.match(scoreBadge,/score>=80[\s\S]*score>=65[\s\S]*score>=50/,"相似客户页面必须共用统一评分分档样式");
 assert.match(detail,/CustomerScoreBadge score=\{r\.ai_score\}/,"AI获客客户列表必须复用全局客户评分组件");
 assert.match(publicPool,/CustomerScoreBadge score=\{row\.ai_score\}/,"客户公海必须复用同一评分组件，避免同字段多套样式");
@@ -179,6 +183,8 @@ assert.match(detail,/确认舍弃[\s\S]*重新校验并入池/,"待复核客户�
 assert.match(detail,/返回任务中心[\s\S]*查看任务报告[\s\S]*暂停[\s\S]*恢复[\s\S]*从检查点重试[\s\S]*取消任务/,"任务详情右上角必须保留返回、报告和完整状态控制，结果与用量入口由概览卡片承载");
 const acquisitionEvidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
 assert.match(acquisitionEvidenceRoute,/created_at:fetched_at[\s\S]*order\("fetched_at"/,"核验依据必须使用证据表真实时间字段，避免点击依据加载失败");
+assert.doesNotMatch(acquisitionEvidenceRoute,/short_reason,reason/,"核验依据不得查询数据库不存在的reason字段");
+assert.match(acquisitionEvidenceRoute,/\[ai-acquisition-evidence\] load failed[\s\S]*candidateId[\s\S]*databaseError\.code/,"核验依据接口失败时必须记录候选ID和数据库错误码");
 const reviewRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
 assert.match(reviewRoute,/evaluateAcquisitionGate[\s\S]*if \(!gate\.accepted\)/,"人工复核不得绕过自动质量门槛强制入池");
 assert.match(reviewRoute,/task\.user_id!==account\.id && account\.role!=="ADMIN"/,"跨用户数据查看权限不得被误用为复核写权限");

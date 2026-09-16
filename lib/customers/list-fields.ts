@@ -12,12 +12,12 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "protection", label: "保护期剩余" },
   { key: "last_contact_time", label: "最近跟进" },
   { key: "owner", label: "归属人" },
-  { key: "phone", label: "原始联系方式" },
+  { key: "phone", label: "联系方式" },
   { key: "whatsapp", label: "WhatsApp" },
   { key: "email", label: "邮箱" },
   { key: "website_email", label: "官网邮箱" },
   { key: "website_phone", label: "官网电话" },
-  { key: "verified_contacts", label: "AI采集联系方式" },
+  { key: "verified_contacts", label: "已核验联系方式" },
   { key: "website", label: "官网" },
   { key: "google_url", label: "Google Maps" },
   { key: "social", label: "社媒渠道" },
@@ -31,7 +31,6 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "ai_score",
   "country",
   "phone",
-  "verified_contacts",
   "website",
   "google_url",
   "social",
@@ -43,7 +42,7 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "updated_at",
 ];
 
-export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v12";
+export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v13";
 
 const columnKeys = new Set<CustomerListColumn>(CUSTOMER_LIST_COLUMNS.map((column) => column.key));
 

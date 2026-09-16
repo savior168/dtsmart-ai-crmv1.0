@@ -4,9 +4,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  let candidateId = "";
   try {
     const { account } = await requirePermission("ai.acquisition.evidence.view");
     const { id } = await context.params;
+    candidateId = id;
     const admin = createAdminClient();
     const candidate = await admin.from("ai_acquisition_candidates").select("*,ai_acquisition_tasks!inner(user_id,task_number)").eq("id", id).maybeSingle();
     if (candidate.error) throw candidate.error;
@@ -16,7 +18,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const itemId = String(candidate.data.screening_task_item_id || "");
     const customerId = String(candidate.data.staging_customer_id || candidate.data.imported_customer_id || "");
     const [result, evidence, contacts] = await Promise.all([
-      itemId ? admin.from("ai_screening_results").select("score,grade,target_decision,identity_status,evidence_sufficiency_score,short_reason,reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      itemId ? admin.from("ai_screening_results").select("score,grade,target_decision,identity_status,evidence_sufficiency_score,short_reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle() : Promise.resolve({ data: null, error: null }),
       itemId ? admin.from("ai_screening_evidence").select("id,source_url,source_type,evidence_type,evidence_strength,content_excerpt:original_excerpt,created_at:fetched_at").eq("task_item_id", itemId).order("fetched_at", { ascending: true }) : Promise.resolve({ data: [], error: null }),
       customerId ? admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id", customerId).in("type", ["PHONE","EMAIL","WHATSAPP"]).in("verification_status", ["NEW_VERIFIED","SOURCE_CONFIRMED","MATCHED_ORIGINAL"]).not("exact_source_url", "is", null).order("type", { ascending: true }) : Promise.resolve({ data: [], error: null }),
     ]);
@@ -24,6 +26,14 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ candidate: candidate.data, analysis: result.data, evidence: evidence.data || [], contacts: contacts.data || [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "核验依据加载失败";
+    const databaseError = error as { code?: string; details?: string; hint?: string };
+    console.error("[ai-acquisition-evidence] load failed", {
+      candidateId,
+      code: databaseError.code || null,
+      message,
+      details: databaseError.details || null,
+      hint: databaseError.hint || null,
+    });
     const publicMessage = message === "UNAUTHORIZED" ? "登录状态已失效，请重新登录" : message === "FORBIDDEN" ? "您没有查看该客户核验依据的权限" : message === "CANDIDATE_NOT_FOUND" ? "该候选客户记录不存在或已失效" : "核验依据暂时无法加载，请稍后重试";
     return NextResponse.json({ error: publicMessage }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "CANDIDATE_NOT_FOUND" ? 404 : 500 });
   }

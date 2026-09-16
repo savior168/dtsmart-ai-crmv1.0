@@ -365,7 +365,7 @@ export function VerifiedContactsSection({ contacts, customer, evidence = [], pre
   const verifiedPreferred = contacts.find((item) => item.value_raw === preferredValue);
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI已核验的联系方式</h3><p className="mt-1 text-sm text-slate-500">原始联系方式会标注核验来源；不同的新联系方式写回扩展字段。与原号码不一致的号码单独保留来源，不自动替换。</p></div>
+      <div><h3 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-emerald-600" />AI已核验的联系方式</h3><p className="mt-1 text-sm text-slate-500">来源录入联系方式会标注核验结果；不同的新联系方式按 Google Maps、官网或其他公开来源分别保留，不自动替换已有数据。</p></div>
       {verifiedPreferred ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">推荐优先：{verifiedPreferred.value_raw}</span> : null}
     </div>
     <div className="space-y-4 p-4">
