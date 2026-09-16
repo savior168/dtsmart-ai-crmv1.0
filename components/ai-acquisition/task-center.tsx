@@ -335,7 +335,23 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <ErrorState message={error} reload={() => void load()} />
         ) : tasks.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1980px] text-left text-sm">
+            <table className={`w-full table-fixed text-left text-sm ${showOwner ? "min-w-[2260px]" : "min-w-[2080px]"}`}>
+              <colgroup>
+                <col className="w-[260px]" />
+                {showOwner ? <col className="w-[180px]" /> : null}
+                <col className="w-[145px]" />
+                <col className="w-[115px]" />
+                <col className="w-[170px]" />
+                <col className="w-[105px]" />
+                <col className="w-[90px]" />
+                <col className="w-[190px]" />
+                <col className="w-[145px]" />
+                <col className="w-[220px]" />
+                {canViewUsage ? <><col className="w-[115px]" /><col className="w-[115px]" /><col className="w-[175px]" /></> : null}
+                <col className="w-[110px]" />
+                <col className="w-[185px]" />
+                <col className="w-[150px]" />
+              </colgroup>
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
                   {[
@@ -354,7 +370,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     "创建时间",
                     "操作",
                   ].map((x,index,headers) => (
-                    <th key={x} className={`px-4 py-3 font-medium ${index===0?"sticky left-0 z-20 bg-slate-50 shadow-[1px_0_0_#e2e8f0]":""} ${index===headers.length-1?"sticky right-0 z-20 bg-slate-50 shadow-[-1px_0_0_#e2e8f0]":""} ${["搜索发现","API / Token用量","成本参考"].includes(x)?"text-right":""}`}>
+                    <th key={x} className={`whitespace-nowrap px-4 py-3 font-medium ${index===0?"sticky left-0 z-20 bg-slate-50 shadow-[1px_0_0_#e2e8f0]":""} ${index===headers.length-1?"sticky right-0 z-20 bg-slate-50 shadow-[-1px_0_0_#e2e8f0]":""}`}>
                       {x}
                     </th>
                   ))}
@@ -365,12 +381,13 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                   <tr key={t.id} className="group cursor-pointer border-t border-slate-100 align-top hover:bg-blue-50/30">
                     <td className="sticky left-0 z-10 bg-white px-4 py-3 shadow-[1px_0_0_#e2e8f0]">
                       <Link
-                        className="font-semibold text-blue-700 hover:underline"
+                        className="line-clamp-2 font-medium leading-5 text-slate-900 hover:text-blue-700 hover:underline"
                         href={`/ai-acquisition/tasks/${t.id}`}
+                        title={t.name}
                       >
                         {t.name}
                       </Link>
-                      <small className="mt-1 block text-slate-400">
+                      <small className="mt-1 block truncate whitespace-nowrap text-slate-400" title={t.task_number}>
                         {t.task_number}
                       </small>
                     </td>
@@ -390,7 +407,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#task-analysis`} className="font-medium text-slate-800 hover:text-blue-700 hover:underline">原始命中 {formatNumber(t.search_raw_hits||0)}</Link><small className="mt-1 block text-slate-500">已检索 {formatNumber(t.search_completed_count||0)} 组 · 去重后 {formatNumber(t.discovered_count)}</small></td>
                     <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
                     <td className="px-4 py-3"><span className="block max-w-52 truncate" title={(t.industries?.length?t.industries:[t.industry]).join("、")}>{(t.industries?.length?t.industries:[t.industry]).slice(0,2).join("、")}{(t.industries?.length||1)>2?` +${(t.industries?.length||1)-2}`:""}</span></td>
-                    {canViewUsage?<><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatNumber(t.usage?.google_calls)} 次</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatTokens(t.usage?.total_tokens)}</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="block font-medium text-slate-800 hover:text-blue-700 hover:underline">{formatCost(t.usage?.total_cost_usd)}</Link><small className="mt-1 block text-slate-500">OpenAI {formatCost(t.usage?.openai_cost_usd)} · Google {formatCost(t.usage?.google_cost_usd)}</small></td></>:null}
+                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatNumber(t.usage?.google_calls)} 次</Link></td><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatTokens(t.usage?.total_tokens)}</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="block font-semibold text-slate-800 hover:text-blue-700 hover:underline">{formatCost(t.usage?.total_cost_usd)}</Link><small className="mt-1 block whitespace-nowrap text-slate-500">OpenAI {formatCost(t.usage?.openai_cost_usd)}</small><small className="mt-0.5 block whitespace-nowrap text-slate-500">Google {formatCost(t.usage?.google_cost_usd)}</small></td></>:null}
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>
                     <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">

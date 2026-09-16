@@ -194,7 +194,10 @@ assert.match(taskCenter,/RowActionMenu[\s\S]*暂停任务[\s\S]*恢复任务[\s\
 assert.doesNotMatch(taskCenter,/setInterval\(/,"任务中心不得频繁自动刷新整张任务列表");
 assert.match(taskCenter,/"Google调用"[\s\S]*"总Token"[\s\S]*"成本参考"/,"任务中心必须分列提供Google调用、Token和成本参考");
 assert.match(taskCenter,/"获客模式"[\s\S]*"状态"[\s\S]*"候选核验进度"[\s\S]*"成功入池"[\s\S]*"待复核"[\s\S]*"搜索发现"[\s\S]*"目标国家\/地区"[\s\S]*"目标行业"[\s\S]*"Google调用"[\s\S]*"总Token"[\s\S]*"成本参考"[\s\S]*"任务耗时"[\s\S]*"创建时间"/,"获客列表必须按业务重要性拆分单一含义字段，不能杂合展示");
-assert.match(taskCenter,/formatNumber\(t\.usage\?\.google_calls\)[\s\S]*formatTokens\(t\.usage\?\.total_tokens\)[\s\S]*OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\} · Google \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"任务列表必须从任务账本展示Google、Token和分项成本参考");
+assert.match(taskCenter,/table-fixed[\s\S]*<colgroup>[\s\S]*w-\[260px\][\s\S]*w-\[220px\][\s\S]*whitespace-nowrap px-4 py-3 font-medium/,"获客任务列表必须按内容分配稳定列宽并禁止标题逐字换行");
+assert.match(taskCenter,/line-clamp-2 font-medium leading-5 text-slate-900 hover:text-blue-700/,"获客任务名称必须与AI筛选统一使用深色正文，只在悬停时提供蓝色交互反馈");
+assert.match(taskCenter,/OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\}<\/small><small[\s\S]*Google \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"成本参考必须将OpenAI和Google分行展示，不能挤成一条难读文本");
+assert.match(taskCenter,/formatNumber\(t\.usage\?\.google_calls\)[\s\S]*formatTokens\(t\.usage\?\.total_tokens\)[\s\S]*OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\}[\s\S]*Google \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"任务列表必须从任务账本展示Google、Token和分项成本参考");
 assert.match(acquisitionWorkflow,/\.eq\("google_maps_place_id", candidate\.placeId\)/,"AI获客去重必须使用客户表真实Google Place字段");
 assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI获客暂存客户必须写入真实Google Place字段");
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
