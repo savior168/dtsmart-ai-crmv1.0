@@ -11,6 +11,12 @@ export type DiscoveryControl = "PAUSED" | "CANCELLED" | "BUDGET_LIMITED" | null;
 
 const GOOGLE_TEXT_SEARCH_PRO_FREE_CAP = 5000;
 const GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE = 0.032;
+const DISCOVERY_STRATEGY_VERSION = "GOOGLE_TEXT_V1";
+const SEARCH_REFRESH_DAYS = 90;
+
+function searchScopeKey(country: AcquisitionCountry, query: string) {
+  return `${DISCOVERY_STRATEGY_VERSION}\n${country}\n${query.trim().toLowerCase()}`;
+}
 
 async function currentMonthSkuCalls(sku: string) {
   const admin = createAdminClient();
@@ -38,7 +44,20 @@ export async function discoverBusinesses(input: {
     if(existing.error) throw existing.error;
     const savedResults = Array.isArray(existing.data?.results) ? existing.data.results as DiscoveredBusiness[] : [];
     savedResults.forEach((business)=>business?.placeId&&results.set(business.placeId,{...business,matchedTerms:Array.isArray(business.matchedTerms)&&business.matchedTerms.length?business.matchedTerms:[business.query].filter(Boolean)}));
-    if(["COMPLETED","BUDGET_LIMITED"].includes(String(existing.data?.status||""))) continue;
+    if(["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(existing.data?.status||""))) continue;
+    const scopeKey=searchScopeKey(input.country,query);
+    if(!existing.data) {
+      const claimed=await admin.rpc("claim_ai_acquisition_search_scope",{p_scope_key:scopeKey,p_task_id:input.acquisitionTaskId,p_country:input.country,p_query_text:query,p_refresh_days:SEARCH_REFRESH_DAYS});
+      if(claimed.error)throw claimed.error;
+      const claimState=String(claimed.data||"");
+      if(claimState==="RECENTLY_COMPLETED"||claimState==="ACTIVE_ELSEWHERE") {
+        const status=claimState==="RECENTLY_COMPLETED"?"SKIPPED_RECENT":"SKIPPED_ACTIVE";
+        const skipped=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:1,next_page_token:null,status,stop_reason:claimState,result_count:0,results:[],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        if(skipped.error)throw skipped.error;
+        continue;
+      }
+      if(claimState!=="CLAIMED")throw new Error(`ACQUISITION_SEARCH_SCOPE_${claimState||"UNKNOWN"}`);
+    }
     let pageToken = String(existing.data?.next_page_token||"");
     const firstPage = Math.max(1,Number(existing.data?.next_page||1));
     const queryResults = new Map(savedResults.filter((business)=>business?.placeId).map((business)=>[business.placeId,business]));
@@ -107,6 +126,10 @@ export async function discoverBusinesses(input: {
         const completed=!pageToken||page>=3||results.size>=input.limit;
         const checkpoint=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:Math.min(4,page+1),next_page_token:completed?null:pageToken,status:completed?"COMPLETED":"RUNNING",stop_reason:null,result_count:queryResults.size,results:[...queryResults.values()],last_request_id:requestId,updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
         if(checkpoint.error)throw checkpoint.error;
+        if(completed) {
+          const completedScope=await admin.rpc("complete_ai_acquisition_search_scope",{p_scope_key:scopeKey,p_task_id:input.acquisitionTaskId,p_result_count:queryResults.size});
+          if(completedScope.error)throw completedScope.error;
+        }
         if (!pageToken) break;
       } finally {
         await releaseApiCostBudget(reservation.reservationId);
