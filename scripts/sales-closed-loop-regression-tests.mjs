@@ -101,6 +101,8 @@ assert.match(costView, /const time=.*Number\.isFinite\(d\.getTime\(\)\).*"—"/,
 assert.match(googleBilling, /normalizeGoogleBillingTimestamp[\s\S]*seconds \* 1000[\s\S]*toISOString/, "BigQuery 的 Unix 秒时间戳必须转换为可展示的 ISO 时间");
 assert.match(googleBilling, /GOOGLE_BILLING_CACHE_MS[\s\S]*googleNextRefreshAt[\s\S]*if \(googleBillingRequest\) return googleBillingRequest[\s\S]*value: stale, expiresAt: Date\.now\(\) \+ 60_000/, "Google账单查询必须缓存、合并并发、限制手动刷新频率并在瞬时异常时短期保留最近成功结果");
 assert.match(googleBillingApi, /pendingSystemCostUsd[\s\S]*projectedOverageCalls[\s\S]*projectedOverageCostUsd/, "Google月度额度必须计入平台同步后的系统调用，并仅估算超出免费额度的费用");
+assert.match(googleBillingApi, /ai_acquisition_candidates[\s\S]*acquisitionSystemUsage[\s\S]*screeningSystemUsage/, "Google月度明细必须把AI获客含子筛选任务与普通AI筛选分别归属");
+assert.match(googleBilling, /TEXT_SEARCH_PRO[\s\S]*4FDA-34B1-A910[\s\S]*2DB9-E41E-AC2A/, "Google月度明细必须包含AI获客发现阶段实际使用的Text Search Pro SKU");
 assert.match(costView, /官方费用接口未提供可核验的预付余额，系统不会伪造账户余额/, "OpenAI 不提供余额接口时必须明确展示真实能力边界");
 assert.match(costView, /billingDetailsOpen[\s\S]*查看明细[\s\S]*Google Places SKU明细[\s\S]*OpenAI费用明细/, "平台账单明细必须通过一个统一入口按需展开，不能长期占满页面");
 assert.match(costView, /useEffect\(\(\)=>\{void loadBilling\(\)\},\[loadBilling\]\)/, "平台官方账单必须与台账筛选解耦，筛选输入不得重复请求官方接口");

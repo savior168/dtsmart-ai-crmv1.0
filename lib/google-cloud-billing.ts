@@ -1,7 +1,7 @@
 import { createSign } from "crypto";
 
 type ServiceAccount = { client_email: string; private_key: string; token_uri?: string };
-export type GooglePlacesSkuKey = "TEXT_SEARCH_IDS_ONLY" | "PLACE_DETAILS_PRO" | "PLACE_DETAILS_ENTERPRISE" | "PLACE_DETAILS_ATMOSPHERE";
+export type GooglePlacesSkuKey = "TEXT_SEARCH_IDS_ONLY" | "TEXT_SEARCH_PRO" | "PLACE_DETAILS_PRO" | "PLACE_DETAILS_ENTERPRISE" | "PLACE_DETAILS_ATMOSPHERE";
 export type GooglePlacesSkuUsage = {
   key: GooglePlacesSkuKey;
   label: string;
@@ -38,6 +38,7 @@ const SKU_DEFINITIONS: Array<{
   indiaFreeLimit: number | null;
 }> = [
   { key: "TEXT_SEARCH_IDS_ONLY", label: "Text Search IDs Only", globalIds: ["635D-A9DD-C520"], indiaIds: ["9C44-5A2D-4E06"], globalFreeLimit: null, indiaFreeLimit: null },
+  { key: "TEXT_SEARCH_PRO", label: "Text Search Pro", globalIds: ["4FDA-34B1-A910"], indiaIds: ["2DB9-E41E-AC2A"], globalFreeLimit: 5_000, indiaFreeLimit: 35_000 },
   { key: "PLACE_DETAILS_PRO", label: "Place Details Pro", globalIds: ["4ED6-464A-2AFC"], indiaIds: ["1F70-206B-61DF"], globalFreeLimit: 5_000, indiaFreeLimit: 35_000 },
   { key: "PLACE_DETAILS_ENTERPRISE", label: "Place Details Enterprise", globalIds: ["2D9A-3DE0-3766"], indiaIds: ["448A-2967-E6BF"], globalFreeLimit: 1_000, indiaFreeLimit: 7_000 },
   { key: "PLACE_DETAILS_ATMOSPHERE", label: "Enterprise + Atmosphere", globalIds: ["EB23-5ECC-F753"], indiaIds: ["586E-FEBE-4FD2"], globalFreeLimit: 1_000, indiaFreeLimit: 7_000 },

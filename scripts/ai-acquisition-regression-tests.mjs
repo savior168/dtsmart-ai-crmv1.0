@@ -66,10 +66,15 @@ assert.match(create,/ACQUISITION_COMMON_INDUSTRIES[\s\S]*filter\(\(item\)=>!valu
 assert.match(create,/label="搜索关键词"/,"关键词字段必须使用直观的搜索关键词名称");
 assert.match(create,/!form\.keywords\.length/,"搜索关键词必须参与前端创建校验");
 assert.match(create,/label="搜索关键词"\s+required/,"搜索关键词必须显示必填标识");
-assert.match(create,/创建前确认[\s\S]*取消[\s\S]*暂存草稿[\s\S]*创建并自动执行/,"取消、暂存草稿和创建操作必须集中在创建前确认区");
+assert.match(create,/PageHeader[\s\S]*更新草稿[\s\S]*暂存草稿[\s\S]*返回任务中心/,"暂存草稿与返回任务中心必须集中在页面顶部操作区");
+assert.match(create,/创建前确认[\s\S]*w-full justify-center[\s\S]*创建并自动执行/,"创建前确认区只保留醒目的主创建操作");
+assert.doesNotMatch(create,/创建前确认[\s\S]{0,2200}>取消<\/button>/,"创建前确认区不得保留与顶部返回入口重复的取消按钮");
 assert.match(create,/清空关键词[\s\S]*批量选择推荐/,"搜索关键词必须支持批量选择推荐和一键清空");
 assert.match(create,/new Set\(\[\.\.\.current\.keywords,\.\.\.keywordRecommendations\]\)[\s\S]*MAX_ACQUISITION_KEYWORDS/,"批量选择推荐关键词必须去重并遵守任务规划上限");
-assert.match(create,/splitBulkValues[\s\S]*ClipboardPaste[\s\S]*多项用逗号、分号或换行分隔/,"目标行业和搜索关键词必须支持剪贴板批量录入并明确分隔规则");
+assert.match(create,/splitBulkValues[\s\S]*onPaste[\s\S]*可直接批量粘贴[\s\S]*多项用逗号、分号或换行分隔/,"目标行业和搜索关键词必须支持输入框直接批量粘贴并明确分隔规则");
+assert.doesNotMatch(create,/ClipboardPaste|>粘贴<|readClipboard/,"目标条件输入框不得重复提供独立粘贴按钮");
+assert.match(create,/visibleRecommendations[\s\S]*slice\(0,6\)[\s\S]*展开更多/,"常用行业推荐默认必须紧凑显示并可按需展开");
+assert.match(create,/常用精准行业（按开发价值排序）[\s\S]*addRecommendedIndustries[\s\S]*批量选择/,"常用精准行业必须提供按推荐顺序一键批量选择入口");
 assert.match(acquisitionConfig,/INDUSTRY_KEYWORD_RECOMMENDATIONS[\s\S]*ROLE_KEYWORD_RECOMMENDATIONS[\s\S]*acquisitionKeywordRecommendations/,"关键词推荐必须同时支持常用行业和任意行业角色语义");
 assert.match(acquisitionConfig,/手机维修连锁店[\s\S]*Apple设备维修店[\s\S]*手机内配件经销商[\s\S]*手机翻新商[\s\S]*笔记本电脑维修店[\s\S]*笔记本配件经销商/,"常用精准行业必须覆盖维修连锁、翻新及手机电脑内配件渠道客户");
 assert.match(acquisitionConfig,/industryFeatures[\s\S]*acquisitionIndustrySuggestions[\s\S]*coverage[\s\S]*sort/,"输入具体行业时必须按中英文业务特征推荐最接近的标准行业");
@@ -88,6 +93,7 @@ assert.match(create,/LEGACY_DRAFT_KEY[\s\S]*removeItem\(LEGACY_DRAFT_KEY\)[\s\S]
 assert.match(create,/disabled=\{!hasDraftContent\}[\s\S]*更新草稿[\s\S]*暂存草稿/,"空内容不得暂存且草稿操作必须清晰");
 assert.match(create,/清空并新建/,"已暂存草稿必须提供明确清空入口");
 assert.match(create,/创建前确认[\s\S]*任务费用上限[\s\S]*border-b border-dashed[\s\S]*仅通过目标、在营、证据、联系方式和系统去重门槛/,"获客任务确认区必须复用AI筛选的紧凑摘要布局并保留获客质量口径");
+assert.match(create,/数据来源[\s\S]*补证策略[\s\S]*停止条件[\s\S]*适用场景/,"两种获客模式必须说明用户决策所需的四项关键差异");
 const listRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/route.ts",import.meta.url),"utf8");
 assert.match(listRoute,/!keywords\.length[\s\S]*请至少选择或输入一个搜索关键词/,"后端必须拒绝没有搜索关键词的获客任务");
 assert.match(listRoute,/contains\("industries"/);
@@ -130,7 +136,8 @@ assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占
 assert.match(taskCenter,/aria-pressed=\{metric===item\.key\}[\s\S]*setMetric\(item\.key\)/,"任务中心概览必须可以点击定位对应任务列表");
 assert.match(taskCenter,/获客成本总览[\s\S]*今日费用[\s\S]*历史累计费用[\s\S]*平均每位有效客户成本[\s\S]*Google Places累计调用/,"任务中心必须直观对应真实获客结果与可核验成本");
 assert.doesNotMatch(taskCenter,/查看用量与费用明细/,"成本总览不得重复提供顶部已有的统一用量入口");
-assert.match(taskCenter,/Google Places 结算月调用明细[\s\S]*平台已使用[\s\S]*待同步[\s\S]*预计总用量[\s\S]*免费上限[\s\S]*剩余 \/ 已超[\s\S]*超额预计费用/,"Google Places卡片必须使用系统统一弹框展示真实SKU额度、剩余和预计费用");
+assert.match(taskCenter,/Google Places 结算月调用明细[\s\S]*AI获客记录[\s\S]*AI筛选记录[\s\S]*平台已确认总量[\s\S]*待平台同步[\s\S]*预计账号总量[\s\S]*免费上限[\s\S]*剩余 \/ 已超[\s\S]*超额预计费用/,"Google Places卡片必须分开显示AI获客和AI筛选记录，并保留真实账号额度与预计费用");
+assert.match(taskCenter,/AI获客记录包含目标商家搜索，以及由获客候选触发的后续Google核验/,'AI获客模块归属必须覆盖发现和后续核验');
 assert.match(acquisitionPage,/canViewGoogleBilling=\{hasPermission\(account,"costs\.view"\)\|\|hasPermission\(account,"ai\.cost_summary\.view"\)\}/,"Google账号级结算明细必须沿用费用权限，不能向普通获客用量用户越权暴露");
 const sharedUsage=fs.readFileSync(new URL("../components/ai-usage-center.tsx",import.meta.url),"utf8");
 const usageView=fs.readFileSync(new URL("../components/ai-acquisition/usage-view.tsx",import.meta.url),"utf8");
