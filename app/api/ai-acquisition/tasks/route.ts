@@ -3,6 +3,7 @@ import { start } from "workflow/api";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
+import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 
 function taskNumber(userId: string, requestKey: string) {
@@ -112,12 +113,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as Record<string, unknown>;
     const name = String(body.name || "").trim().slice(0, 100);
     const validIndustry = (value: string) => value.length >= 2 && value.length <= 60 && !/[<>\r\n]/.test(value);
-    const industries = Array.isArray(body.industries)
-      ? [...new Set(body.industries.map(String).map((value) => value.trim()).filter(validIndustry))].slice(0, MAX_ACQUISITION_INDUSTRIES)
+    const submittedIndustries = Array.isArray(body.industries)
+      ? [...new Set(body.industries.map(String).map((value) => value.trim()).filter(validIndustry))]
       : validIndustry(String(body.industry || "").trim()) ? [String(body.industry).trim()] : [];
+    if (submittedIndustries.length > MAX_ACQUISITION_INDUSTRIES) return NextResponse.json({ error: `目标行业最多选择${MAX_ACQUISITION_INDUSTRIES}个，请拆分任务后重试` }, { status: 400 });
+    const industries = submittedIndustries;
     const industry = industries.join("、");
     const countries = normalizeAcquisitionCountries(body.countries);
-    const keywords = Array.isArray(body.keywords) ? [...new Set(body.keywords.map(String).map((value) => value.trim()).filter((value) => value.length <= 80))].slice(0, MAX_ACQUISITION_KEYWORDS) : [];
+    const submittedKeywords = Array.isArray(body.keywords) ? [...new Set(body.keywords.map(String).map((value) => value.trim()).filter((value) => value.length <= 80))] : [];
+    if (submittedKeywords.length > MAX_ACQUISITION_KEYWORDS) return NextResponse.json({ error: `搜索关键词最多填写${MAX_ACQUISITION_KEYWORDS}个，请合并同义词或拆分任务后重试` }, { status: 400 });
+    const keywords = submittedKeywords;
     const requestKey = String(body.request_key || "").trim();
     const requestedSchedule = body.scheduled_at ? new Date(String(body.scheduled_at)) : null;
     const scheduledAt = requestedSchedule && Number.isFinite(requestedSchedule.getTime()) && requestedSchedule.getTime() > Date.now()
@@ -137,7 +142,7 @@ export async function POST(request: NextRequest) {
     if (!countries.length || countries.length > 8) return NextResponse.json({ error: "请选择1至8个已支持的目标国家" }, { status: 400 });
     if (!/^[0-9a-f-]{36}$/i.test(requestKey)) return NextResponse.json({ error: "任务请求标识无效，请刷新后重试" }, { status: 400 });
     if (body.scheduled_at && !scheduledAt) return NextResponse.json({ error: "请选择晚于当前时间的预约执行时间" }, { status: 400 });
-    if (taskCostLimit !== null && (!Number.isFinite(taskCostLimit) || taskCostLimit <= 0)) return NextResponse.json({ error: "单任务费用上限必须大于0；留空表示仅遵循AI获客全局费用限制" }, { status: 400 });
+    if (costMode === "ADAPTIVE" && taskCostLimit !== null && (!Number.isFinite(taskCostLimit) || taskCostLimit <= 0)) return NextResponse.json({ error: "单任务费用上限必须大于0；留空表示仅遵循AI获客全局费用限制" }, { status: 400 });
     const admin = createAdminClient();
     const number = taskNumber(user.id, requestKey);
     const existing = await admin.from("ai_acquisition_tasks").select("*").eq("task_number", number).eq("user_id", user.id).maybeSingle();
@@ -160,7 +165,13 @@ export async function POST(request: NextRequest) {
       throw dispatchError;
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "AI获客任务创建失败";
+    const normalized = normalizeError(error, { stage: "CREATE_AI_ACQUISITION_TASK" });
+    console.error("[ai-acquisition/tasks] create failed", normalized);
+    const message = /ai_acquisition_tasks_industries_check/i.test(`${normalized.error_message} ${normalized.details || ""}`)
+      ? `目标行业最多选择${MAX_ACQUISITION_INDUSTRIES}个，请调整后重试`
+      : normalized.error_message === "未返回可识别的错误信息"
+        ? "AI获客任务创建失败，请稍后重试"
+        : normalized.error_message;
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
   }
 }

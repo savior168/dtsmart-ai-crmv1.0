@@ -585,22 +585,24 @@ export function AcquisitionCreateView() {
       <AppDialog
         open={confirm}
         title="确认创建AI获客任务"
-        description="系统只会把通过行业、主体、在营、证据、有效联系方式和去重校验的企业送入客户公海。证据不足的候选保留在任务明细，不会交给销售员。"
+        description="创建后将按设定时间执行；智能增强模式可能在费用限制内产生付费调用。"
         onClose={() => !busy && setConfirm(false)}
-        width="max-w-lg"
+        width="max-w-xl"
       >
-        <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6">
-          <b>{form.name}</b>
-          <p>行业：{form.industries.join("、")}</p><p>国家/地区：{form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}</p>
-          <p>执行：{form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"立即执行"}</p>
-          <p>
-            模式：
-            {form.cost_mode === "FREE_ONLY"
-              ? "全免费获客"
-              : form.task_cost_limit_usd
-                ? `智能增强，任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`
-                : "智能增强，遵循AI获客全局费用限制"}
-          </p>
+        <div className="space-y-3 text-sm">
+          <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3.5 py-3"><p className="text-xs text-blue-600">任务名称</p><p className="mt-1 font-semibold text-slate-900">{form.name}</p></div>
+          <dl className="grid grid-cols-2 gap-x-5 rounded-lg border border-slate-200 bg-white px-3.5 py-1">
+            {[
+              ["国家/地区",form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`],
+              ["目标行业",`已选 ${form.industries.length} 个`],
+              ["搜索关键词",`已选 ${form.keywords.length} 个`],
+              ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"立即执行"],
+              ["获客模式",form.cost_mode === "FREE_ONLY"?"全免费获客":"智能增强获客"],
+              ["费用保护",form.cost_mode === "FREE_ONLY"?"禁止正金额调用":form.task_cost_limit_usd?`任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"遵循全局上限"],
+            ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{value}</dd></div>)}
+          </dl>
+          <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5"><summary className="cursor-pointer font-medium text-slate-700">查看已选行业和关键词</summary><div className="mt-2 space-y-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-600"><p><b className="text-slate-700">目标行业：</b>{form.industries.join("、")}</p><p><b className="text-slate-700">搜索关键词：</b>{form.keywords.join("、")}</p></div></details>
+          <p className={`rounded-lg px-3.5 py-2.5 text-xs leading-5 ${form.cost_mode === "FREE_ONLY"?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-800"}`}>{form.cost_mode === "FREE_ONLY"?"仅执行实际费用为 0 的发现与核验；免费证据不足的候选进入待复核。":"免费渠道优先；仅对高度相关但证据不足的候选，在全局及单任务费用限制内付费补证。"}</p>
         </div>
         <form
           onSubmit={(e) => {

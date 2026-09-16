@@ -119,6 +119,14 @@ assert.match(create,/costLimitOpen[\s\S]*单任务费用保护[\s\S]*继承全�
 assert.doesNotMatch(create,/type="number"[\s\S]{0,500}单任务费用上限/,"单任务费用保护不得使用带原生微调箭头的数字控件");
 const listRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/route.ts",import.meta.url),"utf8");
 assert.match(listRoute,/!keywords\.length[\s\S]*请至少选择或输入一个搜索关键词/,"后端必须拒绝没有搜索关键词的获客任务");
+assert.match(listRoute,/submittedIndustries\.length > MAX_ACQUISITION_INDUSTRIES[\s\S]*最多选择[\s\S]*submittedKeywords\.length > MAX_ACQUISITION_KEYWORDS[\s\S]*最多填写/,"接口必须明确拒绝超限条件，不得静默截断行业或关键词");
+assert.match(listRoute,/costMode === "ADAPTIVE" && taskCostLimit !== null/,"全免费获客的零费用上限不得被正数校验错误拒绝");
+assert.match(listRoute,/normalizeError[\s\S]*CREATE_AI_ACQUISITION_TASK[\s\S]*create failed/,"任务创建失败必须保留可诊断错误并返回可读信息");
+const industryLimitMigration=fs.readFileSync(new URL("../supabase/migrations/202609160003_ai_acquisition_industry_limit.sql",import.meta.url),"utf8");
+assert.match(industryLimitMigration,/ai_acquisition_tasks_industries_check[\s\S]*cardinality\(industries\) between 1 and 20/,"数据库行业数量上限必须与前端和接口的20项保持一致");
+const acquisitionWorkflow=fs.readFileSync(new URL("../workflows/ai-acquisition.ts",import.meta.url),"utf8");
+assert.match(acquisitionWorkflow,/verificationState[\s\S]*Promise\.all\([\s\S]*ai_acquisition_tasks[\s\S]*ai_screening_tasks/,"获客任务等待核验时必须在单个可恢复步骤内合并读取父子任务状态");
+assert.match(acquisitionWorkflow,/let pollSeconds = 15[\s\S]*sleep\(`\$\{pollSeconds\}s`\)[\s\S]*Math\.min\(60, pollSeconds \+ 15\)/,"获客核验轮询必须采用15至60秒退避，避免浪费Vercel工作流事件");
 assert.match(listRoute,/contains\("industries"/);
 assert.match(listRoute,/ALL_QUALIFIED_WITHIN_SUPPORTED_SOURCES/);
 assert.match(listRoute,/request_key/);

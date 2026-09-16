@@ -172,6 +172,33 @@ async function screeningState(screeningTaskId: string) {
   return result.data as { status: string; pending_count: number; error_message: string | null };
 }
 
+async function verificationState(taskId: string, screeningTaskId: string) {
+  "use step";
+  const admin = createAdminClient();
+  const [acquisition, screening] = await Promise.all([
+    admin.from("ai_acquisition_tasks").select("status,cancel_requested,started_at,elapsed_ms,pause_started_at,paused_duration_ms").eq("id", taskId).single(),
+    admin.from("ai_screening_tasks").select("status,pending_count,error_message").eq("id", screeningTaskId).single(),
+  ]);
+  if (acquisition.error || !acquisition.data) throw acquisition.error || new Error("ACQUISITION_CONTROL_STATE_FAILED");
+  if (screening.error || !screening.data) throw screening.error || new Error("ACQUISITION_SCREENING_STATE_FAILED");
+  const now = new Date();
+  if (acquisition.data.cancel_requested) {
+    await admin.from("ai_screening_tasks").update({ cancel_requested: true, updated_at: now.toISOString() }).eq("id", screeningTaskId).in("status", ["QUEUED","RUNNING","PAUSING","PAUSED"]);
+    return { control: "CANCELLED" as const, screening: screening.data };
+  }
+  if (acquisition.data.status === "PAUSING") {
+    const started = acquisition.data.started_at ? new Date(acquisition.data.started_at).getTime() : NaN;
+    const elapsed = Number(acquisition.data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
+    await Promise.all([
+      admin.from("ai_acquisition_tasks").update({ status: "PAUSED", elapsed_ms: elapsed, started_at: null, pause_started_at: now.toISOString(), executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", taskId),
+      admin.from("ai_screening_tasks").update({ status: "PAUSING", updated_at: now.toISOString() }).eq("id", screeningTaskId).eq("status", "RUNNING"),
+    ]);
+    return { control: "PAUSED" as const, screening: screening.data };
+  }
+  await admin.from("ai_acquisition_tasks").update({ executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", taskId);
+  return { control: acquisition.data.status === "PAUSED" ? "PAUSED" as const : "RUNNING" as const, screening: screening.data };
+}
+
 async function acquisitionControlState(taskId: string, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
@@ -283,16 +310,17 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
       await setTaskStage(taskId,"VERIFYING","正在核验主体、在营状态、目标行业、证据和有效联系方式");
       const initialState = await screeningState(screeningTaskId);
       if (initialState.status === "QUEUED") await dispatchScreening(screeningTaskId);
+      let pollSeconds = 15;
       while (true) {
-        const control = await acquisitionControlState(taskId, screeningTaskId);
-        if (control === "CANCELLED") { await finishTask(taskId, "CANCELLED"); return; }
-        if (control === "PAUSED") { await sleep("10s"); continue; }
-        const state = await screeningState(screeningTaskId);
-        if (["COMPLETED","FAILED","CANCELLED"].includes(state.status)) {
-          if (state.status !== "COMPLETED") throw new Error(state.error_message || `ACQUISITION_SCREENING_${state.status}`);
+        const state = await verificationState(taskId, screeningTaskId);
+        if (state.control === "CANCELLED") { await finishTask(taskId, "CANCELLED"); return; }
+        if (state.control === "PAUSED") { await sleep("30s"); continue; }
+        if (["COMPLETED","FAILED","CANCELLED"].includes(state.screening.status)) {
+          if (state.screening.status !== "COMPLETED") throw new Error(state.screening.error_message || `ACQUISITION_SCREENING_${state.screening.status}`);
           break;
         }
-        await sleep("10s");
+        await sleep(`${pollSeconds}s`);
+        pollSeconds = Math.min(60, pollSeconds + 15);
       }
       await setTaskStage(taskId,"FINALIZING","正在执行最终质量门槛、系统去重和客户公海准入");
       await finalizeCandidates(task);
