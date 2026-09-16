@@ -143,15 +143,15 @@ function ChipInput({
   };
   return (
     <div className="block">
-      <span className="mb-1.5 flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+      <span className="mb-1.5 flex h-5 items-center justify-between gap-3 text-sm font-medium text-slate-700">
         <span>
         {label}
         {required ? <b className="text-rose-500"> *</b> : null}
         </span>
         {values.length ? <button type="button" onClick={()=>onChange([])} className="text-xs font-normal text-blue-700 hover:underline">清空关键词</button> : null}
       </span>
-      <div className="min-h-11 rounded-lg border border-slate-200 bg-white p-1.5 transition focus-within:border-[#1763e8]">
-        <div className="flex flex-wrap gap-1.5">
+      <div className="h-11 overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200 bg-white p-1.5 transition focus-within:border-[#1763e8]">
+        <div className="flex min-w-max flex-nowrap gap-1.5">
           {values.map((v) => (
             <span
               key={v}
@@ -253,6 +253,7 @@ export function AcquisitionCreateView() {
     [confirm, setConfirm] = useState(false),
     [cancelConfirm, setCancelConfirm] = useState(false),
     [flowOpen, setFlowOpen] = useState(false),
+    [costLimitOpen, setCostLimitOpen] = useState(false),
     [hasSavedDraft, setHasSavedDraft] = useState(false);
   const [form, setForm] = useState(emptyAcquisitionForm);
   const keywordRecommendationGroups = acquisitionKeywordRecommendationGroups(form.industries);
@@ -361,7 +362,7 @@ export function AcquisitionCreateView() {
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>
           <div className="grid items-start gap-4 p-4 xl:grid-cols-2">
-          <div><span className="mb-1.5 block text-sm font-medium text-slate-700">目标行业 <b className="text-rose-500">*</b></span>
+          <div><span className="mb-1.5 block h-5 text-sm font-medium text-slate-700">目标行业 <b className="text-rose-500">*</b></span>
           <IndustryPicker value={form.industries} onChange={(industries) => setForm({ ...form, industries })} onNotice={(message,tone)=>toast(message,tone)}/>
           </div>
           <div>
@@ -377,26 +378,26 @@ export function AcquisitionCreateView() {
           </div>
           </div>
         </section>
-        <div className="grid items-start gap-[14px] xl:grid-cols-[minmax(0,1.45fr)_minmax(290px,.55fr)]">
-        <section className={panel}>
+        <div className="grid items-stretch gap-[14px] xl:grid-cols-[minmax(0,1.45fr)_minmax(290px,.55fr)]">
+        <section className={`${panel} h-full`}>
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e8ecf2] px-4 py-[14px]"><div><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">3</span>AI获客模式</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">质量门槛相同，仅付费补证权限不同。</p></div><button type="button" onClick={()=>setFlowOpen(true)} className={`${button} h-8 px-3 text-xs`}>查看获客规则</button></div>
           <div className="p-4"><div className="grid gap-[14px] md:grid-cols-2">
             {[
               {
                 id: "ADAPTIVE",
                 title: "智能增强获客",
-                text: "先用官网、公开页面和可核对免费额度发现与核验；仅对高度相关但证据不足的候选，在费用限制内付费补证。",
-                facts: [["数据来源","官网、公开页面、Google 免费额度及按需付费能力"],["补证策略","仅为高度相关且缺少关键证据的候选补证"],["停止条件","达到证据门槛、费用上限或确认非目标即停止"],["适用场景","日常批量获客，优先兼顾数量、质量与成本"]],
+                text: "免费发现与核验优先；仅对高相关、证据不足的候选在限额内补证。",
+                facts: [["数据来源","官网、公开页面、Google免费额度"],["补证策略","高相关候选按需付费"],["停止条件","达标、非目标或触及上限"],["适用场景","兼顾数量、质量与成本"]],
                 steps: ["免费发现", "目标初判", "按需付费补证", "高可信入池"],
-                recommended: true,
+                badge: "推荐",
               },
               {
                 id: "FREE_ONLY",
                 title: "全免费获客",
-                text: "使用官网、公开页面及实际费用为 0 的 Google Places 各 SKU 免费额度；需要产生正金额费用时停止补证并留痕。",
-                facts: [["数据来源","官网、公开页面及实际费用为 0 的 Google 免费额度"],["补证策略","不产生正金额费用，证据不足则进入待复核"],["停止条件","免费证据已用尽、确认非目标或需要付费即停止"],["适用场景","预算严格为零，接受较少入池数量和更多待复核"]],
+                text: "仅使用官网、公开页面和实际费用为0的额度；需要付费时停止并留痕。",
+                facts: [["数据来源","官网、公开页面、免费额度"],["补证策略","禁止正金额调用"],["停止条件","免费证据用尽或确认非目标"],["适用场景","零预算，证据不足待复核"]],
                 steps: ["免费发现", "免费核验", "同等证据门槛", "入池或待复核"],
-                recommended: false,
+                badge: "零付费调用",
               },
             ].map((m) => (
               <button
@@ -406,41 +407,25 @@ export function AcquisitionCreateView() {
                 aria-pressed={form.cost_mode === m.id}
                 className={`relative rounded-xl border p-[18px] text-left transition ${form.cost_mode === m.id ? "border-[#1763e8] shadow-[0_0_0_2px_#e7efff]" : "border-[#dfe5ee] hover:border-blue-300"}`}
               >
-                <span className="flex items-center gap-2"><b>{m.title}</b>{m.recommended ? <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">推荐</span> : null}</span>
+                <span className={`absolute right-3 top-3 rounded-[5px] px-[7px] py-[3px] text-xs ${m.id==="FREE_ONLY"?"bg-emerald-50 text-emerald-700":"bg-[#eaf1ff] text-[#1763e8]"}`}>{m.badge}</span>
+                <h3 className="pr-24 text-[17px] font-semibold">{m.title}</h3>
                 <p className="mb-3 mt-2 min-h-12 text-sm leading-6 text-slate-500">
                   {m.text}
                 </p>
                 <dl className="mb-3 grid gap-x-4 gap-y-2 border-y border-slate-100 py-3 text-xs sm:grid-cols-2">{m.facts.map(([label,value])=><div key={label} className="min-w-0"><dt className="mb-0.5 font-medium text-slate-500">{label}</dt><dd className="leading-5 text-slate-700">{value}</dd></div>)}</dl>
-                <span className="flex flex-wrap items-center gap-1 text-xs text-[#46546a]">{m.steps.map((step,index)=><span key={step} className="contents"><span className="rounded-md border border-[#dfe5ee] bg-[#f4f7fb] px-2 py-[5px]">{step}</span>{index<m.steps.length-1?<span className="text-[#9aa6b6]">→</span>:null}</span>)}</span>
+                <span className="flex flex-wrap items-center gap-1 pr-7 text-xs text-[#46546a]">{m.steps.map((step,index)=><span key={step} className="contents"><span className="rounded-md border border-[#dfe5ee] bg-[#f4f7fb] px-2 py-[5px]">{step}</span>{index<m.steps.length-1?<span className="text-[#9aa6b6]">→</span>:null}</span>)}</span>
+                {form.cost_mode===m.id?<Check className={`absolute bottom-4 right-4 ${m.id==="FREE_ONLY"?"text-emerald-600":"text-[#1763e8]"}`} size={19}/>:null}
               </button>
             ))}
           </div>
           {form.cost_mode === "ADAPTIVE" ? (
-            <div className="mt-4 max-w-xl">
-            <label className="block max-w-xs">
-              <span className="mb-1.5 block text-sm font-medium">
-                单任务费用上限（USD，可选）
-              </span>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                className={`${input} w-full`}
-                value={form.task_cost_limit_usd}
-                placeholder="留空则仅按全局上限执行"
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    task_cost_limit_usd: e.target.value,
-                  })
-                }
-              />
-            </label>
-            <p className="mt-2 text-xs leading-5 text-slate-500">留空不代表不限额：仍受“AI获客设置”的 Google/OpenAI 日、周、月费用上限及单客户调用上限约束；任一限制先触发即停止付费补证。</p>
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/60">
+              <button type="button" aria-expanded={costLimitOpen} onClick={()=>setCostLimitOpen((current)=>!current)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm"><span><b>单任务费用保护</b><span className="ml-1 text-slate-400">（可选）</span></span><span className="flex items-center gap-2 text-xs text-slate-500"><span>{form.task_cost_limit_usd?`上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"继承全局上限"}</span><ChevronDown size={15} className={`transition ${costLimitOpen?"rotate-180":""}`}/></span></button>
+              {costLimitOpen?<div className="border-t border-slate-200 px-3 py-3"><label className="block max-w-xs"><span className="mb-1.5 block text-sm font-medium">费用上限（USD）</span><input type="text" inputMode="decimal" className={`${input} w-full`} value={form.task_cost_limit_usd} placeholder="留空则继承全局上限" onChange={(event)=>{const value=event.target.value.trim();if(/^\d*(\.\d{0,2})?$/.test(value))setForm({...form,task_cost_limit_usd:value})}}/></label><p className="mt-2 text-xs leading-5 text-slate-500">仍受AI获客设置的日、周、月及单客户上限约束；任一限制先触发即停止付费补证。</p></div>:null}
             </div>
           ) : null}</div>
         </section>
-      <aside className="xl:sticky xl:top-[78px] rounded-[9px] border border-[#dce5f4] bg-[#f8faff] p-[14px]"><h3 className="mb-[10px] font-semibold">创建前确认</h3><dl className="text-sm">{[
+      <aside className="h-full rounded-[9px] border border-[#dce5f4] bg-[#f8faff] p-[14px]"><h3 className="mb-[10px] font-semibold">创建前确认</h3><dl className="text-sm">{[
         ["目标国家/地区",form.countries.length ? (form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`) : "尚未选择",form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")],
         ["目标行业",form.industries.length ? (form.industries.length<=2?form.industries.join("、"):`已选 ${form.industries.length} 个`) : "尚未选择",form.industries.join("、")],
         ["搜索关键词",form.keywords.length?`已选择 ${form.keywords.length} 个`:"尚未选择",form.keywords.join("、")],

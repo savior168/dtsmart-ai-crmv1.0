@@ -55,7 +55,7 @@ assert.match(create,/industries: \[\]/,"创建页不得默认静默选择全部�
 assert.ok(create.indexOf('id: "ADAPTIVE"') < create.indexOf('id: "FREE_ONLY"'),"智能增强获客必须排在全免费获客前面");
 assert.match(create,/cost_mode: "ADAPTIVE"/,"创建页必须默认使用智能增强获客");
 assert.doesNotMatch(create,/task_cost_limit_usd:\s*5/,"AI获客不得擅自预设5美元单任务费用上限");
-assert.match(create,/留空则仅按全局上限执行[\s\S]*留空不代表不限额[\s\S]*Google\/OpenAI 日、周、月费用上限及单客户调用上限/,"单任务费用必须明确受AI获客全局配置共同限制");
+assert.match(create,/继承全局上限[\s\S]*仍受AI获客设置的日、周、月及单客户上限约束/,"单任务费用必须明确受AI获客全局配置共同限制");
 assert.match(create,/查看获客规则[\s\S]*AI获客规则与底层执行链路/,"复杂获客规则必须集中在不离开创建页的弹框中");
 assert.doesNotMatch(create,/查看AI获客全流程/,"创建页顶部不得保留重复的全流程入口");
 assert.equal((create.match(/h-\[30px\] w-\[30px\][\s\S]{0,120}rounded-full bg-\[#1763e8\]/g)||[]).length,3,"AI获客三个步骤必须复用AI筛选的蓝色圆形序号样式");
@@ -84,7 +84,10 @@ assert.match(acquisitionConfig,/for \(let round = 0;[\s\S]*for \(const group of 
 assert.match(create,/ScheduleControl/,"AI获客预约执行必须复用AI筛选统一时间控件");
 assert.match(create,/xl:grid-cols-\[minmax\(250px,\.85fr\)_minmax\(230px,\.75fr\)_minmax\(520px,1\.4fr\)\][\s\S]*目标国家\/地区[\s\S]*执行时间/,"宽屏下任务名称、目标国家和完整预约控件必须在同一行合理排列");
 assert.match(create,/目标客户条件[\s\S]*xl:grid-cols-2[\s\S]*IndustryPicker[\s\S]*label="搜索关键词"/,"目标行业与搜索关键词必须使用紧凑双栏布局");
-assert.match(create,/xl:grid-cols-\[minmax\(0,1\.45fr\)_minmax\(290px,\.55fr\)\][\s\S]*AI获客模式[\s\S]*创建前确认/,"创建前确认只应与最后一步并排，不能占据整页空白侧栏");
+assert.match(create,/block h-5 text-sm font-medium/,"目标行业标签必须使用统一固定行高");
+assert.match(create,/flex h-5 items-center[\s\S]*h-11 overflow-x-auto overflow-y-hidden/,"搜索关键词标签和默认输入框必须使用统一固定行高");
+assert.match(create,/h-11 w-full/,"目标行业默认输入框必须固定为统一高度");
+assert.match(create,/grid items-stretch gap-\[14px\] xl:grid-cols-\[minmax\(0,1\.45fr\)_minmax\(290px,\.55fr\)\][\s\S]*AI获客模式[\s\S]*创建前确认/,"AI获客模式与创建前确认必须在同一行等高排列");
 assert.doesNotMatch(create,/datetime-local/,"AI获客不得继续暴露浏览器原生日期时间长输入框");
 assert.match(scheduleControl,/type="date"[\s\S]*预约执行时间[\s\S]*timeOptions/,"统一预约控件必须分别提供清晰的日期与时间选择");
 assert.doesNotMatch(create,/focus-within:ring-2/,"关键词输入不得出现粗重双层焦点边框");
@@ -94,6 +97,10 @@ assert.match(create,/disabled=\{!hasDraftContent\}[\s\S]*更新草稿[\s\S]*暂�
 assert.match(create,/清空并新建/,"已暂存草稿必须提供明确清空入口");
 assert.match(create,/创建前确认[\s\S]*任务费用上限[\s\S]*border-b border-dashed[\s\S]*仅通过目标、在营、证据、联系方式和系统去重门槛/,"获客任务确认区必须复用AI筛选的紧凑摘要布局并保留获客质量口径");
 assert.match(create,/数据来源[\s\S]*补证策略[\s\S]*停止条件[\s\S]*适用场景/,"两种获客模式必须说明用户决策所需的四项关键差异");
+assert.match(create,/badge: "推荐"[\s\S]*badge: "零付费调用"[\s\S]*absolute right-3 top-3[\s\S]*form\.cost_mode===m\.id\?<Check/,"获客模式必须复用AI筛选的右上角模式标签和右下角选中标识");
+assert.match(create,/免费发现与核验优先[\s\S]*禁止正金额调用[\s\S]*零预算，证据不足待复核/,"获客模式说明必须简明覆盖增强与免费模式的关键差异");
+assert.match(create,/costLimitOpen[\s\S]*单任务费用保护[\s\S]*继承全局上限[\s\S]*inputMode="decimal"/,"低频单任务费用保护必须默认折叠，并使用统一非原生数字输入交互");
+assert.doesNotMatch(create,/type="number"[\s\S]{0,500}单任务费用上限/,"单任务费用保护不得使用带原生微调箭头的数字控件");
 const listRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/route.ts",import.meta.url),"utf8");
 assert.match(listRoute,/!keywords\.length[\s\S]*请至少选择或输入一个搜索关键词/,"后端必须拒绝没有搜索关键词的获客任务");
 assert.match(listRoute,/contains\("industries"/);
