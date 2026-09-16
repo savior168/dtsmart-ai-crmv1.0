@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarCheck2, Check, ChevronDown, CircleHelp, LoaderCircle, Plus, RefreshCw, Search, Settings2, TriangleAlert, UserRoundPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -117,6 +118,7 @@ function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:stri
 }
 
 export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling, canControl }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean; canControl:boolean }) {
+  const router=useRouter();
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
     [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 }),
@@ -260,17 +262,21 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       {toastNode}
       <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
       {canViewUsage ? <section className={`${panel} p-4`}>
-        <div className="mb-3"><h2 className="font-semibold">获客成本总览</h2><p className="mt-1 text-xs text-slate-500">费用来自可核验调用账本；平均成本仅以成功核验并进入系统的有效目标客户为分母。</p></div>
+        <div className="mb-3"><h2 className="font-semibold">获客成本参考</h2><p className="mt-1 text-xs text-slate-500">金额由系统调用账本按对应 SKU / 模型价目估算，未扣除账号共享免费额度、赠金或账单调整；最终结算以服务商账单为准。</p></div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">今日费用</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日实际记账费用</span></article>
-          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">历史累计费用</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">Google Places 与 OpenAI 合计</span></article>
-          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">平均每位有效客户成本</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计费用 ÷ 成功入池客户</span></article>
+          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">今日成本参考</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">按今日调用价目估算</span></article>
+          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">历史累计成本参考</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">OpenAI 台账 + Google 价目估算</span></article>
+          <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">平均每位有效客户成本参考</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计成本参考 ÷ 成功入池客户</span></article>
           <button type="button" disabled={!canViewGoogleBilling} onClick={()=>void openGoogleDetails()} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-slate-50"><small className="flex items-center justify-between text-slate-500"><span>Google Places累计调用</span>{canViewGoogleBilling?<span className="text-blue-600">查看明细</span>:null}</small><b className="mt-1 block text-xl">{costOverview?`${formatNumber(costOverview.googleCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">累计免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次</span></button>
         </div>
       </section> : null}
-      <section className={`${panel} p-4`}>
+      <section className={`${panel} overflow-hidden`}>
+        <div className="border-b border-slate-100 px-5 pt-5">
+          <h2 className="text-lg font-semibold">AI获客任务</h2>
+          <p className="mt-1 pb-4 text-sm text-slate-500">集中查看获客进度、客户核验结果、目标范围、调用用量与成本参考；点击关键结果可直接进入对应明细。</p>
+        </div>
         <form
-          className="space-y-3"
+          className="space-y-3 border-b p-[14px_16px]"
           onSubmit={(e) => {
             e.preventDefault();
             setPage(1);
@@ -323,30 +329,32 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
             {(search || status || metric || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setMetric("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
           </div>
         </form>
-      </section>
-      <section className={panel}>
         {loading ? (
           <Loading />
         ) : error ? (
           <ErrorState message={error} reload={() => void load()} />
         ) : tasks.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1480px] table-fixed text-left text-sm">
-              <colgroup><col className="w-[250px]"/>{showOwner?<col className="w-[170px]"/>:null}<col className="w-[180px]"/><col className="w-[220px]"/><col className="w-[180px]"/><col className="w-[190px]"/>{canViewUsage?<><col className="w-[190px]"/><col className="w-[160px]"/></>:null}<col className="w-[180px]"/><col className="w-[150px]"/></colgroup>
+            <table className="w-full min-w-[1980px] text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
                   {[
-                    "任务",
+                    "任务名称 / 编号",
                     ...(showOwner ? ["归属人"] : []),
-                    "状态 / 执行进度",
-                    "目标范围 / 获客模式",
+                    "获客模式",
+                    "状态",
+                    "候选核验进度",
+                    "成功入池",
+                    "待复核",
                     "搜索发现",
-                    "客户核验结果",
-                    ...(canViewUsage?["API / Token用量","实际费用"]:[]),
-                    "耗时 / 创建时间",
+                    "目标国家/地区",
+                    "目标行业",
+                    ...(canViewUsage?["Google调用","总Token","成本参考"]:[]),
+                    "任务耗时",
+                    "创建时间",
                     "操作",
-                  ].map((x) => (
-                    <th key={x} className="px-4 py-3 font-medium">
+                  ].map((x,index,headers) => (
+                    <th key={x} className={`px-4 py-3 font-medium ${index===0?"sticky left-0 z-20 bg-slate-50 shadow-[1px_0_0_#e2e8f0]":""} ${index===headers.length-1?"sticky right-0 z-20 bg-slate-50 shadow-[-1px_0_0_#e2e8f0]":""} ${["搜索发现","API / Token用量","成本参考"].includes(x)?"text-right":""}`}>
                       {x}
                     </th>
                   ))}
@@ -354,8 +362,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
               </thead>
               <tbody>
                 {tasks.map((t) => (
-                  <tr key={t.id} className="border-t align-top">
-                    <td className="px-4 py-4">
+                  <tr key={t.id} className="group cursor-pointer border-t border-slate-100 align-top hover:bg-blue-50/30">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-3 shadow-[1px_0_0_#e2e8f0]">
                       <Link
                         className="font-semibold text-blue-700 hover:underline"
                         href={`/ai-acquisition/tasks/${t.id}`}
@@ -367,35 +375,35 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                       </small>
                     </td>
                     {showOwner ? <td className="px-4 py-4"><b className="block font-medium text-slate-800">{t.owner?.name?.trim() || "未命名用户"}</b><small className="mt-1 block text-slate-400">{t.owner?.email || "—"}</small></td> : null}
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-3"><CostModeBadge mode={t.cost_mode} context="acquisition" />{t.task_cost_limit_usd!=null?<small className="mt-1 block text-slate-400">任务上限 {formatCost(t.task_cost_limit_usd)}</small>:null}</td>
+                    <td className="px-4 py-3">
                       <StatusBadge status={t.status} />
-                      <small className="mt-2 block text-slate-500">已执行 {formatNumber(t.search_completed_count||0)} 组检索</small>
                       {t.error_message ? (
                         <small title={acquisitionErrorMessageZh(t.error_message)} className="mt-2 block line-clamp-2 text-rose-600">
                           {acquisitionFailureStage(t.error_message)}
                         </small>
                       ) : null}
                     </td>
-                    <td className="px-4 py-4">
-                      <div className="max-w-52 truncate font-medium text-slate-700" title={(t.industries?.length ? t.industries : [t.industry]).join("、")}>{(t.industries?.length ? t.industries : [t.industry]).slice(0, 2).join("、")}{(t.industries?.length || 1) > 2 ? ` +${(t.industries?.length || 1) - 2}` : ""}</div>
-                      <small className="mt-1 block text-slate-500">{t.countries.slice(0, 2).map((code)=>COUNTRY_NAMES.of(code) || code).join("、")}{t.countries.length > 2 ? ` +${t.countries.length - 2}` : ""}</small>
-                      <div className="mt-2"><CostModeBadge mode={t.cost_mode} context="acquisition" /></div>
-                    </td>
-                    <td className="px-4 py-4"><b className="text-slate-800">原始命中 {formatNumber(t.search_raw_hits||0)}</b><small className="mt-1 block text-slate-500">去重后候选 {formatNumber(t.discovered_count)}</small></td>
-                    <td className="px-4 py-4"><b className="text-emerald-700">成功入池 {formatNumber(t.accepted_count)}</b><small className="mt-1 block text-amber-700">待复核 {formatNumber(t.review_count)}</small><small className="mt-1 block text-slate-400">未通过 {formatNumber(t.rejected_count)} · 重复 {formatNumber(t.duplicate_count)}</small></td>
-                    {canViewUsage?<><td className="px-4 py-4"><b className="block font-medium text-slate-700">Google {formatNumber(t.usage?.google_calls)} 次</b><small className="mt-1 block text-slate-500">大模型 {formatNumber(t.usage?.openai_calls)} 次</small><small className="mt-1 block text-slate-500">{formatTokens(t.usage?.total_tokens)} Token</small></td><td className="px-4 py-4"><b className="block font-medium text-slate-800">{formatCost(t.usage?.total_cost_usd)}</b><small className="mt-1 block text-slate-500">OpenAI {formatCost(t.usage?.openai_cost_usd)}</small><small className="mt-1 block text-slate-500">Google {formatCost(t.usage?.google_cost_usd)}</small></td></>:null}
-                    <td className="px-4 py-4 text-slate-500"><b className="block font-medium text-slate-700">{formatDuration(effectiveElapsedMs(t))}</b>
-                      {t.scheduled_at ? <small className="mb-1 block font-medium text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN", { hour12: false })}</small> : null}
-                      <small className="mt-1 block">{new Date(t.created_at).toLocaleString("zh-CN", {
-                        hour12: false,
-                      })}</small>
-                    </td>
-                    <td className="px-4 py-4"><div className="flex items-center gap-2 whitespace-nowrap">
-                      <Link className="font-medium text-blue-700 hover:underline" href={t.status==="FAILED"?`/ai-acquisition/tasks/${t.id}`:`/ai-acquisition/tasks/${t.id}?decision=${metric==="review"?"REVIEW":"ACCEPTED"}`}>{t.status==="FAILED"?"查看详情":metric==="review"?"查看待复核":"查看客户"}</Link>
-                      {canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status)?<RowActionMenu ariaLabel={`${t.name}操作菜单`}>
+                    <td className="w-44 px-4 py-3"><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{width:`${Math.min(100,t.discovered_count?Number(t.processed_count||0)/Number(t.discovered_count)*100:t.status==="COMPLETED"?100:0)}%`}}/></div><span className="mt-1 block text-xs text-slate-400">{formatNumber(t.processed_count)} / {formatNumber(t.discovered_count)} 条</span></td>
+                    <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}?decision=ACCEPTED`} className="font-medium text-emerald-700 hover:underline">{formatNumber(t.accepted_count)} 条</Link></td>
+                    <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}?decision=REVIEW`} className="font-medium text-amber-700 hover:underline">{formatNumber(t.review_count)} 条</Link></td>
+                    <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#task-analysis`} className="font-medium text-slate-800 hover:text-blue-700 hover:underline">原始命中 {formatNumber(t.search_raw_hits||0)}</Link><small className="mt-1 block text-slate-500">已检索 {formatNumber(t.search_completed_count||0)} 组 · 去重后 {formatNumber(t.discovered_count)}</small></td>
+                    <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
+                    <td className="px-4 py-3"><span className="block max-w-52 truncate" title={(t.industries?.length?t.industries:[t.industry]).join("、")}>{(t.industries?.length?t.industries:[t.industry]).slice(0,2).join("、")}{(t.industries?.length||1)>2?` +${(t.industries?.length||1)-2}`:""}</span></td>
+                    {canViewUsage?<><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatNumber(t.usage?.google_calls)} 次</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatTokens(t.usage?.total_tokens)}</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="block font-medium text-slate-800 hover:text-blue-700 hover:underline">{formatCost(t.usage?.total_cost_usd)}</Link><small className="mt-1 block text-slate-500">OpenAI {formatCost(t.usage?.openai_cost_usd)} · Google {formatCost(t.usage?.google_cost_usd)}</small></td></>:null}
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>
+                    <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">
+                      <Link className="font-medium text-blue-700 hover:underline" href={`/ai-acquisition/tasks/${t.id}`}>查看详情</Link>
+                      <RowActionMenu ariaLabel={`${t.name}操作菜单`}>
+                        <RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}?decision=ACCEPTED`)}>查看成功入池客户</RowActionItem>
+                        {t.review_count>0?<RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}?decision=REVIEW`)}>查看待复核客户</RowActionItem>:null}
+                        <RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}#task-analysis`)}>查看搜索效果与成本</RowActionItem>
+                      {canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status)?<>
                         {taskControl(t.status)?<RowActionItem tone={taskControl(t.status)!.tone} onClick={()=>setPendingAction({task:t,action:taskControl(t.status)!.action})}>{taskControl(t.status)!.label}</RowActionItem>:null}
                         {["QUEUED","RUNNING","PAUSING","PAUSED"].includes(t.status)?<RowActionItem tone="danger" onClick={()=>setPendingAction({task:t,action:"CANCEL"})}>取消任务</RowActionItem>:null}
-                      </RowActionMenu>:null}
+                      </>:null}
+                      </RowActionMenu>
                     </div></td>
                   </tr>
                 ))}

@@ -5,11 +5,7 @@ import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, AI_COST_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask, rescueStalledCloudTasks } from "@/lib/ai/task-dispatch";
-
-function taskNumber() {
-  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `AI-${stamp}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
-}
+import { createScreeningTaskNumber } from "@/lib/ai/task-number";
 
 export async function GET(request: NextRequest) {
   try {
@@ -256,7 +252,7 @@ export async function POST(request: NextRequest) {
 
     const scheduledAt = body.scheduled_at && new Date(body.scheduled_at).getTime() > Date.now() ? new Date(body.scheduled_at).toISOString() : null;
     const task = await admin.from("ai_screening_tasks").insert({
-      user_id: user.id, task_number: taskNumber(), name, strategy, strategy_version: "1.0",
+      user_id: user.id, task_number: createScreeningTaskNumber(isReanalysis?"RECHECK":strategy), name, strategy, strategy_version: "1.0",
       status: "QUEUED", total_count: eligibleIds.length, pending_count: eligibleIds.length,
       filters: isReanalysis
         ? { ...(body.filters || {}), force_fresh_analysis: true, reanalysis_scope: "MANUAL_CONFLICT" }

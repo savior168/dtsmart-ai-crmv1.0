@@ -5,11 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiDispatchPolicy, type AiStrategy } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
-
-function taskNumber() {
-  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `AI-${stamp}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
-}
+import { createScreeningTaskNumber } from "@/lib/ai/task-number";
 
 function taskDispatchPolicy(): AiDispatchPolicy {
   return AI_CLOUD_DISPATCH_POLICY;
@@ -223,7 +219,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const strategy = "SMART" as const;
       const created = await admin.from("ai_screening_tasks").insert({
         user_id: task.user_id,
-        task_number: taskNumber(),
+        task_number: createScreeningTaskNumber("RECHECK"),
         name: (body.name?.trim() || `历史无效客户复验-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}`).slice(0, 80),
         strategy,
         strategy_version: "1.0",
@@ -264,7 +260,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const strategy = "SMART" as const;
       const created = await admin.from("ai_screening_tasks").insert({
         user_id: task.user_id,
-        task_number: taskNumber(),
+        task_number: createScreeningTaskNumber("REVIEW"),
         name: `${task.name}（全量复核）`.slice(0, 80),
         strategy,
         strategy_version: "1.0",

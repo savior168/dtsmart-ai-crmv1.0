@@ -3,13 +3,9 @@ import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiExecutionMode } from "@/lib/ai/task-types";
+import { createScreeningTaskNumber } from "@/lib/ai/task-number";
 
 export const runtime = "nodejs";
-
-function taskNumber() {
-  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `AI-${stamp}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
-}
 
 /** Compatibility endpoint used by "save and screen". It creates the same
  * durable task/item/workflow as the task centre and never bypasses evidence,
@@ -38,7 +34,7 @@ export async function POST(request: NextRequest) {
     if (existing.error) throw existing.error;
     if (existing.data) return NextResponse.json({ error: "该客户已加入活动中的AI筛选任务" }, { status: 409 });
 
-    const number = taskNumber();
+    const number = createScreeningTaskNumber("QUICK");
     const task = await admin.from("ai_screening_tasks").insert({
       user_id: user.id, task_number: number,
       name: `新增客户筛选：${visible.data.company_name}`.slice(0, 120),

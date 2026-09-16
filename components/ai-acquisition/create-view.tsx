@@ -515,7 +515,7 @@ export function AcquisitionCreateView() {
               {
                 id: "FREE_ONLY",
                 title: "全免费获客",
-                text: "仅使用官网、公开页面和实际费用为0的额度；需要付费时停止并留痕。",
+                text: "仅使用官网、公开页面和系统记录金额为0的额度；需要进入付费路径时停止并留痕。",
                 facts: [["数据来源","官网、公开页面、免费额度"],["补证策略","禁止正金额调用"],["停止条件","免费证据用尽或确认非目标"],["适用场景","零预算，证据不足待复核"]],
                 steps: ["免费发现", "免费核验", "同等证据门槛", "入池或待复核"],
                 badge: "零付费调用",
@@ -578,7 +578,7 @@ export function AcquisitionCreateView() {
             ].map(([title,text])=><li key={title} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><b className="text-slate-800">{title}</b><p className="mt-1.5 leading-6">{text}</p></li>)}
           </ol>
           <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h3 className="font-semibold text-blue-900">暂停、恢复、重试与完成</h3><p className="mt-1.5 leading-6 text-blue-800">暂停在安全节点停止新调用，恢复应从最近成功检查点继续；失败重试只处理未完成步骤，不重复已入账调用和已处理客户。有限检索计划执行完且全部候选完成判定后自动结束；用户取消、异常失败和费用受限会分别留痕。</p></section>
-          <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能增强任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；全免费模式只允许实际金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计费状态、实际费用和有效执行耗时。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
+          <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能增强任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；全免费模式只允许系统记录金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计价状态、成本参考和有效执行耗时；服务商最终结算以其账单为准。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
           <section className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"><h3 className="font-semibold text-violet-900">候选进入AI筛选后的底层核验</h3><p className="mt-1.5 leading-6 text-violet-800">候选先规范化名称、地址、电话、邮箱域名、官网和 Place ID，再按“官网与关键子页 → 免费公开来源 → 必要时 Google 主体候选 → 已核验社媒”的顺序采集。确定性规则先判断明确经营事实；仅在主体通过且证据确有歧义时，模型才综合已采集证据。最后执行证据门控、评分一致性校准、联系方式具体来源校验和原子写回；抓取失败、主体冲突或证据不足不会被伪造成有效或无效结论。</p></section>
         </div>
       </AppDialog>
@@ -602,7 +602,7 @@ export function AcquisitionCreateView() {
             ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{value}</dd></div>)}
           </dl>
           <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5"><summary className="cursor-pointer font-medium text-slate-700">查看已选行业和关键词</summary><div className="mt-2 space-y-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-600"><p><b className="text-slate-700">目标行业：</b>{form.industries.join("、")}</p><p><b className="text-slate-700">搜索关键词：</b>{form.keywords.join("、")}</p></div></details>
-          <p className={`rounded-lg px-3.5 py-2.5 text-xs leading-5 ${form.cost_mode === "FREE_ONLY"?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-800"}`}>{form.cost_mode === "FREE_ONLY"?"仅执行实际费用为 0 的发现与核验；免费证据不足的候选进入待复核。":"免费渠道优先；仅对高度相关但证据不足的候选，在全局及单任务费用限制内付费补证。"}</p>
+          <p className={`rounded-lg px-3.5 py-2.5 text-xs leading-5 ${form.cost_mode === "FREE_ONLY"?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-800"}`}>{form.cost_mode === "FREE_ONLY"?"仅执行系统记录金额为 0 的发现与核验；免费证据不足的候选进入待复核。":"免费渠道优先；仅对高度相关但证据不足的候选，在全局及单任务费用限制内付费补证。"}</p>
         </div>
         <form
           onSubmit={(e) => {

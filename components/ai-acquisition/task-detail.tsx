@@ -261,6 +261,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             <Link href="/ai-acquisition" className={button}>
               返回任务中心
             </Link>
+            {task.accepted_count>0?<Link href={`/ai-acquisition/tasks/${task.id}?decision=ACCEPTED#customer-results`} className={button}>成功入池客户（{formatNumber(task.accepted_count)}）</Link>:null}
+            {task.review_count>0?<Link href={`/ai-acquisition/tasks/${task.id}?decision=REVIEW#customer-results`} className={`${button} text-amber-700`}>处理待复核（{formatNumber(task.review_count)}）</Link>:null}
+            {(usage||costs.length)?<Link href="#usage-details" className={button}>用量与成本</Link>:null}
             <button className={button} onClick={() => void load()}>
               <RefreshCw size={15} />
               刷新
@@ -302,7 +305,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         <article className={`${panel} p-4`}><small className="text-slate-500">搜索发现</small><div className="mt-2 text-xl font-semibold">{formatNumber(discoveryProgress?.completed||0)} / {formatNumber(discoveryProgress?.total||0)} 组</div><small className="mt-1 block text-slate-500">原始命中 {formatNumber(discoveryProgress?.raw_hits||0)} 条 · 组合数不是客户上限</small></article>
         <article className={`${panel} p-4`}><small className="text-slate-500">候选与核验</small><div className="mt-2 text-xl font-semibold">候选 {formatNumber(task.discovered_count)}</div><small className="mt-1 block text-slate-500">已完成核验 {formatNumber(task.processed_count)} 条</small></article>
         <article className={`${panel} p-4`}><small className="text-slate-500">质量判定结果</small><div className="mt-2 text-xl font-semibold text-emerald-700">成功入池 {formatNumber(task.accepted_count)}</div><small className="mt-1 block text-slate-500">待复核 {formatNumber(task.review_count)} · 未通过 {formatNumber(task.rejected_count)} · 重复 {formatNumber(task.duplicate_count)}</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">用量与实际费用</small><div className="mt-2 text-xl font-semibold">{formatCost(totalCost)}</div><small className="mt-1 block text-slate-500">Google {formatNumber(usage?.google_calls)} 次 · 大模型 {formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></article>
+        <article className={`${panel} p-4`}><small className="text-slate-500">用量与成本参考</small><div className="mt-2 text-xl font-semibold">{formatCost(totalCost)}</div><small className="mt-1 block text-slate-500">Google {formatNumber(usage?.google_calls)} 次 · 大模型 {formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></article>
       </section>
       {task.error_message ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -315,7 +318,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         <div className="grid gap-4 border-t p-5 text-sm lg:grid-cols-2"><div><b className="text-slate-700">目标国家/地区</b><p className="mt-1 leading-6 text-slate-600">{task.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}</p></div><div><b className="text-slate-700">目标行业</b><p className="mt-1 leading-6 text-slate-600">{(task.industries?.length?task.industries:[task.industry]).join("、")}</p></div><div><b className="text-slate-700">搜索关键词</b><p className="mt-1 leading-6 text-slate-600">{task.keywords.join("、")}</p></div><div><b className="text-slate-700">费用保护</b><p className="mt-1 leading-6 text-slate-600">{task.task_cost_limit_usd==null?"继承AI获客全局费用限制":`本任务最多 ${formatCost(task.task_cost_limit_usd)}`}</p></div><div className="lg:col-span-2 rounded-lg bg-blue-50 px-4 py-3 leading-6 text-blue-800"><b>结束规则：</b>{task.status==="COMPLETED"?(completion.budget_limited?"付费路径达到任务或全局限制后停止；已发现候选仍完成去重与质量判定。":completion.no_new_search_units?`本次没有新的待检索单元：近期已覆盖 ${completion.incremental_skipped||0} 项，其他任务执行中 ${completion.concurrently_skipped||0} 项；未重复调用或分析。`:"本次有限检索计划和全部新候选质量判定均已完成。"):
         "执行完有限检索计划并处理完全部新候选后自动结束；连续分页无新候选会提前结束，不会无限采集。"}</div></div>
       </details>
-      <section className={panel}>
+      <section id="customer-results" className={`${panel} scroll-mt-4`}>
         <div className="border-b px-5 pt-5">
           <div>
             <h2 className="text-lg font-semibold">本次获取的客户</h2>
@@ -424,14 +427,15 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           itemLabel="个候选"
         />
       </section>
-      {searchStats.length?<details className={`${panel} group overflow-hidden`}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">搜索效果分析</h2><p className="mt-1 text-xs text-slate-500">比较每个搜索组合带来的候选、入池结果与成本，帮助判断哪些搜索方式更有效。</p></div><span className="flex shrink-0 items-center gap-2 text-sm font-medium text-blue-600">{searchStats.length} 个搜索组合<ChevronDown size={16} className="transition group-open:rotate-180"/></span></summary><div className="max-h-80 overflow-auto border-t"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["实际搜索组合","发现候选","重复","未通过","待复核","成功入池","已认领","已推进","可归属费用","平均入池成本"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></details>:null}
-      <details className={`${panel} group overflow-hidden`}>
+      <div id="task-analysis" className="scroll-mt-4 space-y-4">
+      {searchStats.length?<details className={`${panel} group overflow-hidden`}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">搜索效果分析</h2><p className="mt-1 text-xs text-slate-500">比较每个搜索组合带来的候选、入池结果与成本参考，帮助判断哪些搜索方式更有效。</p></div><span className="flex shrink-0 items-center gap-2 text-sm font-medium text-blue-600">{searchStats.length} 个搜索组合<ChevronDown size={16} className="transition group-open:rotate-180"/></span></summary><div className="max-h-80 overflow-auto border-t"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["实际搜索组合","发现候选","重复","未通过","待复核","成功入池","已认领","已推进","可归属成本参考","平均入池成本参考"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></details>:null}
+      <details id="usage-details" className={`${panel} group overflow-hidden`}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
-          <div><h2 className="font-semibold">第三方调用与费用</h2><p className="mt-1 text-xs text-slate-500">用于核对本任务实际调用与费用账本，日常查看客户时无需展开。</p></div>
+          <div><h2 className="font-semibold">第三方调用与成本参考</h2><p className="mt-1 text-xs text-slate-500">系统保留真实调用记录，并按调用时价目估算金额；最终结算以服务商账单为准。</p></div>
           <span className="flex shrink-0 items-center gap-3 text-sm"><span className="text-slate-500">调用 {formatNumber(usage?.total_calls ?? costs.length)} 次 · 免费 {formatNumber(usage?.free_calls ?? 0)} 次</span><b className="text-slate-900">{formatCost(totalCost)}</b><ChevronDown size={16} className="text-blue-600 transition group-open:rotate-180"/></span>
         </summary>
         <div className="border-t">
-        {usage ? <><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-5">{[["累计费用",formatCost(usage.total_cost_usd)],["全部调用",usage.total_calls],["免费额度调用",usage.free_calls],["Google Places",usage.google_calls],["大模型",usage.openai_calls]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div>{usage.sku_breakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">SKU / 模型汇总</h3><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="text-xs text-slate-500"><tr><th className="py-2">服务商</th><th>SKU / 模型</th><th>用途</th><th>调用</th><th>免费</th><th>金额</th></tr></thead><tbody>{usage.sku_breakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-2">{item.provider}</td><td>{item.model_or_sku}</td><td>{item.operation}</td><td>{item.calls}</td><td>{item.free_calls}</td><td>{formatCost(item.amount_usd)}</td></tr>)}</tbody></table></div></div>:null}</> : null}
+        {usage ? <><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-5">{[["累计成本参考",formatCost(usage.total_cost_usd)],["全部调用",usage.total_calls],["免费额度调用",usage.free_calls],["Google Places",usage.google_calls],["大模型",usage.openai_calls]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div>{usage.sku_breakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">SKU / 模型汇总</h3><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="text-xs text-slate-500"><tr><th className="py-2">服务商</th><th>SKU / 模型</th><th>用途</th><th>调用</th><th>免费</th><th>账本金额</th></tr></thead><tbody>{usage.sku_breakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-2">{item.provider}</td><td>{item.model_or_sku}</td><td>{item.operation}</td><td>{item.calls}</td><td>{item.free_calls}</td><td>{formatCost(item.amount_usd)}</td></tr>)}</tbody></table></div></div>:null}</> : null}
         <div className="px-4 pt-4 text-xs text-slate-500">最近调用记录（完整累计以汇总数据为准）</div>
         <div className="max-h-80 overflow-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
@@ -443,8 +447,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   "SKU / 模型",
                   "操作",
                   "用量",
-                  "费用状态",
-                  "金额",
+                  "计价状态",
+                  "账本金额",
                 ].map((x) => (
                   <th key={x} className="px-4 py-3 font-medium">
                     {x}
@@ -465,7 +469,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="px-4 py-3">{c.operation}</td>
                   <td className="px-4 py-3">{c.quantity}</td>
                   <td className="px-4 py-3">
-                    {c.amount_type === "FREE" ? "免费额度" : "计费/预估"}
+                    {c.amount_type === "FREE" ? "免费额度记录" : "价目估算"}
                   </td>
                   <td className="px-4 py-3">{formatCost(c.amount_usd)}</td>
                 </tr>
@@ -480,6 +484,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         </div>
         </div>
       </details>
+      </div>
       {node}
       <ConfirmDialog
         open={Boolean(action)}

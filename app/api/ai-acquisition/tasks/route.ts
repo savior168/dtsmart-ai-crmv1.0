@@ -5,12 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
-
-function taskNumber(userId: string, requestKey: string) {
-  const owner = userId.replaceAll("-", "").slice(0, 6).toUpperCase();
-  const compact = requestKey.replaceAll("-", "").toUpperCase();
-  return `LEAD-${owner}-${compact.slice(0, 10)}-${compact.slice(-6)}`;
-}
+import { createAcquisitionTaskNumber } from "@/lib/ai/task-number";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -178,7 +173,7 @@ export async function POST(request: NextRequest) {
     if (body.scheduled_at && !scheduledAt) return NextResponse.json({ error: "请选择晚于当前时间的预约执行时间" }, { status: 400 });
     if (costMode === "ADAPTIVE" && taskCostLimit !== null && (!Number.isFinite(taskCostLimit) || taskCostLimit <= 0)) return NextResponse.json({ error: "单任务费用上限必须大于0；留空表示仅遵循AI获客全局费用限制" }, { status: 400 });
     const admin = createAdminClient();
-    const number = taskNumber(user.id, requestKey);
+    const number = createAcquisitionTaskNumber(user.id, requestKey, costMode);
     const existing = await admin.from("ai_acquisition_tasks").select("*").eq("task_number", number).eq("user_id", user.id).maybeSingle();
     if (existing.error) throw existing.error;
     if (existing.data) return NextResponse.json({ task: presentTask(existing.data), reused: true });
