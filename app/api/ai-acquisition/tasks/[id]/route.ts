@@ -30,12 +30,22 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const decision = request.nextUrl.searchParams.get("decision") || "";
     const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
     const country = request.nextUrl.searchParams.get("country") || "";
+    const industry = request.nextUrl.searchParams.get("industry")?.trim() || "";
     const level = request.nextUrl.searchParams.get("level") || "";
     const readiness = request.nextUrl.searchParams.get("readiness") || "";
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
     if (decision) query = query.eq("decision", decision);
     if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
     if (country) query = query.eq("country", country);
+    if (industry) {
+      const [industryMatches,categoryMatches]=await Promise.all([
+        createAdminClient().from("customers").select("id").eq("industry",industry).limit(5000),
+        createAdminClient().from("customers").select("id").eq("category",industry).limit(5000),
+      ]);
+      if(industryMatches.error||categoryMatches.error)throw industryMatches.error||categoryMatches.error;
+      const matchingCustomerIds=[...new Set([...(industryMatches.data||[]),...(categoryMatches.data||[])].map((row)=>String(row.id)))];
+      query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
+    }
     if (["A","B","C","D"].includes(level)) query = query.eq("ai_level", level);
     if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true).eq("evidence_complete", true);
     if (readiness === "NO_CONTACT") query = query.eq("has_actionable_contact", false);
