@@ -234,7 +234,12 @@ assert.match(usageView,/aria-label="获客模式"[\s\S]*全部获客模式/,"AI�
 const customerResults=fs.readFileSync(new URL("../components/ai-acquisition/customer-results.tsx",import.meta.url),"utf8");
 const customerResultsRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/customers/route.ts",import.meta.url),"utf8");
 assert.match(customerResults,/今日成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*处理复核/,"任务中心客户结果卡必须落到可处理的统一客户清单");
+assert.match(customerResults,/搜索客户名称或Google地址[\s\S]*全部AI等级[\s\S]*全部所属行业[\s\S]*全部国家\/地区[\s\S]*ACQUISITION_COUNTRY_GROUPS\.map[\s\S]*处理时间[\s\S]*处理开始日期[\s\S]*处理结束日期/,"历史客户结果必须按搜索、AI等级、所属行业、分洲国家和处理时间提供必要筛选");
+assert.doesNotMatch(customerResults,/国家代码，如 US/,"客户结果页不得要求用户手工记忆国家代码");
+assert.match(customerResults,/"客户名称","AI评分","国家\/地区","Google地址","匹配关键词","联系方式","证据状态","来源任务"[\s\S]*进入待复核时间[\s\S]*入池时间[\s\S]*sticky left-0[\s\S]*sticky right-0/,"客户结果字段必须独立展示并固定客户名称与操作列");
+assert.doesNotMatch(customerResults,/"目标行业"|"联系与证据"|"处理时间","操作"/,"客户结果不得继续使用含义错误或混合字段");
 assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*processed_at[\s\S]*decision/,"跨任务客户清单必须保持归属权限、北京时间今日口径与结果状态口径一致");
+assert.match(customerResultsRoute,/params\.get\("industry"\)[\s\S]*params\.get\("from"\)[\s\S]*params\.get\("to"\)[\s\S]*from\("customers"\)[\s\S]*eq\("industry",industry\)[\s\S]*eq\("category",industry\)[\s\S]*processed_at/,"客户结果行业与处理时间筛选必须在接口真实生效");
 const acquisitionReport=fs.readFileSync(new URL("../components/ai-acquisition/task-report.tsx",import.meta.url),"utf8");
 assert.match(acquisitionReport,/获客质量漏斗[\s\S]*高价值客户摘要[\s\S]*搜索组合效果[\s\S]*第三方调用与成本汇总/,"已完成获客任务必须提供结果、质量、搜索效果与成本完整报告");
 const screeningCreate=fs.readFileSync(new URL("../components/ai-screening/create-task-view.tsx",import.meta.url),"utf8");

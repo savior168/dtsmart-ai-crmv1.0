@@ -14,7 +14,10 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const search = (params.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
     const country = params.get("country") || "";
+    const industry = params.get("industry")?.trim() || "";
     const level = params.get("level") || "";
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(params.get("to") || "") ? String(params.get("to")) : "";
     const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const admin = createAdminClient();
 
@@ -32,7 +35,18 @@ export async function GET(request: NextRequest) {
     if (scope === "today") query = query.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
     if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
     if (country) query = query.eq("country", country);
+    if (industry) {
+      const [industryMatches,categoryMatches]=await Promise.all([
+        admin.from("customers").select("id").eq("industry",industry).limit(5000),
+        admin.from("customers").select("id").eq("category",industry).limit(5000),
+      ]);
+      if(industryMatches.error||categoryMatches.error)throw industryMatches.error||categoryMatches.error;
+      const matchingCustomerIds=[...new Set([...(industryMatches.data||[]),...(categoryMatches.data||[])].map((row)=>String(row.id)))];
+      query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
+    }
     if (["A", "B", "C", "D"].includes(level)) query = query.eq("ai_level", level);
+    if (from) query=query.gte("processed_at",`${from}T00:00:00.000+08:00`);
+    if (to) query=query.lte("processed_at",`${to}T23:59:59.999+08:00`);
     const result = await query.order("processed_at", { ascending: false, nullsFirst: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
     const rows = result.data || [];
