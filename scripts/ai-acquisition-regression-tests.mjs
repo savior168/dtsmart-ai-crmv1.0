@@ -72,13 +72,15 @@ assert.doesNotMatch(create,/查看AI获客全流程/,"创建页顶部不得保�
 assert.equal((create.match(/h-\[30px\] w-\[30px\][\s\S]{0,120}rounded-full bg-\[#1763e8\]/g)||[]).length,3,"AI获客三个步骤必须复用AI筛选的蓝色圆形序号样式");
 assert.doesNotMatch(create,/>任务何时完成</,"完成口径不应作为大段说明占用创建表单");
 assert.match(create,/acquisitionKeywordRecommendations[\s\S]*行业推荐关键词[\s\S]*aria-pressed/,"选择行业后必须提供可按需增删的精准关键词推荐");
-assert.match(create,/acquisitionKeywordRecommendationGroups[\s\S]*按目标行业顺序[\s\S]*group\.industry[\s\S]*group\.keywords/,"推荐关键词必须按用户选择的目标行业顺序分组展示");
+assert.match(create,/acquisitionKeywordRecommendationGroups[\s\S]*visibleKeywordRecommendationGroups[\s\S]*group\.industry[\s\S]*group\.keywords/,"推荐关键词必须按用户选择的目标行业顺序分组展示");
+assert.match(create,/showAllKeywordGroups[\s\S]*keywordRecommendationGroups\.slice\(0, 2\)[\s\S]*max-h-\[360px\][\s\S]*查看全部/,"多行业关键词推荐必须默认紧凑折叠，展开后限制高度而不能无限拉长页面");
+assert.match(create,/actions=\{<button[\s\S]*返回任务中心[\s\S]*创建前确认[\s\S]*创建并自动执行[\s\S]*暂存草稿/,"暂存草稿应放在创建前确认区，页头只保留返回任务中心，避免重复和拥挤操作");
 assert.match(create,/ACQUISITION_COMMON_INDUSTRIES[\s\S]*filter\(\(item\)=>!value\.includes\(item\)\)/,"已选行业不得在快捷推荐区重复显示");
 assert.match(create,/label="搜索关键词"/,"关键词字段必须使用直观的搜索关键词名称");
 assert.match(create,/!form\.keywords\.length/,"搜索关键词必须参与前端创建校验");
 assert.match(create,/label="搜索关键词"\s+required/,"搜索关键词必须显示必填标识");
-assert.match(create,/PageHeader[\s\S]*更新草稿[\s\S]*暂存草稿[\s\S]*返回任务中心/,"暂存草稿与返回任务中心必须集中在页面顶部操作区");
-assert.match(create,/创建前确认[\s\S]*w-full justify-center[\s\S]*创建并自动执行/,"创建前确认区只保留醒目的主创建操作");
+assert.match(create,/PageHeader[\s\S]*actions=\{<button[\s\S]*返回任务中心/,"页面顶部只保留清晰的返回任务中心入口");
+assert.match(create,/创建前确认[\s\S]*创建并自动执行[\s\S]*更新草稿/,"创建前确认区必须集中主创建操作与次级暂存草稿操作");
 assert.doesNotMatch(create,/创建前确认[\s\S]{0,2200}>取消<\/button>/,"创建前确认区不得保留与顶部返回入口重复的取消按钮");
 assert.match(create,/清空关键词[\s\S]*批量选择推荐/,"搜索关键词必须支持批量选择推荐和一键清空");
 assert.match(create,/new Set\(\[\.\.\.current\.keywords,\.\.\.keywordRecommendations\]\)[\s\S]*MAX_ACQUISITION_KEYWORDS/,"批量选择推荐关键词必须去重并遵守任务规划上限");
@@ -92,7 +94,8 @@ assert.match(acquisitionConfig,/industryFeatures[\s\S]*acquisitionIndustrySugges
 assert.match(create,/acquisitionIndustrySuggestions\(normalized, 12\)[\s\S]*相近标准行业（按匹配度）[\s\S]*添加“\{normalized\}”/,"行业选择必须同时提供相近标准行业和保留用户原词的入口");
 assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 20[\s\S]*MAX_ACQUISITION_KEYWORDS = 30[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 80/,"行业与关键词容量必须使用明确的任务规划上限，不能沿用任意8项硬限制");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_GROUPS[\s\S]*EUROPE[\s\S]*ASIA[\s\S]*AFRICA[\s\S]*NORTH_AMERICA[\s\S]*SOUTH_AMERICA[\s\S]*OCEANIA/,"获客国家必须按六大业务洲别准确分组");
-assert.match(create,/groupKey[\s\S]*ACQUISITION_COUNTRY_GROUPS\.map[\s\S]*跨全部洲别搜索[\s\S]*最多选择8个/,"国家选择器必须提供紧凑洲别切换、跨洲搜索和选择上限提示");
+assert.match(create,/groupKey[\s\S]*visibleCountryGroups[\s\S]*按洲选择[\s\S]*最多选择8个[\s\S]*grid-cols-3[\s\S]*跨洲搜索结果/,"国家选择器必须提供始终可见的紧凑洲别切换、分组跨洲搜索和选择上限提示");
+assert.match(create,/normalizedQuery[\s\S]*ACQUISITION_COUNTRY_GROUPS[\s\S]*sticky top-0[\s\S]*group\.countries\.map/,"跨洲搜索结果必须继续按洲分段展示，不得退化为国家长列表");
 assert.match(acquisitionConfig,/for \(let round = 0;[\s\S]*for \(const group of groups\)/,"本地化检索计划必须按行业轮询，确保后续行业不会被前序关键词组合挤掉");
 assert.match(create,/ScheduleControl/,"AI获客预约执行必须复用AI筛选统一时间控件");
 assert.match(create,/xl:grid-cols-\[minmax\(250px,\.85fr\)_minmax\(230px,\.75fr\)_minmax\(520px,1\.4fr\)\][\s\S]*目标国家\/地区[\s\S]*执行时间/,"宽屏下任务名称、目标国家和完整预约控件必须在同一行合理排列");
@@ -154,6 +157,9 @@ assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得�
 assert.match(taskCenter,/今日获客[\s\S]*历史总获客[\s\S]*进行中[\s\S]*待人工复核[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
 assert.match(taskCenter,/aria-pressed=\{metric===item\.key\}[\s\S]*setMetric\(item\.key\)/,"任务中心概览必须可以点击定位对应任务列表");
+assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S]*市场 \/ 获客模式/,"任务中心必须统一使用获客模式，不能误称为成本模式");
+assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
+assert.match(taskCenter,/ACQUISITION_COUNTRY_GROUPS\.map[\s\S]*<optgroup[\s\S]*group\.countries\.map/,"任务中心国家筛选也必须按洲分组，不能退化为无分组长列表");
 assert.match(taskCenter,/获客成本总览[\s\S]*今日费用[\s\S]*历史累计费用[\s\S]*平均每位有效客户成本[\s\S]*Google Places累计调用/,"任务中心必须直观对应真实获客结果与可核验成本");
 assert.doesNotMatch(taskCenter,/查看用量与费用明细/,"成本总览不得重复提供顶部已有的统一用量入口");
 assert.match(taskCenter,/Google Places 结算月调用明细[\s\S]*AI获客记录[\s\S]*AI筛选记录[\s\S]*平台已确认总量[\s\S]*待平台同步[\s\S]*预计账号总量[\s\S]*免费上限[\s\S]*剩余 \/ 已超[\s\S]*超额预计费用/,"Google Places卡片必须分开显示AI获客和AI筛选记录，并保留真实账号额度与预计费用");
@@ -166,4 +172,5 @@ assert.match(sharedUsage,/AI用量与费用[\s\S]*AI筛选[\s\S]*AI获客/,"AI�
 assert.match(sharedUsage,/canViewCostCenter[\s\S]*href="\/settings\/costs"[\s\S]*费用中心/,"统一AI用量页必须按权限提供费用中心入口");
 assert.match(costView,/canViewAiUsage[\s\S]*href="\/ai-usage"[\s\S]*AI用量与费用/,"费用中心必须按权限提供返回统一AI用量页的入口");
 assert.match(usageView,/quickCostDateRange\("TODAY"\)[\s\S]*CostDateRangePreset>\("TODAY"\)/,"AI获客用量页首次进入必须默认今日");
+assert.match(usageView,/aria-label="获客模式"[\s\S]*全部获客模式/,"AI获客用量筛选必须与任务中心统一使用获客模式");
 console.log("AI acquisition regression tests passed");

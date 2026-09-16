@@ -291,7 +291,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {[
           ["状态", <StatusBadge key="s" status={task.status} />],
-          ["成本模式", <CostModeBadge key="m" mode={task.cost_mode} context="acquisition" />],
+          ["获客模式", <CostModeBadge key="m" mode={task.cost_mode} context="acquisition" />],
           [
             "发现 / 已处理",
             `${task.discovered_count} / ${task.processed_count}`,

@@ -19,7 +19,7 @@ import {
   primaryButton,
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask } from "./types";
-import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COUNTRY_GROUPS, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 import { quickCostDateRange } from "@/lib/cost-center";
@@ -276,9 +276,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
             <option value="FAILED">失败</option>
             <option value="CANCELLED">已取消</option>
           </select>
-          <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRIES.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</select>
+          <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRY_GROUPS.map((group)=><optgroup key={group.key} label={group.label}>{group.countries.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</optgroup>)}</select>
           <IndustryFilter value={industry} onChange={(value)=>{setPage(1);setIndustry(value)}}/>
-          <select aria-label="成本模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部成本模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
+          <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
           {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
           <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
           </div>
@@ -306,7 +306,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     ...(showOwner ? ["归属人"] : []),
                     "状态",
                     "目标行业",
-                    "市场 / 模式",
+                    "市场 / 获客模式",
                     "发现 / 核验",
                     "入池 / 待复核",
                     "未通过 / 重复",

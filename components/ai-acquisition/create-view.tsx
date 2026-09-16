@@ -2,7 +2,7 @@
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect } from "react";
-import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRIES, ACQUISITION_COUNTRY_GROUPS, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRY_GROUPS, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
 import {
   PageHeader,
   ConfirmDialog,
@@ -35,24 +35,52 @@ function CountryPicker({
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
+      if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
+        setQ("");
+      }
     };
     document.addEventListener("mousedown", close);
-    const escape = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        setQ("");
+      }
+    };
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, []);
-  const activeGroup=ACQUISITION_COUNTRY_GROUPS.find((group)=>group.key===groupKey)||ACQUISITION_COUNTRY_GROUPS[0];
-  const normalizedQuery=q.trim().toLowerCase();
-  const options = (normalizedQuery?ACQUISITION_COUNTRIES:activeGroup.countries).filter((c) => `${c} ${COUNTRY_NAMES.of(c)}`.toLowerCase().includes(normalizedQuery));
+  const activeGroup =
+    ACQUISITION_COUNTRY_GROUPS.find((group) => group.key === groupKey) ||
+    ACQUISITION_COUNTRY_GROUPS[0];
+  const normalizedQuery = q.trim().toLowerCase();
+  const visibleCountryGroups = (normalizedQuery
+    ? ACQUISITION_COUNTRY_GROUPS
+    : [activeGroup]
+  )
+    .map((group) => ({
+      ...group,
+      countries: group.countries.filter((code) =>
+        `${code} ${COUNTRY_NAMES.of(code)}`
+          .toLowerCase()
+          .includes(normalizedQuery),
+      ),
+    }))
+    .filter((group) => group.countries.length > 0);
+  const resultCount = visibleCountryGroups.reduce(
+    (total, group) => total + group.countries.length,
+    0,
+  );
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         aria-expanded={open}
         aria-haspopup="listbox"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (open) setQ("");
+          setOpen(!open);
+        }}
         className={`${input} flex w-full items-center justify-between text-left`}
       >
         <span className="truncate">
@@ -77,35 +105,122 @@ function CountryPicker({
               placeholder="搜索国家/地区"
             />
           </label>
-          {value.length ? <div className="mt-2 flex flex-wrap items-center gap-1.5 border-b border-slate-100 pb-2"><span className="mr-1 text-xs text-slate-500">已选 {value.length}/8</span>{value.map((code)=><button key={code} type="button" aria-label={`移除${COUNTRY_NAMES.of(code) || code}`} onClick={()=>onChange(value.filter((item)=>item!==code))} className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700">{COUNTRY_NAMES.of(code) || code}<X size={11}/></button>)}<button type="button" onClick={()=>onChange([])} className="ml-auto text-xs text-slate-500 hover:text-blue-700">清空</button></div> : null}
-          {!normalizedQuery?<div className="mt-2 flex gap-1 overflow-x-auto border-b border-slate-100 pb-2">{ACQUISITION_COUNTRY_GROUPS.map((group)=><button key={group.key} type="button" aria-pressed={groupKey===group.key} onClick={()=>setGroupKey(group.key)} className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs transition ${groupKey===group.key?"bg-blue-600 font-medium text-white":"text-slate-600 hover:bg-slate-100"}`}>{group.label}<span className={`ml-1 ${groupKey===group.key?"text-blue-100":"text-slate-400"}`}>{group.countries.length}</span></button>)}</div>:<p className="mt-2 border-b border-slate-100 pb-2 text-xs text-slate-500">跨全部洲别搜索 · {options.length} 个结果</p>}
-          <div className="mt-2 flex items-center justify-between px-1 text-xs text-slate-500"><span>{normalizedQuery?"搜索结果":activeGroup.label}</span><span>最多选择8个</span></div>
-          <div role="listbox" aria-multiselectable="true" className="mt-1 grid max-h-56 grid-cols-1 overflow-auto sm:grid-cols-2">
-            {options.map((c) => {
-              const checked = value.includes(c);
-              return (
+          {value.length ? (
+            <div className="mt-2 flex min-w-0 items-center gap-2 border-b border-slate-100 pb-2">
+              <span className="shrink-0 text-xs text-slate-500">已选 {value.length}/8</span>
+              <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
+                {value.map((code) => (
+                  <button
+                    key={code}
+                    type="button"
+                    aria-label={`移除${COUNTRY_NAMES.of(code) || code}`}
+                    onClick={() => onChange(value.filter((item) => item !== code))}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                  >
+                    {COUNTRY_NAMES.of(code) || code}
+                    <X size={11} />
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="shrink-0 text-xs text-slate-500 hover:text-blue-700"
+              >
+                清空
+              </button>
+            </div>
+          ) : null}
+          <div className="mt-2 border-b border-slate-100 pb-2">
+            <div className="mb-1.5 flex items-center justify-between px-1 text-xs text-slate-500">
+              <span>按洲选择</span>
+              <span>最多选择8个</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1" aria-label="洲别筛选">
+              {ACQUISITION_COUNTRY_GROUPS.map((group) => (
                 <button
-                  key={c}
+                  key={group.key}
                   type="button"
-                  role="option"
-                  aria-selected={checked}
-                  disabled={!checked && value.length >= 8}
-                  onClick={() =>
-                    onChange(
-                      checked ? value.filter((x) => x !== c) : [...value, c],
-                    )
-                  }
-                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 ${checked ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50"}`}
+                  aria-pressed={!normalizedQuery && groupKey === group.key}
+                  onClick={() => {
+                    setGroupKey(group.key);
+                    setQ("");
+                  }}
+                  className={`flex items-center justify-center rounded-md px-2 py-1.5 text-xs transition ${
+                    !normalizedQuery && groupKey === group.key
+                      ? "bg-blue-600 font-medium text-white"
+                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  }`}
                 >
-                  <span>
-                    {COUNTRY_NAMES.of(c)} <small>{c}</small>
+                  {group.label}
+                  <span
+                    className={`ml-1 ${
+                      !normalizedQuery && groupKey === group.key
+                        ? "text-blue-100"
+                        : "text-slate-400"
+                    }`}
+                  >
+                    {group.countries.length}
                   </span>
-                  {checked ? <Check size={14} /> : null}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
-          {!options.length?<p className="px-3 py-6 text-center text-sm text-slate-400">没有匹配的国家/地区</p>:null}
+          <div className="mt-2 flex items-center justify-between px-1 text-xs text-slate-500">
+            <span>{normalizedQuery ? "跨洲搜索结果" : `${activeGroup.label}国家/地区`}</span>
+            <span>{resultCount} 个</span>
+          </div>
+          <div
+            role="listbox"
+            aria-multiselectable="true"
+            className="mt-1 max-h-56 overflow-auto"
+          >
+            {visibleCountryGroups.map((group) => (
+              <div key={group.key} className="mb-1 last:mb-0">
+                {normalizedQuery ? (
+                  <div className="sticky top-0 z-10 bg-white px-3 py-1 text-xs font-medium text-slate-500">
+                    {group.label} · {group.countries.length}
+                  </div>
+                ) : null}
+                <div className="grid grid-cols-1 sm:grid-cols-2">
+                  {group.countries.map((code) => {
+                    const checked = value.includes(code);
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        role="option"
+                        aria-selected={checked}
+                        disabled={!checked && value.length >= 8}
+                        onClick={() =>
+                          onChange(
+                            checked
+                              ? value.filter((item) => item !== code)
+                              : [...value, code],
+                          )
+                        }
+                        className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 ${
+                          checked
+                            ? "bg-blue-50 text-blue-700"
+                            : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <span>
+                          {COUNTRY_NAMES.of(code)} <small>{code}</small>
+                        </span>
+                        {checked ? <Check size={14} /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          {!resultCount ? (
+            <p className="px-3 py-6 text-center text-sm text-slate-400">
+              没有匹配的国家/地区
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -258,10 +373,12 @@ export function AcquisitionCreateView() {
     [cancelConfirm, setCancelConfirm] = useState(false),
     [flowOpen, setFlowOpen] = useState(false),
     [costLimitOpen, setCostLimitOpen] = useState(false),
+    [showAllKeywordGroups, setShowAllKeywordGroups] = useState(false),
     [hasSavedDraft, setHasSavedDraft] = useState(false);
   const [form, setForm] = useState(emptyAcquisitionForm);
   const keywordRecommendationGroups = acquisitionKeywordRecommendationGroups(form.industries);
   const keywordRecommendations = acquisitionKeywordRecommendations(form.industries);
+  const visibleKeywordRecommendationGroups = showAllKeywordGroups ? keywordRecommendationGroups : keywordRecommendationGroups.slice(0, 2);
   const requestKeyRef = useRef(crypto.randomUUID());
   useEffect(() => {
     window.sessionStorage.removeItem(LEGACY_DRAFT_KEY);
@@ -341,7 +458,7 @@ export function AcquisitionCreateView() {
       <PageHeader
         title="创建AI获客任务"
         description="设置目标市场、行业、执行时间和获客模式。"
-        actions={<><button type="button" disabled={!hasDraftContent} onClick={saveDraft} className={button}>{hasSavedDraft?"更新草稿":"暂存草稿"}</button><button type="button" onClick={()=>hasDraftContent?setCancelConfirm(true):router.push("/ai-acquisition")} className={button}>返回任务中心</button></>}
+        actions={<button type="button" onClick={()=>hasDraftContent?setCancelConfirm(true):router.push("/ai-acquisition")} className={button}>返回任务中心</button>}
       />
       {hasSavedDraft?<div className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm text-blue-800"><span>存在已暂存草稿</span><button type="button" onClick={clearDraft} className="shrink-0 font-medium text-blue-700 hover:underline">清空并新建</button></div>:null}
         <section className={`${panel} overflow-visible`}>
@@ -378,7 +495,7 @@ export function AcquisitionCreateView() {
             placeholder="必填，可直接批量粘贴；多项用逗号、分号或换行分隔，不会放宽目标行业范围。"
             onNotice={(message,tone)=>toast(message,tone)}
           />
-          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-medium text-slate-500">行业推荐关键词（按目标行业顺序）</span><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">批量选择推荐</button></div><div className="space-y-3">{keywordRecommendationGroups.map((group,index)=><div key={group.industry} className="grid gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]"><div className="pt-1.5 text-xs font-medium text-slate-600"><span className="mr-1 text-slate-400">{index+1}.</span>{group.industry}</div><div className="flex flex-wrap items-center gap-2">{group.keywords.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={`${group.industry}:${keyword}`} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div></div>)}</div><p className="mt-3 text-xs text-slate-400">每个行业内按相关度从高到低推荐；上方搜索关键词的排列顺序就是任务实际检索顺序，可手动增删调整。</p></div>:null}
+          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-medium text-slate-500">行业推荐关键词 <span className="font-normal text-slate-400">· {keywordRecommendationGroups.length} 个目标行业</span></span><span className="flex items-center gap-3"><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">批量选择推荐</button>{keywordRecommendationGroups.length>2?<button type="button" aria-expanded={showAllKeywordGroups} onClick={()=>setShowAllKeywordGroups((current)=>!current)} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">{showAllKeywordGroups?"收起":"查看全部"}<ChevronDown size={13} className={`transition ${showAllKeywordGroups?"rotate-180":""}`}/></button>:null}</span></div><div className={`space-y-3 ${showAllKeywordGroups?"max-h-[360px] overflow-y-auto pr-1":""}`}>{visibleKeywordRecommendationGroups.map((group)=>{const originalIndex=keywordRecommendationGroups.findIndex((item)=>item.industry===group.industry);return <div key={group.industry} className="grid gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]"><div className="pt-1.5 text-xs font-medium text-slate-600"><span className="mr-1 text-slate-400">{originalIndex+1}.</span>{group.industry}</div><div className="flex flex-wrap items-center gap-2">{group.keywords.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={`${group.industry}:${keyword}`} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div></div>})}</div>{keywordRecommendationGroups.length>2&&!showAllKeywordGroups?<p className="mt-3 text-xs text-slate-400">默认展示前 2 个目标行业，点击“查看全部”后可选择其余 {keywordRecommendationGroups.length-2} 个行业的推荐词。</p>:<p className="mt-3 text-xs text-slate-400">每个行业按相关度推荐；上方关键词顺序即任务实际检索顺序，可手动增删。</p>}</div>:null}
           </div>
           </div>
         </section>
@@ -436,7 +553,7 @@ export function AcquisitionCreateView() {
         ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行",""],
         ["获客模式",form.cost_mode==="FREE_ONLY"?"全免费获客":"智能增强获客",""],
         ["任务费用上限",form.cost_mode==="FREE_ONLY"?"$0.00":form.task_cost_limit_usd?`$${Number(form.task_cost_limit_usd).toFixed(2)}`:"继承全局上限",""],
-      ].map(([label,value,title])=><div key={label} className="flex justify-between gap-[10px] border-b border-dashed border-[#dbe2ec] py-[7px]"><dt className="shrink-0 text-[#6f7c90]">{label}</dt><dd title={title||undefined} className="max-w-[190px] break-words text-right font-semibold">{value}</dd></div>)}</dl><p className={`mt-2 text-xs leading-5 ${invalid?"text-amber-700":"text-slate-500"}`}>{invalid?"请完整填写任务名称、目标行业、搜索关键词、国家/地区和有效执行时间。":"仅通过目标、在营、证据、联系方式和系统去重门槛的客户进入公海。"}</p><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} mt-[14px] w-full justify-center`}>{form.schedule_type==="scheduled"?"预约并创建":"创建并自动执行"}</button></aside>
+      ].map(([label,value,title])=><div key={label} className="flex justify-between gap-[10px] border-b border-dashed border-[#dbe2ec] py-[7px]"><dt className="shrink-0 text-[#6f7c90]">{label}</dt><dd title={title||undefined} className="max-w-[190px] break-words text-right font-semibold">{value}</dd></div>)}</dl><p className={`mt-2 text-xs leading-5 ${invalid?"text-amber-700":"text-slate-500"}`}>{invalid?"请完整填写任务名称、目标行业、搜索关键词、国家/地区和有效执行时间。":"仅通过目标、在营、证据、联系方式和系统去重门槛的客户进入公海。"}</p><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} mt-[14px] w-full justify-center`}>{form.schedule_type==="scheduled"?"预约并创建":"创建并自动执行"}</button><button type="button" disabled={!hasDraftContent} onClick={saveDraft} className={`${button} mt-2 w-full justify-center`}>{hasSavedDraft?"更新草稿":"暂存草稿"}</button></aside>
       </div>
       {node}
       <ConfirmDialog open={cancelConfirm} title="返回任务中心？" description="已经暂存的草稿会保留；当前未再次暂存的修改将丢失。" confirmLabel="确认返回" onClose={()=>setCancelConfirm(false)} onConfirm={()=>router.push("/ai-acquisition")}/>
