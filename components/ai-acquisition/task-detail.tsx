@@ -150,9 +150,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [evidenceLoading, setEvidenceLoading] = useState(false),
     [reviewAction, setReviewAction] = useState<{action:"DISCARD" | "RECHECK_AND_ACCEPT";candidateId:string} | null>(null);
   const { toast, node } = useToast();
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    if (!quiet) setError("");
     try {
       const p = new URLSearchParams({
         page: String(page),
@@ -164,6 +164,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       if (industry) p.set("industry", industry);
       if (level) p.set("level", level);
       if (readiness) p.set("readiness", readiness);
+      if (quiet) p.set("lightweight", "1");
       const r = await fetch(`/api/ai-acquisition/tasks/${taskId}?${p}`, {
         cache: "no-store",
       });
@@ -172,17 +173,17 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       setTask(b.task);
       setRows(b.candidates || []);
       setCount(b.count || 0);
-      setCosts(b.costs || []);
-      setUsage(b.usage_summary || null);
-      setCompletion(b.completion || {budget_limited:false,blocked_periods:[]});
+      if (Array.isArray(b.costs)) setCosts(b.costs);
+      if (b.usage_summary) setUsage((current) => ({ ...(current || {}), ...b.usage_summary } as UsageSummary));
+      if (b.completion) setCompletion(b.completion);
       setDiscoveryProgress(b.discovery_progress || null);
-      setSearchStats(b.search_stats || []);
+      if (Array.isArray(b.search_stats)) setSearchStats(b.search_stats);
       setCanControl(Boolean(b.can_control));
       setCanEvidence(Boolean(b.can_view_evidence));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "加载失败");
+      if (!quiet) setError(e instanceof Error ? e.message : "加载失败");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [taskId, page, pageSize, decision, search, country, industry, level, readiness]);
   useEffect(() => {
@@ -191,7 +192,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
   useEffect(() => {
     if (!task || !["QUEUED", "RUNNING", "PAUSING"].includes(task.status))
       return;
-    const id = setInterval(() => void load(), 8000);
+    const id = setInterval(() => void load(true), 15000);
     return () => clearInterval(id);
   }, [task, load]);
   async function runAction() {

@@ -6,6 +6,7 @@ import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, AI_COST_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask, rescueStalledCloudTasks } from "@/lib/ai/task-dispatch";
 import { createScreeningTaskNumber } from "@/lib/ai/task-number";
+import { costLedgerRange, shanghaiToday } from "@/lib/cost-center";
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,6 +24,13 @@ export async function GET(request: NextRequest) {
     const to = params.get("date_to") || "";
     const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
+    const acquisitionChildIds = new Set<string>();
+    for (let offset = 0; ; offset += 1000) {
+      const children = await admin.from("ai_screening_tasks").select("id").contains("filters", { service: "AI_ACQUISITION" }).range(offset, offset + 999);
+      if (children.error) throw children.error;
+      for (const row of children.data || []) acquisitionChildIds.add(String(row.id));
+      if ((children.data || []).length < 1000) break;
+    }
     try {
       await rescueStalledCloudTasks();
     } catch (rescueError) {
@@ -83,8 +91,8 @@ export async function GET(request: NextRequest) {
       completed: all.filter((item) => item.status === "COMPLETED").length,
       failed: all.filter((item) => item.status === "FAILED").length,
     };
-    const today = new Date().toISOString().slice(0, 10);
-    const todayStart = `${today}T00:00:00.000Z`;
+    const today = shanghaiToday();
+    const todayStart = costLedgerRange(today, today).from;
     const ownedTaskIds = all.map((item) => item.id);
     const countItems = async (statusValue: string, since?: string, retryableOnly = false) => {
       if (!ownedTaskIds.length) return 0;
@@ -107,12 +115,12 @@ export async function GET(request: NextRequest) {
     const todayCostPromise = canViewAiUsage ? (async () => {
       let total = 0;
       for (let rowOffset = 0; ; rowOffset += 1000) {
-        let callsQuery = admin.from("ai_screening_usage_ledger").select("cost_usd").gte("occurred_at", todayStart);
+        let callsQuery = admin.from("ai_screening_usage_ledger").select("task_id,cost_usd").gte("occurred_at", todayStart);
         if (scopeUserId) callsQuery = callsQuery.eq("user_id", scopeUserId);
         const calls = await callsQuery.range(rowOffset, rowOffset + 999);
         if (calls.error) throw calls.error;
         const rows = calls.data || [];
-        total += rows.reduce((sum, call) => sum + Number(call.cost_usd || 0), 0);
+        total += rows.reduce((sum, call) => sum + (acquisitionChildIds.has(String(call.task_id || "")) ? 0 : Number(call.cost_usd || 0)), 0);
         if (rows.length < 1000) break;
       }
       return total;
@@ -139,6 +147,15 @@ export async function GET(request: NextRequest) {
     ]);
     if (pendingCustomers.error) throw pendingCustomers.error;
     if (todayCompleted.error) throw todayCompleted.error;
+    let acquisitionTodayCompleted = 0;
+    const childIds = [...acquisitionChildIds];
+    for (let offset = 0; offset < childIds.length; offset += 100) {
+      let childQuery = admin.from("ai_screening_completion_ledger").select("source_task_item_id", { count: "exact", head: true }).in("task_id", childIds.slice(offset, offset + 100)).gte("completed_at", todayStart);
+      if (scopeUserId) childQuery = childQuery.eq("user_id", scopeUserId);
+      const childCount = await childQuery;
+      if (childCount.error) throw childCount.error;
+      acquisitionTodayCompleted += childCount.count || 0;
+    }
     const pendingCustomerCount = pendingCustomers.count || 0;
     // The all-time system-wide cost summary is finance-sensitive. It defaults
     // to administrators, but the permission center may explicitly delegate it.
@@ -153,23 +170,40 @@ export async function GET(request: NextRequest) {
     if (canViewHistoricalCost) {
       for (let offset = 0; ; offset += 1000) {
         const calls = await admin.from("api_cost_ledger")
-          .select("quantity")
+          .select("task_id,quantity")
           .eq("service", "AI筛选")
           .eq("provider", "GOOGLE_PLACES")
           .range(offset, offset + 999);
         if (calls.error) throw calls.error;
         const rows = calls.data || [];
-        historicalGoogleCalls += rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
+        historicalGoogleCalls += rows.reduce((sum, row) => sum + (acquisitionChildIds.has(String(row.task_id || "")) ? 0 : Math.max(0, Number(row.quantity || 1))), 0);
         if (rows.length < 1000) break;
       }
     }
-    const historicalOpenAiCost = Number(historicalProviderCosts.OPENAI || 0);
-    const historicalCompleted = Number(historicalSummary.processed_customers || 0);
+    let acquisitionHistoricalCompleted = 0;
+    let acquisitionHistoricalOpenAiCost = 0;
+    if (canViewHistoricalCost) {
+      for (let offset = 0; offset < childIds.length; offset += 100) {
+        const ids = childIds.slice(offset, offset + 100);
+        const completed = await admin.from("ai_screening_completion_ledger").select("source_task_item_id", { count: "exact", head: true }).in("task_id", ids);
+        if (completed.error) throw completed.error;
+        acquisitionHistoricalCompleted += completed.count || 0;
+        for (let rowOffset = 0; ; rowOffset += 1000) {
+          const usage = await admin.from("ai_screening_usage_ledger").select("cost_usd").in("task_id", ids).range(rowOffset, rowOffset + 999);
+          if (usage.error) throw usage.error;
+          const rows = usage.data || [];
+          acquisitionHistoricalOpenAiCost += rows.reduce((sum, row) => sum + Number(row.cost_usd || 0), 0);
+          if (rows.length < 1000) break;
+        }
+      }
+    }
+    const historicalOpenAiCost = Math.max(0, Number(historicalProviderCosts.OPENAI || 0) - acquisitionHistoricalOpenAiCost);
+    const historicalCompleted = Math.max(0, Number(historicalSummary.processed_customers || 0) - acquisitionHistoricalCompleted);
     return NextResponse.json({
       data: taskRows, count: result.count || 0, counts, show_owner: account.role !== "SALES",
       pending_customers: pendingCustomerCount,
       today_cost: canViewAiUsage ? todayCost : null,
-      today_completed_customers: todayCompleted.count || 0,
+      today_completed_customers: Math.max(0, (todayCompleted.count || 0) - acquisitionTodayCompleted),
       today_failed_customers: todayFailedCount,
       retry_customers: retryableCount,
       show_ai_usage: canViewAiUsage,

@@ -132,7 +132,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ data: (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); }), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";
-    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
+    console.error("[ai-acquisition/tasks] list failed", error);
+    const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录" : message === "FORBIDDEN" ? "无权查看AI获客任务" : "AI获客任务加载失败，请稍后重试";
+    return NextResponse.json({ error: publicMessage }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
   }
 }
 

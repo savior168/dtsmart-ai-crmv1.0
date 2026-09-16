@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -11,7 +12,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     if (candidate.error) throw candidate.error;
     if (!candidate.data) return NextResponse.json({ error: "CANDIDATE_NOT_FOUND" }, { status: 404 });
     const ownerId = (candidate.data.ai_acquisition_tasks as { user_id?: string } | null)?.user_id;
-    if (ownerId !== account.id && !hasPermission(account, "ai.acquisition.data_all")) throw new Error("FORBIDDEN");
+    if (ownerId !== account.id && (!hasPermission(account, "ai.acquisition.data_all") || !await canReadAiOwner(account, ownerId))) throw new Error("FORBIDDEN");
     const itemId = String(candidate.data.screening_task_item_id || "");
     const customerId = String(candidate.data.staging_customer_id || candidate.data.imported_customer_id || "");
     const [result, evidence, contacts] = await Promise.all([

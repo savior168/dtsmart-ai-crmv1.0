@@ -6,6 +6,7 @@ import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiDispatchPolic
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { createScreeningTaskNumber } from "@/lib/ai/task-number";
+import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 function taskDispatchPolicy(): AiDispatchPolicy {
   return AI_CLOUD_DISPATCH_POLICY;
@@ -13,10 +14,9 @@ function taskDispatchPolicy(): AiDispatchPolicy {
 
 async function ownedTask(id: string, account: CurrentAccount) {
   const admin = createAdminClient();
-  let query = admin.from("ai_screening_tasks").select("*").eq("id", id);
-  if (!hasPermission(account, "ai.data_all")) query = query.eq("user_id", account.id);
-  const result = await query.single();
+  const result = await admin.from("ai_screening_tasks").select("*").eq("id", id).maybeSingle();
   if (result.error || !result.data) throw result.error || new Error("任务不存在或无权访问");
+  if (result.data.user_id !== account.id && (!hasPermission(account, "ai.data_all") || !await canReadAiOwner(account, result.data.user_id))) throw new Error("FORBIDDEN");
   return result.data;
 }
 

@@ -151,8 +151,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       const p = new URLSearchParams({
         page: String(page),
         pageSize: String(pageSize),
-        user_id: scopeUserId || "all",
       });
+      if (scopeUserId) p.set("user_id", scopeUserId);
       if (status) p.set("status", status);
       if (metric) p.set("metric", metric);
       if (search) p.set("search", search);
@@ -184,9 +184,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     let active = true;
     setCostOverview(null);
     const today = quickCostDateRange("TODAY");
-    const scope = scopeUserId || "all";
-    const todayParams = new URLSearchParams({ from:today.from, to:today.to, user_id:scope, page:"1", pageSize:"10" });
-    const historyParams = new URLSearchParams({ all_time:"1", user_id:scope, page:"1", pageSize:"10" });
+    const todayParams = new URLSearchParams({ from:today.from, to:today.to, page:"1", pageSize:"10" });
+    const historyParams = new URLSearchParams({ all_time:"1", page:"1", pageSize:"10" });
+    if (scopeUserId) { todayParams.set("user_id", scopeUserId); historyParams.set("user_id", scopeUserId); }
     void Promise.all([
       fetch(`/api/ai-acquisition/usage?${todayParams}`, { cache:"no-store" }).then(async (response)=>response.ok?response.json():null),
       fetch(`/api/ai-acquisition/usage?${historyParams}`, { cache:"no-store" }).then(async (response)=>response.ok?response.json():null),
@@ -231,6 +231,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       toast(actionError instanceof Error?actionError.message:"任务操作失败","error");
     }finally{setActionBusy(false)}
   }
+  const ownerQuery = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
   return (
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
@@ -261,7 +262,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           const customerScope=item.key==="today_accepted"?"today":item.key==="accepted"?"accepted":item.key==="review"?"review":null;
           const className=`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${!customerScope&&metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`;
           const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
-          return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
+          return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${ownerQuery}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
         })}
       </section>
       {toastNode}
@@ -274,7 +275,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><p className="mb-3 text-xs text-slate-500">金额由系统调用账本按对应 SKU / 模型价目估算，未扣除账号共享免费额度、赠金或账单调整；最终结算以服务商账单为准。</p><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link href="/ai-usage?module=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>今日成本参考</span><span className="text-blue-600">查看今日明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日 {costOverview?formatNumber(costOverview.todayCalls):"—"} 次调用</span></Link>
           <Link href="/ai-usage?module=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>历史累计成本参考</span><span className="text-blue-600">查看用量明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">OpenAI 与 Google 分业务记账</span></Link>
-          <Link href="/ai-acquisition/customers?scope=accepted" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>平均每位有效客户成本参考</span><span className="text-blue-600">查看入池客户</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计成本参考 ÷ 成功入池客户</span></Link>
+          <Link href={`/ai-acquisition/customers?scope=accepted${ownerQuery}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>平均每位有效客户成本参考</span><span className="text-blue-600">查看入池客户</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计成本参考 ÷ 成功入池客户</span></Link>
           <button type="button" disabled={!canViewGoogleBilling} onClick={()=>void openGoogleDetails()} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-slate-50"><small className="flex items-center justify-between text-slate-500"><span>Google Places累计调用</span>{canViewGoogleBilling?<span className="text-blue-600">查看明细</span>:null}</small><b className="mt-1 block text-xl">{costOverview?`${formatNumber(costOverview.googleCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">累计免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次</span></button>
         </div></div>:null}
       </section> : null}

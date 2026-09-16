@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,8 +16,15 @@ export async function GET(request: NextRequest) {
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
     const returnAll = params.get("all") === "true";
-    const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
+    let scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
+    if (taskId) {
+      const requestedTask = await admin.from("ai_screening_tasks").select("id,user_id").eq("id", taskId).maybeSingle();
+      if (requestedTask.error) throw requestedTask.error;
+      if (!requestedTask.data) throw new Error("TASK_NOT_FOUND");
+      if (requestedTask.data.user_id !== account.id && (!hasPermission(account, "ai.data_all") || !await canReadAiOwner(account, requestedTask.data.user_id))) throw new Error("FORBIDDEN");
+      scopeUserId = requestedTask.data.user_id;
+    }
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {
       let ownedQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at,user_id").order("updated_at", { ascending: false }).order("created_at", { ascending: false });

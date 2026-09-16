@@ -3,6 +3,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AiOwnerOption = { id: string; name: string | null; email: string; role: string };
 
+export async function canReadAiOwner(account: CurrentAccount, ownerId: string | null | undefined) {
+  if (!ownerId) return false;
+  if (ownerId === account.id || account.role === "ADMIN") return true;
+  if (account.role !== "SUPERVISOR") return false;
+  const directReport = await createAdminClient().from("users").select("id").eq("id", ownerId).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
+  if (directReport.error) throw directReport.error;
+  return Boolean(directReport.data);
+}
+
 /**
  * AI screening is the one cross-user workflow where a supervisor may submit
  * a task for a direct report. Keep this scope separate from ordinary list

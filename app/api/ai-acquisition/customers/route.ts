@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorStatus, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const validScopes = new Set(["today", "accepted", "review"]);
@@ -64,13 +64,21 @@ export async function GET(request: NextRequest) {
     const summaryError = todayResult.error || acceptedResult.error || reviewResult.error;
     if (summaryError) throw summaryError;
 
+    const canControlTasks = hasPermission(account, "ai.acquisition.control");
     return NextResponse.json({
-      data: rows.map((row) => { const profile=profileById.get(String(row.imported_customer_id || row.staging_customer_id || "")); return { ...row, display_industry:profile?.industry||profile?.category||"待确认行业" }; }),
+      data: rows.map((row) => {
+        const profile=profileById.get(String(row.imported_customer_id || row.staging_customer_id || ""));
+        const task = Array.isArray(row.task) ? row.task[0] : row.task;
+        return { ...row, task, display_industry:profile?.industry||profile?.category||"待确认行业", can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
+      }),
       count: result.count || 0,
       summary: { today: todayResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
+      show_owner: hasPermission(account, "ai.acquisition.data_all"),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客客户结果加载失败";
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
+    console.error("AI acquisition customer results failed", error);
+    const publicMessage = ["UNAUTHORIZED", "SESSION_REVOKED", "FORBIDDEN", "PASSWORD_CHANGE_REQUIRED"].includes(message) || message.startsWith("ACCOUNT_") ? message : "AI获客客户结果加载失败，请稍后重试";
+    return NextResponse.json({ error: publicMessage }, { status: authErrorStatus(publicMessage) });
   }
 }

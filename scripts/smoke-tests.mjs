@@ -85,6 +85,9 @@ const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
 assert.match(evidenceApi, /verified_contacts/, "AI依据接口必须返回可追溯的新联系方式");
 assert.match(evidenceApi, /isUsableEvidence/, "依据接口必须过滤失败码、原始JSON和不可追溯记录");
 assert.match(evidenceApi, /GOOGLE_MAPS_API_KEY\|fetch failed/, "依据接口不得向业务员展示内部抓取错误码");
+assert.match(evidenceApi, /ai_screening_task_items[\s\S]*TASK_CUSTOMER_MISMATCH/, "AI依据接口必须核验任务与客户关联，避免任务详情可见但依据页加载失败");
+assert.match(evidenceApi, /canReadAiOwner\(account, task\.data\.user_id\)/, "AI依据接口必须把主管直达权限限制为直属下属");
+assert.match(evidenceApi, /AI分析依据暂时无法加载，请稍后重试/, "AI依据页不得向普通用户暴露数据库内部错误");
 const evidenceView = read("components/ai-screening/evidence-view.tsx");
 assert.match(evidenceView, /VerifiedContactsSection/, "AI依据页必须在结论附近显眼展示已核实联系方式");
 assert.match(evidenceView, /<span>客户详情<\/span>/, "AI分析依据页必须显示客户详情按钮文字");
@@ -174,10 +177,11 @@ const aiUi = read("components/ai-screening/ui.tsx");
 assert.match(aiUi, /finished_at \|\| task\.completed_at \|\| task\.updated_at/, "历史任务缺少elapsed_ms时必须用开始和结束时间计算真实耗时");
 const elapsedBackfill = read("supabase/migrations/202608240001_backfill_ai_task_elapsed.sql");
 assert.match(elapsedBackfill, /coalesce\(finished_at, completed_at, updated_at\) - started_at/, "生产迁移必须回填历史任务执行耗时");
-for (const href of ["/ai-screening/new", "/ai-screening/results", "/ai-screening/failures", "/ai-screening/tasks/"]) {
+for (const href of ["/ai-screening/new", "/ai-screening/failures", "/ai-screening/tasks/"]) {
   assert.match(taskCenter, new RegExp(href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `任务中心缺少入口：${href}`);
 }
 assert.match(taskCenter, /TodayUsageLink module="screening"/, "AI筛选任务中心必须通过统一组件进入筛选用量页");
+assert.match(taskCenter, /今日完成分析[\s\S]*\/ai-usage\?module=screening|\/ai-usage\?module=screening[\s\S]*今日完成分析/, "今日完成分析必须进入同口径的AI筛选用量明细");
 const createTaskView = read("components/ai-screening/create-task-view.tsx");
 assert.match(createTaskView, /useEffect\(\(\) => \{ void load\(true\)/, "创建任务首次进入必须加载并选中全部待筛选客户");
 assert.match(createTaskView, /ScheduleControl/, "预约执行必须使用统一日期时间组合组件");
@@ -327,7 +331,7 @@ const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /if \(!requested \|\| requested === account\.id \|\| requested\.toLowerCase\(\) === "all"\) return account\.id/, "主管服务端默认必须只读取自己的数据");
 assert.match(currentUserAuth, /account\.role === "ADMIN"[\s\S]*requested\.toLowerCase\(\) === "all"/, "只有系统管理员能够主动选择全部用户数据");
 assert.match(currentUserAuth, /eq\("manager_id", account\.id\)/, "主管跨用户读取必须在服务端限定直属下级");
-assert.match(userScopeSelect, /onChangeRef\.current\(body\.profile\.id\)/, "主管和系统管理员前端默认必须选中自己");
+assert.match(userScopeSelect, /initializeDefault = false[\s\S]*value=\{value \|\| \(!initializeDefault \? defaultValue : ""\)\}/, "归属人控件必须显示本人默认值，但不得在初始化时回写并触发列表二次刷新");
 assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
 assert.match(customerListFields, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
@@ -350,6 +354,12 @@ assert.match(taskCenter, /show_owner[\s\S]*归属人/, "主管和系统管理员
 assert.match(taskCenter, /UserScopeSelect[^>]*initializeDefault=\{false\}/, "AI筛选任务中心首次进入不得因归属人默认值回写而重复刷新");
 assert.match(taskCenter, /setInterval\(refresh, 15000\)/, "AI筛选任务中心仅在存在活动任务时低频静默刷新");
 assert.doesNotMatch(taskCenter, /addEventListener\("focus", refresh\)|addEventListener\("visibilitychange", refresh\)/, "AI筛选任务中心不得因焦点或可见性事件额外重复刷新列表");
+const aiTaskCenterApi = read("app/api/ai/tasks/route.ts");
+assert.match(aiTaskCenterApi, /contains\("filters", \{ service: "AI_ACQUISITION" \}\)[\s\S]*acquisitionChildIds/, "AI筛选统计必须识别并排除AI获客内部核验子任务");
+assert.match(aiTaskCenterApi, /shanghaiToday\(\)[\s\S]*costLedgerRange\(today, today\)\.from/, "AI筛选今日统计必须按北京时间计算");
+assert.match(aiTaskCenterApi, /historicalOpenAiCost = Math\.max\(0,[\s\S]*acquisitionHistoricalOpenAiCost/, "AI筛选历史OpenAI费用不得重复计入AI获客内部核验");
+assert.match(taskCenter, /累计完成分析[\s\S]*独立AI筛选任务客户项/, "AI筛选累计完成量必须明确为独立筛选任务口径");
+assert.doesNotMatch(taskCenter, /href="\/ai-usage\?module=screening&range=all"/, "累计完成分析为解释性汇总，不得重复增加跳转入口");
 assert.doesNotMatch(customersView, />\s*跟进待办/, "客户管理页签不得保留跟进待办");
 assert.match(customersView, /CustomerProtectionPanel/, "保护到期必须在客户管理同页切换");
 assert.match(customersView, /CustomerConflictsPanel/, "冲突客户必须在客户管理同页切换");

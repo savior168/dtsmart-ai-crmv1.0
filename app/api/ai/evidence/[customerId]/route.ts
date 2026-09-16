@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hasPermission, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
+import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 const CHANNEL_LABELS: Record<string, string> = {
   website: "企业官网",
@@ -71,20 +72,34 @@ function normalizeEvidence(row: Record<string, unknown>) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ customerId: string }> }) {
   try {
-    const { supabase, user, account } = await requirePermission("ai.results.view");
+    const { user, account } = await requirePermission("ai.results.view");
     const { customerId } = await context.params;
-    let visibleQuery = supabase.from("customers").select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId);
-    if (!hasPermission(account, "ai.data_all")) visibleQuery = visibleQuery.or(`owner_id.eq.${user.id},created_by.eq.${user.id}`);
-    const visible = await visibleQuery.single();
-    if (visible.error || !visible.data) throw visible.error || new Error("客户不存在或无权访问");
     const admin = createAdminClient();
     const requestedTaskId = request.nextUrl.searchParams.get("task")?.trim() || "";
-    let resultQuery = admin.from("ai_screening_results").select("*,task:ai_screening_tasks(id,name,task_number,user_id)").eq("customer_id", customerId).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
+    const customer = await admin.from("customers").select("id,owner_id,created_by,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId).maybeSingle();
+    if (customer.error) throw customer.error;
+    if (!customer.data) throw new Error("CUSTOMER_NOT_FOUND");
+    if (requestedTaskId) {
+      const task = await admin.from("ai_screening_tasks").select("id,user_id").eq("id", requestedTaskId).maybeSingle();
+      if (task.error) throw task.error;
+      if (!task.data) throw new Error("TASK_NOT_FOUND");
+      if (!await canReadAiOwner(account, task.data.user_id)) throw new Error("FORBIDDEN");
+      const item = await admin.from("ai_screening_task_items").select("id").eq("task_id", requestedTaskId).eq("customer_id", customerId).maybeSingle();
+      if (item.error) throw item.error;
+      if (!item.data) throw new Error("TASK_CUSTOMER_MISMATCH");
+    } else {
+      const ownRecord = customer.data.owner_id === user.id || customer.data.created_by === user.id;
+      const canReadOwner = hasPermission(account, "ai.data_all") && (
+        await canReadAiOwner(account, customer.data.owner_id)
+        || await canReadAiOwner(account, customer.data.created_by)
+      );
+      if (!ownRecord && !canReadOwner) throw new Error("FORBIDDEN");
+    }
+    let resultQuery = admin.from("ai_screening_results").select("*,task:ai_screening_tasks(id,name,task_number,user_id)").eq("customer_id", customerId).eq("writeback_status", "COMPLETED");
     if (requestedTaskId) resultQuery = resultQuery.eq("task_id", requestedTaskId);
+    else resultQuery = resultQuery.eq("is_latest_valid", true);
     const result = await resultQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (result.error) throw result.error;
-    const task = result.data ? (Array.isArray(result.data.task) ? result.data.task[0] : result.data.task) : null;
-    if (task && !hasPermission(account, "ai.data_all") && task.user_id !== user.id) throw new Error("无权查看该客户的AI分析依据");
     const evidence = result.data ? await admin.from("ai_screening_evidence").select("*").eq("result_id", result.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     const contacts = await admin.from("customer_contacts")
@@ -94,7 +109,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
       .order("captured_at", { ascending: false });
     if (contacts.error) throw contacts.error;
     return NextResponse.json({
-      customer: visible.data,
+      customer: customer.data,
       result: result.data || null,
       evidence: (evidence.data || [])
         .map((row) => normalizeEvidence(row as Record<string, unknown>))
@@ -103,7 +118,14 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI分析依据查询失败";
-    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
+    const publicMessage = message === "CUSTOMER_NOT_FOUND" ? "客户不存在或已被删除"
+      : message === "TASK_NOT_FOUND" ? "AI筛选任务不存在或已归档"
+        : message === "TASK_CUSTOMER_MISMATCH" ? "该客户不属于当前AI筛选任务"
+          : message === "FORBIDDEN" ? "无权查看该客户的AI分析依据"
+            : message === "UNAUTHORIZED" ? "登录已失效，请重新登录"
+              : "AI分析依据暂时无法加载，请稍后重试";
+    if (!["CUSTOMER_NOT_FOUND", "TASK_NOT_FOUND", "TASK_CUSTOMER_MISMATCH", "FORBIDDEN", "UNAUTHORIZED"].includes(message)) console.error("[ai-evidence] load failed", { message });
+    return NextResponse.json({ error: publicMessage }, { status: ["CUSTOMER_NOT_FOUND", "TASK_NOT_FOUND", "TASK_CUSTOMER_MISMATCH"].includes(message) ? 404 : authErrorStatus(message) });
   }
 }
 

@@ -143,7 +143,7 @@ assert.match(aiUsageNullScopeMigration, /p_user_id is null or c\.user_id = p_use
 assert.match(aiUsageView, /筛选范围Google Places SKU明细[\s\S]*xl:grid-cols-5/, "宽屏下五个Google SKU卡片必须保持同一行");
 assert.match(read("lib/auth/permissions.ts"), /ai\.cost_summary\.view[\s\S]*查看AI历史成本总览[\s\S]*默认仅系统管理员开启/, "AI历史成本总览必须作为权限中心可配置的独立权限");
 assert.match(aiTaskListApi, /hasPermission\(account, "ai\.cost_summary\.view"\)[\s\S]*ai_screening_historical_cost_summary[\s\S]*show_historical_cost_summary: canViewHistoricalCost[\s\S]*historical_summary: canViewHistoricalCost \?/, "全系统历史筛选成本必须在接口层按独立权限返回");
-assert.match(aiTaskCenter, /data\?\.show_historical_cost_summary \? <section[\s\S]*同一客户每完成一次分析计一次[\s\S]*仅展示本系统可核验的OpenAI Token费用/, "历史筛选成本总览必须仅管理员可见并明确全历史与重复分析计次口径");
+assert.match(aiTaskCenter, /data\?\.show_historical_cost_summary \? <section[\s\S]*同一客户每完成一次独立AI筛选计一次[\s\S]*AI获客内部核验不重复计入[\s\S]*仅展示本系统可核验的OpenAI Token费用/, "历史筛选成本总览必须仅管理员可见，并明确独立筛选计次与AI获客不重复计入的口径");
 assert.match(aiTaskDetail, /aria-expanded=\{placesExpanded\}[\s\S]*查看明细[\s\S]*已超免费额度[\s\S]*超出部分预计[\s\S]*预计剩余/, "任务详情应点击Google调用卡原位展开，并按账号月度用量显示剩余免费次数或超额预计费用");
 assert.match(webEnrichment,/collectPublicGooglePlaceEvidence[\s\S]*hasMeaningfulPublicFacts[\s\S]*targetAdjacentHint/,"Google分析必须先用免费公开页且仅高价值歧义客户升级付费查询");
 assert.match(webEnrichment,/maxPaidDetailCallsPerCustomer[\s\S]*paidDetailCallCount >= maxPaidDetailCallsPerCustomer/,"单客户Place Details调用必须有硬上限");

@@ -4,12 +4,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { start } from "workflow/api";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { localizedSearchTerms, type AcquisitionCountry } from "@/lib/ai-acquisition/config";
+import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*").eq("id", id).maybeSingle();
   if (result.error) throw result.error;
   if (!result.data) throw new Error("TASK_NOT_FOUND");
-  if (result.data.user_id !== account.id && !hasPermission(account, "ai.acquisition.data_all")) throw new Error("FORBIDDEN");
+  if (result.data.user_id !== account.id && (!hasPermission(account, "ai.acquisition.data_all") || !await canReadAiOwner(account, result.data.user_id))) throw new Error("FORBIDDEN");
   return result.data;
 }
 
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const industry = request.nextUrl.searchParams.get("industry")?.trim() || "";
     const level = request.nextUrl.searchParams.get("level") || "";
     const readiness = request.nextUrl.searchParams.get("readiness") || "";
+    const lightweight = request.nextUrl.searchParams.get("lightweight") === "1";
+    const report = request.nextUrl.searchParams.get("report") === "1";
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
     if (decision) query = query.eq("decision", decision);
     if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
@@ -83,9 +86,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
     const discoveryCheckpoints = await createAdminClient().from("ai_acquisition_discovery_checkpoints").select("country,query_text,status,stop_reason,result_count,updated_at").eq("task_id",id).order("updated_at",{ascending:false});
     const [costs, usageSummary, budgetEvents] = canViewUsage ? await Promise.all([
-      createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200),
+      lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200),
       createAdminClient().rpc("get_ai_acquisition_usage_summary", { p_task_id: id }),
-      createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds),
+      lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds),
     ]) : [{ data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
     if (costs.error || budgetEvents.error || discoveryCheckpoints.error) throw costs.error || budgetEvents.error || discoveryCheckpoints.error;
     if (usageSummary.error) throw usageSummary.error;
@@ -101,13 +104,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const discoveryActive=Boolean(activeCheckpoint)||(["QUEUED","RUNNING","PAUSING","PAUSED"].includes(String(task.status))&&completedSearches<plannedSearches&&Number(task.discovered_count||0)===0);
     const stage=String(task.current_stage||"")|| (discoveryActive?"DISCOVERY":["QUEUED"].includes(String(task.status))?"WAITING":["RUNNING","PAUSING","PAUSED"].includes(String(task.status))?"VERIFYING":"FINISHED");
     const discoveryProgress={stage,stage_detail:task.current_stage_detail||null,total:plannedSearches,completed:Math.min(completedSearches,plannedSearches),raw_hits:checkpoints.reduce((sum,row)=>sum+Number(row.result_count||0),0),incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,current_query:activeCheckpoint?.query_text||null,current_country:activeCheckpoint?.country||null,updated_at:activeCheckpoint?.updated_at||task.updated_at};
-    const traceRows=await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
+    const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
     if(traceRows.error)throw traceRows.error;
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
     const customerStates=traceCustomerIds.length?await createAdminClient().from("customers").select("id,owner_id,status").in("id",traceCustomerIds):{data:[],error:null};
     if(customerStates.error)throw customerStates.error;
     const metricCostRows:Array<{customer_id:string|null;provider:string;amount_usd:number;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
-    if(canViewUsage)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
     const queryByCustomer=new Map<string,string>();
     const stats=new Map<string,{query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number}>();
@@ -117,10 +120,17 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const searchStats=[...stats.values()].sort((left,right)=>right.accepted-left.accepted||right.candidates-left.candidates||left.query.localeCompare(right.query));
     const usageData=usageSummary.data&&typeof usageSummary.data==="object"?usageSummary.data as Record<string,unknown>:{};
     const totalTokens=metricCostRows.reduce((sum,row)=>sum+Number(row.input_tokens||0)+Number(row.output_tokens||0),0);
-    return NextResponse.json({ task: presentTask(task), candidates: enrichedCandidates, count: candidates.count || 0, costs: costs.data || [], usage_summary:{...usageData,total_tokens:totalTokens}, discovery_progress:discoveryProgress, search_stats:searchStats, completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    const reportCandidates=report?await createAdminClient().from("ai_acquisition_candidates").select("id,imported_customer_id,company_name,decision,ai_score,ai_level,country,matched_keywords").eq("task_id",id).eq("decision","ACCEPTED").order("ai_score",{ascending:false,nullsFirst:false}).limit(10):{data:[],error:null};
+    if(reportCandidates.error)throw reportCandidates.error;
+    return NextResponse.json({ task: presentTask(task), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
-    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 400 });
+    const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"
+      : message === "FORBIDDEN" ? "无权查看该AI获客任务"
+        : message === "TASK_NOT_FOUND" ? "AI获客任务不存在或已删除"
+          : "AI获客任务详情暂时无法加载，请稍后重试";
+    if (!["UNAUTHORIZED", "FORBIDDEN", "TASK_NOT_FOUND"].includes(message)) console.error("[ai-acquisition-task] detail load failed", { message });
+    return NextResponse.json({ error: publicMessage }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 400 });
   }
 }
 
@@ -175,6 +185,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务操作失败";
-    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
+    console.error("[ai-acquisition-task] control failed", error);
+    const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录" : message === "FORBIDDEN" ? "无权操作该AI获客任务" : "任务操作失败，请稍后重试";
+    return NextResponse.json({ error: publicMessage }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
   }
 }

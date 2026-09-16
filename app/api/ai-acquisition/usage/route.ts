@@ -63,6 +63,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ summary, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客用量查询失败";
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
+    console.error("[ai-acquisition/usage] query failed", error);
+    const publicMessage = ["UNAUTHORIZED", "SESSION_REVOKED", "FORBIDDEN", "PASSWORD_CHANGE_REQUIRED"].includes(message) || message.startsWith("ACCOUNT_") ? message : "AI获客用量查询失败，请稍后重试";
+    return NextResponse.json({ error: publicMessage }, { status: authErrorStatus(publicMessage) });
   }
 }

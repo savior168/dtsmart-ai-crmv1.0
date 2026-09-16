@@ -11,7 +11,7 @@ export function UserScopeSelect({
   allLabel = "全部归属人",
   filterLabel = "归属人",
   permission,
-  initializeDefault = true,
+  initializeDefault = false,
 }: {
   value: string;
   onChange: (value: string) => void;

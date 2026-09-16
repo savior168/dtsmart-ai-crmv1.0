@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -18,10 +19,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const options = params.get("options") || "";
     const search = params.get("search")?.trim() || "";
     const admin = createAdminClient();
-    let taskQuery = admin.from("ai_screening_tasks").select("id").eq("id", id);
-    if (!hasPermission(account, "ai.data_all")) taskQuery = taskQuery.eq("user_id", user.id);
-    const task = await taskQuery.single();
+    const task = await admin.from("ai_screening_tasks").select("id,user_id").eq("id", id).maybeSingle();
     if (task.error) throw task.error;
+    if (!task.data) throw new Error("TASK_NOT_FOUND");
+    if (task.data.user_id !== user.id && (!hasPermission(account, "ai.data_all") || !await canReadAiOwner(account, task.data.user_id))) throw new Error("FORBIDDEN");
     if (options === "industries") {
       const values: string[] = [];
       for (let offset = 0; ; offset += 1000) {
