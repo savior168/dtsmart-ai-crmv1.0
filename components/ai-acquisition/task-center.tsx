@@ -4,6 +4,7 @@ import { CalendarCheck2, Check, ChevronDown, CircleHelp, LoaderCircle, Plus, Ref
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CostModeBadge,
+  ConfirmDialog,
   ErrorState,
   Loading,
   PageHeader,
@@ -14,9 +15,11 @@ import {
   formatCost,
   formatDuration,
   formatNumber,
+  formatTokens,
   input,
   panel,
   primaryButton,
+  useToast,
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask } from "./types";
 import { ACQUISITION_COUNTRY_GROUPS, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
@@ -25,6 +28,7 @@ import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 import { quickCostDateRange } from "@/lib/cost-center";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
+import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const ACQUISITION_INDUSTRY_OPTIONS = Object.keys(ACQUISITION_INDUSTRY_TERMS);
@@ -33,6 +37,21 @@ type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted"
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; googleCalls:number; freeCalls:number };
 type GoogleSkuUsage = { key:string; label:string; usageCount:number; acquisitionSystemUsage:number; acquisitionSystemCostUsd:number; screeningSystemUsage:number; screeningSystemCostUsd:number; pendingSystemUsage:number; projectedUsage:number; freeLimit:number|null; projectedRemaining:number|null; projectedOverageCalls:number; projectedOverageCostUsd:number };
 type GoogleBilling = { state:"NOT_CONFIGURED"|"CONNECTED"|"NO_DATA"|"ERROR"; message:string; skuUsage?:GoogleSkuUsage[] };
+type AcquisitionAction = "PAUSE" | "RESUME" | "CANCEL" | "RETRY";
+
+const actionCopy:Record<AcquisitionAction,{title:string;description:string;confirm:string}> = {
+  PAUSE:{title:"暂停AI获客任务？",description:"系统将在当前安全节点停止新的调用并保存执行进度；恢复后从检查点继续，不重复已完成的检索与核验。",confirm:"确认暂停"},
+  RESUME:{title:"恢复AI获客任务？",description:"任务将从上次保存的检查点继续，仅执行未完成步骤，不重复采集已处理客户。",confirm:"确认恢复"},
+  CANCEL:{title:"取消AI获客任务？",description:"任务将停止后续采集和核验；已产生的客户、公开来源、执行记录与费用台账会继续保留。",confirm:"确认取消"},
+  RETRY:{title:"从检查点重试任务？",description:"只恢复失败或中断的步骤，保留已处理候选和原始发现依据，避免重复调用与重复入池。",confirm:"确认重试"},
+};
+
+function taskControl(status:string) {
+  if(status==="RUNNING") return {action:"PAUSE" as const,label:"暂停任务",tone:"warning" as const};
+  if(status==="PAUSED") return {action:"RESUME" as const,label:"恢复任务",tone:"default" as const};
+  if(status==="FAILED") return {action:"RETRY" as const,label:"从检查点重试",tone:"default" as const};
+  return null;
+}
 
 function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:string)=>void }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -97,7 +116,7 @@ function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:stri
   </div>;
 }
 
-export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean }) {
+export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling, canControl }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean; canControl:boolean }) {
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
     [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 }),
@@ -119,7 +138,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
     [googleBillingLoading, setGoogleBillingLoading] = useState(false),
     [showOwner, setShowOwner] = useState(false),
-    [scopeUserId, setScopeUserId] = useState("");
+    [scopeUserId, setScopeUserId] = useState(""),
+    [pendingAction, setPendingAction] = useState<{task:AcquisitionTask;action:AcquisitionAction}|null>(null),
+    [actionBusy, setActionBusy] = useState(false);
+  const {toast,node:toastNode}=useToast();
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -179,12 +201,6 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     }).catch(()=>undefined);
     return ()=>{active=false};
   }, [canViewUsage, scopeUserId]);
-  useEffect(() => {
-    if (!tasks.some((t) => ["QUEUED", "RUNNING", "PAUSING"].includes(t.status)))
-      return;
-    const id = setInterval(() => void load(), 8000);
-    return () => clearInterval(id);
-  }, [tasks, load]);
   async function openGoogleDetails() {
     setGoogleDetailsOpen(true);
     if (googleBilling || googleBillingLoading) return;
@@ -198,6 +214,20 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     } finally {
       setGoogleBillingLoading(false);
     }
+  }
+  async function runAction(){
+    if(!pendingAction)return;
+    setActionBusy(true);
+    try{
+      const response=await fetch(`/api/ai-acquisition/tasks/${pendingAction.task.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:pendingAction.action})});
+      const body=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(body.error||"任务操作失败");
+      toast({PAUSE:"任务正在安全暂停",RESUME:"任务已从检查点恢复",CANCEL:"任务已取消，历史结果与费用已保留",RETRY:"任务已从检查点重新排队"}[pendingAction.action]);
+      setPendingAction(null);
+      await load();
+    }catch(actionError){
+      toast(actionError instanceof Error?actionError.message:"任务操作失败","error");
+    }finally{setActionBusy(false)}
   }
   return (
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
@@ -227,6 +257,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           { key:"failed" as const, label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
         ].map((item)=><button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`}><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击筛选任务`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></button>)}
       </section>
+      {toastNode}
+      <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
       {canViewUsage ? <section className={`${panel} p-4`}>
         <div className="mb-3"><h2 className="font-semibold">获客成本总览</h2><p className="mt-1 text-xs text-slate-500">费用来自可核验调用账本；平均成本仅以成功核验并进入系统的有效目标客户为分母。</p></div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -299,17 +331,18 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <ErrorState message={error} reload={() => void load()} />
         ) : tasks.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] table-fixed text-left text-sm">
+            <table className="w-full min-w-[1480px] table-fixed text-left text-sm">
+              <colgroup><col className="w-[250px]"/>{showOwner?<col className="w-[170px]"/>:null}<col className="w-[180px]"/><col className="w-[220px]"/><col className="w-[180px]"/><col className="w-[190px]"/>{canViewUsage?<><col className="w-[190px]"/><col className="w-[160px]"/></>:null}<col className="w-[180px]"/><col className="w-[150px]"/></colgroup>
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
                   {[
                     "任务",
                     ...(showOwner ? ["归属人"] : []),
-                    "状态",
-                    "目标范围",
-                    "获客模式",
-                    "检索进度",
-                    "客户结果",
+                    "状态 / 执行进度",
+                    "目标范围 / 获客模式",
+                    "搜索发现",
+                    "客户核验结果",
+                    ...(canViewUsage?["API / Token用量","实际费用"]:[]),
                     "耗时 / 创建时间",
                     "操作",
                   ].map((x) => (
@@ -336,6 +369,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     {showOwner ? <td className="px-4 py-4"><b className="block font-medium text-slate-800">{t.owner?.name?.trim() || "未命名用户"}</b><small className="mt-1 block text-slate-400">{t.owner?.email || "—"}</small></td> : null}
                     <td className="px-4 py-4">
                       <StatusBadge status={t.status} />
+                      <small className="mt-2 block text-slate-500">已执行 {formatNumber(t.search_completed_count||0)} 组检索</small>
                       {t.error_message ? (
                         <small title={acquisitionErrorMessageZh(t.error_message)} className="mt-2 block line-clamp-2 text-rose-600">
                           {acquisitionFailureStage(t.error_message)}
@@ -345,24 +379,24 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-4">
                       <div className="max-w-52 truncate font-medium text-slate-700" title={(t.industries?.length ? t.industries : [t.industry]).join("、")}>{(t.industries?.length ? t.industries : [t.industry]).slice(0, 2).join("、")}{(t.industries?.length || 1) > 2 ? ` +${(t.industries?.length || 1) - 2}` : ""}</div>
                       <small className="mt-1 block text-slate-500">{t.countries.slice(0, 2).map((code)=>COUNTRY_NAMES.of(code) || code).join("、")}{t.countries.length > 2 ? ` +${t.countries.length - 2}` : ""}</small>
+                      <div className="mt-2"><CostModeBadge mode={t.cost_mode} context="acquisition" /></div>
                     </td>
-                    <td className="px-4 py-4"><CostModeBadge mode={t.cost_mode} context="acquisition" /></td>
-                    <td className="px-4 py-4"><b className="text-slate-800">{t.search_completed_count||0} 个表达</b><small className="mt-1 block text-slate-500">原始命中 {formatNumber(t.search_raw_hits||0)} 条</small></td>
-                    <td className="px-4 py-4"><b className="text-emerald-700">入池 {t.accepted_count}</b><small className="mt-1 block text-slate-500">候选 {t.discovered_count} · 待复核 {t.review_count}</small><small className="mt-1 block text-slate-400">未通过/重复 {t.rejected_count}/{t.duplicate_count}</small></td>
+                    <td className="px-4 py-4"><b className="text-slate-800">原始命中 {formatNumber(t.search_raw_hits||0)}</b><small className="mt-1 block text-slate-500">去重后候选 {formatNumber(t.discovered_count)}</small></td>
+                    <td className="px-4 py-4"><b className="text-emerald-700">成功入池 {formatNumber(t.accepted_count)}</b><small className="mt-1 block text-amber-700">待复核 {formatNumber(t.review_count)}</small><small className="mt-1 block text-slate-400">未通过 {formatNumber(t.rejected_count)} · 重复 {formatNumber(t.duplicate_count)}</small></td>
+                    {canViewUsage?<><td className="px-4 py-4"><b className="block font-medium text-slate-700">Google {formatNumber(t.usage?.google_calls)} 次</b><small className="mt-1 block text-slate-500">大模型 {formatNumber(t.usage?.openai_calls)} 次</small><small className="mt-1 block text-slate-500">{formatTokens(t.usage?.total_tokens)} Token</small></td><td className="px-4 py-4"><b className="block font-medium text-slate-800">{formatCost(t.usage?.total_cost_usd)}</b><small className="mt-1 block text-slate-500">OpenAI {formatCost(t.usage?.openai_cost_usd)}</small><small className="mt-1 block text-slate-500">Google {formatCost(t.usage?.google_cost_usd)}</small></td></>:null}
                     <td className="px-4 py-4 text-slate-500"><b className="block font-medium text-slate-700">{formatDuration(effectiveElapsedMs(t))}</b>
                       {t.scheduled_at ? <small className="mb-1 block font-medium text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN", { hour12: false })}</small> : null}
                       <small className="mt-1 block">{new Date(t.created_at).toLocaleString("zh-CN", {
                         hour12: false,
                       })}</small>
                     </td>
-                    <td className="px-4 py-4">
-                      <Link
-                        className={button}
-                        href={t.status==="FAILED"?`/ai-acquisition/tasks/${t.id}`:`/ai-acquisition/tasks/${t.id}?decision=${metric==="review"?"REVIEW":"ACCEPTED"}`}
-                      >
-                        {t.status==="FAILED"?"查看并重试":metric==="review"?"查看待复核":"查看客户数据"}
-                      </Link>
-                    </td>
+                    <td className="px-4 py-4"><div className="flex items-center gap-2 whitespace-nowrap">
+                      <Link className="font-medium text-blue-700 hover:underline" href={t.status==="FAILED"?`/ai-acquisition/tasks/${t.id}`:`/ai-acquisition/tasks/${t.id}?decision=${metric==="review"?"REVIEW":"ACCEPTED"}`}>{t.status==="FAILED"?"查看详情":metric==="review"?"查看待复核":"查看客户"}</Link>
+                      {canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status)?<RowActionMenu ariaLabel={`${t.name}操作菜单`}>
+                        {taskControl(t.status)?<RowActionItem tone={taskControl(t.status)!.tone} onClick={()=>setPendingAction({task:t,action:taskControl(t.status)!.action})}>{taskControl(t.status)!.label}</RowActionItem>:null}
+                        {["QUEUED","RUNNING","PAUSING","PAUSED"].includes(t.status)?<RowActionItem tone="danger" onClick={()=>setPendingAction({task:t,action:"CANCEL"})}>取消任务</RowActionItem>:null}
+                      </RowActionMenu>:null}
+                    </div></td>
                   </tr>
                 ))}
               </tbody>

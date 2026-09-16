@@ -143,7 +143,7 @@ const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.t
 assert.match(detail,/discovery_progress[\s\S]*正在搜索目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及完成进度");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
 assert.match(detail,/商机线索与销售建议[\s\S]*建议不代表客户已经表达采购意向/,"商机线索必须区分可核验事实与AI销售建议");
-assert.match(detail,/实际检索表达效果[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*入池成本/,"任务详情必须按实际检索表达展示完整质量与成本闭环");
+assert.match(detail,/搜索效果分析[\s\S]*实际搜索组合[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*入池成本/,"任务详情必须以可理解的折叠分析区展示搜索组合质量与成本闭环");
 assert.match(detail,/核验具体来源/);
 assert.match(detail,/发起WhatsApp对话/);
 assert.match(detail,/本次获取的客户[\s\S]*成功入池[\s\S]*待复核[\s\S]*未通过[\s\S]*重复/,"任务详情必须优先提供本次获客结果分类");
@@ -165,9 +165,13 @@ assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得�
 assert.match(taskCenter,/今日获客[\s\S]*历史总获客[\s\S]*进行中[\s\S]*待人工复核[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
 assert.match(taskCenter,/aria-pressed=\{metric===item\.key\}[\s\S]*setMetric\(item\.key\)/,"任务中心概览必须可以点击定位对应任务列表");
-assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S]*"获客模式"/,"任务中心必须统一使用获客模式，不能误称为成本模式");
+assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S]*全免费获客[\s\S]*智能增强获客/,"任务中心必须统一使用获客模式，不能误称为成本模式");
 assert.doesNotMatch(taskCenter,/\{t\.error_message\}/,"任务中心不得直接暴露数据库或工作流原始错误");
 assert.match(taskCenter,/search_completed_count[\s\S]*search_raw_hits/,"任务中心必须展示实际检索进度和原始命中");
+assert.match(taskCenter,/RowActionMenu[\s\S]*暂停任务[\s\S]*恢复任务[\s\S]*从检查点重试[\s\S]*取消任务/,"任务中心必须按状态提供暂停、恢复、重试和取消入口");
+assert.doesNotMatch(taskCenter,/setInterval\(/,"任务中心不得频繁自动刷新整张任务列表");
+assert.match(taskCenter,/API \/ Token用量[\s\S]*实际费用/,"任务中心必须提供任务级API、Token和费用列");
+assert.match(taskCenter,/Google \{formatNumber\(t\.usage\?\.google_calls\)\}[\s\S]*大模型 \{formatNumber\(t\.usage\?\.openai_calls\)\}[\s\S]*formatTokens\(t\.usage\?\.total_tokens\)[\s\S]*OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\}[\s\S]*Google \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"任务列表必须从任务账本展示Google、大模型、Token和分项费用");
 assert.match(acquisitionWorkflow,/\.eq\("google_maps_place_id", candidate\.placeId\)/,"AI获客去重必须使用客户表真实Google Place字段");
 assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI获客暂存客户必须写入真实Google Place字段");
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");

@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     let query = admin.from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
     if (ownerId) query = query.eq("user_id", ownerId);
     if (status) query = query.eq("status", status);
-    else if (metric === "active") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+    else if (metric === "active") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING", "PAUSED"]);
     else if (metric === "completed") query = query.eq("status", "COMPLETED");
     else if (metric === "failed") query = query.eq("status", "FAILED");
     if (metric === "accepted") query = acceptedMetricTaskIds.length ? query.in("id", acceptedMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
@@ -76,6 +76,27 @@ export async function GET(request: NextRequest) {
       if (["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(checkpoint.status))) current.completed += 1;
       current.rawHits += Number(checkpoint.result_count || 0);
       checkpointByTask.set(taskId, current);
+    }
+    const usageByTask = new Map<string,{google_calls:number;openai_calls:number;total_tokens:number;openai_cost_usd:number;google_cost_usd:number;total_cost_usd:number}>();
+    if (pageTaskIds.length && hasPermission(account, "ai.acquisition.usage.view")) {
+      const costParentByTask = new Map(pageTaskIds.map((taskId)=>[taskId,taskId]));
+      const childResult = await admin.from("ai_acquisition_candidates").select("task_id,screening_task_id").in("task_id",pageTaskIds).not("screening_task_id","is",null);
+      if(childResult.error)throw childResult.error;
+      for(const child of childResult.data||[])if(child.screening_task_id)costParentByTask.set(String(child.screening_task_id),String(child.task_id));
+      const costTaskIds=[...costParentByTask.keys()];
+      const costRows:Array<{task_id:string|null;provider:string;quantity:number;input_tokens:number;output_tokens:number;amount_usd:number}>=[];
+      for(let offset=0;;offset+=1000){const chunk=await admin.from("api_cost_ledger").select("task_id,provider,quantity,input_tokens,output_tokens,amount_usd").in("task_id",costTaskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;costRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+      for(const cost of costRows){
+        const parentId=costParentByTask.get(String(cost.task_id||""));
+        if(!parentId)continue;
+        const current=usageByTask.get(parentId)||{google_calls:0,openai_calls:0,total_tokens:0,openai_cost_usd:0,google_cost_usd:0,total_cost_usd:0};
+        const quantity=Math.max(0,Number(cost.quantity||1));
+        const amount=Number(cost.amount_usd||0);
+        if(cost.provider==="GOOGLE_PLACES"){current.google_calls+=quantity;current.google_cost_usd+=amount}
+        if(cost.provider==="OPENAI"){current.openai_calls+=quantity;current.openai_cost_usd+=amount;current.total_tokens+=Number(cost.input_tokens||0)+Number(cost.output_tokens||0)}
+        current.total_cost_usd+=amount;
+        usageByTask.set(parentId,current);
+      }
     }
     const summaryRows: Array<{ id:string; status: string; accepted_count: number | null; review_count: number | null }> = [];
     for (let offset = 0; ; offset += 1000) {
@@ -106,14 +127,14 @@ export async function GET(request: NextRequest) {
     }
     const summary = {
       tasks: summaryRows.length,
-      active_tasks: summaryRows.filter((row) => ["QUEUED", "RUNNING", "PAUSING"].includes(row.status)).length,
+      active_tasks: summaryRows.filter((row) => ["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(row.status)).length,
       completed_tasks: summaryRows.filter((row) => row.status === "COMPLETED").length,
       today_accepted: todayAccepted,
       accepted: totalAccepted,
       review: sum("review_count"),
       failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
     };
-    return NextResponse.json({ data: (result.data || []).map((row) => { const progress=checkpointByTask.get(String(row.id)); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0 }); }), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    return NextResponse.json({ data: (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); }), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
