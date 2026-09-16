@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { Suspense } from "react";
-import { ArrowUpRight, BarChart3, CheckCircle2, Globe2, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CheckCircle2, Database, Globe2, ScanSearch, ShieldCheck, Sparkles } from "lucide-react";
 import { PasswordAuthForm } from "@/components/password-auth-form";
 
 export const metadata: Metadata = {
@@ -15,26 +15,43 @@ export default function LoginPage() {
       <div className="tradeos-auth-orb tradeos-auth-orb-one" />
       <div className="tradeos-auth-orb tradeos-auth-orb-two" />
       <div className="tradeos-auth-grid" />
-      <div className="relative z-10 grid min-h-screen lg:grid-cols-[minmax(0,1.1fr)_minmax(520px,0.9fr)]">
-        <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden px-10 py-9 text-white lg:flex xl:px-16 xl:py-12">
+      <div className="tradeos-auth-scan" />
+      <svg className="tradeos-auth-network" viewBox="0 0 920 820" fill="none" aria-hidden="true">
+        <g className="tradeos-auth-network-lines" stroke="url(#network-gradient)" strokeWidth="1.25">
+          <path d="M35 612C155 566 203 466 318 453S501 510 604 402 715 185 886 146" />
+          <path d="M61 218C194 251 237 332 350 318S512 202 629 258 746 432 887 476" />
+          <path d="M166 748C251 653 331 634 415 655S575 734 683 636 761 531 892 558" />
+          <path d="M311 70C350 184 412 247 510 281S681 313 755 390" />
+        </g>
+        <g className="tradeos-auth-network-nodes">
+          {[[35,612],[318,453],[604,402],[886,146],[61,218],[350,318],[629,258],[887,476],[166,748],[415,655],[683,636],[892,558],[311,70],[510,281],[755,390]].map(([cx,cy],index)=><circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={index%4===0?6:4} />)}
+        </g>
+        <defs><linearGradient id="network-gradient" x1="44" y1="140" x2="866" y2="680" gradientUnits="userSpaceOnUse"><stop stopColor="#38BDF8" stopOpacity=".08"/><stop offset=".48" stopColor="#60A5FA" stopOpacity=".72"/><stop offset="1" stopColor="#A78BFA" stopOpacity=".12"/></linearGradient></defs>
+      </svg>
+      <div className="relative z-10 grid min-h-screen lg:grid-cols-[minmax(0,1.08fr)_minmax(500px,0.92fr)]">
+        <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden px-9 py-8 text-white lg:flex xl:px-14 xl:py-10 2xl:px-16">
           <div className="flex items-center gap-3">
             <Image src="/zhikeyun-logo.svg" width={48} height={48} priority alt="智客云" className="h-12 w-12 rounded-2xl shadow-2xl shadow-blue-500/25" />
-            <div><p className="text-[19px] font-bold tracking-tight">智客云</p><p className="text-sm text-blue-100/70">真实识别 &amp; 精准转化</p></div>
+            <div><p className="text-[19px] font-bold tracking-tight">智客云</p><p className="text-sm text-blue-100/65">AI 客户分析与销售转化平台</p></div>
           </div>
 
-          <div className="max-w-2xl pb-8">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-blue-50 backdrop-blur-xl"><Sparkles size={16} className="text-amber-300" />AI 驱动的企业获客工作台</div>
-            <h1 className="text-5xl font-bold leading-[1.14] tracking-[-0.04em] xl:text-6xl">让每一条客户数据<br /><span className="bg-gradient-to-r from-sky-300 via-blue-200 to-violet-300 bg-clip-text text-transparent">更快转化为生意</span></h1>
-            <p className="mt-7 max-w-xl text-lg leading-8 text-blue-100/75">从客户导入、AI深度筛选到销售跟进，智客云将客户分析与管理集中在一个安全、清晰、高效的企业平台。</p>
+          <div className="max-w-[700px] py-7">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/[0.08] px-3.5 py-1.5 text-[13px] font-medium text-cyan-50 backdrop-blur-xl"><Sparkles size={15} className="text-cyan-300" />AI 驱动的全球精准获客引擎<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300 shadow-[0_0_12px_#6ee7b7]" /></div>
+            <h1 className="max-w-[680px] text-[46px] font-bold leading-[1.12] tracking-[-0.045em] xl:text-[56px]">从全球公开数据<br /><span className="bg-gradient-to-r from-cyan-300 via-blue-200 to-violet-300 bg-clip-text text-transparent">发现可直接跟进的客户</span></h1>
+            <p className="mt-5 max-w-[640px] text-[16px] leading-7 text-blue-100/72 xl:text-[17px]">AI 自动发现潜在企业，逐项核验主体、业务与联系方式；全程记录来源、进度和费用，让销售拿到清晰、可核验、可行动的客户数据。</p>
 
-            <div className="mt-10 grid max-w-xl grid-cols-3 gap-3">
-              <Feature icon={Globe2} title="全球客户洞察" text="多维数据识别" />
-              <Feature icon={BarChart3} title="智能销售管理" text="全链路可视化" />
-              <Feature icon={ShieldCheck} title="企业级安全" text="权限与数据隔离" />
+            <div className="mt-6 flex max-w-[650px] items-center gap-1.5 overflow-hidden rounded-xl border border-white/10 bg-slate-950/20 px-3 py-2.5 backdrop-blur-xl">
+              {['全球发现','主体核验','AI精准筛选','进入销售跟进'].map((step,index)=><span key={step} className="contents"><span className="whitespace-nowrap rounded-lg bg-white/[0.07] px-2.5 py-1.5 text-xs font-medium text-blue-50">{step}</span>{index<3?<ArrowRight size={14} className="shrink-0 text-cyan-300/70"/>:null}</span>)}
+            </div>
+
+            <div className="mt-5 grid max-w-[650px] grid-cols-3 gap-2.5">
+              <Feature icon={Globe2} title="增量智能获客" text="跨国家与行业持续发现新客户" />
+              <Feature icon={ScanSearch} title="证据级AI筛选" text="来源可点击，结论可复核" />
+              <Feature icon={Database} title="销售闭环转化" text="入池、认领、跟进全程留痕" />
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-xs text-blue-100/55"><span>© 2026 智客云</span><span className="flex items-center gap-1">企业数据安全中心 <ArrowUpRight size={13} /></span></div>
+          <div className="flex items-center justify-between border-t border-white/[0.08] pt-4 text-xs text-blue-100/50"><span>© 2026 智客云 · 真实识别与精准转化</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-emerald-300"/>企业级权限、费用与数据审计 <ArrowUpRight size={12} /></span></div>
         </section>
 
         <section className="flex min-h-screen items-center justify-center bg-white/96 px-4 py-8 backdrop-blur-3xl sm:px-8 lg:bg-white/95 xl:px-14">
@@ -57,5 +74,5 @@ export default function LoginPage() {
 }
 
 function Feature({ icon: Icon, title, text }: { icon: typeof Globe2; title: string; text: string }) {
-  return <div className="rounded-2xl border border-white/10 bg-white/[0.08] p-4 backdrop-blur-xl"><span className="mb-4 grid h-9 w-9 place-items-center rounded-xl bg-white/10 text-sky-200"><Icon size={19} /></span><p className="text-sm font-semibold text-white">{title}</p><p className="mt-1 text-xs text-blue-100/55">{text}</p></div>;
+  return <div className="group rounded-xl border border-white/[0.09] bg-white/[0.065] p-3.5 backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:border-cyan-300/25 hover:bg-white/[0.09]"><span className="mb-3 grid h-8 w-8 place-items-center rounded-lg border border-cyan-200/10 bg-cyan-300/[0.08] text-cyan-200 shadow-[inset_0_0_18px_rgba(56,189,248,.06)]"><Icon size={17} /></span><p className="text-[13px] font-semibold text-white">{title}</p><p className="mt-1 text-[11px] leading-4 text-blue-100/52">{text}</p></div>;
 }

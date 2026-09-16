@@ -140,6 +140,8 @@ for (const filter of ["industry", "target", "grade"]) {
 const loginApi = read("app/api/auth/password-login/route.ts");
 const registerApi = read("app/api/auth/register/route.ts");
 const authForm = read("components/password-auth-form.tsx");
+const loginPage = read("app/login/page.tsx");
+const globalStyles = read("app/globals.css");
 const permissionMigration = read("supabase/migrations/202608310002_user_access_control.sql");
 assert.match(loginApi, /verifyCaptcha\(body\.captcha\)/, "登录必须由服务端校验图形验证码");
 assert.match(registerApi, /verifyCaptcha\(body\.captcha\)/, "注册必须由服务端校验图形验证码");
@@ -157,6 +159,9 @@ assert.match(passwordShell, /dtsmart-password-account[\s\S]*autoComplete="userna
 assert.match(read("components/customers-view.tsx"), /customer-list-search[\s\S]*data-lpignore[\s\S]*data-1p-ignore/, "我的客户搜索框不得接收密码管理器自动填充");
 assert.match(read("components/customer-public-pool-view.tsx"), /public-pool-search[\s\S]*data-lpignore[\s\S]*data-1p-ignore/, "客户公海搜索框不得接收密码管理器自动填充");
 assert.match(authForm, /<CaptchaField[\s\S]*mode === "register"[\s\S]*<CaptchaField/, "登录与注册表单都必须显示图形验证码");
+assert.match(loginPage, /全球精准获客引擎[\s\S]*增量智能获客[\s\S]*证据级AI筛选[\s\S]*销售闭环转化/, "登录页必须完整表达AI获客、AI筛选和销售转化核心价值");
+assert.match(loginPage, /tradeos-auth-network[\s\S]*全球发现[\s\S]*主体核验[\s\S]*AI精准筛选[\s\S]*进入销售跟进/, "登录页主视觉必须呈现可理解的动态获客链路");
+assert.match(globalStyles, /tradeos-auth-network-flow[\s\S]*tradeos-auth-node-pulse[\s\S]*prefers-reduced-motion/, "登录页科技动效必须支持系统减少动画设置");
 assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用户必须固定为待审核销售员");
 assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");
 assert.match(permissionMigration, /zzccxry@gmail\.com[\s\S]*role = 'SALES'[\s\S]*role = 'ADMIN'/, "权限迁移必须把指定账号设为唯一系统管理员、其余账号设为销售员");
