@@ -140,8 +140,13 @@ export async function discoverBusinesses(input: {
 }
 
 export function discoveryCandidateLooksRelevant(candidate: DiscoveredBusiness, industries: string[], keywords: string[]) {
-  const text = `${candidate.companyName} ${candidate.types.join(" ")}`.toLowerCase().replace(/[_-]+/g, " ");
   const requested = [...industries, ...keywords].flatMap((value) => value.toLowerCase().split(/[^\p{L}\p{N}]+/u)).filter((value) => value.length >= 3);
-  const directType = candidate.types.some((value) => !/^(?:establishment|point_of_interest|store|service)$/i.test(value));
-  return candidate.businessStatus !== "CLOSED_PERMANENTLY" && (requested.some((term) => text.includes(term)) || directType);
+  const companyText = candidate.companyName.toLowerCase().replace(/[_-]+/g, " ");
+  const targetBusinessSignal = /(?:phone|mobile|smartphone|iphone|ipad|macbook|laptop|computer|electronics|device|screen|battery|accessor|spare|parts?|repair|refurbish|wholesale|supplier|distribut|importer|手机|电脑|电子|维修|配件|批发|经销|进口|翻新)/i.test(companyText);
+  const relevantGoogleType = candidate.types.some((value) => /^(?:cell_phone_store|electronics_store|electronics_repair_shop|computer_store|computer_repair_service|wholesaler|supplier|manufacturer|telecommunications_service_provider)$/i.test(value));
+  const explicitlyIrrelevantType = candidate.types.some((value) => /^(?:hair_salon|hair_care|finance|courier_service|shipping_service|furniture_store|general_contractor|auto_parts_store|car_repair|restaurant|cafe|pharmacy|lodging|real_estate_agency)$/i.test(value));
+  const requestedMatch = requested.some((term) => companyText.includes(term));
+  return candidate.businessStatus !== "CLOSED_PERMANENTLY"
+    && !(explicitlyIrrelevantType && !targetBusinessSignal)
+    && (targetBusinessSignal || requestedMatch || relevantGoogleType);
 }

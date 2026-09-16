@@ -111,7 +111,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     }
     const customer = await admin.from("customers").insert({
       company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl,
-      google_maps_place_id: candidate.placeId, industry: task.industry, category: task.industry, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
+      google_maps_place_id: candidate.placeId, industry: null, category: candidate.types.join(" | ") || null, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
       source_batch: task.task_number, source_reference: task.id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: task.user_id,
       owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING", assigned_via: null, acquisition_match_keywords: candidate.matchedTerms,
     }).select("id").single();
@@ -227,49 +227,72 @@ async function finalizeCandidates(task: AcquisitionTask) {
   const admin = createAdminClient();
   const candidates = await admin.from("ai_acquisition_candidates").select("*").eq("task_id", task.id).eq("decision", "ANALYZING");
   if (candidates.error) throw candidates.error;
-  for (const candidate of candidates.data || []) {
-    const customerId = String(candidate.staging_customer_id || "");
-    const itemId = String(candidate.screening_task_item_id || "");
-    const [customer, result, contacts, evidence] = await Promise.all([
-      admin.from("customers").select("*").eq("id", customerId).maybeSingle(),
-      admin.from("ai_screening_results").select("id,score,grade,automation_status,target_decision,identity_status,evidence_sufficiency_score,short_reason").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle(),
-      admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,exact_source_url").eq("customer_id", customerId),
-      admin.from("ai_screening_evidence").select("id,source_url,evidence_strength").eq("task_item_id", itemId),
+  const rows = candidates.data || [];
+  const batchSize = 100;
+  for (let offset = 0; offset < rows.length; offset += batchSize) {
+    const batch = rows.slice(offset, offset + batchSize);
+    const itemIds = batch.map((row) => String(row.screening_task_item_id || "")).filter(Boolean);
+    const customerIds = batch.map((row) => String(row.staging_customer_id || "")).filter(Boolean);
+    const [results, contacts, evidence] = await Promise.all([
+      admin.from("ai_screening_results").select("task_item_id,id,score,grade,automation_status,target_decision,identity_status,evidence_sufficiency_score,short_reason").in("task_item_id", itemIds).eq("is_latest_valid", true),
+      admin.from("customer_contacts").select("customer_id,id,type,value_raw,value_normalized,verification_status,identity_match_status,exact_source_url").in("customer_id", customerIds),
+      admin.from("ai_screening_evidence").select("task_item_id,id,source_url,evidence_strength").in("task_item_id", itemIds),
     ]);
-    if (customer.error || result.error || contacts.error || evidence.error) throw customer.error || result.error || contacts.error || evidence.error;
-    const gate = evaluateAcquisitionGate({ automationStatus: result.data?.automation_status, targetDecision: result.data?.target_decision, score: result.data?.score, identityStatus: result.data?.identity_status, evidenceUrls: evidence.data || [], contacts: contacts.data || [] });
-    const verifiedContacts = gate.actionableContacts;
-    const evidenceComplete = gate.evidenceComplete;
-    const accepted = gate.accepted;
-    let decision: "ACCEPTED" | "REVIEW" | "REJECTED" | "DUPLICATE" = accepted ? "ACCEPTED" : result.data ? "REJECTED" : "REVIEW";
-    let reason = accepted ? "目标行业、主体、在营证据和可用联系方式均已核验" : String(result.data?.short_reason || "核验证据不足，未进入客户公海");
-    if (accepted) {
-      const normalized = verifiedContacts.map((row) => String(row.value_normalized || "")).filter(Boolean);
-      const duplicateContacts = normalized.length ? await admin.from("customer_contacts").select("customer_id").in("value_normalized", normalized).neq("customer_id", customerId).limit(1) : { data: [], error: null };
-      if (duplicateContacts.error) throw duplicateContacts.error;
-      if (duplicateContacts.data?.length) { decision = "DUPLICATE"; reason = "核验联系方式已存在于系统其他客户，未重复入池"; }
+    if (results.error || contacts.error || evidence.error) throw results.error || contacts.error || evidence.error;
+    const resultByItem = new Map((results.data || []).map((row) => [String(row.task_item_id), row]));
+    const contactsByCustomer = new Map<string, typeof contacts.data>();
+    for (const row of contacts.data || []) {
+      const customerId = String(row.customer_id);
+      contactsByCustomer.set(customerId, [...(contactsByCustomer.get(customerId) || []), row]);
     }
-    if (decision === "ACCEPTED") {
-      const promoted = await admin.from("customers").update({ source: "AI_ACQUISITION", acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", status: "UNCLAIMED", owner_id: null, owner_user_id: null, assigned_via: null, updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING").select("id").maybeSingle();
-      if (promoted.error) throw promoted.error;
-      if (!promoted.data) {
-        const current = await admin.from("customers").select("source,acquisition_scope,pool_status,deleted_at").eq("id", customerId).maybeSingle();
-        if (current.error) throw current.error;
-        const alreadyInSystem = current.data?.source === "AI_ACQUISITION"
-          && current.data?.acquisition_scope === "PUBLIC_POOL"
-          && ["AVAILABLE", "CLAIMED"].includes(String(current.data?.pool_status || ""))
-          && !current.data?.deleted_at;
-        if (!alreadyInSystem) {
-          decision = "REVIEW";
-          reason = "质量门槛已通过，但客户入池写入未确认，等待人工复核或重试";
-        }
+    const evidenceByItem = new Map<string, typeof evidence.data>();
+    for (const row of evidence.data || []) {
+      const itemId = String(row.task_item_id);
+      evidenceByItem.set(itemId, [...(evidenceByItem.get(itemId) || []), row]);
+    }
+    for (const candidate of batch) {
+      const customerId = String(candidate.staging_customer_id || "");
+      const itemId = String(candidate.screening_task_item_id || "");
+      const result = resultByItem.get(itemId);
+      const customerContacts = contactsByCustomer.get(customerId) || [];
+      const itemEvidence = evidenceByItem.get(itemId) || [];
+      const gate = evaluateAcquisitionGate({ automationStatus: result?.automation_status, targetDecision: result?.target_decision, score: result?.score, identityStatus: result?.identity_status, evidenceUrls: itemEvidence, contacts: customerContacts });
+      const verifiedContacts = gate.actionableContacts;
+      const evidenceComplete = gate.evidenceComplete;
+      const accepted = gate.accepted;
+      const targetValidated = result?.automation_status === "AUTO_DEVELOP" && result?.target_decision === "VALID" && Number(result?.score || 0) >= 60;
+      let decision: "ACCEPTED" | "REVIEW" | "REJECTED" | "DUPLICATE" = accepted ? "ACCEPTED" : targetValidated || !result ? "REVIEW" : "REJECTED";
+      let reason = accepted ? "目标行业、主体、在营证据和可用联系方式均已核验"
+        : targetValidated ? (!gate.evidenceComplete ? "已判定为目标客户，但可追溯经营证据不足，等待人工复核" : gate.actionableContacts.length === 0 ? "已判定为目标客户，但缺少带具体来源的有效联系方式，等待人工复核" : "目标客户主体核验仍需人工确认")
+          : String(result?.short_reason || "核验证据不足，未进入客户公海");
+      if (accepted) {
+        const normalized = verifiedContacts.map((row) => String(row.value_normalized || "")).filter(Boolean);
+        const duplicateContacts = normalized.length ? await admin.from("customer_contacts").select("customer_id").in("value_normalized", normalized).neq("customer_id", customerId).limit(1) : { data: [], error: null };
+        if (duplicateContacts.error) throw duplicateContacts.error;
+        if (duplicateContacts.data?.length) { decision = "DUPLICATE"; reason = "核验联系方式已存在于系统其他客户，未重复入池"; }
       }
-    } else {
-      const hidden = await admin.from("customers").update({ deleted_at: new Date().toISOString(), pool_status: "INVALID", updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING");
-      if (hidden.error) throw hidden.error;
+      if (decision === "ACCEPTED") {
+        const promoted = await admin.from("customers").update({ source: "AI_ACQUISITION", acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", status: "UNCLAIMED", owner_id: null, owner_user_id: null, assigned_via: null, updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING").select("id").maybeSingle();
+        if (promoted.error) throw promoted.error;
+        if (!promoted.data) {
+          const current = await admin.from("customers").select("source,acquisition_scope,pool_status,deleted_at").eq("id", customerId).maybeSingle();
+          if (current.error) throw current.error;
+          const alreadyInSystem = current.data?.source === "AI_ACQUISITION"
+            && current.data?.acquisition_scope === "PUBLIC_POOL"
+            && ["AVAILABLE", "CLAIMED"].includes(String(current.data?.pool_status || ""))
+            && !current.data?.deleted_at;
+          if (!alreadyInSystem) {
+            decision = "REVIEW";
+            reason = "质量门槛已通过，但客户入池写入未确认，等待人工复核或重试";
+          }
+        }
+      } else if (decision !== "REVIEW") {
+        const hidden = await admin.from("customers").update({ deleted_at: new Date().toISOString(), pool_status: "INVALID", updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING");
+        if (hidden.error) throw hidden.error;
+      }
+      const saved = await admin.from("ai_acquisition_candidates").update({ decision, decision_reason: reason, imported_customer_id: decision === "ACCEPTED" ? customerId : null, ai_score: result?.score || null, ai_level: result?.grade || null, is_target_customer: result?.target_decision === "VALID", has_actionable_contact: verifiedContacts.length > 0, evidence_complete: evidenceComplete, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", candidate.id);
+      if (saved.error) throw saved.error;
     }
-    const saved = await admin.from("ai_acquisition_candidates").update({ decision, decision_reason: reason, imported_customer_id: decision === "ACCEPTED" ? customerId : null, ai_score: result.data?.score || null, ai_level: result.data?.grade || null, is_target_customer: result.data?.target_decision === "VALID", has_actionable_contact: verifiedContacts.length > 0, evidence_complete: evidenceComplete, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", candidate.id);
-    if (saved.error) throw saved.error;
   }
 }
 

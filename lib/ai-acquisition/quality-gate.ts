@@ -15,6 +15,6 @@ export function evaluateAcquisitionGate(input: AcquisitionGateInput) {
     /^https?:\/\//i.test(String(contact.exact_source_url || "")),
   );
   const accepted = input.automationStatus === "AUTO_DEVELOP" && input.targetDecision === "VALID" &&
-    Number(input.score || 0) >= 60 && input.identityStatus !== "CONFLICT" && evidenceComplete && actionableContacts.length > 0;
+    Number(input.score || 0) >= 60 && ["MATCHED", "LIKELY_MATCHED"].includes(String(input.identityStatus || "")) && evidenceComplete && actionableContacts.length > 0;
   return { accepted, evidenceComplete, actionableContacts };
 }

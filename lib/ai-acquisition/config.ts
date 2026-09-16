@@ -175,13 +175,28 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
   const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
   const translations = COMMON_LOCAL_TERMS[country] || {};
   const normalizedKeywords = [...new Set(keywords.map((value) => value.trim()).filter(Boolean))];
-  const groups = industryTerms.map((term) => {
+  const knownKeywordOwners = new Map<string, Set<string>>();
+  for (const [industry, recommendations] of Object.entries(INDUSTRY_KEYWORD_RECOMMENDATIONS)) {
+    for (const keyword of recommendations) {
+      const normalized = keyword.trim().toLowerCase();
+      if (!knownKeywordOwners.has(normalized)) knownKeywordOwners.set(normalized, new Set());
+      knownKeywordOwners.get(normalized)?.add(industry);
+    }
+  }
+  const groups = industryTerms.map((term, index) => {
     const translated = translations[term.toLowerCase()];
     const bases = translated && translated.toLowerCase() !== term.toLowerCase() ? [translated, term] : [term];
-    if (!normalizedKeywords.length) return bases;
+    const industry = industries[index];
+    const applicableKeywords = normalizedKeywords.filter((keyword) => {
+      const owners = knownKeywordOwners.get(keyword.toLowerCase());
+      return !owners?.size || !INDUSTRY_KEYWORD_RECOMMENDATIONS[industry] || owners.has(industry);
+    });
+    if (!applicableKeywords.length) return bases;
     // Keywords may refine a selected industry, but must never become a
-    // standalone broad search that escapes the user's target industry.
-    return [...bases, ...bases.flatMap((base) => normalizedKeywords.map((keyword) => `${base} ${keyword}`))];
+    // standalone broad search that escapes the user's target industry. Known
+    // recommendation keywords are paired only with their owning industries;
+    // genuinely custom keywords remain available to every selected industry.
+    return [...bases, ...bases.flatMap((base) => applicableKeywords.map((keyword) => `${base} ${keyword}`))];
   });
   const requested: string[] = [];
   for (let round = 0; requested.length < MAX_ACQUISITION_SEARCH_TERMS; round += 1) {
