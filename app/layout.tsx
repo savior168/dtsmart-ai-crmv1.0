@@ -5,10 +5,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "智客云｜AI客户分析与管理系统",
+    default: "智客云｜AI精准获客，让销售更快成交",
     template: "%s｜智客云",
   },
-  description: "智能获客、精准筛选与销售转化",
+  description: "从全球公开数据发现并核验目标客户，让销售减少重复搜索，更快获得可联系、可跟进、可转化的精准客户",
   applicationName: "智客云",
 };
 

@@ -6,7 +6,7 @@ import { PasswordAuthForm } from "@/components/password-auth-form";
 
 export const metadata: Metadata = {
   title: "登录与注册",
-  description: "智客云AI客户分析与管理系统",
+  description: "智客云AI智能获客与精准筛选平台",
 };
 
 export default function LoginPage() {
@@ -31,7 +31,7 @@ export default function LoginPage() {
         <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden px-9 py-8 text-white lg:flex xl:px-14 xl:py-10 2xl:px-16">
             <div className="tradeos-auth-brand flex items-center gap-3">
             <Image src="/zhikeyun-logo.svg" width={48} height={48} priority alt="智客云" className="h-12 w-12 rounded-2xl shadow-2xl shadow-blue-500/25" />
-            <div><p className="text-[19px] font-bold tracking-tight">智客云</p><p className="text-sm text-blue-100/65">AI 客户分析与销售转化平台</p></div>
+            <div><p className="text-[19px] font-bold tracking-tight">智客云</p><p className="text-sm text-blue-100/65">AI智能获客 · 精准筛选</p></div>
           </div>
 
           <div className="max-w-[700px] py-7">
@@ -50,14 +50,14 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-white/[0.08] pt-4 text-xs text-blue-100/50"><span>© 2026 智客云 · 智能获客 &amp; 精准筛选</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-emerald-300"/>企业级权限、费用与数据审计 <ArrowUpRight size={12} /></span></div>
+          <div className="flex items-center justify-between border-t border-white/[0.08] pt-4 text-xs text-blue-100/50"><span>© 2026 智客云 · AI智能获客 · 精准筛选</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-emerald-300"/>企业级权限、费用与数据审计 <ArrowUpRight size={12} /></span></div>
         </section>
 
         <section className="flex min-h-screen items-center justify-center bg-white/96 px-4 py-8 backdrop-blur-3xl sm:px-8 lg:bg-white/95 xl:px-14">
           <div className="w-full max-w-[560px]">
             <div className="mb-8 flex items-center gap-3 lg:hidden">
               <Image src="/zhikeyun-logo.svg" width={44} height={44} priority alt="智客云" className="h-11 w-11 rounded-xl" />
-              <div><p className="font-bold text-slate-950">智客云</p><p className="text-xs text-slate-500">智能获客 &amp; 精准筛选</p></div>
+              <div><p className="font-bold text-slate-950">智客云</p><p className="text-xs text-slate-500">AI智能获客 · 精准筛选</p></div>
             </div>
             <div className="mb-7">
               <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-600"><CheckCircle2 size={16} />安全访问企业工作台</p>

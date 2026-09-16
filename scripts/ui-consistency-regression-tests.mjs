@@ -21,6 +21,9 @@ const offenders = sourceFiles.filter((path) => nativeDialog.test(readFileSync(pa
 assert.deepEqual(offenders, [], `禁止使用浏览器原生弹框：${offenders.join(", ")}`);
 
 const read = (path) => readFileSync(resolve(root, path), "utf8");
+assert.match(read("app/layout.tsx"), /智客云｜AI精准获客，让销售更快成交/, "浏览器默认标题必须精炼表达精准获客和加速成交的销售价值");
+assert.match(read("app/login/page.tsx"), /AI智能获客 · 精准筛选/, "登录页品牌副标必须与系统核心定位一致");
+assert.doesNotMatch(read("app/login/page.tsx"), /AI 客户分析与销售转化平台/, "登录页不得继续显示旧品牌副标");
 for (const path of [
   "components/orders-view.tsx",
   "components/quotes-view.tsx",
