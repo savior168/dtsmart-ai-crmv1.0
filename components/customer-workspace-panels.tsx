@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ExternalLink, LoaderCircle, Pencil, RefreshCw, Search } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import { FOLLOWUP_STAGE_LABELS, type FollowupStage } from "@/lib/types";
+import { CustomerScoreBadge } from "@/components/customer-score-badge";
 
 type UnifiedRow = {
   id: string;
@@ -35,7 +36,7 @@ const text = (value: unknown) => String(value || "-");
 function date(value: unknown) { return value ? new Date(String(value)).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") : "-"; }
 function Country({ value }: { value: unknown }) { return <CountryLabel value={value} />; }
 function UrlCell({ value }: { value: unknown }) { const raw = String(value || "").trim(); const href = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : ""; return href ? <a href={href} target="_blank" rel="noreferrer" className="inline-flex max-w-36 items-center gap-1 text-blue-600 hover:underline"><span className="truncate">{raw}</span><ExternalLink size={12} className="shrink-0"/></a> : <span className="text-slate-400">-</span>; }
-function Score({ row }: { row: UnifiedRow }) { return row.aiScore == null ? <span className="text-slate-400">-</span> : <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{row.aiLevel || "-"} · {row.aiScore}</span>; }
+function Score({ row }: { row: UnifiedRow }) { return <CustomerScoreBadge score={row.aiScore} level={row.aiLevel} emptyLabel="-"/>; }
 
 function UnifiedTable({ rows, loading, emptyText, page, pageSize, setPage, setPageSize }: { rows: UnifiedRow[]; loading: boolean; emptyText: string; page: number; pageSize: number; setPage: (value: number) => void; setPageSize: (value: number) => void }) {
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));

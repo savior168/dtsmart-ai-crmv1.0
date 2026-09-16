@@ -43,6 +43,7 @@ import { CustomerSocialSummary } from "@/components/customer-social-summary";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
+import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { customerSourceLabel } from "@/lib/customers/source-display";
 import { displayCustomerName } from "@/lib/customer-display";
 import {
@@ -332,18 +333,13 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
 }
 
 // Keep the exact same score thresholds and visual language as “我的客户”.
-function PoolScore({ row }: { row: PoolRow }) {
-  if (row.ai_score == null) return <span className="text-slate-400">未筛选</span>;
-  return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${row.ai_score >= 80 ? "bg-emerald-50 text-emerald-700" : row.ai_score >= 65 ? "bg-blue-50 text-blue-700" : row.ai_score >= 50 ? "bg-orange-50 text-orange-700" : "bg-rose-50 text-rose-600"}`}>{row.ai_level || "-"} · {row.ai_score}</span>;
-}
-
 function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
     return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
-  if (field === "ai_score") return <PoolScore row={row}/>;
+  if (field === "ai_score") return <CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>;
   if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="original"/>;
   if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
   if (field === "social") return <CustomerSocialSummary customer={row}/>;

@@ -4,6 +4,8 @@ import { CalendarClock, ChevronDown, ExternalLink, Pause, Play, RefreshCw, Searc
 import { useCallback, useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
+import { CustomerScoreBadge } from "@/components/customer-score-badge";
+import { CountryLabel } from "@/components/country-label";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import {
   ConfirmDialog,
@@ -91,6 +93,11 @@ type CompletionInfo = { budget_limited: boolean; blocked_periods: string[];incre
 type DiscoveryProgress = { stage:string;stage_detail:string|null;total:number;completed:number;raw_hits:number;incremental_skipped?:number;concurrently_skipped?:number;current_query:string|null;current_country:string|null;updated_at:string|null };
 type SearchStat = {query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number};
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
+const GOOGLE_SKU_ORDER=["PLACES_TEXT_SEARCH_PRO","PLACES_TEXT_SEARCH_ID_ONLY","PLACES_DETAILS_PRO","PLACES_DETAILS_ENTERPRISE","PLACES_DETAILS_ENTERPRISE_ATMOSPHERE"];
+function CompactTags({values,limit=8}:{values:string[];limit?:number}) {
+  const visible=values.slice(0,limit),remaining=values.slice(limit);
+  return <div className="flex flex-wrap items-center gap-1.5">{visible.map((value,index)=><span key={`${value}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}{remaining.length?<details className="group/tags"><summary className="cursor-pointer list-none rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700">另有 {remaining.length} 项</summary><div className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-lg border bg-white p-2">{remaining.map((value,index)=><span key={`${value}-${index}`} className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}</div></details>:null}</div>;
+}
 function SocialChannels({candidate}:{candidate:Candidate}) {
   const profile=candidate.customer_profile;
   const links=[
@@ -117,6 +124,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [level, setLevel] = useState(""),
     [readiness, setReadiness] = useState(""),
     [usage, setUsage] = useState<UsageSummary | null>(null),
+    [usageOpen, setUsageOpen] = useState(false),
     [completion, setCompletion] = useState<CompletionInfo>({budget_limited:false,blocked_periods:[]}),
     [discoveryProgress, setDiscoveryProgress] = useState<DiscoveryProgress | null>(null),
     [searchStats, setSearchStats] = useState<SearchStat[]>([]),
@@ -243,17 +251,28 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     );
   if (!task) return null;
   const totalCost = usage?.total_cost_usd ?? costs.reduce((s, c) => s + Number(c.amount_usd || 0), 0);
+  const providerCost=(provider:string)=>(usage?.sku_breakdown||[]).filter((item)=>item.provider.toUpperCase().includes(provider)).reduce((sum,item)=>sum+Number(item.amount_usd||0),0);
+  const googleCost=providerCost("GOOGLE");
+  const openaiCost=providerCost("OPENAI");
+  const averageAcceptedCost=task.accepted_count>0?totalCost/task.accepted_count:null;
+  const sortedUsageBreakdown=[...(usage?.sku_breakdown||[])].sort((a,b)=>{
+    const providerRank=(value:string)=>value.toUpperCase().includes("OPENAI")?0:value.toUpperCase().includes("GOOGLE")?1:2;
+    const providerDelta=providerRank(a.provider)-providerRank(b.provider);
+    if(providerDelta)return providerDelta;
+    if(a.provider.toUpperCase().includes("GOOGLE"))return (GOOGLE_SKU_ORDER.indexOf(a.model_or_sku)+1||999)-(GOOGLE_SKU_ORDER.indexOf(b.model_or_sku)+1||999);
+    return a.model_or_sku.localeCompare(b.model_or_sku);
+  });
+  const searchTotals=searchStats.reduce((total,item)=>({candidates:total.candidates+item.candidates,accepted:total.accepted+item.accepted,cost:total.cost+item.cost_usd}),{candidates:0,accepted:0,cost:0});
+  function showUsageDetails(){setUsageOpen(true);requestAnimationFrame(()=>document.getElementById("usage-details")?.scrollIntoView({behavior:"smooth",block:"start"}));}
   return (
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
         title={task.name}
         description={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>{task.task_number}</span><span>·</span>
-            <span>{task.countries.length===1?(COUNTRY_NAMES.of(task.countries[0])||task.countries[0]):`${task.countries.length} 个国家/地区`}</span><span>·</span>
-            <span>{(task.industries?.length || 1)} 个目标行业</span><span>·</span>
-            <span>{task.keywords.length} 个搜索关键词</span><span>·</span>
-            <CostModeBadge mode={task.cost_mode} context="acquisition" />
+            <span>任务编号 {task.task_number}</span><span>·</span>
+            <span>创建人 {task.owner?.name||task.owner?.email||"历史账号"}</span><span>·</span>
+            <span>创建于 {new Date(task.created_at).toLocaleString("zh-CN",{hour12:false})}</span>
           </span>
         }
         actions={
@@ -301,11 +320,13 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       />
       {task.scheduled_at ? <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><CalendarClock size={16}/><b>预约执行：</b>{new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false})}<span className="text-blue-600">（预约等待时间不计入有效耗时）</span></div> : null}
       {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} p-4`} aria-label="AI获客实时执行进度"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><b className="text-sm">{{WAITING:"等待开始执行",DISCOVERY:"正在搜索目标客户",DEDUPLICATING:"正在去重与目标初判",VERIFYING:"正在核验候选客户",FINALIZING:"正在执行入池判定"}[discoveryProgress.stage]||"正在执行AI获客"}</b><StatusBadge status={task.status}/></div><p className="mt-1 text-xs text-slate-500">{discoveryProgress.stage_detail||`已执行 ${discoveryProgress.completed} / ${discoveryProgress.total} 组本地化检索组合`}</p></div><div className="text-right text-xs text-slate-400"><p>有效耗时 {formatDuration(effectiveElapsedMs(task))}</p>{discoveryProgress.updated_at?<p className="mt-1">最近更新 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</p>:null}</div></div>{discoveryProgress.total>0?<><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{width:`${Math.min(100,Math.round(discoveryProgress.completed/discoveryProgress.total*100))}%`}}/></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>已执行 <b className="text-slate-700">{discoveryProgress.completed}</b> / {discoveryProgress.total} 组检索组合</span><span>检索组合数不是客户数量上限</span></div></>:null}{discoveryProgress.current_query?<div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm"><span className="text-slate-500">当前检索：</span><b className="ml-2 text-blue-800">{discoveryProgress.current_query}</b>{discoveryProgress.current_country?<span className="ml-2 text-xs text-blue-600">· {COUNTRY_NAMES.of(discoveryProgress.current_country)||discoveryProgress.current_country}</span>:null}</div>:null}</section>:null}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="AI获客结果概览">
-        <article className={`${panel} p-4`}><small className="text-slate-500">搜索发现</small><div className="mt-2 text-xl font-semibold">{formatNumber(discoveryProgress?.completed||0)} / {formatNumber(discoveryProgress?.total||0)} 组</div><small className="mt-1 block text-slate-500">原始命中 {formatNumber(discoveryProgress?.raw_hits||0)} 条 · 组合数不是客户上限</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">候选与核验</small><div className="mt-2 text-xl font-semibold">候选 {formatNumber(task.discovered_count)}</div><small className="mt-1 block text-slate-500">已完成核验 {formatNumber(task.processed_count)} 条</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">质量判定结果</small><div className="mt-2 text-xl font-semibold text-emerald-700">成功入池 {formatNumber(task.accepted_count)}</div><small className="mt-1 block text-slate-500">待复核 {formatNumber(task.review_count)} · 未通过 {formatNumber(task.rejected_count)} · 重复 {formatNumber(task.duplicate_count)}</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">用量与成本参考</small><div className="mt-2 text-xl font-semibold">{formatCost(totalCost)}</div><small className="mt-1 block text-slate-500">Google {formatNumber(usage?.google_calls)} 次 · 大模型 {formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></article>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" aria-label="AI获客结果概览">
+        <Link href={`/ai-acquisition/tasks/${task.id}?decision=ACCEPTED#customer-results`} className={`${panel} p-4 transition hover:border-emerald-300 hover:bg-emerald-50/30`}><small className="text-slate-500">成功入池客户</small><div className="mt-2 text-xl font-semibold text-emerald-700">{formatNumber(task.accepted_count)} 个</div><small className="mt-1 block text-slate-500">已核验有效并写入客户公海</small></Link>
+        <Link href={`/ai-acquisition/tasks/${task.id}?decision=REVIEW#customer-results`} className={`${panel} p-4 transition hover:border-amber-300 hover:bg-amber-50/30`}><small className="text-slate-500">待人工复核</small><div className="mt-2 text-xl font-semibold text-amber-700">{formatNumber(task.review_count)} 个</div><small className="mt-1 block text-slate-500">点击处理证据不足的候选</small></Link>
+        <article className={`${panel} p-4`}><small className="text-slate-500">候选核验进度</small><div className="mt-2 text-xl font-semibold">{formatNumber(task.processed_count)} / {formatNumber(task.discovered_count)} 个</div><small className="mt-1 block text-slate-500">未通过 {formatNumber(task.rejected_count)} · 重复 {formatNumber(task.duplicate_count)}</small></article>
+        <article className={`${panel} p-4`}><small className="text-slate-500">平均有效客户成本</small><div className="mt-2 text-xl font-semibold">{averageAcceptedCost==null?"—":formatCost(averageAcceptedCost)}</div><small className="mt-1 block text-slate-500">累计成本参考 {formatCost(totalCost)}</small></article>
+        <button type="button" onClick={showUsageDetails} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">OpenAI</small><small className="text-blue-600">查看明细</small></span><div className="mt-2 text-xl font-semibold">{formatCost(openaiCost)}</div><small className="mt-1 block text-slate-500">{formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></button>
+        <button type="button" onClick={showUsageDetails} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">Google Places</small><small className="text-blue-600">查看明细</small></span><div className="mt-2 text-xl font-semibold">{formatNumber(usage?.google_calls)} 次</div><small className="mt-1 block text-slate-500">成本参考 {formatCost(googleCost)}</small></button>
       </section>
       {task.error_message ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -314,9 +335,14 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         </div>
       ) : null}
       <details className={`${panel} group overflow-hidden`}>
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">{task.status==="COMPLETED"?(completion.budget_limited?"已按费用边界完成":completion.no_new_search_units?"增量检查已完成":"本次获客已完成"):"任务范围与结束规则"}</h2><p className="mt-1 text-xs text-slate-500">{task.countries.length} 个国家/地区 · {task.industries?.length||1} 个行业 · {task.keywords.length} 个搜索关键词</p></div><span className="flex shrink-0 items-center gap-2 text-sm text-blue-600">查看任务条件<ChevronDown size={16} className="transition group-open:rotate-180"/></span></summary>
-        <div className="grid gap-4 border-t p-5 text-sm lg:grid-cols-2"><div><b className="text-slate-700">目标国家/地区</b><p className="mt-1 leading-6 text-slate-600">{task.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}</p></div><div><b className="text-slate-700">目标行业</b><p className="mt-1 leading-6 text-slate-600">{(task.industries?.length?task.industries:[task.industry]).join("、")}</p></div><div><b className="text-slate-700">搜索关键词</b><p className="mt-1 leading-6 text-slate-600">{task.keywords.join("、")}</p></div><div><b className="text-slate-700">费用保护</b><p className="mt-1 leading-6 text-slate-600">{task.task_cost_limit_usd==null?"继承AI获客全局费用限制":`本任务最多 ${formatCost(task.task_cost_limit_usd)}`}</p></div><div className="lg:col-span-2 rounded-lg bg-blue-50 px-4 py-3 leading-6 text-blue-800"><b>结束规则：</b>{task.status==="COMPLETED"?(completion.budget_limited?"付费路径达到任务或全局限制后停止；已发现候选仍完成去重与质量判定。":completion.no_new_search_units?`本次没有新的待检索单元：近期已覆盖 ${completion.incremental_skipped||0} 项，其他任务执行中 ${completion.concurrently_skipped||0} 项；未重复调用或分析。`:"本次有限检索计划和全部新候选质量判定均已完成。"):
-        "执行完有限检索计划并处理完全部新候选后自动结束；连续分页无新候选会提前结束，不会无限采集。"}</div></div>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">任务条件与执行规则</h2><p className="mt-1 text-xs text-slate-500">{task.countries.length} 个国家/地区 · {task.industries?.length||1} 个目标行业 · {task.keywords.length} 个搜索关键词</p></div><span className="flex shrink-0 items-center gap-2 text-sm text-blue-600">查看任务条件<ChevronDown size={16} className="transition group-open:rotate-180"/></span></summary>
+        <div className="grid gap-3 border-t p-4 text-sm lg:grid-cols-2">
+          <div className="rounded-lg border bg-slate-50/60 p-3"><b className="text-slate-700">目标国家/地区</b><div className="mt-2"><CompactTags values={task.countries.map((code)=>COUNTRY_NAMES.of(code)||code)} limit={8}/></div></div>
+          <div className="rounded-lg border bg-slate-50/60 p-3"><b className="text-slate-700">执行设置</b><dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs"><dt className="text-slate-500">获客模式</dt><dd><CostModeBadge mode={task.cost_mode} context="acquisition" /></dd><dt className="text-slate-500">费用保护</dt><dd className="font-medium text-slate-700">{task.task_cost_limit_usd==null?"继承AI获客全局费用限制":`本任务最多 ${formatCost(task.task_cost_limit_usd)}`}</dd><dt className="text-slate-500">执行时间</dt><dd className="font-medium text-slate-700">{task.scheduled_at?new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行"}</dd></dl></div>
+          <div className="rounded-lg border bg-slate-50/60 p-3 lg:col-span-2"><b className="text-slate-700">目标行业</b><div className="mt-2"><CompactTags values={task.industries?.length?task.industries:[task.industry]} limit={8}/></div></div>
+          <div className="rounded-lg border bg-slate-50/60 p-3 lg:col-span-2"><b className="text-slate-700">搜索关键词</b><div className="mt-2"><CompactTags values={task.keywords} limit={10}/></div></div>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 leading-6 text-blue-800 lg:col-span-2"><b>结束规则：</b>{task.status==="COMPLETED"?(completion.budget_limited?"付费路径达到任务或全局限制后停止；已发现候选仍完成去重与质量判定。":completion.no_new_search_units?`本次没有新的待检索单元：近期已覆盖 ${completion.incremental_skipped||0} 项，其他任务执行中 ${completion.concurrently_skipped||0} 项；未重复调用或分析。`:"本次有限检索计划和全部新候选质量判定均已完成。"):"执行完有限检索计划并处理完全部新候选后自动结束；连续分页无新候选会提前结束，不会无限采集。"}</div>
+        </div>
       </details>
       <section id="customer-results" className={`${panel} scroll-mt-4`}>
         <div className="border-b px-5 pt-5">
@@ -344,20 +370,24 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||country||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountry("");setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
           </form>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1400px] table-fixed text-left text-sm">
-            <colgroup><col className="w-[240px]"/><col className="w-[190px]"/><col className="w-[240px]"/><col className="w-[210px]"/><col className="w-[250px]"/><col className="w-[230px]"/><col className="w-[140px]"/></colgroup>
-            <thead className="bg-slate-50 text-xs text-slate-500">
+          <table className="w-full min-w-[2180px] table-fixed text-left text-sm">
+            <colgroup><col className="w-[210px]"/><col className="w-[240px]"/><col className="w-[170px]"/><col className="w-[110px]"/><col className="w-[190px]"/><col className="w-[250px]"/><col className="w-[190px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/></colgroup>
+            <thead className="bg-slate-50 text-slate-500">
               <tr>
                 {[
-                  "客户与地区",
-                  "AI匹配",
+                  "客户名称",
+                  "国家 / 地址",
+                  "目标行业",
+                  "AI评分",
+                  "匹配关键词",
                   "已核验联系方式",
                   "公开来源",
-                  "商机线索与销售建议",
-                  "核验结果",
+                  "商机线索",
+                  "销售建议",
+                  "核验结论",
                   "操作",
-                ].map((x) => (
-                  <th key={x} className="px-4 py-3 font-medium">
+                ].map((x,index,headers) => (
+                  <th key={x} className={`px-4 py-3 font-medium ${index===0?"sticky left-0 z-20 bg-slate-50 shadow-[1px_0_0_#e2e8f0]":""} ${index===headers.length-1?"sticky right-0 z-20 bg-slate-50 shadow-[-1px_0_0_#e2e8f0]":""}`}>
                     {x}
                   </th>
                 ))}
@@ -365,26 +395,26 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t align-top">
-                  <td className="px-4 py-4 font-medium text-slate-800">
-                    <span className="block max-w-56">{r.company_name}</span>
-                    <small className="mt-1 block text-emerald-700">AI核验：{r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}</small>
-                    <small className="mt-2 block text-slate-500"><b>{COUNTRY_NAMES.of(r.country)||r.country}</b> · {r.address||"地址待核验"}</small>
+                <tr key={r.id} className="group border-t align-top hover:bg-blue-50/30">
+                  <td className="sticky left-0 z-10 bg-white px-3 py-4 font-medium text-slate-800 shadow-[1px_0_0_#e2e8f0] group-hover:bg-blue-50">
+                    <span className="block max-w-56 truncate font-medium text-blue-700" title={r.company_name}>{r.company_name}</span>
                   </td>
-                  <td className="px-4 py-4"><b className="text-base">{r.ai_score==null?"—":`${r.ai_level||"—"} · ${r.ai_score}分`}</b>
-                    {r.matched_keywords?.length?<div className="mt-2 flex flex-wrap gap-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="text-[11px] font-normal text-slate-400">+{r.matched_keywords.length-3}</span>:null}</div>:<small className="mt-2 block text-slate-400">未记录匹配关键词</small>}
-                  </td>
+                  <td className="px-3 py-4"><CountryLabel value={r.country}/><small className="mt-2 block line-clamp-2 leading-5 text-slate-500">{r.address||"地址待核验"}</small></td>
+                  <td className="px-4 py-4 text-emerald-700">{r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}</td>
+                  <td className="px-3 py-4"><CustomerScoreBadge score={r.ai_score} level={r.ai_level}/></td>
+                  <td className="px-4 py-4">{r.matched_keywords?.length?<div className="space-y-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="block max-w-[166px] truncate whitespace-nowrap rounded bg-blue-50 px-2 py-1 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="block text-[11px] font-normal text-slate-400">另有 {r.matched_keywords.length-3} 项</span>:null}</div>:<small className="text-slate-400">未记录</small>}</td>
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
                   </td>
                   <td className="px-4 py-4"><div className="space-y-2"><CustomerPublicLink value={r.customer_profile?.website} kind="website"/><CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/><SocialChannels candidate={r}/></div></td>
-                  <td className="px-4 py-4"><b className="text-xs font-medium text-slate-700">{r.customer_profile?.company_scale_evidence?"已核验商机线索":"商机判断"}</b><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p><p className="mt-2 line-clamp-2 border-t pt-2 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>
+                  <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-slate-600">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
+                  <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>
                   <td className="max-w-80 px-4 py-4 text-slate-600">
                     <span className={`rounded-md px-2 py-1 text-xs ${tone[r.decision] || "bg-slate-100"}`}>{decisionLabels[r.decision] || r.decision}</span>
                     <small className="mt-2 block leading-5">{r.decision_reason || "—"}</small>
                     <small className={`mt-1 block ${r.evidence_complete&&r.has_actionable_contact?"text-emerald-700":"text-amber-700"}`}>{r.evidence_complete?"依据通过":"依据不足"} · {r.has_actionable_contact?"联系方式通过":"联系方式不足"}</small>
                   </td>
-                  <td className="px-4 py-4">
+                  <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0] group-hover:bg-blue-50">
                     <div className="flex flex-col items-start gap-2">
                       {canEvidence ? (
                         <button
@@ -428,16 +458,17 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         />
       </section>
       <div id="task-analysis" className="scroll-mt-4 space-y-4">
-      {searchStats.length?<details className={`${panel} group overflow-hidden`}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">搜索效果分析</h2><p className="mt-1 text-xs text-slate-500">比较每个搜索组合带来的候选、入池结果与成本参考，帮助判断哪些搜索方式更有效。</p></div><span className="flex shrink-0 items-center gap-2 text-sm font-medium text-blue-600">{searchStats.length} 个搜索组合<ChevronDown size={16} className="transition group-open:rotate-180"/></span></summary><div className="max-h-80 overflow-auto border-t"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["实际搜索组合","发现候选","重复","未通过","待复核","成功入池","已认领","已推进","可归属成本参考","平均入池成本参考"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></details>:null}
-      <details id="usage-details" className={`${panel} group overflow-hidden`}>
+      {searchStats.length?<details className={`${panel} group overflow-hidden`}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">搜索策略效果</h2><p className="mt-1 text-xs text-slate-500">用于复盘各检索组合的发现、核验、入池和后续转化表现，默认收起，不影响日常查看客户。</p></div><span className="flex shrink-0 items-center gap-3 text-sm"><span className="text-slate-500">组合 {formatNumber(searchStats.length)} · 发现 {formatNumber(searchTotals.candidates)} · 入池 {formatNumber(searchTotals.accepted)}</span><b className="text-slate-900">{formatCost(searchTotals.cost)}</b><ChevronDown size={16} className="text-blue-600 transition group-open:rotate-180"/></span></summary><div className="border-t"><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-4">{[["检索组合",formatNumber(searchStats.length)],["发现候选",formatNumber(searchTotals.candidates)],["成功入池",formatNumber(searchTotals.accepted)],["成本参考",formatCost(searchTotals.cost)]].map(([label,value])=><div key={label} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div><div className="max-h-80 overflow-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["检索组合","发现候选","重复","未通过","待复核","成功入池","已认领","已推进","成本参考","平均入池成本参考"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></div></details>:null}
+      <details id="usage-details" open={usageOpen} onToggle={(event)=>setUsageOpen(event.currentTarget.open)} className={`${panel} group scroll-mt-4 overflow-hidden`}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
           <div><h2 className="font-semibold">第三方调用与成本参考</h2><p className="mt-1 text-xs text-slate-500">系统保留真实调用记录，并按调用时价目估算金额；最终结算以服务商账单为准。</p></div>
           <span className="flex shrink-0 items-center gap-3 text-sm"><span className="text-slate-500">调用 {formatNumber(usage?.total_calls ?? costs.length)} 次 · 免费 {formatNumber(usage?.free_calls ?? 0)} 次</span><b className="text-slate-900">{formatCost(totalCost)}</b><ChevronDown size={16} className="text-blue-600 transition group-open:rotate-180"/></span>
         </summary>
         <div className="border-t">
-        {usage ? <><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-5">{[["累计成本参考",formatCost(usage.total_cost_usd)],["全部调用",usage.total_calls],["免费额度调用",usage.free_calls],["Google Places",usage.google_calls],["大模型",usage.openai_calls]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div>{usage.sku_breakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">SKU / 模型汇总</h3><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="text-xs text-slate-500"><tr><th className="py-2">服务商</th><th>SKU / 模型</th><th>用途</th><th>调用</th><th>免费</th><th>账本金额</th></tr></thead><tbody>{usage.sku_breakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-2">{item.provider}</td><td>{item.model_or_sku}</td><td>{item.operation}</td><td>{item.calls}</td><td>{item.free_calls}</td><td>{formatCost(item.amount_usd)}</td></tr>)}</tbody></table></div></div>:null}</> : null}
-        <div className="px-4 pt-4 text-xs text-slate-500">最近调用记录（完整累计以汇总数据为准）</div>
-        <div className="max-h-80 overflow-auto">
+        {usage ? <><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-5">{[["OpenAI调用 / Token",`${formatNumber(usage.openai_calls)} 次 · ${formatTokens(usage.total_tokens)}`],["OpenAI台账估算",formatCost(openaiCost)],["Google Places调用",`${formatNumber(usage.google_calls)} 次`],["Google价目估算",formatCost(googleCost)],["成本参考合计",formatCost(usage.total_cost_usd)]].map(([label,value])=><div key={String(label)} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div>{sortedUsageBreakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">模型与 Google Places SKU 汇总</h3><p className="mt-1 text-xs text-slate-500">顺序与AI筛选一致：先展示OpenAI，再按搜索、基础详情、企业详情和Atmosphere补证展示Google调用。</p><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="text-xs text-slate-500"><tr><th className="py-2">服务商</th><th>模型 / SKU</th><th>用途</th><th>调用</th><th>免费</th><th>成本参考</th></tr></thead><tbody>{sortedUsageBreakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-2">{item.provider}</td><td>{item.model_or_sku}</td><td>{item.operation}</td><td>{item.calls}</td><td>{item.free_calls}</td><td>{formatCost(item.amount_usd)}</td></tr>)}</tbody></table></div></div>:null}</> : null}
+        <details className="group/calls border-t">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm"><span><b className="font-medium text-slate-700">最近调用记录</b><small className="ml-2 text-slate-400">仅用于逐次排查，完整累计以上方汇总为准</small></span><span className="flex items-center gap-2 text-blue-600">{formatNumber(costs.length)} 条<ChevronDown size={15} className="transition group-open/calls:rotate-180"/></span></summary>
+        <div className="max-h-80 overflow-auto border-t">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
               <tr>
@@ -482,6 +513,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             </div>
           ) : null}
         </div>
+        </details>
         </div>
       </details>
       </div>

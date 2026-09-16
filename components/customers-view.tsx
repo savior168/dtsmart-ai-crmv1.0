@@ -28,6 +28,7 @@ import { AppPagination } from "@/components/ui/app-pagination";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
+import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CustomerSocialSummary } from "@/components/customer-social-summary";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
@@ -80,15 +81,7 @@ const listColumnWidth: Partial<Record<ColumnKey, string>> = {
   updated_at: "w-36",
 };
 function Score({ customer }: { customer: Customer }) {
-  return customer.ai_score == null ? (
-    <span className="text-slate-400">未筛选</span>
-  ) : (
-    <span
-      className={`rounded-md px-2 py-1 text-xs font-semibold ${customer.ai_score >= 80 ? "bg-emerald-50 text-emerald-700" : customer.ai_score >= 65 ? "bg-blue-50 text-blue-700" : customer.ai_score >= 50 ? "bg-orange-50 text-orange-700" : "bg-rose-50 text-rose-600"}`}
-    >
-      {customer.ai_level || "-"} · {customer.ai_score}
-    </span>
-  );
+  return <CustomerScoreBadge score={customer.ai_score} level={customer.ai_level}/>;
 }
 function ProtectionRemaining({ customer }: { customer: Customer }) {
   const text = customerProtectionText(customer);
