@@ -5,7 +5,7 @@ import { localizedSearchTerms, type AcquisitionCountry } from "./config";
 
 export type DiscoveredBusiness = {
   placeId: string; companyName: string; address: string; country: AcquisitionCountry;
-  businessStatus: string; types: string[]; googleUrl: string; query: string;
+  businessStatus: string; types: string[]; googleUrl: string; query: string; matchedTerms: string[];
 };
 export type DiscoveryControl = "PAUSED" | "CANCELLED" | "BUDGET_LIMITED" | null;
 
@@ -37,7 +37,7 @@ export async function discoverBusinesses(input: {
     const existing = await admin.from("ai_acquisition_discovery_checkpoints").select("next_page,next_page_token,status,results").eq("task_id",input.acquisitionTaskId).eq("country",input.country).eq("query_text",query).maybeSingle();
     if(existing.error) throw existing.error;
     const savedResults = Array.isArray(existing.data?.results) ? existing.data.results as DiscoveredBusiness[] : [];
-    savedResults.forEach((business)=>business?.placeId&&results.set(business.placeId,business));
+    savedResults.forEach((business)=>business?.placeId&&results.set(business.placeId,{...business,matchedTerms:Array.isArray(business.matchedTerms)&&business.matchedTerms.length?business.matchedTerms:[business.query].filter(Boolean)}));
     if(["COMPLETED","BUDGET_LIMITED"].includes(String(existing.data?.status||""))) continue;
     let pageToken = String(existing.data?.next_page_token||"");
     const firstPage = Math.max(1,Number(existing.data?.next_page||1));
@@ -68,6 +68,8 @@ export async function discoverBusinesses(input: {
         return { businesses:[...results.values()].slice(0,input.limit), control:"BUDGET_LIMITED" as const };
       }
       try {
+        const running=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"RUNNING",stop_reason:null,result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        if(running.error)throw running.error;
         const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.businessStatus,places.types,places.googleMapsUri,nextPageToken" },
@@ -92,8 +94,12 @@ export async function discoverBusinesses(input: {
           const address = String(place.formattedAddress || "").trim();
           const searchable = `${companyName} ${address} ${(place.types || []).join(" ")}`.toLowerCase();
           if (!placeId || !companyName || excluded.some((word) => searchable.includes(word))) continue;
-          if (!results.has(placeId)) {
-            const business={ placeId, companyName, address, country: input.country, businessStatus: String(place.businessStatus || ""), types: place.types || [], googleUrl: place.googleMapsUri || `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`, query };
+          const previous=results.get(placeId);
+          if (previous) {
+            const business={...previous,matchedTerms:[...new Set([...(previous.matchedTerms||[]),term])]};
+            results.set(placeId,business);queryResults.set(placeId,business);
+          } else {
+            const business={ placeId, companyName, address, country: input.country, businessStatus: String(place.businessStatus || ""), types: place.types || [], googleUrl: place.googleMapsUri || `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`, query, matchedTerms:[term] };
             results.set(placeId,business);queryResults.set(placeId,business);
           }
         }

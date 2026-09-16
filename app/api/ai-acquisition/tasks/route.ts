@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
         : Number(rawTaskCostLimit);
     if (!name) return NextResponse.json({ error: "请输入任务名称" }, { status: 400 });
     if (!industries.length) return NextResponse.json({ error: "请至少选择或输入一个明确的目标行业" }, { status: 400 });
+    if (!keywords.length) return NextResponse.json({ error: "请至少选择或输入一个搜索关键词" }, { status: 400 });
     if (!countries.length || countries.length > 8) return NextResponse.json({ error: "请选择1至8个已支持的目标国家" }, { status: 400 });
     if (!/^[0-9a-f-]{36}$/i.test(requestKey)) return NextResponse.json({ error: "任务请求标识无效，请刷新后重试" }, { status: 400 });
     if (body.scheduled_at && !scheduledAt) return NextResponse.json({ error: "请选择晚于当前时间的预约执行时间" }, { status: 400 });

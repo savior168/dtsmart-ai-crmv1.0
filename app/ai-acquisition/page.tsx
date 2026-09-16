@@ -7,5 +7,6 @@ export default async function AiAcquisitionPage(){
     canCreate={hasPermission(account,"ai.acquisition.create")}
     canViewUsage={hasPermission(account,"ai.acquisition.usage.view")}
     canManageSettings={hasPermission(account,"ai.acquisition.settings.manage")}
+    canViewGoogleBilling={hasPermission(account,"costs.view")||hasPermission(account,"ai.cost_summary.view")}
   />;
 }

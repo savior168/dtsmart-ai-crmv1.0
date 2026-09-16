@@ -22,7 +22,7 @@ async function readTask(taskId: string) {
 async function beginTask(taskId: string) {
   "use step";
   const now = new Date().toISOString();
-  const result = await createAdminClient().from("ai_acquisition_tasks").update({ status: "RUNNING", active_executor: "VERCEL_WORKFLOW", started_at: now, executor_heartbeat_at: now, last_dispatch_at: now, error_message: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "RUNNING"]);
+  const result = await createAdminClient().from("ai_acquisition_tasks").update({ status: "RUNNING", current_stage:"DISCOVERY", current_stage_detail:"正在按国家和本地化检索表达发现目标商家", active_executor: "VERCEL_WORKFLOW", started_at: now, executor_heartbeat_at: now, last_dispatch_at: now, error_message: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "RUNNING"]);
   if (result.error) throw result.error;
 }
 
@@ -64,6 +64,8 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     });
     if(discovery.control){discoveryControl=discovery.control;break;}
   }
+  const stageUpdate=await admin.from("ai_acquisition_tasks").update({current_stage:"DEDUPLICATING",current_stage_detail:"正在保存候选、系统去重并执行非目标早停",executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",task.id).eq("status","RUNNING");
+  if(stageUpdate.error)throw stageUpdate.error;
   let candidateIndex=0;
   for (const candidate of unique.values()) {
     candidateIndex+=1;
@@ -80,7 +82,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     const existingCustomer = await admin.from("customers").select("id").eq("google_place_id", candidate.placeId).is("deleted_at", null).limit(1).maybeSingle();
     if (existingCustomer.error) throw existingCustomer.error;
     if (existingCustomer.data) {
-      const duplicate = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "DUPLICATE", decision_reason: "Google Place ID已存在于系统客户资料", imported_customer_id: existingCustomer.data.id, processed_at: new Date().toISOString() });
+      const duplicate = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "DUPLICATE", decision_reason: "Google Place ID已存在于系统客户资料", imported_customer_id: existingCustomer.data.id, processed_at: new Date().toISOString() });
       if (duplicate.error) throw duplicate.error;
       continue;
     }
@@ -90,7 +92,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     if (previous.data) {
       const repeated = await admin.from("ai_acquisition_candidates").insert({
         task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address,
-        google_url: candidate.googleUrl, source_query: candidate.query,
+        google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms,
         source_snapshot: { ...candidate, previous_candidate_id: previous.data.id, previous_task_id: previous.data.task_id, previous_decision: previous.data.decision },
         decision: "DUPLICATE", decision_reason: "近90天已有AI获客核验记录，本次保留检索命中但不重复产生补证费用", processed_at: new Date().toISOString(),
       });
@@ -98,12 +100,12 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
       continue;
     }
     if (candidate.businessStatus === "CLOSED_PERMANENTLY") {
-      const closed = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "REJECTED", decision_reason: "Google 商家明确标记永久停业，已在补证前停止", processed_at: new Date().toISOString() });
+      const closed = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "REJECTED", decision_reason: "Google 商家明确标记永久停业，已在补证前停止", processed_at: new Date().toISOString() });
       if (closed.error) throw closed.error;
       continue;
     }
     if (!discoveryCandidateLooksRelevant(candidate, industries, task.keywords)) {
-      const rejected = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "REJECTED", decision_reason: "公开商家基础类别与目标行业缺少直接相关信号，已在补证前停止", processed_at: new Date().toISOString() });
+      const rejected = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "REJECTED", decision_reason: "公开商家基础类别与目标行业缺少直接相关信号，已在补证前停止", processed_at: new Date().toISOString() });
       if (rejected.error) throw rejected.error;
       continue;
     }
@@ -111,7 +113,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
       company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl,
       google_place_id: candidate.placeId, industry: task.industry, category: task.industry, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
       source_batch: task.task_number, source_reference: task.id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: task.user_id,
-      owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING", assigned_via: null,
+      owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING", assigned_via: null, acquisition_match_keywords: candidate.matchedTerms,
     }).select("id").single();
     if (customer.error || !customer.data) throw customer.error || new Error("ACQUISITION_STAGING_CUSTOMER_FAILED");
     const source = await admin.from("customer_sources").insert({
@@ -127,6 +129,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
         source_channel: "GOOGLE_MAPS",
         exact_source_url: candidate.googleUrl,
         source_query: candidate.query,
+        matched_search_terms: candidate.matchedTerms,
         country: candidate.country,
         target_industries: industries,
         cost_mode: task.cost_mode,
@@ -135,7 +138,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     if (source.error) throw source.error;
     const item = await admin.from("ai_screening_task_items").insert({ task_id: screeningTaskId, customer_id: customer.data.id, status: "PENDING", strategy: "SMART", strategy_version: "1.0" }).select("id").single();
     if (item.error || !item.data) throw item.error || new Error("ACQUISITION_SCREENING_ITEM_FAILED");
-    const row = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, screening_task_id: screeningTaskId, screening_task_item_id: item.data.id, staging_customer_id: customer.data.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, source_snapshot: candidate, decision: "ANALYZING" });
+    const row = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, screening_task_id: screeningTaskId, screening_task_item_id: item.data.id, staging_customer_id: customer.data.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "ANALYZING" });
     if (row.error) throw row.error;
   }
   const counts = await admin.from("ai_acquisition_candidates").select("id,decision").eq("task_id", task.id);
@@ -154,6 +157,12 @@ async function dispatchScreening(screeningTaskId: string) {
   const update = await createAdminClient().from("ai_screening_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", screeningTaskId);
   if (update.error) throw update.error;
   return run.runId;
+}
+
+async function setTaskStage(taskId:string,stage:"VERIFYING"|"FINALIZING",detail:string) {
+  "use step";
+  const saved=await createAdminClient().from("ai_acquisition_tasks").update({current_stage:stage,current_stage_detail:detail,executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",taskId).eq("status","RUNNING");
+  if(saved.error)throw saved.error;
 }
 
 async function screeningState(screeningTaskId: string) {
@@ -248,7 +257,8 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   if (task.error) throw task.error;
   const started = task.data.started_at ? new Date(task.data.started_at).getTime() : NaN;
   const elapsed = Number(task.data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
-  const update = await admin.from("ai_acquisition_tasks").update({ status, processed_count: rows.data?.length || 0, accepted_count: count("ACCEPTED"), review_count: count("REVIEW"), rejected_count: count("REJECTED"), duplicate_count: count("DUPLICATE"), elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message: errorMessage?.slice(0, 1000) || null, updated_at: now.toISOString() }).eq("id", taskId);
+  const finalStage=status==="COMPLETED"?"FINISHED":status;
+  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?"检索、去重、核验和准入判定均已完成":errorMessage?.slice(0,500)||null, processed_count: rows.data?.length || 0, accepted_count: count("ACCEPTED"), review_count: count("REVIEW"), rejected_count: count("REJECTED"), duplicate_count: count("DUPLICATE"), elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message: errorMessage?.slice(0, 1000) || null, updated_at: now.toISOString() }).eq("id", taskId);
   if (update.error) throw update.error;
 }
 
@@ -270,6 +280,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
     if(staging.control==="CANCELLED"){await finishTask(taskId,"CANCELLED");return;}
     const analyzing = staging.analyzing;
     if (analyzing > 0) {
+      await setTaskStage(taskId,"VERIFYING","正在核验主体、在营状态、目标行业、证据和有效联系方式");
       const initialState = await screeningState(screeningTaskId);
       if (initialState.status === "QUEUED") await dispatchScreening(screeningTaskId);
       while (true) {
@@ -283,6 +294,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         }
         await sleep("10s");
       }
+      await setTaskStage(taskId,"FINALIZING","正在执行最终质量门槛、系统去重和客户公海准入");
       await finalizeCandidates(task);
     }
     await finishTask(taskId, "COMPLETED");

@@ -15,7 +15,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const itemId = String(candidate.data.screening_task_item_id || "");
     const customerId = String(candidate.data.staging_customer_id || candidate.data.imported_customer_id || "");
     const [result, evidence, contacts] = await Promise.all([
-      itemId ? admin.from("ai_screening_results").select("score,grade,target_decision,identity_status,evidence_sufficiency_score,short_reason,reason,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      itemId ? admin.from("ai_screening_results").select("score,grade,target_decision,identity_status,evidence_sufficiency_score,short_reason,reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle() : Promise.resolve({ data: null, error: null }),
       itemId ? admin.from("ai_screening_evidence").select("id,source_url,source_type,evidence_type,evidence_strength,content_excerpt:original_excerpt,created_at").eq("task_item_id", itemId).order("created_at", { ascending: true }) : Promise.resolve({ data: [], error: null }),
       customerId ? admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id", customerId).in("type", ["PHONE","EMAIL","WHATSAPP"]).in("verification_status", ["NEW_VERIFIED","SOURCE_CONFIRMED","MATCHED_ORIGINAL"]).not("exact_source_url", "is", null).order("type", { ascending: true }) : Promise.resolve({ data: [], error: null }),
     ]);

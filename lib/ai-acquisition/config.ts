@@ -12,11 +12,19 @@ export const MAX_ACQUISITION_SEARCH_TERMS = 80;
 
 export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
   "手机维修店": "mobile phone repair",
+  "手机维修连锁店": "mobile phone repair chain",
+  "Apple设备维修店": "Apple device repair service",
   "手机配件批发商": "phone parts wholesale",
+  "手机内配件经销商": "mobile phone replacement parts distributor",
   "手机配件零售商": "mobile phone accessories store",
   "手机进口商": "mobile phone importer",
+  "手机翻新商": "mobile phone refurbisher",
+  "二手手机整备商": "used phone refurbishment company",
   "电脑维修店": "computer repair",
+  "笔记本电脑维修店": "laptop repair service",
   "电脑配件批发商": "computer parts wholesale",
+  "笔记本配件经销商": "laptop replacement parts distributor",
+  "电子设备维修服务商": "electronics repair service",
   "消费电子批发商": "consumer electronics wholesale",
   "电子元器件经销商": "electronic components distributor",
   "家电维修服务商": "appliance repair service",
@@ -56,11 +64,19 @@ export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
 
 export const ACQUISITION_COMMON_INDUSTRIES = [
   "手机维修店",
+  "手机维修连锁店",
+  "Apple设备维修店",
   "手机配件批发商",
+  "手机内配件经销商",
   "手机配件零售商",
   "手机进口商",
+  "手机翻新商",
+  "二手手机整备商",
   "电脑维修店",
+  "笔记本电脑维修店",
   "电脑配件批发商",
+  "笔记本配件经销商",
+  "电子设备维修服务商",
 ] as const;
 
 function industryFeatures(value: string) {
@@ -93,11 +109,19 @@ export function acquisitionIndustrySuggestions(query: string, limit = 8) {
 
 const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
   "手机维修店": ["screen repair", "battery replacement", "board repair", "phone parts"],
+  "手机维修连锁店": ["multiple locations", "screen repair", "battery replacement", "repair center"],
+  "Apple设备维修店": ["iPhone repair", "iPad repair", "MacBook repair", "Apple parts"],
   "手机配件批发商": ["LCD screens", "replacement parts", "spare parts", "B2B supplier"],
+  "手机内配件经销商": ["LCD screens", "batteries", "charging ports", "replacement parts"],
   "手机配件零售商": ["phone cases", "chargers", "screen protectors", "mobile accessories"],
   "手机进口商": ["mobile devices", "wholesale", "distributor", "B2B"],
+  "手机翻新商": ["refurbished phones", "device refurbishment", "replacement parts", "used devices"],
+  "二手手机整备商": ["used phones", "device grading", "phone refurbishment", "replacement parts"],
   "电脑维修店": ["laptop repair", "hardware repair", "motherboard repair", "computer parts"],
+  "笔记本电脑维修店": ["laptop screen repair", "keyboard replacement", "battery replacement", "motherboard repair"],
   "电脑配件批发商": ["laptop parts", "replacement parts", "spare parts", "B2B supplier"],
+  "笔记本配件经销商": ["laptop screens", "laptop batteries", "keyboards", "replacement parts"],
+  "电子设备维修服务商": ["electronics repair", "board repair", "component replacement", "repair center"],
 };
 
 const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, string[]]> = [
@@ -111,12 +135,15 @@ const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, string[]]> = [
 ];
 
 export function acquisitionKeywordRecommendations(industries: string[]) {
-  const values = industries.flatMap((industry) => {
+  return [...new Set(acquisitionKeywordRecommendationGroups(industries).flatMap((group) => group.keywords))].slice(0, MAX_ACQUISITION_KEYWORDS);
+}
+
+export function acquisitionKeywordRecommendationGroups(industries: string[]) {
+  return industries.map((industry) => {
     const exact = INDUSTRY_KEYWORD_RECOMMENDATIONS[industry];
-    if (exact) return exact;
-    return ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(industry))?.[1] || [];
-  });
-  return [...new Set(values)].slice(0, MAX_ACQUISITION_KEYWORDS);
+    const keywords = exact || ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(industry))?.[1] || [];
+    return { industry, keywords: [...new Set(keywords)] };
+  }).filter((group) => group.keywords.length > 0);
 }
 
 const COMMON_LOCAL_TERMS: Partial<Record<AcquisitionCountry, Record<string, string>>> = {

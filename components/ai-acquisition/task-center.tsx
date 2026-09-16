@@ -23,12 +23,15 @@ import { ACQUISITION_COUNTRIES, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acqu
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 import { quickCostDateRange } from "@/lib/cost-center";
+import { AppDialog } from "@/components/ui/app-dialog";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const ACQUISITION_INDUSTRY_OPTIONS = Object.keys(ACQUISITION_INDUSTRY_TERMS);
 type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; review:number; failed_tasks:number };
 type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted" | "review" | "failed";
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; googleCalls:number; freeCalls:number };
+type GoogleSkuUsage = { key:string; label:string; usageCount:number; pendingSystemUsage:number; projectedUsage:number; freeLimit:number|null; projectedRemaining:number|null; projectedOverageCalls:number; projectedOverageCostUsd:number };
+type GoogleBilling = { state:"NOT_CONFIGURED"|"CONNECTED"|"NO_DATA"|"ERROR"; message:string; skuUsage?:GoogleSkuUsage[] };
 
 function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:string)=>void }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -93,7 +96,7 @@ function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:stri
   </div>;
 }
 
-export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean }) {
+export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean }) {
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
     [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 }),
@@ -111,6 +114,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [costOverview, setCostOverview] = useState<CostOverview | null>(null),
+    [googleDetailsOpen, setGoogleDetailsOpen] = useState(false),
+    [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
+    [googleBillingLoading, setGoogleBillingLoading] = useState(false),
     [showOwner, setShowOwner] = useState(false),
     [scopeUserId, setScopeUserId] = useState("");
   const load = useCallback(async () => {
@@ -178,6 +184,20 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     const id = setInterval(() => void load(), 8000);
     return () => clearInterval(id);
   }, [tasks, load]);
+  async function openGoogleDetails() {
+    setGoogleDetailsOpen(true);
+    if (googleBilling || googleBillingLoading) return;
+    setGoogleBillingLoading(true);
+    try {
+      const response = await fetch("/api/cost-center/google-billing", { cache:"no-store" });
+      const body = await response.json().catch(()=>({}));
+      setGoogleBilling(response.ok ? body : { state:"ERROR", message:body.error||"Google Places 明细读取失败" });
+    } catch {
+      setGoogleBilling({ state:"ERROR", message:"Google Places 明细读取失败，请稍后重试" });
+    } finally {
+      setGoogleBillingLoading(false);
+    }
+  }
   return (
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
@@ -207,15 +227,12 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         ].map((item)=><button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`}><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击筛选任务`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></button>)}
       </section>
       {canViewUsage ? <section className={`${panel} p-4`}>
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-          <div><h2 className="font-semibold">获客成本总览</h2><p className="mt-1 text-xs text-slate-500">费用来自可核验调用账本；平均成本仅以成功核验并进入系统的有效目标客户为分母。</p></div>
-          <Link href="/ai-usage?module=acquisition" className="text-sm font-medium text-blue-600 hover:text-blue-700">查看用量与费用明细</Link>
-        </div>
+        <div className="mb-3"><h2 className="font-semibold">获客成本总览</h2><p className="mt-1 text-xs text-slate-500">费用来自可核验调用账本；平均成本仅以成功核验并进入系统的有效目标客户为分母。</p></div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">今日费用</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日实际记账费用</span></article>
           <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">历史累计费用</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">Google Places 与 OpenAI 合计</span></article>
           <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">平均每位有效客户成本</small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">累计费用 ÷ 成功入池客户</span></article>
-          <Link href="/ai-usage?module=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><small className="flex items-center justify-between text-slate-500"><span>Google Places累计调用</span><span className="text-blue-600">查看明细</span></small><b className="mt-1 block text-xl">{costOverview?`${formatNumber(costOverview.googleCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">累计免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次</span></Link>
+          <button type="button" disabled={!canViewGoogleBilling} onClick={()=>void openGoogleDetails()} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-slate-50"><small className="flex items-center justify-between text-slate-500"><span>Google Places累计调用</span>{canViewGoogleBilling?<span className="text-blue-600">查看明细</span>:null}</small><b className="mt-1 block text-xl">{costOverview?`${formatNumber(costOverview.googleCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">累计免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次</span></button>
         </div>
       </section> : null}
       <section className={`${panel} p-4`}>
@@ -383,6 +400,6 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           itemLabel="个任务"
         />
       </section>
-    </div></main>
+    </div>{googleDetailsOpen?<AppDialog title="Google Places 结算月调用明细" description="平台账单确认用量与尚未同步的系统调用分开显示；免费额度由 AI筛选和AI获客共享，预计费用仅用于超额风险提示，最终以 Google 账单为准。" onClose={()=>setGoogleDetailsOpen(false)} width="max-w-5xl">{googleBillingLoading?<Loading/>:googleBilling?.state==="CONNECTED"?<div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["SKU","平台已使用","待同步","预计总用量","免费上限","剩余 / 已超","超额预计费用"].map(item=><th key={item} className="px-3 py-3 font-medium">{item}</th>)}</tr></thead><tbody>{googleBilling.skuUsage?.map(item=>{const exceeded=Number(item.projectedOverageCalls||0)>0;return <tr key={item.key} className="border-t"><td className="px-3 py-3 font-medium">{item.label}</td><td className="px-3 py-3">{formatNumber(item.usageCount)} 次</td><td className="px-3 py-3">{formatNumber(item.pendingSystemUsage)} 次</td><td className="px-3 py-3 font-medium">{formatNumber(item.projectedUsage)} 次</td><td className="px-3 py-3">{item.freeLimit==null?"不限量":formatNumber(item.freeLimit)}</td><td className={`px-3 py-3 font-medium ${exceeded?"text-rose-600":"text-emerald-700"}`}>{item.freeLimit==null?"不限量":exceeded?`已超 ${formatNumber(item.projectedOverageCalls)} 次`:`剩余 ${formatNumber(item.projectedRemaining)} 次`}</td><td className={`px-3 py-3 font-medium ${Number(item.projectedOverageCostUsd||0)>0?"text-rose-600":"text-slate-500"}`}>{formatCost(item.projectedOverageCostUsd)}</td></tr>})}</tbody></table></div>:<p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">{googleBilling?.message||"正在读取 Google Places 明细"}</p>}<div className="mt-5 flex justify-end border-t pt-4"><button type="button" onClick={()=>setGoogleDetailsOpen(false)} className={button}>关闭</button></div></AppDialog>:null}</main>
   );
 }

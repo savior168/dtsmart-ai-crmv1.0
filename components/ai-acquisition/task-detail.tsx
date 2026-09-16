@@ -51,6 +51,10 @@ type EvidenceData = {
     reason?: string;
     identity_status?: string;
     evidence_sufficiency_score?: number;
+    business_scope?: string;
+    company_scale_evidence?: string;
+    customer_value?: string;
+    followup_suggestion?: string;
   } | null;
   evidence: Array<{
     id: string;
@@ -78,6 +82,8 @@ const tone: Record<string, string> = {
   ANALYZING: "bg-blue-50 text-blue-700",
 };
 type CompletionInfo = { budget_limited: boolean; blocked_periods: string[] };
+type DiscoveryProgress = { stage:string;stage_detail:string|null;total:number;completed:number;raw_hits:number;current_query:string|null;current_country:string|null;updated_at:string|null };
+type SearchStat = {query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number};
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 function SocialChannels({candidate}:{candidate:Candidate}) {
   const profile=candidate.customer_profile;
@@ -106,6 +112,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [readiness, setReadiness] = useState(""),
     [usage, setUsage] = useState<UsageSummary | null>(null),
     [completion, setCompletion] = useState<CompletionInfo>({budget_limited:false,blocked_periods:[]}),
+    [discoveryProgress, setDiscoveryProgress] = useState<DiscoveryProgress | null>(null),
+    [searchStats, setSearchStats] = useState<SearchStat[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [canControl, setCanControl] = useState(false),
@@ -140,6 +148,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       setCosts(b.costs || []);
       setUsage(b.usage_summary || null);
       setCompletion(b.completion || {budget_limited:false,blocked_periods:[]});
+      setDiscoveryProgress(b.discovery_progress || null);
+      setSearchStats(b.search_stats || []);
       setCanControl(Boolean(b.can_control));
       setCanEvidence(Boolean(b.can_view_evidence));
     } catch (e) {
@@ -277,6 +287,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         }
       />
       {task.scheduled_at ? <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><CalendarClock size={16}/><b>预约执行：</b>{new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false})}<span className="text-blue-600">（预约等待时间不计入有效耗时）</span></div> : null}
+      {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} p-4`} aria-label="AI获客实时执行进度"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><b className="text-sm">{{WAITING:"等待开始执行",DISCOVERY:"正在搜索目标客户",DEDUPLICATING:"正在去重与目标初判",VERIFYING:"正在核验候选客户",FINALIZING:"正在执行入池判定"}[discoveryProgress.stage]||"正在执行AI获客"}</b><StatusBadge status={task.status}/></div><p className="mt-1 text-xs text-slate-500">{discoveryProgress.stage_detail||`已完成 ${discoveryProgress.completed} / ${discoveryProgress.total} 个实际本地化检索表达`}</p></div>{discoveryProgress.updated_at?<small className="text-slate-400">最近更新 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</div>{discoveryProgress.total>0?<><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{width:`${Math.min(100,Math.round(discoveryProgress.completed/discoveryProgress.total*100))}%`}}/></div><div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500"><span>检索表达 {discoveryProgress.completed} / {discoveryProgress.total}</span><span>原始命中 {discoveryProgress.raw_hits} 条（未去重）</span><span>已保存候选 {task.discovered_count} 条</span><span>成功入池 {task.accepted_count} 条</span></div></>:null}{discoveryProgress.current_query?<div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm"><span className="text-slate-500">当前检索：</span><b className="ml-2 text-blue-800">{discoveryProgress.current_query}</b>{discoveryProgress.current_country?<span className="ml-2 text-xs text-blue-600">· {COUNTRY_NAMES.of(discoveryProgress.current_country)||discoveryProgress.current_country}</span>:null}</div>:null}</section>:null}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {[
           ["状态", <StatusBadge key="s" status={task.status} />],
@@ -308,6 +319,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             : "本次国家/地区、目标行业、本地化检索表达和已支持来源均已执行，全部新候选已完成去重与质量判定。"
           : "执行完本次有限检索计划并处理完全部新候选后自动结束；连续分页无新候选会提前结束，不会无限采集。"}
       </div>
+      {searchStats.length?<section className={panel}><div className="border-b px-5 py-4"><h2 className="font-semibold">实际检索表达效果</h2><p className="mt-1 text-xs text-slate-500">按客户首次发现的实际本地化检索表达归因；费用包含可明确归属的搜索与候选核验调用，不重复分摊同一笔费用。</p></div><div className="max-h-80 overflow-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["实际检索表达","候选","重复","早停/未通过","待复核","成功入池","已认领","已推进","可归属费用","入池成本"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></section>:null}
       <section className={panel}>
         <div className="border-b px-5 pt-5">
           <div>
@@ -345,6 +357,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   "官网",
                   "Google Maps",
                   "社媒渠道",
+                  "商机线索",
                   "结果与说明",
                   "操作",
                 ].map((x) => (
@@ -360,6 +373,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="px-4 py-4 font-medium text-slate-800">
                     <span className="block max-w-56">{r.company_name}</span>
                     <small className="mt-1 block text-emerald-700">AI核验：{r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}</small>
+                    {r.matched_keywords?.length?<div className="mt-2 flex max-w-64 flex-wrap gap-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="text-[11px] font-normal text-slate-400">+{r.matched_keywords.length-3}</span>:null}</div>:null}
                   </td>
                   <td className="px-4 py-4">
                     {r.ai_score == null
@@ -378,6 +392,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="px-4 py-4"><CustomerPublicLink value={r.customer_profile?.website} kind="website"/></td>
                   <td className="px-4 py-4"><CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/></td>
                   <td className="px-4 py-4"><SocialChannels candidate={r}/></td>
+                  <td className="max-w-72 px-4 py-4"><b className="text-xs font-medium text-slate-700">{r.customer_profile?.company_scale_evidence?"已核验线索":"销售判断"}</b><p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-500">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
                   <td className="max-w-80 px-4 py-4 text-slate-600">
                     <span className={`rounded-md px-2 py-1 text-xs ${tone[r.decision] || "bg-slate-100"}`}>{decisionLabels[r.decision] || r.decision}</span>
                     <small className="mt-2 block leading-5">{r.decision_reason || "—"}</small>
@@ -564,6 +579,13 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                     没有通过来源核验的联系方式
                   </p>
                 ) : null}
+              </div>
+            </section>
+            <section>
+              <h3 className="font-semibold">商机线索与销售建议</h3>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-sm"><b className="text-emerald-800">可核验经营/采购线索</b><p className="mt-1 leading-6 text-slate-600">{evidence.analysis?.company_scale_evidence||evidence.analysis?.business_scope||"未发现带来源的采购、批发或经营规模线索"}</p></div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-sm"><b className="text-blue-800">AI销售建议</b><p className="mt-1 leading-6 text-slate-600">{evidence.analysis?.followup_suggestion||evidence.analysis?.customer_value||"先依据已核验经营事实联系客户，再确认实际采购需求"}</p><small className="mt-2 block text-slate-400">建议不代表客户已经表达采购意向。</small></div>
               </div>
             </section>
             <section>

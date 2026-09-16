@@ -4,10 +4,10 @@ import { Mail, Phone } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
 
-type VerifiedContact = { type?: string | null; value_raw?: string | null; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null };
+type VerifiedContact = { type?: string | null; value_raw?: string | null; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null; captured_at?: string | null };
 type ContactCustomer = { country?: string | null; phone?: string | null; whatsapp?: string | null; email?: string | null; website?: string | null; google_url?: string | null; website_phone?: string | null; website_email?: string | null; verified_contacts?: VerifiedContact[] | null };
 type ContactKind = "PHONE" | "EMAIL" | "WHATSAPP";
-type DisplayContact = { label: string; value: string; type: ContactKind; icon: ReactNode; source: "original" | "verified" | "conflict"; sourceUrl?: string | null };
+type DisplayContact = { label: string; value: string; type: ContactKind; icon: ReactNode; source: "original" | "verified" | "conflict"; sourceUrl?: string | null; capturedAt?: string | null };
 
 function contactKey(type: ContactKind, value: string, country?: string | null) {
   if (type === "EMAIL") return `${type}:${value.trim().toLowerCase()}`;
@@ -35,7 +35,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
       // A verification link must be the exact page where this value was
       // collected. Never substitute the website or Maps home page here.
       const sourceUrl = String(item.exact_source_url || "").trim() || null;
-      return { label: `${channel === "website" ? "官网" : channel === "google_maps" ? "Google Maps" : "公开来源"}核验${type === "EMAIL" ? "邮箱" : type === "WHATSAPP" ? "WhatsApp" : "电话"}`, value: String(item.value_raw).trim(), type, icon: iconFor(type), source: item.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified", sourceUrl };
+      return { label: `${channel === "website" ? "官网" : channel === "google_maps" ? "Google Maps" : "公开来源"}核验${type === "EMAIL" ? "邮箱" : type === "WHATSAPP" ? "WhatsApp" : "电话"}`, value: String(item.value_raw).trim(), type, icon: iconFor(type), source: item.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified", sourceUrl, capturedAt:item.captured_at };
     });
   for (const [label, value, type] of [["官网核验电话", customer.website_phone, "PHONE"], ["官网核验邮箱", customer.website_email, "EMAIL"]] as const) {
     if (!value || collected.some((item) => contactKey(item.type, item.value, customer.country) === contactKey(type, value, customer.country))) continue;
@@ -61,7 +61,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
       : sourceHref
         ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className="min-w-0 flex-1 break-all whitespace-normal leading-5 text-blue-700 hover:underline">{display}</a>
         : <span className="min-w-0 flex-1 break-all whitespace-normal leading-5">{display}{item.source !== "original" ? <small className="ml-1 text-[10px] text-amber-700">来源页未留存</small> : null}</span>;
-    return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : item.type === "PHONE" ? "shrink-0 text-blue-600" : "shrink-0 text-slate-400"}>{item.icon}</span>{item.source === "original" ? null : <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>}{text}</span>;
+    return <span key={key} title={`${item.label}：${item.value}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : item.type === "PHONE" ? "shrink-0 text-blue-600" : "shrink-0 text-slate-400"}>{item.icon}</span>{item.source === "original" ? null : <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>}{text}</span>;
   };
   const contactKinds: Array<[ContactKind, string]> = [["PHONE", "电话"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "邮箱"]];
   const renderGroups = () => <div className="space-y-2">{contactKinds.map(([type, label]) => {
