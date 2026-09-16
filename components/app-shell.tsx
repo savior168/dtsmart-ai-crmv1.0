@@ -73,6 +73,8 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/ai-acquisition$/, "AI获客 / 任务中心"],
   [/^\/ai-acquisition\/new$/, "AI获客 / 创建任务"],
   [/^\/ai-acquisition\/settings$/, "AI获客 / 获客设置"],
+  [/^\/ai-acquisition\/customers$/, "AI获客 / 客户结果"],
+  [/^\/ai-acquisition\/tasks\/[^/]+\/report$/, "AI获客 / 任务报告"],
   [/^\/ai-acquisition\/tasks\/[^/]+$/, "AI获客 / 任务详情"],
   [/^\/ai-acquisition\/usage$/, "AI获客 / 用量与费用"],
   [/^\/ai-usage$/, "AI获客与筛选 / AI用量与费用"],
