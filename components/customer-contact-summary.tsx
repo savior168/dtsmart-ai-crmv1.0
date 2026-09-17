@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Mail, Phone, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, Copy, Mail, Phone, TriangleAlert } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
 
@@ -14,7 +14,7 @@ function contactKey(type: ContactKind, value: string, country?: string | null) {
   return `${type}:${normalizePhoneInternational(value, country).replace(/\D/g, "") || value.replace(/\D/g, "")}`;
 }
 function WhatsAppIcon() {
-  return <span aria-label="WhatsApp" className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#25D366] text-white"><Phone size={9} strokeWidth={2.5}/></span>;
+  return <span aria-label="WhatsApp" className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#25D366] text-white"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-2.5 w-2.5 fill-none" stroke="currentColor" strokeWidth="2.2"><path d="M20 11.7a8 8 0 0 1-11.8 7L4 20l1.3-4.1A8 8 0 1 1 20 11.7Z"/><path d="M9.2 8.2c.2-.5.4-.5.7-.5h.4c.2 0 .4.1.5.4l.6 1.5c.1.3.1.5-.1.7l-.5.6c.5 1 1.2 1.7 2.2 2.2l.6-.5c.2-.2.4-.2.7-.1l1.5.6c.3.1.4.3.4.5v.4c0 .3 0 .5-.5.7-.5.2-1.2.3-2.1 0-1-.4-2.2-1.3-3.2-2.3-1-1-1.8-2.2-2.3-3.2-.3-.9-.2-1.6 0-2.1Z"/></svg></span>;
 }
 function iconFor(type: ContactKind) { return type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <WhatsAppIcon/> : <Phone size={14}/>; }
 function contactSourceLabel(channel: string) {
@@ -59,6 +59,7 @@ function sourceGroup(item: DisplayContact, customerSource?: string | null) {
 /** One presentation rule for original and AI-collected contacts in every customer view. */
 export function CustomerContactSummary({ customer, source, display = "all" }: { customer: ContactCustomer; source: "original" | "ai" | "all"; display?: "all" | "phone" | "email" }) {
   const [expanded, setExpanded] = useState(false);
+  const [copiedKey, setCopiedKey] = useState("");
   const collapseThreshold = 1;
   const originals: DisplayContact[] = [
     { label: "电话", value: customer.phone || "未提供", type: "PHONE", icon: <Phone size={14} className="text-blue-600"/>, source: "original" },
@@ -92,6 +93,12 @@ export function CustomerContactSummary({ customer, source, display = "all" }: { 
   const allContacts = source === "original" ? originalContacts : source === "ai" ? uniqueCollected : [...originalContacts, ...verifiedContacts];
   const contacts = display === "phone" ? allContacts.filter((item) => item.type !== "EMAIL") : display === "email" ? allContacts.filter((item) => item.type === "EMAIL") : allContacts;
   if (!contacts.length) return <span className="text-slate-400">—</span>;
+  const copyContact = (value: string, key: string) => {
+    void navigator.clipboard?.writeText(value).then(() => {
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((current) => current === key ? "" : current), 1400);
+    }).catch(() => undefined);
+  };
   const renderContact = (item: DisplayContact, index: number) => {
     const muted = false;
     const key = `${item.label}:${item.value}:${index}`;
@@ -114,10 +121,21 @@ export function CustomerContactSummary({ customer, source, display = "all" }: { 
       : sourceHref
         ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className={`min-w-0 flex-1 leading-5 text-blue-700 hover:underline ${valueClass}`}>{display}</a>
         : <span className={`min-w-0 flex-1 leading-5 ${valueClass}`}>{display}{item.source !== "original" ? <small className="ml-1 text-[10px] text-amber-700">来源页未留存</small> : null}</span>;
-    return <div key={key} title={`${item.label}：${item.value}\n${sourceTooltip}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="rounded bg-slate-50/80 px-1.5 py-1"><span className="flex min-w-0 items-start gap-1 text-xs text-slate-700"><span className={item.source === "verified" ? "mt-0.5 shrink-0 text-emerald-600" : item.source === "conflict" ? "mt-0.5 shrink-0 text-amber-600" : item.type === "PHONE" ? "mt-0.5 shrink-0 text-blue-600" : "mt-0.5 shrink-0 text-slate-400"}>{item.icon}</span>{text}{item.source === "conflict" ? <ConflictMarker/> : null}</span></div>;
+    return <div key={key} title={`${item.label}：${item.value}\n${sourceTooltip}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="rounded bg-slate-50/80 px-1.5 py-1"><span className="flex min-w-0 items-start gap-1 text-xs text-slate-700"><span className={item.source === "verified" ? "mt-0.5 shrink-0 text-emerald-600" : item.source === "conflict" ? "mt-0.5 shrink-0 text-amber-600" : item.type === "PHONE" ? "mt-0.5 shrink-0 text-blue-600" : "mt-0.5 shrink-0 text-slate-400"}>{item.icon}</span>{text}<button type="button" onClick={() => copyContact(item.value, key)} aria-label={`复制${item.label}`} title={copiedKey === key ? "已复制" : `复制${item.label}`} className="mt-0.5 shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-blue-600">{copiedKey === key ? <Check size={12} className="text-emerald-600"/> : <Copy size={12}/>}</button>{item.source === "conflict" ? <ConflictMarker/> : null}</span></div>;
   };
   const kindRank:Record<ContactKind,number> = { PHONE:0, WHATSAPP:1, EMAIL:2 };
+  const actionRank = (item: DisplayContact) => {
+    if (display !== "phone") return 0;
+    const verified = item.source === "verified" || Boolean(item.verifiedBy);
+    if (verified && item.type === "WHATSAPP") return 0;
+    if (verified && item.type === "PHONE") return 1;
+    if (!verified && item.type === "PHONE") return 2;
+    if (!verified && item.type === "WHATSAPP") return 3;
+    return 4;
+  };
   const orderedContacts = [...contacts].sort((a,b) => {
+    const actionDifference = actionRank(a) - actionRank(b);
+    if (actionDifference) return actionDifference;
     const sourceDifference = sourceGroup(a, customer.source).rank - sourceGroup(b, customer.source).rank;
     return sourceDifference || kindRank[a.type] - kindRank[b.type];
   });
@@ -129,12 +147,15 @@ export function CustomerContactSummary({ customer, source, display = "all" }: { 
       current.items.push(item);
       groups.set(group.key, current);
     }
-    return <div className="space-y-2">{[...groups.values()].sort((a,b)=>a.rank-b.rank).map((group) => <section key={group.label}><span title={group.hint} className="flex items-center justify-between gap-2"><b className="text-[11px] font-medium text-slate-700">{group.label}（{group.items.length}）</b><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.badge}</small></span><div className="mt-0.5 space-y-0.5">{group.items.sort((a,b)=>kindRank[a.type]-kindRank[b.type]).map((item,index)=>renderContact(item,index))}</div></section>)}</div>;
+    return <div className="space-y-2">{[...groups.values()].sort((a,b)=>a.rank-b.rank).map((group) => <section key={group.label}><span title={group.hint} className="flex items-center justify-between gap-2"><b className="text-[11px] font-medium text-slate-700">{group.label}（{group.items.length}）</b><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.badge}</small></span><div className="mt-0.5 space-y-0.5">{group.items.sort((a,b)=>actionRank(a)-actionRank(b)||kindRank[a.type]-kindRank[b.type]).map((item,index)=>renderContact(item,index))}</div></section>)}</div>;
   };
   const renderPreviewContact = (item: DisplayContact, index: number) => {
     const display = item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, customer.country);
     const source = sourceGroup(item, customer.source);
-    return <span key={`${item.type}:${item.value}:${index}`} title={`${item.label}：${item.value}\n来源：${source.label}${item.sourceUrl ? "\n展开后可打开核验页面" : ""}`} className="inline-flex min-w-0 max-w-[132px] items-center gap-1 text-xs text-blue-700"><span className={item.type === "EMAIL" ? "shrink-0 text-emerald-600" : item.type === "WHATSAPP" ? "shrink-0" : "shrink-0 text-emerald-600"}>{item.icon}</span><span className="truncate">{display}</span></span>;
+    const key = `preview:${item.type}:${item.value}:${index}`;
+    const whatsappDigits = item.type === "WHATSAPP" ? normalizePhoneInternational(item.value, customer.country).replace(/\D/g, "") : "";
+    const value = whatsappDigits ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp 对话" className="truncate text-[#128C7E] hover:underline">{display}</a> : <span className="truncate">{display}</span>;
+    return <span key={key} title={`${item.label}：${item.value}\n来源：${source.label}${item.sourceUrl ? "\n展开后可打开核验页面" : ""}`} className="inline-flex min-w-0 max-w-[132px] items-center gap-1 text-xs text-blue-700"><span className={item.type === "EMAIL" ? "shrink-0 text-emerald-600" : item.type === "WHATSAPP" ? "shrink-0" : "shrink-0 text-emerald-600"}>{item.icon}</span>{value}<button type="button" onClick={() => copyContact(item.value, key)} aria-label={`复制${item.label}`} title={copiedKey === key ? "已复制" : `复制${item.label}`} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-blue-600">{copiedKey === key ? <Check size={11} className="text-emerald-600"/> : <Copy size={11}/>}</button></span>;
   };
   if (source !== "original" && contacts.length <= collapseThreshold) return <div className="min-w-[180px] space-y-1">{orderedContacts.map((item,index)=>renderContact(item,index))}</div>;
   // Keep rows at one line: show the first two useful contacts inline and put
