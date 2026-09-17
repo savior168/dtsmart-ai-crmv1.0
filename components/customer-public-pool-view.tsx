@@ -200,7 +200,7 @@ const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", C
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
   // Sales action order: identify value first, then use the best contact and
   // public entry points, and finally inspect provenance and freshness.
-  available: ["company_name", "country", "ai_score", "phone", "website", "google_url", "source", "updated_at"],
+  available: ["company_name", "country", "ai_score", "phone", "email", "website", "google_url", "source", "updated_at"],
   claimed: ["company_name", "country", "ai_score", "status", "followup_status", "last_contact_time", "owner", "protection"],
   pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
 };
@@ -210,7 +210,8 @@ const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {
   ai_score: "w-20",
   industry: "w-36",
   country: "w-24",
-  phone: "w-44",
+  phone: "w-64",
+  email: "w-52",
   verified_contacts: "w-52",
   website: "w-36",
   google_url: "w-40",
@@ -232,14 +233,14 @@ function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: un
   // A customer without an owner has no protection period.  Ignore a stale
   // browser preference rather than showing a meaningless empty column.
   if (value !== "available") return normalized;
-  const compact = normalized.filter((field) => !["protection", "whatsapp", "email", "website_phone", "website_email", "social", "verified_contacts"].includes(field));
+  const compact = normalized.filter((field) => !["protection", "whatsapp", "website_phone", "website_email", "social", "verified_contacts"].includes(field));
   const contactIndex = compact.indexOf("phone");
   if (contactIndex < 0) compact.splice(Math.min(3, compact.length), 0, "phone");
   return [...new Set(compact)];
 }
 
 function fieldLabel(field: CustomerListColumn, tab: Tab) {
-  if (tab === "available" && field === "phone") return "联系方式";
+  if (tab === "available" && field === "phone") return "联系号码";
   return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
 }
 
@@ -320,7 +321,8 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>;
-  if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="all"/>;
+  if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="phone"/>;
+  if (field === "email" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="email"/>;
   if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
   if (field === "source") return <span className="block min-w-0 truncate" title={[row.source_batch ? `批次：${row.source_batch}` : "", `创建人：${displayUser(row.creator)}`].filter(Boolean).join("\n")}>{customerSourceLabel(row.source)}</span>;
   if (field === "website") return <CustomerPublicLink value={row.website} kind="website"/>;
@@ -484,7 +486,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, [claim, focusedCustomerId, rows]);
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v4") || "null");
+      const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v5") || "null");
       const next = poolFieldsForTab("available", saved);
       setFields(next);
       setDraftFields(next);
@@ -563,7 +565,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     if (value === "available" || value === "claimed" || value === "pending") {
       let next = POOL_DEFAULT_FIELDS[value];
       try {
-        const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v4`) || "null");
+        const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v5`) || "null");
         if (saved) next = poolFieldsForTab(value, saved);
       } catch {}
       setFields(next);
@@ -922,7 +924,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
           />
         ) : null}
         {createOpen ? <AppDialog title="新增公海客户" description="仅系统管理员可执行；保存后客户无归属人并进入待认领列表。" onClose={() => setCreateOpen(false)} width="max-w-4xl"><CustomerForm destination="PUBLIC_POOL" onCancel={() => setCreateOpen(false)} onDone={() => { setCreateOpen(false); setToast("公海客户新增成功"); void load(); }}/></AppDialog> : null}
-        {fieldOpen ? <AppDialog title="字段显示设置" description="当前公海分类独立保存字段与顺序，不影响我的客户和其他公海分类。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复当前分类默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(`public-pool-columns-${tab}-v4`, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
+        {fieldOpen ? <AppDialog title="字段显示设置" description="当前公海分类独立保存字段与顺序，不影响我的客户和其他公海分类。" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="上移"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="下移"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">恢复当前分类默认</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">取消</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(`public-pool-columns-${tab}-v5`, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存选择</button></div></div></AppDialog> : null}
         {deleteIds ? <PoolDeleteDialog customerIds={deleteIds} close={() => setDeleteIds(null)} saved={(message) => { setDeleteIds(null); setSelected(new Set()); setToast(message); void load(); }} /> : null}
         {toast ? (
           <div

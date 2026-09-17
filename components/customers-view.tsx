@@ -70,7 +70,8 @@ const listColumnWidth: Partial<Record<ColumnKey, string>> = {
   ai_score: "w-20",
   industry: "w-36",
   country: "w-24",
-  phone: "w-44",
+  phone: "w-64",
+  email: "w-52",
   verified_contacts: "w-52",
   website: "w-36",
   google_url: "w-40",
@@ -982,7 +983,9 @@ export function CustomersView() {
                             {stageLabels[row.status] || row.status}
                           </span>
                         ) : key === "phone" ? (
-                          <CustomerContactSummary customer={row} source="all" />
+                          <CustomerContactSummary customer={row} source="all" display="phone" />
+                        ) : key === "email" ? (
+                          <CustomerContactSummary customer={row} source="all" display="email" />
                         ) : key === "verified_contacts" ? (
                           <CustomerContactSummary customer={row} source="ai" />
                         ) : key === "website" ? (

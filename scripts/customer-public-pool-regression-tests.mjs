@@ -74,8 +74,8 @@ assert.match(poolApi, /tab === "claimed"[\s\S]*neq\("status", "UNCLAIMED"\)[\s\S
 assert.match(poolView, /available: "待认领客户"[\s\S]*claimed: "认领记录"/, "公海页签必须区分可认领数据与历史认领记录");
 assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s\S]*"protection"/, "待认领客户不得因历史列偏好显示无意义的保护期字段");
 assert.match(poolView, /field === "phone"[\s\S]*CustomerContactSummary customer=\{row\} source="all"/, "待认领列表必须用同一联系方式列兼容录入数据与AI获客数据");
-assert.match(contactSummary, /\{contacts\.length\} 个<\/b>[\s\S]*sourceCounts[\s\S]*展开/, "联系方式摘要必须在单行内紧凑显示去重总数、来源和展开入口");
-assert.match(contactSummary, /originalSourceKind\(customer\.source\)[\s\S]*label: "AI采集"/, "联系方式摘要必须直接区分导入或录入数据与AI采集数据");
+assert.match(contactSummary, /orderedContacts\.slice\(0,2\)\.map\(renderPreviewContact\)[\s\S]*展开/, "联系方式摘要必须在单行内显示前两项和展开入口");
+assert.match(contactSummary, /sourceGroup\(item, customer\.source\)[\s\S]*展开后可打开核验页面/, "联系方式紧凑预览必须通过悬停保留公开来源说明");
 assert.match(contactSummary, /sourceTooltip[\s\S]*数据来源：\$\{originalSourceLabel\(customer\.source\)\}[\s\S]*AI核验来源：\$\{item\.verifiedBy\}[\s\S]*AI采集来源：\$\{item\.channelLabel/, "联系方式悬停说明必须保留原始来源、AI核验来源与AI采集渠道");
 assert.match(contactSummary, /function ConflictMarker[\s\S]*来源存在冲突，待人工核对[\s\S]*TriangleAlert/, "只有来源冲突这类异常状态才应常驻显示提示图标");
 assert.doesNotMatch(contactSummary, /const kindLabel|\{kindLabel\}|function SourceMarker/, "电话邮箱类型文字和普通来源图标不得与已有类型图标重复展示");
@@ -83,7 +83,8 @@ assert.doesNotMatch(contactSummary, /AI采集·\$\{item\.channelLabel/, "联系�
 assert.match(contactSummary, /source === "ai" \? uniqueCollected/, "AI获客任务必须显示全部AI采集联系方式，不能因客户主档存在相同值而误隐藏");
 assert.match(contactSummary, /verifiedChannel === "官网"[\s\S]*rank: 0[\s\S]*verifiedChannel === "Google Maps"[\s\S]*rank: 1[\s\S]*官方社媒[\s\S]*rank: 2[\s\S]*item\.source === "original"[\s\S]*rank: 3/, "联系方式必须按官网、Google Maps、官方社媒、导入或录入资料的可信度顺序分组");
 assert.match(contactSummary, /collapseThreshold = 1[\s\S]*contacts\.length <= collapseThreshold[\s\S]*orderedContacts\.map[\s\S]*expanded \? <div[\s\S]*renderGroups\(\)[\s\S]*: null/, "单个联系方式直接显示，多个联系方式默认只显示紧凑摘要并按需展开全部");
-assert.doesNotMatch(contactSummary, /previewContacts/, "多个联系方式折叠时不得默认铺开前两项拉高整行");
+assert.match(contactSummary, /flex h-5 items-center[\s\S]*overflow-hidden/, "多个联系方式预览必须锁定为单行且溢出不增加客户行高度");
+assert.match(contactSummary, /display === "phone"[\s\S]*display === "email"/, "联系号码和邮箱必须可按列分别展示");
 assert.match(contactSummary, /splitStoredContactValues[\s\S]*split\(\/[\s\S]*normalizePhoneInternational[\s\S]*for \(const value of splitStoredContactValues/, "历史聚合字段中的多个电话或邮箱必须拆分、规范化和去重后展示");
 assert.match(contactSummary, /renderGroups[\s\S]*group\.label[\s\S]*renderContact\(item,index\)/, "展开后的联系方式必须通过来源分组展示渠道，不为每条记录重复堆叠来源标记");
 assert.match(acquisitionCustomerResults, /CustomerContactSummary customer=\{row\} source="all"/, "AI获客客户结果必须显示实际联系方式，而不是仅显示是否可联系状态");

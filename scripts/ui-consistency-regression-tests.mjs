@@ -54,6 +54,9 @@ assert.match(read("components/ui/app-tabs.tsx"), /countTone\?: "success" \| "war
 assert.match(read("components/customers-view.tsx"), /label: "我的客户"[\s\S]*count: totalCustomerCount[\s\S]*countTone: "success"/, "我的客户总数必须移入页签并以绿色显示");
 assert.match(read("components/customer-public-pool-view.tsx"), /tabCounts[\s\S]*counts=1[\s\S]*countTone/, "客户公海有数据列表的子页签必须显示语义颜色数量");
 assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"ai_score",\s*"phone"/, "待认领客户默认列表应按客户、国家、AI评分排列，且不得重复展示所属行业");
+for (const path of ["components/customers-view.tsx", "components/customer-public-pool-view.tsx", "components/ai-acquisition/customer-results.tsx", "components/ai-acquisition/task-detail.tsx"]) {
+  assert.match(read(path), /联系号码[\s\S]*邮箱|key === "phone"[\s\S]*display="phone"[\s\S]*key === "email"[\s\S]*display="email"/, `${path} 的客户列表必须将联系号码和邮箱分列展示`);
+}
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
 assert.match(read("components/customer-public-pool-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicChannels/, "客户公海官网与公开渠道必须复用统一入口组件");
 assert.match(read("components/customers-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicChannels/, "我的客户公开渠道图标必须与客户公海统一");

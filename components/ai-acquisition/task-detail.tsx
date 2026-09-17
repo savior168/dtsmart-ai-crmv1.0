@@ -424,8 +424,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||countries.length||industries.length||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountries([]);setIndustries([]);setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
           </form>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[2190px] table-fixed text-left text-sm">
-            <colgroup><col className="w-[230px]"/><col className="w-[120px]"/><col className="w-[110px]"/><col className="w-[190px]"/><col className="w-[250px]"/><col className="w-[190px]"/><col className="w-[280px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/></colgroup>
+          <table className="w-full min-w-[2360px] table-fixed text-left text-sm">
+            <colgroup><col className="w-[230px]"/><col className="w-[120px]"/><col className="w-[110px]"/><col className="w-[190px]"/><col className="w-[250px]"/><col className="w-[210px]"/><col className="w-[190px]"/><col className="w-[280px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/><col className="w-[145px]"/></colgroup>
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
                 {[
@@ -433,7 +433,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   "国家/地区",
                   "AI评分",
                   "匹配关键词",
-                  "已核验联系方式",
+                  "联系号码",
+                  "邮箱",
                   "官网",
                   "公开渠道",
                   "Google地址",
@@ -458,7 +459,10 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="px-3 py-4"><CustomerScoreBadge score={r.ai_score} level={r.ai_level}/></td>
                   <td className="px-4 py-4">{r.matched_keywords?.length?<div className="space-y-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="block max-w-[166px] truncate whitespace-nowrap rounded bg-blue-50 px-2 py-1 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="block text-[11px] font-normal text-slate-400">另有 {r.matched_keywords.length-3} 项</span>:null}</div>:<small className="text-slate-400">未记录</small>}</td>
                   <td className="max-w-64 px-4 py-4">
-                    <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
+                    <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai" display="phone"/>
+                  </td>
+                  <td className="max-w-56 px-4 py-4">
+                    <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai" display="email"/>
                   </td>
                   <td className="px-4 py-4">{r.customer_profile?.website||r.source_website?<span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span>:null}</td>
                   <td className="px-4 py-4"><CustomerPublicChannels customer={{...r.customer_profile,google_url:r.customer_profile?.google_url||r.google_url}}/></td>

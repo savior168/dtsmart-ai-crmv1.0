@@ -27,10 +27,6 @@ function originalSourceLabel(source?: string | null) {
   if (["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"].includes(normalized)) return "AI获客采集";
   return "原始资料";
 }
-function originalSourceKind(source?: string | null) {
-  const label = originalSourceLabel(source);
-  return label === "Excel导入" ? "导入" : label === "手工录入" ? "录入" : label === "AI获客采集" ? "AI采集" : "原始";
-}
 function ConflictMarker() {
   const label = "来源存在冲突，待人工核对";
   return <span role="img" aria-label={label} title={label} tabIndex={0} className="inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-200"><TriangleAlert size={11}/></span>;
@@ -61,7 +57,7 @@ function sourceGroup(item: DisplayContact, customerSource?: string | null) {
 }
 
 /** One presentation rule for original and AI-collected contacts in every customer view. */
-export function CustomerContactSummary({ customer, source }: { customer: ContactCustomer; source: "original" | "ai" | "all" }) {
+export function CustomerContactSummary({ customer, source, display = "all" }: { customer: ContactCustomer; source: "original" | "ai" | "all"; display?: "all" | "phone" | "email" }) {
   const [expanded, setExpanded] = useState(false);
   const collapseThreshold = 1;
   const originals: DisplayContact[] = [
@@ -93,7 +89,8 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
   });
   const uniqueCollected = collected.filter((item, index, all) => all.findIndex((candidate) => contactKey(candidate.type, candidate.value, customer.country) === contactKey(item.type, item.value, customer.country)) === index);
   const verifiedContacts = uniqueCollected.filter((item) => !originalKeys.has(contactKey(item.type, item.value, customer.country)));
-  const contacts = source === "original" ? originalContacts : source === "ai" ? uniqueCollected : [...originalContacts, ...verifiedContacts];
+  const allContacts = source === "original" ? originalContacts : source === "ai" ? uniqueCollected : [...originalContacts, ...verifiedContacts];
+  const contacts = display === "phone" ? allContacts.filter((item) => item.type !== "EMAIL") : display === "email" ? allContacts.filter((item) => item.type === "EMAIL") : allContacts;
   if (!contacts.length) return <span className="text-slate-400">—</span>;
   const renderContact = (item: DisplayContact, index: number) => {
     const muted = false;
@@ -134,19 +131,16 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
     }
     return <div className="space-y-2">{[...groups.values()].sort((a,b)=>a.rank-b.rank).map((group) => <section key={group.label}><span title={group.hint} className="flex items-center justify-between gap-2"><b className="text-[11px] font-medium text-slate-700">{group.label}（{group.items.length}）</b><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.badge}</small></span><div className="mt-0.5 space-y-0.5">{group.items.sort((a,b)=>kindRank[a.type]-kindRank[b.type]).map((item,index)=>renderContact(item,index))}</div></section>)}</div>;
   };
+  const renderPreviewContact = (item: DisplayContact, index: number) => {
+    const display = item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, customer.country);
+    const source = sourceGroup(item, customer.source);
+    return <span key={`${item.type}:${item.value}:${index}`} title={`${item.label}：${item.value}\n来源：${source.label}${item.sourceUrl ? "\n展开后可打开核验页面" : ""}`} className="inline-flex min-w-0 max-w-[132px] items-center gap-1 text-xs text-blue-700"><span className={item.type === "EMAIL" ? "shrink-0 text-emerald-600" : item.type === "WHATSAPP" ? "shrink-0" : "shrink-0 text-emerald-600"}>{item.icon}</span><span className="truncate">{display}</span></span>;
+  };
   if (source !== "original" && contacts.length <= collapseThreshold) return <div className="min-w-[180px] space-y-1">{orderedContacts.map((item,index)=>renderContact(item,index))}</div>;
-  // Combined and AI-collected contacts stay compact in every customer view;
-  // A single value stays directly actionable. Multiple values collapse to one
-  // summary row so the table height remains stable until the user asks to see
-  // every value and its verification source.
+  // Keep rows at one line: show the first two useful contacts inline and put
+  // every remaining value plus its source evidence behind the expander.
   if (source !== "original") {
-    const originalCount = source === "all" ? originalContacts.length : 0;
-    const aiCount = source === "ai" ? contacts.length : verifiedContacts.length + (originalSourceKind(customer.source) === "AI采集" ? originalContacts.length : 0);
-    const sourceCounts = [
-      originalCount && originalSourceKind(customer.source) !== "AI采集" ? { label: originalSourceKind(customer.source), count: originalCount, tone: "bg-slate-100 text-slate-600" } : null,
-      aiCount ? { label: "AI采集", count: aiCount, tone: "bg-emerald-50 text-emerald-700" } : null,
-    ].filter(Boolean) as Array<{label:string;count:number;tone:string}>;
-    return <div className="min-w-[190px] rounded-lg border border-slate-100 bg-slate-50/70 px-1.5 py-1"><button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex w-full cursor-pointer items-center gap-1.5 text-left"><b className="shrink-0 text-xs font-medium text-slate-800">{contacts.length} 个</b><span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{sourceCounts.map((item) => <span key={item.label} className={`truncate rounded px-1.5 py-0.5 text-[10px] font-medium ${item.tone}`}>{item.label} {item.count}</span>)}</span><span className="flex shrink-0 items-center gap-0.5 text-[11px] text-blue-700">{expanded ? "收起" : "展开"}<ChevronDown size={13} className={`text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}/></span></button>{expanded ? <div className="mt-1 border-t border-slate-100 pt-1">{renderGroups()}</div> : null}</div>;
+    return <div className="min-w-[235px] max-w-[310px] rounded-md bg-slate-50/70 px-1.5 py-1"><div className="flex h-5 items-center gap-1.5"><b className="shrink-0 text-xs font-medium text-slate-800">{contacts.length} 个</b><span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">{orderedContacts.slice(0,2).map(renderPreviewContact)}</span><button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex shrink-0 items-center gap-0.5 text-[11px] text-blue-700 hover:underline">{expanded ? "收起" : "展开"}<ChevronDown size={13} className={`text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}/></button></div>{expanded ? <div className="mt-1 border-t border-slate-100 pt-1">{renderGroups()}</div> : null}</div>;
   }
   return <div className="space-y-1">{contacts.map((item, index) => renderContact(item, index))}</div>;
 }
