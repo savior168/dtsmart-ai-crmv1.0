@@ -19,8 +19,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
   { key: "website_phone", label: "官网电话" },
   { key: "verified_contacts", label: "已核验联系方式" },
   { key: "website", label: "官网" },
-  { key: "google_url", label: "Google Maps" },
-  { key: "social", label: "社媒渠道" },
+  { key: "google_url", label: "公开渠道" },
   { key: "source", label: "数据来源" },
   { key: "source_batch", label: "来源批次" },
   { key: "updated_at", label: "更新时间" },
@@ -33,7 +32,6 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "phone",
   "website",
   "google_url",
-  "social",
   "status",
   "followup_status",
   "last_contact_time",
@@ -42,7 +40,7 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "updated_at",
 ];
 
-export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v13";
+export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v14";
 
 const columnKeys = new Set<CustomerListColumn>(CUSTOMER_LIST_COLUMNS.map((column) => column.key));
 
@@ -65,7 +63,7 @@ export function normalizeCustomerListColumns(value: unknown, includeOwner = fals
   // 行业已经作为客户名称下的“AI核验/原始类别”说明展示；列表再单列展示会重复。
   // 同时清理旧版浏览器保存的字段偏好，确保刷新后也不会继续出现重复列。
   const normalized = migrateCustomerIdentityColumnOrder(
-    (saved.length ? saved : [...CUSTOMER_LIST_DEFAULT_COLUMNS]).filter((key) => key !== "industry"),
+    (saved.length ? saved : [...CUSTOMER_LIST_DEFAULT_COLUMNS]).filter((key) => key !== "industry" && key !== "social"),
   );
   const withoutOwner = includeOwner ? normalized : normalized.filter((key) => key !== "owner");
   if (!withoutOwner.includes("protection")) withoutOwner.splice(Math.min(5, withoutOwner.length), 0, "protection");

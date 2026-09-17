@@ -26,7 +26,7 @@ export function CustomerSocialSummary({ customer }: { customer: SocialCustomer }
     ...(customer.other_public_urls || []).map((url) => ["other", "公开链接", url] as [SocialKind, string, string]),
   ];
   const visible = links.filter(([, , url]) => Boolean(String(url || "").trim()));
-  if (!visible.length) return <span className="text-slate-400">—</span>;
+  if (!visible.length) return null;
   return <div className="flex flex-wrap gap-1.5">{visible.map(([kind, label, raw], index) => {
     const text = String(raw).trim();
     const url = /^https?:\/\//i.test(text) ? text : `https://${text}`;

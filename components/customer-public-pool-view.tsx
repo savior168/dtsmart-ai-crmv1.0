@@ -38,7 +38,7 @@ import {
 import { AppPagination } from "@/components/ui/app-pagination";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
-import { CustomerSocialSummary } from "@/components/customer-social-summary";
+import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
@@ -200,7 +200,7 @@ const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", C
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
   // Sales action order: identify value first, then use the best contact and
   // public entry points, and finally inspect provenance and freshness.
-  available: ["company_name", "country", "ai_score", "phone", "website", "google_url", "social", "source", "updated_at"],
+  available: ["company_name", "country", "ai_score", "phone", "website", "google_url", "source", "updated_at"],
   claimed: ["company_name", "country", "ai_score", "status", "followup_status", "last_contact_time", "owner", "protection"],
   pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
 };
@@ -214,7 +214,6 @@ const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {
   verified_contacts: "w-52",
   website: "w-36",
   google_url: "w-40",
-  social: "w-28",
   status: "w-28",
   followup_status: "w-28",
   last_contact_time: "w-32",
@@ -236,8 +235,6 @@ function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: un
   const compact = normalized.filter((field) => !["protection", "whatsapp", "email", "website_phone", "website_email", "social", "verified_contacts"].includes(field));
   const contactIndex = compact.indexOf("phone");
   if (contactIndex < 0) compact.splice(Math.min(3, compact.length), 0, "phone");
-  const mapIndex = compact.indexOf("google_url");
-  compact.splice(mapIndex < 0 ? compact.length : mapIndex + 1, 0, "social");
   return [...new Set(compact)];
 }
 
@@ -325,10 +322,9 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   if (field === "ai_score") return <CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>;
   if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="all"/>;
   if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
-  if (field === "social") return <CustomerSocialSummary customer={row}/>;
-  if (field === "source") return <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span>{row.source_batch ? <small className="mt-0.5 block truncate text-xs text-slate-500" title={row.source_batch}>批次：{row.source_batch}</small> : null}<small className="mt-0.5 block truncate text-xs text-slate-500" title={displayUser(row.creator)}>由：{displayUser(row.creator)}</small></span>;
+  if (field === "source") return <span className="block min-w-0 truncate" title={[row.source_batch ? `批次：${row.source_batch}` : "", `创建人：${displayUser(row.creator)}`].filter(Boolean).join("\n")}>{customerSourceLabel(row.source)}</span>;
   if (field === "website") return <CustomerPublicLink value={row.website} kind="website"/>;
-  if (field === "google_url") return <CustomerPublicLink value={row.google_url} kind="map"/>;
+  if (field === "google_url") return <CustomerPublicChannels customer={row}/>;
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
 }
 

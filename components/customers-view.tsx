@@ -29,7 +29,7 @@ import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerScoreBadge } from "@/components/customer-score-badge";
-import { CustomerSocialSummary } from "@/components/customer-social-summary";
+import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
@@ -74,7 +74,6 @@ const listColumnWidth: Partial<Record<ColumnKey, string>> = {
   verified_contacts: "w-52",
   website: "w-36",
   google_url: "w-40",
-  social: "w-28",
   status: "w-28",
   followup_status: "w-28",
   last_contact_time: "w-32",
@@ -986,14 +985,12 @@ export function CustomersView() {
                           <CustomerContactSummary customer={row} source="all" />
                         ) : key === "verified_contacts" ? (
                           <CustomerContactSummary customer={row} source="ai" />
-                        ) : key === "social" ? (
-                          <CustomerSocialSummary customer={row} />
                         ) : key === "website" ? (
                           <CustomerPublicLink value={row.website} kind="website" />
                         ) : key === "google_url" ? (
-                          <CustomerPublicLink value={row.google_url} kind="map" />
+                          <CustomerPublicChannels customer={row} />
                         ) : key === "source" ? (
-                          <span className="block min-w-0"><span className="block truncate">{customerSourceLabel(row.source)}</span>{row.source_batch ? <small className="mt-0.5 block truncate text-xs text-slate-500" title={row.source_batch}>批次：{row.source_batch}</small> : null}<small className="mt-0.5 block truncate text-xs text-slate-500" title={row.creator?.name||row.creator?.email||""}>由：{row.creator?.name||row.creator?.email||"未知用户"}</small></span>
+                          <span className="block min-w-0 truncate" title={[row.source_batch ? `批次：${row.source_batch}` : "", `创建人：${row.creator?.name||row.creator?.email||"未知用户"}`].filter(Boolean).join("\n")}>{customerSourceLabel(row.source)}</span>
                         ) : (
                           value(row, key)
                         )}

@@ -55,8 +55,8 @@ assert.match(read("components/customers-view.tsx"), /label: "我的客户"[\s\S]
 assert.match(read("components/customer-public-pool-view.tsx"), /tabCounts[\s\S]*counts=1[\s\S]*countTone/, "客户公海有数据列表的子页签必须显示语义颜色数量");
 assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"ai_score",\s*"phone"/, "待认领客户默认列表应按客户、国家、AI评分排列，且不得重复展示所属行业");
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
-assert.match(read("components/customer-public-pool-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicLink[\s\S]*kind="map"/, "客户公海官网与 Google Maps 必须复用统一入口组件");
-assert.match(read("components/customers-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicLink[\s\S]*kind="map"/, "我的客户 Google Maps 图标必须与客户公海统一");
+assert.match(read("components/customer-public-pool-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicChannels/, "客户公海官网与公开渠道必须复用统一入口组件");
+assert.match(read("components/customers-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicChannels/, "我的客户公开渠道图标必须与客户公海统一");
 assert.match(read("components/ui/customer-public-link.tsx"), /iconOnly[\s\S]*WebsiteIcon size=\{iconOnly \|\| normal \? 16 : 14\}[\s\S]*GoogleMapsIcon size=\{iconOnly \|\| normal \? 16 : 14\}[\s\S]*!iconOnly[\s\S]*domainLabel/, "统一公开入口必须支持紧凑官方图标，并在普通模式保留可读域名");
 assert.match(read("components/ui/google-maps-icon.tsx"), /#4285F4[\s\S]*#EA4335[\s\S]*#FBBC04[\s\S]*#34A853/, "Google Maps 链接必须使用四色定位标识");
 assert.match(read("components/customer-public-pool-view.tsx"), /selectAllResults[\s\S]*全选筛选结果[\s\S]*分配已选[\s\S]*删除已选/, "客户公海可操作列表必须在统一工具栏提供全选筛选结果和批量操作");

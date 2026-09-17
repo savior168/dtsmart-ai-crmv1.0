@@ -92,8 +92,8 @@ assert.match(poolView, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "�
 assert.match(poolView, /normalizePhoneInternational\(item\.value, row\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
 assert.match(poolView, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");
 assert.match(poolView, /原始邮箱[\s\S]*未提供/, "待认领列表必须明确原始资料缺失，而不是静默隐藏");
-assert.match(poolView, /CustomerSocialSummary[\s\S]*field === "social"[\s\S]*CustomerSocialSummary customer=\{row\}/, "待认领列表必须复用统一官方平台图标组件集中展示社媒入口");
-assert.match(acquisitionCustomerResults, /CustomerSocialSummary customer=\{row\}/, "AI获客结果必须与客户公海统一使用官方平台图标而不是文字标签");
+assert.match(poolView, /CustomerPublicChannels[\s\S]*field === "google_url"[\s\S]*CustomerPublicChannels customer=\{row\}/, "待认领列表必须将Google Maps与官方社媒合并为统一公开渠道入口");
+assert.match(acquisitionCustomerResults, /CustomerPublicChannels customer=\{row\}/, "AI获客结果必须与客户公海统一使用Google Maps与官方社媒的公开渠道图标");
 assert.match(poolApi, /facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls/, "客户公海接口必须提供已授权读取的社媒链接字段");
 assert.match(poolApi, /customer_contacts[\s\S]*MATCHED_ORIGINAL[\s\S]*NEW_VERIFIED[\s\S]*CONFLICTING_VERIFIED/, "客户公海接口必须加载结构化联系方式证据，不能只依赖官网汇总字段");
 assert.match(poolApi, /verifiedContacts\.error \? \[\] : verifiedContacts\.data \|\| \[\]/, "结构化联系方式增强读取失败不得阻断客户公海主列表");

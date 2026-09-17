@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ExternalLink, LoaderCircle, Paperclip, Search, X } from "lucide-react";
+import { ChevronDown, LoaderCircle, Paperclip, Search, X } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { FOLLOWUP_STAGE_LABELS, type FollowupStage } from "@/lib/types";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { downloadCustomerWorkbook } from "@/lib/customer-export";
+import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 
 type CustomerData = Record<string, unknown> & { id?: string };
 type Protection = { id: string; customer_id: string; expire_date?: string; status?: string; release_type?: "MANUAL" | "AUTO"; extension_count?: number; can_renew?: boolean; renewal_block_reason?: string | null; customer?: CustomerData };
@@ -23,7 +24,7 @@ const industryOf = (customer: CustomerData) => customerIndustryDisplay({
 });
 const formatDate = (value: unknown) => value ? new Date(String(value)).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") : "-";
 function Country({ value }: { value: unknown }) { return <CountryLabel value={value} />; }
-function Url({ value }: { value?: string }) { const raw = String(value || "").trim(); const href = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : ""; return href ? <a href={href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex max-w-36 items-center gap-1 text-blue-600 hover:underline"><span className="truncate">{raw}</span><ExternalLink size={12}/></a> : <span className="text-slate-400">-</span>; }
+function Url({ value, kind = "website" }: { value?: string; kind?: "website" | "map" }) { const raw=String(value||""); return <CustomerPublicLink value={value} kind={kind==="map"||/maps\.google|google\.[^/]+\/maps/i.test(raw)?"map":"website"}/>; }
 
 function downloadCustomers(customers: CustomerData[], fileName: string) {
   downloadCustomerWorkbook(customers, fileName);
@@ -33,7 +34,7 @@ const protectionColumns: { label: string; key: keyof Row }[] = [
   { label: "客户名称", key: "company" }, { label: "归属人", key: "owner" }, { label: "国家/地区", key: "country" }, { label: "AI评分", key: "aiScore" },
   { label: "客户阶段", key: "stage" }, { label: "跟进状态", key: "followup" }, { label: "到期状态", key: "protection" }, { label: "释放方式", key: "releaseType" },
   { label: "续期次数", key: "extensionCount" }, { label: "最近跟进", key: "lastContact" }, { label: "联系电话", key: "phone" }, { label: "邮箱", key: "email" },
-  { label: "官网", key: "website" }, { label: "Google Maps", key: "google" }, { label: "数据来源", key: "source" }, { label: "更新时间", key: "updated" },
+  { label: "官网", key: "website" }, { label: "公开渠道", key: "google" }, { label: "数据来源", key: "source" }, { label: "更新时间", key: "updated" },
 ];
 
 function sortRows(rows: Row[], key: keyof Row, direction: "asc" | "desc") {
@@ -68,7 +69,7 @@ function RenewalDialog({ row, close, saved }: { row: Row; close: () => void; sav
 
 const conflictColumns: { label: string; key: keyof Row }[] = [
   { label: "客户名称", key: "company" }, { label: "国家/地区", key: "country" }, { label: "联系电话", key: "phone" }, { label: "邮箱", key: "email" }, { label: "官网", key: "website" },
-  { label: "Google Maps", key: "google" }, { label: "数据来源", key: "source" }, { label: "保护期剩余", key: "protection" }, { label: "当前归属人", key: "owner" }, { label: "冲突提交人", key: "submitters" },
+  { label: "公开渠道", key: "google" }, { label: "数据来源", key: "source" }, { label: "保护期剩余", key: "protection" }, { label: "当前归属人", key: "owner" }, { label: "冲突提交人", key: "submitters" },
 ];
 
 function ConflictTable({ rows, loading, page, pageSize, setPage, setPageSize }: { rows: Row[]; loading: boolean; page: number; pageSize: number; setPage: (page: number) => void; setPageSize: (size: number) => void }) {

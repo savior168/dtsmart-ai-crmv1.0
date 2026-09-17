@@ -7,7 +7,7 @@ import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
-import { CustomerSocialSummary } from "@/components/customer-social-summary";
+import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { SearchableMultiSelectFilter } from "@/components/ui/searchable-multi-select-filter";
 import {
   ConfirmDialog,
@@ -434,7 +434,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   "AI评分",
                   "匹配关键词",
                   "已核验联系方式",
-                  "公开来源",
+                  "官网",
+                  "公开渠道",
                   "Google地址",
                   "商机线索",
                   "销售建议",
@@ -459,7 +460,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
                   </td>
-                  <td className="px-4 py-4"><div className="flex flex-wrap items-center gap-1.5">{r.customer_profile?.website||r.source_website?<span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span>:null}{r.customer_profile?.google_url||r.google_url?<CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map" iconOnly/>:null}{r.customer_profile?.facebook_url||r.customer_profile?.instagram_url||r.customer_profile?.linkedin_url||r.customer_profile?.tiktok_url||r.customer_profile?.other_public_urls?.length?<CustomerSocialSummary customer={r.customer_profile}/>:null}{!r.customer_profile?.website&&!r.source_website&&!r.customer_profile?.google_url&&!r.google_url&&!r.customer_profile?.facebook_url&&!r.customer_profile?.instagram_url&&!r.customer_profile?.linkedin_url&&!r.customer_profile?.tiktok_url&&!r.customer_profile?.other_public_urls?.length?<span className="text-slate-400">—</span>:null}</div></td>
+                  <td className="px-4 py-4">{r.customer_profile?.website||r.source_website?<span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span>:null}</td>
+                  <td className="px-4 py-4"><CustomerPublicChannels customer={{...r.customer_profile,google_url:r.customer_profile?.google_url||r.google_url}}/></td>
                   <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-slate-600">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>
