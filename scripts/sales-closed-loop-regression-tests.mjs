@@ -141,6 +141,8 @@ assert.match(aiUsageView, /quickCostDateRange\("TODAY"\)[\s\S]*CostDateRangePres
 assert.match(aiUsageView, /aria-expanded=\{googleExpanded\}[\s\S]*筛选范围Google Places SKU明细[\s\S]*按月份核对筛选范围内的Google调用/, "Google价目估算卡必须原位展开筛选范围SKU、当前月额度和分月明细");
 assert.match(aiUsageView, /AiUsagePurposeBreakdown[\s\S]*purpose_breakdown/, "AI筛选用量页必须展示第三方调用与Token的工作用途构成");
 assert.match(aiUsageView, /purposeExpanded[\s\S]*aria-controls="screening-usage-purpose-details"[\s\S]*查看用途[\s\S]*AiUsagePurposeBreakdown[\s\S]*embedded/, "AI筛选第三方调用用途必须与AI获客一致，由调用卡片按需展开");
+assert.match(aiUsageView, /flex flex-wrap justify-end gap-2[\s\S]*查询[\s\S]*重置[\s\S]*embedded\?<button[\s\S]*导出明细/, "统一用量页的筛选导出必须紧邻查询操作，不能单独占用一整行留出大片空白");
+assert.doesNotMatch(aiUsageView, /embedded[\s\S]{0,100}<div className="flex justify-end"/, "嵌入式AI筛选用量页不得保留独立顶部操作空白行");
 assert.match(aiUsageView, /历史未细分[\s\S]*value\.count>0/, "历史未细分为零时不得占据页面空间");
 assert.match(aiUsageNullScopeMigration, /p_user_id is null or c\.user_id = p_user_id[\s\S]*p_user_id is null or u\.user_id = p_user_id/, "全系统历史完成次数与OpenAI台账汇总不得把空归属人错误解释为user_id等于NULL");
 assert.match(aiUsageView, /筛选范围Google Places SKU明细[\s\S]*xl:grid-cols-5/, "宽屏下五个Google SKU卡片必须保持同一行");

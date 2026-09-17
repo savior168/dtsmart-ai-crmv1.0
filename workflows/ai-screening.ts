@@ -241,7 +241,7 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     const initial = await taskState(input.taskId);
     if (initial.status === "CANCELLED" || initial.cancelRequested) return { status: "CANCELLED" };
     await beginTask(input.taskId);
-    const concurrency = Math.min(6, Math.max(1, Number(process.env.AI_SCREENING_CONCURRENCY || 5)));
+    const concurrency = Math.min(6, Math.max(1, Number(process.env.AI_SCREENING_CONCURRENCY || 6)));
     while (true) {
       let state = await taskState(input.taskId);
       if (state.status === "PAUSING") {

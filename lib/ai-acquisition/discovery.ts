@@ -149,7 +149,8 @@ export async function discoverBusinesses(input: {
         }
         pageToken = String(payload.nextPageToken || "").trim();
         const completed=!pageToken||page>=3||results.size>=input.limit;
-        const checkpoint=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:Math.min(4,page+1),next_page_token:completed?null:pageToken,status:completed?"COMPLETED":"RUNNING",stop_reason:null,result_count:queryResults.size,results:[...queryResults.values()],last_request_id:requestId,updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        const stopReason=results.size>=input.limit?"TASK_SAFETY_CEILING":page>=3&&pageToken?"PROVIDER_PAGE_LIMIT":!pageToken?"PROVIDER_EXHAUSTED":null;
+        const checkpoint=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:Math.min(4,page+1),next_page_token:completed?null:pageToken,status:completed?"COMPLETED":"RUNNING",stop_reason:completed?stopReason:null,result_count:queryResults.size,results:[...queryResults.values()],last_request_id:requestId,updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
         if(checkpoint.error)throw checkpoint.error;
         if(completed) {
           const completedScope=await admin.rpc("complete_ai_acquisition_search_scope",{p_scope_key:scopeKey,p_task_id:input.acquisitionTaskId,p_result_count:queryResults.size});

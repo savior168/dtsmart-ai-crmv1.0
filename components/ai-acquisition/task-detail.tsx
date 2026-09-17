@@ -83,6 +83,7 @@ const tone: Record<string, string> = {
 };
 type CompletionInfo = { budget_limited: boolean; blocked_periods: string[];incremental_skipped?:number;concurrently_skipped?:number;no_new_search_units?:boolean };
 type DiscoveryProgress = { stage:string;stage_detail:string|null;total:number;completed:number;raw_hits:number;incremental_skipped?:number;concurrently_skipped?:number;current_query:string|null;current_country:string|null;updated_at:string|null };
+type VerificationProgress = {status:string;total:number;completed:number;pending:number;success:number;failed:number;early_processed:number;updated_at:string|null};
 type SearchStat = {query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number};
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const GOOGLE_SKU_ORDER=["PLACES_TEXT_SEARCH_PRO","PLACES_TEXT_SEARCH_ID_ONLY","PLACES_DETAILS_PRO","PLACES_DETAILS_ENTERPRISE","PLACES_DETAILS_ENTERPRISE_ATMOSPHERE"];
@@ -128,6 +129,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [googleBillingLoading, setGoogleBillingLoading] = useState(false),
     [completion, setCompletion] = useState<CompletionInfo>({budget_limited:false,blocked_periods:[]}),
     [discoveryProgress, setDiscoveryProgress] = useState<DiscoveryProgress | null>(null),
+    [verificationProgress, setVerificationProgress] = useState<VerificationProgress | null>(null),
     [searchStats, setSearchStats] = useState<SearchStat[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
@@ -160,11 +162,14 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || "加载失败");
       setTask(b.task);
-      setRows(b.candidates || []);
-      setCount(b.count || 0);
+      if (!quiet) {
+        setRows(b.candidates || []);
+        setCount(b.count || 0);
+      }
       if (b.usage_summary) setUsage((current) => ({ ...(current || {}), ...b.usage_summary } as UsageSummary));
       if (b.completion) setCompletion(b.completion);
       setDiscoveryProgress(b.discovery_progress || null);
+      setVerificationProgress(b.verification_progress || null);
       if (Array.isArray(b.search_stats)) setSearchStats(b.search_stats);
       setCanControl(Boolean(b.can_control));
       setCanEvidence(Boolean(b.can_view_evidence));
@@ -304,10 +309,10 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     requestAnimationFrame(()=>document.getElementById("customer-results")?.scrollIntoView({behavior:"smooth",block:"start"}));
   }
   const progressSteps=[
-    {key:"DISCOVERY",label:"发现候选"},
-    {key:"DEDUPLICATING",label:"去重初判"},
-    {key:"VERIFYING",label:"核验客户"},
-    {key:"FINALIZING",label:"入池判定"},
+    {key:"DISCOVERY",label:"搜索发现",detail:"本地化检索 · 分页覆盖"},
+    {key:"DEDUPLICATING",label:"去重初筛",detail:"客户库查重 · 停业与非目标早停"},
+    {key:"VERIFYING",label:"资料与业务核验",detail:"商家详情 · 官网证据 · 联系方式 · AI行业判断"},
+    {key:"FINALIZING",label:"质量准入",detail:"质量门槛 · 最终去重 · 入池或待复核"},
   ];
   const activeProgressStep=Math.max(0,progressSteps.findIndex((item)=>item.key===discoveryProgress?.stage));
   const customerProgressActive=activeProgressStep>=2;
@@ -323,7 +328,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         description={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span>任务编号 {task.task_number}</span><span>·</span>
-            <span>创建人 {task.owner?.name||task.owner?.email||"历史账号"}</span><span>·</span>
+            <span>创建人 {task.owner?.name||task.owner?.email||"原账号（已停用）"}</span><span>·</span>
             <span>创建于 {new Date(task.created_at).toLocaleString("zh-CN",{hour12:false})}</span>
           </span>
         }
@@ -361,7 +366,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         }
       />
       {task.scheduled_at ? <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><CalendarClock size={16}/><b>预约执行：</b>{new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false})}<span className="text-blue-600">（预约等待时间不计入有效耗时）</span></div> : null}
-      {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} overflow-hidden`} aria-label="AI获客实时执行进度"><div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3"><div><div className="flex flex-wrap items-center gap-2"><b>{{WAITING:"等待开始执行",DISCOVERY:"正在发现目标客户",DEDUPLICATING:"正在去重与目标初判",VERIFYING:"正在核验候选客户",FINALIZING:"正在执行入池判定"}[discoveryProgress.stage]||"正在执行AI获客"}</b><StatusBadge status={task.status}/><span className={`rounded-full px-2 py-0.5 text-xs ${progressHealth==="运行正常"?"bg-emerald-50 text-emerald-700":progressHealth==="已暂停"?"bg-slate-100 text-slate-600":"bg-amber-50 text-amber-700"}`}>{progressHealth}</span></div><p className="mt-1 text-xs text-slate-500">{discoveryProgress.stage_detail||"系统正在按任务条件持续处理，请以客户核验进度判断实际业务进展。"}</p></div><div className="text-right text-xs text-slate-400"><p>有效耗时 {formatDuration(effectiveElapsedMs(task))}</p>{discoveryProgress.updated_at?<p className="mt-1">最近更新 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</p>:null}</div></div><div className="p-4"><ol className="grid grid-cols-4 gap-2">{progressSteps.map((step,stepIndex)=>{const completed=stepIndex<activeProgressStep;const active=stepIndex===activeProgressStep;return <li key={step.key} className={`flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-xs ${active?"border-blue-200 bg-blue-50 text-blue-700":completed?"border-emerald-100 bg-emerald-50/70 text-emerald-700":"border-slate-100 bg-slate-50 text-slate-400"}`}><span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${active?"bg-blue-600 text-white":completed?"bg-emerald-600 text-white":"bg-slate-200 text-slate-500"}`}>{completed?"✓":stepIndex+1}</span><span className="truncate font-medium">{step.label}</span></li>})}</ol><div className="mt-4 flex items-end justify-between gap-3"><div><b className="text-sm">{customerProgressActive?"客户核验进度":"候选发现进度"}</b><p className="mt-0.5 text-xs text-slate-400">{customerProgressActive?`已处理 ${formatNumber(primaryProgressCompleted)} / ${formatNumber(primaryProgressTotal)} 位候选客户`:`已完成 ${formatNumber(primaryProgressCompleted)} / ${formatNumber(primaryProgressTotal)} 组检索`}</p></div><b className="text-lg text-blue-700">{primaryProgressPercent}%</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{width:`${primaryProgressPercent}%`}}/></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>{customerProgressActive?`发现阶段：${formatNumber(discoveryProgress.completed)} / ${formatNumber(discoveryProgress.total)} 组检索已完成，共发现 ${formatNumber(task.discovered_count)} 位去重候选`:`原始命中 ${formatNumber(discoveryProgress.raw_hits)} 条，检索组合仅用于说明发现范围`}</span>{discoveryProgress.current_query&&discoveryProgress.stage==="DISCOVERY"?<span className="max-w-[48rem] truncate text-blue-700" title={discoveryProgress.current_query}>当前检索：{discoveryProgress.current_query}{discoveryProgress.current_country?` · ${COUNTRY_NAMES.of(discoveryProgress.current_country)||discoveryProgress.current_country}`:""}</span>:null}</div></div></section>:null}
+      {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} overflow-hidden`} aria-label="AI获客实时执行进度"><div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3"><div><div className="flex flex-wrap items-center gap-2"><b>{{WAITING:"等待开始执行",DISCOVERY:"正在发现目标客户",DEDUPLICATING:"正在去重与目标初筛",VERIFYING:"正在核验资料与目标业务",FINALIZING:"正在执行质量准入"}[discoveryProgress.stage]||"正在执行AI获客"}</b><StatusBadge status={task.status}/><span className={`rounded-full px-2 py-0.5 text-xs ${progressHealth==="运行正常"?"bg-emerald-50 text-emerald-700":progressHealth==="已暂停"?"bg-slate-100 text-slate-600":"bg-amber-50 text-amber-700"}`}>{progressHealth}</span></div><p className="mt-1 text-xs text-slate-500">{discoveryProgress.stage_detail||"系统正在按任务条件持续处理，请以客户核验进度判断实际业务进展。"}</p></div><div className="text-right text-xs text-slate-400"><p>有效耗时 {formatDuration(effectiveElapsedMs(task))}</p>{discoveryProgress.updated_at?<p className="mt-1">最近更新 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</p>:null}</div></div><div className="p-4"><div className="mb-2 text-xs text-slate-500">4 个可追踪执行阶段，覆盖从搜索发现到客户入池的完整处理链路</div><ol className="grid gap-2 lg:grid-cols-4">{progressSteps.map((step,stepIndex)=>{const completed=stepIndex<activeProgressStep;const active=stepIndex===activeProgressStep;return <li key={step.key} className={`flex min-w-0 items-start gap-2 rounded-lg border px-3 py-2.5 text-xs ${active?"border-blue-200 bg-blue-50 text-blue-700":completed?"border-emerald-100 bg-emerald-50/70 text-emerald-700":"border-slate-100 bg-slate-50 text-slate-400"}`}><span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${active?"bg-blue-600 text-white":completed?"bg-emerald-600 text-white":"bg-slate-200 text-slate-500"}`}>{completed?"✓":stepIndex+1}</span><span className="min-w-0"><b className="block font-medium">{step.label}</b><span className="mt-0.5 block leading-4 opacity-80">{step.detail}</span></span></li>})}</ol><div className="mt-4 flex items-end justify-between gap-3"><div><b className="text-sm">{customerProgressActive?"客户核验进度":"候选发现进度"}</b><p className="mt-0.5 text-xs text-slate-400">{customerProgressActive?`已处理 ${formatNumber(primaryProgressCompleted)} / ${formatNumber(primaryProgressTotal)} 位候选客户`:`已完成 ${formatNumber(primaryProgressCompleted)} / ${formatNumber(primaryProgressTotal)} 组检索`}</p></div><b className="text-lg text-blue-700">{primaryProgressPercent}%</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{width:`${primaryProgressPercent}%`}}/></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>{customerProgressActive?`发现阶段：${formatNumber(discoveryProgress.completed)} / ${formatNumber(discoveryProgress.total)} 组检索已完成，共发现 ${formatNumber(task.discovered_count)} 位去重候选`:`原始命中 ${formatNumber(discoveryProgress.raw_hits)} 条，检索组合仅用于说明发现范围`}</span>{discoveryProgress.current_query&&discoveryProgress.stage==="DISCOVERY"?<span className="max-w-[48rem] truncate text-blue-700" title={discoveryProgress.current_query}>当前检索：{discoveryProgress.current_query}{discoveryProgress.current_country?` · ${COUNTRY_NAMES.of(discoveryProgress.current_country)||discoveryProgress.current_country}`:""}</span>:null}</div></div></section>:null}
+      {customerProgressActive&&verificationProgress?<section className={`${panel} grid gap-3 px-4 py-3 text-xs sm:grid-cols-2 xl:grid-cols-4`} aria-label="AI获客实时处理构成"><div><span className="text-slate-500">已完成去重与早停</span><b className="ml-2 text-sm text-slate-800">{formatNumber(verificationProgress.early_processed)} 位</b></div><div><span className="text-slate-500">进入深度核验</span><b className="ml-2 text-sm text-slate-800">{formatNumber(verificationProgress.total)} 位</b></div><div><span className="text-slate-500">深度核验完成 / 待处理</span><b className="ml-2 text-sm text-blue-700">{formatNumber(verificationProgress.completed)} / {formatNumber(verificationProgress.pending)}</b></div><div className="sm:text-right"><span className="text-slate-500">最近核验进展</span><b className="ml-2 font-medium text-slate-700">{verificationProgress.updated_at?new Date(verificationProgress.updated_at).toLocaleString("zh-CN",{hour12:false}):"等待首批结果"}</b></div></section>:null}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" aria-label="AI获客结果概览">
         <button type="button" onClick={()=>showCustomerResults("ACCEPTED")} className={`${panel} p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50/30`}><small className="text-slate-500">成功入池客户</small><div className="mt-2 text-xl font-semibold text-emerald-700">{formatNumber(task.accepted_count)}</div><small className="mt-1 block text-slate-500">已核验有效并写入客户公海</small></button>
         <button type="button" onClick={()=>showCustomerResults("REVIEW")} className={`${panel} p-4 text-left transition hover:border-amber-300 hover:bg-amber-50/30`}><small className="text-slate-500">待人工复核</small><div className="mt-2 text-xl font-semibold text-amber-700">{formatNumber(task.review_count)}</div><small className="mt-1 block text-slate-500">点击处理证据不足的候选</small></button>

@@ -5,6 +5,7 @@ import { aiScreeningWorkflow } from "./ai-screening";
 import { discoverBusinesses, discoveryCandidateLooksRelevant, type DiscoveredBusiness } from "../lib/ai-acquisition/discovery";
 import type { AcquisitionCountry } from "../lib/ai-acquisition/config";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
+import { createScreeningTaskNumber } from "../lib/ai/task-number";
 
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
@@ -33,7 +34,7 @@ async function createScreeningTask(task: AcquisitionTask) {
   if (existing.error) throw existing.error;
   if (existing.data) return String(existing.data.id);
   const inserted = await admin.from("ai_screening_tasks").insert({
-    user_id: task.user_id, task_number: `${task.task_number}-VERIFY`, name: `${task.name} · 获客核验`, strategy: "SMART", strategy_version: "1.0",
+    user_id: task.user_id, task_number: createScreeningTaskNumber("ACQUISITION"), name: `${task.name} · 获客核验`, strategy: "SMART", strategy_version: "1.0",
     status: "QUEUED", total_count: 0, pending_count: 0, selection_mode: "FILTERED",
     filters: { service: "AI_ACQUISITION", acquisition_task_id: task.id, force_fresh_analysis: true }, request_key: `acquisition:${task.id}`,
     cost_mode: task.cost_mode, task_cost_limit_usd: task.task_cost_limit_usd, execution_mode: "VERCEL_ONLY", dispatch_policy: "VERCEL_ONLY",
@@ -148,9 +149,10 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   const counts = await admin.from("ai_acquisition_candidates").select("id,decision").eq("task_id", task.id);
   if (counts.error) throw counts.error;
   const analyzing = (counts.data || []).filter((row) => row.decision === "ANALYZING").length;
+  const terminalProcessed = (counts.data || []).length - analyzing;
   const updatedScreening = await admin.from("ai_screening_tasks").update({ total_count: analyzing, pending_count: analyzing, updated_at: new Date().toISOString() }).eq("id", screeningTaskId);
   if (updatedScreening.error) throw updatedScreening.error;
-  const updatedTask = await admin.from("ai_acquisition_tasks").update({ discovered_count: counts.data?.length || 0, updated_at: new Date().toISOString() }).eq("id", task.id);
+  const updatedTask = await admin.from("ai_acquisition_tasks").update({ discovered_count: counts.data?.length || 0, processed_count:terminalProcessed, updated_at: new Date().toISOString() }).eq("id", task.id);
   if (updatedTask.error) throw updatedTask.error;
   return { analyzing, control: discoveryControl };
 }
@@ -180,8 +182,8 @@ async function verificationState(taskId: string, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
   const [acquisition, screening] = await Promise.all([
-    admin.from("ai_acquisition_tasks").select("status,cancel_requested,started_at,elapsed_ms,pause_started_at,paused_duration_ms").eq("id", taskId).single(),
-    admin.from("ai_screening_tasks").select("status,pending_count,error_message").eq("id", screeningTaskId).single(),
+    admin.from("ai_acquisition_tasks").select("status,cancel_requested,started_at,elapsed_ms,pause_started_at,paused_duration_ms,discovered_count").eq("id", taskId).single(),
+    admin.from("ai_screening_tasks").select("status,total_count,pending_count,success_count,failed_count,error_message").eq("id", screeningTaskId).single(),
   ]);
   if (acquisition.error || !acquisition.data) throw acquisition.error || new Error("ACQUISITION_CONTROL_STATE_FAILED");
   if (screening.error || !screening.data) throw screening.error || new Error("ACQUISITION_SCREENING_STATE_FAILED");
@@ -199,7 +201,11 @@ async function verificationState(taskId: string, screeningTaskId: string) {
     ]);
     return { control: "PAUSED" as const, screening: screening.data };
   }
-  await admin.from("ai_acquisition_tasks").update({ executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", taskId);
+  const deepTotal=Number(screening.data.total_count||0);
+  const deepProcessed=Number(screening.data.success_count||0)+Number(screening.data.failed_count||0);
+  const earlyProcessed=Math.max(0,Number(acquisition.data.discovered_count||0)-deepTotal);
+  const processedCount=Math.min(Number(acquisition.data.discovered_count||0),earlyProcessed+deepProcessed);
+  await admin.from("ai_acquisition_tasks").update({ processed_count:processedCount, executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", taskId);
   return { control: acquisition.data.status === "PAUSED" ? "PAUSED" as const : "RUNNING" as const, screening: screening.data };
 }
 

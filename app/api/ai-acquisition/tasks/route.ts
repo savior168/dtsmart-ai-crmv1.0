@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { DEFAULT_ACQUISITION_DISCOVERY_CEILING, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
-import { createAcquisitionTaskNumber } from "@/lib/ai/task-number";
+import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
 import { isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
@@ -190,13 +190,14 @@ export async function POST(request: NextRequest) {
     if (body.scheduled_at && !scheduledAt) return NextResponse.json({ error: "请选择晚于当前时间的预约执行时间" }, { status: 400 });
     if (costMode === "ADAPTIVE" && taskCostLimit !== null && (!Number.isFinite(taskCostLimit) || taskCostLimit <= 0)) return NextResponse.json({ error: "单任务费用上限必须大于0；留空表示仅遵循AI获客全局费用限制" }, { status: 400 });
     const admin = createAdminClient();
+    const numberPrefix = acquisitionTaskNumberPrefix(user.id, requestKey, costMode);
     const number = createAcquisitionTaskNumber(user.id, requestKey, costMode);
-    const existing = await admin.from("ai_acquisition_tasks").select("*").eq("task_number", number).eq("user_id", user.id).maybeSingle();
+    const existing = await admin.from("ai_acquisition_tasks").select("*").eq("user_id", user.id).like("task_number", `${numberPrefix}-%`).maybeSingle();
     if (existing.error) throw existing.error;
     if (existing.data) return NextResponse.json({ task: presentTask(existing.data), reused: true });
     const task = await admin.from("ai_acquisition_tasks").insert({ user_id: user.id, task_number: number, name, cost_mode: costMode, countries, industry, industries, keywords, excluded_keywords: [], target_count: targetCount, task_cost_limit_usd: taskCostLimit }).select("*").single();
     if (task.error?.code === "23505") {
-      const repeated = await admin.from("ai_acquisition_tasks").select("*").eq("task_number", number).eq("user_id", user.id).single();
+      const repeated = await admin.from("ai_acquisition_tasks").select("*").eq("user_id", user.id).like("task_number", `${numberPrefix}-%`).maybeSingle();
       if (!repeated.error && repeated.data) return NextResponse.json({ task: presentTask(repeated.data), reused: true });
     }
     if (task.error || !task.data) throw task.error || new Error("AI获客任务创建失败");

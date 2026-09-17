@@ -8,7 +8,7 @@ import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
-  const result = await createAdminClient().from("ai_acquisition_tasks").select("*").eq("id", id).maybeSingle();
+  const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
   if (result.error) throw result.error;
   if (!result.data) throw new Error("TASK_NOT_FOUND");
   if (result.data.user_id !== account.id && (!hasPermission(account, "ai.acquisition.data_all") || !await canReadAiOwner(account, result.data.user_id))) throw new Error("FORBIDDEN");
@@ -54,7 +54,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true).eq("evidence_complete", true);
     if (readiness === "NO_CONTACT") query = query.eq("has_actionable_contact", false);
     if (readiness === "EVIDENCE_GAP") query = query.eq("evidence_complete", false);
-    const candidates = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+    const candidates = lightweight
+      ? { data: [], count: 0, error: null }
+      : await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (candidates.error) throw candidates.error;
     const candidateRows = candidates.data || [];
     const customerIds = [...new Set(candidateRows.flatMap((row) => [row.staging_customer_id, row.imported_customer_id]).filter(Boolean).map(String))];
@@ -80,8 +82,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       return { ...row, customer_profile: profileById.get(customerId) || null, verified_contacts: customerContacts, source_website:sourceWebsite?.value_raw||null, source_website_status:sourceWebsite?.verification_status||null };
     });
     const [screeningTaskRows, acquisitionChild] = await Promise.all([
-      createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500),
-      createAdminClient().from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle(),
+      lightweight ? Promise.resolve({data:[],error:null}) : createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500),
+      createAdminClient().from("ai_screening_tasks").select("id,status,total_count,pending_count,success_count,failed_count,processed_count,updated_at").eq("request_key", `acquisition:${id}`).maybeSingle(),
     ]);
     if (screeningTaskRows.error || acquisitionChild.error) throw screeningTaskRows.error || acquisitionChild.error;
     const screeningIds = [...new Set([...(screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")),String(acquisitionChild.data?.id||"")].filter(Boolean))];
@@ -108,6 +110,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const discoveryActive=Boolean(activeCheckpoint)||(["QUEUED","RUNNING","PAUSING","PAUSED"].includes(String(task.status))&&completedSearches<plannedSearches&&Number(task.discovered_count||0)===0);
     const stage=String(task.current_stage||"")|| (discoveryActive?"DISCOVERY":["QUEUED"].includes(String(task.status))?"WAITING":["RUNNING","PAUSING","PAUSED"].includes(String(task.status))?"VERIFYING":"FINISHED");
     const discoveryProgress={stage,stage_detail:task.current_stage_detail||null,total:plannedSearches,completed:Math.min(completedSearches,plannedSearches),raw_hits:checkpoints.reduce((sum,row)=>sum+Number(row.result_count||0),0),incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,current_query:activeCheckpoint?.query_text||null,current_country:activeCheckpoint?.country||null,updated_at:activeCheckpoint?.updated_at||task.updated_at};
+    const verificationTask=acquisitionChild.data;
+    const verificationTotal=Number(verificationTask?.total_count||0);
+    const verificationCompleted=Math.min(verificationTotal,Number(verificationTask?.processed_count||0)||Number(verificationTask?.success_count||0)+Number(verificationTask?.failed_count||0));
+    const earlyProcessed=Math.max(0,Number(task.discovered_count||0)-verificationTotal);
+    const liveProcessed=Math.min(Number(task.discovered_count||0),Math.max(Number(task.processed_count||0),earlyProcessed+verificationCompleted));
+    const verificationProgress=verificationTask?{status:verificationTask.status,total:verificationTotal,completed:verificationCompleted,pending:Math.max(0,Number(verificationTask.pending_count||0)),success:Number(verificationTask.success_count||0),failed:Number(verificationTask.failed_count||0),early_processed:earlyProcessed,updated_at:verificationTask.updated_at}:null;
     const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
     if(traceRows.error)throw traceRows.error;
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
@@ -128,7 +136,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if(reportCandidates.error)throw reportCandidates.error;
     const actualCost=actualCostUsd(metricCostRows);
     const confirmedGoogleCost=actualCostUsd(metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES"));
-    return NextResponse.json({ task: presentTask(task), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    return NextResponse.json({ task: presentTask({...task,processed_count:liveProcessed}), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"

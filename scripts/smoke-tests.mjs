@@ -94,7 +94,7 @@ assert.match(evidenceView, /<span>客户详情<\/span>/, "AI分析依据页必�
 assert.match(evidenceView, /历史结果未保存评分/, "历史未评分记录必须明确提示重新评分且不得伪造高分");
 const workflow = read("workflows/ai-screening.ts");
 assert.match(workflow, /Promise\.race\(active\.map/, "AI任务必须持续补位执行，不能等待最慢客户拖住下一批");
-assert.match(workflow, /AI_SCREENING_CONCURRENCY \|\| 5/, "AI任务默认并发必须兼顾吞吐和外部接口稳定性");
+assert.match(workflow, /AI_SCREENING_CONCURRENCY \|\| 6/, "AI任务默认并发必须在受控上限内充分利用可用吞吐");
 assert.doesNotMatch(workflow, /Promise\.race\(\[analysis, deadline\]\)/, "工作流不得用30秒整客户硬超时中断证据收集");
 assert.match(workflow, /AI_SCREENING_CONCURRENCY/, "AI任务并发量必须可通过服务端环境变量配置");
 assert.match(workflow, /status: "COMPLETED"/, "单个客户失败不能把已跑完的整个任务标记为失败");

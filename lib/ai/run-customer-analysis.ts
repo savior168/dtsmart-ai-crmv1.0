@@ -2319,6 +2319,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
   const admin = createAdminClient();
   const taskOwnerResult = await admin.from("ai_screening_tasks").select("user_id,filters").eq("id", input.taskId).maybeSingle();
   if (taskOwnerResult.error) throw taskOwnerResult.error;
+  const acquisitionCandidate = taskOwnerResult.data?.filters
+    && typeof taskOwnerResult.data.filters === "object"
+    && (taskOwnerResult.data.filters as Record<string,unknown>).service === "AI_ACQUISITION";
   const costContext = { taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, userId: taskOwnerResult.data?.user_id || null, executionLease: input.executionLease };
   await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_LOADED", startedAt: started });
   // Invalid-result rechecks always execute the current collectors and scoring
@@ -2379,7 +2382,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }
 
     if (!isConclusiveChannelAnalysis(stagedAnalysis)
-        && hasTargetValueSignal(customer, records)
+        && (hasTargetValueSignal(customer, records) || (acquisitionCandidate && Boolean(customer.google_place_id)))
         && !records.some((item) => item.channel === "google_maps" && ["COLLECTED", "SKIPPED"].includes(item.status))) {
       const googleRecord = await collectChannel(customer, "google_maps", analysisController.signal, costContext);
       records.push(googleRecord);
@@ -2855,6 +2858,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       status: "COMPLETED",
       analysis_status: "COMPLETED",
       writeback_status: "COMPLETED",
+      progress: 100,
       writeback_warning_count: writebackWarnings.length,
       // Production keeps this JSONB column NOT NULL. An empty successful run
       // must therefore persist an empty object instead of null; otherwise a
