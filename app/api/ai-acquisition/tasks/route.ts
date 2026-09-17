@@ -76,16 +76,13 @@ export async function GET(request: NextRequest) {
     if (result.error) throw result.error;
     const pageTaskIds = (result.data || []).map((row) => String(row.id));
     const checkpointResult = pageTaskIds.length
-      ? await admin.from("ai_acquisition_discovery_checkpoints").select("task_id,status,result_count").in("task_id", pageTaskIds)
+      ? await admin.rpc("get_ai_acquisition_discovery_progress", { p_task_ids: pageTaskIds })
       : { data: [], error: null };
     if (checkpointResult.error) throw checkpointResult.error;
     const checkpointByTask = new Map<string, { completed:number; rawHits:number }>();
     for (const checkpoint of checkpointResult.data || []) {
       const taskId = String(checkpoint.task_id);
-      const current = checkpointByTask.get(taskId) || { completed:0, rawHits:0 };
-      if (["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE","REUSED_RECENT","REUSED_ACTIVE"].includes(String(checkpoint.status))) current.completed += 1;
-      current.rawHits += Number(checkpoint.result_count || 0);
-      checkpointByTask.set(taskId, current);
+      checkpointByTask.set(taskId, { completed:Number(checkpoint.terminal_count||0), rawHits:Number(checkpoint.raw_hit_count||0) });
     }
     const usageByTask = new Map<string,{google_calls:number;openai_calls:number;total_tokens:number;openai_cost_usd:number;google_cost_usd:number;total_cost_usd:number}>();
     if (pageTaskIds.length && hasPermission(account, "ai.acquisition.usage.view")) {

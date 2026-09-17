@@ -3,7 +3,7 @@ import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { start } from "workflow/api";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
-import { localizedSearchTerms, type AcquisitionCountry } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY } from "@/lib/ai-acquisition/config";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
@@ -89,34 +89,35 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const screeningIds = [...new Set([...(screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")),String(acquisitionChild.data?.id||"")].filter(Boolean))];
     const taskIds = [id, ...screeningIds];
     const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
-    const discoveryCheckpoints = await createAdminClient().from("ai_acquisition_discovery_checkpoints").select("country,query_text,status,stop_reason,result_count,updated_at").eq("task_id",id).order("updated_at",{ascending:false});
+    const discoveryProgressResult = await createAdminClient().rpc("get_ai_acquisition_discovery_progress", { p_task_ids: [id] });
     const [costs, usageSummary, budgetEvents] = canViewUsage ? await Promise.all([
       lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200),
       createAdminClient().rpc("get_ai_acquisition_usage_summary", { p_task_id: id }),
       lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds),
     ]) : [{ data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
-    if (costs.error || budgetEvents.error || discoveryCheckpoints.error) throw costs.error || budgetEvents.error || discoveryCheckpoints.error;
+    if (costs.error || budgetEvents.error || discoveryProgressResult.error) throw costs.error || budgetEvents.error || discoveryProgressResult.error;
     if (usageSummary.error) throw usageSummary.error;
-    const checkpoints=discoveryCheckpoints.data||[];
-    const checkpointBlocks=checkpoints.filter((row)=>row.status==="BUDGET_LIMITED").map((row)=>String(row.stop_reason||"BUDGET"));
+    const checkpointProgress=(discoveryProgressResult.data||[])[0]||null;
+    const checkpointBlocks=Array.isArray(checkpointProgress?.blocked_periods)?checkpointProgress.blocked_periods.map(String):[];
     const blockedPeriods=[...new Set([...(budgetEvents.data||[]).map((row)=>String(row.blocked_period||"")),...checkpointBlocks].filter(Boolean))];
-    const taskIndustries=Array.isArray(task.industries)&&task.industries.length?task.industries:[task.industry].filter(Boolean);
-    const plannedSearches=(task.countries||[]).reduce((total:number,code:string)=>total+localizedSearchTerms(code as AcquisitionCountry,taskIndustries,task.keywords||[]).length,0);
-    const completedSearches=checkpoints.filter((row)=>["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE","REUSED_RECENT","REUSED_ACTIVE"].includes(String(row.status))).length;
-    const incrementalSkipped=checkpoints.filter((row)=>row.status==="SKIPPED_RECENT").length;
-    const concurrentlySkipped=checkpoints.filter((row)=>row.status==="SKIPPED_ACTIVE").length;
-    const reusedSearches=checkpoints.filter((row)=>["REUSED_RECENT","REUSED_ACTIVE"].includes(String(row.status))).length;
-    const activeCheckpoint=checkpoints.find((row)=>["RUNNING","PAUSED"].includes(String(row.status)))||null;
+    const plannedSearches=Math.max(1,(task.countries||[]).length*ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY);
+    const totalCheckpoints=Number(checkpointProgress?.total_count||0);
+    const completedSearches=Number(checkpointProgress?.terminal_count||0);
+    const completedFreshSearches=Number(checkpointProgress?.fresh_completed_count||0);
+    const incrementalSkipped=Number(checkpointProgress?.skipped_recent_count||0);
+    const concurrentlySkipped=Number(checkpointProgress?.skipped_active_count||0);
+    const reusedSearches=Number(checkpointProgress?.reused_count||0);
+    const activeCheckpoint=checkpointProgress&&["RUNNING","PAUSED"].includes(String(checkpointProgress.current_status))?checkpointProgress:null;
     const discoveryActive=Boolean(activeCheckpoint)||(["QUEUED","RUNNING","PAUSING","PAUSED"].includes(String(task.status))&&completedSearches<plannedSearches&&Number(task.discovered_count||0)===0);
     const stage=String(task.current_stage||"")|| (discoveryActive?"DISCOVERY":["QUEUED"].includes(String(task.status))?"WAITING":["RUNNING","PAUSING","PAUSED"].includes(String(task.status))?"VERIFYING":"FINISHED");
-    const discoveryProgress={stage,stage_detail:task.current_stage_detail||null,total:plannedSearches,completed:Math.min(completedSearches,plannedSearches),raw_hits:checkpoints.reduce((sum,row)=>sum+Number(row.result_count||0),0),incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,current_query:activeCheckpoint?.query_text||null,current_country:activeCheckpoint?.country||null,updated_at:activeCheckpoint?.updated_at||task.updated_at};
+    const discoveryProgress={stage,stage_detail:task.current_stage_detail||null,total:plannedSearches,completed:task.status==="COMPLETED"?plannedSearches:Math.min(completedFreshSearches,plannedSearches),raw_hits:Number(checkpointProgress?.raw_hit_count||0),incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,current_query:activeCheckpoint?.current_query||null,current_country:activeCheckpoint?.current_country||null,updated_at:activeCheckpoint?.current_updated_at||task.updated_at};
     const verificationTask=acquisitionChild.data;
     const verificationTotal=Number(verificationTask?.total_count||0);
     const verificationCompleted=Math.min(verificationTotal,Number(verificationTask?.processed_count||0)||Number(verificationTask?.success_count||0)+Number(verificationTask?.failed_count||0));
     const earlyProcessed=Math.max(0,Number(task.discovered_count||0)-verificationTotal);
     const liveProcessed=Math.min(Number(task.discovered_count||0),Math.max(Number(task.processed_count||0),earlyProcessed+verificationCompleted));
     const verificationProgress=verificationTask?{status:verificationTask.status,total:verificationTotal,completed:verificationCompleted,pending:Math.max(0,Number(verificationTask.pending_count||0)),success:Number(verificationTask.success_count||0),failed:Number(verificationTask.failed_count||0),early_processed:earlyProcessed,updated_at:verificationTask.updated_at}:null;
-    const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
+    const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,decision_reason,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
     if(traceRows.error)throw traceRows.error;
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
     const customerStates=traceCustomerIds.length?await createAdminClient().from("customers").select("id,owner_id,status").in("id",traceCustomerIds):{data:[],error:null};
@@ -136,7 +137,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if(reportCandidates.error)throw reportCandidates.error;
     const actualCost=actualCostUsd(metricCostRows);
     const confirmedGoogleCost=actualCostUsd(metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES"));
-    return NextResponse.json({ task: presentTask({...task,processed_count:liveProcessed}), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    const reusedCandidates=(traceRows.data||[]).filter((row)=>String(row.decision_reason||"").startsWith("复用近14天历史核验结论")).length;
+    const noNewSearchUnits=totalCheckpoints>0&&completedFreshSearches===0&&completedSearches===totalCheckpoints&&incrementalSkipped+concurrentlySkipped+reusedSearches>=totalCheckpoints;
+    return NextResponse.json({ task: presentTask({...task,processed_count:liveProcessed}), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"

@@ -17,7 +17,64 @@ export const ACQUISITION_COUNTRY_GROUPS = [
 export const MAX_ACQUISITION_INDUSTRIES = 20;
 export const MAX_ACQUISITION_KEYWORDS = 30;
 export const MAX_ACQUISITION_SEARCH_TERMS = 80;
-export const DEFAULT_ACQUISITION_DISCOVERY_CEILING = 5000;
+export const DEFAULT_ACQUISITION_DISCOVERY_CEILING = 50000;
+export const ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY = 1000;
+
+// Google Text Search exposes only a small number of pages for one broad query.
+// Geographic shards let later tasks keep expanding coverage instead of paying
+// for the same country-wide result set. Keep these as recognizable market
+// centres/regions rather than postal-code guesses so queries remain auditable.
+export const ACQUISITION_COUNTRY_SEARCH_AREAS: Partial<Record<AcquisitionCountry, readonly string[]>> = {
+  US: ["New York NY","Los Angeles CA","Chicago IL","Houston TX","Phoenix AZ","Philadelphia PA","San Antonio TX","San Diego CA","Dallas TX","San Jose CA","Miami FL","Atlanta GA","Boston MA","Seattle WA","Denver CO","Detroit MI","Minneapolis MN","Portland OR","Las Vegas NV","Orlando FL"],
+  CA: ["Toronto ON","Montreal QC","Vancouver BC","Calgary AB","Edmonton AB","Ottawa ON","Winnipeg MB","Quebec City QC","Hamilton ON","Halifax NS"],
+  GB: ["London","Birmingham","Manchester","Leeds","Glasgow","Liverpool","Bristol","Sheffield","Edinburgh","Leicester","Nottingham","Newcastle upon Tyne","Cardiff","Belfast","Coventry","Bradford","Stoke-on-Trent","Southampton","Reading","Aberdeen"],
+  IE: ["Dublin","Cork","Limerick","Galway","Waterford","Drogheda","Dundalk","Swords"],
+  DE: ["Berlin","Hamburg","Munich","Cologne","Frankfurt","Stuttgart","Dusseldorf","Leipzig","Dortmund","Essen","Bremen","Dresden"],
+  FR: ["Paris","Marseille","Lyon","Toulouse","Nice","Nantes","Montpellier","Strasbourg","Bordeaux","Lille","Rennes","Grenoble"],
+  ES: ["Madrid","Barcelona","Valencia","Seville","Zaragoza","Malaga","Murcia","Palma","Bilbao","Alicante"],
+  PT: ["Lisbon","Porto","Braga","Coimbra","Setubal","Faro","Aveiro","Leiria"],
+  IT: ["Rome","Milan","Naples","Turin","Palermo","Genoa","Bologna","Florence","Bari","Catania","Venice","Verona"],
+  NL: ["Amsterdam","Rotterdam","The Hague","Utrecht","Eindhoven","Tilburg","Groningen","Almere"],
+  BE: ["Brussels","Antwerp","Ghent","Charleroi","Liege","Bruges","Leuven"],
+  PL: ["Warsaw","Krakow","Lodz","Wroclaw","Poznan","Gdansk","Szczecin","Katowice","Lublin"],
+  CZ: ["Prague","Brno","Ostrava","Plzen","Liberec","Olomouc"],
+  RO: ["Bucharest","Cluj-Napoca","Timisoara","Iasi","Constanta","Brasov","Craiova"],
+  GR: ["Athens","Thessaloniki","Patras","Heraklion","Larissa","Volos"],
+  NO: ["Oslo","Bergen","Trondheim","Stavanger","Drammen","Kristiansand"],
+  SE: ["Stockholm","Gothenburg","Malmo","Uppsala","Vasteras","Orebro"],
+  DK: ["Copenhagen","Aarhus","Odense","Aalborg","Esbjerg","Randers"],
+  FI: ["Helsinki","Espoo","Tampere","Vantaa","Oulu","Turku"],
+  AT: ["Vienna","Graz","Linz","Salzburg","Innsbruck","Klagenfurt"],
+  CH: ["Zurich","Geneva","Basel","Lausanne","Bern","Winterthur","Lucerne"],
+  AU: ["Sydney NSW","Melbourne VIC","Brisbane QLD","Perth WA","Adelaide SA","Gold Coast QLD","Newcastle NSW","Canberra ACT","Wollongong NSW","Geelong VIC"],
+  NZ: ["Auckland","Christchurch","Wellington","Hamilton","Tauranga","Dunedin","Palmerston North"],
+  AE: ["Dubai","Abu Dhabi","Sharjah","Ajman","Al Ain","Ras Al Khaimah"],
+  SA: ["Riyadh","Jeddah","Mecca","Medina","Dammam","Khobar","Taif"],
+  TR: ["Istanbul","Ankara","Izmir","Bursa","Antalya","Adana","Konya","Gaziantep"],
+  ZA: ["Johannesburg","Cape Town","Durban","Pretoria","Gqeberha","Bloemfontein","East London"],
+  NG: ["Lagos","Abuja","Kano","Ibadan","Port Harcourt","Benin City","Kaduna"],
+  KE: ["Nairobi","Mombasa","Kisumu","Nakuru","Eldoret","Thika"],
+  GH: ["Accra","Kumasi","Tema","Takoradi","Tamale","Cape Coast"],
+  TZ: ["Dar es Salaam","Dodoma","Mwanza","Arusha","Mbeya","Morogoro"],
+  UG: ["Kampala","Entebbe","Jinja","Mbarara","Gulu","Mbale"],
+  MA: ["Casablanca","Rabat","Marrakesh","Fes","Tangier","Agadir","Meknes"],
+  EG: ["Cairo","Alexandria","Giza","Mansoura","Tanta","Suez","Asyut"],
+  MX: ["Mexico City","Guadalajara","Monterrey","Puebla","Tijuana","Leon","Merida","Queretaro","Toluca"],
+  BR: ["Sao Paulo","Rio de Janeiro","Brasilia","Salvador","Fortaleza","Belo Horizonte","Manaus","Curitiba","Recife","Porto Alegre"],
+  AR: ["Buenos Aires","Cordoba","Rosario","Mendoza","La Plata","Tucuman","Mar del Plata"],
+  CL: ["Santiago","Valparaiso","Concepcion","Antofagasta","Vina del Mar","Temuco"],
+  CO: ["Bogota","Medellin","Cali","Barranquilla","Cartagena","Bucaramanga","Pereira"],
+  PE: ["Lima","Arequipa","Trujillo","Chiclayo","Piura","Cusco","Huancayo"],
+  IN: ["Delhi","Mumbai","Bengaluru","Hyderabad","Chennai","Kolkata","Pune","Ahmedabad","Jaipur","Surat","Lucknow","Kochi"],
+  ID: ["Jakarta","Surabaya","Bandung","Medan","Semarang","Makassar","Palembang","Denpasar"],
+  MY: ["Kuala Lumpur","George Town","Johor Bahru","Ipoh","Shah Alam","Kota Kinabalu","Kuching"],
+  SG: ["Central Singapore","Jurong","Tampines","Woodlands","Punggol"],
+  PH: ["Metro Manila","Cebu City","Davao City","Quezon City","Cagayan de Oro","Iloilo City","Baguio"],
+  TH: ["Bangkok","Chiang Mai","Pattaya","Phuket","Khon Kaen","Hat Yai","Nakhon Ratchasima"],
+  VN: ["Ho Chi Minh City","Hanoi","Da Nang","Hai Phong","Can Tho","Bien Hoa","Nha Trang"],
+  JP: ["Tokyo","Osaka","Yokohama","Nagoya","Sapporo","Fukuoka","Kobe","Kyoto","Sendai","Hiroshima"],
+  KR: ["Seoul","Busan","Incheon","Daegu","Daejeon","Gwangju","Suwon","Ulsan"],
+};
 
 export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
   "手机维修店": "mobile phone repair",

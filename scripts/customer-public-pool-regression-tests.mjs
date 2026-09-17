@@ -82,7 +82,8 @@ assert.doesNotMatch(contactSummary, /const kindLabel|\{kindLabel\}|function Sour
 assert.doesNotMatch(contactSummary, /AI采集·\$\{item\.channelLabel/, "联系方式行内不得重复展示占空间的AI采集文字标签");
 assert.match(contactSummary, /source === "ai" \? uniqueCollected/, "AI获客任务必须显示全部AI采集联系方式，不能因客户主档存在相同值而误隐藏");
 assert.match(contactSummary, /verifiedChannel === "官网"[\s\S]*rank: 0[\s\S]*verifiedChannel === "Google Maps"[\s\S]*rank: 1[\s\S]*官方社媒[\s\S]*rank: 2[\s\S]*item\.source === "original"[\s\S]*rank: 3/, "联系方式必须按官网、Google Maps、官方社媒、导入或录入资料的可信度顺序分组");
-assert.match(contactSummary, /collapseThreshold = 2[\s\S]*contacts\.length <= collapseThreshold[\s\S]*orderedContacts\.map[\s\S]*previewContacts = orderedContacts\.slice\(0, collapseThreshold\)[\s\S]*expanded \? renderGroups\(\) :[\s\S]*previewContacts\.map/, "一至两个联系方式必须直接全部显示，三个及以上默认展示优先级最高的前两个并可展开全部");
+assert.match(contactSummary, /collapseThreshold = 1[\s\S]*contacts\.length <= collapseThreshold[\s\S]*orderedContacts\.map[\s\S]*expanded \? <div[\s\S]*renderGroups\(\)[\s\S]*: null/, "单个联系方式直接显示，多个联系方式默认只显示紧凑摘要并按需展开全部");
+assert.doesNotMatch(contactSummary, /previewContacts/, "多个联系方式折叠时不得默认铺开前两项拉高整行");
 assert.match(contactSummary, /splitStoredContactValues[\s\S]*split\(\/[\s\S]*normalizePhoneInternational[\s\S]*for \(const value of splitStoredContactValues/, "历史聚合字段中的多个电话或邮箱必须拆分、规范化和去重后展示");
 assert.match(contactSummary, /renderGroups[\s\S]*group\.label[\s\S]*renderContact\(item,index\)/, "展开后的联系方式必须通过来源分组展示渠道，不为每条记录重复堆叠来源标记");
 assert.match(acquisitionCustomerResults, /CustomerContactSummary customer=\{row\} source="all"/, "AI获客客户结果必须显示实际联系方式，而不是仅显示是否可联系状态");

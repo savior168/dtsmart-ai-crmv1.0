@@ -1,34 +1,67 @@
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { releaseApiCostBudget, reserveApiCostBudget } from "@/lib/api-cost-budget";
-import { localizedSearchTerms, type AcquisitionCountry } from "./config";
+import { ACQUISITION_COUNTRY_SEARCH_AREAS, ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, localizedSearchTerms, type AcquisitionCountry } from "./config";
 
 export type DiscoveredBusiness = {
   placeId: string; companyName: string; address: string; country: AcquisitionCountry;
   businessStatus: string; types: string[]; googleUrl: string; query: string; matchedTerms: string[];
 };
-export type DiscoveryControl = "PAUSED" | "CANCELLED" | "BUDGET_LIMITED" | null;
+export type DiscoveryControl = "PAUSED" | "CANCELLED" | "BUDGET_LIMITED" | "CONTINUE" | null;
 
 const GOOGLE_TEXT_SEARCH_PRO_FREE_CAP = 5000;
 const GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE = 0.032;
 const DISCOVERY_STRATEGY_VERSION = "GOOGLE_TEXT_V2_FULL_PAGE";
 const SEARCH_REFRESH_DAYS = 90;
+const DISCOVERY_STEP_FRESH_SCOPE_BATCH = 10;
 
 function searchScopeKey(country: AcquisitionCountry, query: string) {
   return `${DISCOVERY_STRATEGY_VERSION}\n${country}\n${query.trim().toLowerCase()}`;
 }
 
-async function reusableScopeResults(scopeKey: string, country: AcquisitionCountry, query: string) {
+function discoveryQueries(country: AcquisitionCountry, countryName: string, terms: string[]) {
+  const areas = ACQUISITION_COUNTRY_SEARCH_AREAS[country] || [];
+  const queries: string[] = [];
+  // Interleave the country baseline with one geographic shard per term, then
+  // rotate every term through the remaining areas. Early stopping therefore
+  // still covers different industries and different parts of the country.
+  for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
+    queries.push(`${terms[termIndex]} in ${countryName}`);
+    if (areas.length) queries.push(`${terms[termIndex]} in ${areas[termIndex % areas.length]}, ${countryName}`);
+  }
+  for (let round = 1; round < areas.length; round += 1) {
+    for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
+      const area = areas[(termIndex + round) % areas.length];
+      queries.push(`${terms[termIndex]} in ${area}, ${countryName}`);
+    }
+  }
+  return [...new Set(queries)];
+}
+
+async function prioritizeUncoveredQueries(country: AcquisitionCountry, queries: string[]) {
   const admin = createAdminClient();
-  const scope = await admin.from("ai_acquisition_search_scopes").select("last_completed_task_id").eq("scope_key", scopeKey).maybeSingle();
-  if (scope.error) throw scope.error;
-  const sourceTaskId = String(scope.data?.last_completed_task_id || "");
-  if (!sourceTaskId) return [] as DiscoveredBusiness[];
-  const checkpoint = await admin.from("ai_acquisition_discovery_checkpoints").select("results").eq("task_id", sourceTaskId).eq("country", country).eq("query_text", query).maybeSingle();
-  if (checkpoint.error) throw checkpoint.error;
-  return Array.isArray(checkpoint.data?.results)
-    ? (checkpoint.data.results as DiscoveredBusiness[]).filter((business) => Boolean(business?.placeId))
-    : [];
+  const completedAt = new Map<string, number>();
+  const keys = queries.map((query) => searchScopeKey(country, query));
+  for (let offset = 0; offset < keys.length; offset += 100) {
+    const scopeRows = await admin.from("ai_acquisition_search_scopes").select("scope_key,last_completed_at").in("scope_key", keys.slice(offset, offset + 100));
+    if (scopeRows.error) throw scopeRows.error;
+    for (const row of scopeRows.data || []) {
+      const timestamp = row.last_completed_at ? new Date(String(row.last_completed_at)).getTime() : NaN;
+      if (Number.isFinite(timestamp)) completedAt.set(String(row.scope_key), timestamp);
+    }
+  }
+  const refreshCutoff=Date.now()-SEARCH_REFRESH_DAYS*24*60*60*1000;
+  const candidates=queries.map((query, order) => ({ query, order, completedAt: completedAt.get(searchScopeKey(country, query)) }));
+  const recentlyCovered=candidates.filter((item)=>item.completedAt!=null&&item.completedAt>=refreshCutoff).length;
+  const prioritized=candidates.filter((item)=>item.completedAt==null||item.completedAt<refreshCutoff)
+    .sort((left, right) => {
+      if (left.completedAt == null && right.completedAt != null) return -1;
+      if (left.completedAt != null && right.completedAt == null) return 1;
+      if (left.completedAt != null && right.completedAt != null && left.completedAt !== right.completedAt) return left.completedAt - right.completedAt;
+      return left.order - right.order;
+    })
+    .map((item) => item.query);
+  return { queries:prioritized, recentlyCovered };
 }
 
 async function currentMonthSkuCalls(sku: string) {
@@ -48,13 +81,27 @@ export async function discoverBusinesses(input: {
   if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY_NOT_CONFIGURED");
   const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(input.country) || input.country;
   const terms = localizedSearchTerms(input.country, input.industries, input.keywords);
+  const coveragePlan = await prioritizeUncoveredQueries(input.country, discoveryQueries(input.country, countryName, terms));
+  const queries = coveragePlan.queries;
   const results = new Map<string, DiscoveredBusiness>();
+  let freshSearchScopes = 0;
+  const taskScopeUsage=await createAdminClient().from("ai_acquisition_discovery_checkpoints").select("query_text",{count:"exact",head:true}).eq("task_id",input.acquisitionTaskId).eq("country",input.country).in("status",["RUNNING","PAUSED","COMPLETED","BUDGET_LIMITED"]);
+  if(taskScopeUsage.error)throw taskScopeUsage.error;
+  const remainingScopeAllowance=Math.max(0,ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY-Number(taskScopeUsage.count||0));
+  const stepScopeLimit=Math.min(DISCOVERY_STEP_FRESH_SCOPE_BATCH,remainingScopeAllowance);
+  if(!queries.length&&coveragePlan.recentlyCovered){
+    const admin=createAdminClient();
+    const summaryQuery=`[覆盖账本] ${countryName}`;
+    const summary=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:summaryQuery,next_page:1,next_page_token:null,status:"SKIPPED_RECENT",stop_reason:`ALL_SCOPES_COVERED:${coveragePlan.recentlyCovered}`,result_count:0,results:[],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+    if(summary.error)throw summary.error;
+  }
   // A Text Search request costs the same for any supported page size. Always
   // request the provider maximum so broad country searches do not discard up
   // to 75% of the available candidates while consuming the same API call.
   const perTermLimit = 20;
-  for (const term of terms) {
-    const query = `${term} in ${countryName}`;
+  for (const query of queries) {
+    if (freshSearchScopes >= stepScopeLimit) break;
+    const term = query.split(" in ")[0] || query;
     const admin = createAdminClient();
     const existing = await admin.from("ai_acquisition_discovery_checkpoints").select("next_page,next_page_token,status,results").eq("task_id",input.acquisitionTaskId).eq("country",input.country).eq("query_text",query).maybeSingle();
     if(existing.error) throw existing.error;
@@ -67,21 +114,13 @@ export async function discoverBusinesses(input: {
       if(claimed.error)throw claimed.error;
       const claimState=String(claimed.data||"");
       if(claimState==="RECENTLY_COMPLETED"||claimState==="ACTIVE_ELSEWHERE") {
-        const reusable = await reusableScopeResults(scopeKey, input.country, query);
-        reusable.forEach((business) => {
-          const previous = results.get(business.placeId);
-          results.set(business.placeId, previous
-            ? { ...previous, matchedTerms: [...new Set([...(previous.matchedTerms || []), ...(business.matchedTerms || [])])] }
-            : business);
-        });
-        const status=reusable.length
-          ? (claimState==="RECENTLY_COMPLETED"?"REUSED_RECENT":"REUSED_ACTIVE")
-          : (claimState==="RECENTLY_COMPLETED"?"SKIPPED_RECENT":"SKIPPED_ACTIVE");
-        const skipped=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:1,next_page_token:null,status,stop_reason:reusable.length?"CACHED_SCOPE":claimState,result_count:reusable.length,results:reusable,updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
+        const status=claimState==="ACTIVE_ELSEWHERE"?"SKIPPED_ACTIVE":"SKIPPED_RECENT";
+        const skipped=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:1,next_page_token:null,status,stop_reason:claimState==="ACTIVE_ELSEWHERE"?"ACTIVE_ELSEWHERE":"ALREADY_COVERED",result_count:0,results:[],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
         if(skipped.error)throw skipped.error;
         continue;
       }
       if(claimState!=="CLAIMED")throw new Error(`ACQUISITION_SEARCH_SCOPE_${claimState||"UNKNOWN"}`);
+      freshSearchScopes += 1;
     }
     let pageToken = String(existing.data?.next_page_token||"");
     const firstPage = Math.max(1,Number(existing.data?.next_page||1));
@@ -116,13 +155,13 @@ export async function discoverBusinesses(input: {
         if(running.error)throw running.error;
         const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.businessStatus,places.types,places.googleMapsUri,nextPageToken" },
+          headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.businessStatus,places.types,places.googleMapsUri,nextPageToken" },
           body: JSON.stringify({ textQuery: query, pageSize: perTermLimit, languageCode: "en", regionCode: input.country, ...(pageToken ? { pageToken } : {}) }),
           signal: AbortSignal.timeout(15_000),
         });
         const requestId = response.headers.get("x-request-id") || response.headers.get("x-goog-request-id") || randomUUID();
         const ok = response.ok;
-        const payload = await response.json() as { places?: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; businessStatus?: string; types?: string[]; googleMapsUri?: string }>; nextPageToken?: string; error?: { message?: string } };
+        const payload = await response.json() as { places?: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; addressComponents?: Array<{shortText?:string;types?:string[]}>; businessStatus?: string; types?: string[]; googleMapsUri?: string }>; nextPageToken?: string; error?: { message?: string } };
         await createAdminClient().from("api_cost_ledger").insert({
           user_id: input.userId, task_id: input.acquisitionTaskId, provider: "GOOGLE_PLACES", service: "AI获客", operation: "目标商家搜索",
           model_or_sku: "PLACES_TEXT_SEARCH_PRO", request_id: requestId, quantity: 1, unit: "REQUEST",
@@ -136,8 +175,9 @@ export async function discoverBusinesses(input: {
           const placeId = String(place.id || "").trim();
           const companyName = String(place.displayName?.text || "").trim();
           const address = String(place.formattedAddress || "").trim();
+          const returnedCountry=place.addressComponents?.find((component)=>component.types?.includes("country"))?.shortText?.toUpperCase();
           const searchable = `${companyName} ${address} ${(place.types || []).join(" ")}`.toLowerCase();
-          if (!placeId || !companyName || excluded.some((word) => searchable.includes(word))) continue;
+          if (!placeId || !companyName || returnedCountry!==input.country || excluded.some((word) => searchable.includes(word))) continue;
           const previous=results.get(placeId);
           if (previous) {
             const business={...previous,matchedTerms:[...new Set([...(previous.matchedTerms||[]),term])]};
@@ -162,7 +202,8 @@ export async function discoverBusinesses(input: {
       }
     }
   }
-  return { businesses:[...results.values()].slice(0, input.limit), control:null };
+  const shouldContinue=stepScopeLimit>0&&freshSearchScopes>=stepScopeLimit&&remainingScopeAllowance>freshSearchScopes&&results.size<input.limit;
+  return { businesses:[...results.values()].slice(0, input.limit), control:shouldContinue?"CONTINUE" as const:null };
 }
 
 export function discoveryCandidateLooksRelevant(candidate: DiscoveredBusiness, industries: string[], keywords: string[]) {
