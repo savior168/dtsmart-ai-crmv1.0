@@ -91,7 +91,7 @@ function CountryPicker({
         <ChevronDown size={15} />
       </button>
       {open ? (
-        <div className="absolute z-40 mt-1 w-[min(32rem,calc(100vw-3rem))] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        <div className="absolute z-40 mt-1 w-[min(30rem,calc(100vw-2rem))] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
           <label className="relative block">
             <Search
               size={15}
@@ -173,16 +173,16 @@ function CountryPicker({
           <div
             role="listbox"
             aria-multiselectable="true"
-            className="mt-1 max-h-56 overflow-auto"
+            className="mt-1 max-h-52 overflow-auto"
           >
             {visibleCountryGroups.map((group) => (
-              <div key={group.key} className="mb-1 last:mb-0">
+              <div key={group.key} className="mb-0.5 last:mb-0">
                 {normalizedQuery ? (
                   <div className="sticky top-0 z-10 bg-white px-3 py-1 text-xs font-medium text-slate-500">
                     {group.label} · {group.countries.length}
                   </div>
                 ) : null}
-                <div className="grid grid-cols-1 gap-x-1 sm:grid-cols-2">
+                <div className="grid grid-cols-3 gap-x-1 gap-y-0.5">
                   {group.countries.map((code) => {
                     const checked = value.includes(code);
                     return (
@@ -199,7 +199,7 @@ function CountryPicker({
                               : [...value, code],
                           )
                         }
-                        className={`flex min-h-8 items-center justify-between rounded-md px-2.5 py-1 text-left text-sm disabled:opacity-40 ${
+                        className={`flex min-h-7 min-w-0 items-center justify-between gap-1 rounded-md px-2 py-0.5 text-left text-[13px] leading-5 disabled:opacity-40 ${
                           checked
                             ? "bg-blue-50 text-blue-700"
                             : "hover:bg-slate-50"

@@ -115,7 +115,7 @@ assert.match(create,/acquisitionIndustrySuggestions\(normalized, 12\)[\s\S]*相�
 assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 20[\s\S]*MAX_ACQUISITION_KEYWORDS = 30[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 80/,"行业与关键词容量必须使用明确的任务规划上限，不能沿用任意8项硬限制");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_GROUPS[\s\S]*EUROPE[\s\S]*ASIA[\s\S]*AFRICA[\s\S]*NORTH_AMERICA[\s\S]*SOUTH_AMERICA[\s\S]*OCEANIA/,"获客国家必须按六大业务洲别准确分组");
 assert.match(create,/groupKey[\s\S]*visibleCountryGroups[\s\S]*按洲选择[\s\S]*最多选择8个[\s\S]*grid-cols-3[\s\S]*跨洲搜索结果/,"国家选择器必须提供始终可见的紧凑洲别切换、分组跨洲搜索和选择上限提示");
-assert.match(create,/grid-cols-1 gap-x-1 sm:grid-cols-2[\s\S]*min-h-8[\s\S]*py-1[\s\S]*COUNTRY_NAMES\.of\(code\)/,"国家多选列表必须使用紧凑双列布局");
+assert.match(create,/grid-cols-3 gap-x-1 gap-y-0\.5[\s\S]*min-h-7[\s\S]*py-0\.5[\s\S]*COUNTRY_NAMES\.of\(code\)/,"国家多选列表必须使用紧凑三列布局");
 assert.doesNotMatch(create,/COUNTRY_NAMES\.of\(code\)\} <small>\{code\}<\/small>/,"国家代码只作为内部筛选值，不应在国家选择列表中重复展示");
 assert.match(create,/normalizedQuery[\s\S]*ACQUISITION_COUNTRY_GROUPS[\s\S]*sticky top-0[\s\S]*group\.countries\.map/,"跨洲搜索结果必须继续按洲分段展示，不得退化为国家长列表");
 assert.match(acquisitionConfig,/for \(let round = 0;[\s\S]*for \(const group of groups\)/,"本地化检索计划必须按行业轮询，确保后续行业不会被前序关键词组合挤掉");
