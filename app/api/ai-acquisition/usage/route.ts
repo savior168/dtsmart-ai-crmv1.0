@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
+import { summarizeUsagePurposes } from "@/lib/api-usage-purpose";
 
-type CostRow = { task_id: string | null; provider: string; model_or_sku: string | null; operation: string; amount_type: string; amount_usd: number; quantity: number; occurred_at: string };
+type CostRow = { task_id: string | null; provider: string; model_or_sku: string | null; operation: string; amount_type: string; amount_usd: number; quantity: number; input_tokens:number; cached_input_tokens:number; output_tokens:number; metadata:Record<string,unknown>|null; occurred_at: string };
 type CandidateRow = { id:string; task_id:string; decision:string; imported_customer_id:string|null; created_at:string; processed_at:string|null };
 
 function shanghaiDay(value:string) {
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     const costIds = [...parentByCostTask.keys()];
     const costs: CostRow[] = [];
     for (let offset = 0; offset < costIds.length; offset += 150) {
-      let costQuery = admin.from("api_cost_ledger").select("task_id,provider,model_or_sku,operation,amount_type,amount_usd,quantity,occurred_at").in("task_id", costIds.slice(offset, offset + 150));
+      let costQuery = admin.from("api_cost_ledger").select("task_id,provider,model_or_sku,operation,amount_type,amount_usd,quantity,input_tokens,cached_input_tokens,output_tokens,metadata,occurred_at").in("task_id", costIds.slice(offset, offset + 150));
       if (!allTime) costQuery = costQuery.gte("occurred_at", `${from}T00:00:00.000+08:00`).lte("occurred_at", `${to}T23:59:59.999+08:00`);
       const result = await costQuery;
       if (result.error) throw result.error;
@@ -70,10 +71,10 @@ export async function GET(request: NextRequest) {
     const rows = tasks.map((task) => {
       const taskCosts = costs.filter((cost) => cost.task_id && parentByCostTask.get(cost.task_id) === task.id);
       const quantity = (rows: CostRow[]) => rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
-      return { ...task, calls: quantity(taskCosts), free_calls: quantity(taskCosts.filter((cost) => cost.amount_type === "FREE")), google_calls: quantity(taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES")), openai_calls: quantity(taskCosts.filter((cost) => cost.provider === "OPENAI")), total_cost_usd: actualCostUsd(taskCosts) };
+      return { ...task, calls: quantity(taskCosts), free_calls: quantity(taskCosts.filter((cost) => cost.amount_type === "FREE")), google_calls: quantity(taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES")), openai_calls: quantity(taskCosts.filter((cost) => cost.provider === "OPENAI")), google_catalog_cost_usd: taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES").reduce((sum,cost)=>sum+Number(cost.amount_usd||0),0), total_cost_usd: actualCostUsd(taskCosts) };
     }).filter((task) => allTime || task.calls > 0 || candidateTaskIdsInRange.has(task.id) || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
     const quantity = (items: CostRow[]) => items.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
-    const summary = { tasks: rows.length, discovered: discoveredCandidates.length, processed: processedCandidates.length, accepted:acceptedCandidates.length, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES" && isActuallyIncurredCost(row)).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), total_cost_usd: actualCostUsd(costs) };
+    const summary = { tasks: rows.length, discovered: discoveredCandidates.length, processed: processedCandidates.length, accepted:acceptedCandidates.length, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES" && isActuallyIncurredCost(row)).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_catalog_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES").reduce((sum,row)=>sum+Number(row.amount_usd||0),0), total_cost_usd: actualCostUsd(costs), purpose_breakdown:summarizeUsagePurposes(costs) };
     const dailyByDate=new Map<string,{date:string;discovered:number;processed:number;accepted:number;calls:number;cost:number}>();
     const dailyRow=(date:string)=>{const current=dailyByDate.get(date)||{date,discovered:0,processed:0,accepted:0,calls:0,cost:0};dailyByDate.set(date,current);return current};
     if(!allTime){

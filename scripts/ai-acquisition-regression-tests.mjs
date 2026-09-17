@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate.ts";
+import { summarizeUsagePurposes } from "../lib/api-usage-purpose.ts";
 
 const base={automationStatus:"AUTO_DEVELOP",targetDecision:"VALID",score:82,identityStatus:"MATCHED",evidenceUrls:[{source_url:"https://example.com/services",evidence_strength:"STRONG"}],contacts:[{type:"EMAIL",value_normalized:"sales@example.com",verification_status:"NEW_VERIFIED",exact_source_url:"https://example.com/contact"}]};
 assert.equal(evaluateAcquisitionGate(base).accepted,true,"完整强证据和可追溯联系方式应允许入池");
@@ -9,6 +10,14 @@ assert.equal(evaluateAcquisitionGate({...base,identityStatus:"CONFLICTED"}).acce
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).accepted,false,"主体未确认不得自动入池");
 assert.equal(evaluateAcquisitionGate({...base,evidenceUrls:[{source_url:"https://example.com",evidence_strength:"WEAK_HINT"}]}).accepted,false,"弱提示不能替代经营证据");
 assert.equal(evaluateAcquisitionGate({...base,contacts:[{type:"PHONE",verification_status:"SOURCE_CONFIRMED",exact_source_url:null}]}).accepted,false,"联系方式无具体来源页面不得入池");
+const purposeSummary=summarizeUsagePurposes([
+  {provider:"GOOGLE_PLACES",operation:"目标商家搜索",quantity:2,amount_usd:0.064},
+  {provider:"GOOGLE_PLACES",operation:"商家详情与联系方式",quantity:1,amount_usd:0.02},
+  {provider:"OPENAI",operation:"客户分析",quantity:1,input_tokens:900,output_tokens:100,amount_usd:0.002,metadata:{channel:"all_available_sources"}},
+]);
+assert.deepEqual(purposeSummary.find(row=>row.purpose==="目标商家发现"),{provider:"GOOGLE_PLACES",purpose:"目标商家发现",calls:2,tokens:0,cost_usd:0.064},"Google目标商家搜索必须单独归类");
+assert.deepEqual(purposeSummary.find(row=>row.purpose==="商家详情与联系方式"),{provider:"GOOGLE_PLACES",purpose:"商家详情与联系方式",calls:1,tokens:0,cost_usd:0.02},"Google联系方式详情必须单独归类");
+assert.deepEqual(purposeSummary.find(row=>row.provider==="OPENAI"),{provider:"OPENAI",purpose:"多来源证据综合与目标判断",calls:1,tokens:1000,cost_usd:0.002},"OpenAI综合分析必须按真实调用统计且不得重复计算Token");
 
 const migration=fs.readFileSync(new URL("../supabase/migrations/202609150004_ai_acquisition_core.sql",import.meta.url),"utf8");
 const multiIndustryMigration=fs.readFileSync(new URL("../supabase/migrations/202609150005_ai_acquisition_multi_industry.sql",import.meta.url),"utf8");
@@ -253,7 +262,11 @@ assert.match(costView,/canViewAiUsage[\s\S]*href="\/ai-usage"[\s\S]*AI用量与�
 assert.match(usageView,/quickCostDateRange\("TODAY"\)[\s\S]*CostDateRangePreset>\("TODAY"\)/,"AI获客用量页首次进入必须默认今日");
 assert.match(usageView,/aria-label="获客模式"[\s\S]*全部获客模式/,"AI获客用量筛选必须与任务中心统一使用获客模式");
 assert.match(usageView,/xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\][\s\S]*统计日期[\s\S]*businessTypeControl[\s\S]*获客模式[\s\S]*任务状态[\s\S]*数据范围[\s\S]*查询[\s\S]*重置/,"AI获客与AI筛选必须共用稳定的筛选栏布局，并仅替换业务专属筛选项");
-assert.match(usageView,/获客范围成效与实际成本[\s\S]*发现候选[\s\S]*完成核验[\s\S]*成功入池[\s\S]*核验入池率[\s\S]*每位入池客户成本/,"AI获客用量必须优先展示真实获客漏斗和实际获客成本");
+assert.match(usageView,/获客范围成效与实际成本[\s\S]*相关任务[\s\S]*候选核验进度[\s\S]*成功入池[\s\S]*核验入池率[\s\S]*API调用[\s\S]*实际费用[\s\S]*每位入池客户成本/,"AI获客用量必须合并重复过程指标，并优先展示真实获客漏斗、API用量和实际获客成本");
+assert.match(usageView,/Google价目估算[\s\S]*不计入[\s\S]*google_catalog_cost_usd/,"AI获客必须展示Google价目估算，并明确与实际费用分开");
+assert.match(usageRoute,/google_catalog_cost_usd:[\s\S]*provider === "GOOGLE_PLACES"[\s\S]*amount_usd/,"AI获客接口必须返回所选范围Google价目估算");
+assert.match(usageRoute,/purpose_breakdown:summarizeUsagePurposes\(costs\)/,"AI获客接口必须按真实台账返回第三方调用用途构成");
+assert.match(usageView,/AiUsagePurposeBreakdown[\s\S]*purpose_breakdown[\s\S]*价目参考/,"AI获客用量页必须解释Google和OpenAI调用消耗在哪些工作上");
 assert.match(usageView,/每日成功入池与实际费用趋势[\s\S]*核验结果与API调用构成[\s\S]*任务用量明细/,"AI获客用量必须保持与AI筛选相同的汇总、趋势、构成和明细页面骨架");
 assert.match(usageRoute,/ai_acquisition_candidates[\s\S]*created_at,processed_at[\s\S]*createdInRange[\s\S]*processedInRange[\s\S]*decision==="ACCEPTED"[\s\S]*imported_customer_id/,"AI获客范围指标必须按候选真实发现、处理和成功入池记录统计");
 assert.match(usageRoute,/total_cost_usd: actualCostUsd\(costs\)[\s\S]*dailyByDate[\s\S]*isActuallyIncurredCost\(cost\)[\s\S]*daily/,"AI获客汇总和每日趋势必须仅使用真实已发生费用台账");

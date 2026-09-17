@@ -139,6 +139,7 @@ assert.match(aiUsageApi, /taskMatchesStatus[\s\S]*filteredCalls[\s\S]*filteredCo
 assert.match(aiUsageView, /筛选范围成本汇总[\s\S]*所有数据统一受上方日期、模型、任务状态和数据范围影响/, "用量页重复汇总必须合并且统一受筛选条件控制");
 assert.match(aiUsageView, /quickCostDateRange\("TODAY"\)[\s\S]*CostDateRangePreset>\("TODAY"\)[\s\S]*selectDatePreset\("TODAY"\)/, "AI筛选用量页首次进入与重置后必须默认今日");
 assert.match(aiUsageView, /aria-expanded=\{googleExpanded\}[\s\S]*筛选范围Google Places SKU明细[\s\S]*按月份核对筛选范围内的Google调用/, "Google价目估算卡必须原位展开筛选范围SKU、当前月额度和分月明细");
+assert.match(aiUsageView, /AiUsagePurposeBreakdown[\s\S]*purpose_breakdown/, "AI筛选用量页必须展示第三方调用与Token的工作用途构成");
 assert.match(aiUsageView, /历史未细分[\s\S]*value\.count>0/, "历史未细分为零时不得占据页面空间");
 assert.match(aiUsageNullScopeMigration, /p_user_id is null or c\.user_id = p_user_id[\s\S]*p_user_id is null or u\.user_id = p_user_id/, "全系统历史完成次数与OpenAI台账汇总不得把空归属人错误解释为user_id等于NULL");
 assert.match(aiUsageView, /筛选范围Google Places SKU明细[\s\S]*xl:grid-cols-5/, "宽屏下五个Google SKU卡片必须保持同一行");

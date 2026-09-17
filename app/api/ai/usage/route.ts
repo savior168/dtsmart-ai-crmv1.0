@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { summarizeUsagePurposes } from "@/lib/api-usage-purpose";
 
 type UsageCall = {
   source_call_id: string; task_id: string; task_name: string; task_number: string | null;
@@ -25,7 +26,7 @@ type TaskUsage = {
   google_places_skus: Record<string, { count: number; cost_usd: number }>;
 };
 
-type ThirdPartyCall = { task_id: string | null; customer_id: string | null; provider: string; model_or_sku: string | null; quantity: number; amount_usd: number; occurred_at: string };
+type ThirdPartyCall = { task_id: string | null; customer_id: string | null; provider: string; operation:string|null; model_or_sku: string | null; quantity: number; input_tokens:number; cached_input_tokens:number; output_tokens:number; amount_usd: number; metadata:Record<string,unknown>|null; occurred_at: string };
 const businessDate = (value: string) => new Date(new Date(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 export async function GET(request: NextRequest) {
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
     const thirdPartyCalls: ThirdPartyCall[] = [];
     for (let offset = 0; ; offset += 1000) {
       let query = admin.from("api_cost_ledger")
-        .select("task_id,customer_id,provider,model_or_sku,quantity,amount_usd,occurred_at")
+        .select("task_id,customer_id,provider,operation,model_or_sku,quantity,input_tokens,cached_input_tokens,output_tokens,amount_usd,metadata,occurred_at")
         .eq("service", "AI筛选").gte("occurred_at", start).lte("occurred_at", end);
       if (scopeUserId) query = query.eq("user_id", scopeUserId);
       if (taskId) query = query.eq("task_id", taskId);
@@ -240,10 +241,18 @@ export async function GET(request: NextRequest) {
       current.google_places_cost+=Number(call.amount_usd||0); current.cost+=Number(call.amount_usd||0); dailyMap.set(date,current);
     }
     const daily = [...dailyMap.values()].sort((left, right) => left.date.localeCompare(right.date));
+    const openAiPurposeRows = filteredCalls.map((call) => ({
+      provider: "OPENAI", operation: "客户分析", quantity: 1,
+      input_tokens: call.input_tokens, cached_input_tokens: call.cached_input_tokens,
+      output_tokens: call.output_tokens, amount_usd: call.cost_usd,
+      metadata: { channel: call.channel },
+    }));
+    const googlePurposeRows = scopedThirdPartyCalls.filter((call) => call.provider === "GOOGLE_PLACES");
     const count = allTaskRows.length;
     const tasks = returnAll ? allTaskRows : allTaskRows.slice((page - 1) * pageSize, page * pageSize);
     return NextResponse.json({
       tasks, count, page, pageSize, models, selected, google_monthly: googleMonthly, daily,
+      purpose_breakdown: summarizeUsagePurposes([...openAiPurposeRows, ...googlePurposeRows]),
       show_owner: hasPermission(account, "ai.usage.view_all"),
       show_google_account_quota: canViewAccountQuota,
     });
