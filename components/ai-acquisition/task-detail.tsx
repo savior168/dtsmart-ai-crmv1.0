@@ -7,6 +7,7 @@ import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
+import { CustomerSocialSummary } from "@/components/customer-social-summary";
 import { SearchableMultiSelectFilter } from "@/components/ui/searchable-multi-select-filter";
 import {
   ConfirmDialog,
@@ -97,18 +98,6 @@ const GOOGLE_BILLING_KEY_BY_SKU:Record<string,string>={
 function CompactTags({values,limit=8}:{values:string[];limit?:number}) {
   const visible=values.slice(0,limit),remaining=values.slice(limit);
   return <div className="flex flex-wrap items-center gap-1.5">{visible.map((value,index)=><span key={`${value}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}{remaining.length?<details className="group/tags"><summary title="点击展开其余匹配关键词" className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:border-blue-300 hover:bg-blue-100">展开其余 {remaining.length} 项<ChevronDown size={12} className="transition group-open/tags:rotate-180"/></summary><div className="mt-2 flex max-h-32 min-w-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border bg-white p-2 shadow-sm">{remaining.map((value,index)=><span key={`${value}-${index}`} className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}</div></details>:null}</div>;
-}
-function SocialChannels({candidate}:{candidate:Candidate}) {
-  const profile=candidate.customer_profile;
-  const links=[
-    ["Facebook",profile?.facebook_url,"bg-blue-50 text-blue-700"],
-    ["Instagram",profile?.instagram_url,"bg-pink-50 text-pink-700"],
-    ["LinkedIn",profile?.linkedin_url,"bg-sky-50 text-sky-700"],
-    ["TikTok",profile?.tiktok_url,"bg-slate-100 text-slate-700"],
-    ...(profile?.other_public_urls||[]).map((url)=>["公开渠道",url,"bg-slate-50 text-slate-600"]),
-  ].filter((item)=>Boolean(String(item[1]||"").trim()));
-  if(!links.length)return null;
-  return <div className="flex max-w-44 flex-wrap gap-1">{links.map(([label,raw,tone],index)=>{const value=String(raw);const href=/^https?:\/\//i.test(value)?value:`https://${value}`;return <a key={`${label}-${index}`} href={href} target="_blank" rel="noreferrer" title={`打开${label}来源`} className={`rounded-md px-2 py-1 text-xs hover:underline ${tone}`}>{label}</a>})}</div>;
 }
 export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: string; initialDecision?:string }) {
   const [task, setTask] = useState<AcquisitionTask | null>(null),
@@ -337,6 +326,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             <Link href="/ai-acquisition" className={button}>
               返回任务中心
             </Link>
+            <Link href={`/ai-acquisition/customers?scope=accepted&task_id=${task.id}`} className={button}>查看本任务入池客户</Link>
             {task.status === "COMPLETED" ? <Link href={`/ai-acquisition/tasks/${task.id}/report`} className={primaryButton}>查看任务报告</Link> : null}
             {canControl && task.status === "RUNNING" ? (
               <button className={button} onClick={() => setAction("PAUSE")}>
@@ -469,7 +459,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
                   </td>
-                  <td className="px-4 py-4"><div className="space-y-2">{r.customer_profile?.website||r.source_website?<div><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website"/>{!r.customer_profile?.website&&r.source_website?<small className="mt-0.5 block text-[10px] text-slate-400">Google 商家提供</small>:null}</div>:null}{r.customer_profile?.google_url||r.google_url?<CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/>:null}<SocialChannels candidate={r}/>{!r.customer_profile?.website&&!r.source_website&&!r.customer_profile?.google_url&&!r.google_url&&!r.customer_profile?.facebook_url&&!r.customer_profile?.instagram_url&&!r.customer_profile?.linkedin_url&&!r.customer_profile?.tiktok_url&&!r.customer_profile?.other_public_urls?.length?<span className="text-slate-400">—</span>:null}</div></td>
+                  <td className="px-4 py-4"><div className="flex flex-wrap items-center gap-1.5">{r.customer_profile?.website||r.source_website?<span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span>:null}{r.customer_profile?.google_url||r.google_url?<CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map" iconOnly/>:null}{r.customer_profile?.facebook_url||r.customer_profile?.instagram_url||r.customer_profile?.linkedin_url||r.customer_profile?.tiktok_url||r.customer_profile?.other_public_urls?.length?<CustomerSocialSummary customer={r.customer_profile}/>:null}{!r.customer_profile?.website&&!r.source_website&&!r.customer_profile?.google_url&&!r.google_url&&!r.customer_profile?.facebook_url&&!r.customer_profile?.instagram_url&&!r.customer_profile?.linkedin_url&&!r.customer_profile?.tiktok_url&&!r.customer_profile?.other_public_urls?.length?<span className="text-slate-400">—</span>:null}</div></td>
                   <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-slate-600">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>

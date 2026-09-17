@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = params.get("level") || "";
+    const taskId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.get("task_id") || "") ? String(params.get("task_id")) : "";
     const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
     const to = /^\d{4}-\d{2}-\d{2}$/.test(params.get("to") || "") ? String(params.get("to")) : "";
     const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
         .from("ai_acquisition_candidates")
         .select("*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id)", { count: "exact" });
       if (ownerId) query = query.eq("task.user_id", ownerId);
+      if (taskId) query = query.eq("task_id", taskId);
       return query;
     };
 
@@ -99,6 +101,7 @@ export async function GET(request: NextRequest) {
         .from("ai_acquisition_candidates")
         .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id)");
       if (ownerId) optionQuery = optionQuery.eq("task.user_id", ownerId);
+      if (taskId) optionQuery = optionQuery.eq("task_id", taskId);
       if (scope === "review") optionQuery = optionQuery.eq("decision", "REVIEW");
       else optionQuery = optionQuery.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
       if (scope === "today") optionQuery = optionQuery.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
@@ -135,6 +138,14 @@ export async function GET(request: NextRequest) {
       .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
 
     const canControlTasks = hasPermission(account, "ai.acquisition.control");
+    let filterTask:null|{id:string;task_number:string;name:string}=null;
+    if(taskId){
+      let filterTaskQuery=admin.from("ai_acquisition_tasks").select("id,task_number,name,user_id").eq("id",taskId);
+      if(ownerId)filterTaskQuery=filterTaskQuery.eq("user_id",ownerId);
+      const filterTaskResult=await filterTaskQuery.maybeSingle();
+      if(filterTaskResult.error)throw filterTaskResult.error;
+      if(filterTaskResult.data)filterTask={id:String(filterTaskResult.data.id),task_number:String(filterTaskResult.data.task_number),name:String(filterTaskResult.data.name)};
+    }
     return NextResponse.json({
       data: rows.map((row) => {
         const customerId=String(row.imported_customer_id || row.staging_customer_id || "");
@@ -146,6 +157,7 @@ export async function GET(request: NextRequest) {
       count: result.count || 0,
       summary: { today: todayResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
       filter_options: { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) },
+      filter_task: filterTask,
       show_owner: hasPermission(account, "ai.acquisition.data_all"),
     });
   } catch (error) {

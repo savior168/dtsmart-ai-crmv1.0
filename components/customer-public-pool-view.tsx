@@ -17,7 +17,6 @@ import {
   Copy,
   Download,
   FileSpreadsheet,
-  Globe2,
   LoaderCircle,
   Mail,
   Paperclip,
@@ -247,14 +246,6 @@ function fieldLabel(field: CustomerListColumn, tab: Tab) {
   return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
 }
 
-function PlatformIcon({ kind }: { kind: "facebook" | "instagram" | "linkedin" | "tiktok" | "other" }) {
-  if (kind === "facebook") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 20v-7h2.35l.35-2.72H13.5V8.55c0-.79.22-1.33 1.36-1.33h1.45V4.79c-.25-.03-1.1-.11-2.08-.11-2.06 0-3.47 1.26-3.47 3.57v2.03H8.43V13h2.33v7h2.74Z"/></svg>;
-  if (kind === "instagram") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><rect width="24" height="24" rx="6" fill="#E4405F"/><rect x="6" y="6" width="12" height="12" rx="3.5" fill="none" stroke="#fff" strokeWidth="1.8"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="#fff" strokeWidth="1.8"/><circle cx="16.8" cy="7.4" r="1" fill="#fff"/></svg>;
-  if (kind === "linkedin") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><rect width="24" height="24" rx="4" fill="#0A66C2"/><path fill="#fff" d="M6.3 9.1h2.6V18H6.3V9.1Zm1.3-4.2a1.52 1.52 0 1 1 0 3.04 1.52 1.52 0 0 1 0-3.04ZM10.5 9.1H13v1.21h.04c.35-.66 1.2-1.36 2.47-1.36 2.64 0 3.13 1.74 3.13 4V18h-2.6v-4.48c0-1.07-.02-2.44-1.49-2.44-1.49 0-1.72 1.16-1.72 2.36V18h-2.6V9.1Z"/></svg>;
-  if (kind === "tiktok") return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4"><rect width="24" height="24" rx="5" fill="#111827"/><path fill="#fff" d="M14.5 5c.35 1.87 1.47 3.05 3.2 3.31v2.3a6.45 6.45 0 0 1-3.19-1.06v4.87a4.4 4.4 0 1 1-3.78-4.35v2.36a2.1 2.1 0 1 0 1.47 2V5h2.3Z"/></svg>;
-  return <Globe2 size={14} strokeWidth={2.2}/>;
-}
-
 function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai" }) {
   const [copied, setCopied] = useState("");
   type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
@@ -301,15 +292,6 @@ function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai"
   })}</div>;
 }
 
-function SocialLinks({ row }: { row: PoolRow }) {
-  const links = [
-    ["facebook", "Facebook", row.facebook_url], ["instagram", "Instagram", row.instagram_url], ["linkedin", "LinkedIn", row.linkedin_url], ["tiktok", "TikTok", row.tiktok_url],
-    ...(row.other_public_urls || []).map((url) => ["other", "公开链接", url] as const),
-  ] as Array<["facebook" | "instagram" | "linkedin" | "tiktok" | "other", string, string | null | undefined]>;
-  const visible = links.filter(([, , url]) => Boolean(String(url || "").trim()));
-  if (!visible.length) return <span className="text-slate-400">—</span>;
-  return <div className="flex flex-wrap gap-1.5">{visible.map(([kind, label, raw], index) => { const text = String(raw).trim(); const url = /^https?:\/\//i.test(text) ? text : `https://${text}`; return <a key={`${kind}:${text}:${index}`} href={url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} title={`打开${label}`} aria-label={`打开${label}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"><PlatformIcon kind={kind}/></a>; })}</div>;
-}
 function poolText(row: PoolRow, key: CustomerListColumn) {
   if (key === "company_name") return displayCustomerName(row.company_name);
   if (key === "contact_name") return row.contact_name || "—";

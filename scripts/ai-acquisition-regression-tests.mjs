@@ -225,7 +225,7 @@ assert.match(detail,/成功入池客户[\s\S]*\{formatNumber\(task\.accepted_cou
 assert.match(detail,/核验具体来源/);
 assert.match(detail,/发起WhatsApp对话/);
 assert.match(detail,/本次获取的客户[\s\S]*成功入池[\s\S]*待复核[\s\S]*未通过[\s\S]*重复/,"任务详情必须优先提供本次获客结果分类");
-assert.match(detail,/CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*SocialChannels/,"任务客户列表必须直接展示已核验联系方式、官网、地图和社媒渠道");
+assert.match(detail,/CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*iconOnly[\s\S]*CustomerSocialSummary/,"任务客户列表必须用统一平台图标展示已核验联系方式、官网、地图和社媒渠道");
 assert.match(detail,/r\.customer_profile\?\.website\|\|r\.source_website[\s\S]*Google 商家提供/,"Google商家绑定官网即使尚未写入主档也必须在公开来源中可访问并标明来源");
 assert.match(detail,/placeholder="搜索客户名称或地址"[\s\S]*全部AI等级[\s\S]*label="所属行业"[\s\S]*全部开发条件[\s\S]*label="国家\/地区"/,"客户筛选必须按搜索、AI等级、所属行业、开发条件和国家的重要性排序");
 assert.match(detail,/task\.industries\?\.length\|\|1\)>1[\s\S]*task\.countries\.length>1/,"单行业或单国家任务不得显示无意义的筛选项");
@@ -249,6 +249,7 @@ assert.match(reviewRoute,/task\.user_id!==account\.id && account\.role!=="ADMIN"
 assert.match(reviewRoute,/select\("id"\)\.maybeSingle\(\)[\s\S]*promotionConfirmed[\s\S]*客户公海写入未确认/,"人工复核只有确认客户已写入公海后才能保留入池结果");
 const shell=fs.readFileSync(new URL("../components/app-shell.tsx",import.meta.url),"utf8");
 assert.doesNotMatch(shell,/label: "获客用量与费用"/,"AI获客用量与费用不得作为独立二级菜单");
+assert.match(shell,/label: "AI获客"[\s\S]*label: "获客结果", href: "\/ai-acquisition\/customers"[\s\S]*label: "AI筛选"/,"跨任务获客结果必须提供稳定二级菜单入口且不与客户公海混淆");
 const taskCenter=fs.readFileSync(new URL("../components/ai-acquisition/task-center.tsx",import.meta.url),"utf8");
 const acquisitionPage=fs.readFileSync(new URL("../app/ai-acquisition/page.tsx",import.meta.url),"utf8");
 const acquisitionCreatePage=fs.readFileSync(new URL("../app/ai-acquisition/new/page.tsx",import.meta.url),"utf8");
@@ -325,10 +326,14 @@ const acquisitionTaskReport=fs.readFileSync(new URL("../components/ai-acquisitio
 const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
 assert.match(customerResults,/今日成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*处理复核/,"任务中心客户结果卡必须落到可处理的统一客户清单");
+assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*来源任务：[\s\S]*查看全部任务客户/,"获客结果页必须支持按来源任务精确筛选并清晰显示可撤销的筛选状态");
+assert.match(customerResults,/CustomerSocialSummary customer=\{row\}/,"获客结果、客户公海和我的客户必须共用官方社媒平台图标组件");
 assert.match(customerResultsPage,/initialDate=\{scope === "today" \? today : ""\}/,"从今日获客进入客户结果必须把北京时间今日同步到处理时间控件");
+assert.match(customerResultsPage,/initialTaskId=\{query\.task_id \|\| ""\}/,"任务详情跳转客户结果时必须保留精确任务筛选");
 assert.match(customerResults,/function changeScope[\s\S]*next==="today"\?today:""[\s\S]*setTo\(next==="today"\?today:""\)/,"切换今日结果时必须显示今日日期，切换历史或待复核时必须清空日期限制");
 assert.match(customerResults,/\/customers\/\$\{row\.imported_customer_id\}\?from=pool/,"AI获客跨任务客户详情必须进入客户公海上下文");
 assert.match(acquisitionTaskDetail,/\/customers\/\$\{r\.imported_customer_id\}\?from=pool/,"AI获客任务详情客户入口必须进入客户公海上下文");
+assert.match(acquisitionTaskDetail,/\/ai-acquisition\/customers\?scope=accepted&task_id=\$\{task\.id\}[\s\S]*查看本任务入池客户/,"任务详情必须提供直达当前任务全部入池客户的精确入口");
 assert.match(acquisitionTaskDetail,/quiet = false[\s\S]*p\.set\("lightweight", "1"\)[\s\S]*load\(true\), 15000/,"执行中任务详情必须使用低频轻量静默轮询，不能反复加载完整分析");
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
@@ -345,6 +350,7 @@ assert.doesNotMatch(customerResults,/国家代码，如 US/,"客户结果页不�
 assert.match(customerResults,/"客户名称","国家\/地区","AI评分","联系方式","官网","社媒渠道","匹配关键词","Google地址","证据状态","来源任务"[\s\S]*进入待复核时间[\s\S]*入池时间[\s\S]*sticky left-0[\s\S]*sticky right-0/,"客户结果必须按客户、地区、评分和联系入口展示，并固定客户名称与操作列");
 assert.doesNotMatch(customerResults,/"目标行业"|"联系与证据"|"处理时间","操作"/,"客户结果不得继续使用含义错误或混合字段");
 assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*processed_at[\s\S]*decision/,"跨任务客户清单必须保持归属权限、北京时间今日口径与结果状态口径一致");
+assert.match(customerResultsRoute,/params\.get\("task_id"\)[\s\S]*query\.eq\("task_id", taskId\)[\s\S]*filter_task/,"来源任务筛选必须在服务端真实生效且返回有权限查看的任务标识");
 assert.match(customerResultsRoute,/can_control:[\s\S]*task\?\.user_id[\s\S]*account\.role==="ADMIN"[\s\S]*show_owner/ ,"客户结果接口必须分别返回跨用户可见性与逐任务可操作权限");
 assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*\.in\("industry",industries\)[\s\S]*\.in\("category",industries\)[\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
 assert.match(customerResultsRoute,/optionCandidates[\s\S]*range\(offset, offset \+ 999\)[\s\S]*countryCounts[\s\S]*industryCounts[\s\S]*filter_options/,"行业和国家选项必须按当前结果范围全部数据去重计数，不能只取当前分页");
