@@ -61,14 +61,24 @@ export async function GET(request: NextRequest) {
     if (result.error) throw result.error;
     const rows = result.data || [];
     const customerIds = [...new Set(rows.map((row) => String(row.imported_customer_id || row.staging_customer_id || "")).filter(Boolean))];
-    const [profiles,sourceWebsites] = customerIds.length ? await Promise.all([
-      admin.from("customers").select("id,industry,category,website,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls").in("id", customerIds),
-      admin.from("customer_contacts").select("customer_id,value_raw,source_channel,verification_status,captured_at").in("customer_id",customerIds).eq("type","WEBSITE").not("exact_source_url","is",null).order("captured_at",{ascending:false}),
+    const [profiles,customerContacts] = customerIds.length ? await Promise.all([
+      admin.from("customers").select("id,source,country,industry,category,phone,whatsapp,email,website,website_phone,website_email,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls").in("id", customerIds),
+      admin.from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,captured_at").in("customer_id",customerIds).in("type",["PHONE","EMAIL","WHATSAPP","WEBSITE"]).order("captured_at",{ascending:false}),
     ]) : [{ data: [], error: null },{ data: [], error: null }];
-    if (profiles.error||sourceWebsites.error) throw profiles.error||sourceWebsites.error;
+    if (profiles.error||customerContacts.error) throw profiles.error||customerContacts.error;
     const profileById = new Map((profiles.data || []).map((profile) => [String(profile.id), profile]));
     const sourceWebsiteByCustomer=new Map<string,{value_raw:string;source_channel:string;verification_status:string}>();
-    for(const contact of sourceWebsites.data||[])if(!sourceWebsiteByCustomer.has(String(contact.customer_id))&&String(contact.value_raw||"").trim())sourceWebsiteByCustomer.set(String(contact.customer_id),contact as {value_raw:string;source_channel:string;verification_status:string});
+    const verifiedContactsByCustomer=new Map<string,Array<{type:string|null;value_raw:string|null;source_channel:string|null;exact_source_url:string|null;verification_status:string|null;captured_at:string|null}>>();
+    for(const contact of customerContacts.data||[]){
+      const customerId=String(contact.customer_id);
+      if(contact.type==="WEBSITE"){
+        if(!sourceWebsiteByCustomer.has(customerId)&&String(contact.value_raw||"").trim())sourceWebsiteByCustomer.set(customerId,contact as {value_raw:string;source_channel:string;verification_status:string});
+        continue;
+      }
+      const items=verifiedContactsByCustomer.get(customerId)||[];
+      items.push(contact);
+      verifiedContactsByCustomer.set(customerId,items);
+    }
 
     const summaryQueries = [
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`).limit(0),
@@ -131,7 +141,7 @@ export async function GET(request: NextRequest) {
         const profile=profileById.get(customerId);
         const sourceWebsite=sourceWebsiteByCustomer.get(customerId);
         const task = Array.isArray(row.task) ? row.task[0] : row.task;
-        return { ...row, task, display_industry:profile?.industry||profile?.category||"待确认行业", website:profile?.website||sourceWebsite?.value_raw||null, website_source:profile?.website?"customer_profile":sourceWebsite?.source_channel||null, facebook_url:profile?.facebook_url||null,instagram_url:profile?.instagram_url||null,linkedin_url:profile?.linkedin_url||null,tiktok_url:profile?.tiktok_url||null,other_public_urls:profile?.other_public_urls||[],can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
+        return { ...row, task, source:profile?.source||"AI_ACQUISITION", phone:profile?.phone||null, whatsapp:profile?.whatsapp||null, email:profile?.email||null, website_phone:profile?.website_phone||null, website_email:profile?.website_email||null, verified_contacts:verifiedContactsByCustomer.get(customerId)||[], display_industry:profile?.industry||profile?.category||"待确认行业", website:profile?.website||sourceWebsite?.value_raw||null, website_source:profile?.website?"customer_profile":sourceWebsite?.source_channel||null, facebook_url:profile?.facebook_url||null,instagram_url:profile?.instagram_url||null,linkedin_url:profile?.linkedin_url||null,tiktok_url:profile?.tiktok_url||null,other_public_urls:profile?.other_public_urls||[],can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
       }),
       count: result.count || 0,
       summary: { today: todayResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
