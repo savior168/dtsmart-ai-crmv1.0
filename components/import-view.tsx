@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FolderOpen,
   Info,
+  LockKeyhole,
   RefreshCw,
   UploadCloud,
   Search,
@@ -224,7 +225,7 @@ function Metric({
   return <div className={className}>{content}</div>;
 }
 
-export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE" | "PUBLIC_POOL" }) {
+export function ImportView({ destination = "PRIVATE", canCreate }: { destination?: "PRIVATE" | "PUBLIC_POOL"; canCreate: boolean }) {
   const initialSession = importSessionSnapshot.destination === destination ? importSessionSnapshot : { destination, files: [], rows: [], failed: [], stats: null, previewStats: { success_count: 0, conflict_count: 0 } };
   const [files, setFiles] = useState<File[]>(() => initialSession.files);
   const [rows, setRows] = useState<MappedRow[]>(() => initialSession.rows);
@@ -504,6 +505,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   }
 
   async function chooseFileList(list?: FileList | null) {
+    if (!canCreate) return;
     const incoming = await sanitizeSelectedFiles(Array.from(list || []));
     if (!incoming.length) {
       setError("未读取到有效文件，请选择内容完整的 .xlsx、.xls 或 .csv 文件");
@@ -528,6 +530,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   }
 
   async function confirmImport() {
+    if (!canCreate) return;
     if (!rows.length) return;
     setBusy(true);
     setError("");
@@ -642,6 +645,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
   }
 
   function downloadTemplate() {
+    if (!canCreate) return;
     const headers = [
       "名称",
       "国家",
@@ -731,6 +735,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             {destination === "PUBLIC_POOL" ? "仅系统管理员可执行；成功数据无归属人并进入待认领客户" : "成功数据默认归属当前用户；系统自动执行全库去重与归属校验"}
           </div>
         </div>
+        {!canCreate ? <div role="status" className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><LockKeyhole className="mt-0.5 shrink-0 text-amber-600" size={18}/><div><b>当前角色仅可查看导入页面</b><p className="mt-1 text-amber-800">“执行数据导入”尚未授权，因此上传、预览、模板下载和提交均不可用；请由系统管理员在角色默认权限或用户个性权限中开启该功能。</p></div></div> : null}
         <div className="mb-5 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
           <div className="flex items-center">
             <span
@@ -769,7 +774,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                 </span>
               </h2>
               <div className="flex gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+                <label className={`inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-700 ${canCreate ? "cursor-pointer hover:bg-blue-50" : "cursor-not-allowed opacity-45"}`}>
                   <Plus size={16} />
                   添加文件
                   <input
@@ -778,6 +783,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                     multiple
                     accept=".xlsx,.xls,.csv"
                     className="hidden"
+                    disabled={!canCreate}
                     onChange={(event) => {
                       const list = event.currentTarget.files;
                       void chooseFileList(list);
@@ -785,7 +791,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                     }}
                   />
                 </label>
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                <label className={`inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white ${canCreate ? "cursor-pointer hover:bg-blue-700" : "cursor-not-allowed opacity-45"}`}>
                   <FolderOpen size={16} />
                   添加文件夹
                   <input
@@ -794,6 +800,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
                     multiple
                     accept=".xlsx,.xls,.csv"
                     className="hidden"
+                    disabled={!canCreate}
                     {...directoryProps}
                     onChange={(event) => {
                       const list = event.currentTarget.files;
@@ -850,7 +857,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
               </p>
               <button
                 type="button"
-                disabled={!files.length || busy}
+                disabled={!canCreate || !files.length || busy}
                 onClick={clearFiles}
                 className="shrink-0 rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40"
               >
@@ -866,7 +873,8 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={downloadTemplate}
-                className="inline-flex items-center gap-2 rounded-lg border border-blue-300 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                disabled={!canCreate}
+                className="inline-flex items-center gap-2 rounded-lg border border-blue-300 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Download size={16} /> 下载导入模板
               </button>
@@ -961,7 +969,7 @@ export function ImportView({ destination = "PRIVATE" }: { destination?: "PRIVATE
               ) : null}
               {!stats ? (
                 <button
-                  disabled={busy || !rows.length}
+                  disabled={!canCreate || busy || !rows.length}
                   onClick={() => void confirmImport()}
                   className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >

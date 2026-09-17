@@ -262,10 +262,14 @@ assert.doesNotMatch(todayUsageLink,/useEffect|fetch\(|今日 \{formatNumber|fetc
 assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得使用额外的更多筛选弹层");
 assert.match(taskCenter,/今日获客[\s\S]*历史总获客[\s\S]*待人工复核[\s\S]*进行中[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果，待人工复核应排在进行中之前");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
+assert.match(acquisitionWorkflow,/decision:"DUPLICATE"[\s\S]*has_actionable_contact:false[\s\S]*evidence_complete:false/,"去重候选必须写入非空布尔状态，不能让数据库默认值或空值中断整批任务");
+assert.match(acquisitionWorkflow,/decision: "ANALYZING", is_target_customer:false, has_actionable_contact:false, evidence_complete:false/,"待核验候选必须显式写入布尔默认状态");
 assert.match(taskCenter,/customerScope=item\.key==="today_accepted"\?"today"[\s\S]*\/ai-acquisition\/customers\?scope=\$\{customerScope\}[\s\S]*setMetric\(item\.key\)/,"客户结果卡必须进入对应客户清单，任务状态卡必须筛选任务列表");
 assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S]*全免费获客[\s\S]*智能增强获客/,"任务中心必须统一使用获客模式，不能误称为成本模式");
 assert.doesNotMatch(taskCenter,/\{t\.error_message\}/,"任务中心不得直接暴露数据库或工作流原始错误");
 assert.match(taskCenter,/"去重后候选"[\s\S]*#customer-results[\s\S]*formatNumber\(t\.discovered_count\)[\s\S]*条/,"任务中心只展示去重后的候选客户数，并可进入本次客户列表");
+assert.match(taskCenter,/候选核验进度[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}#customer-results`\}/,"候选核验进度必须可直接进入本任务候选详情");
+assert.match(taskCenter,/href=\{`\/ai-acquisition\/customers\?scope=accepted&task_id=\$\{t\.id\}`\}[\s\S]*查看本任务所有成功入池客户/,"成功入池数量必须直接进入当前任务的入池客户结果");
 assert.doesNotMatch(taskCenter,/原始命中 \{formatNumber\(t\.search_raw_hits|已检索 \{formatNumber\(t\.search_completed_count/,"原始命中和检索组合数不得挤占任务列表");
 assert.match(taskCenter,/RowActionMenu[\s\S]*暂停任务[\s\S]*恢复任务[\s\S]*从检查点重试[\s\S]*取消任务/,"任务中心必须按状态提供暂停、恢复、重试和取消入口");
 assert.doesNotMatch(taskCenter,/setInterval\(/,"任务中心不得频繁自动刷新整张任务列表");
@@ -283,7 +287,7 @@ assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI�
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
 assert.match(taskCenter,/SearchableMultiSelectFilter label="国家\/地区"[\s\S]*filterOptions\.countries/,"任务中心国家筛选必须来自当前数据去重结果，并支持搜索和多选");
 assert.match(taskCenter,/获客成效与实际成本[\s\S]*查看成效与成本[\s\S]*costSummaryOpen\?<div[\s\S]*今日实际费用[\s\S]*历史累计实际费用[\s\S]*平均入池客户实际成本[\s\S]*历史核验入池率/,"任务中心成效摘要必须默认收起，并可展开查看今日、历史、获客成本和入池效率");
-assert.match(taskCenter,/AI获客任务<\/h2>[\s\S]*sticky right-0[\s\S]*查看详情[\s\S]*查看任务报告/,"获客任务列表必须复用筛选列表层级、固定操作列，并保留统一详情入口和任务报告");
+assert.match(taskCenter,/AI获客任务<\/h2>[\s\S]*任务名称[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}`\}[\s\S]*sticky right-0[\s\S]*查看任务报告/,"获客任务列表必须让任务名称承担统一详情入口，固定操作列仅保留报告与任务控制");
 assert.doesNotMatch(taskCenter,/查看成功入池客户|查看待复核客户|查看搜索效果与成本/,"任务列表操作菜单不得重复任务详情页已有的客户和分析入口");
 assert.match(taskCenter,/Google价目估算、共享免费额度和预计超额费用不计入实际费用/,"实际费用说明必须明确排除未确认的Google估算和预计超额费用");
 const taskNumber=fs.readFileSync(new URL("../lib/ai/task-number.ts",import.meta.url),"utf8");
@@ -326,7 +330,7 @@ const acquisitionTaskReport=fs.readFileSync(new URL("../components/ai-acquisitio
 const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
 assert.match(customerResults,/今日成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*处理复核/,"任务中心客户结果卡必须落到可处理的统一客户清单");
-assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*来源任务：[\s\S]*查看全部任务客户/,"获客结果页必须支持按来源任务精确筛选并清晰显示可撤销的筛选状态");
+assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*任务筛选[\s\S]*清除任务筛选/,"获客结果页必须支持按来源任务精确筛选并清晰显示可撤销的筛选状态");
 assert.match(customerResults,/CustomerPublicChannels customer=\{row\}/,"获客结果、客户公海和我的客户必须共用Google Maps与官方社媒的公开渠道组件");
 assert.match(customerResultsPage,/initialDate=\{scope === "today" \? today : ""\}/,"从今日获客进入客户结果必须把北京时间今日同步到处理时间控件");
 assert.match(customerResultsPage,/initialTaskId=\{query\.task_id \|\| ""\}/,"任务详情跳转客户结果时必须保留精确任务筛选");

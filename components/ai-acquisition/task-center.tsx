@@ -353,8 +353,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                         </small>
                       ) : null}
                     </td>
-                    <td className="w-44 px-4 py-3"><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{width:`${Math.min(100,t.discovered_count?Number(t.processed_count||0)/Number(t.discovered_count)*100:t.status==="COMPLETED"?100:0)}%`}}/></div><span className="mt-1 block text-xs text-slate-400">{formatNumber(t.processed_count)} / {formatNumber(t.discovered_count)} 条</span></td>
-                    <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}?decision=ACCEPTED`} className="font-medium text-emerald-700 hover:underline">{formatNumber(t.accepted_count)} 条</Link></td>
+                    <td className="w-44 px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#customer-results`} className="group/progress block rounded-md hover:bg-blue-50" title="查看本任务全部候选及核验详情"><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{width:`${Math.min(100,t.discovered_count?Number(t.processed_count||0)/Number(t.discovered_count)*100:t.status==="COMPLETED"?100:0)}%`}}/></div><span className="mt-1 block text-xs text-slate-400 group-hover/progress:text-blue-700">{formatNumber(t.processed_count)} / {formatNumber(t.discovered_count)} 条</span></Link></td>
+                    <td className="px-4 py-3"><Link href={`/ai-acquisition/customers?scope=accepted&task_id=${t.id}`} className="font-medium text-emerald-700 hover:underline" title="查看本任务所有成功入池客户">{formatNumber(t.accepted_count)} 条</Link></td>
                     <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}?decision=REVIEW`} className="font-medium text-amber-700 hover:underline">{formatNumber(t.review_count)} 条</Link></td>
                     <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#customer-results`} className="font-medium text-slate-800 hover:text-blue-700 hover:underline">{formatNumber(t.discovered_count)} 条</Link></td>
                     <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
@@ -363,7 +363,6 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>
                     <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">
-                      <Link className="font-medium text-blue-700 hover:underline" href={`/ai-acquisition/tasks/${t.id}`}>查看详情</Link>
                       {t.status==="COMPLETED"||(canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status))?<RowActionMenu ariaLabel={`${t.name}操作菜单`}>
                         {t.status==="COMPLETED"?<RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}/report`)}>查看任务报告</RowActionItem>:null}
                       {canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status)?<>

@@ -27,6 +27,22 @@ export async function PATCH(request: NextRequest) {
     if (CORE_PERMISSION_CODES.has(permission)) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
     if (["SALES","WAREHOUSE"].includes(role) && enabled && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") return NextResponse.json({ error: "销售员或仓库员不能获得跨用户数据权限" }, { status: 400 });
     const admin = createAdminClient();
+    const pagePermission = permissionPageCode(permission);
+    // The UI disables these switches while their parent page is off, but the
+    // API must enforce the same rule. Otherwise a direct request can store an
+    // apparently-enabled child that is never effective at runtime.
+    if (enabled && pagePermission !== permission) {
+      const { data: pageSetting, error: pageSettingError } = await admin
+        .from("role_permission_settings")
+        .select("enabled")
+        .eq("role_code", role)
+        .eq("permission_code", pagePermission)
+        .maybeSingle();
+      if (pageSettingError) throw pageSettingError;
+      if (!pageSetting?.enabled) {
+        return NextResponse.json({ error: "请先开启所属页面权限，再开启数据范围或功能按钮" }, { status: 409 });
+      }
+    }
     const { error } = await admin.from("role_permission_settings").upsert({ role_code: role, permission_code: permission, enabled, updated_by: user.id, updated_at: new Date().toISOString() });
     if (error) throw error;
     // A hidden page must not retain enabled child permissions in storage. This

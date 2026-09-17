@@ -138,13 +138,20 @@ export async function GET(request: NextRequest) {
       .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
 
     const canControlTasks = hasPermission(account, "ai.acquisition.control");
-    let filterTask:null|{id:string;task_number:string;name:string}=null;
+    let filterTask:null|{id:string;task_number:string;name:string;countries:string[];industries:string[];keywords:string[]}=null;
     if(taskId){
-      let filterTaskQuery=admin.from("ai_acquisition_tasks").select("id,task_number,name,user_id").eq("id",taskId);
+      let filterTaskQuery=admin.from("ai_acquisition_tasks").select("id,task_number,name,user_id,countries,industries,industry,keywords").eq("id",taskId);
       if(ownerId)filterTaskQuery=filterTaskQuery.eq("user_id",ownerId);
       const filterTaskResult=await filterTaskQuery.maybeSingle();
       if(filterTaskResult.error)throw filterTaskResult.error;
-      if(filterTaskResult.data)filterTask={id:String(filterTaskResult.data.id),task_number:String(filterTaskResult.data.task_number),name:String(filterTaskResult.data.name)};
+      if(filterTaskResult.data)filterTask={
+        id:String(filterTaskResult.data.id),
+        task_number:String(filterTaskResult.data.task_number),
+        name:String(filterTaskResult.data.name),
+        countries:Array.isArray(filterTaskResult.data.countries)?filterTaskResult.data.countries.map(String):[],
+        industries:Array.isArray(filterTaskResult.data.industries)&&filterTaskResult.data.industries.length?filterTaskResult.data.industries.map(String):[String(filterTaskResult.data.industry||"")].filter(Boolean),
+        keywords:Array.isArray(filterTaskResult.data.keywords)?filterTaskResult.data.keywords.map(String):[],
+      };
     }
     return NextResponse.json({
       data: rows.map((row) => {
