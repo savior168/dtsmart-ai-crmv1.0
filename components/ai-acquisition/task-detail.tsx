@@ -364,7 +364,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       {usageScope==="GOOGLE"?<section id="google-usage-details" className={`${panel} overflow-hidden`}>
         <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
           <div><h2 className="font-semibold">Google Places 调用与费用明细</h2><p className="mt-1 text-xs text-slate-500">先核对本任务用量，再查看同一Google结算账号当前结算月的总用量、剩余额度、超额调用与预计费用。</p></div>
-          <div className="flex items-center gap-4"><Link href="/ai-usage?module=acquisition" className="text-sm font-medium text-blue-600">AI用量与费用</Link><button type="button" className="flex items-center gap-1 text-sm font-medium text-blue-600" onClick={()=>setUsageScope(null)}>收起明细<ChevronDown size={15} className="rotate-180"/></button></div>
+          <div className="flex items-center gap-4"><Link href="/ai-usage?business_type=acquisition" className="text-sm font-medium text-blue-600">AI用量与费用</Link><button type="button" className="flex items-center gap-1 text-sm font-medium text-blue-600" onClick={()=>setUsageScope(null)}>收起明细<ChevronDown size={15} className="rotate-180"/></button></div>
         </div>
         <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <div className="rounded-lg bg-blue-50/60 px-4 py-3"><small className="text-slate-500">本任务调用</small><b className="mt-1 block text-lg text-blue-700">{formatNumber(usage?.google_calls)} 次</b><span className="text-xs text-slate-400">其中免费记账 {formatNumber(visibleFreeCalls)} 次</span></div>

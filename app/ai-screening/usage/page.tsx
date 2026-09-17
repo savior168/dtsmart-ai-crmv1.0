@@ -3,5 +3,5 @@ import { redirect } from "next/navigation";
 
 export default async function AiUsagePage(){
   await requirePermission("ai.usage.view");
-  redirect("/ai-usage?module=screening");
+  redirect("/ai-usage?business_type=screening");
 }

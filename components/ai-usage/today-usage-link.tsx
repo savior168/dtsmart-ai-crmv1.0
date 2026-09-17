@@ -38,7 +38,7 @@ export function TodayUsageLink({ module, scopeUserId = "", todayUsage }: { modul
   }, [module, scopeUserId, todayUsage]);
 
   return <Link
-    href={`/ai-usage?module=${module}`}
+    href={`/ai-usage?business_type=${module}`}
     className={`${button} shrink-0`}
     title="查看今日及历史AI调用与费用明细"
   >

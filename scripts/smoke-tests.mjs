@@ -184,7 +184,7 @@ for (const href of ["/ai-screening/new", "/ai-screening/failures", "/ai-screenin
   assert.match(taskCenter, new RegExp(href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `任务中心缺少入口：${href}`);
 }
 assert.match(taskCenter, /TodayUsageLink module="screening"/, "AI筛选任务中心必须通过统一组件进入筛选用量页");
-assert.match(taskCenter, /今日完成分析[\s\S]*\/ai-usage\?module=screening|\/ai-usage\?module=screening[\s\S]*今日完成分析/, "今日完成分析必须进入同口径的AI筛选用量明细");
+assert.match(taskCenter, /今日完成分析[\s\S]*\/ai-usage\?business_type=screening|\/ai-usage\?business_type=screening[\s\S]*今日完成分析/, "今日完成分析必须进入同口径的AI筛选用量明细");
 const createTaskView = read("components/ai-screening/create-task-view.tsx");
 assert.match(createTaskView, /useEffect\(\(\) => \{ void load\(true\)/, "创建任务首次进入必须加载并选中全部待筛选客户");
 assert.match(createTaskView, /ScheduleControl/, "预约执行必须使用统一日期时间组合组件");
