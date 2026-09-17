@@ -17,6 +17,7 @@ export const ACQUISITION_COUNTRY_GROUPS = [
 export const MAX_ACQUISITION_INDUSTRIES = 20;
 export const MAX_ACQUISITION_KEYWORDS = 30;
 export const MAX_ACQUISITION_SEARCH_TERMS = 80;
+export const DEFAULT_ACQUISITION_DISCOVERY_CEILING = 5000;
 
 export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
   "手机维修店": "mobile phone repair",

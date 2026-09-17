@@ -51,14 +51,16 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   // number of successful public-pool imports. The UI intentionally does not
   // ask users to predict how many qualified businesses exist.
   const discoveryCeiling = Math.max(1, task.target_count);
-  const perCountry = Math.min(200, Math.max(20, Math.ceil(discoveryCeiling / task.countries.length)));
   const unique = new Map<string, DiscoveredBusiness>();
   let discoveryControl: "PAUSED" | "CANCELLED" | "BUDGET_LIMITED" | null = null;
-  for (const country of task.countries) {
+  for (const [countryIndex,country] of task.countries.entries()) {
     if (unique.size >= discoveryCeiling) break;
     const latest = await readTask(task.id);
     if (latest.cancel_requested) break;
-    const discovery = await discoverBusinesses({ acquisitionTaskId: task.id, screeningTaskId, userId: task.user_id, costMode: task.cost_mode, country, industries, keywords: task.keywords, excludedKeywords: task.excluded_keywords, limit: perCountry });
+    const remainingCountries=Math.max(1,task.countries.length-countryIndex);
+    const remainingCapacity=Math.max(1,discoveryCeiling-unique.size);
+    const countryLimit=Math.max(20,Math.ceil(remainingCapacity/remainingCountries));
+    const discovery = await discoverBusinesses({ acquisitionTaskId: task.id, screeningTaskId, userId: task.user_id, costMode: task.cost_mode, country, industries, keywords: task.keywords, excludedKeywords: task.excluded_keywords, limit: countryLimit });
     discovery.businesses.forEach((business) => {
       if (unique.size < discoveryCeiling) unique.set(business.placeId, business);
     });
@@ -66,50 +68,51 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   }
   const stageUpdate=await admin.from("ai_acquisition_tasks").update({current_stage:"DEDUPLICATING",current_stage_detail:"正在保存候选、系统去重并执行非目标早停",executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",task.id).eq("status","RUNNING");
   if(stageUpdate.error)throw stageUpdate.error;
-  let candidateIndex=0;
-  for (const candidate of unique.values()) {
-    candidateIndex+=1;
-    if(candidateIndex===1||candidateIndex%20===0){
+  const discovered = [...unique.values()];
+  const historyCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const lookupBatchSize = 100;
+  for (let offset = 0; offset < discovered.length; offset += lookupBatchSize) {
+    const batch = discovered.slice(offset, offset + lookupBatchSize);
+    const placeIds = batch.map((candidate) => candidate.placeId);
+    {
       const current=await readTask(task.id);
       if(current.cancel_requested){discoveryControl="CANCELLED";break;}
       if(["PAUSING","PAUSED"].includes(current.status)){discoveryControl="PAUSED";break;}
       const heartbeat=await admin.from("ai_acquisition_tasks").update({executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",task.id).eq("status","RUNNING");
       if(heartbeat.error)throw heartbeat.error;
     }
-    const already = await admin.from("ai_acquisition_candidates").select("id").eq("task_id", task.id).eq("place_id", candidate.placeId).maybeSingle();
-    if (already.error) throw already.error;
-    if (already.data) continue;
-    const existingCustomer = await admin.from("customers").select("id").eq("google_maps_place_id", candidate.placeId).is("deleted_at", null).limit(1).maybeSingle();
-    if (existingCustomer.error) throw existingCustomer.error;
-    if (existingCustomer.data) {
-      const duplicate = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "DUPLICATE", decision_reason: "Google Place ID已存在于系统客户资料", imported_customer_id: existingCustomer.data.id, processed_at: new Date().toISOString() });
-      if (duplicate.error) throw duplicate.error;
-      continue;
+    const [currentCandidates, existingCustomers, recentCandidates] = await Promise.all([
+      admin.from("ai_acquisition_candidates").select("place_id").eq("task_id", task.id).in("place_id", placeIds),
+      admin.from("customers").select("id,google_maps_place_id").in("google_maps_place_id", placeIds).is("deleted_at", null),
+      admin.from("ai_acquisition_candidates").select("id,task_id,decision,place_id,created_at").in("place_id", placeIds).neq("task_id", task.id).gte("created_at", historyCutoff).order("created_at", { ascending: false }),
+    ]);
+    if (currentCandidates.error || existingCustomers.error || recentCandidates.error) throw currentCandidates.error || existingCustomers.error || recentCandidates.error;
+    const already = new Set((currentCandidates.data || []).map((row) => String(row.place_id)));
+    const customerByPlace = new Map((existingCustomers.data || []).map((row) => [String(row.google_maps_place_id), String(row.id)]));
+    const recentByPlace = new Map<string, {id:string;task_id:string;decision:string}>();
+    for (const row of recentCandidates.data || []) {
+      const placeId = String(row.place_id || "");
+      if (placeId && !recentByPlace.has(placeId)) recentByPlace.set(placeId, { id:String(row.id), task_id:String(row.task_id), decision:String(row.decision) });
     }
-    const historyCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-    const previous = await admin.from("ai_acquisition_candidates").select("id,task_id,decision,processed_at").eq("place_id", candidate.placeId).neq("task_id", task.id).gte("created_at", historyCutoff).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (previous.error) throw previous.error;
-    if (previous.data) {
-      const repeated = await admin.from("ai_acquisition_candidates").insert({
-        task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address,
-        google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms,
-        source_snapshot: { ...candidate, previous_candidate_id: previous.data.id, previous_task_id: previous.data.task_id, previous_decision: previous.data.decision },
-        decision: "DUPLICATE", decision_reason: "近90天已有AI获客核验记录，本次保留检索命中但不重复产生补证费用", processed_at: new Date().toISOString(),
-      });
-      if (repeated.error) throw repeated.error;
-      continue;
+    const terminalRows: Array<Record<string, unknown>> = [];
+    const candidatesToAnalyze: DiscoveredBusiness[] = [];
+    for (const candidate of batch) {
+      if (already.has(candidate.placeId)) continue;
+      const baseRow = { task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms };
+      const existingCustomerId = customerByPlace.get(candidate.placeId);
+      const previous = recentByPlace.get(candidate.placeId);
+      if (existingCustomerId) terminalRows.push({ ...baseRow, source_snapshot: candidate, decision:"DUPLICATE", decision_reason:"Google Place ID已存在于系统客户资料", imported_customer_id:existingCustomerId, processed_at:new Date().toISOString() });
+      else if (previous) terminalRows.push({ ...baseRow, source_snapshot:{ ...candidate, previous_candidate_id:previous.id, previous_task_id:previous.task_id, previous_decision:previous.decision }, decision:"DUPLICATE", decision_reason:"近90天已有AI获客核验记录，本次复用历史判定并避免重复产生补证费用", processed_at:new Date().toISOString() });
+      else if (candidate.businessStatus === "CLOSED_PERMANENTLY") terminalRows.push({ ...baseRow, source_snapshot:candidate, decision:"REJECTED", decision_reason:"Google 商家明确标记永久停业，已在补证前停止", processed_at:new Date().toISOString() });
+      else if (!discoveryCandidateLooksRelevant(candidate, industries, task.keywords)) terminalRows.push({ ...baseRow, source_snapshot:candidate, decision:"REJECTED", decision_reason:"公开商家基础类别与目标行业缺少直接相关信号，已在补证前停止", processed_at:new Date().toISOString() });
+      else candidatesToAnalyze.push(candidate);
     }
-    if (candidate.businessStatus === "CLOSED_PERMANENTLY") {
-      const closed = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "REJECTED", decision_reason: "Google 商家明确标记永久停业，已在补证前停止", processed_at: new Date().toISOString() });
-      if (closed.error) throw closed.error;
-      continue;
+    if (terminalRows.length) {
+      const terminalInsert = await admin.from("ai_acquisition_candidates").insert(terminalRows);
+      if (terminalInsert.error) throw terminalInsert.error;
     }
-    if (!discoveryCandidateLooksRelevant(candidate, industries, task.keywords)) {
-      const rejected = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "REJECTED", decision_reason: "公开商家基础类别与目标行业缺少直接相关信号，已在补证前停止", processed_at: new Date().toISOString() });
-      if (rejected.error) throw rejected.error;
-      continue;
-    }
-    const customer = await admin.from("customers").insert({
+    for (const candidate of candidatesToAnalyze) {
+      const customer = await admin.from("customers").insert({
       company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl,
       google_maps_place_id: candidate.placeId, industry: null, category: candidate.types.join(" | ") || null, source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS",
       source_batch: task.task_number, source_reference: task.id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: task.user_id,
@@ -139,7 +142,8 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     const item = await admin.from("ai_screening_task_items").insert({ task_id: screeningTaskId, customer_id: customer.data.id, status: "PENDING", strategy: "SMART", strategy_version: "1.0" }).select("id").single();
     if (item.error || !item.data) throw item.error || new Error("ACQUISITION_SCREENING_ITEM_FAILED");
     const row = await admin.from("ai_acquisition_candidates").insert({ task_id: task.id, screening_task_id: screeningTaskId, screening_task_item_id: item.data.id, staging_customer_id: customer.data.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms, source_snapshot: candidate, decision: "ANALYZING" });
-    if (row.error) throw row.error;
+      if (row.error) throw row.error;
+    }
   }
   const counts = await admin.from("ai_acquisition_candidates").select("id,decision").eq("task_id", task.id);
   if (counts.error) throw counts.error;
@@ -308,7 +312,7 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   const started = task.data.started_at ? new Date(task.data.started_at).getTime() : NaN;
   const elapsed = Number(task.data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
   const finalStage=status==="COMPLETED"?"FINISHED":status;
-  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?"检索、去重、核验和准入判定均已完成":status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, processed_count: rows.data?.length || 0, accepted_count: count("ACCEPTED"), review_count: count("REVIEW"), rejected_count: count("REJECTED"), duplicate_count: count("DUPLICATE"), elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message: errorMessage?.slice(0, 1000) || null, updated_at: now.toISOString() }).eq("id", taskId);
+  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?"当前检索策略可返回分页、去重、核验和准入判定均已完成":status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, processed_count: rows.data?.length || 0, accepted_count: count("ACCEPTED"), review_count: count("REVIEW"), rejected_count: count("REJECTED"), duplicate_count: count("DUPLICATE"), elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message:errorMessage?.slice(0,1000)||null, updated_at:now.toISOString() }).eq("id",taskId);
   if (update.error) throw update.error;
 }
 

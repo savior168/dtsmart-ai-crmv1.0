@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, ChevronDown, CircleHelp, FileSpreadsheet, Globe2, Mail, MapPinned, PencilLine, Phone, Share2, TriangleAlert } from "lucide-react";
+import { ChevronDown, Mail, Phone, TriangleAlert } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
 
@@ -31,21 +31,9 @@ function originalSourceKind(source?: string | null) {
   const label = originalSourceLabel(source);
   return label === "Excel导入" ? "导入" : label === "手工录入" ? "录入" : label === "AI获客采集" ? "AI采集" : "原始";
 }
-function SourceMarker({ label, tone = "neutral" }: { label: string; tone?: "verified" | "original" | "warning" | "neutral" }) {
-  const normalized = label.toLowerCase();
-  const Icon = normalized.includes("google maps") ? MapPinned
-    : normalized.includes("官网") ? Globe2
-    : ["facebook", "instagram", "linkedin", "tiktok", "社媒"].some((item) => normalized.includes(item)) ? Share2
-    : normalized.includes("excel") || normalized.includes("导入") ? FileSpreadsheet
-    : normalized.includes("手工") || normalized.includes("录入") ? PencilLine
-    : normalized.includes("ai获客") || normalized.includes("ai采集") ? Bot
-    : normalized.includes("冲突") || normalized.includes("待核对") ? TriangleAlert
-    : CircleHelp;
-  const colors = tone === "verified" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : tone === "warning" ? "border-amber-200 bg-amber-50 text-amber-700"
-    : tone === "original" ? "border-slate-200 bg-white text-slate-500"
-    : "border-blue-200 bg-blue-50 text-blue-700";
-  return <span role="img" aria-label={label} title={label} tabIndex={0} className={`inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full border ${colors} focus:outline-none focus:ring-2 focus:ring-blue-200`}><Icon size={11}/></span>;
+function ConflictMarker() {
+  const label = "来源存在冲突，待人工核对";
+  return <span role="img" aria-label={label} title={label} tabIndex={0} className="inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-200"><TriangleAlert size={11}/></span>;
 }
 function splitStoredContactValues(value: string | null | undefined, type: "PHONE" | "EMAIL", country?: string | null) {
   const raw = String(value || "").trim();
@@ -107,17 +95,14 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
   const verifiedContacts = uniqueCollected.filter((item) => !originalKeys.has(contactKey(item.type, item.value, customer.country)));
   const contacts = source === "original" ? originalContacts : source === "ai" ? uniqueCollected : [...originalContacts, ...verifiedContacts];
   if (!contacts.length) return <span className="text-slate-400">—</span>;
-  const renderContact = (item: DisplayContact, index: number, showSourceBadge = true) => {
+  const renderContact = (item: DisplayContact, index: number) => {
     const muted = false;
     const key = `${item.label}:${item.value}:${index}`;
-    const sourceMarkers = item.source === "conflict"
-      ? [{ label: "来源存在冲突，待人工核对", tone: "warning" as const }]
+    const sourceTooltip = item.source === "conflict"
+      ? "来源存在冲突，待人工核对"
       : item.source === "original"
-        ? [
-          { label: `数据来源：${originalSourceLabel(customer.source)}`, tone: "original" as const },
-          ...(item.verifiedBy ? [{ label: `AI核验来源：${item.verifiedBy}`, tone: "verified" as const }] : []),
-        ]
-        : [{ label: `AI采集来源：${item.channelLabel || "其他公开来源"}`, tone: "verified" as const }];
+        ? `数据来源：${originalSourceLabel(customer.source)}${item.verifiedBy ? `\nAI核验来源：${item.verifiedBy}` : ""}`
+        : `AI采集来源：${item.channelLabel || "其他公开来源"}`;
     const display = muted || item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, customer.country);
     const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, customer.country).replace(/\D/g, "") : "";
     const sourceHref = item.source !== "original" ? item.sourceUrl : null;
@@ -132,8 +117,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
       : sourceHref
         ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className={`min-w-0 flex-1 leading-5 text-blue-700 hover:underline ${valueClass}`}>{display}</a>
         : <span className={`min-w-0 flex-1 leading-5 ${valueClass}`}>{display}{item.source !== "original" ? <small className="ml-1 text-[10px] text-amber-700">来源页未留存</small> : null}</span>;
-    const kindLabel = item.type === "EMAIL" ? "邮箱" : item.type === "WHATSAPP" ? "WhatsApp" : "电话";
-    return <div key={key} title={`${item.label}：${item.value}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="rounded-md bg-slate-50/80 px-2 py-1.5"><span className="flex min-w-0 items-start gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "mt-0.5 shrink-0 text-emerald-600" : item.source === "conflict" ? "mt-0.5 shrink-0 text-amber-600" : item.type === "PHONE" ? "mt-0.5 shrink-0 text-blue-600" : "mt-0.5 shrink-0 text-slate-400"}>{item.icon}</span><span className="mt-0.5 shrink-0 text-[10px] text-slate-400">{kindLabel}</span>{text}{showSourceBadge && !(item.source === "original"&&source === "original") ? <span className="flex shrink-0 items-center gap-1">{sourceMarkers.map((marker) => <SourceMarker key={marker.label} label={marker.label} tone={marker.tone}/>)}</span> : null}</span></div>;
+    return <div key={key} title={`${item.label}：${item.value}\n${sourceTooltip}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="rounded-md bg-slate-50/80 px-2 py-1.5"><span className="flex min-w-0 items-start gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "mt-0.5 shrink-0 text-emerald-600" : item.source === "conflict" ? "mt-0.5 shrink-0 text-amber-600" : item.type === "PHONE" ? "mt-0.5 shrink-0 text-blue-600" : "mt-0.5 shrink-0 text-slate-400"}>{item.icon}</span>{text}{item.source === "conflict" ? <ConflictMarker/> : null}</span></div>;
   };
   const kindRank:Record<ContactKind,number> = { PHONE:0, WHATSAPP:1, EMAIL:2 };
   const orderedContacts = [...contacts].sort((a,b) => {
@@ -148,7 +132,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
       current.items.push(item);
       groups.set(group.key, current);
     }
-    return <div className="space-y-3">{[...groups.values()].sort((a,b)=>a.rank-b.rank).map((group) => <section key={group.label}><span title={group.hint} className="flex items-center justify-between gap-2"><b className="text-[11px] font-medium text-slate-700">{group.label}（{group.items.length}）</b><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.badge}</small></span><div className="mt-1 space-y-1">{group.items.sort((a,b)=>kindRank[a.type]-kindRank[b.type]).map((item,index)=>renderContact(item,index,false))}</div></section>)}</div>;
+    return <div className="space-y-3">{[...groups.values()].sort((a,b)=>a.rank-b.rank).map((group) => <section key={group.label}><span title={group.hint} className="flex items-center justify-between gap-2"><b className="text-[11px] font-medium text-slate-700">{group.label}（{group.items.length}）</b><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.badge}</small></span><div className="mt-1 space-y-1">{group.items.sort((a,b)=>kindRank[a.type]-kindRank[b.type]).map((item,index)=>renderContact(item,index))}</div></section>)}</div>;
   };
   if (source !== "original" && contacts.length <= collapseThreshold) return <div className="min-w-[180px] space-y-1">{orderedContacts.map((item,index)=>renderContact(item,index))}</div>;
   // Combined and AI-collected contacts stay compact in every customer view;
@@ -161,7 +145,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
       aiCount ? { label: "AI采集", count: aiCount, tone: "bg-emerald-50 text-emerald-700" } : null,
     ].filter(Boolean) as Array<{label:string;count:number;tone:string}>;
     const previewContacts = orderedContacts.slice(0, collapseThreshold);
-    return <div className="min-w-[210px] rounded-lg border border-slate-100 bg-slate-50/70 p-2"><button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex w-full cursor-pointer items-start justify-between gap-2 text-left"><span><span className="font-medium text-slate-800">{contacts.length} 个联系方式</span><span className="mt-1 flex flex-wrap items-center gap-1">{sourceCounts.map((item) => <span key={item.label} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${item.tone}`}>{item.label} {item.count}</span>)}</span></span><span className="flex shrink-0 items-center gap-1 text-[11px] text-blue-700">{expanded ? "收起" : "查看全部"}<ChevronDown size={14} className={`text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}/></span></button><div className="mt-2">{expanded ? renderGroups() : <div className="space-y-1">{previewContacts.map((item,index)=>renderContact(item,index))}</div>}</div></div>;
+    return <div className="min-w-[200px] rounded-lg border border-slate-100 bg-slate-50/70 p-1.5"><button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex w-full cursor-pointer items-center gap-1.5 text-left"><b className="shrink-0 text-xs font-medium text-slate-800">{contacts.length} 个</b><span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{sourceCounts.map((item) => <span key={item.label} className={`truncate rounded px-1.5 py-0.5 text-[10px] font-medium ${item.tone}`}>{item.label} {item.count}</span>)}</span><span className="flex shrink-0 items-center gap-0.5 text-[11px] text-blue-700">{expanded ? "收起" : "展开"}<ChevronDown size={13} className={`text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}/></span></button><div className="mt-1.5">{expanded ? renderGroups() : <div className="space-y-1">{previewContacts.map((item,index)=>renderContact(item,index))}</div>}</div></div>;
   }
   return <div className="space-y-1">{contacts.map((item, index) => renderContact(item, index))}</div>;
 }

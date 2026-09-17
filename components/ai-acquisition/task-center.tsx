@@ -26,6 +26,7 @@ import type { AcquisitionTask } from "./types";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { quickCostDateRange } from "@/lib/cost-center";
+import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
@@ -181,7 +182,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         description="发现、核验并沉淀可直接跟进的目标客户；每条结果均保留来源、判断依据和成本记录。"
         actions={
           <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-            {canViewUsage ? <Link href="/ai-usage?business_type=acquisition" className={`${button} shrink-0`}>AI用量与费用</Link> : null}
+            {canViewUsage ? <TodayUsageLink module="acquisition"/> : null}
             {canManageSettings ? <Link href="/ai-acquisition/settings" className={`${button} shrink-0`}><Settings2 size={16}/>AI获客设置</Link> : null}
             {canCreate ? (
               <Link href="/ai-acquisition/new" className={`${primaryButton} shrink-0`}>

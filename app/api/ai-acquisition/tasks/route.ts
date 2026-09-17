@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { start } from "workflow/api";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
+import { DEFAULT_ACQUISITION_DISCOVERY_CEILING, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { createAcquisitionTaskNumber } from "@/lib/ai/task-number";
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
     for (const checkpoint of checkpointResult.data || []) {
       const taskId = String(checkpoint.task_id);
       const current = checkpointByTask.get(taskId) || { completed:0, rawHits:0 };
-      if (["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(checkpoint.status))) current.completed += 1;
+      if (["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE","REUSED_RECENT","REUSED_ACTIVE"].includes(String(checkpoint.status))) current.completed += 1;
       current.rawHits += Number(checkpoint.result_count || 0);
       checkpointByTask.set(taskId, current);
     }
@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
     const scheduledAt = requestedSchedule && Number.isFinite(requestedSchedule.getTime()) && requestedSchedule.getTime() > Date.now()
       ? requestedSchedule.toISOString()
       : null;
-    const targetCount = 500;
+    const targetCount = DEFAULT_ACQUISITION_DISCOVERY_CEILING;
     const costMode = body.cost_mode === "FREE_ONLY" ? "FREE_ONLY" : "ADAPTIVE";
     const rawTaskCostLimit = body.task_cost_limit_usd;
     const taskCostLimit = costMode === "FREE_ONLY"
