@@ -45,6 +45,8 @@ assert.doesNotMatch(aiUsageCenter, /AppTabs|AI用量业务类型/, "AI用量页�
 assert.match(read("app/ai-usage/page.tsx"), /params\.business_type \|\| params\.module/, "统一AI用量页必须兼容历史module链接并优先使用业务类型参数");
 assert.match(read("components/ai-screening/usage-view.tsx"), /businessTypeControl[\s\S]*统计日期[\s\S]*\{businessTypeControl\}[\s\S]*模型/, "AI筛选用量必须在同一筛选栏展示业务类型");
 assert.match(read("components/ai-acquisition/usage-view.tsx"), /businessTypeControl[\s\S]*统计日期[\s\S]*\{businessTypeControl\}[\s\S]*任务状态/, "AI获客用量必须在同一筛选栏展示业务类型");
+assert.match(read("components/ai-acquisition/usage-view.tsx"), /xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\]/, "AI获客切换后必须保持与AI筛选相同的筛选栏网格和页面宽度");
+assert.match(read("components/ai-screening/usage-view.tsx"), /xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\]/, "AI筛选必须使用统一用量页筛选栏网格");
 assert.match(read("components/customers-view.tsx"), /AppTabs[\s\S]*我的客户[\s\S]*保护到期与续期[\s\S]*冲突客户/, "我的客户与客户公海必须复用统一子页签组件");
 assert.match(read("components/ui/app-tabs.tsx"), /description\?: string[\s\S]*bg-blue-50[\s\S]*bottom-0/, "统一子页签必须用浅色激活态、业务说明和清晰指示条");
 assert.match(read("components/customers-view.tsx"), /保护到期与续期[\s\S]*countTone: "warning"[\s\S]*冲突客户[\s\S]*countTone: "danger"/, "保护到期与冲突数量必须使用不同的语义颜色");

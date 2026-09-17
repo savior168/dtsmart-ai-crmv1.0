@@ -142,7 +142,7 @@ assert.match(aiUsageView, /aria-expanded=\{googleExpanded\}[\s\S]*筛选范围Go
 assert.match(aiUsageView, /历史未细分[\s\S]*value\.count>0/, "历史未细分为零时不得占据页面空间");
 assert.match(aiUsageNullScopeMigration, /p_user_id is null or c\.user_id = p_user_id[\s\S]*p_user_id is null or u\.user_id = p_user_id/, "全系统历史完成次数与OpenAI台账汇总不得把空归属人错误解释为user_id等于NULL");
 assert.match(aiUsageView, /筛选范围Google Places SKU明细[\s\S]*xl:grid-cols-5/, "宽屏下五个Google SKU卡片必须保持同一行");
-assert.match(acquisitionUsageApi, /processed: rows\.reduce[\s\S]*google_cost_usd:[\s\S]*isActuallyIncurredCost[\s\S]*total_cost_usd: actualCostUsd/, "AI获客用量必须同时返回已核验数量及仅含实际已产生费用的分项汇总");
+assert.match(acquisitionUsageApi, /processed: processedCandidates\.length[\s\S]*google_cost_usd:[\s\S]*isActuallyIncurredCost[\s\S]*total_cost_usd: actualCostUsd/, "AI获客用量必须按所选时间内真实核验记录返回数量，并仅汇总实际已产生费用");
 assert.match(read("lib/auth/permissions.ts"), /ai\.cost_summary\.view[\s\S]*查看AI历史成本总览[\s\S]*默认仅系统管理员开启/, "AI历史成本总览必须作为权限中心可配置的独立权限");
 assert.match(aiTaskListApi, /hasPermission\(account, "ai\.cost_summary\.view"\)[\s\S]*ai_screening_historical_cost_summary[\s\S]*show_historical_cost_summary: canViewHistoricalCost[\s\S]*historical_summary: canViewHistoricalCost \?/, "全系统历史筛选成本必须在接口层按独立权限返回");
 assert.match(aiTaskCenter, /data\?\.show_historical_cost_summary \? <section[\s\S]*同一客户每完成一次独立AI筛选计一次[\s\S]*AI获客内部核验不重复计入[\s\S]*仅展示本系统可核验的OpenAI Token费用/, "历史筛选成本总览必须仅管理员可见，并明确独立筛选计次与AI获客不重复计入的口径");

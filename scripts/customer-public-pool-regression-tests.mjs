@@ -76,7 +76,9 @@ assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s
 assert.match(poolView, /field === "phone"[\s\S]*CustomerContactSummary customer=\{row\} source="all"/, "待认领列表必须用同一联系方式列兼容录入数据与AI获客数据");
 assert.match(contactSummary, /\{contacts\.length\} 个联系方式/, "联系方式摘要必须清楚显示去重后的联系方式总数");
 assert.match(contactSummary, /originalSourceKind\(customer\.source\)[\s\S]*label: "AI采集"/, "联系方式摘要必须直接区分导入或录入数据与AI采集数据");
-assert.match(contactSummary, /AI核验·\{item\.verifiedBy\}/, "导入联系方式被AI再次核验时必须同时显示两类来源");
+assert.match(contactSummary, /数据来源：\$\{originalSourceLabel\(customer\.source\)\}[\s\S]*AI核验来源：\$\{item\.verifiedBy\}/, "导入联系方式被AI再次核验时必须以两个紧凑图标同时保留原始来源与AI核验来源");
+assert.match(contactSummary, /function SourceMarker[\s\S]*aria-label=\{label\}[\s\S]*title=\{label\}[\s\S]*cursor-help/, "联系方式来源必须用可悬停和键盘聚焦的紧凑图标展示完整说明");
+assert.doesNotMatch(contactSummary, /AI采集·\$\{item\.channelLabel/, "联系方式行内不得重复展示占空间的AI采集文字标签");
 assert.match(contactSummary, /source === "ai" \? uniqueCollected/, "AI获客任务必须显示全部AI采集联系方式，不能因客户主档存在相同值而误隐藏");
 assert.match(contactSummary, /verifiedChannel === "官网"[\s\S]*rank: 0[\s\S]*verifiedChannel === "Google Maps"[\s\S]*rank: 1[\s\S]*官方社媒[\s\S]*rank: 2[\s\S]*item\.source === "original"[\s\S]*rank: 3/, "联系方式必须按官网、Google Maps、官方社媒、导入或录入资料的可信度顺序分组");
 assert.match(contactSummary, /collapseThreshold = 2[\s\S]*contacts\.length <= collapseThreshold[\s\S]*orderedContacts\.map[\s\S]*previewContacts = orderedContacts\.slice\(0, collapseThreshold\)[\s\S]*expanded \? renderGroups\(\) :[\s\S]*previewContacts\.map/, "一至两个联系方式必须直接全部显示，三个及以上默认展示优先级最高的前两个并可展开全部");

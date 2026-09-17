@@ -113,7 +113,9 @@ assert.match(taskCenter, /status === "RUNNING"[\s\S]*action: "pause"[\s\S]*停�
 assert.match(taskCenter, /status === "QUEUED"[\s\S]*action: "cancel"[\s\S]*取消任务/, "排队中任务必须显示取消任务");
 assert.match(taskCenter, /status === "PAUSED"[\s\S]*action: "resume"[\s\S]*继续执行/, "已停止任务必须显示继续执行");
 assert.match(taskCenter, /status === "FAILED"[\s\S]*action: "retry"[\s\S]*重试失败项/, "失败任务必须显示重试失败项");
-assert.match(taskCenter, /TodayUsageLink module="screening"/, "任务中心顶部必须使用统一AI用量入口并同步展示今日摘要");
+assert.match(taskCenter, /TodayUsageLink module="screening"/, "任务中心顶部必须使用统一AI用量入口");
+assert.doesNotMatch(read("components/ai-usage/today-usage-link.tsx"), /useEffect|今日 \{formatNumber|fetchedToday/, "顶部AI用量入口不得重复请求并展示今日费用摘要");
+assert.match(taskCenter, /今日OpenAI实际费用[\s\S]*data\?\.today_cost[\s\S]*累计完成分析[\s\S]*OpenAI累计实际费用/, "筛选成效概览必须统一展示今日费用、历史完成量与累计实际费用");
 assert.match(read("components/ai-usage/today-usage-link.tsx"), /AI用量与费用/, "统一AI用量入口必须有清晰可识别的名称");
 assert.match(taskCenter, /成功 \/ 失败[\s\S]*任务耗时/, "任务列表必须显示实时成功失败数量和任务耗时");
 const taskActionApi = read("app/api/ai/tasks/[id]/route.ts");

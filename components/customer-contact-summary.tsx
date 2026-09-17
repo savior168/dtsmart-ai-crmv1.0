@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Mail, Phone } from "lucide-react";
+import { Bot, ChevronDown, CircleHelp, FileSpreadsheet, Globe2, Mail, MapPinned, PencilLine, Phone, Share2, TriangleAlert } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
 
@@ -30,6 +30,22 @@ function originalSourceLabel(source?: string | null) {
 function originalSourceKind(source?: string | null) {
   const label = originalSourceLabel(source);
   return label === "Excel导入" ? "导入" : label === "手工录入" ? "录入" : label === "AI获客采集" ? "AI采集" : "原始";
+}
+function SourceMarker({ label, tone = "neutral" }: { label: string; tone?: "verified" | "original" | "warning" | "neutral" }) {
+  const normalized = label.toLowerCase();
+  const Icon = normalized.includes("google maps") ? MapPinned
+    : normalized.includes("官网") ? Globe2
+    : ["facebook", "instagram", "linkedin", "tiktok", "社媒"].some((item) => normalized.includes(item)) ? Share2
+    : normalized.includes("excel") || normalized.includes("导入") ? FileSpreadsheet
+    : normalized.includes("手工") || normalized.includes("录入") ? PencilLine
+    : normalized.includes("ai获客") || normalized.includes("ai采集") ? Bot
+    : normalized.includes("冲突") || normalized.includes("待核对") ? TriangleAlert
+    : CircleHelp;
+  const colors = tone === "verified" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : tone === "warning" ? "border-amber-200 bg-amber-50 text-amber-700"
+    : tone === "original" ? "border-slate-200 bg-white text-slate-500"
+    : "border-blue-200 bg-blue-50 text-blue-700";
+  return <span role="img" aria-label={label} title={label} tabIndex={0} className={`inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full border ${colors} focus:outline-none focus:ring-2 focus:ring-blue-200`}><Icon size={11}/></span>;
 }
 function splitStoredContactValues(value: string | null | undefined, type: "PHONE" | "EMAIL", country?: string | null) {
   const raw = String(value || "").trim();
@@ -94,8 +110,14 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
   const renderContact = (item: DisplayContact, index: number, showSourceBadge = true) => {
     const muted = false;
     const key = `${item.label}:${item.value}:${index}`;
-    const tone = item.source === "conflict" ? "bg-amber-50 text-amber-700" : item.source === "original" ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700";
-    const badge = item.source === "conflict" ? "待核对" : item.source === "original" ? originalSourceLabel(customer.source) : `AI采集·${item.channelLabel || "公开来源"}`;
+    const sourceMarkers = item.source === "conflict"
+      ? [{ label: "来源存在冲突，待人工核对", tone: "warning" as const }]
+      : item.source === "original"
+        ? [
+          { label: `数据来源：${originalSourceLabel(customer.source)}`, tone: "original" as const },
+          ...(item.verifiedBy ? [{ label: `AI核验来源：${item.verifiedBy}`, tone: "verified" as const }] : []),
+        ]
+        : [{ label: `AI采集来源：${item.channelLabel || "其他公开来源"}`, tone: "verified" as const }];
     const display = muted || item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, customer.country);
     const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, customer.country).replace(/\D/g, "") : "";
     const sourceHref = item.source !== "original" ? item.sourceUrl : null;
@@ -111,7 +133,7 @@ export function CustomerContactSummary({ customer, source }: { customer: Contact
         ? <a href={sourceHref} target="_blank" rel="noreferrer" title={`打开来源核验：${item.label}`} className={`min-w-0 flex-1 leading-5 text-blue-700 hover:underline ${valueClass}`}>{display}</a>
         : <span className={`min-w-0 flex-1 leading-5 ${valueClass}`}>{display}{item.source !== "original" ? <small className="ml-1 text-[10px] text-amber-700">来源页未留存</small> : null}</span>;
     const kindLabel = item.type === "EMAIL" ? "邮箱" : item.type === "WHATSAPP" ? "WhatsApp" : "电话";
-    return <div key={key} title={`${item.label}：${item.value}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="rounded-md bg-slate-50/80 px-2 py-1.5"><span className="flex min-w-0 items-start gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "mt-0.5 shrink-0 text-emerald-600" : item.source === "conflict" ? "mt-0.5 shrink-0 text-amber-600" : item.type === "PHONE" ? "mt-0.5 shrink-0 text-blue-600" : "mt-0.5 shrink-0 text-slate-400"}>{item.icon}</span><span className="mt-0.5 shrink-0 text-[10px] text-slate-400">{kindLabel}</span>{text}</span>{showSourceBadge && !(item.source === "original"&&source === "original") ? <span className="ml-5 mt-1 flex flex-wrap gap-1"><span className={`rounded px-1.5 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>{item.source === "original" && item.verifiedBy ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] leading-none text-emerald-700">AI核验·{item.verifiedBy}</span> : null}</span> : null}</div>;
+    return <div key={key} title={`${item.label}：${item.value}${item.capturedAt?`\n采集时间：${new Date(item.capturedAt).toLocaleString("zh-CN",{hour12:false})}`:""}${item.sourceUrl ? `\n点击打开来源核验` : ""}`} className="rounded-md bg-slate-50/80 px-2 py-1.5"><span className="flex min-w-0 items-start gap-1.5 text-xs text-slate-700"><span className={item.source === "verified" ? "mt-0.5 shrink-0 text-emerald-600" : item.source === "conflict" ? "mt-0.5 shrink-0 text-amber-600" : item.type === "PHONE" ? "mt-0.5 shrink-0 text-blue-600" : "mt-0.5 shrink-0 text-slate-400"}>{item.icon}</span><span className="mt-0.5 shrink-0 text-[10px] text-slate-400">{kindLabel}</span>{text}{showSourceBadge && !(item.source === "original"&&source === "original") ? <span className="flex shrink-0 items-center gap-1">{sourceMarkers.map((marker) => <SourceMarker key={marker.label} label={marker.label} tone={marker.tone}/>)}</span> : null}</span></div>;
   };
   const kindRank:Record<ContactKind,number> = { PHONE:0, WHATSAPP:1, EMAIL:2 };
   const orderedContacts = [...contacts].sort((a,b) => {

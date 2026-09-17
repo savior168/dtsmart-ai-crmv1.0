@@ -207,7 +207,8 @@ const todayUsageLink=fs.readFileSync(new URL("../components/ai-usage/today-usage
 assert.match(taskCenter,/href="\/ai-usage\?business_type=acquisition"[\s\S]*AI用量与费用/,"AI获客任务中心必须提供统一AI用量与费用入口，且不与下方成本卡重复展示数值");
 assert.match(acquisitionPage,/requireUser\(\)[\s\S]*canCreate=\{hasPermission\(account,"ai\.acquisition\.create"\)\}[\s\S]*canViewUsage=\{hasPermission\(account,"ai\.acquisition\.usage\.view"\)\}[\s\S]*canManageSettings=\{hasPermission\(account,"ai\.acquisition\.settings\.manage"\)\}/,"AI获客三个顶部操作必须由服务端首屏权限同步决定");
 assert.match(acquisitionCreatePage,/requirePermission\("ai\.acquisition\.create"\)/,"AI获客创建页面本身必须执行创建权限校验，不能只隐藏入口或依赖提交接口");
-assert.match(todayUsageLink,/quickCostDateRange\("TODAY"\)[\s\S]*今日 \{formatNumber\(today\.calls\)\}次 · \{formatCost\(today\.cost\)\}/,"统一用量入口必须紧凑显示今日真实调用与费用");
+assert.match(todayUsageLink,/href=\{`\/ai-usage\?business_type=\$\{module\}`\}[\s\S]*AI用量与费用/,"统一用量入口必须只负责进入同一用量页面");
+assert.doesNotMatch(todayUsageLink,/useEffect|fetch\(|今日 \{formatNumber|fetchedToday/,"统一用量入口不得重复请求或重复展示今日费用");
 assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得使用额外的更多筛选弹层");
 assert.match(taskCenter,/今日获客[\s\S]*历史总获客[\s\S]*待人工复核[\s\S]*进行中[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果，待人工复核应排在进行中之前");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
@@ -251,6 +252,11 @@ assert.match(sharedUsage,/canViewCostCenter[\s\S]*href="\/settings\/costs"[\s\S]
 assert.match(costView,/canViewAiUsage[\s\S]*href="\/ai-usage"[\s\S]*AI用量与费用/,"费用中心必须按权限提供返回统一AI用量页的入口");
 assert.match(usageView,/quickCostDateRange\("TODAY"\)[\s\S]*CostDateRangePreset>\("TODAY"\)/,"AI获客用量页首次进入必须默认今日");
 assert.match(usageView,/aria-label="获客模式"[\s\S]*全部获客模式/,"AI获客用量筛选必须与任务中心统一使用获客模式");
+assert.match(usageView,/xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\][\s\S]*统计日期[\s\S]*businessTypeControl[\s\S]*获客模式[\s\S]*任务状态[\s\S]*数据范围[\s\S]*查询[\s\S]*重置/,"AI获客与AI筛选必须共用稳定的筛选栏布局，并仅替换业务专属筛选项");
+assert.match(usageView,/获客范围成效与实际成本[\s\S]*发现候选[\s\S]*完成核验[\s\S]*成功入池[\s\S]*核验入池率[\s\S]*每位入池客户成本/,"AI获客用量必须优先展示真实获客漏斗和实际获客成本");
+assert.match(usageView,/每日成功入池与实际费用趋势[\s\S]*核验结果与API调用构成[\s\S]*任务用量明细/,"AI获客用量必须保持与AI筛选相同的汇总、趋势、构成和明细页面骨架");
+assert.match(usageRoute,/ai_acquisition_candidates[\s\S]*created_at,processed_at[\s\S]*createdInRange[\s\S]*processedInRange[\s\S]*decision==="ACCEPTED"[\s\S]*imported_customer_id/,"AI获客范围指标必须按候选真实发现、处理和成功入池记录统计");
+assert.match(usageRoute,/total_cost_usd: actualCostUsd\(costs\)[\s\S]*dailyByDate[\s\S]*isActuallyIncurredCost\(cost\)[\s\S]*daily/,"AI获客汇总和每日趋势必须仅使用真实已发生费用台账");
 const customerResults=fs.readFileSync(new URL("../components/ai-acquisition/customer-results.tsx",import.meta.url),"utf8");
 const customerResultsRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/customers/route.ts",import.meta.url),"utf8");
 const customerResultsPage=fs.readFileSync(new URL("../app/ai-acquisition/customers/page.tsx",import.meta.url),"utf8");

@@ -4,6 +4,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 type CostRow = { task_id: string | null; provider: string; model_or_sku: string | null; operation: string; amount_type: string; amount_usd: number; quantity: number; occurred_at: string };
+type CandidateRow = { id:string; task_id:string; decision:string; imported_customer_id:string|null; created_at:string; processed_at:string|null };
+
+function shanghaiDay(value:string) {
+  return new Date(Date.parse(value) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,24 +49,41 @@ export async function GET(request: NextRequest) {
       if (result.error) throw result.error;
       costs.push(...((result.data || []) as CostRow[]));
     }
+    const candidates:CandidateRow[]=[];
+    for (let offset = 0; offset < parentIds.length; offset += 150) {
+      for (let rowOffset = 0; ; rowOffset += 1000) {
+        const result = await admin.from("ai_acquisition_candidates").select("id,task_id,decision,imported_customer_id,created_at,processed_at").in("task_id", parentIds.slice(offset, offset + 150)).order("created_at",{ascending:true}).order("id",{ascending:true}).range(rowOffset,rowOffset+999);
+        if (result.error) throw result.error;
+        const candidateRows=(result.data||[]) as CandidateRow[];
+        candidates.push(...candidateRows);
+        if(candidateRows.length<1000)break;
+      }
+    }
     const rangeStart = Date.parse(`${from}T00:00:00.000+08:00`);
     const rangeEnd = Date.parse(`${to}T23:59:59.999+08:00`);
+    const createdInRange=(candidate:CandidateRow)=>allTime||(Date.parse(candidate.created_at)>=rangeStart&&Date.parse(candidate.created_at)<=rangeEnd);
+    const processedInRange=(candidate:CandidateRow)=>Boolean(candidate.processed_at)&&(allTime||(Date.parse(String(candidate.processed_at))>=rangeStart&&Date.parse(String(candidate.processed_at))<=rangeEnd));
+    const discoveredCandidates=candidates.filter(createdInRange);
+    const processedCandidates=candidates.filter(processedInRange);
+    const acceptedCandidates=processedCandidates.filter((candidate)=>candidate.decision==="ACCEPTED"&&Boolean(candidate.imported_customer_id));
+    const candidateTaskIdsInRange=new Set([...discoveredCandidates,...processedCandidates].map((candidate)=>candidate.task_id));
     const rows = tasks.map((task) => {
       const taskCosts = costs.filter((cost) => cost.task_id && parentByCostTask.get(cost.task_id) === task.id);
       const quantity = (rows: CostRow[]) => rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
       return { ...task, calls: quantity(taskCosts), free_calls: quantity(taskCosts.filter((cost) => cost.amount_type === "FREE")), google_calls: quantity(taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES")), openai_calls: quantity(taskCosts.filter((cost) => cost.provider === "OPENAI")), total_cost_usd: actualCostUsd(taskCosts) };
-    }).filter((task) => allTime || task.calls > 0 || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
+    }).filter((task) => allTime || task.calls > 0 || candidateTaskIdsInRange.has(task.id) || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
     const quantity = (items: CostRow[]) => items.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
-    let accepted = 0;
-    for (let offset = 0; offset < parentIds.length; offset += 150) {
-      let acceptedQuery = admin.from("ai_acquisition_candidates").select("id", { count:"exact", head:true }).in("task_id", parentIds.slice(offset, offset + 150)).eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
-      if (!allTime) acceptedQuery = acceptedQuery.gte("processed_at", `${from}T00:00:00.000+08:00`).lte("processed_at", `${to}T23:59:59.999+08:00`);
-      const result = await acceptedQuery;
-      if (result.error) throw result.error;
-      accepted += result.count || 0;
+    const summary = { tasks: rows.length, discovered: discoveredCandidates.length, processed: processedCandidates.length, accepted:acceptedCandidates.length, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES" && isActuallyIncurredCost(row)).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), total_cost_usd: actualCostUsd(costs) };
+    const dailyByDate=new Map<string,{date:string;discovered:number;processed:number;accepted:number;calls:number;cost:number}>();
+    const dailyRow=(date:string)=>{const current=dailyByDate.get(date)||{date,discovered:0,processed:0,accepted:0,calls:0,cost:0};dailyByDate.set(date,current);return current};
+    if(!allTime){
+      for(let cursor=from;cursor<=to;){dailyRow(cursor);const next=new Date(`${cursor}T00:00:00.000Z`);next.setUTCDate(next.getUTCDate()+1);cursor=next.toISOString().slice(0,10);if(dailyByDate.size>=366)break}
+      for(const candidate of discoveredCandidates)dailyRow(shanghaiDay(candidate.created_at)).discovered+=1;
+      for(const candidate of processedCandidates){const row=dailyRow(shanghaiDay(String(candidate.processed_at)));row.processed+=1;if(candidate.decision==="ACCEPTED"&&candidate.imported_customer_id)row.accepted+=1}
+      for(const cost of costs){const row=dailyRow(shanghaiDay(cost.occurred_at));row.calls+=Math.max(0,Number(cost.quantity||1));if(isActuallyIncurredCost(cost))row.cost+=Number(cost.amount_usd||0)}
     }
-    const summary = { tasks: rows.length, discovered: rows.reduce((sum, row) => sum + Number(row.discovered_count || 0), 0), processed: rows.reduce((sum, row) => sum + Number(row.processed_count || 0), 0), accepted, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES" && isActuallyIncurredCost(row)).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), total_cost_usd: actualCostUsd(costs) };
-    return NextResponse.json({ summary, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    const daily=[...dailyByDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
+    return NextResponse.json({ summary, daily, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客用量查询失败";
     console.error("[ai-acquisition/usage] query failed", error);
