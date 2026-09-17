@@ -67,6 +67,7 @@ assert.match(read("components/import-view.tsx"), /publicPoolMatches[\s\S]*条客
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), /mt-3 flex justify-end gap-2[\s\S]*分配已选/, "客户公海批量操作不得独占一行造成工具栏错位");
 assert.match(read("components/app-shell.tsx"), /fromPool[\s\S]*href === "\/customers\/pool"/, "从公海进入客户详情后必须保持客户公海菜单选中");
 assert.match(read("components/app-shell.tsx"), /AI获客 \/ 任务中心[\s\S]*AI获客 \/ 创建任务[\s\S]*AI获客 \/ 获客设置/, "AI获客面包屑必须统一为模块与当前页面两级结构");
+assert.match(read("components/app-shell.tsx"), /href === "\/ai-acquisition"[\s\S]*path !== "\/ai-acquisition\/customers"/, "获客结果页不得同时高亮AI获客任务中心菜单");
 assert.match(read("components/app-shell.tsx"), /AI筛选 \/ 任务中心[\s\S]*AI筛选 \/ 创建任务[\s\S]*AI筛选 \/ 筛选设置[\s\S]*AI筛选 \/ 分析规则/, "AI筛选面包屑必须统一为模块与当前页面两级结构");
 assert.doesNotMatch(read("components/app-shell.tsx"), /AI筛选 \/ 任务中心 \/|AI筛选 \/ 任务详情 \/|AI获客 \/ 任务中心 \//, "AI模块面包屑不得混用三级层级");
 for (const path of ["components/orders-view.tsx", "components/quotes-view.tsx", "components/stock-orders-view.tsx", "components/followups-view.tsx"]) {

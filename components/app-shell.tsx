@@ -120,6 +120,12 @@ function isActive(path: string, href: string, fromPool = false) {
     return !belongsToAnotherCustomerWorkspace &&
       (path === "/customers" || path.startsWith("/customers/"));
   }
+  // “获客结果” is a separate list entry.  Keep the acquisition task hub
+  // highlighted for task routes, but never highlight both entries at once.
+  if (href === "/ai-acquisition") {
+    return path !== "/ai-acquisition/customers" &&
+      (path === "/ai-acquisition" || path.startsWith("/ai-acquisition/"));
+  }
   return href === "/"
     ? path === "/"
     : path === href || path.startsWith(`${href}/`);
