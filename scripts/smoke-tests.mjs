@@ -37,7 +37,7 @@ assert.doesNotMatch(customerApi, /query\s*=\s*query\.or\(`owner_id\.eq\.\$\{user
 assert.match(customerApi, /ai_status[\s\S]*PENDING[\s\S]*COMPLETED[\s\S]*FAILED/, "AI分析状态必须由明确的待分析、已分析和失败状态区分，不能仅依赖评分是否为空");
 assert.match(customerApi, /customer_conflicts/, "手动新增的跨用户重复客户必须进入冲突队列");
 assert.match(customerApi, /CROSS_OWNER_DUPLICATE/, "冲突记录必须使用跨归属人重复标记");
-assert.match(customerApi, /options === "industries"[\s\S]*new Set\(values\)/, "所属行业筛选项必须从当前用户全部客户中动态去重生成");
+assert.match(customerApi, /options === "industries" \|\| options === "filters"[\s\S]*counted\(values\.map\(\(item\)=>item\.industry\)\)/, "国家和所属行业筛选项必须从当前用户全部客户中动态去重生成");
 assert.match(customerApi, /searchParams\.getAll\("industry"\)/, "所属行业筛选必须读取全部多选值");
 assert.match(customerApi, /industries\.length === 1[\s\S]*\.eq\("industry", industries\[0\]\)[\s\S]*industries\.length > 1[\s\S]*\.in\("industry"/, "所属行业筛选必须对单选和多选执行精确查询");
 assert.match(customerApi, /countrySearchTokens\(search\)[\s\S]*country\.ilike/, "统一客户关键词必须同时支持国家代码和国家名称");
@@ -136,7 +136,10 @@ assert.doesNotMatch(taskDetail, /查看原因并重试/, "任务详情失败操�
 assert.match(taskDetail, /aiErrorMessageZh/, "任务详情失败原因必须转换为中文显示");
 const taskItemsApi = read("app/api/ai/tasks/[id]/items/route.ts");
 assert.match(taskItemsApi, /ai_screening_results[\s\S]*score,grade,target_decision/, "任务详情必须关联本任务分析结果而不是只读客户当前评分");
-for (const filter of ["industry", "target", "grade"]) {
+for (const filter of ["industry", "country"]) {
+  assert.match(taskItemsApi, new RegExp(`params\\.getAll\\("${filter}"\\)`), `任务客户接口缺少多选筛选条件：${filter}`);
+}
+for (const filter of ["target", "grade"]) {
   assert.match(taskItemsApi, new RegExp(`params\\.get\\("${filter}"\\)`), `任务客户接口缺少筛选条件：${filter}`);
 }
 
@@ -169,7 +172,7 @@ assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用
 assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");
 assert.match(permissionMigration, /zzccxry@gmail\.com[\s\S]*role = 'SALES'[\s\S]*role = 'ADMIN'/, "权限迁移必须把指定账号设为唯一系统管理员、其余账号设为销售员");
 assert.match(permissionMigration, /必须保留至少一名|current_user_is_admin/, "权限系统必须具备系统管理员保护规则");
-assert.match(taskDetail, /全部所属行业[\s\S]*全部目标客户[\s\S]*全部AI等级[\s\S]*查询[\s\S]*重置/, "任务详情必须在同一筛选行提供行业、目标客户、AI等级、查询和重置");
+assert.match(taskDetail, /label="所属行业"[\s\S]*全部目标客户[\s\S]*全部AI等级[\s\S]*查询[\s\S]*重置/, "任务详情必须在同一筛选行提供行业、目标客户、AI等级、查询和重置");
 const failureView = read("components/ai-screening/failures-view.tsx");
 assert.match(failureView, /flex min-h-9 items-center/, "待重试页面操作入口必须垂直对齐");
 assert.match(failureView, /aiErrorCodeLabel/, "待重试页面错误代码必须使用中文名称");
@@ -374,8 +377,8 @@ assert.match(customerDetail, /VerifiedContactsSection[\s\S]*customer=\{data\.cus
 assert.match(evidenceSections, /已核验的原有资料[\s\S]*AI新发现并已核验/, "客户详情必须区分原始已核验和AI新发现的联系方式");
 assert.match(customerDetail, /function cleanAiText[\s\S]*事实边界/, "客户详情必须清理历史结果中的模板化事实边界废话");
 assert.doesNotMatch(taskRunner, /事实边界[：:]未核验的信息不会写成既定事实/, "新分析结果不得继续生成模板化事实边界废话");
-assert.match(customersView, /options=industries[\s\S]*全部所属行业/, "客户列表必须加载并展示动态所属行业筛选");
-assert.match(customersView, /aria-label="所属行业多选"[\s\S]*type="checkbox"/, "所属行业必须支持多选");
+assert.match(customersView, /options=filters[\s\S]*label="所属行业"/, "客户列表必须加载并展示动态所属行业筛选");
+assert.match(customersView, /SearchableMultiSelectFilter[\s\S]*label="所属行业"/, "所属行业必须支持搜索和多选");
 assert.match(customersView, /industries\.forEach\(\(industry\) => params\.append\("industry", industry\)\)/, "列表、全选和导出必须传递全部行业条件");
 assert.ok(customersView.indexOf('value={target}') < customersView.indexOf('value={status}'), "客户阶段筛选必须紧跟目标客户筛选之后");
 assert.ok(customersView.indexOf('value={status}') < customersView.indexOf('onClick={reset}'), "重置按钮必须与筛选条件位于同一筛选行末尾");

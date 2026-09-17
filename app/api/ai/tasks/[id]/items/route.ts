@@ -13,7 +13,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const status = params.get("status") || "";
     const step = params.get("step") || "";
     const retry = params.get("retry") || "";
-    const industry = params.get("industry")?.trim() || "";
+    const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
+    const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const target = params.get("target") || "";
     const grade = params.get("grade") || "";
     const options = params.get("options") || "";
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (task.error) throw task.error;
     if (!task.data) throw new Error("TASK_NOT_FOUND");
     if (task.data.user_id !== user.id && (!hasPermission(account, "ai.data_all") || !await canReadAiOwner(account, task.data.user_id))) throw new Error("FORBIDDEN");
-    if (options === "industries") {
+    if (options === "industries" || options === "filters") {
       const values: string[] = [];
       for (let offset = 0; ; offset += 1000) {
         const pageResult = await admin.from("ai_screening_results")
@@ -40,7 +41,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         if (rows.length < 1000) break;
       }
       const data = [...new Set(values)].sort((left, right) => left.localeCompare(right, "zh-CN"));
-      return NextResponse.json({ data, count: data.length });
+      if(options === "industries")return NextResponse.json({ data, count: data.length });
+      const countryRows:Array<{customer:{country?:string | null} | Array<{country?:string | null}> | null}>=[];
+      for(let offset=0;;offset+=1000){const countryPage=await admin.from("ai_screening_task_items").select("customer:customers!inner(country)").eq("task_id",id).range(offset,offset+999);if(countryPage.error)throw countryPage.error;countryRows.push(...(countryPage.data||[]));if((countryPage.data||[]).length<1000)break}
+      const counted=(items:string[])=>[...items.reduce((map,value)=>{const normalized=value.trim();if(normalized)map.set(normalized,(map.get(normalized)||0)+1);return map},new Map<string,number>())].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
+      return NextResponse.json({industries:counted(values),countries:counted(countryRows.map((row)=>{const customer=Array.isArray(row.customer)?row.customer[0]:row.customer;return String(customer?.country||"")}))});
     }
     const safeSearch = search.replace(/[,%()]/g," ").trim();
     let query = admin.from("ai_screening_task_items").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,industry,is_target_customer,ai_score,ai_level)", { count: "exact" }).eq("task_id", id);
@@ -49,10 +54,17 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (retry === "none") query = query.eq("attempt_count", 0);
     if (retry === "retrying") query = query.gt("attempt_count", 0).lt("attempt_count", 3);
     if (retry === "exhausted") query = query.gte("attempt_count", 3);
-    if (industry || (grade && ["A", "B", "C", "D"].includes(grade)) || ["valid", "invalid", "review"].includes(target)) {
+    if (countries.length) {
+      const customerRows=await admin.from("customers").select("id").in("country",countries).limit(10000);
+      if(customerRows.error)throw customerRows.error;
+      const customerIds=(customerRows.data||[]).map((row)=>String(row.id));
+      if(!customerIds.length)return NextResponse.json({data:[],count:0,page,pageSize});
+      query=query.in("customer_id",customerIds);
+    }
+    if (industries.length || (grade && ["A", "B", "C", "D"].includes(grade)) || ["valid", "invalid", "review"].includes(target)) {
       const decision = target === "valid" ? "VALID" : target === "invalid" ? "INVALID" : "REVIEW";
       let resultFilter = admin.from("ai_screening_results").select("task_item_id").eq("task_id", id).eq("is_latest_valid", true);
-      if (industry) resultFilter = resultFilter.eq("industry_type", industry);
+      if (industries.length) resultFilter = resultFilter.in("industry_type", industries);
       if (grade && ["A", "B", "C", "D"].includes(grade)) resultFilter = resultFilter.eq("grade", grade);
       if (["valid", "invalid", "review"].includes(target)) resultFilter = resultFilter.eq("target_decision", decision);
       const decisions = await resultFilter;

@@ -56,7 +56,9 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
-    const country = params.get("country")?.trim() || "";
+    const createdFrom = params.get("created_from")?.trim() || "";
+    const createdTo = params.get("created_to")?.trim() || "";
+    const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const aiLevel = params.get("ai_level")?.trim().toUpperCase() || "";
     const aiStatus = params.get("ai_status")?.trim().toLowerCase() || "all";
@@ -117,9 +119,9 @@ export async function GET(request: NextRequest) {
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionRows: Array<{ id: string; industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
+      const optionRows: Array<{ id: string; country:string | null; industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
-        let optionQuery = admin.from("customers").select("id,industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
+        let optionQuery = admin.from("customers").select("id,country,industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
         if (restrictedBatchView) optionQuery = optionQuery.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
         if (tab === "claimed") {
@@ -165,6 +167,9 @@ export async function GET(request: NextRequest) {
           : { value: `industry:${label}`, label, values: rawValues, tone: "raw" });
       }
       const industries = [...industryOptionMap.values()];
+      const countryCount=new Map<string,number>();
+      for(const item of optionRows){const value=String(item.country||"").trim();if(value)countryCount.set(value,(countryCount.get(value)||0)+1)}
+      const countries=[...countryCount].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
       const sourceGroup = (value?: string | null) => {
         const normalized = String(value || "").toUpperCase();
         if (["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"].includes(normalized)) return "IMPORT";
@@ -187,6 +192,7 @@ export async function GET(request: NextRequest) {
         : { data: [], error: null };
       if (screeningTasks.error) throw screeningTasks.error;
       return NextResponse.json({
+        countries,
         industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
         sources: [
@@ -226,7 +232,9 @@ export async function GET(request: NextRequest) {
       }
       query = query.or(searchable.map((field) => `${field}.ilike.${pattern}`).join(","));
     }
-    if (country) query = query.eq("country", country);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(createdFrom)) query = query.gte("created_at", `${createdFrom}T00:00:00.000+08:00`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) query = query.lte("created_at", `${createdTo}T23:59:59.999+08:00`);
+    if (countries.length) query = query.in("country", countries);
     const verifiedIndustries = industries.filter((value) => value.startsWith("ai:")).map((value) => value.slice(3));
     const rawCategories = industries.filter((value) => value.startsWith("raw:")).map((value) => value.slice(4));
     const quoted = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;

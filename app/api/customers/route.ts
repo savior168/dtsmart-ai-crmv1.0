@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     const followupStatus = request.nextUrl.searchParams.get("followup_status");
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
-    const country = request.nextUrl.searchParams.get("country")?.trim();
+    const countries = [...new Set(request.nextUrl.searchParams.getAll("country").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean))];
     const fromDate = request.nextUrl.searchParams.get("from")?.trim() || "";
     const toDate = request.nextUrl.searchParams.get("to")?.trim() || "";
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
@@ -115,25 +115,25 @@ export async function GET(request: NextRequest) {
     const sort = request.nextUrl.searchParams.get("sort") || "updated_at";
     const direction = request.nextUrl.searchParams.get("direction") === "asc" ? "asc" : "desc";
 
-    if (options === "industries") {
-      const values: string[] = [];
+    if (options === "industries" || options === "filters") {
+      const values: Array<{industry:string;country:string}> = [];
       for (let from = 0; ; from += 1000) {
         let pageQueryBuilder = supabase.from("customers")
-          .select("industry")
+          .select("industry,country")
           .is("deleted_at", null)
           .not("owner_id", "is", null)
           .neq("status", "RELEASED")
-          .not("industry", "is", null)
-          .neq("industry", "")
           .order("industry", { ascending: true });
         if (scopeUserId) pageQueryBuilder = pageQueryBuilder.eq("owner_id", scopeUserId);
         const pageQuery = await pageQueryBuilder.range(from, from + 999);
         if (pageQuery.error) throw pageQuery.error;
-        values.push(...(pageQuery.data || []).map((item) => String(item.industry || "").trim()).filter(Boolean));
+        values.push(...(pageQuery.data || []).map((item) => ({industry:String(item.industry || "").trim(),country:String(item.country || "").trim()})));
         if ((pageQuery.data || []).length < 1000) break;
       }
-      const industries = Array.from(new Set(values)).sort((left, right) => left.localeCompare(right, "zh-CN"));
-      return NextResponse.json({ data: industries, count: industries.length });
+      const counted=(items:string[])=>[...items.reduce((map,value)=>{if(value)map.set(value,(map.get(value)||0)+1);return map},new Map<string,number>())].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
+      const industryOptions=counted(values.map((item)=>item.industry));
+      if(options === "industries")return NextResponse.json({ data: industryOptions.map((item)=>item.value), count: industryOptions.length });
+      return NextResponse.json({countries:counted(values.map((item)=>item.country)),industries:industryOptions});
     }
     if (options === "batches") {
       const grouped = new Map<string, { id: string; filename: string; created_at: string | null; customer_count: number; success_count: number | null; legacy: boolean }>();
@@ -210,12 +210,8 @@ export async function GET(request: NextRequest) {
     // “我的客户”无论按本人、指定归属人还是全部归属人查看，都只包含
     // 当前已经归属的客户。无归属客户只能在客户公海查看与处理。
     query = query.not("owner_id", "is", null);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) query = query.gte("created_at", `${fromDate}T00:00:00.000Z`);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
-      const exclusive = new Date(`${toDate}T00:00:00.000Z`);
-      exclusive.setUTCDate(exclusive.getUTCDate() + 1);
-      query = query.lt("created_at", exclusive.toISOString());
-    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) query = query.gte("created_at", `${fromDate}T00:00:00.000+08:00`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(toDate)) query = query.lte("created_at", `${toDate}T23:59:59.999+08:00`);
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) {
@@ -240,10 +236,7 @@ export async function GET(request: NextRequest) {
     else if (followupSupported && followupStatus) query = query.eq("followup_status", followupStatus);
     else if (!followupSupported && followupStatus && followupStatus !== "WAITING_CONTACT") query = query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
-    if (country) {
-      const filters = country.split(/[，,]/).flatMap((item) => countrySearchTokens(item)).map((item) => item.replace(/[(),]/g, " ").trim()).filter(Boolean);
-      if (filters.length) query = query.or(Array.from(new Set(filters)).map((item) => `country.ilike.%${item}%`).join(","));
-    }
+    if (countries.length) query = query.in("country", countries);
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));

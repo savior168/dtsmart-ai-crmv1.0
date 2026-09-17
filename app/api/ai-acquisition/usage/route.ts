@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 type CostRow = { task_id: string | null; provider: string; model_or_sku: string | null; operation: string; amount_type: string; amount_usd: number; quantity: number; occurred_at: string };
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     const rows = tasks.map((task) => {
       const taskCosts = costs.filter((cost) => cost.task_id && parentByCostTask.get(cost.task_id) === task.id);
       const quantity = (rows: CostRow[]) => rows.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
-      return { ...task, calls: quantity(taskCosts), free_calls: quantity(taskCosts.filter((cost) => cost.amount_type === "FREE")), google_calls: quantity(taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES")), openai_calls: quantity(taskCosts.filter((cost) => cost.provider === "OPENAI")), total_cost_usd: taskCosts.reduce((sum, cost) => sum + Number(cost.amount_usd || 0), 0) };
+      return { ...task, calls: quantity(taskCosts), free_calls: quantity(taskCosts.filter((cost) => cost.amount_type === "FREE")), google_calls: quantity(taskCosts.filter((cost) => cost.provider === "GOOGLE_PLACES")), openai_calls: quantity(taskCosts.filter((cost) => cost.provider === "OPENAI")), total_cost_usd: actualCostUsd(taskCosts) };
     }).filter((task) => allTime || task.calls > 0 || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
     const quantity = (items: CostRow[]) => items.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
     let accepted = 0;
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       if (result.error) throw result.error;
       accepted += result.count || 0;
     }
-    const summary = { tasks: rows.length, discovered: rows.reduce((sum, row) => sum + Number(row.discovered_count || 0), 0), accepted, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), total_cost_usd: costs.reduce((sum, row) => sum + Number(row.amount_usd || 0), 0) };
+    const summary = { tasks: rows.length, discovered: rows.reduce((sum, row) => sum + Number(row.discovered_count || 0), 0), accepted, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES" && isActuallyIncurredCost(row)).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), total_cost_usd: actualCostUsd(costs) };
     return NextResponse.json({ summary, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客用量查询失败";

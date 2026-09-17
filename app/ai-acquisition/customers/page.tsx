@@ -6,5 +6,6 @@ export default async function Page({ searchParams }:{ searchParams:Promise<{scop
   const query = await searchParams;
   const requested = query.scope || "accepted";
   const scope = (["today","accepted","review"].includes(requested) ? requested : "accepted") as "today"|"accepted"|"review";
-  return <AcquisitionCustomerResults initialScope={scope} initialOwnerId={query.user_id || ""}/>;
+  const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return <AcquisitionCustomerResults initialScope={scope} initialOwnerId={query.user_id || ""} initialDate={scope === "today" ? today : ""}/>;
 }

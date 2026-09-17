@@ -41,11 +41,29 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const itemId=String(candidate.data.screening_task_item_id||"");
       const [result,contacts,evidence]=await Promise.all([
         admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
-        admin.from("customer_contacts").select("type,value_normalized,verification_status,identity_match_status,exact_source_url").eq("customer_id",customerId),
+        admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id",customerId),
         admin.from("ai_screening_evidence").select("source_url,evidence_strength").eq("task_item_id",itemId),
       ]);
       if (result.error||contacts.error||evidence.error) throw result.error||contacts.error||evidence.error;
-      const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:contacts.data||[]});
+      const identityStatus=String(result.data?.identity_status||"");
+      const trustedEvidenceUrls=new Set((evidence.data||[]).filter((row)=>/^https?:\/\//i.test(String(row.source_url||""))&&String(row.evidence_strength||"")!=="WEAK_HINT").map((row)=>String(row.source_url)));
+      const repairableContacts=(contacts.data||[]).filter((row)=>
+        ["PHONE","EMAIL","WHATSAPP","WEBSITE"].includes(String(row.type))
+        && ["google_maps","website"].includes(String(row.source_channel||""))
+        && trustedEvidenceUrls.has(String(row.exact_source_url||""))
+        && ["MATCHED","LIKELY_MATCHED"].includes(identityStatus)
+        && !["MATCHED_ORIGINAL","NEW_VERIFIED","SOURCE_CONFIRMED"].includes(String(row.verification_status||"")),
+      );
+      if(repairableContacts.length){
+        const verificationStatus=identityStatus==="MATCHED"?"NEW_VERIFIED":"SOURCE_CONFIRMED";
+        const repaired=await admin.from("customer_contacts").update({verification_status:verificationStatus,identity_match_status:identityStatus,updated_at:new Date().toISOString()}).in("id",repairableContacts.map((row)=>row.id));
+        if(repaired.error)throw repaired.error;
+      }
+      const refreshedContacts=repairableContacts.length
+        ? await admin.from("customer_contacts").select("type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id",customerId)
+        : contacts;
+      if(refreshedContacts.error)throw refreshedContacts.error;
+      const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:refreshedContacts.data||[]});
       if (!gate.accepted) return NextResponse.json({error:"当前证据仍未达到入池门槛，请先补齐目标行业、主体在营和可追溯有效联系方式依据"},{status:409});
       const normalized=gate.actionableContacts.map((row)=>String(row.value_normalized||"")).filter(Boolean);
       const duplicate=normalized.length?await admin.from("customer_contacts").select("customer_id").in("value_normalized",normalized).neq("customer_id",customerId).limit(1):{data:[],error:null};
@@ -65,6 +83,14 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         await admin.from("ai_acquisition_candidates").update({decision:"REVIEW",decision_reason:"重新校验通过，但客户入池写入失败，等待重试",imported_customer_id:null,updated_at:new Date().toISOString()}).eq("id",id).eq("decision","ACCEPTED");
         throw promoted.error||new Error("客户公海写入未确认，请稍后重试");
       }
+      const usableContacts=(refreshedContacts.data||[]).filter((row)=>["MATCHED_ORIGINAL","NEW_VERIFIED","SOURCE_CONFIRMED"].includes(String(row.verification_status||"")));
+      const first=(type:string)=>usableContacts.find((row)=>row.type===type)?.value_raw||null;
+      const profile=await admin.from("customers").select("phone,email,whatsapp,website").eq("id",customerId).maybeSingle();
+      if(profile.error)throw profile.error;
+      const completed=await admin.from("customers").update({
+        phone:profile.data?.phone||first("PHONE"),email:profile.data?.email||first("EMAIL"),whatsapp:profile.data?.whatsapp||first("WHATSAPP"),website:profile.data?.website||first("WEBSITE"),updated_at:new Date().toISOString(),
+      }).eq("id",customerId);
+      if(completed.error)throw completed.error;
     }
     await refreshTaskCounts(task.id);
     await admin.from("audit_logs").insert({user_id:account.id,action:`AI_ACQUISITION_REVIEW_${action}`,target_type:"ai_acquisition_candidate",target_id:id,content:{task_id:task.id,task_number:task.task_number,quality_gate_bypassed:false}});

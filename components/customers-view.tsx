@@ -30,6 +30,7 @@ import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CustomerSocialSummary } from "@/components/customer-social-summary";
+import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
@@ -41,6 +42,7 @@ import {
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { customerSourceLabel } from "@/lib/customers/source-display";
 import { displayCustomerName } from "@/lib/customer-display";
+import { countryInfo } from "@/lib/countries";
 
 type CustomerWorkspace = "list" | "protection" | "conflicts";
 
@@ -113,9 +115,9 @@ export function CustomersView() {
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [countries, setCountries] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
-  const [industryOptions, setIndustryOptions] = useState<string[]>([]);
-  const [industryOpen, setIndustryOpen] = useState(false);
+  const [filterOptions, setFilterOptions] = useState<{countries:SearchableFilterOption[];industries:SearchableFilterOption[]}>({countries:[],industries:[]});
   const [sourceBatches, setSourceBatches] = useState<string[]>([]);
   const [sourceType, setSourceType] = useState("");
   const [batchOptions, setBatchOptions] = useState<ImportBatchOption[]>([]);
@@ -154,7 +156,6 @@ export function CustomersView() {
   const [permissionOpen, setPermissionOpen] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const newRef = useRef<HTMLDivElement>(null);
-  const industryRef = useRef<HTMLDivElement>(null);
   const orderedColumns = useMemo(() => {
     const byKey = new Map(columns.map((column) => [column.key, column]));
     const ordered = draft.map((key) => byKey.get(key)).filter((column): column is (typeof columns)[number] => Boolean(column));
@@ -188,10 +189,10 @@ export function CustomersView() {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     setWorkspace(tab === "protection" || tab === "conflicts" ? tab : "list");
-    // 旧链接中的独立国家条件自动并入统一关键词框，保证历史收藏链接仍可用。
-    setSearch(params.get("search") || params.get("country") || "");
+    setSearch(params.get("search") || "");
     setFromDate(params.get("from") || "");
     setToDate(params.get("to") || "");
+    setCountries(params.getAll("country").map((value) => value.trim()).filter(Boolean));
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
     setSourceType(params.get("source_type") || "");
@@ -215,8 +216,6 @@ export function CustomersView() {
         setFieldOpen(false);
       if (newRef.current && !newRef.current.contains(targetNode))
         setNewOpen(false);
-      if (industryRef.current && !industryRef.current.contains(targetNode))
-        setIndustryOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -241,6 +240,7 @@ export function CustomersView() {
     if (fromDate) params.set("from", fromDate);
     if (toDate) params.set("to", toDate);
     if (scopeUserId) params.set("user_id", scopeUserId);
+    countries.forEach((country) => params.append("country", country));
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
     if (sourceType) params.set("source_type", sourceType);
@@ -264,6 +264,7 @@ export function CustomersView() {
     search,
     fromDate,
     toDate,
+    countries,
     industries,
     sourceBatches,
     sourceType,
@@ -309,7 +310,7 @@ export function CustomersView() {
     const scope = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
     void Promise.all([
       fetch(`/api/customers?page=1&pageSize=1&ai_status=all&deleted=false${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setTotalCustomerCount(Number(body.count ?? 0)); }),
-      fetch(`/api/customers?options=industries${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setIndustryOptions(Array.isArray(body.data) ? body.data : []); }),
+      fetch(`/api/customers?options=filters${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setFilterOptions({countries:Array.isArray(body.countries)?body.countries:[],industries:Array.isArray(body.industries)?body.industries:[]}); }),
       fetch(`/api/customers?options=batches${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setBatchOptions(Array.isArray(body.data) ? body.data : []); }),
       fetch(`/api/customers/protection?summary=1${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setProtectionCount(Number(body.count ?? 0)); }),
       fetch(`/api/customer-conflicts?summary=1${scope}`).then((response) => response.json()).then((body) => { if (!disposed) setConflictCount(Number(body.count ?? 0)); }),
@@ -342,6 +343,7 @@ export function CustomersView() {
       [
         search ? { key: "search", label: `关键词：${search}` } : null,
         fromDate || toDate ? { key: "date", label: `创建日期：${fromDate || "不限"} 至 ${toDate || "不限"}` } : null,
+        countries.length ? { key: "country", label: `国家/地区：已选 ${countries.length} 项` } : null,
         industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
         sourceType ? { key: "sourceType", label: `数据来源：${sourceType === "AI_ACQUISITION" ? "AI获客" : sourceType === "IMPORT" ? "批量导入" : "手动新增"}` } : null,
         sourceBatches.length ? { key: "sourceBatches", label: `来源批次：已选 ${sourceBatches.length} 个` } : null,
@@ -362,11 +364,12 @@ export function CustomersView() {
         aiFilter !== "done" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "全部"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, fromDate, toDate, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
+    [search, fromDate, toDate, countries, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
     if (key === "date") { setFromDate(""); setToDate(""); }
+    if (key === "country") setCountries([]);
     if (key === "industry") setIndustries([]);
     if (key === "sourceBatches") setSourceBatches([]);
     if (key === "sourceType") { setSourceType(""); setSourceBatches([]); }
@@ -382,6 +385,7 @@ export function CustomersView() {
     setSearch("");
     setFromDate("");
     setToDate("");
+    setCountries([]);
     setIndustries([]);
     setSourceBatches([]);
     setSourceType("");
@@ -442,6 +446,9 @@ export function CustomersView() {
       followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
       deleted: "false", sort, direction,
     });
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    countries.forEach((country) => params.append("country", country));
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
     if (sourceType) params.set("source_type", sourceType);
@@ -492,6 +499,9 @@ export function CustomersView() {
       pageSize: "500", search, status, ai_level: level, target, export: "1",
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    countries.forEach((country) => params.append("country", country));
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
     if (sourceType) params.set("source_type", sourceType);
@@ -574,15 +584,10 @@ export function CustomersView() {
                 className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500"
               />
             </label>
-            <div ref={industryRef} className="relative w-44 shrink-0">
-              <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left text-sm outline-none transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
-                <span className="max-w-32 truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
-              </button>
-              {industryOpen ? <div role="listbox" aria-label="所属行业多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
-                <button type="button" onClick={() => { setIndustries([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空行业选择</button>
-                {industryOptions.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item)} onChange={() => { setIndustries((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]); setPage(1); }} /><span className="min-w-0 break-words">{item}</span></label>)}
-              </div> : null}
-            </div>
+            <input aria-label="创建开始日期" title="按进入系统的创建日期筛选" type="date" value={fromDate} max={toDate||undefined} onChange={(event)=>{setFromDate(event.target.value);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"/>
+            <input aria-label="创建结束日期" title="按进入系统的创建日期筛选" type="date" value={toDate} min={fromDate||undefined} onChange={(event)=>{setToDate(event.target.value);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"/>
+            <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
+            <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
             {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
             <select value={sourceType} onChange={(event)=>{setSourceType(event.target.value);setSourceBatches([]);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="数据来源"><option value="">全部数据来源</option><option value="AI_ACQUISITION">AI获客</option><option value="IMPORT">批量导入</option><option value="MANUAL">手动新增</option></select>
             <ImportBatchMultiSelect

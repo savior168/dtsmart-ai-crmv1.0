@@ -5,6 +5,7 @@ import { start } from "workflow/api";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { localizedSearchTerms, type AcquisitionCountry } from "@/lib/ai-acquisition/config";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
+import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*").eq("id", id).maybeSingle();
@@ -30,8 +31,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const decision = request.nextUrl.searchParams.get("decision") || "";
     const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
-    const country = request.nextUrl.searchParams.get("country") || "";
-    const industry = request.nextUrl.searchParams.get("industry")?.trim() || "";
+    const countries = [...new Set(request.nextUrl.searchParams.getAll("country").map((value) => value.trim()).filter(Boolean))];
+    const industries = [...new Set(request.nextUrl.searchParams.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = request.nextUrl.searchParams.get("level") || "";
     const readiness = request.nextUrl.searchParams.get("readiness") || "";
     const lightweight = request.nextUrl.searchParams.get("lightweight") === "1";
@@ -39,11 +40,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
     if (decision) query = query.eq("decision", decision);
     if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
-    if (country) query = query.eq("country", country);
-    if (industry) {
+    if (countries.length) query = query.in("country", countries);
+    if (industries.length) {
       const [industryMatches,categoryMatches]=await Promise.all([
-        createAdminClient().from("customers").select("id").eq("industry",industry).limit(5000),
-        createAdminClient().from("customers").select("id").eq("category",industry).limit(5000),
+        createAdminClient().from("customers").select("id").in("industry",industries).limit(5000),
+        createAdminClient().from("customers").select("id").in("category",industries).limit(5000),
       ]);
       if(industryMatches.error||categoryMatches.error)throw industryMatches.error||categoryMatches.error;
       const matchingCustomerIds=[...new Set([...(industryMatches.data||[]),...(categoryMatches.data||[])].map((row)=>String(row.id)))];
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         ? createAdminClient().from("customers").select("id,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,business_scope,company_scale_evidence,customer_value,followup_suggestion,acquisition_match_keywords").in("id", customerIds)
         : Promise.resolve({ data: [], error: null }),
       customerIds.length
-        ? createAdminClient().from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).in("verification_status", ["MATCHED_ORIGINAL","NEW_VERIFIED","SOURCE_CONFIRMED"]).not("exact_source_url", "is", null).order("captured_at", { ascending: false })
+        ? createAdminClient().from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).not("exact_source_url", "is", null).order("captured_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (customerProfiles.error || verifiedContacts.error) throw customerProfiles.error || verifiedContacts.error;
@@ -74,7 +75,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     }
     const enrichedCandidates = candidateRows.map((row) => {
       const customerId = String(row.staging_customer_id || row.imported_customer_id || "");
-      return { ...row, customer_profile: profileById.get(customerId) || null, verified_contacts: contactsByCustomer.get(customerId) || [] };
+      const customerContacts=contactsByCustomer.get(customerId)||[];
+      const sourceWebsite=customerContacts.find((contact)=>contact.type==="WEBSITE"&&contact.source_channel==="google_maps"&&String(contact.value_raw||"").trim());
+      return { ...row, customer_profile: profileById.get(customerId) || null, verified_contacts: customerContacts, source_website:sourceWebsite?.value_raw||null, source_website_status:sourceWebsite?.verification_status||null };
     });
     const [screeningTaskRows, acquisitionChild] = await Promise.all([
       createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500),
@@ -95,8 +98,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const checkpoints=discoveryCheckpoints.data||[];
     const checkpointBlocks=checkpoints.filter((row)=>row.status==="BUDGET_LIMITED").map((row)=>String(row.stop_reason||"BUDGET"));
     const blockedPeriods=[...new Set([...(budgetEvents.data||[]).map((row)=>String(row.blocked_period||"")),...checkpointBlocks].filter(Boolean))];
-    const industries=Array.isArray(task.industries)&&task.industries.length?task.industries:[task.industry].filter(Boolean);
-    const plannedSearches=(task.countries||[]).reduce((total:number,code:string)=>total+localizedSearchTerms(code as AcquisitionCountry,industries,task.keywords||[]).length,0);
+    const taskIndustries=Array.isArray(task.industries)&&task.industries.length?task.industries:[task.industry].filter(Boolean);
+    const plannedSearches=(task.countries||[]).reduce((total:number,code:string)=>total+localizedSearchTerms(code as AcquisitionCountry,taskIndustries,task.keywords||[]).length,0);
     const completedSearches=checkpoints.filter((row)=>["COMPLETED","BUDGET_LIMITED","SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status))).length;
     const incrementalSkipped=checkpoints.filter((row)=>row.status==="SKIPPED_RECENT").length;
     const concurrentlySkipped=checkpoints.filter((row)=>row.status==="SKIPPED_ACTIVE").length;
@@ -109,20 +112,22 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
     const customerStates=traceCustomerIds.length?await createAdminClient().from("customers").select("id,owner_id,status").in("id",traceCustomerIds):{data:[],error:null};
     if(customerStates.error)throw customerStates.error;
-    const metricCostRows:Array<{customer_id:string|null;provider:string;amount_usd:number;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
-    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+    const metricCostRows:Array<{customer_id:string|null;provider:string;amount_usd:number;amount_type:string;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
+    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,amount_type,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
     const queryByCustomer=new Map<string,string>();
     const stats=new Map<string,{query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number}>();
     const metric=(query:string)=>{const key=query||"未记录检索表达";if(!stats.has(key))stats.set(key,{query:key,candidates:0,duplicates:0,rejected:0,review:0,accepted:0,claimed:0,progressed:0,cost_usd:0});return stats.get(key)!};
     for(const row of traceRows.data||[]){const item=metric(String(row.source_query||""));item.candidates+=1;if(row.decision==="DUPLICATE")item.duplicates+=1;else if(row.decision==="REJECTED")item.rejected+=1;else if(row.decision==="REVIEW")item.review+=1;else if(row.decision==="ACCEPTED")item.accepted+=1;const customerId=String(row.imported_customer_id||row.staging_customer_id||"");if(customerId){queryByCustomer.set(customerId,item.query);const state=stateByCustomer.get(customerId);if(state?.owner_id)item.claimed+=1;if(["FOLLOWING","QUOTE","DEAL"].includes(String(state?.status||"")))item.progressed+=1;}}
-    for(const row of metricCostRows){const metadata=row.metadata&&typeof row.metadata==="object"?row.metadata as Record<string,unknown>:{};const query=row.provider==="GOOGLE_PLACES"?String(metadata.query||""):queryByCustomer.get(String(row.customer_id||""))||"";if(query)metric(query).cost_usd+=Number(row.amount_usd||0);}
+    for(const row of metricCostRows){const metadata=row.metadata&&typeof row.metadata==="object"?row.metadata as Record<string,unknown>:{};const query=row.provider==="GOOGLE_PLACES"?String(metadata.query||""):queryByCustomer.get(String(row.customer_id||""))||"";if(query&&isActuallyIncurredCost(row))metric(query).cost_usd+=Number(row.amount_usd||0);}
     const searchStats=[...stats.values()].sort((left,right)=>right.accepted-left.accepted||right.candidates-left.candidates||left.query.localeCompare(right.query));
     const usageData=usageSummary.data&&typeof usageSummary.data==="object"?usageSummary.data as Record<string,unknown>:{};
     const totalTokens=metricCostRows.reduce((sum,row)=>sum+Number(row.input_tokens||0)+Number(row.output_tokens||0),0);
     const reportCandidates=report?await createAdminClient().from("ai_acquisition_candidates").select("id,imported_customer_id,company_name,decision,ai_score,ai_level,country,matched_keywords").eq("task_id",id).eq("decision","ACCEPTED").order("ai_score",{ascending:false,nullsFirst:false}).limit(10):{data:[],error:null};
     if(reportCandidates.error)throw reportCandidates.error;
-    return NextResponse.json({ task: presentTask(task), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    const actualCost=actualCostUsd(metricCostRows);
+    const confirmedGoogleCost=actualCostUsd(metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES"));
+    return NextResponse.json({ task: presentTask(task), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,no_new_search_units:plannedSearches>0&&completedSearches>=plannedSearches&&checkpoints.every((row)=>["SKIPPED_RECENT","SKIPPED_ACTIVE"].includes(String(row.status)))}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"

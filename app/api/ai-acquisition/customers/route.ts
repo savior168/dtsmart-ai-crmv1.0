@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const search = (params.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
-    const country = params.get("country") || "";
-    const industry = params.get("industry")?.trim() || "";
+    const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
+    const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = params.get("level") || "";
     const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
     const to = /^\d{4}-\d{2}-\d{2}$/.test(params.get("to") || "") ? String(params.get("to")) : "";
@@ -33,12 +33,22 @@ export async function GET(request: NextRequest) {
     if (scope === "review") query = query.eq("decision", "REVIEW");
     else query = query.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
     if (scope === "today") query = query.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
-    if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
-    if (country) query = query.eq("country", country);
-    if (industry) {
+    if (search) {
+      const [customerMatches,contactMatches] = await Promise.all([
+        admin.from("customers").select("id").or(`company_name.ilike.%${search}%,address.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%,whatsapp.ilike.%${search}%,website.ilike.%${search}%,google_url.ilike.%${search}%`).limit(5000),
+        admin.from("customer_contacts").select("customer_id").or(`value_raw.ilike.%${search}%,value_normalized.ilike.%${search}%`).limit(5000),
+      ]);
+      if (customerMatches.error || contactMatches.error) throw customerMatches.error || contactMatches.error;
+      const matchingCustomerIds = [...new Set([...(customerMatches.data || []).map((row) => String(row.id)),...(contactMatches.data || []).map((row) => String(row.customer_id))])];
+      const searchConditions = [`company_name.ilike.%${search}%`,`address.ilike.%${search}%`];
+      if (matchingCustomerIds.length) searchConditions.push(`staging_customer_id.in.(${matchingCustomerIds.join(",")})`,`imported_customer_id.in.(${matchingCustomerIds.join(",")})`);
+      query = query.or(searchConditions.join(","));
+    }
+    if (countries.length) query = query.in("country", countries);
+    if (industries.length) {
       const [industryMatches,categoryMatches]=await Promise.all([
-        admin.from("customers").select("id").eq("industry",industry).limit(5000),
-        admin.from("customers").select("id").eq("category",industry).limit(5000),
+        admin.from("customers").select("id").in("industry",industries).limit(5000),
+        admin.from("customers").select("id").in("category",industries).limit(5000),
       ]);
       if(industryMatches.error||categoryMatches.error)throw industryMatches.error||categoryMatches.error;
       const matchingCustomerIds=[...new Set([...(industryMatches.data||[]),...(categoryMatches.data||[])].map((row)=>String(row.id)))];
@@ -51,9 +61,14 @@ export async function GET(request: NextRequest) {
     if (result.error) throw result.error;
     const rows = result.data || [];
     const customerIds = [...new Set(rows.map((row) => String(row.imported_customer_id || row.staging_customer_id || "")).filter(Boolean))];
-    const profiles = customerIds.length ? await admin.from("customers").select("id,industry,category").in("id", customerIds) : { data: [], error: null };
-    if (profiles.error) throw profiles.error;
+    const [profiles,sourceWebsites] = customerIds.length ? await Promise.all([
+      admin.from("customers").select("id,industry,category,website,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls").in("id", customerIds),
+      admin.from("customer_contacts").select("customer_id,value_raw,source_channel,verification_status,captured_at").in("customer_id",customerIds).eq("type","WEBSITE").not("exact_source_url","is",null).order("captured_at",{ascending:false}),
+    ]) : [{ data: [], error: null },{ data: [], error: null }];
+    if (profiles.error||sourceWebsites.error) throw profiles.error||sourceWebsites.error;
     const profileById = new Map((profiles.data || []).map((profile) => [String(profile.id), profile]));
+    const sourceWebsiteByCustomer=new Map<string,{value_raw:string;source_channel:string;verification_status:string}>();
+    for(const contact of sourceWebsites.data||[])if(!sourceWebsiteByCustomer.has(String(contact.customer_id))&&String(contact.value_raw||"").trim())sourceWebsiteByCustomer.set(String(contact.customer_id),contact as {value_raw:string;source_channel:string;verification_status:string});
 
     const summaryQueries = [
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`).limit(0),
@@ -64,15 +79,63 @@ export async function GET(request: NextRequest) {
     const summaryError = todayResult.error || acceptedResult.error || reviewResult.error;
     if (summaryError) throw summaryError;
 
+    // Filter choices must describe the current result set, not every industry
+    // and country the product can theoretically support. Load the scoped
+    // candidates in pages so the option counts are not limited to the visible
+    // table page or Supabase's default row cap.
+    const optionCandidates: Array<{country:string|null;staging_customer_id:string|null;imported_customer_id:string|null}> = [];
+    for (let offset = 0; offset < 20000; offset += 1000) {
+      let optionQuery = admin
+        .from("ai_acquisition_candidates")
+        .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id)");
+      if (ownerId) optionQuery = optionQuery.eq("task.user_id", ownerId);
+      if (scope === "review") optionQuery = optionQuery.eq("decision", "REVIEW");
+      else optionQuery = optionQuery.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
+      if (scope === "today") optionQuery = optionQuery.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+      const optionPage = await optionQuery.range(offset, offset + 999);
+      if (optionPage.error) throw optionPage.error;
+      const pageRows = optionPage.data || [];
+      optionCandidates.push(...pageRows.map((row) => ({
+        country: row.country,
+        staging_customer_id: row.staging_customer_id,
+        imported_customer_id: row.imported_customer_id,
+      })));
+      if (pageRows.length < 1000) break;
+    }
+    const optionCustomerIds = [...new Set(optionCandidates.map((row) => String(row.imported_customer_id || row.staging_customer_id || "")).filter(Boolean))];
+    const optionProfiles: Array<{id:string;industry:string|null;category:string|null}> = [];
+    for (let offset = 0; offset < optionCustomerIds.length; offset += 500) {
+      const profilePage = await admin.from("customers").select("id,industry,category").in("id", optionCustomerIds.slice(offset, offset + 500));
+      if (profilePage.error) throw profilePage.error;
+      optionProfiles.push(...(profilePage.data || []));
+    }
+    const optionProfileById = new Map(optionProfiles.map((profile) => [String(profile.id), profile]));
+    const countryCounts = new Map<string,number>();
+    const industryCounts = new Map<string,number>();
+    for (const candidate of optionCandidates) {
+      const countryValue = String(candidate.country || "").trim();
+      if (countryValue) countryCounts.set(countryValue, (countryCounts.get(countryValue) || 0) + 1);
+      const customerId = String(candidate.imported_customer_id || candidate.staging_customer_id || "");
+      const profile = optionProfileById.get(customerId);
+      const industryValue = String(profile?.industry || profile?.category || "").trim();
+      if (industryValue) industryCounts.set(industryValue, (industryCounts.get(industryValue) || 0) + 1);
+    }
+    const countedOptions = (counts:Map<string,number>) => [...counts.entries()]
+      .map(([value,count]) => ({ value, count }))
+      .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
+
     const canControlTasks = hasPermission(account, "ai.acquisition.control");
     return NextResponse.json({
       data: rows.map((row) => {
-        const profile=profileById.get(String(row.imported_customer_id || row.staging_customer_id || ""));
+        const customerId=String(row.imported_customer_id || row.staging_customer_id || "");
+        const profile=profileById.get(customerId);
+        const sourceWebsite=sourceWebsiteByCustomer.get(customerId);
         const task = Array.isArray(row.task) ? row.task[0] : row.task;
-        return { ...row, task, display_industry:profile?.industry||profile?.category||"待确认行业", can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
+        return { ...row, task, display_industry:profile?.industry||profile?.category||"待确认行业", website:profile?.website||sourceWebsite?.value_raw||null, website_source:profile?.website?"customer_profile":sourceWebsite?.source_channel||null, facebook_url:profile?.facebook_url||null,instagram_url:profile?.instagram_url||null,linkedin_url:profile?.linkedin_url||null,tiktok_url:profile?.tiktok_url||null,other_public_urls:profile?.other_public_urls||[],can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
       }),
       count: result.count || 0,
       summary: { today: todayResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
+      filter_options: { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) },
       show_owner: hasPermission(account, "ai.acquisition.data_all"),
     });
   } catch (error) {

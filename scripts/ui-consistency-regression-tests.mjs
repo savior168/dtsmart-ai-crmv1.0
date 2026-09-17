@@ -45,7 +45,7 @@ assert.match(read("components/customers-view.tsx"), /保护到期与续期[\s\S]
 assert.match(read("components/ui/app-tabs.tsx"), /countTone\?: "success" \| "warning" \| "danger"[\s\S]*bg-rose-50[\s\S]*bg-amber-50[\s\S]*bg-emerald-50/, "统一子页签必须支持成功、冲突和预警语义数量徽标");
 assert.match(read("components/customers-view.tsx"), /label: "我的客户"[\s\S]*count: totalCustomerCount[\s\S]*countTone: "success"/, "我的客户总数必须移入页签并以绿色显示");
 assert.match(read("components/customer-public-pool-view.tsx"), /tabCounts[\s\S]*counts=1[\s\S]*countTone/, "客户公海有数据列表的子页签必须显示语义颜色数量");
-assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"ai_score",\s*"country",\s*"phone"/, "待认领客户默认列表不得重复展示所属行业，应保留客户名称下的AI核验行业摘要");
+assert.match(read("components/customer-public-pool-view.tsx"), /available:\s*\["company_name",\s*"country",\s*"ai_score",\s*"phone"/, "待认领客户默认列表应按客户、国家、AI评分排列，且不得重复展示所属行业");
 assert.match(read("components/customer-public-pool-view.tsx"), /sticky right-0[\s\S]*>操作</, "客户公海操作列必须固定在右侧");
 assert.match(read("components/customer-public-pool-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicLink[\s\S]*kind="map"/, "客户公海官网与 Google Maps 必须复用统一入口组件");
 assert.match(read("components/customers-view.tsx"), /CustomerPublicLink[\s\S]*kind="website"[\s\S]*CustomerPublicLink[\s\S]*kind="map"/, "我的客户 Google Maps 图标必须与客户公海统一");
@@ -93,5 +93,27 @@ assert.match(aiTaskCenter, /formatNumber\(task\.google_places_call_count\).*次/
 assert.match(aiTaskApi, /openai_cost_usd:\s*Number\(task\.total_cost_usd \|\| 0\)/, "AI筛选任务接口必须单独返回OpenAI费用");
 assert.match(aiTaskApi, /google_places_call_count:\s*googleCallsByTask/, "AI筛选任务接口必须单独返回Google Places调用次数");
 assert.doesNotMatch(aiTaskApi, /third_party_cost_usd:/, "AI筛选任务接口不得返回混入Google估算金额的第三方费用");
+
+const searchableFilter = read("components/ui/searchable-multi-select-filter.tsx");
+assert.match(searchableFilter, /item\.label \|\| item\.value}[\s\S]*item\.value/, "国家和行业多选必须同时支持展示名称与原始代码搜索");
+for (const path of [
+  "components/customers-view.tsx",
+  "components/customer-public-pool-view.tsx",
+  "components/ai-acquisition/customer-results.tsx",
+  "components/ai-acquisition/task-center.tsx",
+  "components/ai-acquisition/task-detail.tsx",
+  "components/ai-screening/task-detail-view.tsx",
+]) {
+  assert.match(read(path), /SearchableMultiSelectFilter/, `${path} 的国家或所属行业必须使用统一可搜索多选控件`);
+}
+for (const path of [
+  "components/customers-view.tsx",
+  "components/customer-public-pool-view.tsx",
+  "components/ai-acquisition/customer-results.tsx",
+  "components/ai-acquisition/task-center.tsx",
+  "components/ai-screening/task-detail-view.tsx",
+]) {
+  assert.match(read(path), /countryInfo/, `${path} 必须兼容国家代码、中文名称和历史国家值`);
+}
 
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");

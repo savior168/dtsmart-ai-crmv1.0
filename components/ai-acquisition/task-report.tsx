@@ -7,7 +7,7 @@ import { ErrorState, Loading, PageHeader, button, effectiveElapsedMs, formatCost
 import type { AcquisitionTask } from "./types";
 
 type UsageRow = { provider:string; model_or_sku:string; operation:string; calls:number; free_calls:number; amount_usd:number };
-type UsageSummary = { total_calls:number; free_calls:number; google_calls:number; openai_calls:number; total_tokens:number; total_cost_usd:number; sku_breakdown:UsageRow[] };
+type UsageSummary = { total_calls:number; free_calls:number; google_calls:number; openai_calls:number; total_tokens:number; total_cost_usd:number; actual_cost_usd?:number; sku_breakdown:UsageRow[] };
 type SearchStat = { query:string; candidates:number; duplicates:number; rejected:number; review:number; accepted:number; claimed:number; progressed:number; cost_usd:number };
 type Candidate = { id:string; imported_customer_id:string|null; company_name:string; decision:string; ai_score:number|null; ai_level:string|null; country:string; matched_keywords:string[]|null };
 type ReportData = { task:AcquisitionTask; candidates:Candidate[]; report_candidates?:Candidate[]; usage_summary:UsageSummary|null; search_stats:SearchStat[]; discovery_progress:{raw_hits:number}|null };
@@ -39,7 +39,7 @@ export function AcquisitionTaskReport({ taskId }:{ taskId:string }) {
   if(!data)return null;
   const {task,usage_summary:usage,search_stats:searchStats,discovery_progress:progress}=data;
   const rawHits=Number(progress?.raw_hits||0);
-  const totalCost=Number(usage?.total_cost_usd||0);
+  const totalCost=Number(usage?.actual_cost_usd??usage?.total_cost_usd??0);
   const averageCost=task.accepted_count?totalCost/task.accepted_count:0;
   const funnel=[
     ["原始搜索命中",rawHits,"搜索渠道返回，尚未去重"],
@@ -54,8 +54,8 @@ export function AcquisitionTaskReport({ taskId }:{ taskId:string }) {
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">{[
       ["成功入池",`${formatNumber(task.accepted_count)} 个`,`待复核 ${formatNumber(task.review_count)} 个`],
       ["入池转化率",task.discovered_count?`${(task.accepted_count/task.discovered_count*100).toFixed(1)}%`:"—","成功入池 ÷ 去重后候选"],
-      ["平均有效客户成本",formatCost(averageCost),"成本参考 ÷ 成功入池"],
-      ["任务成本参考",formatCost(totalCost),"最终以服务商账单为准"],
+      ["平均有效客户成本",formatCost(averageCost),"实际已产生费用 ÷ 成功入池"],
+      ["任务实际费用",formatCost(totalCost),"不含Google未确认估算费用"],
       ["Google / OpenAI",`${formatNumber(usage?.google_calls||0)} / ${formatNumber(usage?.openai_calls||0)} 次`,`${formatTokens(usage?.total_tokens||0)} Token`],
       ["有效执行耗时",formatDuration(effectiveElapsedMs(task)),"不含预约等待与暂停时间"],
     ].map(([label,value,note])=><article key={label} className={`${panel} p-4`}><small className="text-slate-500">{label}</small><b className="mt-2 block text-xl text-slate-950">{value}</b><small className="mt-1 block text-slate-400">{note}</small></article>)}</section>
@@ -69,6 +69,6 @@ export function AcquisitionTaskReport({ taskId }:{ taskId:string }) {
     {bestSearches.length?<section className={`${panel} overflow-hidden`}><div className="border-b px-5 py-4"><h2 className="font-semibold">搜索组合效果</h2><p className="mt-1 text-xs text-slate-500">按成功入池数量优先排列，用于判断后续任务应保留或降权的检索组合。</p></div><div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["检索组合","发现候选","成功入池","待复核","未通过","已认领","已推进","成本参考","平均入池成本"].map((label)=><th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{bestSearches.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-800">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></section>:null}
 
     {usage?.sku_breakdown?.length?<section className={`${panel} overflow-hidden`}><div className="border-b px-5 py-4"><h2 className="font-semibold">第三方调用与成本汇总</h2><p className="mt-1 text-xs text-slate-500">报告只展示模型与SKU汇总，不重复铺开逐次调用流水。</p></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["服务商","模型 / SKU","用途","调用","免费","成本参考"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{usage.sku_breakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="px-4 py-3">{item.provider}</td><td className="px-4 py-3">{item.model_or_sku}</td><td className="px-4 py-3">{item.operation}</td><td className="px-4 py-3">{item.calls}</td><td className="px-4 py-3">{item.free_calls}</td><td className="px-4 py-3">{formatCost(item.amount_usd)}</td></tr>)}</tbody></table></div></section>:null}
-    <p className="px-1 text-xs leading-5 text-slate-400">口径说明：成功入池仅统计通过主体、目标行业、在营证据、有效联系方式及系统去重门槛并已写入客户公海的客户；费用为系统账本按调用时价目计算的参考值，最终结算以服务商账单为准。</p>
+    <p className="px-1 text-xs leading-5 text-slate-400">口径说明：成功入池仅统计通过主体、目标行业、在营证据、有效联系方式及系统去重门槛并已写入客户公海的客户；实际费用包含已发生的OpenAI用量和服务商已确认费用，不包含Google未确认价目估算或超额预计费用。</p>
   </div><style jsx global>{`@media print{.crm-topbar,aside,button{display:none!important}.crm-content{min-height:0!important}main{padding:0!important;background:#fff!important}section,article{break-inside:avoid}}`}</style></main>;
 }

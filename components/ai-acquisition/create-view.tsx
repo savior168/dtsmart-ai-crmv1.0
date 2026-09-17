@@ -577,6 +577,7 @@ export function AcquisitionCreateView() {
               ["8. 全局去重入池","按 Place ID、规范化电话、邮箱、WhatsApp 等强身份与现有客户、历史获客结果去重，只把新的合格客户送入待认领公海。"],
             ].map(([title,text])=><li key={title} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><b className="text-slate-800">{title}</b><p className="mt-1.5 leading-6">{text}</p></li>)}
           </ol>
+          <section className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-4"><h3 className="font-semibold text-cyan-900">云端执行与页面关闭</h3><p className="mt-1.5 leading-6 text-cyan-800">新建、继续和失败重试任务均由绑定账户的 Vercel 云端 Workflow 调度，本地页面不参与任务执行，创建成功后关闭页面不会中断任务。系统保存任务进度和检查点；发生可恢复异常时从最近检查点继续，不重新处理已完成客户。</p></section>
           <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h3 className="font-semibold text-blue-900">暂停、恢复、重试与完成</h3><p className="mt-1.5 leading-6 text-blue-800">暂停在安全节点停止新调用，恢复应从最近成功检查点继续；失败重试只处理未完成步骤，不重复已入账调用和已处理客户。有限检索计划执行完且全部候选完成判定后自动结束；用户取消、异常失败和费用受限会分别留痕。</p></section>
           <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能增强任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；全免费模式只允许系统记录金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计价状态、成本参考和有效执行耗时；服务商最终结算以其账单为准。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
           <section className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"><h3 className="font-semibold text-violet-900">候选进入AI筛选后的底层核验</h3><p className="mt-1.5 leading-6 text-violet-800">候选先规范化名称、地址、电话、邮箱域名、官网和 Place ID，再按“官网与关键子页 → 免费公开来源 → 必要时 Google 主体候选 → 已核验社媒”的顺序采集。确定性规则先判断明确经营事实；仅在主体通过且证据确有歧义时，模型才综合已采集证据。最后执行证据门控、评分一致性校准、联系方式具体来源校验和原子写回；抓取失败、主体冲突或证据不足不会被伪造成有效或无效结论。</p></section>
@@ -602,6 +603,7 @@ export function AcquisitionCreateView() {
             ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{value}</dd></div>)}
           </dl>
           <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5"><summary className="cursor-pointer font-medium text-slate-700">查看已选行业和关键词</summary><div className="mt-2 space-y-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-600"><p><b className="text-slate-700">目标行业：</b>{form.industries.join("、")}</p><p><b className="text-slate-700">搜索关键词：</b>{form.keywords.join("、")}</p></div></details>
+          <p className="rounded-lg bg-blue-50 px-3.5 py-2.5 text-xs leading-5 text-blue-800">任务由云端工作流执行；创建成功后可关闭页面，任务会按计划继续。</p>
           <p className={`rounded-lg px-3.5 py-2.5 text-xs leading-5 ${form.cost_mode === "FREE_ONLY"?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-800"}`}>{form.cost_mode === "FREE_ONLY"?"仅执行系统记录金额为 0 的发现与核验；免费证据不足的候选进入待复核。":"免费渠道优先；仅对高度相关但证据不足的候选，在全局及单任务费用限制内付费补证。"}</p>
         </div>
         <form

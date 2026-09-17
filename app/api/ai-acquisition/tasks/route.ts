@@ -6,6 +6,7 @@ import { MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisit
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { createAcquisitionTaskNumber } from "@/lib/ai/task-number";
+import { isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -24,11 +25,25 @@ export async function GET(request: NextRequest) {
     const metric = request.nextUrl.searchParams.get("metric") || "";
     const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
     const costMode = request.nextUrl.searchParams.get("cost_mode") || "";
-    const country = request.nextUrl.searchParams.get("country") || "";
-    const industry = request.nextUrl.searchParams.get("industry") || "";
+    const countries = [...new Set(request.nextUrl.searchParams.getAll("country").map((value) => value.trim()).filter(Boolean))];
+    const industries = [...new Set(request.nextUrl.searchParams.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const from = request.nextUrl.searchParams.get("from") || "";
     const to = request.nextUrl.searchParams.get("to") || "";
     const admin = createAdminClient();
+    const optionRows: Array<{countries:string[] | null;industries:string[] | null;industry:string | null}> = [];
+    for(let offset=0;offset<20000;offset+=1000){
+      let optionQuery=admin.from("ai_acquisition_tasks").select("countries,industries,industry");
+      if(ownerId)optionQuery=optionQuery.eq("user_id",ownerId);
+      const optionPage=await optionQuery.order("created_at",{ascending:false}).range(offset,offset+999);
+      if(optionPage.error)throw optionPage.error;
+      optionRows.push(...(optionPage.data||[]));
+      if((optionPage.data||[]).length<1000)break;
+    }
+    const countOptions=(values:string[])=>[...values.reduce((map,value)=>{const normalized=String(value||"").trim();if(normalized)map.set(normalized,(map.get(normalized)||0)+1);return map},new Map<string,number>())].map(([value,count])=>({value,count})).sort((left,right)=>right.count-left.count||left.value.localeCompare(right.value,"zh-CN"));
+    const filterOptions={
+      countries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.countries)?row.countries:[])),
+      industries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.industries)&&row.industries.length?row.industries:[row.industry||""])),
+    };
     const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
     let acceptedMetricTaskIds: string[] = [];
     if (["accepted", "today_accepted"].includes(metric)) {
@@ -52,8 +67,8 @@ export async function GET(request: NextRequest) {
     if (metric === "today_accepted") query = acceptedMetricTaskIds.length ? query.in("id", acceptedMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (metric === "review") query = query.gt("review_count", 0);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
-    if (country) query = query.contains("countries", [country]);
-    if (industry) query = query.contains("industries", [industry]);
+    if (countries.length) query = query.overlaps("countries", countries);
+    if (industries.length) query = query.overlaps("industries", industries);
     if (/^\d{4}-\d{2}-\d{2}$/.test(from)) query = query.gte("created_at", `${from}T00:00:00.000+08:00`);
     if (/^\d{4}-\d{2}-\d{2}$/.test(to)) query = query.lte("created_at", `${to}T23:59:59.999+08:00`);
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
@@ -79,17 +94,17 @@ export async function GET(request: NextRequest) {
       if(childResult.error)throw childResult.error;
       for(const child of childResult.data||[])if(child.screening_task_id)costParentByTask.set(String(child.screening_task_id),String(child.task_id));
       const costTaskIds=[...costParentByTask.keys()];
-      const costRows:Array<{task_id:string|null;provider:string;quantity:number;input_tokens:number;output_tokens:number;amount_usd:number}>=[];
-      for(let offset=0;;offset+=1000){const chunk=await admin.from("api_cost_ledger").select("task_id,provider,quantity,input_tokens,output_tokens,amount_usd").in("task_id",costTaskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;costRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+      const costRows:Array<{task_id:string|null;provider:string;quantity:number;input_tokens:number;output_tokens:number;amount_usd:number;amount_type:string}>=[];
+      for(let offset=0;;offset+=1000){const chunk=await admin.from("api_cost_ledger").select("task_id,provider,quantity,input_tokens,output_tokens,amount_usd,amount_type").in("task_id",costTaskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;costRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
       for(const cost of costRows){
         const parentId=costParentByTask.get(String(cost.task_id||""));
         if(!parentId)continue;
         const current=usageByTask.get(parentId)||{google_calls:0,openai_calls:0,total_tokens:0,openai_cost_usd:0,google_cost_usd:0,total_cost_usd:0};
         const quantity=Math.max(0,Number(cost.quantity||1));
         const amount=Number(cost.amount_usd||0);
-        if(cost.provider==="GOOGLE_PLACES"){current.google_calls+=quantity;current.google_cost_usd+=amount}
+        if(cost.provider==="GOOGLE_PLACES"){current.google_calls+=quantity;if(isActuallyIncurredCost(cost))current.google_cost_usd+=amount}
         if(cost.provider==="OPENAI"){current.openai_calls+=quantity;current.openai_cost_usd+=amount;current.total_tokens+=Number(cost.input_tokens||0)+Number(cost.output_tokens||0)}
-        current.total_cost_usd+=amount;
+        if(isActuallyIncurredCost(cost))current.total_cost_usd+=amount;
         usageByTask.set(parentId,current);
       }
     }
@@ -98,8 +113,8 @@ export async function GET(request: NextRequest) {
       let summaryQuery = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");
       if (ownerId) summaryQuery = summaryQuery.eq("user_id", ownerId);
       if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) summaryQuery = summaryQuery.eq("cost_mode", costMode);
-      if (country) summaryQuery = summaryQuery.contains("countries", [country]);
-      if (industry) summaryQuery = summaryQuery.contains("industries", [industry]);
+      if (countries.length) summaryQuery = summaryQuery.overlaps("countries", countries);
+      if (industries.length) summaryQuery = summaryQuery.overlaps("industries", industries);
       if (/^\d{4}-\d{2}-\d{2}$/.test(from)) summaryQuery = summaryQuery.gte("created_at", `${from}T00:00:00.000+08:00`);
       if (/^\d{4}-\d{2}-\d{2}$/.test(to)) summaryQuery = summaryQuery.lte("created_at", `${to}T23:59:59.999+08:00`);
       if (search) summaryQuery = summaryQuery.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
@@ -129,7 +144,7 @@ export async function GET(request: NextRequest) {
       review: sum("review_count"),
       failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
     };
-    return NextResponse.json({ data: (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); }), count: result.count || 0, summary, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    return NextResponse.json({ data: (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); }), count: result.count || 0, summary, filter_options:filterOptions, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";
     console.error("[ai-acquisition/tasks] list failed", error);

@@ -3,7 +3,7 @@ import { countryInfo } from "../countries";
 import type { IdentityStatus } from "./evidence-policy";
 
 export type ContactType = "PHONE" | "EMAIL" | "WHATSAPP" | "CONTACT_FORM" | "WEBSITE" | "GOOGLE_MAPS" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "TIKTOK" | "YOUTUBE" | "OTHER";
-export type ContactVerification = "ORIGINAL" | "MATCHED_ORIGINAL" | "NEW_VERIFIED" | "CONFLICTING_VERIFIED" | "UNVERIFIED" | "STALE" | "INVALID";
+export type ContactVerification = "ORIGINAL" | "MATCHED_ORIGINAL" | "NEW_VERIFIED" | "SOURCE_CONFIRMED" | "CONFLICTING_VERIFIED" | "UNVERIFIED" | "STALE" | "INVALID";
 
 export type ContactCandidate = {
   type: ContactType;
@@ -146,7 +146,8 @@ export function buildContactCandidate(input: {
     ? "MATCHED_ORIGINAL"
     : input.contactConflict && input.identityStatus === "MATCHED" && official
       ? "CONFLICTING_VERIFIED"
-    : input.identityStatus === "MATCHED" && official ? "NEW_VERIFIED" : "UNVERIFIED";
+    : input.identityStatus === "MATCHED" && official ? "NEW_VERIFIED"
+      : input.identityStatus === "LIKELY_MATCHED" && official ? "SOURCE_CONFIRMED" : "UNVERIFIED";
   const capturedAt = input.capturedAt || new Date().toISOString();
   return {
     type: input.type, valueRaw: input.value.trim(), valueNormalized: normalized,
@@ -181,7 +182,7 @@ export function reconcileContacts(candidates: ContactCandidate[]) {
   // ambiguous Google candidate is useful for audit, but must never become the
   // sales team's preferred contact.
   const preferred = values
-    .filter((item) => ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(item.verificationStatus)
+    .filter((item) => ["MATCHED_ORIGINAL", "NEW_VERIFIED", "SOURCE_CONFIRMED"].includes(item.verificationStatus)
       && !["SHARED_CORPORATE", "SHARED_ACROSS_CUSTOMERS"].includes(item.contactStatus))
     .sort((a, b) => rank(b) - rank(a))[0] || null;
   return { contacts: values, preferred };

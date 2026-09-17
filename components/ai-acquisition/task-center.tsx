@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarCheck2, Check, ChevronDown, CircleHelp, LoaderCircle, Plus, RefreshCw, Search, Settings2, TriangleAlert, UserRoundPlus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   CostModeBadge,
   ConfirmDialog,
@@ -23,15 +23,15 @@ import {
   useToast,
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask } from "./types";
-import { ACQUISITION_COUNTRY_GROUPS, ACQUISITION_INDUSTRY_TERMS } from "@/lib/ai-acquisition/config";
 import { UserScopeSelect } from "@/components/user-scope-select";
+import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { quickCostDateRange } from "@/lib/cost-center";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
+import { countryInfo } from "@/lib/countries";
 
-const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
-const ACQUISITION_INDUSTRY_OPTIONS = Object.keys(ACQUISITION_INDUSTRY_TERMS);
+const COUNTRY_NAMES = { of: (value: string) => countryInfo(value).name };
 type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; review:number; failed_tasks:number };
 type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted" | "review" | "failed";
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; googleCalls:number; freeCalls:number };
@@ -53,69 +53,6 @@ function taskControl(status:string) {
   return null;
 }
 
-function IndustryFilter({ value, onChange }:{ value:string; onChange:(value:string)=>void }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const options = ACQUISITION_INDUSTRY_OPTIONS;
-  const normalizedQuery = query.trim().toLowerCase();
-  const filtered = options.filter((item) => item.toLowerCase().includes(normalizedQuery));
-  const canUseCustom = Boolean(query.trim()) && !options.some((item) => item.toLowerCase() === normalizedQuery);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event:MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const handleKeyDown = (event:KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    requestAnimationFrame(() => searchRef.current?.focus());
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  const select = (next:string) => {
-    onChange(next);
-    setQuery("");
-    setOpen(false);
-  };
-
-  return <div ref={rootRef} className="relative min-w-0">
-    <button
-      type="button"
-      aria-label="目标行业"
-      aria-haspopup="listbox"
-      aria-expanded={open}
-      onClick={() => setOpen((current) => !current)}
-      className={`${input} flex w-full items-center justify-between gap-2 text-left`}
-    >
-      <span className={`truncate ${value ? "text-slate-700" : "text-slate-400"}`}>{value || "全部目标行业"}</span>
-      <ChevronDown size={15} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}/>
-    </button>
-    {open ? <div className="absolute left-0 top-full z-50 mt-1 w-[320px] max-w-[min(320px,calc(100vw-3rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl" role="listbox" aria-label="选择目标行业">
-      <div className="border-b border-slate-100 p-2">
-        <label className="relative block">
-          <Search size={15} className="absolute left-3 top-2.5 text-slate-400"/>
-          <input ref={searchRef} value={query} onChange={(event)=>setQuery(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter"&&query.trim()){event.preventDefault();select(query.trim())}}} className={`${input} h-9 w-full pl-9`} placeholder="搜索或输入任意行业"/>
-        </label>
-      </div>
-      <div className="max-h-64 overflow-y-auto p-1.5">
-        <button type="button" onClick={()=>select("")} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 ${!value ? "bg-blue-50 text-blue-700" : "text-slate-600"}`}><span>全部目标行业</span>{!value?<Check size={15}/>:null}</button>
-        {canUseCustom ? <button type="button" onClick={()=>select(query.trim())} className="mt-1 flex w-full items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-left text-sm text-blue-700 hover:bg-blue-100"><span className="min-w-0 truncate">按“{query.trim()}”筛选</span><Check size={15} className="shrink-0"/></button> : null}
-        {filtered.map((item)=><button type="button" role="option" aria-selected={value===item} key={item} onClick={()=>select(item)} className={`mt-1 flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 ${value===item?"bg-blue-50 text-blue-700":"text-slate-700"}`}><span className="min-w-0 truncate">{item}</span>{value===item?<Check size={15} className="shrink-0"/>:null}</button>)}
-        {!filtered.length && !canUseCustom ? <p className="px-3 py-6 text-center text-sm text-slate-400">没有匹配的行业</p> : null}
-      </div>
-      <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-400">可选择常用行业，也可输入任务中使用的其他行业</p>
-    </div> : null}
-  </div>;
-}
-
 export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling, canControl }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean; canControl:boolean }) {
   const router=useRouter();
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
@@ -125,8 +62,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
     [metric, setMetric] = useState<SummaryMetric>(""),
-    [industry, setIndustry] = useState(""),
-    [country, setCountry] = useState(""),
+    [industries, setIndustries] = useState<string[]>([]),
+    [countries, setCountries] = useState<string[]>([]),
+    [filterOptions, setFilterOptions] = useState<{countries:SearchableFilterOption[];industries:SearchableFilterOption[]}>({countries:[],industries:[]}),
     [costMode, setCostMode] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
@@ -156,8 +94,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       if (status) p.set("status", status);
       if (metric) p.set("metric", metric);
       if (search) p.set("search", search);
-      if (industry) p.set("industry", industry);
-      if (country) p.set("country", country);
+      for (const industry of industries) p.append("industry", industry);
+      for (const country of countries) p.append("country", country);
       if (costMode) p.set("cost_mode", costMode);
       if (from) p.set("from", from);
       if (to) p.set("to", to);
@@ -169,13 +107,14 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       setTasks(b.data || []);
       setCount(b.count || 0);
       setSummary(b.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 });
+      setFilterOptions(b.filter_options || {countries:[],industries:[]});
       setShowOwner(Boolean(b.show_owner));
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, status, metric, search, industry, country, costMode, from, to, scopeUserId]);
+  }, [page, pageSize, status, metric, search, industries, countries, costMode, from, to, scopeUserId]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -324,8 +263,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
             <option value="FAILED">失败</option>
             <option value="CANCELLED">已取消</option>
           </select>
-          <select aria-label="目标国家/地区" className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{ACQUISITION_COUNTRY_GROUPS.map((group)=><optgroup key={group.key} label={group.label}>{group.countries.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)} · {item}</option>)}</optgroup>)}</select>
-          <IndustryFilter value={industry} onChange={(value)=>{setPage(1);setIndustry(value)}}/>
+          <SearchableMultiSelectFilter label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:COUNTRY_NAMES.of(item.value)||item.value}))} onChange={(value)=>{setPage(1);setCountries(value)}}/>
+          <SearchableMultiSelectFilter label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setPage(1);setIndustries(value)}}/>
           <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
           {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} initializeDefault={false} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
           <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
@@ -335,7 +274,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
             <input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/>
             <span className="text-slate-300">—</span>
             <input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/>
-            {(search || status || metric || industry || country || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setMetric("");setIndustry("");setCountry("");setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
+            {(search || status || metric || industries.length || countries.length || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setMetric("");setIndustries([]);setCountries([]);setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
           </div>
         </form>
         {loading ? (

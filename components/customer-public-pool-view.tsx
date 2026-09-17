@@ -59,6 +59,8 @@ import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { AttachmentPreview } from "@/components/ui/attachment-preview";
 import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
+import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
+import { countryInfo } from "@/lib/countries";
 
 type Role = UserRole;
 type Tab =
@@ -117,6 +119,7 @@ type AssignmentOptions = {
   inactive_users: Array<Owner & { status: string; customer_count: number }>;
 };
 type PoolFilterOptions = {
+  countries: SearchableFilterOption[];
   industries: Array<{ value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>;
   owners: Owner[];
   sources: Array<{ value: string; label: string }>;
@@ -198,9 +201,9 @@ const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", C
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
   // Sales action order: identify value first, then use the best contact and
   // public entry points, and finally inspect provenance and freshness.
-  available: ["company_name", "ai_score", "country", "phone", "website", "google_url", "social", "source", "updated_at"],
-  claimed: ["company_name", "ai_score", "country", "status", "followup_status", "last_contact_time", "owner", "protection"],
-  pending: ["company_name", "ai_score", "country", "phone", "email", "source", "updated_at"],
+  available: ["company_name", "country", "ai_score", "phone", "website", "google_url", "social", "source", "updated_at"],
+  claimed: ["company_name", "country", "ai_score", "status", "followup_status", "last_contact_time", "owner", "protection"],
+  pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
 };
 
 const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {
@@ -357,9 +360,11 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
   const [focusedCustomerId, setFocusedCustomerId] = useState("");
+  const [countries, setCountries] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
-  const [industryOpen, setIndustryOpen] = useState(false);
   const [aiLevel, setAiLevel] = useState("");
   const [aiStatus, setAiStatus] = useState<"all" | "done" | "pending" | "failed">("all");
   const [target, setTarget] = useState("");
@@ -382,11 +387,11 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [exporting, setExporting] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
-  const industryRef = useRef<HTMLDivElement>(null);
   const sourceBatchRef = useRef<HTMLDivElement>(null);
   const screeningTaskRef = useRef<HTMLDivElement>(null);
   const requestVersion = useRef(0);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
+    countries: [],
     industries: [],
     owners: [],
     sources: [],
@@ -436,7 +441,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         page_size: String(pageSize),
       });
       if (query.trim()) params.set("q", query.trim());
+      if (createdFrom) params.set("created_from", createdFrom);
+      if (createdTo) params.set("created_to", createdTo);
       if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
+      for(const country of countries)params.append("country",country);
       appendIndustryFilters(params);
       if (aiLevel) params.set("ai_level", aiLevel);
       if (aiStatus !== "all") params.set("ai_status", aiStatus);
@@ -471,6 +479,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     aiStatus,
     appendIndustryFilters,
     customerStatus,
+    countries,
+    createdFrom,
+    createdTo,
     ownerId,
     sourceType,
     appendSourceBatchFilters,
@@ -521,7 +532,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     const close = (event: MouseEvent) => {
       const targetNode = event.target as Node;
       if (newRef.current && !newRef.current.contains(targetNode)) setNewOpen(false);
-      if (industryRef.current && !industryRef.current.contains(targetNode)) setIndustryOpen(false);
       if (sourceBatchRef.current && !sourceBatchRef.current.contains(targetNode)) setSourceBatchOpen(false);
       if (screeningTaskRef.current && !screeningTaskRef.current.contains(targetNode)) setScreeningTaskOpen(false);
     };
@@ -533,6 +543,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     api(`/api/customers/public-pool?tab=${tab}&options=1`)
       .then((body) =>
         setFilterOptions({
+          countries: body.countries || [],
           industries: body.industries || [],
           owners: body.owners || [],
           sources: body.sources || [],
@@ -541,12 +552,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         }),
       )
       .catch(() =>
-        setFilterOptions({ industries: [], owners: [], sources: [], batches: [], screening_tasks: [] }),
+        setFilterOptions({ countries: [], industries: [], owners: [], sources: [], batches: [], screening_tasks: [] }),
       );
   }, [tab]);
   useEffect(
     () => setPage(1),
-    [aiLevel, aiStatus, customerStatus, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target],
+    [aiLevel, aiStatus, customerStatus, countries, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target],
   );
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
@@ -559,8 +570,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setTab(value);
     setError("");
     setSelected(new Set());
+    setCountries([]);
     setIndustries([]);
-    setIndustryOpen(false);
     setOwnerId("");
     setCustomerStatus("");
     setSourceType("");
@@ -584,6 +595,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }
   function resetFilters() {
     setQuery("");
+    setCreatedFrom("");
+    setCreatedTo("");
+    setCountries([]);
     setIndustries([]);
     setAiLevel("");
     setAiStatus("all");
@@ -625,6 +639,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (let exportPage = 1; ; exportPage += 1) {
         const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "100", sort, direction, export: "1" });
         if (query.trim()) params.set("q", query.trim());
+        if (createdFrom) params.set("created_from", createdFrom);
+        if (createdTo) params.set("created_to", createdTo);
+        for(const country of countries)params.append("country",country);
         appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
         if (target) params.set("target", target);
@@ -655,6 +672,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (let resultPage = 1; ; resultPage += 1) {
         const params = new URLSearchParams({ tab, page: String(resultPage), page_size: "100", sort, direction });
         if (query.trim()) params.set("q", query.trim());
+        if (createdFrom) params.set("created_from", createdFrom);
+        if (createdTo) params.set("created_to", createdTo);
+        for(const country of countries)params.append("country",country);
         appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
         if (aiStatus !== "all") params.set("ai_status", aiStatus);
@@ -727,15 +747,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
-                <div ref={industryRef} className="relative w-44 shrink-0">
-                  <button type="button" onClick={() => setIndustryOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={industryOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
-                    <span className="truncate">{industries.length ? `所属行业（${industries.length}）` : "全部所属行业"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
-                  </button>
-                  {industryOpen ? <div role="listbox" aria-label="所属行业多选" className="absolute left-0 top-full z-40 mt-1 max-h-72 min-w-72 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
-                    <button type="button" onClick={() => { setIndustries([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空行业选择</button>
-                    {filterOptions.industries.map((item) => <label key={item.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={industries.includes(item.value)} onChange={() => { setIndustries((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className={`min-w-0 break-words ${item.tone === "verified" ? "text-emerald-600" : "text-slate-600"}`}>{item.label}</span></label>)}
-                  </div> : null}
-                </div>
+                <input aria-label="创建开始日期" title="按进入系统的创建日期筛选" type="date" value={createdFrom} max={createdTo||undefined} onChange={(event)=>{setCreatedFrom(event.target.value);setPage(1)}} className={`${appFieldClass} w-36 shrink-0`}/>
+                <input aria-label="创建结束日期" title="按进入系统的创建日期筛选" type="date" value={createdTo} min={createdFrom||undefined} onChange={(event)=>{setCreatedTo(event.target.value);setPage(1)}} className={`${appFieldClass} w-36 shrink-0`}/>
+                <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
+                <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
                 <select
                   value={sourceType}
                   onChange={(event) => {

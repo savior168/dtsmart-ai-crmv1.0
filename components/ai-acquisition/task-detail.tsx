@@ -7,6 +7,7 @@ import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
+import { SearchableMultiSelectFilter } from "@/components/ui/searchable-multi-select-filter";
 import {
   ConfirmDialog,
   CostModeBadge,
@@ -29,24 +30,14 @@ import {
 import type { AcquisitionTask, Candidate } from "./types";
 import { decisionLabels } from "./types";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
-type Cost = {
-  provider: string;
-  model_or_sku: string;
-  operation: string;
-  amount_usd: number;
-  amount_type: string;
-  quantity: number;
-  input_tokens?:number;
-  output_tokens?:number;
-  occurred_at: string;
-  metadata: Record<string, unknown> | null;
-};
 type UsageSummary = {
   total_calls: number;
   free_calls: number;
   google_calls: number;
   openai_calls: number;
   total_cost_usd: number;
+  actual_cost_usd?: number;
+  google_actual_cost_usd?: number;
   total_tokens:number;
   sku_breakdown: Array<{ provider: string; model_or_sku: string; operation: string; calls: number; free_calls: number; amount_usd: number }>;
 };
@@ -104,7 +95,7 @@ const GOOGLE_BILLING_KEY_BY_SKU:Record<string,string>={
 };
 function CompactTags({values,limit=8}:{values:string[];limit?:number}) {
   const visible=values.slice(0,limit),remaining=values.slice(limit);
-  return <div className="flex flex-wrap items-center gap-1.5">{visible.map((value,index)=><span key={`${value}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}{remaining.length?<details className="group/tags"><summary className="cursor-pointer list-none rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700">另有 {remaining.length} 项</summary><div className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-lg border bg-white p-2">{remaining.map((value,index)=><span key={`${value}-${index}`} className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}</div></details>:null}</div>;
+  return <div className="flex flex-wrap items-center gap-1.5">{visible.map((value,index)=><span key={`${value}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}{remaining.length?<details className="group/tags"><summary title="点击展开其余匹配关键词" className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:border-blue-300 hover:bg-blue-100">展开其余 {remaining.length} 项<ChevronDown size={12} className="transition group-open/tags:rotate-180"/></summary><div className="mt-2 flex max-h-32 min-w-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border bg-white p-2 shadow-sm">{remaining.map((value,index)=><span key={`${value}-${index}`} className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}</div></details>:null}</div>;
 }
 function SocialChannels({candidate}:{candidate:Candidate}) {
   const profile=candidate.customer_profile;
@@ -121,19 +112,18 @@ function SocialChannels({candidate}:{candidate:Candidate}) {
 export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: string; initialDecision?:string }) {
   const [task, setTask] = useState<AcquisitionTask | null>(null),
     [rows, setRows] = useState<Candidate[]>([]),
-    [costs, setCosts] = useState<Cost[]>([]),
     [count, setCount] = useState(0),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [decision, setDecision] = useState(initialDecision),
     [search, setSearch] = useState(""),
     [draft, setDraft] = useState(""),
-    [country, setCountry] = useState(""),
-    [industry, setIndustry] = useState(""),
+    [countries, setCountries] = useState<string[]>([]),
+    [industries, setIndustries] = useState<string[]>([]),
     [level, setLevel] = useState(""),
     [readiness, setReadiness] = useState(""),
     [usage, setUsage] = useState<UsageSummary | null>(null),
-    [usageScope, setUsageScope] = useState<"ALL" | "OPENAI" | "GOOGLE" | null>(null),
+    [usageScope, setUsageScope] = useState<"GOOGLE" | null>(null),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
     [googleBillingLoading, setGoogleBillingLoading] = useState(false),
     [completion, setCompletion] = useState<CompletionInfo>({budget_limited:false,blocked_periods:[]}),
@@ -159,8 +149,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       });
       if (decision) p.set("decision", decision);
       if (search) p.set("search", search);
-      if (country) p.set("country", country);
-      if (industry) p.set("industry", industry);
+      for (const country of countries) p.append("country", country);
+      for (const industry of industries) p.append("industry", industry);
       if (level) p.set("level", level);
       if (readiness) p.set("readiness", readiness);
       if (quiet) p.set("lightweight", "1");
@@ -172,7 +162,6 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       setTask(b.task);
       setRows(b.candidates || []);
       setCount(b.count || 0);
-      if (Array.isArray(b.costs)) setCosts(b.costs);
       if (b.usage_summary) setUsage((current) => ({ ...(current || {}), ...b.usage_summary } as UsageSummary));
       if (b.completion) setCompletion(b.completion);
       setDiscoveryProgress(b.discovery_progress || null);
@@ -184,7 +173,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [taskId, page, pageSize, decision, search, country, industry, level, readiness]);
+  }, [taskId, page, pageSize, decision, search, countries, industries, level, readiness]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -263,28 +252,34 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       </main>
     );
   if (!task) return null;
-  const totalCost = usage?.total_cost_usd ?? costs.reduce((s, c) => s + Number(c.amount_usd || 0), 0);
+  const totalCost = usage?.actual_cost_usd ?? usage?.total_cost_usd ?? 0;
   const providerCost=(provider:string)=>(usage?.sku_breakdown||[]).filter((item)=>item.provider.toUpperCase().includes(provider)).reduce((sum,item)=>sum+Number(item.amount_usd||0),0);
   const googleCost=providerCost("GOOGLE");
+  const googleActualCost=Number(usage?.google_actual_cost_usd||0);
   const openaiCost=providerCost("OPENAI");
   const averageAcceptedCost=task.accepted_count>0?totalCost/task.accepted_count:null;
-  const sortedUsageBreakdown=[...(usage?.sku_breakdown||[])].sort((a,b)=>{
-    const providerRank=(value:string)=>value.toUpperCase().includes("OPENAI")?0:value.toUpperCase().includes("GOOGLE")?1:2;
-    const providerDelta=providerRank(a.provider)-providerRank(b.provider);
-    if(providerDelta)return providerDelta;
-    if(a.provider.toUpperCase().includes("GOOGLE"))return (GOOGLE_SKU_ORDER.indexOf(a.model_or_sku)+1||999)-(GOOGLE_SKU_ORDER.indexOf(b.model_or_sku)+1||999);
-    return a.model_or_sku.localeCompare(b.model_or_sku);
+  const googleSkuRows=[...(usage?.sku_breakdown||[])].filter((item)=>item.provider.toUpperCase().includes("GOOGLE")).reduce((rows,item)=>{
+    const current=rows.get(item.model_or_sku)||{model_or_sku:item.model_or_sku,calls:0,free_calls:0,amount_usd:0,operations:[] as string[]};
+    current.calls+=Number(item.calls||0);current.free_calls+=Number(item.free_calls||0);current.amount_usd+=Number(item.amount_usd||0);
+    if(item.operation&&!current.operations.includes(item.operation))current.operations.push(item.operation);
+    rows.set(item.model_or_sku,current);return rows;
+  },new Map<string,{model_or_sku:string;calls:number;free_calls:number;amount_usd:number;operations:string[]}>());
+  const visibleUsageBreakdown=[...googleSkuRows.values()].sort((a,b)=>{
+    const rank=(value:string)=>{const index=GOOGLE_SKU_ORDER.indexOf(value);return index<0?999:index};
+    return rank(a.model_or_sku)-rank(b.model_or_sku)||a.model_or_sku.localeCompare(b.model_or_sku);
   });
-  const visibleUsageBreakdown=usageScope==="ALL"?sortedUsageBreakdown:sortedUsageBreakdown.filter((item)=>item.provider.toUpperCase().includes(usageScope||""));
-  const usageDetailTitle=usageScope==="OPENAI"?"OpenAI 调用与费用明细":usageScope==="GOOGLE"?"Google Places 调用与费用明细":"第三方调用与成本参考";
-  const visibleCallCount=usageScope==="OPENAI"?Number(usage?.openai_calls||0):usageScope==="GOOGLE"?Number(usage?.google_calls||0):Number(usage?.total_calls??costs.length);
+  const googleAccountRows=googleBilling?.state==="CONNECTED"?(googleBilling.skuUsage||[]):[];
+  const googleProjectedUsage=googleAccountRows.reduce((sum,item)=>sum+Number(item.projectedUsage||0),0);
+  const googleLimitedRows=googleAccountRows.filter((item)=>item.freeLimit!=null);
+  const googleProjectedRemaining=googleLimitedRows.reduce((sum,item)=>sum+Number(item.projectedRemaining||0),0);
+  const googleProjectedOverageCalls=googleAccountRows.reduce((sum,item)=>sum+Number(item.projectedOverageCalls||0),0);
+  const googleProjectedOverageCost=googleAccountRows.reduce((sum,item)=>sum+Number(item.projectedOverageCostUsd||0),0);
   const visibleFreeCalls=visibleUsageBreakdown.reduce((sum,item)=>sum+Number(item.free_calls||0),0);
-  const visibleCost=usageScope==="OPENAI"?openaiCost:usageScope==="GOOGLE"?googleCost:totalCost;
   const searchTotals=searchStats.reduce((total,item)=>({candidates:total.candidates+item.candidates,accepted:total.accepted+item.accepted,cost:total.cost+item.cost_usd}),{candidates:0,accepted:0,cost:0});
-  async function toggleUsageDetails(scope:"ALL" | "OPENAI" | "GOOGLE"){
-    const opening=usageScope!==scope;
-    setUsageScope(opening?scope:null);
-    if(scope!=="GOOGLE"||!opening||googleBilling||googleBillingLoading)return;
+  async function toggleGoogleDetails(){
+    const opening=usageScope!=="GOOGLE";
+    setUsageScope(opening?"GOOGLE":null);
+    if(!opening||googleBilling||googleBillingLoading)return;
     setGoogleBillingLoading(true);
     try{
       const response=await fetch("/api/cost-center/google-billing",{cache:"no-store"});
@@ -301,8 +296,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     setPage(1);
     setDraft("");
     setSearch("");
-    setCountry("");
-    setIndustry("");
+    setCountries([]);
+    setIndustries([]);
     setLevel("");
     setReadiness("");
     window.history.replaceState(null,"",`?decision=${nextDecision}#customer-results`);
@@ -362,23 +357,24 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         <button type="button" onClick={()=>showCustomerResults("ACCEPTED")} className={`${panel} p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50/30`}><small className="text-slate-500">成功入池客户</small><div className="mt-2 text-xl font-semibold text-emerald-700">{formatNumber(task.accepted_count)}</div><small className="mt-1 block text-slate-500">已核验有效并写入客户公海</small></button>
         <button type="button" onClick={()=>showCustomerResults("REVIEW")} className={`${panel} p-4 text-left transition hover:border-amber-300 hover:bg-amber-50/30`}><small className="text-slate-500">待人工复核</small><div className="mt-2 text-xl font-semibold text-amber-700">{formatNumber(task.review_count)}</div><small className="mt-1 block text-slate-500">点击处理证据不足的候选</small></button>
         <article className={`${panel} p-4`}><small className="text-slate-500">候选核验进度</small><div className="mt-2 text-xl font-semibold">{formatNumber(task.processed_count)} / {formatNumber(task.discovered_count)}</div><small className="mt-1 block text-slate-500">未通过 {formatNumber(task.rejected_count)} · 重复 {formatNumber(task.duplicate_count)}</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">平均有效客户成本</small><div className="mt-2 text-xl font-semibold">{averageAcceptedCost==null?"—":formatCost(averageAcceptedCost)}</div><small className="mt-1 block text-slate-500">累计成本参考 {formatCost(totalCost)}</small></article>
-        <button type="button" aria-expanded={usageScope==="OPENAI"} aria-controls="usage-details" onClick={()=>toggleUsageDetails("OPENAI")} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">OpenAI</small><small className="flex items-center gap-1 text-blue-600">{usageScope==="OPENAI"?"收起明细":"查看明细"}<ChevronDown size={14} className={`transition ${usageScope==="OPENAI"?"rotate-180":""}`}/></small></span><div className="mt-2 text-xl font-semibold">{formatCost(openaiCost)}</div><small className="mt-1 block text-slate-500">{formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></button>
-        <button type="button" aria-expanded={usageScope==="GOOGLE"} aria-controls="usage-details" onClick={()=>toggleUsageDetails("GOOGLE")} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">Google Places</small><small className="flex items-center gap-1 text-blue-600">{usageScope==="GOOGLE"?"收起明细":"查看明细"}<ChevronDown size={14} className={`transition ${usageScope==="GOOGLE"?"rotate-180":""}`}/></small></span><div className="mt-2 text-xl font-semibold">{formatNumber(usage?.google_calls)} 次</div><small className="mt-1 block text-slate-500">成本参考 {formatCost(googleCost)}</small></button>
+        <article className={`${panel} p-4`}><small className="text-slate-500">平均有效客户成本</small><div className="mt-2 text-xl font-semibold">{averageAcceptedCost==null?"—":formatCost(averageAcceptedCost)}</div><small className="mt-1 block text-slate-500">实际已产生费用 {formatCost(totalCost)}</small></article>
+        <article className={`${panel} p-4`}><small className="text-slate-500">OpenAI</small><div className="mt-2 text-xl font-semibold">{formatCost(openaiCost)}</div><small className="mt-1 block text-slate-500">{formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></article>
+        <button type="button" aria-expanded={usageScope==="GOOGLE"} aria-controls="google-usage-details" onClick={()=>void toggleGoogleDetails()} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">Google Places</small><small className="flex items-center gap-1 text-blue-600">{usageScope==="GOOGLE"?"收起明细":"查看明细"}<ChevronDown size={14} className={`transition ${usageScope==="GOOGLE"?"rotate-180":""}`}/></small></span><div className="mt-2 text-xl font-semibold">{formatNumber(usage?.google_calls)} 次</div><small className="mt-1 block text-slate-500">{googleActualCost>0?`平台已确认费用 ${formatCost(googleActualCost)}`:"暂无平台确认费用"}</small></button>
       </section>
-      {usageScope?<section id="usage-details" className={`${panel} overflow-hidden`}>
+      {usageScope==="GOOGLE"?<section id="google-usage-details" className={`${panel} overflow-hidden`}>
         <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
-          <div><h2 className="font-semibold">{usageDetailTitle}</h2><p className="mt-1 text-xs text-slate-500">{usageScope==="GOOGLE"?"先核对本任务用量，再查看同一Google结算账号本月共享额度；最终费用以Google账单为准。":"仅展示本任务必要的模型、调用、Token与成本汇总；逐次流水请在AI用量与费用中审计。"}</p></div>
+          <div><h2 className="font-semibold">Google Places 调用与费用明细</h2><p className="mt-1 text-xs text-slate-500">先核对本任务用量，再查看同一Google结算账号当前结算月的总用量、剩余额度、超额调用与预计费用。</p></div>
           <div className="flex items-center gap-4"><Link href="/ai-usage?module=acquisition" className="text-sm font-medium text-blue-600">AI用量与费用</Link><button type="button" className="flex items-center gap-1 text-sm font-medium text-blue-600" onClick={()=>setUsageScope(null)}>收起明细<ChevronDown size={15} className="rotate-180"/></button></div>
         </div>
-        <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
-          <div className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">本任务调用</small><b className="mt-1 block text-lg">{formatNumber(visibleCallCount)} 次</b></div>
-          {usageScope==="GOOGLE"?<div className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">本任务免费调用</small><b className="mt-1 block text-lg">{formatNumber(visibleFreeCalls)} 次</b></div>:<div className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">本任务Token</small><b className="mt-1 block text-lg">{formatTokens(usage?.total_tokens)}</b></div>}
-          <div className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">本任务成本参考</small><b className="mt-1 block text-lg">{formatCost(visibleCost)}</b></div>
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          <div className="rounded-lg bg-blue-50/60 px-4 py-3"><small className="text-slate-500">本任务调用</small><b className="mt-1 block text-lg text-blue-700">{formatNumber(usage?.google_calls)} 次</b><span className="text-xs text-slate-400">其中免费记账 {formatNumber(visibleFreeCalls)} 次</span></div>
+          <div className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">本任务价目估算</small><b className="mt-1 block text-lg">{formatCost(googleCost)}</b><span className="text-xs text-slate-400">未抵扣账号共享免费额度</span></div>
+          <div className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">结算月预计总用量</small><b className="mt-1 block text-lg">{googleBillingLoading?"读取中…":googleBilling?.state==="CONNECTED"?`${formatNumber(googleProjectedUsage)} 次`:"—"}</b><span className="text-xs text-slate-400">平台已确认 + 系统待同步</span></div>
+          <div className="rounded-lg bg-emerald-50/60 px-4 py-3"><small className="text-slate-500">预计剩余免费额度</small><b className="mt-1 block text-lg text-emerald-700">{googleBillingLoading?"读取中…":googleBilling?.state==="CONNECTED"?(googleLimitedRows.length?`${formatNumber(googleProjectedRemaining)} 次`:"不限量"):"—"}</b><span className="text-xs text-slate-400">各有限额SKU剩余合计</span></div>
+          <div className={`rounded-lg px-4 py-3 ${googleProjectedOverageCalls>0?"bg-rose-50":"bg-slate-50"}`}><small className="text-slate-500">超过免费额度</small><b className={`mt-1 block text-lg ${googleProjectedOverageCalls>0?"text-rose-600":"text-slate-800"}`}>{googleBillingLoading?"读取中…":googleBilling?.state==="CONNECTED"?`${formatNumber(googleProjectedOverageCalls)} 次`:"—"}</b><span className="text-xs text-slate-400">当前结算账号预计超额</span></div>
+          <div className={`rounded-lg px-4 py-3 ${googleProjectedOverageCost>0?"bg-rose-50":"bg-slate-50"}`}><small className="text-slate-500">超额预计费用</small><b className={`mt-1 block text-lg ${googleProjectedOverageCost>0?"text-rose-600":"text-slate-800"}`}>{googleBillingLoading?"读取中…":googleBilling?.state==="CONNECTED"?formatCost(googleProjectedOverageCost):"—"}</b><span className="text-xs text-slate-400">最终以Google账单为准</span></div>
         </div>
-        {visibleUsageBreakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">{usageScope==="OPENAI"?"本任务 OpenAI 模型汇总":"本任务 Google Places SKU用量与账号额度"}</h3><div className="mt-3 overflow-x-auto">
-          {usageScope==="GOOGLE"?<table className="w-full min-w-[1120px] text-left text-sm"><thead className="text-xs text-slate-500"><tr>{["SKU / 用途","本任务调用","本任务免费","本任务成本","结算月账号总量","免费上限","剩余 / 已超","超额预计费用"].map((label)=><th key={label} className="py-2 pr-4 font-medium">{label}</th>)}</tr></thead><tbody>{visibleUsageBreakdown.map((item)=>{const account=googleBilling?.skuUsage?.find((entry)=>entry.key===GOOGLE_BILLING_KEY_BY_SKU[item.model_or_sku]);const exceeded=Number(account?.projectedOverageCalls||0)>0;return <tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-3 pr-4"><b className="block font-medium text-slate-800">{item.model_or_sku}</b><small className="text-slate-500">{item.operation}</small></td><td className="pr-4 font-medium text-blue-700">{formatNumber(item.calls)} 次</td><td className="pr-4">{formatNumber(item.free_calls)} 次</td><td className="pr-4">{formatCost(item.amount_usd)}</td><td className="pr-4">{account?`${formatNumber(account.projectedUsage)} 次`:"—"}{account?<small className="block text-slate-400">已确认 {formatNumber(account.usageCount)} · 待同步 {formatNumber(account.pendingSystemUsage)}</small>:null}</td><td className="pr-4">{account?.freeLimit==null?account?"不限量":"—":`${formatNumber(account.freeLimit)} 次`}</td><td className={`pr-4 font-medium ${exceeded?"text-rose-600":"text-emerald-700"}`}>{!account?"—":account.freeLimit==null?"不限量":exceeded?`已超 ${formatNumber(account.projectedOverageCalls)} 次`:`剩余 ${formatNumber(account.projectedRemaining)} 次`}</td><td className={`pr-4 font-medium ${Number(account?.projectedOverageCostUsd||0)>0?"text-rose-600":"text-slate-500"}`}>{account?formatCost(account.projectedOverageCostUsd):"—"}</td></tr>})}</tbody></table>:<table className="w-full min-w-[680px] text-left text-sm"><thead className="text-xs text-slate-500"><tr>{["模型","用途","调用","免费","成本参考"].map((label)=><th key={label} className="py-2 pr-4 font-medium">{label}</th>)}</tr></thead><tbody>{visibleUsageBreakdown.map((item)=><tr key={`${item.provider}-${item.model_or_sku}-${item.operation}`} className="border-t"><td className="py-3 pr-4 font-medium">{item.model_or_sku}</td><td className="pr-4">{item.operation}</td><td className="pr-4">{formatNumber(item.calls)} 次</td><td className="pr-4">{formatNumber(item.free_calls)} 次</td><td className="pr-4">{formatCost(item.amount_usd)}</td></tr>)}</tbody></table>}
-        </div>{usageScope==="GOOGLE"?(googleBillingLoading?<p className="mt-3 text-xs text-slate-500">正在读取Google结算月额度…</p>:googleBilling?.state!=="CONNECTED"?<p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{googleBilling?.message||"账号额度暂不可用，本任务调用与成本数据不受影响。"}</p>:<p className="mt-3 text-xs text-slate-500">账号总量按平台已确认用量加系统待同步记录估算；免费额度由同一Google结算账号下的AI获客与AI筛选共享。</p>):null}</div>:<div className="p-8 text-center text-sm text-slate-400">本任务暂无已记录调用</div>}
+        {visibleUsageBreakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">本任务 Google Places SKU用量与账号额度</h3><div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleUsageBreakdown.map((item)=>{const account=googleBilling?.skuUsage?.find((entry)=>entry.key===GOOGLE_BILLING_KEY_BY_SKU[item.model_or_sku]);const exceeded=Number(account?.projectedOverageCalls||0)>0;return <article key={item.model_or_sku} className="rounded-lg border bg-slate-50/60 p-3"><div className="flex items-start justify-between gap-2"><div><b className="text-sm text-slate-800">{item.model_or_sku}</b><small className="mt-1 block text-slate-500">{item.operations.join("、")||"Google Places调用"}</small></div><span className="shrink-0 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">本任务 {formatNumber(item.calls)} 次</span></div><div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-xs"><span className="text-slate-500">本任务免费<b className="mt-1 block text-sm text-slate-800">{formatNumber(item.free_calls)} 次</b></span><span className="text-slate-500">价目估算<b className="mt-1 block text-sm text-slate-800">{formatCost(item.amount_usd)}</b></span></div>{account?<div className="mt-3 border-t pt-3 text-xs leading-5"><p className="text-slate-500">结算月预计总量 <b className="text-slate-700">{formatNumber(account.projectedUsage)} 次</b></p><p className="text-slate-400">平台确认 {formatNumber(account.usageCount)} · 待同步 {formatNumber(account.pendingSystemUsage)}</p>{account.freeLimit==null?<p className="font-medium text-emerald-700">不限量免费</p>:exceeded?<><p className="font-medium text-rose-600">已超免费额度 {formatNumber(account.projectedOverageCalls)} 次</p><p className="text-rose-600">超额预计费用 {formatCost(account.projectedOverageCostUsd)}</p></>:<p className="font-medium text-emerald-700">预计剩余 {formatNumber(account.projectedRemaining)} 次免费</p>}</div>:<p className="mt-3 border-t pt-3 text-xs text-slate-400">{googleBillingLoading?"正在读取结算月额度…":googleBilling?.message||"账号额度暂不可用"}</p>}</article>})}</div>{googleBilling?.state!=="CONNECTED"&&!googleBillingLoading?<p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{googleBilling?.message||"账号额度暂不可用，本任务调用与成本数据不受影响。"}</p>:<p className="mt-3 text-xs text-slate-500">账号总量按平台已确认用量加系统待同步记录估算；免费额度由同一Google结算账号下的AI获客与AI筛选共享。</p>}</div>:<div className="p-8 text-center text-sm text-slate-400">本任务暂无已记录调用</div>}
       </section>:null}
       {task.error_message ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -417,10 +413,10 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           <form className="grid w-full gap-2 border-b p-4 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(4,minmax(140px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
           <label className="relative"><Search size={15} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={(event)=>setDraft(event.target.value)} placeholder="搜索客户名称或地址"/></label>
           <select className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
-          {(task.industries?.length||1)>1?<select className={`${input} w-full`} value={industry} onChange={(event)=>{setPage(1);setIndustry(event.target.value)}}><option value="">全部所属行业</option>{(task.industries?.length?task.industries:[task.industry]).map((item)=><option key={item} value={item}>{item}</option>)}</select>:null}
+          {(task.industries?.length||1)>1?<SearchableMultiSelectFilter label="所属行业" value={industries} options={(task.industries?.length?task.industries:[task.industry]).filter(Boolean).map((value)=>({value,label:value}))} onChange={(value)=>{setPage(1);setIndustries(value)}}/>:null}
           <select className={`${input} w-full`} value={readiness} onChange={(event)=>{setPage(1);setReadiness(event.target.value)}}><option value="">全部开发条件</option><option value="ACTIONABLE">可直接开发</option><option value="NO_CONTACT">缺少有效联系方式</option><option value="EVIDENCE_GAP">依据不足</option></select>
-          {task.countries.length>1?<select className={`${input} w-full`} value={country} onChange={(event)=>{setPage(1);setCountry(event.target.value)}}><option value="">全部国家/地区</option>{task.countries.map((item)=><option key={item} value={item}>{COUNTRY_NAMES.of(item)||item}</option>)}</select>:null}
-          <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||country||industry||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountry("");setIndustry("");setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
+          {task.countries.length>1?<SearchableMultiSelectFilter label="国家/地区" value={countries} options={task.countries.map((value)=>({value,label:COUNTRY_NAMES.of(value)||value}))} onChange={(value)=>{setPage(1);setCountries(value)}}/>:null}
+          <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||countries.length||industries.length||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountries([]);setIndustries([]);setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
           </form>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[2190px] table-fixed text-left text-sm">
@@ -458,7 +454,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai"/>
                   </td>
-                  <td className="px-4 py-4"><div className="space-y-2">{r.customer_profile?.website?<CustomerPublicLink value={r.customer_profile.website} kind="website"/>:null}{r.customer_profile?.google_url||r.google_url?<CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/>:null}<SocialChannels candidate={r}/>{!r.customer_profile?.website&&!r.customer_profile?.google_url&&!r.google_url&&!r.customer_profile?.facebook_url&&!r.customer_profile?.instagram_url&&!r.customer_profile?.linkedin_url&&!r.customer_profile?.tiktok_url&&!r.customer_profile?.other_public_urls?.length?<span className="text-slate-400">—</span>:null}</div></td>
+                  <td className="px-4 py-4"><div className="space-y-2">{r.customer_profile?.website||r.source_website?<div><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website"/>{!r.customer_profile?.website&&r.source_website?<small className="mt-0.5 block text-[10px] text-slate-400">Google 商家提供</small>:null}</div>:null}{r.customer_profile?.google_url||r.google_url?<CustomerPublicLink value={r.customer_profile?.google_url||r.google_url} kind="map"/>:null}<SocialChannels candidate={r}/>{!r.customer_profile?.website&&!r.source_website&&!r.customer_profile?.google_url&&!r.google_url&&!r.customer_profile?.facebook_url&&!r.customer_profile?.instagram_url&&!r.customer_profile?.linkedin_url&&!r.customer_profile?.tiktok_url&&!r.customer_profile?.other_public_urls?.length?<span className="text-slate-400">—</span>:null}</div></td>
                   <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-slate-600">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>

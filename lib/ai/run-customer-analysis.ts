@@ -910,12 +910,18 @@ export function contactCandidatesFromRecords(customer: CustomerRow, records: Cha
       const strongSignals = (item.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
       const signalText = strongSignals.join("；");
       const exactNameAndAddress = /名称/.test(signalText) && /地址/.test(signalText);
-      const googleIdentity: IdentityStatus = item.identity_status === "MATCHED"
+      const strictlyMatched = item.identity_status === "MATCHED"
         && Number(item.identity_confidence || 0) >= (exactNameAndAddress ? 80 : 90)
         && strongSignals.length >= 2
-        && !hasCriticalIdentityMismatch(item.mismatch_signals)
-        ? "MATCHED"
-        : "AMBIGUOUS";
+        && !hasCriticalIdentityMismatch(item.mismatch_signals);
+      const sourceConfirmed = ["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status || ""))
+        && ["MATCHED", "LIKELY_MATCHED"].includes(identityStatus)
+        && Number(item.identity_confidence || 0) >= 70
+        && strongSignals.some((signal) => /地址|具体Google商家入口|Place ID/.test(signal))
+        && !hasCriticalIdentityMismatch(item.mismatch_signals);
+      const googleIdentity: IdentityStatus = strictlyMatched ? "MATCHED"
+        : sourceConfirmed ? (identityStatus === "MATCHED" ? "MATCHED" : "LIKELY_MATCHED")
+          : "AMBIGUOUS";
       const phoneConflict = Boolean(item.mismatch_signals?.some((signal) => /电话.*不一致/.test(signal)));
       if (item.phone) add("PHONE", item.phone, "google_maps", url, item.name, googleIdentity, phoneConflict);
       for (const email of item.emails || []) add("EMAIL", email, "google_maps", url, item.name, googleIdentity);
@@ -2145,7 +2151,7 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
   }
   const audits = input.contacts
     .filter((item) => {
-      if (!["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus)) return false;
+      if (!["MATCHED_ORIGINAL", "NEW_VERIFIED", "SOURCE_CONFIRMED", "CONFLICTING_VERIFIED"].includes(item.verificationStatus)) return false;
       const previous = existingByKey.get(`${item.type}|${item.valueNormalized}`);
       return previous !== item.verificationStatus;
     })
@@ -2155,7 +2161,7 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
       result_id: input.resultId,
       action: item.verificationStatus === "MATCHED_ORIGINAL"
         ? "VERIFY_ORIGINAL_CONTACT_SOURCE"
-        : item.verificationStatus === "NEW_VERIFIED" ? "DISCOVER_VERIFIED_CONTACT" : "CONTACT_SOURCE_CONFLICT",
+        : ["NEW_VERIFIED", "SOURCE_CONFIRMED"].includes(item.verificationStatus) ? "DISCOVER_VERIFIED_CONTACT" : "CONTACT_SOURCE_CONFLICT",
       old_value: originalValuesForType(input.customer, item.type).join(", ") || null,
       new_value: item.valueRaw,
       source_url: item.sourceUrl,
