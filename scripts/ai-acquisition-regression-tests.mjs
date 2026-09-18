@@ -287,7 +287,7 @@ assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI�
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
 assert.match(taskCenter,/SearchableMultiSelectFilter label="国家\/地区"[\s\S]*filterOptions\.countries/,"任务中心国家筛选必须来自当前数据去重结果，并支持搜索和多选");
 assert.match(taskCenter,/获客成效与实际成本[\s\S]*查看成效与成本[\s\S]*costSummaryOpen\?<div[\s\S]*今日实际费用[\s\S]*历史累计实际费用[\s\S]*平均入池客户实际成本[\s\S]*历史核验入池率/,"任务中心成效摘要必须默认收起，并可展开查看今日、历史、获客成本和入池效率");
-assert.match(taskCenter,/AI获客任务<\/h2>[\s\S]*任务名称[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}`\}[\s\S]*sticky right-0[\s\S]*查看任务报告/,"获客任务列表必须让任务名称承担统一详情入口，固定操作列仅保留报告与任务控制");
+assert.match(taskCenter,/AI获客任务<\/h2>[\s\S]*任务名称[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}`\}[\s\S]*sticky right-0[\s\S]*查看详情[\s\S]*查看任务报告/,"获客任务列表必须保留明显的详情入口，任务名称链接作为辅助入口");
 assert.doesNotMatch(taskCenter,/查看成功入池客户|查看待复核客户|查看搜索效果与成本/,"任务列表操作菜单不得重复任务详情页已有的客户和分析入口");
 assert.match(taskCenter,/Google价目估算、共享免费额度和预计超额费用不计入实际费用/,"实际费用说明必须明确排除未确认的Google估算和预计超额费用");
 const taskNumber=fs.readFileSync(new URL("../lib/ai/task-number.ts",import.meta.url),"utf8");

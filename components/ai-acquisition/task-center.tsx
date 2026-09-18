@@ -363,6 +363,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>
                     <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">
+                      <Link className="inline-flex h-8 items-center rounded-md border border-slate-200 px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" href={`/ai-acquisition/tasks/${t.id}`}>查看详情</Link>
                       {t.status==="COMPLETED"||(canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status))?<RowActionMenu ariaLabel={`${t.name}操作菜单`}>
                         {t.status==="COMPLETED"?<RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}/report`)}>查看任务报告</RowActionItem>:null}
                       {canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status)?<>
