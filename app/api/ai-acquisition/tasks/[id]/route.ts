@@ -85,7 +85,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       lightweight ? Promise.resolve({data:[],error:null}) : createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500),
       createAdminClient().from("ai_screening_tasks").select("id,status,total_count,pending_count,success_count,failed_count,processed_count,updated_at").eq("request_key", `acquisition:${id}`).maybeSingle(),
     ]);
-    if (screeningTaskRows.error || acquisitionChild.error) throw screeningTaskRows.error || acquisitionChild.error;
+    if (screeningTaskRows.error || acquisitionChild.error) {
+      console.error("[ai-acquisition-task] optional screening progress unavailable", { task_id: id, screening_error: screeningTaskRows.error?.code, child_error: acquisitionChild.error?.code });
+    }
     const screeningIds = [...new Set([...(screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")),String(acquisitionChild.data?.id||"")].filter(Boolean))];
     const taskIds = [id, ...screeningIds];
     const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
@@ -95,8 +97,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       createAdminClient().rpc("get_ai_acquisition_usage_summary", { p_task_id: id }),
       lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds),
     ]) : [{ data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
-    if (costs.error || budgetEvents.error || discoveryProgressResult.error) throw costs.error || budgetEvents.error || discoveryProgressResult.error;
-    if (usageSummary.error) throw usageSummary.error;
+    if (costs.error || budgetEvents.error || discoveryProgressResult.error || usageSummary.error) {
+      console.error("[ai-acquisition-task] optional telemetry unavailable", { task_id: id, costs_error: costs.error?.code, budget_error: budgetEvents.error?.code, progress_error: discoveryProgressResult.error?.code, usage_error: usageSummary.error?.code });
+    }
     const checkpointProgress=(discoveryProgressResult.data||[])[0]||null;
     const checkpointBlocks=Array.isArray(checkpointProgress?.blocked_periods)?checkpointProgress.blocked_periods.map(String):[];
     const blockedPeriods=[...new Set([...(budgetEvents.data||[]).map((row)=>String(row.blocked_period||"")),...checkpointBlocks].filter(Boolean))];
@@ -118,12 +121,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const liveProcessed=Math.min(Number(task.discovered_count||0),Math.max(Number(task.processed_count||0),earlyProcessed+verificationCompleted));
     const verificationProgress=verificationTask?{status:verificationTask.status,total:verificationTotal,completed:verificationCompleted,pending:Math.max(0,Number(verificationTask.pending_count||0)),success:Number(verificationTask.success_count||0),failed:Number(verificationTask.failed_count||0),early_processed:earlyProcessed,updated_at:verificationTask.updated_at}:null;
     const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,decision_reason,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
-    if(traceRows.error)throw traceRows.error;
+    if(traceRows.error) console.error("[ai-acquisition-task] optional search analytics unavailable", { task_id:id, code:traceRows.error.code });
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
     const customerStates=traceCustomerIds.length?await createAdminClient().from("customers").select("id,owner_id,status").in("id",traceCustomerIds):{data:[],error:null};
-    if(customerStates.error)throw customerStates.error;
+    if(customerStates.error) console.error("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code });
     const metricCostRows:Array<{customer_id:string|null;provider:string;amount_usd:number;amount_type:string;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
-    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,amount_type,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,amount_type,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
     const queryByCustomer=new Map<string,string>();
     const stats=new Map<string,{query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number}>();
@@ -134,7 +137,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const usageData=usageSummary.data&&typeof usageSummary.data==="object"?usageSummary.data as Record<string,unknown>:{};
     const totalTokens=metricCostRows.reduce((sum,row)=>sum+Number(row.input_tokens||0)+Number(row.output_tokens||0),0);
     const reportCandidates=report?await createAdminClient().from("ai_acquisition_candidates").select("id,imported_customer_id,company_name,decision,ai_score,ai_level,country,matched_keywords").eq("task_id",id).eq("decision","ACCEPTED").order("ai_score",{ascending:false,nullsFirst:false}).limit(10):{data:[],error:null};
-    if(reportCandidates.error)throw reportCandidates.error;
+    if(reportCandidates.error) console.error("[ai-acquisition-task] optional report candidates unavailable", { task_id:id, code:reportCandidates.error.code });
     const actualCost=actualCostUsd(metricCostRows);
     const confirmedGoogleCost=actualCostUsd(metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES"));
     const reusedCandidates=(traceRows.data||[]).filter((row)=>String(row.decision_reason||"").startsWith("复用近14天历史核验结论")).length;
@@ -146,8 +149,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       : message === "FORBIDDEN" ? "无权查看该AI获客任务"
         : message === "TASK_NOT_FOUND" ? "AI获客任务不存在或已删除"
           : "AI获客任务详情暂时无法加载，请稍后重试";
-    if (!["UNAUTHORIZED", "FORBIDDEN", "TASK_NOT_FOUND"].includes(message)) console.error("[ai-acquisition-task] detail load failed", { message });
-    return NextResponse.json({ error: publicMessage }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 400 });
+    if (!["UNAUTHORIZED", "FORBIDDEN", "TASK_NOT_FOUND"].includes(message)) {
+      const detail=error&&typeof error==="object"?error as {code?:string;details?:string;hint?:string}:{};
+      console.error("[ai-acquisition-task] detail load failed", { message, code:detail.code, details:detail.details, hint:detail.hint });
+    }
+    return NextResponse.json({ error: publicMessage }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : message === "TASK_NOT_FOUND" ? 404 : 500 });
   }
 }
 

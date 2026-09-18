@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-const validScopes = new Set(["today", "accepted", "review"]);
+const validScopes = new Set(["today", "week", "accepted", "review"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
     const taskId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.get("task_id") || "") ? String(params.get("task_id")) : "";
     const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
     const to = /^\d{4}-\d{2}-\d{2}$/.test(params.get("to") || "") ? String(params.get("to")) : "";
-    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const chinaNow = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    const today = chinaNow.toISOString().slice(0, 10);
+    const weekStart = new Date(chinaNow);
+    weekStart.setUTCDate(chinaNow.getUTCDate() - ((chinaNow.getUTCDay() + 6) % 7));
+    const weekStartDate = weekStart.toISOString().slice(0, 10);
     const admin = createAdminClient();
 
     // A salesperson normally remembers a task's business name or number, not
@@ -49,6 +53,7 @@ export async function GET(request: NextRequest) {
     if (scope === "review") query = query.eq("decision", "REVIEW");
     else query = query.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
     if (scope === "today") query = query.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+    if (scope === "week") query = query.gte("processed_at", `${weekStartDate}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
     if (search) {
       const [customerMatches,contactMatches] = await Promise.all([
         admin.from("customers").select("id").or(`company_name.ilike.%${search}%,address.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%,whatsapp.ilike.%${search}%,website.ilike.%${search}%,google_url.ilike.%${search}%`).limit(5000),
@@ -98,11 +103,12 @@ export async function GET(request: NextRequest) {
 
     const summaryQueries = [
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`).limit(0),
+      base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${weekStartDate}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`).limit(0),
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).limit(0),
       base().eq("decision", "REVIEW").limit(0),
     ];
-    const [todayResult, acceptedResult, reviewResult] = await Promise.all(summaryQueries);
-    const summaryError = todayResult.error || acceptedResult.error || reviewResult.error;
+    const [todayResult, weekResult, acceptedResult, reviewResult] = await Promise.all(summaryQueries);
+    const summaryError = todayResult.error || weekResult.error || acceptedResult.error || reviewResult.error;
     if (summaryError) throw summaryError;
 
     // Filter choices must describe the current result set, not every industry
@@ -119,6 +125,7 @@ export async function GET(request: NextRequest) {
       if (scope === "review") optionQuery = optionQuery.eq("decision", "REVIEW");
       else optionQuery = optionQuery.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
       if (scope === "today") optionQuery = optionQuery.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+      if (scope === "week") optionQuery = optionQuery.gte("processed_at", `${weekStartDate}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
       const optionPage = await optionQuery.range(offset, offset + 999);
       if (optionPage.error) throw optionPage.error;
       const pageRows = optionPage.data || [];
@@ -176,7 +183,7 @@ export async function GET(request: NextRequest) {
         return { ...row, task, source:profile?.source||"AI_ACQUISITION", phone:profile?.phone||null, whatsapp:profile?.whatsapp||null, email:profile?.email||null, website_phone:profile?.website_phone||null, website_email:profile?.website_email||null, verified_contacts:verifiedContactsByCustomer.get(customerId)||[], display_industry:profile?.industry||profile?.category||"待确认行业", website:profile?.website||sourceWebsite?.value_raw||null, website_source:profile?.website?"customer_profile":sourceWebsite?.source_channel||null, facebook_url:profile?.facebook_url||null,instagram_url:profile?.instagram_url||null,linkedin_url:profile?.linkedin_url||null,tiktok_url:profile?.tiktok_url||null,other_public_urls:profile?.other_public_urls||[],can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
       }),
       count: result.count || 0,
-      summary: { today: todayResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
+      summary: { today: todayResult.count || 0, week: weekResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
       filter_options: { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) },
       filter_task: filterTask,
       show_owner: hasPermission(account, "ai.acquisition.data_all"),

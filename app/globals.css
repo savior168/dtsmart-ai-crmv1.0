@@ -353,3 +353,22 @@ a[href^="/customers/"][class*="bg-[#1763e8]"] {
   }
 }
 
+/* AI筛选与AI获客任务列表使用一致、明确的任务详情入口。 */
+td:last-child > div > a[href^="/ai-screening/tasks/"] {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: .375rem;
+  padding: 0 .625rem;
+  color: #334155;
+  font-size: .75rem;
+  font-weight: 500;
+  transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+}
+td:last-child > div > a[href^="/ai-screening/tasks/"]:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+

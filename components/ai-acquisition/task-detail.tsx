@@ -86,6 +86,19 @@ type CompletionInfo = { budget_limited: boolean; blocked_periods: string[];incre
 type DiscoveryProgress = { stage:string;stage_detail:string|null;total:number;completed:number;raw_hits:number;incremental_skipped?:number;concurrently_skipped?:number;current_query:string|null;current_country:string|null;updated_at:string|null };
 type VerificationProgress = {status:string;total:number;completed:number;pending:number;success:number;failed:number;early_processed:number;updated_at:string|null};
 type SearchStat = {query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number};
+type TaskDetailPayload = {
+  error?:string;
+  task?:AcquisitionTask;
+  candidates?:Candidate[];
+  count?:number;
+  usage_summary?:Partial<UsageSummary>;
+  completion?:CompletionInfo;
+  discovery_progress?:DiscoveryProgress|null;
+  verification_progress?:VerificationProgress|null;
+  search_stats?:SearchStat[];
+  can_control?:boolean;
+  can_view_evidence?:boolean;
+};
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const GOOGLE_SKU_ORDER=["PLACES_TEXT_SEARCH_PRO","PLACES_TEXT_SEARCH_ID_ONLY","PLACES_DETAILS_PRO","PLACES_DETAILS_ENTERPRISE","PLACES_DETAILS_ENTERPRISE_ATMOSPHERE"];
 const GOOGLE_BILLING_KEY_BY_SKU:Record<string,string>={
@@ -145,11 +158,19 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       if (level) p.set("level", level);
       if (readiness) p.set("readiness", readiness);
       if (quiet) p.set("lightweight", "1");
-      const r = await fetch(`/api/ai-acquisition/tasks/${taskId}?${p}`, {
-        cache: "no-store",
-      });
-      const b = await r.json();
+      let r: Response | null = null;
+      let b: TaskDetailPayload = {};
+      // A detail page is read-only. Retry one transient server failure before
+      // showing an error so a brief database or function cold-start does not
+      // make a working task appear unavailable to the user.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        r = await fetch(`/api/ai-acquisition/tasks/${taskId}?${p}`, { cache: "no-store" });
+        b = await r.json().catch(() => ({}));
+        if (r.ok || r.status < 500 || attempt === 1) break;
+      }
+      if (!r) throw new Error("加载失败");
       if (!r.ok) throw new Error(b.error || "加载失败");
+      if (!b.task) throw new Error("任务核心数据不完整，请重新加载");
       setTask(b.task);
       if (!quiet) {
         setRows(b.candidates || []);
