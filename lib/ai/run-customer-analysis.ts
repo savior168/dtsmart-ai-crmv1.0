@@ -696,7 +696,7 @@ export function finalizeAnalysisAgainstEvidence(customer: CustomerRow, records: 
   return { ...grounded, usage };
 }
 
-const VERIFIED_TARGET_INDUSTRY = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/;
+const VERIFIED_TARGET_INDUSTRY = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|其他维修行业|混合经营)$/;
 
 function rejectedConclusionScore(
   analysis: CustomerAnalysis,
@@ -1161,7 +1161,7 @@ const RULE_INDUSTRIES: Array<{ pattern: RegExp; industry: CustomerAnalysis["indu
   { pattern: /(?:computer repair|pc repair|pc mechanic|laptop repair|(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)[\s\S]{0,80}(?:computers?|laptops?|notebooks?|macbooks?|PCs?)|(?:computers?|laptops?|notebooks?|macbooks?|PCs?)[\s\S]{0,80}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|(?:laptop|notebook)[\s\S]{0,60}(?:hinge|screen|keyboard|battery)[\s\S]{0,40}(?:repair(?:ed|s|ing)?|fix(?:ed|es|ing)?)|reparaci[oó]n (?:de )?(?:ordenadores|computadoras)|r[eé]paration (?:d['’]ordinateur|informatique)|computerreparatur|serwis (?:komputer[oó]w|laptop[oó]w)|naprawa (?:komputer[oó]w|laptop[oó]w)|电脑维修|计算机维修|电脑硬件维修)/i, industry: "电脑维修店", baseScore: 50, target: true },
   { pattern: /(?:electronics? repairs?|repair(?:ed|s|ing)?[\s\S]{0,50}electronic devices?|electrical repairs?|electronic device repairs?|tv repairs?|television repairs?|turntable repairs?|audio equipment repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|电子设备维修|电子产品维修|电视维修|音响维修|游戏机维修)/i, industry: "其他维修行业", baseScore: 48, target: true },
   { pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|批发|分销|进口商)/i, industry: "进口商或分销商", baseScore: 70, target: true },
-  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone chargers?|phone earbuds?|phone headphones?|手机配件商店|手机配件|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|平板配件)/i, industry: "手机外配件零售", baseScore: 45, target: true },
+  { pattern: /(?:mobile phone accessories|cell phone accessories|phone accessories|akcesoria (?:do )?(?:telefon[oó]w|gsm)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone chargers?|phone earbuds?|phone headphones?|手机配件商店|手机配件|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|平板配件)/i, industry: "手机外配件零售", baseScore: 24, target: false },
   { pattern: /(?:cell[_ ]phone[_ ]store|mobile[_ ]phone[_ ]store|mobile[_ ]phone[_ ]shop|phone shop|smartphone shop|handyshop|手机店|手机成品零售)/i, industry: "手机成品零售", baseScore: 26, target: false },
   { pattern: /(?:software development|software company|it consult(?:ing|ancy)|web hosting|data protection|cyber ?security|cloud services|computer services?|computer technical support|IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|system (?:setup|configuration|maintenance|troubleshooting)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|wsparcie IT|konfiguracja sieci|软件开发|软件公司|IT咨询|计算机服务|计算机技术支持|电脑技术支持|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持)|系统(?:设置|配置|维护|故障排除)|网络托管|数据保护|信息安全)/i, industry: "软件或IT服务", baseScore: 18, target: false },
   { pattern: /(?:mobile network operator|telecommunications service provider|sim card|mobile plan|mobile contract|phone contract|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|festnetz|magenta\s*tv|internet(?:vertrag|tarif)|运营商营业厅|手机套餐|电信运营商|通信合约|宽带套餐)/i, industry: "运营商营业厅", baseScore: 22, target: false },
@@ -1185,7 +1185,18 @@ function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
       && !hasCriticalIdentityMismatch(item.mismatch_signals)) {
     const businessName = String(item.name || "");
     const mobileName = /(?:phone|mobile|smartphone|smartfon|telefon|gsm|iphone|手机)/i.test(businessName);
-    const repairReview = /(?:repair|repaired|fix|fixed|(?:screen|display|glass|battery)(?:\s+was)?\s+(?:replacement|replaced|changed|fixed)|napraw|serwis|repar|维修|修理|更换)/i.test(reviews);
+    const computerName = /(?:computer|laptop|notebook|macbook|\bpc\b|电脑|笔记本)/i.test(businessName);
+    const merchantTypeText = (item.types || []).join(" ");
+    const manufacturerOrFinishedGoodsSeller = /(?:manufacturer|cell_phone_store|mobile_phone_shop|electronics_store)/i.test(merchantTypeText);
+    // 评论只有在明确描述顾客购买了一项维修服务时才可证明商家经营维修。
+    // “自家手机返厂/保修 repair”只是成品售后经历，不能把制造商或成品店变成维修目标客户。
+    const explicitRepairPurchase = /(?:had|got|took|brought|sent)\s+(?:my|our|the|a)\s+(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|macbook|screen|display|battery)\s+(?:in\s+|here\s+|to\s+them\s+)?(?:for\s+)?(?:repair(?:ed)?|fix(?:ed)?|screen replacement|battery replacement)|(?:replaced|fixed|repaired)\s+(?:my|our|the)\s+(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|macbook|screen|display|battery)|(?:my|our)\s+[^.;]{0,30}(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|macbook|screen|display|battery)\s+was\s+(?:replaced|fixed|repaired)/i.test(reviews);
+    const genericRepairServiceReview = /(?:speedy|quick|same[- ]day|professional|excellent|great|good|quality)\s+(?:phone\s+|mobile\s+|device\s+)?repair|repair\s+(?:service|shop|centre|center)/i.test(reviews);
+    const warrantyOrOwnProductRepair = /(?:their|the)\s+phones?|back\s+for\s+["']?repair|warranty|refund|faulty\s+batch|not\s+fit\s+for\s+purpose/i.test(reviews);
+    const repairReview = (explicitRepairPurchase || (!manufacturerOrFinishedGoodsSeller && genericRepairServiceReview))
+      && !(manufacturerOrFinishedGoodsSeller && warrantyOrOwnProductRepair);
+    const computerRepairPurchase = /(?:my|our|the|a)\s+(?:computer|laptop|notebook|macbook|pc|hinge)\s+(?:was\s+)?(?:fixed|repaired)|(?:needed|had|got|took|brought)\s+(?:my|our|the|a)\s+(?:computer|laptop|notebook|macbook|pc)\s+(?:fixed|repaired)|(?:computer|laptop|notebook|macbook|pc)[^.;]{0,50}repair/i.test(reviews);
+    const otherElectronicsRepairPurchase = /(?:xbox|playstation|ps[345]|game console|tv|television|audio equipment)[^.;]{0,60}(?:fixed|repaired|repair|hdmi replacement)|(?:fixed|repaired)[^.;]{0,40}(?:xbox|playstation|ps[345]|game console|tv|television|audio equipment)/i.test(reviews);
     const independentlyAnchored = /(?:地址|电话|官网|具体Google|place.?id|address|phone|website|domain)/i.test((item.match_signals || []).join("；"));
     // Places does not always return business_status. An omitted status is not
     // a closure fact: when phone/address/domain already anchor the entity, an
@@ -1202,7 +1213,9 @@ function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
     // business is operating, and the name explicitly describes a target
     // service (for example "Serwis telefonów" or "Laptop repairs").
     if (explicitNamedTargetBusiness) verifiedContext.push(businessName);
-    if (mobileName && repairReview) verifiedContext.push("mobile phone repair");
+    if (mobileName && repairReview) verifiedContext.push("mobile phone repair service purchased by customer");
+    if (computerName && computerRepairPurchase && !warrantyOrOwnProductRepair) verifiedContext.push("computer hardware repair service purchased by customer");
+    if (otherElectronicsRepairPurchase && /(?:repair|service|tech|electronics)/i.test(businessName)) verifiedContext.push("electronic device repairs and game console repairs");
     if (/(?:cell_phone_store|mobile_phone_shop|electronics_store)/i.test((item.types || []).join(" "))
         && /(?:accessor|cover|screen protector|protective film|privacy film|power ?bank|car holder|charger|earbud|headphone|tablet|配件|手机壳|保护膜|移动电源|手机支架|充电器|耳机|平板)/i.test(reviews)) {
       verifiedContext.push("mobile phone accessories");
@@ -1212,7 +1225,16 @@ function googleContextualReviewEvidence(item: GooglePlaceEvidence) {
 }
 
 function googleBusinessEvidenceText(item: GooglePlaceEvidence) {
-  return [googleCategoryText(item), item.description, googleContextualReviewEvidence(item), ...(item.reviews || [])].filter(Boolean).join("；");
+  // 原始评论用于审计展示，但不能直接进入规则关键词匹配；只有上方经过
+  // “购买维修服务/外配件”语义约束后提取出的事实可以参与行业判断。
+  return [googleCategoryText(item), item.description, googleContextualReviewEvidence(item)].filter(Boolean).join("；");
+}
+
+function googleFinishedGoodsManufacturerWithoutTargetEvidence(item: GooglePlaceEvidence) {
+  const types = (item.types || []).join(" ");
+  if (!/(?:manufacturer|cell_phone_store|mobile_phone_shop|electronics_store)/i.test(types)) return false;
+  const contextual = googleContextualReviewEvidence(item);
+  return !/(?:repair service purchased|hardware repair|electronic device repairs|replacement parts?|repair parts?|spare parts?|wholesale|distributor|importer)/i.test(`${item.description || ""} ${contextual}`);
 }
 
 export function hasTargetValueSignal(customer: CustomerRow, records: ChannelRecord[]) {
@@ -1222,6 +1244,8 @@ export function hasTargetValueSignal(customer: CustomerRow, records: ChannelReco
     if (record.channel === "other") return identityAnchoredRecoveryText(customer, item);
     return [item.title, item.description, ...(item.structured_descriptions || []), ...(item.headings || []), item.text_excerpt].filter(Boolean).join(" ");
   }).join(" ");
+  const google = records.find((record) => record.channel === "google_maps" && record.status === "COLLECTED")?.evidence as GooglePlaceEvidence | undefined;
+  if (google && googleFinishedGoodsManufacturerWithoutTargetEvidence(google)) return false;
   // Imported fields are routing hints only. They may authorize deeper
   // collection, but never become evidence or add to the score.
   return PRODUCT_RELEVANCE_PATTERN.test(`${customer.company_name || ""} ${customer.category || ""} ${customer.industry || ""} ${evidenceText}`);
@@ -1260,7 +1284,10 @@ function ruleIsSupported(rule: (typeof RULE_INDUSTRIES)[number], text: string) {
   if (rule.target && dominantNonTargetIndustryForText(text) && !hasCoreDeviceRepairEvidence(text)) return false;
   if (/维修店/.test(rule.industry) && TELECOM_SERVICE_PATTERN.test(text) && !EXPLICIT_DEVICE_REPAIR_PATTERN.test(text)) return false;
   // 任何行业都可以出现“批发/分销”字样；必须同时证明手机、电脑或维修配件产品相关，才能归入高价值渠道客户。
-  if (rule.industry === "进口商或分销商") return PRODUCT_RELEVANCE_PATTERN.test(text);
+  if (rule.industry === "进口商或分销商") {
+    const repairPartsProduct = /(?:lcd|oled|touch ?screen|replacement (?:screen|display|battery|parts?)|repair parts?|spare parts?|charging port|dock connector|motherboard|mainboard|camera module|flex cable|维修配件|内配件|屏幕总成|替换电池|充电口|尾插|主板|排线|摄像头)/i.test(text);
+    return repairPartsProduct && /(?:wholesale|wholesaler|distributor|importer|b2b|bulk order|trade account|moq|批发|分销|进口商|批量供货)/i.test(text);
+  }
   if (rule.industry === "电脑维修店") return isComputerHardwareRepairEvidence(text);
   return true;
 }
@@ -1659,7 +1686,7 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
       // 精确匹配主体的具体 Google 商家类别属于公开经营事实；泛类别、
       // 同名或仅可能匹配的候选仍必须由描述、评论或官网继续佐证。
       const corroborationText = google
-        ? [google.description, googleContextualReviewEvidence(google), ...(google.reviews || [])].filter(Boolean).join("；")
+        ? [google.description, googleContextualReviewEvidence(google)].filter(Boolean).join("；")
         : "";
       return Boolean(google && hasVerifiedGoogleBusinessCategory(google))
         || ruleIsSupported(rule, corroborationText)

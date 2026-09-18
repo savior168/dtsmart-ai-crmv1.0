@@ -80,10 +80,10 @@ export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
   "手机维修店": "mobile phone repair",
   "手机维修连锁店": "mobile phone repair chain",
   "Apple设备维修店": "Apple device repair service",
-  "手机配件批发商": "phone parts wholesale",
+  "手机配件批发商": "mobile phone repair replacement parts wholesale",
   "手机内配件经销商": "mobile phone replacement parts distributor",
-  "手机配件零售商": "mobile phone accessories store",
-  "手机进口商": "mobile phone importer",
+  "手机配件零售商": "mobile phone repair replacement parts retailer",
+  "手机进口商": "mobile phone repair replacement parts importer",
   "手机翻新商": "mobile phone refurbisher",
   "二手手机整备商": "used phone refurbishment company",
   "电脑维修店": "computer repair",
@@ -134,16 +134,21 @@ export const ACQUISITION_COMMON_INDUSTRIES = [
   "Apple设备维修店",
   "手机配件批发商",
   "手机内配件经销商",
-  "手机配件零售商",
-  "手机进口商",
-  "手机翻新商",
-  "二手手机整备商",
   "电脑维修店",
   "笔记本电脑维修店",
   "电脑配件批发商",
   "笔记本配件经销商",
   "电子设备维修服务商",
 ] as const;
+
+// 成品手机、翻新整机和普通外配件商家并不是维修配件业务的目标客户。
+// 保留旧标签映射仅用于兼容历史任务，但不得继续作为系统推荐行业。
+const NON_TARGET_RECOMMENDED_INDUSTRIES = new Set([
+  "手机配件零售商",
+  "手机进口商",
+  "手机翻新商",
+  "二手手机整备商",
+]);
 
 function industryFeatures(value: string) {
   const normalized = value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -158,6 +163,7 @@ export function acquisitionIndustrySuggestions(query: string, limit = 8) {
   if (normalized.length < 2) return [];
   const queryFeatures = industryFeatures(normalized);
   return Object.entries(ACQUISITION_INDUSTRY_TERMS)
+    .filter(([label]) => !NON_TARGET_RECOMMENDED_INDUSTRIES.has(label))
     .map(([label, searchTerm]) => {
       const candidate = `${label} ${searchTerm}`.toLowerCase();
       const candidateFeatures = industryFeatures(candidate);
@@ -177,12 +183,12 @@ const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
   "手机维修店": ["screen repair", "battery replacement", "board repair", "phone parts"],
   "手机维修连锁店": ["multiple locations", "screen repair", "battery replacement", "repair center"],
   "Apple设备维修店": ["iPhone repair", "iPad repair", "MacBook repair", "Apple parts"],
-  "手机配件批发商": ["LCD screens", "replacement parts", "spare parts", "B2B supplier"],
+  "手机配件批发商": ["phone LCD wholesale", "phone replacement batteries wholesale", "charging port supplier", "repair parts B2B"],
   "手机内配件经销商": ["LCD screens", "batteries", "charging ports", "replacement parts"],
-  "手机配件零售商": ["phone cases", "chargers", "screen protectors", "mobile accessories"],
-  "手机进口商": ["mobile devices", "wholesale", "distributor", "B2B"],
-  "手机翻新商": ["refurbished phones", "device refurbishment", "replacement parts", "used devices"],
-  "二手手机整备商": ["used phones", "device grading", "phone refurbishment", "replacement parts"],
+  "手机配件零售商": ["phone repair parts store", "phone LCD retailer", "replacement battery retailer", "charging port parts"],
+  "手机进口商": ["phone repair parts importer", "phone LCD importer", "replacement battery distributor", "repair parts B2B"],
+  "手机翻新商": ["device refurbishment workshop", "board repair", "screen replacement", "battery replacement"],
+  "二手手机整备商": ["phone refurbishment workshop", "device repair center", "screen replacement", "battery replacement"],
   "电脑维修店": ["laptop repair", "hardware repair", "motherboard repair", "computer parts"],
   "笔记本电脑维修店": ["laptop screen repair", "keyboard replacement", "battery replacement", "motherboard repair"],
   "电脑配件批发商": ["laptop parts", "replacement parts", "spare parts", "B2B supplier"],
@@ -203,6 +209,7 @@ const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, string[]]> = [
 export function acquisitionKeywordRecommendations(industries: string[]) {
   return [...new Set(acquisitionKeywordRecommendationGroups(industries).flatMap((group) => group.keywords))].slice(0, MAX_ACQUISITION_KEYWORDS);
 }
+
 
 export function acquisitionKeywordRecommendationGroups(industries: string[]) {
   return industries.map((industry) => {

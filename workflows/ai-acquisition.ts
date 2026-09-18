@@ -4,6 +4,7 @@ import { createAdminClient } from "../lib/supabase/admin";
 import { aiScreeningWorkflow } from "./ai-screening";
 import { discoverBusinesses, discoveryCandidateLooksRelevant, type DiscoveredBusiness } from "../lib/ai-acquisition/discovery";
 import type { AcquisitionCountry } from "../lib/ai-acquisition/config";
+import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
 import { createScreeningTaskNumber } from "../lib/ai/task-number";
 
@@ -274,7 +275,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask) {
     const itemIds = batch.map((row) => String(row.screening_task_item_id || "")).filter(Boolean);
     const customerIds = batch.map((row) => String(row.staging_customer_id || "")).filter(Boolean);
     const [results, contacts, evidence] = await Promise.all([
-      admin.from("ai_screening_results").select("task_item_id,id,score,grade,automation_status,target_decision,identity_status,evidence_sufficiency_score,short_reason").in("task_item_id", itemIds).eq("is_latest_valid", true),
+      admin.from("ai_screening_results").select("task_item_id,id,score,grade,automation_status,target_decision,identity_status,industry_type,evidence_sufficiency_score,short_reason").in("task_item_id", itemIds).eq("is_latest_valid", true),
       admin.from("customer_contacts").select("customer_id,id,type,value_raw,value_normalized,verification_status,identity_match_status,exact_source_url").in("customer_id", customerIds),
       admin.from("ai_screening_evidence").select("task_item_id,id,source_url,evidence_strength").in("task_item_id", itemIds),
     ]);
@@ -297,12 +298,17 @@ async function finalizeCandidateBatch(task: AcquisitionTask) {
       const customerContacts = contactsByCustomer.get(customerId) || [];
       const itemEvidence = evidenceByItem.get(itemId) || [];
       const gate = evaluateAcquisitionGate({ automationStatus: result?.automation_status, targetDecision: result?.target_decision, score: result?.score, identityStatus: result?.identity_status, evidenceUrls: itemEvidence, contacts: customerContacts });
+      const targetIndustries = task.industries?.length ? task.industries : [task.industry];
+      const industryMatchesTask = acquisitionIndustryMatchesVerifiedResult(targetIndustries, result?.industry_type);
       const verifiedContacts = gate.actionableContacts;
       const evidenceComplete = gate.evidenceComplete;
-      const accepted = gate.accepted;
+      const accepted = gate.accepted && industryMatchesTask;
       const targetValidated = result?.automation_status === "AUTO_DEVELOP" && result?.target_decision === "VALID" && Number(result?.score || 0) >= 60;
-      let decision: "ACCEPTED" | "REVIEW" | "REJECTED" | "DUPLICATE" = accepted ? "ACCEPTED" : targetValidated || !result ? "REVIEW" : "REJECTED";
+      let decision: "ACCEPTED" | "REVIEW" | "REJECTED" | "DUPLICATE" = gate.accepted && !industryMatchesTask
+        ? "REJECTED"
+        : accepted ? "ACCEPTED" : targetValidated || !result ? "REVIEW" : "REJECTED";
       let reason = accepted ? "目标行业、主体、在营证据和可用联系方式均已核验"
+        : gate.accepted && !industryMatchesTask ? `已核验行业“${String(result?.industry_type || "未知") }”与本任务目标行业不一致，未进入客户公海`
         : targetValidated ? (!gate.evidenceComplete ? "已判定为目标客户，但可追溯经营证据不足，等待人工复核" : gate.actionableContacts.length === 0 ? "已判定为目标客户，但缺少带具体来源的有效联系方式，等待人工复核" : "目标客户主体核验仍需人工确认")
           : String(result?.short_reason || "核验证据不足，未进入客户公海");
       if (accepted) {
@@ -330,7 +336,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask) {
         const hidden = await admin.from("customers").update({ deleted_at: new Date().toISOString(), pool_status: "INVALID", updated_at: new Date().toISOString() }).eq("id", customerId).eq("pool_status", "AI_STAGING");
         if (hidden.error) throw hidden.error;
       }
-      const saved = await admin.from("ai_acquisition_candidates").update({ decision, decision_reason: reason, imported_customer_id: decision === "ACCEPTED" ? customerId : null, ai_score: result?.score || null, ai_level: result?.grade || null, is_target_customer: result?.target_decision === "VALID", has_actionable_contact: verifiedContacts.length > 0, evidence_complete: evidenceComplete, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", candidate.id);
+      const saved = await admin.from("ai_acquisition_candidates").update({ decision, decision_reason: reason, imported_customer_id: decision === "ACCEPTED" ? customerId : null, ai_score: result?.score || null, ai_level: result?.grade || null, is_target_customer: result?.target_decision === "VALID" && industryMatchesTask, has_actionable_contact: verifiedContacts.length > 0, evidence_complete: evidenceComplete, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", candidate.id);
       if (saved.error) throw saved.error;
     }
   return true;

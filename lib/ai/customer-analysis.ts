@@ -656,7 +656,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     + metric("contactability") * 0.03
     - metric("contradiction_risk") * 0.06,
   )));
-  const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|手机外配件零售|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|电商卖家|其他维修行业|混合经营)$/.test(normalizedIndustry)
+  const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|其他维修行业|混合经营)$/.test(normalizedIndustry)
     && !dominantNonTargetWithoutCoreRepair
     && !(computerRepairClaim && !verifiedComputerHardwareRepair)
     && !itSupportOnly

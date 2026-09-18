@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate.ts";
+import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match.ts";
 import { summarizeUsagePurposes } from "../lib/api-usage-purpose.ts";
 
 const base={automationStatus:"AUTO_DEVELOP",targetDecision:"VALID",score:82,identityStatus:"MATCHED",evidenceUrls:[{source_url:"https://example.com/services",evidence_strength:"STRONG"}],contacts:[{type:"EMAIL",value_normalized:"sales@example.com",verification_status:"NEW_VERIFIED",exact_source_url:"https://example.com/contact"}]};
@@ -10,6 +11,9 @@ assert.equal(evaluateAcquisitionGate({...base,identityStatus:"CONFLICTED"}).acce
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).accepted,false,"主体未确认不得自动入池");
 assert.equal(evaluateAcquisitionGate({...base,evidenceUrls:[{source_url:"https://example.com",evidence_strength:"WEAK_HINT"}]}).accepted,false,"弱提示不能替代经营证据");
 assert.equal(evaluateAcquisitionGate({...base,contacts:[{type:"PHONE",verification_status:"SOURCE_CONFIRMED",exact_source_url:null}]}).accepted,false,"联系方式无具体来源页面不得入池");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
 const purposeSummary=summarizeUsagePurposes([
   {provider:"GOOGLE_PLACES",operation:"目标商家搜索",quantity:2,amount_usd:0.064},
   {provider:"GOOGLE_PLACES",operation:"商家详情与联系方式",quantity:1,amount_usd:0.02},
