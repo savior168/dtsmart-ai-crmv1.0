@@ -331,6 +331,7 @@ const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/ta
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
 assert.match(customerResults,/今日成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*处理复核/,"任务中心客户结果卡必须落到可处理的统一客户清单");
 assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*任务筛选[\s\S]*清除任务筛选/,"获客结果页必须支持按来源任务精确筛选并清晰显示可撤销的筛选状态");
+assert.match(customerResults,/applyDatePreset[\s\S]*taskDraft[\s\S]*按获客任务名称或编号筛选[\s\S]*筛选任务[\s\S]*TODAY:"今日",WEEK:"本周",MONTH:"本月"/,"客户结果必须支持按任务名称或编号筛选，并提供今日、本周和本月快捷日期入口");
 assert.match(customerResults,/CustomerPublicChannels customer=\{row\}/,"获客结果、客户公海和我的客户必须共用Google Maps与官方社媒的公开渠道组件");
 assert.match(customerResultsPage,/initialDate=\{scope === "today" \? today : ""\}/,"从今日获客进入客户结果必须把北京时间今日同步到处理时间控件");
 assert.match(customerResultsPage,/initialTaskId=\{query\.task_id \|\| ""\}/,"任务详情跳转客户结果时必须保留精确任务筛选");
@@ -355,6 +356,7 @@ assert.match(customerResults,/"客户名称","国家\/地区","AI评分","联系
 assert.doesNotMatch(customerResults,/"目标行业"|"联系与证据"|"处理时间","操作"/,"客户结果不得继续使用含义错误或混合字段");
 assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*processed_at[\s\S]*decision/,"跨任务客户清单必须保持归属权限、北京时间今日口径与结果状态口径一致");
 assert.match(customerResultsRoute,/params\.get\("task_id"\)[\s\S]*query\.eq\("task_id", taskId\)[\s\S]*filter_task/,"来源任务筛选必须在服务端真实生效且返回有权限查看的任务标识");
+assert.match(customerResultsRoute,/params\.get\("task_search"\)[\s\S]*ai_acquisition_tasks[\s\S]*task_number\.ilike[\s\S]*matchedTaskIds[\s\S]*\.in\("task_id", matchedTaskIds\)/,"按获客任务名称或编号的筛选必须由服务端解析真实任务后生效");
 assert.match(customerResultsRoute,/can_control:[\s\S]*task\?\.user_id[\s\S]*account\.role==="ADMIN"[\s\S]*show_owner/ ,"客户结果接口必须分别返回跨用户可见性与逐任务可操作权限");
 assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*\.in\("industry",industries\)[\s\S]*\.in\("category",industries\)[\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
 assert.match(customerResultsRoute,/optionCandidates[\s\S]*range\(offset, offset \+ 999\)[\s\S]*countryCounts[\s\S]*industryCounts[\s\S]*filter_options/,"行业和国家选项必须按当前结果范围全部数据去重计数，不能只取当前分页");

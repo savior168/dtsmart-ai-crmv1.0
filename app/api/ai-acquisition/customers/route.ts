@@ -16,11 +16,24 @@ export async function GET(request: NextRequest) {
     const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = params.get("level") || "";
+    const taskSearch = (params.get("task_search")?.trim() || "").replace(/[%_,()]/g, " ");
     const taskId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.get("task_id") || "") ? String(params.get("task_id")) : "";
     const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
     const to = /^\d{4}-\d{2}-\d{2}$/.test(params.get("to") || "") ? String(params.get("to")) : "";
     const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const admin = createAdminClient();
+
+    // A salesperson normally remembers a task's business name or number, not
+    // its UUID. Resolve that text once, then apply the resulting task IDs to
+    // every result, summary and option query below.
+    let matchedTaskIds: string[] | null = null;
+    if (taskSearch) {
+      let taskQuery = admin.from("ai_acquisition_tasks").select("id").or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`).limit(500);
+      if (ownerId) taskQuery = taskQuery.eq("user_id", ownerId);
+      const taskMatches = await taskQuery;
+      if (taskMatches.error) throw taskMatches.error;
+      matchedTaskIds = (taskMatches.data || []).map((task) => String(task.id));
+    }
 
     const base = () => {
       let query = admin
@@ -28,6 +41,7 @@ export async function GET(request: NextRequest) {
         .select("*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id)", { count: "exact" });
       if (ownerId) query = query.eq("task.user_id", ownerId);
       if (taskId) query = query.eq("task_id", taskId);
+      if (matchedTaskIds) query = matchedTaskIds.length ? query.in("task_id", matchedTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
       return query;
     };
 
