@@ -236,6 +236,8 @@ assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejecti
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
+assert.match(detailRoute,/requirePermission\("ai\.acquisition\.view"\)[\s\S]*rescueStalledAiAcquisitionTasks\(\)[\s\S]*best-effort recovery failed/,"任务详情读取必须提供幂等的停滞任务自恢复，不能只依赖定时器");
+assert.match(listRoute,/requirePermission\("ai\.acquisition\.view"\)[\s\S]*rescueStalledAiAcquisitionTasks\(\)[\s\S]*best-effort task recovery failed/,"任务中心读取必须提供幂等的停滞任务自恢复，不能只依赖定时器");
 assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null \}[\s\S]*verificationTotal[\s\S]*earlyProcessed[\s\S]*liveProcessed[\s\S]*verification_progress:verificationProgress/,"实时轮询必须跳过客户明细并按早停加深度核验返回真实轻量进度");
 assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_count[\s\S]*noNewSearchUnits/,"任务详情必须使用数据库端聚合的完整检索进度和真实无新增判断");
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
@@ -404,7 +406,7 @@ assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:p
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");
 assert.match(acquisitionTaskRoute,/canReadAiOwner\(account, result\.data\.user_id\)/,"AI获客任务详情必须执行直属下属服务端校验");
 assert.match(acquisitionEvidenceRoute,/canReadAiOwner\(account, ownerId\)/,"AI获客核验依据必须执行直属下属服务端校验");
-assert.match(customerResults,/placeholder="任务名称或编号"[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*全部AI等级[\s\S]*SearchableMultiSelectFilter className="w-\[155px\][\s\S]*SearchableMultiSelectFilter className="w-\[145px\][\s\S]*CompactDateRange label="获客日期"[\s\S]*获客开始日期[\s\S]*获客结束日期/,"历史客户结果必须在紧凑筛选栏按任务、客户信息、AI等级、动态行业、动态国家和获客日期筛选");
+assert.match(customerResults,/placeholder="任务名称或编号"[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*全部AI等级[\s\S]*SearchableMultiSelectFilter className="w-44 shrink-0" label="国家\/地区"[\s\S]*SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业"[\s\S]*CompactDateRange label="获客日期"[\s\S]*获客开始日期[\s\S]*获客结束日期/,"历史客户结果必须在紧凑筛选栏按任务、客户信息、AI等级、国家、行业和获客日期筛选，并与客户公海保持相同顺序和宽度");
 assert.match(fs.readFileSync(new URL("../components/ui/searchable-multi-select-filter.tsx",import.meta.url),"utf8"),/value: string\[\][\s\S]*搜索\$\{label\}[\s\S]*value\.includes[\s\S]*Check size=\{11\}/,"行业和国家必须共用同一套可搜索多选控件、字体颜色和勾选样式");
 assert.doesNotMatch(customerResults,/ACQUISITION_COUNTRY_GROUPS|ACQUISITION_INDUSTRY_TERMS/,"客户结果筛选不得继续展示与当前结果无关的全量配置项");
 assert.match(customerResults,/UserScopeSelect[^>]*permission="ai\.acquisition\.data_all"[^>]*initializeDefault=\{false\}/,"跨用户客户结果必须提供归属人范围且不得初始化二次刷新");

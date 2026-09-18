@@ -7,6 +7,7 @@ import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
 import { isActuallyIncurredCost } from "@/lib/api-cost-actual";
+import { rescueStalledAiAcquisitionTasks } from "@/lib/ai-acquisition/dispatch";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -18,6 +19,11 @@ function presentTask<T extends Record<string, unknown>>(task: T) {
 export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
+    try {
+      await rescueStalledAiAcquisitionTasks();
+    } catch (recoveryError) {
+      console.error("[ai-acquisition] best-effort task recovery failed", recoveryError);
+    }
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
