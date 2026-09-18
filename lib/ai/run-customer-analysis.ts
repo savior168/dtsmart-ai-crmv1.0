@@ -1013,6 +1013,16 @@ function firstVerifiedContact(contacts: ContactCandidate[], type: ContactType) {
     && ["NEW_VERIFIED", "MATCHED_ORIGINAL"].includes(item.verificationStatus))?.valueRaw || null;
 }
 
+function verifiedWebsiteForWriteback(
+  customer: CustomerRow,
+  contacts: ContactCandidate[],
+  identityStatus: unknown,
+  verifiedWebsite: unknown,
+) {
+  if (customer.website || !["MATCHED", "LIKELY_MATCHED"].includes(String(identityStatus || ""))) return null;
+  return firstVerifiedContact(contacts, "WEBSITE") || String(verifiedWebsite || "").trim() || null;
+}
+
 function withoutEmpty<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => {
     if (item === null || item === undefined || item === "") return false;
@@ -2261,6 +2271,12 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   const cachedContacts = reconcileCachedContacts(customer, discovered.contacts);
   const websiteEmail = mergedVerifiedContactValues(customer, cachedContacts.contacts, "EMAIL");
   const websitePhone = mergedVerifiedContactValues(customer, cachedContacts.contacts, "PHONE");
+  const verifiedWebsite = verifiedWebsiteForWriteback(
+    customer,
+    cachedContacts.contacts,
+    cachedResult.identity_status,
+    cachedResult.verified_website,
+  );
   const customerWrite = await admin.from("customers").update({
     industry: normalizedCachedResult.industry_type,
     ai_score: normalizedCachedResult.score,
@@ -2277,6 +2293,7 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
       company_scale_evidence: cachedResult.company_scale_evidence || customer.company_scale_evidence || null,
       website_email: websiteEmail || null,
       website_phone: websitePhone || null,
+      ...(verifiedWebsite ? { website: verifiedWebsite } : {}),
       ...(customer.whatsapp ? {} : { whatsapp: firstVerifiedContact(cachedContacts.contacts, "WHATSAPP") }),
       ...(customer.facebook_url ? {} : { facebook_url: firstVerifiedContact(cachedContacts.contacts, "FACEBOOK") }),
       ...(customer.instagram_url ? {} : { instagram_url: firstVerifiedContact(cachedContacts.contacts, "INSTAGRAM") }),
@@ -2622,6 +2639,12 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     analysis = attachFinalScoreToReason(analysis);
     const publishedScore = analysis.ai_score;
     const publishedLevel = analysis.ai_level;
+    const verifiedWebsite = verifiedWebsiteForWriteback(
+      customer,
+      reconciled.contacts,
+      identity.status,
+      identity.verifiedWebsite || discoveredOfficialWebsite,
+    );
     const scaleSignals = verifiedScale.companyScaleEvidence ? [verifiedScale.companyScaleEvidence] : [];
     const resultPayload = {
       customer_id: customer.id, task_id: input.taskId, task_item_id: input.taskItemId,
@@ -2813,9 +2836,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       business_scope: businessScope,
       company_scale: verifiedScale.companyScale || customer.company_scale || null,
       company_scale_evidence: verifiedScale.companyScaleEvidence || customer.company_scale_evidence || null,
-      ...(!customer.website && discoveredOfficialWebsite && identity.status === "MATCHED"
-        ? { website: discoveredOfficialWebsite }
-        : {}),
+      ...(verifiedWebsite ? { website: verifiedWebsite } : {}),
       // AI发现的补充号码保留在customer_contacts并展示来源。主体已由
       // 同名/高度相似名称和完整地址确认、仅号码变化时，也写入带冲突
       // 标记的补充联系方式；始终保留原号码，不静默覆盖客户原始资料。

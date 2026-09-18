@@ -23,6 +23,7 @@ import {
   useToast,
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask } from "./types";
+import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { quickCostDateRange } from "@/lib/cost-center";
@@ -274,10 +275,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
-            <span className="text-xs text-slate-500">创建时间</span>
-            <input type="date" aria-label="创建开始日期" className={`${input} w-40`} value={from} onChange={(event)=>{setPage(1);setFrom(event.target.value)}}/>
-            <span className="text-slate-300">—</span>
-            <input type="date" aria-label="创建结束日期" className={`${input} w-40`} value={to} onChange={(event)=>{setPage(1);setTo(event.target.value)}}/>
+            <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={from} to={to} onFromChange={(value)=>{setPage(1);setFrom(value)}} onToChange={(value)=>{setPage(1);setTo(value)}}/>
             {(search || status || metric || industries.length || countries.length || costMode || from || to || scopeUserId) ? <button type="button" className={button} onClick={()=>{setDraft("");setSearch("");setStatus("");setMetric("");setIndustries([]);setCountries([]);setCostMode("");setFrom("");setTo("");setScopeUserId("");setPage(1)}}>重置</button> : null}
           </div>
         </form>

@@ -301,6 +301,9 @@ export async function GET(request: NextRequest) {
       // silently lose the customer's real owner and creator.
       responseData = responseData.map((item) => ({
         ...item,
+        website: item.website || (contactsByCustomer.get(item.id) as Array<Record<string, unknown>> | undefined)?.find((contact) =>
+          contact.type === "WEBSITE" && contact.verification_status === "NEW_VERIFIED"
+        )?.value_raw || null,
         creator: creatorById.get(String(item.created_by || "")) || null,
         owner: creatorById.get(String(item.owner_id || "")) || null,
         verified_contacts: contactsByCustomer.get(item.id) || [],

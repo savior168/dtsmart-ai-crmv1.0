@@ -16,11 +16,13 @@ import {
   Plus,
   Save,
   Send,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import type { QuoteItem, QuoteStatus } from "@/lib/types";
 import { QUOTE_STATUS_LABELS } from "@/lib/types";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
+import { COUNTRY_OPTIONS, countryInfo } from "@/lib/countries";
 import {
   AppDialog,
   ConfirmDialog,
@@ -86,6 +88,8 @@ const emptyItem = (): QuoteItem => ({
   procurement_cost: 0,
   preparation_requirement: null,
 });
+const countryDisplayName = (value?: string | null) =>
+  String(value || "").trim() ? countryInfo(value).name : "";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -116,7 +120,7 @@ export function QuoteForm({
     note: "",
   });
   const [pendingConfirm, setPendingConfirm] = useState<{
-    kind: "attachment" | "draft" | "revise";
+    kind: "attachment" | "draft" | "revise" | "clear" | "sent";
     id?: string;
   } | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -127,7 +131,7 @@ export function QuoteForm({
     customer_id: initialCustomerId,
     currency: "USD",
     valid_until: "",
-    payment_method: "Bank Transfer",
+    payment_method: "T/T (Bank Transfer)",
     delivery_date: "",
     customer_short_name: "",
     destination_country: "",
@@ -166,7 +170,7 @@ export function QuoteForm({
           ...current,
           customer_id: customer.id,
           customer_short_name: customer.company_name,
-          destination_country: customer.country || "",
+          destination_country: countryDisplayName(customer.country),
         }));
     })();
   }, [initialCustomerId]);
@@ -193,7 +197,9 @@ export function QuoteForm({
         delivery_date: q.delivery_date || "",
         customer_short_name:
           q.customer_short_name || q.customer?.company_name || "",
-        destination_country: q.destination_country || q.customer?.country || "",
+        destination_country: countryDisplayName(
+          q.destination_country || q.customer?.country,
+        ),
         shipping_cost: Number(q.shipping_cost || 0),
         notes: q.notes || "",
         status: q.status,
@@ -223,7 +229,9 @@ export function QuoteForm({
       customer_id: id,
       customer_short_name:
         customer?.company_name || current.customer_short_name,
-      destination_country: customer?.country || current.destination_country,
+      destination_country: customer?.country
+        ? countryDisplayName(customer.country)
+        : current.destination_country,
     }));
   }
   function updateItem(
@@ -278,6 +286,11 @@ export function QuoteForm({
         .filter((_, row) => row !== index)
         .map((item, row) => ({ ...item, line_number: row + 1 })),
     }));
+  }
+  function clearItems() {
+    setForm((current) => ({ ...current, items: [emptyItem()] }));
+    setMessage("产品明细已清空，已保留一条空白行。保存前可继续录入或导入。");
+    setPendingConfirm(null);
   }
   async function pasteRows() {
     try {
@@ -628,27 +641,49 @@ export function QuoteForm({
             </Field>
             <Field label="目的国家">
               <input
+                list="quote-country-options"
                 disabled={readonly}
                 value={form.destination_country}
                 onChange={(e) =>
                   setForm({ ...form, destination_country: e.target.value })
                 }
+                onBlur={(e) => {
+                  const value = e.target.value.trim();
+                  if (value)
+                    setForm((current) => ({
+                      ...current,
+                      destination_country: countryDisplayName(value),
+                    }));
+                }}
+                placeholder="搜索或输入国家/地区中文名称"
                 className="h-10 w-full rounded-lg border px-3 text-sm"
               />
-            </Field>
-            <Field label="币种">
-              <select
-                disabled={readonly}
-                value={form.currency}
-                onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                className="h-10 w-full rounded-lg border px-3 text-sm"
-              >
-                {QUOTE_CURRENCIES.map(([code, label]) => (
-                  <option key={code} value={code}>
-                    {code} · {label}
+              <datalist id="quote-country-options">
+                {COUNTRY_OPTIONS.map((country) => (
+                  <option key={country.code} value={country.name}>
+                    {country.code}
                   </option>
                 ))}
-              </select>
+              </datalist>
+            </Field>
+            <Field label="币种">
+              <input
+                list="quote-currency-options"
+                disabled={readonly}
+                value={form.currency}
+                onChange={(e) =>
+                  setForm({ ...form, currency: e.target.value.toUpperCase() })
+                }
+                placeholder="搜索币种代码或名称"
+                className="h-10 w-full rounded-lg border px-3 text-sm"
+              />
+              <datalist id="quote-currency-options">
+                {QUOTE_CURRENCIES.map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
+              </datalist>
             </Field>
             <Field label="报价有效期">
               <input
@@ -674,13 +709,31 @@ export function QuoteForm({
             </Field>
             <Field label="付款方式">
               <input
+                list="quote-payment-method-options"
                 disabled={readonly}
                 value={form.payment_method}
                 onChange={(e) =>
                   setForm({ ...form, payment_method: e.target.value })
                 }
+                placeholder="选择常用方式或直接输入约定"
                 className="h-10 w-full rounded-lg border px-3 text-sm"
               />
+              <datalist id="quote-payment-method-options">
+                {[
+                  ["T/T (Bank Transfer)", "银行电汇"],
+                  ["T/T 100% Before Shipment", "发货前付清"],
+                  ["T/T 30% Deposit, 70% Before Shipment", "30% 定金，发货前付清余款"],
+                  ["PayPal", "PayPal"],
+                  ["Wise", "Wise"],
+                  ["Letter of Credit (L/C)", "信用证"],
+                  ["Western Union", "西联汇款"],
+                  ["Credit Card", "信用卡"],
+                ].map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </datalist>
             </Field>
             <Field label="运费">
               <input
@@ -736,11 +789,20 @@ export function QuoteForm({
                     粘贴表格
                   </button>
                   <button
+                    type="button"
                     onClick={addItem}
                     className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"
                   >
                     <Plus size={16} />
                     添加产品
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingConfirm({ kind: "clear" })}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-200 px-3 text-sm text-rose-600 hover:bg-rose-50"
+                  >
+                    <Trash2 size={16} />
+                    清空明细
                   </button>
                 </div>
               ) : null}
@@ -951,31 +1013,36 @@ export function QuoteForm({
             ) : null}
           </div>
           {!readonly ? (
-            <footer className="flex flex-wrap justify-end gap-2 border-t p-4">
-              <button
-                disabled={busy}
-                onClick={() => void save("DRAFT")}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm"
-              >
-                <Save size={16} />
-                保存草稿
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => void save("GENERATED")}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm text-white"
-              >
-                <FileDown size={16} />
-                保存并生成报价
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => void save("SENT")}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm text-white"
-              >
-                <Send size={16} />
-                标记已发送
-              </button>
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t p-4">
+              <p className="text-xs leading-5 text-slate-500">
+                记录已发送：仅登记状态，系统不会自动发送。
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  disabled={busy}
+                  onClick={() => void save("DRAFT")}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm"
+                >
+                  <Save size={16} />
+                  保存草稿
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => void save("GENERATED")}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm text-white"
+                >
+                  <FileDown size={16} />
+                  保存并生成报价
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => setPendingConfirm({ kind: "sent" })}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm text-white"
+                >
+                  <Send size={16} />
+                  记录已发送
+                </button>
+              </div>
             </footer>
           ) : (
             <footer className="border-t bg-slate-50 p-4 text-sm text-slate-500">
@@ -1094,19 +1161,37 @@ export function QuoteForm({
               ? "删除报价附件？"
               : pendingConfirm?.kind === "draft"
                 ? "删除报价草稿？"
-                : "创建新版本？"
+                : pendingConfirm?.kind === "revise"
+                  ? "创建新版本？"
+                  : pendingConfirm?.kind === "clear"
+                    ? "清空全部产品明细？"
+                    : "确认已实际发送给客户？"
           }
           description={
             pendingConfirm?.kind === "attachment"
               ? "附件删除后不可恢复。"
               : pendingConfirm?.kind === "draft"
                 ? "仅草稿可删除，操作不可恢复。客户和费用记录不受影响。"
-                : "系统会复制当前报价为新草稿，原报价保留并标记为已被新版本替代。"
+                : pendingConfirm?.kind === "revise"
+                  ? "系统会复制当前报价为新草稿，原报价保留并标记为已被新版本替代。"
+                  : pendingConfirm?.kind === "clear"
+                    ? "当前页面中的全部产品明细将被清空，并保留一条空白行；只有再次保存后才会覆盖已保存内容。"
+                    : "请仅在您已通过 WhatsApp、邮件或其他外部渠道把报价发给客户后确认。系统不会代您发送文件。"
           }
           confirmLabel={
-            pendingConfirm?.kind === "revise" ? "创建新版本" : "确认删除"
+            pendingConfirm?.kind === "revise"
+              ? "创建新版本"
+              : pendingConfirm?.kind === "clear"
+                ? "确认清空"
+                : pendingConfirm?.kind === "sent"
+                  ? "确认并记录"
+                  : "确认删除"
           }
-          danger={pendingConfirm?.kind !== "revise"}
+          danger={
+            pendingConfirm?.kind === "attachment" ||
+            pendingConfirm?.kind === "draft" ||
+            pendingConfirm?.kind === "clear"
+          }
           busy={busy}
           onCancel={() => setPendingConfirm(null)}
           onConfirm={() => {
@@ -1114,6 +1199,11 @@ export function QuoteForm({
               void deleteAttachment(pendingConfirm.id);
             else if (pendingConfirm?.kind === "draft") void deleteDraft();
             else if (pendingConfirm?.kind === "revise") void revise();
+            else if (pendingConfirm?.kind === "clear") clearItems();
+            else if (pendingConfirm?.kind === "sent") {
+              setPendingConfirm(null);
+              void save("SENT");
+            }
           }}
         />
       </div>

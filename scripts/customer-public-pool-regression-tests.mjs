@@ -113,9 +113,11 @@ assert.match(sidebar, /!profile \|\| profile\.role === "ADMIN"/, "侧栏在当�
 assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客户公海入口");
 assert.doesNotMatch(sidebar, /label: "客户导入"/, "客户中心不得保留含义不清的独立客户导入二级菜单");
 assert.match(poolView, /CUSTOMER_LIST_COLUMNS[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS[\s\S]*customerListSortField/, "客户公海和我的客户必须共用字段及排序规则");
-assert.match(customersView, /setFromDate[\s\S]*setToDate[\s\S]*创建开始日期[\s\S]*创建结束日期/, "我的客户必须支持按进入系统的创建日期范围筛选");
+assert.match(customersView, /setFromDate[\s\S]*setToDate[\s\S]*CompactDateRange label="录入日期"[\s\S]*录入开始日期[\s\S]*录入结束日期/, "我的客户必须使用统一紧凑控件按录入日期范围筛选");
 assert.match(customersApi, /fromDate[\s\S]*created_at[\s\S]*T00:00:00\.000\+08:00[\s\S]*toDate[\s\S]*T23:59:59\.999\+08:00/, "我的客户创建日期必须按北京时间自然日过滤");
-assert.match(poolView, /created_from[\s\S]*created_to[\s\S]*创建开始日期[\s\S]*创建结束日期/, "客户公海列表、导出和全选必须携带同一创建日期范围");
+assert.match(poolView, /created_from[\s\S]*created_to[\s\S]*CompactDateRange label="录入日期"[\s\S]*录入开始日期[\s\S]*录入结束日期/, "客户公海列表、导出和全选必须携带同一录入日期范围");
+assert.match(poolApi, /verifiedWebsite[\s\S]*type === "WEBSITE"[\s\S]*row\.website \|\| verifiedWebsite/, "公海客户主档官网为空时必须回退展示已核验官网");
+assert.match(customersApi, /website: item\.website \|\|[\s\S]*type === "WEBSITE"[\s\S]*verification_status === "NEW_VERIFIED"/, "我的客户主档官网为空时必须回退展示已核验官网");
 assert.match(poolApi, /createdFrom[\s\S]*createdTo[\s\S]*created_at[\s\S]*T00:00:00\.000\+08:00[\s\S]*T23:59:59\.999\+08:00/, "客户公海创建日期必须按北京时间自然日过滤");
 assert.match(listFields, /CUSTOMER_LIST_COLUMN_STORAGE_KEY[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS/, "两张客户列表必须共享字段设置和默认顺序");
 assert.match(listFields, /"company_name",[\s\S]*"country",[\s\S]*"ai_score"/, "客户列表默认顺序必须先展示国家地区，再展示AI评分");

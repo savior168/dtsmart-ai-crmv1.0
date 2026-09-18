@@ -314,7 +314,7 @@ assert.match(sharedUsage,/canViewCostCenter[\s\S]*href="\/settings\/costs"[\s\S]
 assert.match(costView,/canViewAiUsage[\s\S]*href="\/ai-usage"[\s\S]*AI用量与费用/,"费用中心必须按权限提供返回统一AI用量页的入口");
 assert.match(usageView,/quickCostDateRange\("TODAY"\)[\s\S]*CostDateRangePreset>\("TODAY"\)/,"AI获客用量页首次进入必须默认今日");
 assert.match(usageView,/aria-label="获客模式"[\s\S]*全部获客模式/,"AI获客用量筛选必须与任务中心统一使用获客模式");
-assert.match(usageView,/xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\][\s\S]*统计日期[\s\S]*businessTypeControl[\s\S]*获客模式[\s\S]*任务状态[\s\S]*数据范围[\s\S]*查询[\s\S]*重置/,"AI获客与AI筛选必须共用稳定的筛选栏布局，并仅替换业务专属筛选项");
+assert.match(usageView,/xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\][\s\S]*CompactDateRange label="用量日期"[\s\S]*businessTypeControl[\s\S]*获客模式[\s\S]*任务状态[\s\S]*数据范围[\s\S]*查询[\s\S]*重置/,"AI获客与AI筛选必须共用稳定的筛选栏布局，并仅替换业务专属筛选项");
 assert.match(usageView,/获客范围成效与实际成本[\s\S]*相关任务[\s\S]*候选核验进度[\s\S]*成功入池[\s\S]*核验入池率[\s\S]*API调用[\s\S]*实际费用[\s\S]*每位入池客户成本/,"AI获客用量必须合并重复过程指标，并优先展示真实获客漏斗、API用量和实际获客成本");
 assert.match(usageView,/Google价目估算[\s\S]*不计入[\s\S]*google_catalog_cost_usd/,"AI获客必须展示Google价目估算，并明确与实际费用分开");
 assert.match(usageRoute,/google_catalog_cost_usd:[\s\S]*provider === "GOOGLE_PLACES"[\s\S]*amount_usd/,"AI获客接口必须返回所选范围Google价目估算");
@@ -334,8 +334,8 @@ const acquisitionTaskReport=fs.readFileSync(new URL("../components/ai-acquisitio
 const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
 assert.match(customerResults,/本周成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*处理复核/,"任务中心客户结果卡必须落到可处理的统一客户清单");
-assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*任务筛选[\s\S]*清除任务筛选/,"获客结果页必须支持按来源任务精确筛选并清晰显示可撤销的筛选状态");
-assert.match(customerResults,/applyDatePreset[\s\S]*taskDraft[\s\S]*按获客任务名称或编号筛选[\s\S]*筛选任务[\s\S]*TODAY:"今日",WEEK:"本周",MONTH:"本月"/,"客户结果必须支持按任务名称或编号筛选，并提供今日、本周和本月快捷日期入口");
+assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*清除当前任务/,"获客结果页必须支持按来源任务精确筛选并提供可撤销的筛选状态");
+assert.match(customerResults,/flex-nowrap[\s\S]*overflow-x-auto[\s\S]*任务名称或编号[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*TODAY:"今日",WEEK:"本周",MONTH:"本月"/,"客户结果必须把任务、客户和快捷日期筛选合并为不越界的紧凑单行工具栏");
 assert.match(customerResults,/CustomerPublicChannels customer=\{row\}/,"获客结果、客户公海和我的客户必须共用Google Maps与官方社媒的公开渠道组件");
 assert.match(customerResultsPage,/scope === "today" \? today : scope === "week" \? monday\.toISOString\(\)\.slice\(0, 10\) : ""[\s\S]*initialEndDate=\{scope === "week" \? today : ""\}/,"从本周获客进入客户结果必须把北京时间本周范围同步到获客日期控件");
 assert.match(customerResultsPage,/initialTaskId=\{query\.task_id \|\| ""\}/,"任务详情跳转客户结果时必须保留精确任务筛选");
@@ -353,7 +353,7 @@ assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:p
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");
 assert.match(acquisitionTaskRoute,/canReadAiOwner\(account, result\.data\.user_id\)/,"AI获客任务详情必须执行直属下属服务端校验");
 assert.match(acquisitionEvidenceRoute,/canReadAiOwner\(account, ownerId\)/,"AI获客核验依据必须执行直属下属服务端校验");
-assert.match(customerResults,/搜索客户名称、电话、邮箱、WhatsApp、地址或链接[\s\S]*全部AI等级[\s\S]*SearchableMultiSelectFilter label="所属行业"[\s\S]*SearchableMultiSelectFilter label="国家\/地区"[\s\S]*支持搜索和多选[\s\S]*获客开始日期[\s\S]*获客结束日期/,"历史客户结果必须按完整客户信息、AI等级、动态行业、动态国家和获客日期提供必要筛选");
+assert.match(customerResults,/placeholder="任务名称或编号"[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*全部AI等级[\s\S]*SearchableMultiSelectFilter className="w-\[155px\][\s\S]*SearchableMultiSelectFilter className="w-\[145px\][\s\S]*CompactDateRange label="获客日期"[\s\S]*获客开始日期[\s\S]*获客结束日期/,"历史客户结果必须在紧凑筛选栏按任务、客户信息、AI等级、动态行业、动态国家和获客日期筛选");
 assert.match(fs.readFileSync(new URL("../components/ui/searchable-multi-select-filter.tsx",import.meta.url),"utf8"),/value: string\[\][\s\S]*搜索\$\{label\}[\s\S]*value\.includes[\s\S]*Check size=\{11\}/,"行业和国家必须共用同一套可搜索多选控件、字体颜色和勾选样式");
 assert.doesNotMatch(customerResults,/ACQUISITION_COUNTRY_GROUPS|ACQUISITION_INDUSTRY_TERMS/,"客户结果筛选不得继续展示与当前结果无关的全量配置项");
 assert.match(customerResults,/UserScopeSelect[^>]*permission="ai\.acquisition\.data_all"[^>]*initializeDefault=\{false\}/,"跨用户客户结果必须提供归属人范围且不得初始化二次刷新");

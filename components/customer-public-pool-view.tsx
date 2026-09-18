@@ -59,6 +59,7 @@ import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { AttachmentPreview } from "@/components/ui/attachment-preview";
 import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
+import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { countryInfo } from "@/lib/countries";
 
 type Role = UserRole;
@@ -727,8 +728,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
-                <input aria-label="创建开始日期" title="按进入系统的创建日期筛选" type="date" value={createdFrom} max={createdTo||undefined} onChange={(event)=>{setCreatedFrom(event.target.value);setPage(1)}} className={`${appFieldClass} w-36 shrink-0`}/>
-                <input aria-label="创建结束日期" title="按进入系统的创建日期筛选" type="date" value={createdTo} min={createdFrom||undefined} onChange={(event)=>{setCreatedTo(event.target.value);setPage(1)}} className={`${appFieldClass} w-36 shrink-0`}/>
+                <CompactDateRange label="录入日期" fromLabel="录入开始日期" toLabel="录入结束日期" from={createdFrom} to={createdTo} onFromChange={(value)=>{setCreatedFrom(value);setPage(1)}} onToChange={(value)=>{setCreatedTo(value);setPage(1)}}/>
                 <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
                 <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
                 <select
@@ -1619,8 +1619,7 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
         <select value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选接收人"><option value="">全部接收人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
         <select value={sourceUserId} onChange={(event) => setSourceUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选原归属人"><option value="">全部原归属人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
         <select value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="筛选操作人"><option value="">全部操作人</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className={`${appFieldClass} w-36 shrink-0`} aria-label="开始日期" title="开始日期"/>
-        <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className={`${appFieldClass} w-36 shrink-0`} aria-label="结束日期" title="结束日期"/>
+        <CompactDateRange label="操作日期" from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo}/>
         <button type="button" onClick={reset} className="h-10 shrink-0 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50">重置</button>
       </div>
       {error ? (

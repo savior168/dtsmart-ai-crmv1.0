@@ -11,6 +11,9 @@ const englishDisplayNames = new Intl.DisplayNames(["en"], { type: "region" });
 const isoCodes = Array.from({ length: 26 * 26 }, (_, index) =>
   String.fromCharCode(65 + Math.floor(index / 26), 65 + (index % 26)),
 ).filter((code) => displayNames.of(code) !== code);
+export const COUNTRY_OPTIONS = isoCodes
+  .map((code) => ({ code, name: displayNames.of(code) || code }))
+  .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 const namesToCode = new Map<string, string>();
 for (const code of isoCodes) {
   const chinese = displayNames.of(code);

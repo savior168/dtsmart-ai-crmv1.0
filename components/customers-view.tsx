@@ -31,6 +31,7 @@ import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
+import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { customerListText, customerProtectionText, downloadCustomerWorkbook, type CustomerExportColumn } from "@/lib/customer-export";
 import {
   CUSTOMER_LIST_COLUMNS,
@@ -584,8 +585,7 @@ export function CustomersView() {
                 className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500"
               />
             </label>
-            <input aria-label="创建开始日期" title="按进入系统的创建日期筛选" type="date" value={fromDate} max={toDate||undefined} onChange={(event)=>{setFromDate(event.target.value);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"/>
-            <input aria-label="创建结束日期" title="按进入系统的创建日期筛选" type="date" value={toDate} min={fromDate||undefined} onChange={(event)=>{setToDate(event.target.value);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"/>
+            <CompactDateRange label="录入日期" fromLabel="录入开始日期" toLabel="录入结束日期" from={fromDate} to={toDate} onFromChange={(value)=>{setFromDate(value);setPage(1)}} onToChange={(value)=>{setToDate(value);setPage(1)}}/>
             <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
             <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
             {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}

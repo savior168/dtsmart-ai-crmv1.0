@@ -9,7 +9,7 @@ export async function GET() {
       quote_number: "",
       currency: "USD",
       valid_until: null,
-      payment_method: "USD - Bank Transfer",
+      payment_method: "T/T (Bank Transfer)",
       delivery_date: null,
       customer_short_name: null,
       destination_country: null,

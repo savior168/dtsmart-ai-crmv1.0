@@ -318,6 +318,9 @@ export async function GET(request: NextRequest) {
       const full = tab !== "claimed" || own || teamRead;
       const websiteEmail = "website_email" in row ? row.website_email : null;
       const websitePhone = "website_phone" in row ? row.website_phone : null;
+      const verifiedWebsite = verifiedContactsByCustomer.get(row.id)?.find((item) =>
+        item.type === "WEBSITE" && ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(String(item.verification_status || ""))
+      )?.value_raw || null;
       return {
         ...row,
         followup_status: "followup_status" in row ? row.followup_status : "WAITING_CONTACT",
@@ -328,7 +331,7 @@ export async function GET(request: NextRequest) {
         website_phone: full ? websitePhone : maskPhone(websitePhone),
         website_email: full ? websiteEmail : maskEmail(websiteEmail),
         address: full ? row.address : maskAddress(row.address),
-        website: full ? row.website : null,
+        website: full ? row.website || verifiedWebsite : null,
         google_url: full ? row.google_url : null,
         facebook_url: full ? row.facebook_url : null,
         instagram_url: full ? row.instagram_url : null,
