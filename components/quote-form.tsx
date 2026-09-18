@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   ClipboardPaste,
   Copy,
   FileDown,
@@ -22,7 +23,7 @@ import {
 import type { QuoteItem, QuoteStatus } from "@/lib/types";
 import { QUOTE_STATUS_LABELS } from "@/lib/types";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
-import { COUNTRY_OPTIONS, countryInfo } from "@/lib/countries";
+import { COUNTRY_OPTIONS, countryInfo, countrySearchTokens } from "@/lib/countries";
 import {
   AppDialog,
   ConfirmDialog,
@@ -39,6 +40,9 @@ type CustomerOption = {
   email?: string | null;
   address?: string | null;
 };
+const PAYMENT_METHOD_OPTIONS=[
+  ["T/T (Bank Transfer)","银行电汇"],["T/T 100% Before Shipment","发货前付清"],["T/T 30% Deposit, 70% Before Shipment","30% 定金，发货前付清余款"],["PayPal","PayPal"],["Wise","Wise"],["Letter of Credit (L/C)","信用证"],["Western Union","西联汇款"],["Credit Card","信用卡"],
+] as const;
 type QuoteData = {
   id: string;
   customer_id: string;
@@ -125,6 +129,14 @@ export function QuoteForm({
   } | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [currencyOpen,setCurrencyOpen]=useState(false);
+  const [currencyQuery,setCurrencyQuery]=useState("");
+  const currencyPickerRef=useRef<HTMLDivElement|null>(null);
+  const [countryOpen,setCountryOpen]=useState(false);
+  const [countryQuery,setCountryQuery]=useState("");
+  const countryPickerRef=useRef<HTMLDivElement|null>(null);
+  const [paymentOpen,setPaymentOpen]=useState(false);
+  const paymentPickerRef=useRef<HTMLDivElement|null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachmentRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
@@ -140,6 +152,9 @@ export function QuoteForm({
     status: "DRAFT" as QuoteStatus,
     items: [emptyItem()],
   });
+  const filteredCurrencies=useMemo(()=>{const query=currencyQuery.trim().toLocaleLowerCase();return QUOTE_CURRENCIES.filter(([code,label])=>!query||code.toLocaleLowerCase().includes(query)||label.toLocaleLowerCase().includes(query)).slice(0,40)},[currencyQuery]);
+  const filteredCountries=useMemo(()=>{const query=countryQuery.trim().toLocaleLowerCase();return COUNTRY_OPTIONS.filter(country=>!query||[...countrySearchTokens(country.code),country.englishName].some(token=>token.toLocaleLowerCase().includes(query))).slice(0,40)},[countryQuery]);
+  useEffect(()=>{const close=(event:MouseEvent)=>{const target=event.target as Node;if(currencyPickerRef.current&&!currencyPickerRef.current.contains(target))setCurrencyOpen(false);if(countryPickerRef.current&&!countryPickerRef.current.contains(target))setCountryOpen(false);if(paymentPickerRef.current&&!paymentPickerRef.current.contains(target))setPaymentOpen(false)};document.addEventListener("mousedown",close);return()=>document.removeEventListener("mousedown",close)},[]);
   useEffect(() => {
     void (async () => {
       const [listResponse, exactResponse] = await Promise.all([
@@ -299,7 +314,10 @@ export function QuoteForm({
         .split(/\r?\n/)
         .map((line) => line.split("\t"))
         .filter((row) => row.some((cell) => cell.trim()));
-      if (!rows.length) throw new Error("剪贴板没有可识别的表格数据");
+      if (!rows.length) {
+        window.dispatchEvent(new CustomEvent("dtsmart-toast",{detail:{message:"剪贴板中没有可识别的表格数据",type:"info"}}));
+        return;
+      }
       const imported = rows
         .map((row, index) => ({
           ...emptyItem(),
@@ -309,7 +327,7 @@ export function QuoteForm({
           model: (row[2] || "").trim(),
           quality: (row[3] || "").trim(),
           description: (row[4] || "").trim(),
-          quantity: Number(row[5] || 1),
+          quantity: Math.max(1,Math.round(Number(row[5] || 1))),
           unit_price: Number(row[6] || 0),
         }))
         .filter((item) => item.item_name);
@@ -320,7 +338,8 @@ export function QuoteForm({
       setForm((current) => ({ ...current, items: imported }));
       setMessage(`已从剪贴板粘贴 ${imported.length} 条产品明细，请核对。`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "读取剪贴板失败");
+      const text=error instanceof Error ? error.message : "读取剪贴板失败";
+      window.dispatchEvent(new CustomEvent("dtsmart-toast",{detail:{message:text,type:"error"}}));
     }
   }
   async function importExcel(file?: File) {
@@ -370,7 +389,7 @@ export function QuoteForm({
           quality: String(row[indices.quality] ?? "").trim(),
           description: String(row[indices.description] ?? "").trim(),
           unit_price: Number(row[indices.unit] || 0),
-          quantity: Number(row[indices.quantity] || 1),
+          quantity: Math.max(1,Math.round(Number(row[indices.quantity] || 1))),
         }));
       if (!imported.length) throw new Error("文件中没有有效产品明细");
       setForm((current) => ({ ...current, items: imported }));
@@ -640,50 +659,21 @@ export function QuoteForm({
               />
             </Field>
             <Field label="目的国家">
-              <input
-                list="quote-country-options"
-                disabled={readonly}
-                value={form.destination_country}
-                onChange={(e) =>
-                  setForm({ ...form, destination_country: e.target.value })
-                }
-                onBlur={(e) => {
-                  const value = e.target.value.trim();
-                  if (value)
-                    setForm((current) => ({
-                      ...current,
-                      destination_country: countryDisplayName(value),
-                    }));
-                }}
-                placeholder="搜索或输入国家/地区中文名称"
-                className="h-10 w-full rounded-lg border px-3 text-sm"
-              />
-              <datalist id="quote-country-options">
-                {COUNTRY_OPTIONS.map((country) => (
-                  <option key={country.code} value={country.name}>
-                    {country.code}
-                  </option>
-                ))}
-              </datalist>
+              <div ref={countryPickerRef} className="relative">
+                <button type="button" disabled={readonly} aria-haspopup="listbox" aria-expanded={countryOpen} onClick={()=>{setCountryOpen(value=>!value);setCountryQuery("")}} className="flex h-10 w-full items-center justify-between rounded-lg border bg-white px-3 text-sm disabled:bg-slate-50"><span className={form.destination_country?"":"text-slate-400"}>{form.destination_country||"搜索选择国家/地区"}</span><ChevronDown size={16} className={`text-slate-400 transition ${countryOpen?"rotate-180":""}`}/></button>
+                {countryOpen?<div className="absolute right-0 top-[44px] z-50 w-full min-w-[260px] overflow-hidden rounded-lg border bg-white shadow-xl"><div className="border-b p-2"><input autoFocus value={countryQuery} onChange={event=>setCountryQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Escape")setCountryOpen(false)}} placeholder="搜索中文名、英文名或代码" className="h-9 w-full rounded-md border px-3 text-sm outline-none focus:border-blue-500"/></div><div role="listbox" aria-label="目的国家" className="max-h-64 overflow-y-auto p-1">{filteredCountries.map(country=><button key={country.code} type="button" role="option" aria-selected={form.destination_country===country.name} onClick={()=>{setForm(current=>({...current,destination_country:country.name}));setCountryOpen(false);setCountryQuery("")}} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${form.destination_country===country.name?"bg-blue-50 font-medium text-blue-700":"hover:bg-slate-50"}`}><span>{country.name}</span><span className="text-slate-400">{country.code}</span></button>)}{!filteredCountries.length?<p className="px-3 py-8 text-center text-sm text-slate-400">未找到匹配国家/地区</p>:null}</div></div>:null}
+              </div>
             </Field>
             <Field label="币种">
-              <input
-                list="quote-currency-options"
-                disabled={readonly}
-                value={form.currency}
-                onChange={(e) =>
-                  setForm({ ...form, currency: e.target.value.toUpperCase() })
-                }
-                placeholder="搜索币种代码或名称"
-                className="h-10 w-full rounded-lg border px-3 text-sm"
-              />
-              <datalist id="quote-currency-options">
-                {QUOTE_CURRENCIES.map(([code, label]) => (
-                  <option key={code} value={code}>
-                    {label}
-                  </option>
-                ))}
-              </datalist>
+              <div ref={currencyPickerRef} className="relative">
+                <button type="button" disabled={readonly} aria-haspopup="listbox" aria-expanded={currencyOpen} onClick={()=>{setCurrencyOpen(value=>!value);setCurrencyQuery("")}} className="flex h-10 w-full items-center justify-between rounded-lg border bg-white px-3 text-sm disabled:bg-slate-50">
+                  <span>{form.currency} · {QUOTE_CURRENCIES.find(([code])=>code===form.currency)?.[1]||"请选择币种"}</span><ChevronDown size={16} className={`text-slate-400 transition ${currencyOpen?"rotate-180":""}`}/>
+                </button>
+                {currencyOpen?<div className="absolute right-0 top-[44px] z-50 w-full min-w-[240px] overflow-hidden rounded-lg border bg-white shadow-xl">
+                  <div className="border-b p-2"><input autoFocus value={currencyQuery} onChange={event=>setCurrencyQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Escape")setCurrencyOpen(false)}} placeholder="搜索代码或中文名称" className="h-9 w-full rounded-md border px-3 text-sm outline-none focus:border-blue-500"/></div>
+                  <div role="listbox" aria-label="币种" className="max-h-64 overflow-y-auto p-1">{filteredCurrencies.map(([code,label])=><button key={code} type="button" role="option" aria-selected={form.currency===code} onClick={()=>{setForm(current=>({...current,currency:code}));setCurrencyOpen(false);setCurrencyQuery("")}} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${form.currency===code?"bg-blue-50 font-medium text-blue-700":"hover:bg-slate-50"}`}><span>{code}</span><span className="text-slate-500">{label}</span></button>)}{!filteredCurrencies.length?<p className="px-3 py-8 text-center text-sm text-slate-400">未找到匹配币种</p>:null}</div>
+                </div>:null}
+              </div>
             </Field>
             <Field label="报价有效期">
               <input
@@ -708,32 +698,7 @@ export function QuoteForm({
               />
             </Field>
             <Field label="付款方式">
-              <input
-                list="quote-payment-method-options"
-                disabled={readonly}
-                value={form.payment_method}
-                onChange={(e) =>
-                  setForm({ ...form, payment_method: e.target.value })
-                }
-                placeholder="选择常用方式或直接输入约定"
-                className="h-10 w-full rounded-lg border px-3 text-sm"
-              />
-              <datalist id="quote-payment-method-options">
-                {[
-                  ["T/T (Bank Transfer)", "银行电汇"],
-                  ["T/T 100% Before Shipment", "发货前付清"],
-                  ["T/T 30% Deposit, 70% Before Shipment", "30% 定金，发货前付清余款"],
-                  ["PayPal", "PayPal"],
-                  ["Wise", "Wise"],
-                  ["Letter of Credit (L/C)", "信用证"],
-                  ["Western Union", "西联汇款"],
-                  ["Credit Card", "信用卡"],
-                ].map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </datalist>
+              <div ref={paymentPickerRef} className="relative"><div className="relative"><input disabled={readonly} value={form.payment_method} onFocus={()=>setPaymentOpen(true)} onChange={event=>{setForm(current=>({...current,payment_method:event.target.value}));setPaymentOpen(true)}} onKeyDown={event=>{if(event.key==="Escape")setPaymentOpen(false)}} placeholder="选择常用方式或输入约定" className="h-10 w-full rounded-lg border px-3 pr-9 text-sm"/><button type="button" disabled={readonly} aria-label="展开付款方式" onClick={()=>setPaymentOpen(value=>!value)} className="absolute right-0 top-0 grid h-10 w-9 place-items-center text-slate-400"><ChevronDown size={16} className={`transition ${paymentOpen?"rotate-180":""}`}/></button></div>{paymentOpen?<div className="absolute right-0 top-[44px] z-50 w-full min-w-[300px] overflow-hidden rounded-lg border bg-white p-1 shadow-xl">{PAYMENT_METHOD_OPTIONS.filter(([value,label])=>!form.payment_method.trim()||`${value} ${label}`.toLocaleLowerCase().includes(form.payment_method.toLocaleLowerCase())).map(([value,label])=><button key={value} type="button" onClick={()=>{setForm(current=>({...current,payment_method:value}));setPaymentOpen(false)}} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-slate-50"><span>{value}</span><span className="shrink-0 text-slate-400">{label}</span></button>)}<p className="px-3 py-2 text-xs text-slate-400">也可直接输入客户约定的付款条款</p></div>:null}</div>
             </Field>
             <Field label="运费">
               <input
@@ -858,11 +823,11 @@ export function QuoteForm({
                           <input
                             disabled={readonly}
                             type="number"
-                            min={key === "quantity" ? "0.01" : "0"}
-                            step="0.01"
+                            min={key === "quantity" ? "1" : "0"}
+                            step={key === "quantity" ? "1" : "0.01"}
                             value={Number(item[key] || 0)}
                             onChange={(e) =>
-                              updateItem(index, key, Number(e.target.value))
+                              updateItem(index,key,key==="quantity"?Math.max(1,Math.round(Number(e.target.value)||1)):Number(e.target.value))
                             }
                             className="h-9 w-24 rounded border px-2 text-right"
                           />

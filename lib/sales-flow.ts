@@ -43,7 +43,7 @@ export function normalizeQuoteItems(value: unknown): QuoteItem[] {
       preparation_requirement: null,
     };
     if (!normalized.item_name) throw new Error(`第 ${index + 1} 行缺少产品名称`);
-    if (normalized.quantity <= 0) throw new Error(`第 ${index + 1} 行数量必须大于0`);
+    if (normalized.quantity <= 0 || !Number.isInteger(normalized.quantity)) throw new Error(`第 ${index + 1} 行数量必须为大于0的整数`);
     if (normalized.unit_price < 0) throw new Error(`第 ${index + 1} 行销售单价不正确`);
     return normalized;
   });

@@ -8,16 +8,22 @@ const selectedIds = (request: NextRequest, key: string) => [...new Set(request.n
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase } = await requirePermission("costs.view");
+    // Permission is decided with the caller session, while the cost ledger is
+    // an administrative reporting surface. Reading it through the caller's
+    // RLS client made the whole page depend on whichever ledger policies were
+    // installed in a particular production database. Once access is granted,
+    // use the service client consistently for every reporting query.
+    await requirePermission("costs.view");
+    const admin = createAdminClient();
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
-    const settings = await supabase.from("cost_center_settings").select("updated_at,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd").eq("id", true).single();
+    const settings = await admin.from("cost_center_settings").select("updated_at,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd").eq("id", true).single();
     if (settings.error) throw settings.error;
     const range = costLedgerRange(params.get("from"), params.get("to"));
     const from = range.from;
     const to = range.to;
-    let rowsQuery = supabase.from("api_cost_ledger")
+    let rowsQuery = admin.from("api_cost_ledger")
       .select("id,user_id,customer_id,task_id,provider,service,operation,model_or_sku,quantity,unit,input_tokens,cached_input_tokens,output_tokens,amount_usd,amount_type,pricing_snapshot,metadata,occurred_at", { count: "exact" })
       .gte("occurred_at", from).lt("occurred_at", to).order("occurred_at", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
@@ -32,10 +38,9 @@ export async function GET(request: NextRequest) {
     if (userId) rowsQuery = rowsQuery.eq("user_id", userId);
     if (taskIds.length) rowsQuery = rowsQuery.in("task_id", taskIds);
     if (customerIds.length) rowsQuery = rowsQuery.in("customer_id", customerIds);
-    const admin = createAdminClient();
     const [{ data, error, count }, summary, budgetStatus, optionUsers] = await Promise.all([
       rowsQuery,
-      supabase.rpc("cost_center_summary_multi_filtered", { p_from: from, p_to: to, p_provider: provider || null, p_operation: safeOperation || null, p_user_id: userId || null, p_task_ids: taskIds.length ? taskIds : null, p_customer_ids: customerIds.length ? customerIds : null }),
+      admin.rpc("cost_center_summary_multi_filtered", { p_from: from, p_to: to, p_provider: provider || null, p_operation: safeOperation || null, p_user_id: userId || null, p_task_ids: taskIds.length ? taskIds : null, p_customer_ids: customerIds.length ? customerIds : null }),
       admin.rpc("api_cost_budget_status"),
       admin.from("users").select("id,name,email").order("name").limit(500),
     ]);
@@ -65,6 +70,8 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "费用中心加载失败";
+    const detail=error&&typeof error==="object"?error as {code?:string;details?:string;hint?:string}:{};
+    console.error("[cost-center] load failed", { message, code:detail.code, details:detail.details, hint:detail.hint });
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }

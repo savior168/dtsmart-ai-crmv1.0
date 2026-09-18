@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, CalendarClock, ExternalLink, FilePlus2, History, LoaderCircle, Pencil, ShieldCheck, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, ExternalLink, FilePlus2, History, LoaderCircle, Pencil, ShieldCheck, UserRoundCheck, X } from "lucide-react";
 import { GroupedEvidenceSection, VerifiedContactsSection, type EvidenceDisplayItem, type VerifiedContactDisplayItem } from "@/components/ai-screening/evidence-sections";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerForm } from "@/components/customer-form";
@@ -25,10 +25,11 @@ type AuditLog = { id:string; action:string; content?:Record<string,unknown>|null
 type AiFact = EvidenceDisplayItem;
 type AiResult = { id?:string|null; task_id?:string|null; target_decision?:"VALID"|"INVALID"|"REVIEW"|null; ai_reason?:string|null; summary?:string|null; business_relevance?:string|null; business_scope?:string|null; company_scale_evidence?:string|null; customer_value?:string|null; followup_suggestion?:string|null };
 type VerifiedContact = VerifiedContactDisplayItem;
+type DecisionMaker={id:string;full_name:string;job_title:string;role_type:"PROCUREMENT"|"OWNER"|"EXECUTIVE"|"OPERATIONS"|"OTHER";contact_type:"EMAIL"|"PHONE"|"WHATSAPP"|"NONE";contact_value?:string|null;exact_source_url:string;source_excerpt:string;confidence:number;verified_at:string};
 type CustomerDetailCustomer = Customer & { facebook_url?:string|null; instagram_url?:string|null; linkedin_url?:string|null; tiktok_url?:string|null; other_public_urls?:string[]|null };
 type Attachment={id:string;followup_id:string|null;quote_id:string|null;filename:string;mime_type:string|null;size_bytes:number|null;kind?:string|null;created_at:string};
 type QuoteRow={id:string;quote_number:string;status:string;currency:string;total_amount:number;valid_until:string|null;created_at:string;updated_at:string};
-type Data = { customer:CustomerDetailCustomer; profile:{id:string;role:string}; can_edit:boolean; can_change_stage:boolean; can_sales_operate:boolean; access_scope?:"PUBLIC_POOL"|"BUSINESS"; current_owner?:HistoryUser|null; effective_protection:EffectiveProtection; followups:Followup[]; attachments:Attachment[]; quotes:QuoteRow[]; claims:Claim[]; audit_logs:AuditLog[]; ai_result?:AiResult|null; ai_facts?:AiFact[]; verified_contacts?:VerifiedContact[] };
+type Data = { customer:CustomerDetailCustomer; profile:{id:string;role:string}; can_edit:boolean; can_change_stage:boolean; can_sales_operate:boolean; access_scope?:"PUBLIC_POOL"|"BUSINESS"; current_owner?:HistoryUser|null; effective_protection:EffectiveProtection; followups:Followup[]; attachments:Attachment[]; quotes:QuoteRow[]; claims:Claim[]; audit_logs:AuditLog[]; ai_result?:AiResult|null; ai_facts?:AiFact[]; verified_contacts?:VerifiedContact[]; decision_makers?:DecisionMaker[] };
 const tabs = ["资料","AI分析","跟进记录","报价记录","归属与操作"] as const;
 type Tab = typeof tabs[number];
 type EditableStage = Exclude<CustomerStatus,"UNCLAIMED"|"RELEASED">;
@@ -86,6 +87,7 @@ function CustomerAiAnalysis({data}:{data:Data}){
   if (!data.customer.ai_screening_done) return <div className="p-5"><Empty text="该客户尚未完成AI筛选，暂无AI分析结论或依据"/></div>;
   const result=data.ai_result;
   const facts=(data.ai_facts||[]).filter(item=>{const text=item.normalized_fact||item.content||"";return /[\u3400-\u9fff]/.test(text)&&!/未保存|未提炼|请重新执行|读取失败|未能取得|GOOGLE_MAPS_API_KEY|fetch failed/i.test(text)&&/^https?:\/\//i.test(item.source_url||"")});
+  const roleLabel={PROCUREMENT:"采购/供应链",OWNER:"老板/创始人",EXECUTIVE:"管理决策人",OPERATIONS:"运营负责人",OTHER:"其他人员"};
   return <div className="space-y-4 p-5">
     <div className="grid gap-4 md:grid-cols-2">
       <Info title="分析摘要" content={result?.ai_reason||result?.summary||data.customer.ai_reason}/>
@@ -95,6 +97,7 @@ function CustomerAiAnalysis({data}:{data:Data}){
       <Info title="跟进建议" content={result?.followup_suggestion||data.customer.followup_suggestion}/>
       {(result?.company_scale_evidence||data.customer.company_scale_evidence)?<Info title="可核验采购/规模记录" content={result?.company_scale_evidence||data.customer.company_scale_evidence}/>:null}
     </div>
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h3 className="flex items-center gap-2 font-semibold"><UserRoundCheck size={18} className="text-blue-600"/>已核验决策联系人</h3><p className="mt-1 text-sm text-slate-500">仅展示可在同一公开页面原文中同时复核姓名与当前职位的人员；联系方式还需与该人员明确关联。</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">{data.decision_makers?.length||0} 人</span></header><div className="grid gap-3 p-4 lg:grid-cols-2">{(data.decision_makers||[]).map(person=><article key={person.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><div><b>{person.full_name}</b><p className="mt-1 text-sm text-slate-600">{person.job_title}</p></div><span className="rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{roleLabel[person.role_type]}</span></div>{person.contact_type!=="NONE"&&person.contact_value?<a href={person.contact_type==="EMAIL"?`mailto:${person.contact_value}`:person.contact_type==="WHATSAPP"?`https://wa.me/${person.contact_value.replace(/\D/g,"")}`:`tel:${person.contact_value}`} target={person.contact_type==="WHATSAPP"?"_blank":undefined} rel="noreferrer" className="mt-3 block break-all text-sm font-medium text-blue-600">{person.contact_type==="WHATSAPP"?"WhatsApp":person.contact_type==="EMAIL"?"邮箱":"电话"}：{person.contact_value}</a>:<p className="mt-3 text-xs text-amber-700">已核验身份与职位，未发现明确归属于本人的直接联系方式</p>}<details className="mt-3 text-xs text-slate-500"><summary className="cursor-pointer text-blue-600">查看来源原文</summary><p className="mt-2 leading-5">{person.source_excerpt}</p><a href={person.exact_source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-blue-600">打开原始页面<ExternalLink size={12}/></a></details></article>)}{!data.decision_makers?.length?<p className="col-span-full rounded-lg border border-dashed p-6 text-center text-sm text-slate-400">尚未发现满足严格来源核验要求的采购负责人或老板；不会用推测信息代替。</p>:null}</div></section>
     <VerifiedContactsSection contacts={data.verified_contacts||[]} customer={data.customer} evidence={facts}/>
     <GroupedEvidenceSection evidence={facts} compact/>
   </div>

@@ -2197,6 +2197,44 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
   }
 }
 
+function compactSourceText(value: unknown) { return String(value || "").replace(/\s+/g, " ").trim(); }
+function normalizeComparableUrl(value: unknown) { try { const url=new URL(String(value||""));url.hash="";return url.toString().replace(/\/$/,"").toLowerCase(); } catch { return ""; } }
+
+async function saveVerifiedDecisionMakers(input: { resultId: string; customer: CustomerRow; analysis: CustomerAnalysis; records: ChannelRecord[] }) {
+  const proposals=Array.isArray(input.analysis.decision_makers)?input.analysis.decision_makers:[];
+  if(!proposals.length)return 0;
+  const pages=new Map<string,{text:string;emails:string[];phones:string[];whatsapps:string[]}>();
+  for(const record of input.records){
+    if(record.status!=="COLLECTED"||!record.evidence||!("url" in record.evidence))continue;
+    const website=record.evidence as WebsiteEvidence;
+    for(const page of [{...website},...(website.pages||[])]){
+      const url=normalizeComparableUrl(page.url);if(!url)continue;
+      pages.set(url,{text:compactSourceText([page.title,page.description,...(page.headings||[]),page.text_excerpt].filter(Boolean).join(" ")),emails:page.emails||[],phones:page.phones||[],whatsapps:page.whatsapps||[]});
+    }
+  }
+  const rolePatterns={PROCUREMENT:/(?:procurement|purchasing|buyer|sourcing|supply chain|采购|买手|供应链|einkauf|acheteur|compras)/i,OWNER:/(?:owner|founder|co-founder|proprietor|老板|创始人|inhaber|fondateur|propietario)/i,EXECUTIVE:/(?:chief executive|ceo|managing director|general manager|director|总经理|董事|geschäftsführer|directeur général)/i,OPERATIONS:/(?:operations?|store manager|branch manager|运营|店长|manager)/i,OTHER:/$a/} as const;
+  const rows=[];
+  for(const proposal of proposals.slice(0,6)){
+    const fullName=compactSourceText(proposal.full_name),title=compactSourceText(proposal.job_title),sourceUrl=normalizeComparableUrl(proposal.source_url),excerpt=compactSourceText(proposal.source_excerpt);
+    const page=pages.get(sourceUrl),role=proposal.role_type;
+    if(!page||fullName.length<2||title.length<2||excerpt.length<8||!rolePatterns[role]?.test(title))continue;
+    const pageLower=page.text.toLocaleLowerCase(),excerptLower=excerpt.toLocaleLowerCase(),nameLower=fullName.toLocaleLowerCase(),titleLower=title.toLocaleLowerCase();
+    if(!pageLower.includes(nameLower)||!pageLower.includes(titleLower)||!pageLower.includes(excerptLower)||!excerptLower.includes(nameLower)||!excerptLower.includes(titleLower))continue;
+    let contactType=proposal.contact_type,contactValue=compactSourceText(proposal.contact_value);
+    if(contactType==="EMAIL"){
+      const normalized=normalizeEmailStrict(contactValue);if(!normalized||!page.emails.some(value=>normalizeEmailStrict(value)===normalized)||!excerptLower.includes(normalized.toLocaleLowerCase())){contactType="NONE";contactValue="";}
+    }else if(contactType==="PHONE"||contactType==="WHATSAPP"){
+      const normalized=normalizePhoneInternational(contactValue,input.customer.country),source=contactType==="WHATSAPP"?page.whatsapps:page.phones;
+      if(!normalized||!source.some(value=>normalizePhoneInternational(value,input.customer.country)===normalized)||!excerpt.replace(/\D/g,"").includes(normalized.replace(/\D/g,""))){contactType="NONE";contactValue="";}
+    }else{contactType="NONE";contactValue="";}
+    rows.push({customer_id:input.customer.id,screening_result_id:input.resultId,full_name:fullName,job_title:title,role_type:role,contact_type:contactType,contact_value:contactValue||null,exact_source_url:proposal.source_url,source_excerpt:excerpt.slice(0,1000),verification_status:"SOURCE_VERIFIED",confidence:contactType==="NONE"?88:96,verified_at:new Date().toISOString(),updated_at:new Date().toISOString()});
+  }
+  if(!rows.length)return 0;
+  const write=await createAdminClient().from("customer_decision_makers").upsert(rows,{onConflict:"customer_id,full_name,job_title,exact_source_url"});
+  if(write.error)throw write.error;
+  return rows.length;
+}
+
 async function completeFromReusableCache(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; executionLease?: ExecutionLease }, customer: CustomerRow, cache: Record<string, unknown>, started: number) {
   await assertExecutionLease(input.taskItemId, input.executionLease);
   const admin = createAdminClient();
@@ -2857,9 +2895,15 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
       if (customerWrite.error) throw durableError(customerWrite.error, "CUSTOMER_AI_WRITEBACK");
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CUSTOMER_WRITTEN_BACK", startedAt: started });
     }
+    const decisionMakerAnalysis=analysis;
+    if(!decisionMakerAnalysis)throw new Error("AI_ANALYSIS_MISSING_BEFORE_DECISION_MAKER_WRITEBACK");
     await optionalWrite("CONTACT_WRITEBACK", writebackWarnings, async () => {
       await saveVerifiedContacts({ taskId: input.taskId, resultId: resultWrite.data.id, customer, contacts: reconciled.contacts, preferred: reconciled.preferred });
       await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "CONTACTS_SAVED", startedAt: started, details: { contact_count: reconciled.contacts.length } });
+    });
+    await optionalWrite("DECISION_MAKER_WRITEBACK", writebackWarnings, async () => {
+      const count=await saveVerifiedDecisionMakers({resultId:resultWrite.data.id,customer,analysis:decisionMakerAnalysis,records});
+      if(count)await recordStage({taskId:input.taskId,taskItemId:input.taskItemId,customerId:input.customerId,stage:"CONTACTS_SAVED",startedAt:started,details:{decision_maker_count:count}});
     });
     await optionalWrite("CACHE_WRITEBACK", writebackWarnings, async () => {
       await saveReusableAnalysis({

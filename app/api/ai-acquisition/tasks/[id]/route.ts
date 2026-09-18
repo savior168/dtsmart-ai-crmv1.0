@@ -22,6 +22,20 @@ function presentTask<T extends Record<string, unknown>>(task: T) {
   return { ...task, scheduled_at: scheduled };
 }
 
+async function loadCustomerStates(customerIds: string[]) {
+  const rows: Array<{id:string;owner_id:string|null;status:string|null}> = [];
+  // A single PostgREST `in` filter containing hundreds of UUIDs can exceed
+  // the gateway request-line limit. Keep analytics optional and bounded.
+  for (let offset = 0; offset < customerIds.length; offset += 100) {
+    const chunk = await createAdminClient().from("customers")
+      .select("id,owner_id,status")
+      .in("id", customerIds.slice(offset, offset + 100));
+    if (chunk.error) return { data: rows, error: chunk.error };
+    rows.push(...(chunk.data || []));
+  }
+  return { data: rows, error: null };
+}
+
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
@@ -123,8 +137,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,decision_reason,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
     if(traceRows.error) console.error("[ai-acquisition-task] optional search analytics unavailable", { task_id:id, code:traceRows.error.code });
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
-    const customerStates=traceCustomerIds.length?await createAdminClient().from("customers").select("id,owner_id,status").in("id",traceCustomerIds):{data:[],error:null};
-    if(customerStates.error) console.error("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code });
+    const customerStates=traceCustomerIds.length?await loadCustomerStates(traceCustomerIds):{data:[],error:null};
+    if(customerStates.error) console.warn("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code, message:customerStates.error.message });
     const metricCostRows:Array<{customer_id:string|null;provider:string;amount_usd:number;amount_type:string;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
     if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,amount_type,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
