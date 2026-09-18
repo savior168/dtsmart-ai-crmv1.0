@@ -202,37 +202,58 @@ export function acquisitionIndustrySuggestions(query: string, limit = 8) {
 }
 
 const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
-  "手机维修店": ["screen repair", "battery replacement", "board repair", "phone parts"],
-  "手机维修服务商": ["mobile phone repair service", "screen replacement", "battery replacement", "board level repair"],
-  "手机维修连锁店": ["multiple locations", "screen repair", "battery replacement", "repair center"],
-  "Apple设备维修店": ["iPhone repair", "iPad repair", "MacBook repair", "Apple parts"],
-  "手机配件批发商": ["phone LCD wholesale", "phone replacement batteries wholesale", "charging port supplier", "repair parts B2B"],
-  "手机内配件经销商": ["LCD screens", "batteries", "charging ports", "replacement parts"],
-  "手机维修配件经销商": ["phone repair parts distributor", "mobile replacement parts", "phone parts B2B", "repair parts wholesale"],
-  "手机屏幕批发商": ["phone LCD wholesale", "mobile OLED screen supplier", "replacement screen distributor", "phone display B2B"],
-  "手机电池批发商": ["phone battery wholesale", "replacement battery supplier", "mobile battery distributor", "phone batteries B2B"],
-  "手机主板配件经销商": ["phone motherboard parts", "mobile board components", "IC parts distributor", "board repair parts B2B"],
-  "手机维修工具供应商": ["phone repair tools supplier", "mobile repair equipment", "microsoldering tools", "repair tools B2B"],
-  "手机配件零售商": ["phone repair parts store", "phone LCD retailer", "replacement battery retailer", "charging port parts"],
-  "手机进口商": ["phone repair parts importer", "phone LCD importer", "replacement battery distributor", "repair parts B2B"],
-  "手机翻新商": ["device refurbishment workshop", "board repair", "screen replacement", "battery replacement"],
-  "二手手机整备商": ["phone refurbishment workshop", "device repair center", "screen replacement", "battery replacement"],
-  "电脑维修店": ["laptop repair", "hardware repair", "motherboard repair", "computer parts"],
-  "笔记本电脑维修店": ["laptop screen repair", "keyboard replacement", "battery replacement", "motherboard repair"],
-  "电脑配件批发商": ["laptop parts", "replacement parts", "spare parts", "B2B supplier"],
-  "笔记本配件经销商": ["laptop screens", "laptop batteries", "keyboards", "replacement parts"],
-  "电子设备维修服务商": ["electronics repair", "board repair", "component replacement", "repair center"],
+  "手机维修店": ["mobile phone repair shop", "cell phone repair service", "phone screen repair shop", "phone battery replacement service", "board level phone repair", "smartphone repair centre"],
+  "手机维修服务商": ["mobile phone repair service", "smartphone screen replacement service", "phone battery replacement service", "board level phone repair service", "mobile device repair centre"],
+  "手机维修连锁店": ["mobile phone repair chain", "multi-location phone repair service", "smartphone repair franchise", "phone screen repair chain", "mobile device repair centres"],
+  "Apple设备维修店": ["Apple device repair service", "iPhone repair shop", "iPad repair service", "MacBook repair centre", "Apple device screen replacement"],
+  "手机配件批发商": ["mobile phone repair parts wholesaler", "phone LCD screen wholesale supplier", "phone replacement battery wholesaler", "mobile charging port wholesale supplier", "phone repair parts B2B distributor"],
+  "手机内配件经销商": ["mobile phone replacement parts distributor", "phone LCD screen distributor", "phone replacement battery distributor", "mobile charging port supplier", "phone motherboard parts distributor"],
+  "手机维修配件经销商": ["phone repair parts distributor", "mobile replacement parts wholesaler", "phone repair parts B2B supplier", "mobile repair parts wholesale distributor"],
+  "手机屏幕批发商": ["phone LCD screen wholesaler", "mobile OLED screen supplier", "phone replacement screen distributor", "mobile phone display B2B supplier"],
+  "手机电池批发商": ["phone battery wholesaler", "mobile replacement battery supplier", "phone battery distributor", "mobile phone batteries B2B supplier"],
+  "手机主板配件经销商": ["phone motherboard parts distributor", "mobile circuit board components supplier", "phone repair IC parts distributor", "mobile board repair parts B2B supplier"],
+  "手机维修工具供应商": ["phone repair tools supplier", "mobile repair equipment supplier", "phone microsoldering tools supplier", "phone repair tools B2B distributor"],
+  "手机配件零售商": ["phone repair parts store", "phone LCD screen retailer", "mobile replacement battery retailer", "phone charging port parts retailer"],
+  "手机进口商": ["phone repair parts importer", "phone LCD screen importer", "mobile replacement battery importer", "phone repair parts import distributor"],
+  "手机翻新商": ["mobile phone refurbishment company", "used smartphone refurbisher", "phone board repair workshop", "refurbished phone screen replacement", "refurbished phone battery replacement"],
+  "二手手机整备商": ["used phone refurbishment company", "second hand phone repair workshop", "used smartphone reconditioning service", "refurbished phone screen replacement"],
+  "电脑维修店": ["computer repair shop", "PC hardware repair service", "desktop motherboard repair", "computer screen repair service", "computer repair centre"],
+  "笔记本电脑维修店": ["laptop repair shop", "laptop screen replacement service", "laptop keyboard replacement service", "laptop battery replacement service", "laptop motherboard repair"],
+  "电脑配件批发商": ["computer replacement parts wholesaler", "PC hardware parts wholesale supplier", "computer spare parts distributor", "laptop repair parts wholesaler", "computer parts B2B supplier"],
+  "笔记本配件经销商": ["laptop replacement parts distributor", "laptop screen distributor", "laptop battery supplier", "laptop keyboard distributor", "laptop repair parts supplier"],
+  "电子设备维修服务商": ["electronic device repair service", "electronics circuit board repair", "electronic component replacement service", "consumer electronics repair centre"],
 };
 
-const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, string[]]> = [
-  [/批发|wholesale/i, ["wholesaler", "B2B wholesale", "bulk supplier"]],
-  [/进口|import/i, ["importer", "import distributor", "B2B importer"]],
-  [/经销|distribut/i, ["distributor", "authorized distributor", "B2B distributor"]],
-  [/供应|supplier/i, ["supplier", "B2B supplier", "commercial supplier"]],
-  [/零售|retail|商店|store/i, ["retailer", "retail store", "specialist shop"]],
-  [/维修|repair/i, ["repair service", "repair centre", "maintenance service"]],
-  [/服务|service/i, ["service provider", "commercial service", "business service"]],
+const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, (core: string) => string[]]> = [
+  [/批发|wholesale/i, (core) => [`${core} wholesaler`, `${core} B2B wholesale supplier`, `${core} bulk distributor`]],
+  [/进口|import/i, (core) => [`${core} importer`, `${core} import distributor`, `${core} B2B importer`]],
+  [/经销|distribut/i, (core) => [`${core} distributor`, `${core} authorized distributor`, `${core} B2B distributor`]],
+  [/供应|supplier/i, (core) => [`${core} supplier`, `${core} B2B supplier`, `${core} commercial supplier`]],
+  [/零售|retail|商店|store/i, (core) => [`${core} retailer`, `${core} specialist retail store`, `${core} local supplier shop`]],
+  [/维修|repair/i, (core) => [`${core} repair shop`, `${core} repair service`, `${core} repair centre`]],
+  [/服务|service/i, (core) => [`${core} service provider`, `${core} commercial service company`, `${core} business service provider`]],
 ];
+
+function industryKeywordCore(searchTerm: string) {
+  const core = searchTerm
+    .replace(/\b(?:B2B|wholesale|wholesaler|distributor|supplier|importer|retailer|retail|store|shop|company|service|provider|repair|centre|center)\b/gi, " ")
+    .replace(/(?:批发商|经销商|供应商|进口商|零售商|服务商|维修店|公司)$/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return core || searchTerm.trim();
+}
+
+const SEARCH_SCOPE_STOPWORDS = new Set(["and", "the", "for", "b2b", "service", "services", "repair", "shop", "store", "company", "provider", "supplier", "distributor", "wholesale", "retailer", "centre", "center"]);
+
+function meaningfulSearchTokens(value: string) {
+  return value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length >= 3 && !SEARCH_SCOPE_STOPWORDS.has(token));
+}
+
+function keywordAlreadyScopesIndustry(industryTerm: string, keyword: string) {
+  const industryTokens = meaningfulSearchTokens(industryTerm);
+  const keywordTokens = new Set(meaningfulSearchTokens(keyword));
+  return industryTokens.some((token) => keywordTokens.has(token));
+}
 
 export function acquisitionKeywordRecommendations(industries: string[]) {
   return [...new Set(acquisitionKeywordRecommendationGroups(industries).flatMap((group) => group.keywords))].slice(0, MAX_ACQUISITION_KEYWORDS);
@@ -243,8 +264,8 @@ export function acquisitionKeywordRecommendationGroups(industries: string[]) {
   return industries.map((industry) => {
     const exact = INDUSTRY_KEYWORD_RECOMMENDATIONS[industry];
     const searchTerm = ACQUISITION_INDUSTRY_TERMS[industry] || industry;
-    const roleKeywords = ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(`${industry} ${searchTerm}`))?.[1] || [];
-    const keywords = exact || [searchTerm, ...roleKeywords.map((role)=>`${searchTerm} ${role}`)];
+    const roleKeywordBuilder = ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(`${industry} ${searchTerm}`))?.[1];
+    const keywords = exact || [searchTerm, ...(roleKeywordBuilder?.(industryKeywordCore(searchTerm)) || [])];
     return { industry, keywords: [...new Set(keywords)] };
   }).filter((group) => group.keywords.length > 0);
 }
@@ -291,7 +312,9 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
     // standalone broad search that escapes the user's target industry. Known
     // recommendation keywords are paired only with their owning industries;
     // genuinely custom keywords remain available to every selected industry.
-    return [...bases, ...bases.flatMap((base) => applicableKeywords.map((keyword) => `${base} ${keyword}`))];
+    const refinements = bases.flatMap((base) => applicableKeywords.map((keyword) =>
+      keywordAlreadyScopesIndustry(term, keyword) ? keyword : `${base} ${keyword}`));
+    return [...new Set([...bases, ...refinements])];
   });
   const requested: string[] = [];
   for (let round = 0; requested.length < MAX_ACQUISITION_SEARCH_TERMS; round += 1) {

@@ -126,6 +126,11 @@ assert.doesNotMatch(create,/ClipboardPaste|>粘贴<|readClipboard/,"目标条件
 assert.match(create,/visibleRecommendations[\s\S]*slice\(0,6\)[\s\S]*展开更多/,"常用行业推荐默认必须紧凑显示并可按需展开");
 assert.match(create,/addRecommendedIndustries[\s\S]*为你推荐（近期偏好优先）[\s\S]*批量选择/,"个性化行业推荐必须提供按推荐顺序一键批量选择入口");
 assert.match(acquisitionConfig,/INDUSTRY_KEYWORD_RECOMMENDATIONS[\s\S]*ROLE_KEYWORD_RECOMMENDATIONS[\s\S]*acquisitionKeywordRecommendations/,"关键词推荐必须同时支持常用行业和任意行业角色语义");
+assert.match(acquisitionConfig,/手机维修店[\s\S]*mobile phone repair shop[\s\S]*phone screen repair shop[\s\S]*board level phone repair/,"手机维修行业推荐词必须是包含产品与服务意图的完整精准短语");
+assert.match(acquisitionConfig,/电脑维修店[\s\S]*computer repair shop[\s\S]*PC hardware repair service[\s\S]*desktop motherboard repair/,"电脑维修行业推荐词必须明确电脑硬件维修场景");
+assert.doesNotMatch(acquisitionConfig,/\["(?:repair|supplier|shop|store|wholesaler|distributor|screen repair|battery replacement|board repair|replacement parts|computer parts)"(?:,|\])/,"推荐词不得使用会扩大到无关行业的裸角色词或裸配件词");
+assert.match(acquisitionConfig,/B2B wholesale supplier[\s\S]*repair centre[\s\S]*industryKeywordCore[\s\S]*roleKeywordBuilder/,"自定义行业推荐必须由行业核心对象与业务角色组成完整搜索短语");
+assert.match(acquisitionConfig,/keywordAlreadyScopesIndustry\(term, keyword\)[\s\S]*\? keyword : `\$\{base\} \$\{keyword\}`/,"已包含行业对象的精准短语不得再次拼接行业造成重复，用户自定义关键词仍必须受行业限定");
 assert.match(acquisitionConfig,/ACQUISITION_COMMON_INDUSTRIES[\s\S]*汽车配件批发商[\s\S]*机械设备经销商[\s\S]*服装批发商[\s\S]*医疗器械经销商[\s\S]*酒店用品供应商[\s\S]*软件服务公司/,"未形成个人偏好前的行业推荐必须覆盖多行业，不得固化成单一垂直行业");
 assert.match(acquisitionConfig,/ACQUISITION_INDUSTRY_GROUPS[\s\S]*aliases:[\s\S]*industries:[\s\S]*categoryMatches[\s\S]*similarityMatches/,"行业推荐必须同时支持大类到兼容细分行业的分类关系和文本相似度");
 assert.match(acquisitionConfig,/aliases: \["手机", "手机维修"[\s\S]*手机维修配件经销商[\s\S]*手机屏幕批发商[\s\S]*手机电池批发商[\s\S]*手机主板配件经销商[\s\S]*手机维修工具供应商/,"手机维修业务域必须覆盖维修、连锁、维修配件批发经销和核心内配件细分行业");
@@ -139,7 +144,7 @@ assert.match(create,/recent-industries[\s\S]*recentIndustries[\s\S]*为你推荐
 assert.match(create,/function updateIndustries[\s\S]*newlyAdded[\s\S]*acquisitionKeywordRecommendations\(newlyAdded\)[\s\S]*mergeUniqueValues/,"新增行业后必须自动补入该行业的精准关键词");
 assert.match(create,/options\.length===1[\s\S]*options\.length>1[\s\S]*请选择实际目标行业/,"输入行业大类时不得擅自选择首个细分行业，只有精确或唯一匹配才能自动加入");
 assert.match(create,/const removed=current\.industries[\s\S]*removedRecommendations[\s\S]*retainedRecommendations[\s\S]*retainedKeywords/,"移除行业时必须清理只属于该行业的自动推荐词并保留其他行业共享词");
-assert.match(acquisitionConfig,/const searchTerm = ACQUISITION_INDUSTRY_TERMS\[industry\] \|\| industry[\s\S]*roleKeywords[\s\S]*searchTerm/,"关键词推荐必须覆盖整个行业库和自定义行业，不能只服务单一垂直行业");
+assert.match(acquisitionConfig,/const searchTerm = ACQUISITION_INDUSTRY_TERMS\[industry\] \|\| industry[\s\S]*roleKeywordBuilder[\s\S]*industryKeywordCore\(searchTerm\)/,"关键词推荐必须覆盖整个行业库和自定义行业，不能只服务单一垂直行业");
 assert.match(acquisitionConfig,/acquisitionKeywordRecommendationGroups\(industries\)[\s\S]*knownKeywordOwners[\s\S]*owners\.has\(industry\)/,"多行业检索时自动推荐词必须只用于其所属行业，不能跨行业污染查询");
 assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 20[\s\S]*MAX_ACQUISITION_KEYWORDS = 30[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 80/,"行业与关键词容量必须使用明确的任务规划上限，不能沿用任意8项硬限制");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_GROUPS[\s\S]*EUROPE[\s\S]*ASIA[\s\S]*AFRICA[\s\S]*NORTH_AMERICA[\s\S]*SOUTH_AMERICA[\s\S]*OCEANIA/,"获客国家必须按六大业务洲别准确分组");
