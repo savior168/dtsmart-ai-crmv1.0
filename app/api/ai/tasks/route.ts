@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
+import { countEligiblePendingAiCustomers, getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, AI_COST_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
 import { dispatchAiScreeningTask, rescueStalledCloudTasks } from "@/lib/ai/task-dispatch";
@@ -130,22 +130,16 @@ export async function GET(request: NextRequest) {
       .gte("completed_at", todayStart);
     if (scopeUserId) todayCompletedQuery = todayCompletedQuery.eq("user_id", scopeUserId);
     const pendingScope = await resolveAiOwnerScope(account);
-    let pendingCustomersQuery = admin
-      .from("customers")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .is("ai_score", null);
     // 待筛选统计遵循创建任务时可选择的数据范围：销售员仅本人；主管为
     // 本人及直属下属；系统管理员为全系统（含尚未归属的公海客户）。
-    if (pendingScope.ownerIds) pendingCustomersQuery = pendingCustomersQuery.in("owner_id", pendingScope.ownerIds);
-    const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomers] = await Promise.all([
+    // 同时排除已被活动任务占用的客户，确保卡片数字与创建任务页完全一致。
+    const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomerCount] = await Promise.all([
       countItems("FAILED", undefined, true),
       todayCompletedQuery,
       countItems("FAILED", todayStart),
       todayCostPromise,
-      pendingCustomersQuery,
+      countEligiblePendingAiCustomers(pendingScope.ownerIds),
     ]);
-    if (pendingCustomers.error) throw pendingCustomers.error;
     if (todayCompleted.error) throw todayCompleted.error;
     let acquisitionTodayCompleted = 0;
     const childIds = [...acquisitionChildIds];
@@ -156,7 +150,6 @@ export async function GET(request: NextRequest) {
       if (childCount.error) throw childCount.error;
       acquisitionTodayCompleted += childCount.count || 0;
     }
-    const pendingCustomerCount = pendingCustomers.count || 0;
     // The all-time system-wide cost summary is finance-sensitive. It defaults
     // to administrators, but the permission center may explicitly delegate it.
     // Enforce that decision in the API rather than merely hiding the browser UI.

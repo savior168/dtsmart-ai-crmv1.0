@@ -28,3 +28,17 @@ export async function getReservedAiCustomerIds(userId?: string | null) {
 
   return reserved;
 }
+
+/**
+ * Count customers that can actually be selected for a first AI screening task.
+ * This deliberately shares the active-task reservation rule used by the
+ * create-task API so the task-center KPI cannot advertise unavailable rows.
+ */
+export async function countEligiblePendingAiCustomers(ownerIds: string[] | null) {
+  const admin = createAdminClient();
+  const result = await admin.rpc("count_eligible_pending_ai_customers", {
+    p_owner_ids: ownerIds,
+  });
+  if (result.error) throw result.error;
+  return Math.max(0, Number(result.data || 0));
+}

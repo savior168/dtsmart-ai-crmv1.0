@@ -208,7 +208,7 @@ assert.match(detail,/AI获客实时处理构成[\s\S]*已完成去重与早停[\
 assert.match(detail,/progressHeartbeatAge[\s\S]*等待执行器更新[\s\S]*运行正常[\s\S]*最近更新/,"实时进度必须用最近心跳向用户说明任务是否仍在正常推进");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
 assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"匹配关键词"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并按业务重要性排列");
-assert.match(detail,/text-blue-700[\s\S]*AI核验：[\s\S]*customer_profile\?\.industry[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CustomerScoreBadge[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称与AI核验行业必须复用客户公海样式，官网与公开渠道必须先于Google地址展示");
+assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CustomerScoreBadge[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");
 assert.doesNotMatch(detail,/"客户与地区"|"AI匹配"|"商机线索与销售建议"/,"本次客户列表不得继续使用混合字段标题");
 assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*平均入池成本参考/,"搜索策略效果必须默认折叠并保留从发现到转化的质量与成本闭环");
 assert.match(detail,/本任务调用[\s\S]*本任务价目估算[\s\S]*结算月预计总用量[\s\S]*预计剩余免费额度[\s\S]*超过免费额度[\s\S]*超额预计费用[\s\S]*本任务 Google Places SKU用量与账号额度/,'Google明细必须直观展示本任务、账号总量、剩余额度、超额次数和预计费用');

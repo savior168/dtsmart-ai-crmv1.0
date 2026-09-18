@@ -140,7 +140,7 @@ function ProfileModal({
 }: {
   type: "avatar" | "profile" | "password";
   close: () => void;
-  saved: () => void;
+  saved: (changes?: { name?: string; avatar_url?: string }) => void;
   passwordRequired: boolean;
   profile: { name: string; email: string; phone: string; avatar_url: string };
 }) {
@@ -200,8 +200,14 @@ function ProfileModal({
       );
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存失败");
+      const savedChanges = isPassword ? undefined : {
+        ...(type === "profile" ? { name: value.name.trim() } : {}),
+        ...(typeof body === "object" && body && "avatar_url" in body
+          ? { avatar_url: `/api/users/avatar?v=${encodeURIComponent(String(body.avatar_url))}` }
+          : {}),
+      };
+      saved(savedChanges);
       window.dispatchEvent(new CustomEvent("dtsmart-profile-updated"));
-      saved();
       close();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "保存失败");
@@ -771,7 +777,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ProfileModal
           type={modal}
           close={() => setModal(null)}
-          saved={loadProfile}
+          saved={(changes) => {
+            if (changes) setProfile((current) => current ? { ...current, ...changes } : current);
+          }}
           passwordRequired={profile.must_change_password}
           profile={profile}
         />

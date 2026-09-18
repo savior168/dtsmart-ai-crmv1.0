@@ -31,6 +31,7 @@ import {
 import type { AcquisitionTask, Candidate } from "./types";
 import { decisionLabels } from "./types";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
+import { acquisitionBusinessLabel } from "@/lib/ai-acquisition/display-labels";
 type UsageSummary = {
   total_calls: number;
   free_calls: number;
@@ -111,6 +112,12 @@ const GOOGLE_BILLING_KEY_BY_SKU:Record<string,string>={
 function CompactTags({values,limit=8}:{values:string[];limit?:number}) {
   const visible=values.slice(0,limit),remaining=values.slice(limit);
   return <div className="flex flex-wrap items-center gap-1.5">{visible.map((value,index)=><span key={`${value}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}{remaining.length?<details className="group/tags"><summary title="点击展开其余匹配关键词" className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:border-blue-300 hover:bg-blue-100">展开其余 {remaining.length} 项<ChevronDown size={12} className="transition group-open/tags:rotate-180"/></summary><div className="mt-2 flex max-h-32 min-w-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border bg-white p-2 shadow-sm">{remaining.map((value,index)=><span key={`${value}-${index}`} className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700">{value}</span>)}</div></details>:null}</div>;
+}
+function CandidateIndustryLabel({candidate}:{candidate:Candidate}) {
+  const raw=candidate.customer_profile?.industry||candidate.customer_profile?.category;
+  const label=acquisitionBusinessLabel(raw);
+  const verified=candidate.ai_score!==null;
+  return <small className={`mt-0.5 block truncate text-xs font-normal ${raw?"text-emerald-600":"text-slate-500"}`} title={label}>{raw?(verified?"AI核验：":"发现类型："):""}{label}</small>;
 }
 export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: string; initialDecision?:string }) {
   const [task, setTask] = useState<AcquisitionTask | null>(null),
@@ -474,7 +481,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               {rows.map((r) => (
                 <tr key={r.id} className="group border-t align-top hover:bg-blue-50/30">
                   <td className="sticky left-0 z-10 bg-white px-3 py-4 shadow-[1px_0_0_#e2e8f0] group-hover:bg-blue-50">
-                    <span className="block min-w-0"><span className="block truncate font-medium text-blue-700" title={r.company_name}>{r.company_name}</span><small className={`mt-0.5 block truncate text-xs font-normal ${r.customer_profile?.industry||r.customer_profile?.category?"text-emerald-600":"text-slate-500"}`} title={r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}>{r.customer_profile?.industry||r.customer_profile?.category?"AI核验：":""}{r.customer_profile?.industry||r.customer_profile?.category||"待确认行业"}</small></span>
+                    <span className="block min-w-0"><span className="block truncate font-medium text-blue-700" title={r.company_name}>{r.company_name}</span><CandidateIndustryLabel candidate={r}/></span>
                   </td>
                   <td className="px-3 py-4"><CountryLabel value={r.country}/></td>
                   <td className="px-3 py-4"><CustomerScoreBadge score={r.ai_score} level={r.ai_level}/></td>
