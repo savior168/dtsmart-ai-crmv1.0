@@ -18,6 +18,9 @@ assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],
 const relevanceBase={businessStatus:"OPERATIONAL",matchedTerms:["mobile phone repair shop"]};
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"The Toughphone Ltd",types:["cell_phone_store"]},["手机维修店"],["mobile phone repair"]),false,"仅销售手机成品的商店不得进入维修客户付费补证");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Computer Laptop Repair",types:["computer_repair_service"]},["电脑维修店"],["computer repair"]),true,"明确电脑维修业务不得被前置门槛漏掉");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Trust Computers & Repairs",types:["electronics_store","service"]},["电脑维修店"],["computer repair shop"]),true,"电脑和维修的复数形式不得被完全匹配误杀");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Birmingham Laptop Repairs",types:["electronics_store","service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把laptop repair识别为同域候选并进入证据核验");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"PC Repair Guru",types:["service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把PC repair识别为同域候选并进入证据核验");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"North Foods",types:["food_wholesaler"],matchedTerms:["food wholesaler"]},["食品批发商"],["food wholesaler"]),true,"跨行业的行业实词加批发角色必须继续支持，不能写死为电子行业");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Harbour Hotel",types:["lodging"],matchedTerms:["hotel"]},["酒店"],["hotel"]),true,"明确行业名称匹配应支持服务业客户");
 const purposeSummary=summarizeUsagePurposes([
@@ -36,6 +39,7 @@ const keywordTraceMigration=fs.readFileSync(new URL("../supabase/migrations/2026
 const incrementalSearchMigration=fs.readFileSync(new URL("../supabase/migrations/202609160002_ai_acquisition_incremental_search.sql",import.meta.url),"utf8");
 const coverageEfficiencyMigration=fs.readFileSync(new URL("../supabase/migrations/202609170001_ai_acquisition_coverage_efficiency.sql",import.meta.url),"utf8");
 const acquisitionScaleMigration=fs.readFileSync(new URL("../supabase/migrations/202609170002_ai_acquisition_scale.sql",import.meta.url),"utf8");
+const costIsolationMigration=fs.readFileSync(new URL("../supabase/migrations/202609180003_ai_acquisition_task_cost_isolation.sql",import.meta.url),"utf8");
 assert.match(migration,/AI_STAGING/);
 assert.match(migration,/claim_stalled_ai_acquisition_tasks/);
 assert.match(migration,/revoke all on public\.ai_acquisition_tasks/);
@@ -49,6 +53,7 @@ assert.match(incrementalSearchMigration,/grant execute on function public\.claim
 assert.match(coverageEfficiencyMigration,/target_count between 1 and 5000[\s\S]*REUSED_RECENT[\s\S]*REUSED_ACTIVE/,"数据库必须支持广域发现安全上限和可审计的缓存复用状态");
 assert.match(acquisitionScaleMigration,/target_count between 1 and 50000/,"单个全国获客任务必须支持数万真实候选的安全上限");
 assert.match(acquisitionScaleMigration,/get_ai_acquisition_discovery_progress[\s\S]*sum\(checkpoint\.result_count\)[\s\S]*grant execute[\s\S]*service_role/,"数千检索分片的进度和原始命中必须在数据库端精确聚合，不能受接口1000行上限截断");
+assert.match(costIsolationMigration,/request_key = 'acquisition:' \|\| p_task_id::text[\s\S]*get_ai_acquisition_usage_summary/,"任务用量只能归属稳定request_key绑定的核验子任务，不能从候选历史引用推断");
 const workflow=fs.readFileSync(new URL("../workflows/ai-acquisition.ts",import.meta.url),"utf8");
 assert.match(workflow,/CLOSED_PERMANENTLY/);
 assert.match(workflow,/Google Place ID已存在/);
@@ -56,8 +61,7 @@ assert.match(workflow,/lookupBatchSize = 100[\s\S]*Promise\.all\([\s\S]*\.in\("p
 assert.match(workflow,/evaluateAcquisitionGate/);
 assert.match(workflow,/pause_started_at/);
 assert.match(workflow,/discoverBusinesses[\s\S]*discovery\.control[\s\S]*break/,"工作流必须消费分页检查点状态，避免任务暂停或封顶后继续重复发现");
-assert.match(workflow,/historyCutoff = new Date\(Date\.now\(\) - 14[\s\S]*复用近14天历史核验结论/,"近期历史核验必须复用真实结论而不能把所有结果错误改成重复");
-assert.match(workflow,/previous\.decision === "REJECTED"[\s\S]*previous\.decision === "REVIEW"[\s\S]*reusedDecision/,"历史未通过和待复核必须保持各自业务结论");
+assert.doesNotMatch(workflow,/screening_task_id:previous\.screening_task_id|previous\.decision === "REJECTED"|recentByPlace/,"强制重新核验的获客任务不得复用旧任务最终结论或写入旧筛选任务ID");
 assert.match(workflow,/pool_status\|\|""\)!=="AI_STAGING"[\s\S]*stagingCustomerByPlace[\s\S]*refreshed/,"过期待复核客户重新分析时必须复用隔离客户档案，不能因Place ID重复导致任务失败");
 assert.match(workflow,/completeEmptyScreeningTask[\s\S]*status:"COMPLETED"[\s\S]*analyzing > 0[\s\S]*completeEmptyScreeningTask/,"零分析项的内部核验任务必须正常结束，不能永久停留在排队中");
 assert.match(workflow,/stageCandidates\(task,screeningTaskId\)[\s\S]*staging\.analyzing>0[\s\S]*dispatchScreening[\s\S]*staging\.control==="CONTINUE"/,"首批候选保存后必须立即启动核验，不能等待全部地域发现结束");
@@ -205,7 +209,7 @@ assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\
 assert.match(acquisitionWorkflow,/decisionCount[\s\S]*head:true[\s\S]*while\(await finalizeCandidateBatch\(task,screeningTaskId\)\)/,"最终汇总必须使用精确计数且质量准入必须拆成可恢复批次，避免单步骤超时");
 assert.match(acquisitionWorkflow,/let pollSeconds = 15[\s\S]*sleep\(`\$\{pollSeconds\}s`\)[\s\S]*Math\.min\(60, pollSeconds \+ 15\)/,"获客核验轮询必须采用15至60秒退避，避免浪费Vercel工作流事件");
 assert.match(acquisitionWorkflow,/const batchSize = 100[\s\S]*\.in\("task_item_id", itemIds\)[\s\S]*\.in\("customer_id", customerIds\)[\s\S]*resultByItem[\s\S]*contactsByCustomer[\s\S]*evidenceByItem/,"最终质量判定必须批量预取核验结果、联系方式和证据，避免逐客户重复查询浪费执行时间");
-assert.match(acquisitionWorkflow,/terminalProcessed[\s\S]*processed_count:terminalProcessed[\s\S]*deepProcessed[\s\S]*earlyProcessed[\s\S]*processed_count:processedCount/,"父获客任务必须持续同步早停与深度核验的真实处理进度，不能到任务结束才从0跳到100%");
+assert.match(acquisitionWorkflow,/updateAcquisitionTaskTotals[\s\S]*accepted_count: accepted[\s\S]*rejected_count: rejected[\s\S]*duplicate_count: duplicate[\s\S]*finalizeCandidateBatch[\s\S]*updateAcquisitionTaskTotals/,"父获客任务必须持续同步早停、重复、入池和待复核的真实计数，不能到任务结束才更新");
 assert.match(listRoute,/overlaps\("industries"/);
 assert.match(listRoute,/ALL_QUALIFIED_WITHIN_SUPPORTED_SOURCES/);
 assert.match(listRoute,/request_key/);
@@ -216,6 +220,7 @@ assert.match(listRoute,/summaryRows[\s\S]*active_tasks[\s\S]*completed_tasks[\s\
 assert.match(listRoute,/ai_acquisition_candidates[\s\S]*eq\("decision", "ACCEPTED"\)[\s\S]*not\("imported_customer_id", "is", null\)/,"今日及历史获客只能统计已核验通过且成功写入系统的客户");
 const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.ts",import.meta.url),"utf8");
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
+const relevanceRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
 const reviewRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
 const actualCostPolicy=fs.readFileSync(new URL("../lib/api-cost-actual.ts",import.meta.url),"utf8");
 assert.match(usageRoute,/ai\.acquisition\.usage\.view/);
@@ -224,6 +229,11 @@ assert.match(usageRoute,/all_time[\s\S]*google_free_calls[\s\S]*total_cost_usd/,
 assert.match(actualCostPolicy,/provider === "OPENAI"[\s\S]*amount_type === "FINAL"/,"实际费用只能包含已发生的OpenAI用量和服务商最终确认费用");
 assert.match(usageRoute,/actualCostUsd\(taskCosts\)[\s\S]*google_cost_usd:[\s\S]*isActuallyIncurredCost[\s\S]*total_cost_usd: actualCostUsd\(costs\)/,"获客用量不得把Google价目估算计入实际费用");
 assert.match(detailRoute,/actualCostUsd\(metricCostRows\)[\s\S]*google_actual_cost_usd:confirmedGoogleCost/,"任务详情接口必须单独返回实际费用和Google平台确认费用");
+assert.match(detailRoute,/eq\("request_key", `acquisition:\$\{id\}`\)[\s\S]*const screeningIds = \[String\(acquisitionChild\.data\?\.id/,'费用归属必须只使用当前获客任务的专属筛选子任务，不能读取候选记录中的历史任务ID');
+assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweight\?\{\}:\{costs:[\s\S]*usage_summary:/,"完整详情必须以当前任务费用流水重算汇总，轻量轮询不得用空流水覆盖已加载费用");
+assert.match(detailRoute,/liveDecisionCounts[\s\S]*liveTerminal[\s\S]*rejected_count:liveDecisionCounts\.REJECTED[\s\S]*duplicate_count:liveDecisionCounts\.DUPLICATE/,"暂停中的任务详情也必须按候选真实状态展示拒绝和重复计数");
+assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*status: "RUNNING"/,"恢复旧任务前必须先用修复后的早筛规则重新排队误拒候选");
+assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null \}[\s\S]*verificationTotal[\s\S]*earlyProcessed[\s\S]*liveProcessed[\s\S]*verification_progress:verificationProgress/,"实时轮询必须跳过客户明细并按早停加深度核验返回真实轻量进度");
 assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_count[\s\S]*noNewSearchUnits/,"任务详情必须使用数据库端聚合的完整检索进度和真实无新增判断");
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
@@ -237,7 +247,7 @@ assert.match(detail,/CompactTags[\s\S]*展开其余 \{remaining\.length\} 项[\s
 assert.match(detail,/progressSteps[\s\S]*搜索发现[\s\S]*本地化检索 · 分页覆盖[\s\S]*去重初筛[\s\S]*客户库查重 · 停业与非目标早停[\s\S]*资料与业务核验[\s\S]*官网证据 · 联系方式 · AI行业判断[\s\S]*质量准入[\s\S]*入池或待复核/,"实时进度必须用可追踪大阶段准确说明内部真实处理链路");
 assert.match(detail,/4 个阶段并行衔接[\s\S]*pipelineSteps[\s\S]*搜索覆盖进度[\s\S]*候选处理进度[\s\S]*已入池[\s\S]*待复核/,"流水线详情必须分别展示真实搜索和候选处理进度，不能继续伪装成四步串行流程");
 assert.match(detail,/AI获客实时处理构成[\s\S]*已完成去重与早停[\s\S]*进入深度核验[\s\S]*深度核验完成 \/ 待处理[\s\S]*最近核验进展/,"核验阶段必须解释总候选、早停候选和深度核验队列，避免进度分母含义不清");
-assert.match(detail,/progressHeartbeatAge[\s\S]*等待执行器更新[\s\S]*运行正常[\s\S]*最近更新/,"实时进度必须用最近心跳向用户说明任务是否仍在正常推进");
+assert.match(detail,/stageTitle[\s\S]*已暂停 · 暂停前阶段[\s\S]*任务已在安全检查点暂停[\s\S]*最近更新/,"实时进度必须统一暂停状态并明确从安全检查点恢复");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
 assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"匹配关键词"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并按业务重要性排列");
 assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CustomerScoreBadge[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");

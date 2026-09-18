@@ -3,9 +3,10 @@ import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { start } from "workflow/api";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
-import { ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY } from "@/lib/ai-acquisition/config";
+import { plannedDiscoveryScopeCount } from "@/lib/ai-acquisition/discovery";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
+import { requeueCorrectedEarlyRejections } from "@/lib/ai-acquisition/requeue";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -95,14 +96,14 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       const sourceWebsite=customerContacts.find((contact)=>contact.type==="WEBSITE"&&contact.source_channel==="google_maps"&&String(contact.value_raw||"").trim());
       return { ...row, customer_profile: profileById.get(customerId) || null, verified_contacts: customerContacts, source_website:sourceWebsite?.value_raw||null, source_website_status:sourceWebsite?.verification_status||null };
     });
-    const [screeningTaskRows, acquisitionChild] = await Promise.all([
-      lightweight ? Promise.resolve({data:[],error:null}) : createAdminClient().from("ai_acquisition_candidates").select("screening_task_id").eq("task_id", id).not("screening_task_id", "is", null).limit(500),
-      createAdminClient().from("ai_screening_tasks").select("id,status,total_count,pending_count,success_count,failed_count,processed_count,updated_at").eq("request_key", `acquisition:${id}`).maybeSingle(),
-    ]);
-    if (screeningTaskRows.error || acquisitionChild.error) {
-      console.error("[ai-acquisition-task] optional screening progress unavailable", { task_id: id, screening_error: screeningTaskRows.error?.code, child_error: acquisitionChild.error?.code });
+    const acquisitionChild = await createAdminClient().from("ai_screening_tasks").select("id,status,total_count,pending_count,success_count,failed_count,processed_count,updated_at").eq("request_key", `acquisition:${id}`).maybeSingle();
+    if (acquisitionChild.error) {
+      console.error("[ai-acquisition-task] optional screening progress unavailable", { task_id: id, child_error: acquisitionChild.error?.code });
     }
-    const screeningIds = [...new Set([...(screeningTaskRows.data || []).map((row) => String(row.screening_task_id || "")),String(acquisitionChild.data?.id||"")].filter(Boolean))];
+    // Cost ownership follows the task's immutable child request_key. Candidate
+    // rows may reference historical results for provenance and must never pull
+    // another task's usage into this task.
+    const screeningIds = [String(acquisitionChild.data?.id||"")].filter(Boolean);
     const taskIds = [id, ...screeningIds];
     const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
     const discoveryProgressResult = await createAdminClient().rpc("get_ai_acquisition_discovery_progress", { p_task_ids: [id] });
@@ -117,7 +118,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const checkpointProgress=(discoveryProgressResult.data||[])[0]||null;
     const checkpointBlocks=Array.isArray(checkpointProgress?.blocked_periods)?checkpointProgress.blocked_periods.map(String):[];
     const blockedPeriods=[...new Set([...(budgetEvents.data||[]).map((row)=>String(row.blocked_period||"")),...checkpointBlocks].filter(Boolean))];
-    const plannedSearches=Math.max(1,(task.countries||[]).length*ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY);
+    const taskIndustries=Array.isArray(task.industries)&&task.industries.length?task.industries:[task.industry];
+    const plannedSearches=Math.max(1,(task.countries||[]).reduce((sum:number,country:string)=>sum+plannedDiscoveryScopeCount(country as Parameters<typeof plannedDiscoveryScopeCount>[0],taskIndustries,task.keywords||[]),0));
     const totalCheckpoints=Number(checkpointProgress?.total_count||0);
     const completedSearches=Number(checkpointProgress?.terminal_count||0);
     const completedFreshSearches=Number(checkpointProgress?.fresh_completed_count||0);
@@ -139,8 +141,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
     const customerStates=traceCustomerIds.length?await loadCustomerStates(traceCustomerIds):{data:[],error:null};
     if(customerStates.error) console.warn("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code, message:customerStates.error.message });
-    const metricCostRows:Array<{customer_id:string|null;provider:string;amount_usd:number;amount_type:string;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
-    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,amount_usd,amount_type,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+    const metricCostRows:Array<{customer_id:string|null;provider:string;model_or_sku:string|null;operation:string|null;amount_usd:number;amount_type:string;quantity:number;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
+    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
     const queryByCustomer=new Map<string,string>();
     const stats=new Map<string,{query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number}>();
@@ -154,9 +156,18 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if(reportCandidates.error) console.error("[ai-acquisition-task] optional report candidates unavailable", { task_id:id, code:reportCandidates.error.code });
     const actualCost=actualCostUsd(metricCostRows);
     const confirmedGoogleCost=actualCostUsd(metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES"));
+    const skuTotals=new Map<string,{provider:string;model_or_sku:string;operation:string;calls:number;free_calls:number;quantity:number;amount_usd:number}>();
+    for(const row of metricCostRows){const provider=String(row.provider||"未标记");const model=String(row.model_or_sku||"未标记");const operation=String(row.operation||"未标记");const key=`${provider}\u0000${model}\u0000${operation}`;const current=skuTotals.get(key)||{provider,model_or_sku:model,operation,calls:0,free_calls:0,quantity:0,amount_usd:0};current.calls+=1;current.free_calls+=row.amount_type==="FREE"?1:0;current.quantity+=Number(row.quantity||0);current.amount_usd+=isActuallyIncurredCost(row)?Number(row.amount_usd||0):0;skuTotals.set(key,current);}
+    const localUsageSummary={total_calls:metricCostRows.length,free_calls:metricCostRows.filter((row)=>row.amount_type==="FREE").length,google_calls:metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES").length,openai_calls:metricCostRows.filter((row)=>row.provider==="OPENAI").length,sku_breakdown:[...skuTotals.values()].sort((left,right)=>right.amount_usd-left.amount_usd||right.calls-left.calls)};
+    const decisions=["ACCEPTED","REVIEW","REJECTED","DUPLICATE","ANALYZING"] as const;
+    const decisionCounts=await Promise.all(decisions.map(async(decisionName)=>{const result=await createAdminClient().from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",id).eq("decision",decisionName);if(result.error)throw result.error;return [decisionName,Number(result.count||0)] as const;}));
+    const liveDecisionCounts=Object.fromEntries(decisionCounts) as Record<(typeof decisions)[number],number>;
+    const liveDiscovered=Object.values(liveDecisionCounts).reduce((sum,count)=>sum+count,0);
+    const liveTerminal=liveDecisionCounts.ACCEPTED+liveDecisionCounts.REVIEW+liveDecisionCounts.REJECTED+liveDecisionCounts.DUPLICATE;
+    const liveTask={...task,discovered_count:liveDiscovered,processed_count:liveTerminal,accepted_count:liveDecisionCounts.ACCEPTED,review_count:liveDecisionCounts.REVIEW,rejected_count:liveDecisionCounts.REJECTED,duplicate_count:liveDecisionCounts.DUPLICATE};
     const reusedCandidates=(traceRows.data||[]).filter((row)=>String(row.decision_reason||"").startsWith("复用近14天历史核验结论")).length;
     const noNewSearchUnits=totalCheckpoints>0&&completedFreshSearches===0&&completedSearches===totalCheckpoints&&incrementalSkipped+concurrentlySkipped+reusedSearches>=totalCheckpoints;
-    return NextResponse.json({ task: presentTask({...task,processed_count:liveProcessed}), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), usage_summary:{...usageData,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,...(!lightweight?{total_tokens:totalTokens}:{})}, discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    return NextResponse.json({ task: presentTask({...liveTask,processed_count:Math.max(liveProcessed,liveTerminal)}), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},usage_summary:{...usageData,...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"
@@ -187,12 +198,15 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (result.error) throw result.error;
     } else if (action === "RESUME") {
       if (task.status !== "PAUSED") return NextResponse.json({ error: "只有已暂停任务可以恢复" }, { status: 409 });
+      const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
+      if (child.error) throw child.error;
+      if (child.data) await requeueCorrectedEarlyRejections(task, String(child.data.id));
       const now = new Date();
       const pauseStarted = task.pause_started_at ? new Date(task.pause_started_at).getTime() : now.getTime();
       const pausedDuration = Number(task.paused_duration_ms || 0) + Math.max(0, now.getTime() - pauseStarted);
       const result = await admin.from("ai_acquisition_tasks").update({ status: "RUNNING", started_at: now.toISOString(), pause_started_at: null, paused_duration_ms: pausedDuration, executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", id).eq("status", "PAUSED");
       if (result.error) throw result.error;
-      await admin.from("ai_screening_tasks").update({ status: "RUNNING", updated_at: now.toISOString() }).eq("request_key", `acquisition:${id}`).in("status", ["PAUSING","PAUSED"]);
+      await admin.from("ai_screening_tasks").update({ status: "RUNNING", updated_at: now.toISOString() }).eq("request_key", `acquisition:${id}`).in("status", ["QUEUED","PAUSING","PAUSED"]);
     } else if (action === "RETRY") {
       if (task.status !== "FAILED") return NextResponse.json({ error: "只有失败任务可以重试" }, { status: 409 });
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();

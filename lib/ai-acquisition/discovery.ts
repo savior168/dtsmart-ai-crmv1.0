@@ -210,3 +210,9 @@ export async function discoverBusinesses(input: {
   const shouldContinue=stepScopeLimit>0&&freshSearchScopes>=stepScopeLimit&&remainingScopeAllowance>freshSearchScopes&&results.size<input.limit;
   return { businesses:[...results.values()].slice(0, input.limit), control:shouldContinue?"CONTINUE" as const:null };
 }
+
+export function plannedDiscoveryScopeCount(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+  const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(country) || country;
+  const terms = localizedSearchTerms(country, industries, keywords);
+  return Math.min(ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, discoveryQueries(country, countryName, terms).length);
+}

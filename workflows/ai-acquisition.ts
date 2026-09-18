@@ -46,6 +46,31 @@ async function createScreeningTask(task: AcquisitionTask) {
   return String(inserted.data.id);
 }
 
+async function updateAcquisitionTaskTotals(admin: ReturnType<typeof createAdminClient>, taskId: string) {
+  const count = async (decision?: string) => {
+    let query = admin.from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", taskId);
+    if (decision) query = query.eq("decision", decision);
+    const result = await query;
+    if (result.error) throw result.error;
+    return Number(result.count || 0);
+  };
+  const [discovered, accepted, review, rejected, duplicate, analyzing] = await Promise.all([
+    count(), count("ACCEPTED"), count("REVIEW"), count("REJECTED"), count("DUPLICATE"), count("ANALYZING"),
+  ]);
+  const processed = accepted + review + rejected + duplicate;
+  const saved = await admin.from("ai_acquisition_tasks").update({
+    discovered_count: discovered,
+    processed_count: Math.min(discovered, processed),
+    accepted_count: accepted,
+    review_count: review,
+    rejected_count: rejected,
+    duplicate_count: duplicate,
+    updated_at: new Date().toISOString(),
+  }).eq("id", taskId);
+  if (saved.error) throw saved.error;
+  return { discovered, processed, analyzing };
+}
+
 async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
@@ -76,7 +101,6 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   const stageUpdate=await admin.from("ai_acquisition_tasks").update({current_stage:"DEDUPLICATING",current_stage_detail:"正在保存候选、系统去重并执行非目标早停",executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",task.id).eq("status","RUNNING");
   if(stageUpdate.error)throw stageUpdate.error;
   const discovered = [...unique.values()];
-  const historyCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const lookupBatchSize = 100;
   for (let offset = 0; offset < discovered.length; offset += lookupBatchSize) {
     const batch = discovered.slice(offset, offset + lookupBatchSize);
@@ -88,33 +112,21 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
       const heartbeat=await admin.from("ai_acquisition_tasks").update({executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",task.id).eq("status","RUNNING");
       if(heartbeat.error)throw heartbeat.error;
     }
-    const [currentCandidates, existingCustomers, recentCandidates] = await Promise.all([
+    const [currentCandidates, existingCustomers] = await Promise.all([
       admin.from("ai_acquisition_candidates").select("place_id").eq("task_id", task.id).in("place_id", placeIds),
       admin.from("customers").select("id,google_maps_place_id,pool_status").in("google_maps_place_id", placeIds).is("deleted_at", null),
-      admin.from("ai_acquisition_candidates").select("id,task_id,decision,decision_reason,place_id,created_at,screening_task_id,screening_task_item_id,staging_customer_id,imported_customer_id,ai_score,ai_level,is_target_customer,has_actionable_contact,evidence_complete").in("place_id", placeIds).neq("task_id", task.id).gte("created_at", historyCutoff).order("created_at", { ascending: false }),
     ]);
-    if (currentCandidates.error || existingCustomers.error || recentCandidates.error) throw currentCandidates.error || existingCustomers.error || recentCandidates.error;
+    if (currentCandidates.error || existingCustomers.error) throw currentCandidates.error || existingCustomers.error;
     const already = new Set((currentCandidates.data || []).map((row) => String(row.place_id)));
     const customerByPlace = new Map((existingCustomers.data || []).filter((row)=>String(row.pool_status||"")!=="AI_STAGING").map((row) => [String(row.google_maps_place_id), String(row.id)]));
     const stagingCustomerByPlace = new Map((existingCustomers.data || []).filter((row)=>String(row.pool_status||"")==="AI_STAGING").map((row) => [String(row.google_maps_place_id), String(row.id)]));
-    type PreviousCandidate = {id:string;task_id:string;decision:string;decision_reason:string|null;screening_task_id:string|null;screening_task_item_id:string|null;staging_customer_id:string|null;imported_customer_id:string|null;ai_score:number|null;ai_level:string|null;is_target_customer:boolean|null;has_actionable_contact:boolean|null;evidence_complete:boolean|null};
-    const recentByPlace = new Map<string, PreviousCandidate>();
-    for (const row of recentCandidates.data || []) {
-      const placeId = String(row.place_id || "");
-      if (placeId && !recentByPlace.has(placeId)) recentByPlace.set(placeId, { id:String(row.id), task_id:String(row.task_id), decision:String(row.decision), decision_reason:row.decision_reason, screening_task_id:row.screening_task_id, screening_task_item_id:row.screening_task_item_id, staging_customer_id:row.staging_customer_id, imported_customer_id:row.imported_customer_id, ai_score:row.ai_score, ai_level:row.ai_level, is_target_customer:row.is_target_customer, has_actionable_contact:row.has_actionable_contact, evidence_complete:row.evidence_complete });
-    }
     const terminalRows: Array<Record<string, unknown>> = [];
     const candidatesToAnalyze: DiscoveredBusiness[] = [];
     for (const candidate of batch) {
       if (already.has(candidate.placeId)) continue;
       const baseRow = { task_id: task.id, place_id: candidate.placeId, company_name: candidate.companyName, country: candidate.country, address: candidate.address, google_url: candidate.googleUrl, source_query: candidate.query, matched_keywords: candidate.matchedTerms };
       const existingCustomerId = customerByPlace.get(candidate.placeId);
-      const previous = recentByPlace.get(candidate.placeId);
       if (existingCustomerId) terminalRows.push({ ...baseRow, source_snapshot: candidate, decision:"DUPLICATE", decision_reason:"Google Place ID已存在于系统客户资料", imported_customer_id:existingCustomerId, is_target_customer:false, has_actionable_contact:false, evidence_complete:false, processed_at:new Date().toISOString() });
-      else if (previous && ["ACCEPTED","DUPLICATE","REJECTED","REVIEW"].includes(previous.decision)) {
-        const reusedDecision = previous.decision === "REJECTED" ? "REJECTED" : previous.decision === "REVIEW" ? "REVIEW" : "DUPLICATE";
-        terminalRows.push({ ...baseRow, source_snapshot:{ ...candidate, previous_candidate_id:previous.id, previous_task_id:previous.task_id, previous_decision:previous.decision }, decision:reusedDecision, decision_reason:`复用近14天历史核验结论：${previous.decision_reason||previous.decision}`, screening_task_id:previous.screening_task_id, screening_task_item_id:previous.screening_task_item_id, staging_customer_id:previous.staging_customer_id, imported_customer_id:reusedDecision==="DUPLICATE"?previous.imported_customer_id:null, ai_score:previous.ai_score, ai_level:previous.ai_level, is_target_customer:Boolean(previous.is_target_customer), has_actionable_contact:Boolean(previous.has_actionable_contact), evidence_complete:Boolean(previous.evidence_complete), processed_at:new Date().toISOString() });
-      }
       else if (candidate.businessStatus === "CLOSED_PERMANENTLY") terminalRows.push({ ...baseRow, source_snapshot:candidate, decision:"REJECTED", decision_reason:"Google 商家明确标记永久停业，已在补证前停止", is_target_customer:false, has_actionable_contact:false, evidence_complete:false, processed_at:new Date().toISOString() });
       else if (!discoveryCandidateLooksRelevant(candidate, industries, task.keywords)) terminalRows.push({ ...baseRow, source_snapshot:candidate, decision:"REJECTED", decision_reason:"公开商家基础类别与目标行业缺少直接相关信号，已在补证前停止", is_target_customer:false, has_actionable_contact:false, evidence_complete:false, processed_at:new Date().toISOString() });
       else candidatesToAnalyze.push(candidate);
@@ -167,21 +179,12 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
       }));
     }
   }
-  const [allCount,analyzingCount]=await Promise.all([
-    admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",task.id),
-    admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",task.id).eq("decision","ANALYZING"),
-  ]);
-  if(allCount.error||analyzingCount.error)throw allCount.error||analyzingCount.error;
-  const analyzing=Number(analyzingCount.count||0);
-  const discoveredTotal=Number(allCount.count||0);
-  const terminalProcessed=discoveredTotal-analyzing;
   // The consumer may already be processing earlier candidates. Recalculate
   // progress from task-item truth instead of overwriting its live counters.
   const updatedScreening = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: screeningTaskId });
   if (updatedScreening.error) throw updatedScreening.error;
-  const updatedTask = await admin.from("ai_acquisition_tasks").update({ discovered_count:discoveredTotal, processed_count:terminalProcessed, updated_at: new Date().toISOString() }).eq("id", task.id);
-  if (updatedTask.error) throw updatedTask.error;
-  return { analyzing, control: discoveryControl };
+  const totals = await updateAcquisitionTaskTotals(admin, task.id);
+  return { analyzing: totals.analyzing, control: discoveryControl };
 }
 
 async function completeEmptyScreeningTask(screeningTaskId:string) {
@@ -349,6 +352,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const saved = await admin.from("ai_acquisition_candidates").update({ decision, decision_reason: reason, imported_customer_id: decision === "ACCEPTED" ? customerId : null, ai_score: result?.score || null, ai_level: result?.grade || null, is_target_customer: result?.target_decision === "VALID" && industryMatchesTask, has_actionable_contact: verifiedContacts.length > 0, evidence_complete: evidenceComplete, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", candidate.id);
       if (saved.error) throw saved.error;
     }
+  await updateAcquisitionTaskTotals(admin, task.id);
   return true;
 }
 
