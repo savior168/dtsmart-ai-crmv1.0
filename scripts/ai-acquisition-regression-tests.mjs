@@ -128,6 +128,11 @@ assert.match(create,/addRecommendedIndustries[\s\S]*为你推荐（近期偏好�
 assert.match(acquisitionConfig,/INDUSTRY_KEYWORD_RECOMMENDATIONS[\s\S]*ROLE_KEYWORD_RECOMMENDATIONS[\s\S]*acquisitionKeywordRecommendations/,"关键词推荐必须同时支持常用行业和任意行业角色语义");
 assert.match(acquisitionConfig,/ACQUISITION_COMMON_INDUSTRIES[\s\S]*汽车配件批发商[\s\S]*机械设备经销商[\s\S]*服装批发商[\s\S]*医疗器械经销商[\s\S]*酒店用品供应商[\s\S]*软件服务公司/,"未形成个人偏好前的行业推荐必须覆盖多行业，不得固化成单一垂直行业");
 assert.match(acquisitionConfig,/ACQUISITION_INDUSTRY_GROUPS[\s\S]*aliases:[\s\S]*industries:[\s\S]*categoryMatches[\s\S]*similarityMatches/,"行业推荐必须同时支持大类到兼容细分行业的分类关系和文本相似度");
+assert.match(acquisitionConfig,/aliases: \["手机", "手机维修"[\s\S]*手机维修配件经销商[\s\S]*手机屏幕批发商[\s\S]*手机电池批发商[\s\S]*手机主板配件经销商[\s\S]*手机维修工具供应商/,"手机维修业务域必须覆盖维修、连锁、维修配件批发经销和核心内配件细分行业");
+assert.match(acquisitionConfig,/aliases: \["手机", "手机维修"[\s\S]*手机维修工具供应商[\s\S]*电脑维修店[\s\S]*笔记本电脑维修店[\s\S]*电脑配件批发商[\s\S]*笔记本配件经销商/,"手机维修业务域必须保留电脑维修及电脑内配件渠道作为后序相邻推荐");
+const phoneRepairGroup=acquisitionConfig.match(/aliases: \["手机", "手机维修"[^\n]+industries: \[([^\]]+)\]/)?.[1]||"";
+assert.doesNotMatch(phoneRepairGroup,/家电维修|工业设备维修|汽车维修/,"手机维修推荐不得混入家电、工业设备或汽车维修行业");
+assert.match(acquisitionConfig,/categoryMatches\.length\?categoryMatches:similarityMatches/,"命中产品业务域后不得追加仅因维修或批发等通用角色词命中的跨行业推荐");
 assert.match(acquisitionConfig,/industryFeatures[\s\S]*acquisitionIndustrySuggestions[\s\S]*coverage[\s\S]*sort/,"输入具体行业时必须按中英文业务特征推荐最接近的标准行业");
 assert.match(create,/acquisitionIndustrySuggestions\(normalized, MAX_ACQUISITION_INDUSTRIES\)[\s\S]*confirmBestMatch[\s\S]*基于“\$\{recommendationBasis\}”继续推荐[\s\S]*添加“\{normalized\}”/,"行业确认必须采用最匹配标准行业，并在回车后持续展示相关行业和保留用户原词入口");
 assert.match(create,/recent-industries[\s\S]*recentIndustries[\s\S]*为你推荐（近期偏好优先）/,"常用行业必须按当前用户近期输入和选择习惯动态排序");

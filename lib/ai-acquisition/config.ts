@@ -78,10 +78,16 @@ export const ACQUISITION_COUNTRY_SEARCH_AREAS: Partial<Record<AcquisitionCountry
 
 export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
   "手机维修店": "mobile phone repair",
+  "手机维修服务商": "mobile phone repair service",
   "手机维修连锁店": "mobile phone repair chain",
   "Apple设备维修店": "Apple device repair service",
   "手机配件批发商": "mobile phone repair replacement parts wholesale",
   "手机内配件经销商": "mobile phone replacement parts distributor",
+  "手机维修配件经销商": "mobile phone repair parts distributor",
+  "手机屏幕批发商": "mobile phone LCD screen wholesale",
+  "手机电池批发商": "mobile phone replacement battery wholesale",
+  "手机主板配件经销商": "mobile phone motherboard parts distributor",
+  "手机维修工具供应商": "mobile phone repair tools supplier",
   "手机配件零售商": "mobile phone repair replacement parts retailer",
   "手机进口商": "mobile phone repair replacement parts importer",
   "手机翻新商": "mobile phone refurbisher",
@@ -150,6 +156,8 @@ function industryFeatures(value: string) {
 }
 
 const ACQUISITION_INDUSTRY_GROUPS = [
+  { aliases: ["手机", "手机维修", "移动电话", "智能手机", "phone repair", "mobile phone"], industries: ["手机维修店", "手机维修服务商", "手机维修连锁店", "Apple设备维修店", "手机配件批发商", "手机内配件经销商", "手机维修配件经销商", "手机屏幕批发商", "手机电池批发商", "手机主板配件经销商", "手机维修工具供应商", "电脑维修店", "笔记本电脑维修店", "电脑配件批发商", "笔记本配件经销商"] },
+  { aliases: ["电脑", "电脑维修", "笔记本", "计算机", "computer repair", "laptop repair"], industries: ["电脑维修店", "笔记本电脑维修店", "Apple设备维修店", "电脑配件批发商", "笔记本配件经销商", "电子元器件经销商", "电子设备维修服务商"] },
   { aliases: ["电子", "消费电子", "数码", "electronics"], industries: ["消费电子批发商", "电子元器件经销商", "电子设备维修服务商", "手机维修店", "手机维修连锁店", "Apple设备维修店", "手机配件批发商", "手机内配件经销商", "电脑维修店", "笔记本电脑维修店", "电脑配件批发商", "笔记本配件经销商", "家电维修服务商"] },
   { aliases: ["汽车", "汽配", "automotive", "auto parts"], industries: ["汽车配件批发商", "汽车维修服务商"] },
   { aliases: ["工业", "机械", "设备", "industrial", "machinery"], industries: ["机械设备经销商", "工业设备维修商", "五金工具经销商", "实验室设备供应商"] },
@@ -169,9 +177,9 @@ export function acquisitionIndustrySuggestions(query: string, limit = 8) {
   const normalized = query.trim().toLowerCase();
   if (normalized.length < 2) return [];
   const queryFeatures = industryFeatures(normalized);
-  const categoryMatches = ACQUISITION_INDUSTRY_GROUPS
-    .filter((group)=>group.aliases.some((alias)=>normalized.includes(alias.toLowerCase())||alias.toLowerCase().includes(normalized)))
-    .flatMap((group)=>group.industries);
+  const matchingGroups = ACQUISITION_INDUSTRY_GROUPS
+    .filter((group)=>group.aliases.some((alias)=>normalized.includes(alias.toLowerCase())||alias.toLowerCase().includes(normalized)));
+  const categoryMatches = matchingGroups.flatMap((group)=>group.industries);
   const similarityMatches = Object.entries(ACQUISITION_INDUSTRY_TERMS)
     .map(([label, searchTerm]) => {
       const candidate = `${label} ${searchTerm}`.toLowerCase();
@@ -185,15 +193,26 @@ export function acquisitionIndustrySuggestions(query: string, limit = 8) {
     .filter((item) => item.score >= 0.22)
     .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label, "zh-CN"))
     .map((item) => item.label);
-  return [...new Set([...categoryMatches,...similarityMatches])].slice(0,limit);
+  // A recognized product domain is authoritative. Do not append candidates
+  // that match only a generic role word such as "维修" or "批发"; that was
+  // the source of phone queries leaking into computer, appliance and industry
+  // repair recommendations. Text similarity remains the fallback for domains
+  // that are not yet represented in the taxonomy.
+  return [...new Set(categoryMatches.length?categoryMatches:similarityMatches)].slice(0,limit);
 }
 
 const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
   "手机维修店": ["screen repair", "battery replacement", "board repair", "phone parts"],
+  "手机维修服务商": ["mobile phone repair service", "screen replacement", "battery replacement", "board level repair"],
   "手机维修连锁店": ["multiple locations", "screen repair", "battery replacement", "repair center"],
   "Apple设备维修店": ["iPhone repair", "iPad repair", "MacBook repair", "Apple parts"],
   "手机配件批发商": ["phone LCD wholesale", "phone replacement batteries wholesale", "charging port supplier", "repair parts B2B"],
   "手机内配件经销商": ["LCD screens", "batteries", "charging ports", "replacement parts"],
+  "手机维修配件经销商": ["phone repair parts distributor", "mobile replacement parts", "phone parts B2B", "repair parts wholesale"],
+  "手机屏幕批发商": ["phone LCD wholesale", "mobile OLED screen supplier", "replacement screen distributor", "phone display B2B"],
+  "手机电池批发商": ["phone battery wholesale", "replacement battery supplier", "mobile battery distributor", "phone batteries B2B"],
+  "手机主板配件经销商": ["phone motherboard parts", "mobile board components", "IC parts distributor", "board repair parts B2B"],
+  "手机维修工具供应商": ["phone repair tools supplier", "mobile repair equipment", "microsoldering tools", "repair tools B2B"],
   "手机配件零售商": ["phone repair parts store", "phone LCD retailer", "replacement battery retailer", "charging port parts"],
   "手机进口商": ["phone repair parts importer", "phone LCD importer", "replacement battery distributor", "repair parts B2B"],
   "手机翻新商": ["device refurbishment workshop", "board repair", "screen replacement", "battery replacement"],
