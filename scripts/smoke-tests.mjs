@@ -422,6 +422,10 @@ for (const field of ["strategy", "total_tokens", "cost_usd", "analyzed_channels"
   assert.match(aiWorkflowMigration, new RegExp(field, "i"), `AI任务迁移缺少字段：${field}`);
 }
 assert.match(aiWorkflowMigration, /refresh_ai_screening_task_totals/i, "AI任务迁移缺少汇总函数");
+const fastProgressTotalsMigration = read("supabase/migrations/202609180002_ai_screening_fast_progress_totals.sql");
+assert.match(fastProgressTotalsMigration, /from public\.ai_screening_task_items[\s\S]*where task_id = p_task_id/i, "大批量AI任务汇总必须直接按任务项聚合");
+assert.match(fastProgressTotalsMigration, /status = 'COMPLETED'[\s\S]*writeback_status in \('COMPLETED', 'WARNING'\)/i, "成功与带写回警告的终态任务项都必须计为已完成");
+assert.doesNotMatch(fastProgressTotalsMigration, /left join lateral/i, "大批量AI任务汇总不得为每个任务项重复执行结果子查询");
 
 const traceMigration = read("supabase/migrations/202608210001_ai_screening_trace_and_checkpoint.sql");
 for (const field of ["channel_checkpoint", "last_completed_channel", "score_breakdown", "manual_review_status", "ai_screening_model_calls", "request_key"]) {
