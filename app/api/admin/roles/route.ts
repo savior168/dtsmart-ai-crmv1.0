@@ -43,26 +43,30 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "请先开启所属页面权限，再开启数据范围或功能按钮" }, { status: 409 });
       }
     }
-    const { error } = await admin.from("role_permission_settings").upsert({ role_code: role, permission_code: permission, enabled, updated_by: user.id, updated_at: new Date().toISOString() });
+    const isPagePermission = pagePermission === permission;
+    const pageChildren = isPagePermission
+      ? PERMISSION_CATALOG.filter((item) => item.code !== permission && permissionPageCode(item.code) === permission && !item.core)
+      : [];
+    const roleCannotUseCrossUserData = ["SALES", "WAREHOUSE"].includes(role);
+    const now = new Date().toISOString();
+    // A page switch represents the complete usable module. Persist the page
+    // and every configurable child in one statement so the UI, stored role
+    // defaults and backend authorization can never end up half-enabled.
+    const changes = [
+      { permission_code: permission, enabled },
+      ...pageChildren.map((item) => ({
+        permission_code: item.code,
+        enabled: enabled && !(roleCannotUseCrossUserData && item.kind === "DATA"),
+      })),
+    ];
+    const { error } = await admin.from("role_permission_settings").upsert(
+      changes.map((change) => ({ role_code: role, ...change, updated_by: user.id, updated_at: now })),
+      { onConflict: "role_code,permission_code" },
+    );
     if (error) throw error;
-    // A hidden page must not retain enabled child permissions in storage. This
-    // makes the switch state, the effective authorization and the audit trail
-    // agree instead of merely dimming an apparently-on child switch in the UI.
-    if (!enabled && permissionPageCode(permission) === permission) {
-      const childCodes = PERMISSION_CATALOG
-        .filter((item) => item.code !== permission && permissionPageCode(item.code) === permission && !item.core)
-        .map((item) => item.code);
-      if (childCodes.length) {
-        const { error: childrenError } = await admin.from("role_permission_settings").upsert(
-          childCodes.map((permission_code) => ({ role_code: role, permission_code, enabled: false, updated_by: user.id, updated_at: new Date().toISOString() })),
-          { onConflict: "role_code,permission_code" },
-        );
-        if (childrenError) throw childrenError;
-      }
-    }
     clearPermissionCache(role as "SUPERVISOR" | "SALES" | "WAREHOUSE");
     await admin.from("audit_logs").insert({ user_id: user.id, action: "ADMIN_ROLE_PERMISSION_UPDATE", target_type: "role", target_id: null, content: { role, permission, enabled } });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, changes });
   } catch (error) {
     const message = error instanceof Error ? error.message : "权限保存失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
