@@ -26,6 +26,7 @@ import {
 import { AI_CHANNEL_LABELS, AI_CHANNEL_ORDER, type AiChannel, type AiStrategy } from "./task-types";
 import { AI_FIELD_MAPPING_VERSION, mapCustomerForAi, type AiMappedCustomer } from "./semantic-fields";
 import { AI_RULE_VERSION, findReusableAnalysis, saveReusableAnalysis } from "./reuse-cache";
+import { applyTrustedAcquisitionGoogleSnapshot } from "./acquisition-google-snapshot";
 import {
   compatibilityTargetDecision,
   evaluateEvidenceGate,
@@ -1996,13 +1997,16 @@ async function collectChannel(customer: CustomerRow, channel: AiChannel, signal:
   if (channel !== "google_maps" && !url) return { channel, status: "SKIPPED", source_url: null, error: "客户档案没有该渠道网址" };
   if (channel === "google_maps" && !customer.google_url && !customer.company_name) return { channel, status: "SKIPPED", error: "客户档案没有Google商家信息" };
   try {
-    const evidence = channel === "website"
+    let evidence = channel === "website"
       ? await collectDeepWebsiteEvidence(url, { signal, timeoutMs: 5000 })
       : channel === "google_maps"
         ? await collectGooglePlaceEvidence({ company_name: customer.company_name, country: customer.country, address: customer.address, google_url: customer.google_url, phone: customer.phone, website: effectiveWebsite(customer), place_id: customer.google_place_id, category_hint: customer.category, industry_hint: customer.industry }, { signal, timeoutMs: 12_000,
           onBeforeApiCall: async(call)=>{if(costContext)await assertExecutionLease(costContext.taskItemId,costContext.executionLease);const reservation=await reserveApiCostBudget("GOOGLE_PLACES",call.unitPriceUsd,{userId:costContext?.userId,customerId:costContext?.customerId||customer.id,taskId:costContext?.taskId,operation:call.operation});return {allowed:reservation.allowed,reservationId:reservation.reservationId}},
           onApiCall: async(call)=>{const admin=createAdminClient();const likelyBillable=call.status>=200&&call.status<300;const amount=likelyBillable?call.unitPriceUsd:0;const written=await admin.from("api_cost_ledger").insert({user_id:costContext?.userId||null,customer_id:costContext?.customerId||customer.id,task_id:costContext?.taskId||null,provider:call.provider,service:"AI筛选",operation:call.operation,model_or_sku:call.sku,request_id:call.requestId||randomUUID(),quantity:1,unit:"REQUEST",amount_usd:amount,amount_type:call.unitPriceUsd===0&&likelyBillable?"FREE":"ESTIMATED",pricing_snapshot:{unit_price_usd:call.unitPriceUsd,pricing_source:call.priceSource,billable_assumption:likelyBillable,pricing_configured:call.priceSource==="ENV"},metadata:{http_status:call.status},occurred_at:new Date().toISOString()});if(written.error)throw written.error;await releaseApiCostBudget(call.reservationId)} })
         : await collectPublicPageEvidence(url, { signal, timeoutMs: 3500 });
+    if (channel === "google_maps") {
+      evidence = applyTrustedAcquisitionGoogleSnapshot(customer, evidence as GooglePlaceEvidence | undefined);
+    }
     if (!evidence) return { channel, status: "SKIPPED", source_url: url, error: "没有可读取的公开入口" };
     const failed = "reachable" in evidence ? !evidence.reachable : Boolean(evidence.error && !evidence.name);
     const resolvedSourceUrl = channel === "website" && "url" in evidence && evidence.url

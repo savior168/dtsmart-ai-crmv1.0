@@ -39,13 +39,14 @@ type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted"
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; processed:number; openaiCost:number; googleActualCost:number; googleCalls:number; freeCalls:number };
 type GoogleSkuUsage = { key:string; label:string; usageCount:number; acquisitionSystemUsage:number; acquisitionSystemCostUsd:number; screeningSystemUsage:number; screeningSystemCostUsd:number; pendingSystemUsage:number; projectedUsage:number; freeLimit:number|null; projectedRemaining:number|null; projectedOverageCalls:number; projectedOverageCostUsd:number };
 type GoogleBilling = { state:"NOT_CONFIGURED"|"CONNECTED"|"NO_DATA"|"ERROR"; message:string; skuUsage?:GoogleSkuUsage[] };
-type AcquisitionAction = "PAUSE" | "RESUME" | "CANCEL" | "RETRY";
+type AcquisitionAction = "PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "RECHECK_EVIDENCE_GAPS";
 
 const actionCopy:Record<AcquisitionAction,{title:string;description:string;confirm:string}> = {
   PAUSE:{title:"暂停AI获客任务？",description:"系统将在当前安全节点停止新的调用并保存执行进度；恢复后从检查点继续，不重复已完成的检索与核验。",confirm:"确认暂停"},
   RESUME:{title:"恢复AI获客任务？",description:"任务将从上次保存的检查点继续，仅执行未完成步骤，不重复采集已处理客户。",confirm:"确认恢复"},
   CANCEL:{title:"取消AI获客任务？",description:"任务将停止后续采集和核验；已产生的客户、公开来源、执行记录与费用台账会继续保留。",confirm:"确认取消"},
   RETRY:{title:"从检查点重试任务？",description:"只恢复失败或中断的步骤，保留已处理候选和原始发现依据，避免重复调用与重复入池。",confirm:"确认重试"},
+  RECHECK_EVIDENCE_GAPS:{title:"重新校验证据缺口？",description:"只重新核验因Google详情预算降级而缺少主体锚点的候选；不重复搜索，不改动已正确入池、重复或人工复核结果。",confirm:"开始重新校验"},
 };
 
 function taskControl(status:string) {
@@ -168,7 +169,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       const response=await fetch(`/api/ai-acquisition/tasks/${pendingAction.task.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:pendingAction.action})});
       const body=await response.json().catch(()=>({}));
       if(!response.ok)throw new Error(body.error||"任务操作失败");
-      toast({PAUSE:"任务正在安全暂停",RESUME:"任务已从检查点恢复",CANCEL:"任务已取消，历史结果与费用已保留",RETRY:"任务已从检查点重新排队"}[pendingAction.action]);
+      toast({PAUSE:"任务正在安全暂停",RESUME:"任务已从检查点恢复",CANCEL:"任务已取消，历史结果与费用已保留",RETRY:"任务已从检查点重新排队",RECHECK_EVIDENCE_GAPS:"证据缺口已重新进入核验，不会重复搜索"}[pendingAction.action]);
       setPendingAction(null);
       await load();
     }catch(actionError){
@@ -363,7 +364,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">
                       <Link className="inline-flex h-8 items-center rounded-md border border-slate-200 px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" href={`/ai-acquisition/tasks/${t.id}`}>查看详情</Link>
                       {t.status==="COMPLETED"||(canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status))?<RowActionMenu ariaLabel={`${t.name}操作菜单`}>
-                        {t.status==="COMPLETED"?<RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}/report`)}>查看任务报告</RowActionItem>:null}
+                        {t.status==="COMPLETED"?<><RowActionItem onClick={()=>router.push(`/ai-acquisition/tasks/${t.id}/report`)}>查看任务报告</RowActionItem>{canControl&&t.can_control?<RowActionItem onClick={()=>setPendingAction({task:t,action:"RECHECK_EVIDENCE_GAPS"})}>校验证据缺口</RowActionItem>:null}</>:null}
                       {canControl&&t.can_control&&["QUEUED","RUNNING","PAUSING","PAUSED","FAILED"].includes(t.status)?<>
                         {taskControl(t.status)?<RowActionItem tone={taskControl(t.status)!.tone} onClick={()=>setPendingAction({task:t,action:taskControl(t.status)!.action})}>{taskControl(t.status)!.label}</RowActionItem>:null}
                         {["QUEUED","RUNNING","PAUSING","PAUSED"].includes(t.status)?<RowActionItem tone="danger" onClick={()=>setPendingAction({task:t,action:"CANCEL"})}>取消任务</RowActionItem>:null}

@@ -6,7 +6,7 @@ import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { plannedDiscoveryScopeCount } from "@/lib/ai-acquisition/discovery";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
-import { requeueCorrectedEarlyRejections } from "@/lib/ai-acquisition/requeue";
+import { requeueAcquisitionEvidenceGaps, requeueCorrectedEarlyRejections } from "@/lib/ai-acquisition/requeue";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -207,6 +207,23 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const result = await admin.from("ai_acquisition_tasks").update({ status: "RUNNING", started_at: now.toISOString(), pause_started_at: null, paused_duration_ms: pausedDuration, executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", id).eq("status", "PAUSED");
       if (result.error) throw result.error;
       await admin.from("ai_screening_tasks").update({ status: "RUNNING", updated_at: now.toISOString() }).eq("request_key", `acquisition:${id}`).in("status", ["QUEUED","PAUSING","PAUSED"]);
+    } else if (action === "RECHECK_EVIDENCE_GAPS") {
+      if (task.status !== "COMPLETED") return NextResponse.json({ error: "只有已完成任务可以重新校验证据缺口" }, { status: 409 });
+      const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
+      if (child.error) throw child.error;
+      if (!child.data) return NextResponse.json({ error: "该任务没有可恢复的核验记录" }, { status: 409 });
+      const recovery = await requeueAcquisitionEvidenceGaps(task, String(child.data.id));
+      if (!recovery.requeued) return NextResponse.json({ error: "没有发现需要重新校验的证据缺口" }, { status: 409 });
+      const now = new Date().toISOString();
+      const resetChild = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, error_message: null, completed_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now }).eq("id", child.data.id);
+      if (resetChild.error) throw resetChild.error;
+      const resetTask = await admin.from("ai_acquisition_tasks").update({ status: "QUEUED", current_stage: "VERIFYING", current_stage_detail: `正在重新校验 ${recovery.requeued} 条受Google详情预算降级影响的候选`, cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now }).eq("id", id).eq("status", "COMPLETED");
+      if (resetTask.error) throw resetTask.error;
+      const run = await start(aiAcquisitionWorkflow, [id]);
+      const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
+      if (saved.error) throw saved.error;
+      await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_EVIDENCE_GAPS_REQUEUED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, ...recovery } });
+      return NextResponse.json({ ok: true, recovery });
     } else if (action === "RETRY") {
       if (task.status !== "FAILED") return NextResponse.json({ error: "只有失败任务可以重试" }, { status: 409 });
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();

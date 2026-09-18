@@ -146,3 +146,73 @@ export async function requeueCorrectedEarlyRejections(task: RequeueTask, screeni
   if (refreshed.error) throw refreshed.error;
   return { inspected: rows.length, eligible: eligible.length, requeued };
 }
+
+/** Re-run only candidates whose old decision was caused by losing the trusted
+ * Google discovery identity before classification. Existing accepted, review,
+ * duplicate and model-reviewed results are left untouched. */
+export async function requeueAcquisitionEvidenceGaps(task: RequeueTask, screeningTaskId: string) {
+  const admin = createAdminClient();
+  const candidates: Array<{id:string;screening_task_item_id:string;staging_customer_id:string}> = [];
+  for (let offset = 0; ; offset += 1000) {
+    const page = await admin.from("ai_acquisition_candidates")
+      .select("id,screening_task_item_id,staging_customer_id")
+      .eq("task_id", task.id).eq("screening_task_id", screeningTaskId).eq("decision", "REJECTED")
+      .not("screening_task_item_id", "is", null).not("staging_customer_id", "is", null)
+      .range(offset, offset + 999);
+    if (page.error) throw page.error;
+    candidates.push(...((page.data || []) as typeof candidates));
+    if ((page.data || []).length < 1000) break;
+  }
+  if (!candidates.length) return { inspected: 0, eligible: 0, requeued: 0 };
+  const itemIds = [...new Set(candidates.map((row) => String(row.screening_task_item_id)))];
+  const latestResults: Array<{task_item_id:string;target_decision:string|null;identity_status:string|null}> = [];
+  const modelCallItemIds = new Set<string>();
+  for (let offset = 0; offset < itemIds.length; offset += 100) {
+    const ids = itemIds.slice(offset, offset + 100);
+    const [results, modelCalls] = await Promise.all([
+      admin.from("ai_screening_results").select("task_item_id,target_decision,identity_status").in("task_item_id", ids).eq("is_latest_valid", true),
+      admin.from("ai_screening_model_calls").select("task_item_id").in("task_item_id", ids),
+    ]);
+    if (results.error || modelCalls.error) throw results.error || modelCalls.error;
+    latestResults.push(...((results.data || []) as typeof latestResults));
+    for (const row of modelCalls.data || []) modelCallItemIds.add(String(row.task_item_id));
+  }
+  const eligibleItemIds = latestResults.filter((row) => row.target_decision === "INVALID"
+    && ["AMBIGUOUS", "NOT_FOUND"].includes(String(row.identity_status || ""))
+    && !modelCallItemIds.has(String(row.task_item_id))).map((row) => String(row.task_item_id));
+  if (!eligibleItemIds.length) return { inspected: candidates.length, eligible: 0, requeued: 0 };
+  const eligibleItemSet = new Set(eligibleItemIds);
+  const eligibleCandidates = candidates.filter((row) => eligibleItemSet.has(String(row.screening_task_item_id)));
+  const customerIds = [...new Set(eligibleCandidates.map((row) => String(row.staging_customer_id)))];
+  const now = new Date().toISOString();
+  for (let offset = 0; offset < eligibleItemIds.length; offset += 100) {
+    const ids = eligibleItemIds.slice(offset, offset + 100);
+    const invalidated = await admin.from("ai_screening_results").update({ is_latest_valid: false }).in("task_item_id", ids).eq("is_latest_valid", true);
+    if (invalidated.error) throw invalidated.error;
+    const resetItems = await admin.from("ai_screening_task_items").update({
+      status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null,
+      result_id: null, progress: 0, current_step: "WAITING", channel_checkpoint: {}, checkpoint: {},
+      last_completed_channel: null, last_checkpoint_at: null, analyzed_channels: [], skipped_channels: [],
+      error_message: null, error_code: null, completed_at: null, lease_owner: null, lease_token: null,
+      lease_expires_at: null, updated_at: now,
+    }).in("id", ids).eq("task_id", screeningTaskId);
+    if (resetItems.error) throw resetItems.error;
+  }
+  for (let offset = 0; offset < customerIds.length; offset += 100) {
+    const restored = await admin.from("customers").update({ deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: now })
+      .in("id", customerIds.slice(offset, offset + 100)).eq("source", "AI_ACQUISITION_STAGING");
+    if (restored.error) throw restored.error;
+  }
+  for (let offset = 0; offset < eligibleCandidates.length; offset += 100) {
+    const ids = eligibleCandidates.slice(offset, offset + 100).map((row) => row.id);
+    const resetCandidates = await admin.from("ai_acquisition_candidates").update({
+      decision: "ANALYZING", decision_reason: "Google详情预算降级修复后重新执行主体、行业、证据与联系方式核验",
+      imported_customer_id: null, ai_score: null, ai_level: null, is_target_customer: false,
+      has_actionable_contact: false, evidence_complete: false, processed_at: null, updated_at: now,
+    }).in("id", ids).eq("task_id", task.id).eq("decision", "REJECTED");
+    if (resetCandidates.error) throw resetCandidates.error;
+  }
+  const refreshed = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: screeningTaskId });
+  if (refreshed.error) throw refreshed.error;
+  return { inspected: candidates.length, eligible: eligibleItemIds.length, requeued: eligibleItemIds.length };
+}

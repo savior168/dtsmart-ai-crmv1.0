@@ -234,6 +234,8 @@ assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweigh
 assert.match(detailRoute,/liveDecisionCounts[\s\S]*liveTerminal[\s\S]*rejected_count:liveDecisionCounts\.REJECTED[\s\S]*duplicate_count:liveDecisionCounts\.DUPLICATE/,"暂停中的任务详情也必须按候选真实状态展示拒绝和重复计数");
 assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*status: "RUNNING"/,"恢复旧任务前必须先用修复后的早筛规则重新排队误拒候选");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
+assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
+assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
 assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null \}[\s\S]*verificationTotal[\s\S]*earlyProcessed[\s\S]*liveProcessed[\s\S]*verification_progress:verificationProgress/,"实时轮询必须跳过客户明细并按早停加深度核验返回真实轻量进度");
 assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_count[\s\S]*noNewSearchUnits/,"任务详情必须使用数据库端聚合的完整检索进度和真实无新增判断");
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
@@ -342,6 +344,13 @@ assert.match(taskNumber,/createHash\("sha256"\)[\s\S]*slice\(0,16\)[\s\S]*`AI-HK
 assert.match(taskNumber,/AI-SX-[\s\S]*AI-HK-/,'AI筛选与AI获客编号必须采用相同长度的模块前缀、16位唯一码和14位时间戳结构');
 assert.match(acquisitionWorkflow,/createScreeningTaskNumber\("ACQUISITION"\)/,'AI获客内部核验任务也必须遵循AI-SX任务编号规则');
 assert.match(fs.readFileSync(new URL("../lib/ai/run-customer-analysis.ts",import.meta.url),"utf8"),/acquisitionCandidate[\s\S]*customer\.google_place_id[\s\S]*collectChannel\(customer, "google_maps"[\s\S]*progress: 100/,"AI获客候选已有精确Place ID时必须优先补齐Google详情，且完成项进度必须写满100%");
+const {applyTrustedAcquisitionGoogleSnapshot}=await import("../lib/ai/acquisition-google-snapshot.ts");
+const acquisitionSnapshotCustomer={source:"AI_ACQUISITION_STAGING",source_channel:"GOOGLE_MAPS",google_place_id:"place-1",company_name:"Leeds Laptop Repairs",google_url:"https://www.google.com/maps/place/example",address:"1 Test Street, Leeds",category:"computer_repair_service | electronics_store"};
+const snapshotFallback=applyTrustedAcquisitionGoogleSnapshot(acquisitionSnapshotCustomer,{configured:true,types:[],reviews:[],identity_status:"NOT_FOUND",identity_confidence:0,error:"GOOGLE_PLACES_COST_BUDGET_EXCEEDED"});
+assert.equal(snapshotFallback?.identity_status,"MATCHED","同一获客任务的Google搜索快照必须在详情预算耗尽时继续提供可信主体锚点");
+assert.equal(snapshotFallback?.place_id,"place-1","快照降级必须保留真实Place ID");
+assert.deepEqual(snapshotFallback?.types,["computer_repair_service","electronics_store"],"快照降级必须恢复搜索阶段的真实Google类型");
+assert.equal(applyTrustedAcquisitionGoogleSnapshot({...acquisitionSnapshotCustomer,source:"IMPORT"},{configured:true,types:[],reviews:[],identity_status:"NOT_FOUND"})?.identity_status,"NOT_FOUND","导入或手工客户不得用存量Place ID自证主体");
 assert.match(discovery,/TASK_SAFETY_CEILING[\s\S]*PROVIDER_PAGE_LIMIT[\s\S]*PROVIDER_EXHAUSTED/,"搜索检查点必须记录真实停止原因，不能把平台分页上限误报为已穷尽市场");
 assert.match(fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/route.ts",import.meta.url),"utf8"),/createAcquisitionTaskNumber\(user\.id, requestKey, costMode\)/,'AI获客创建必须使用业务化且幂等的任务编号');
 assert.doesNotMatch(taskCenter,/查看用量与费用明细/,"成本总览不得重复提供顶部已有的统一用量入口");
