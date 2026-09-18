@@ -168,6 +168,22 @@ async function hasPendingItems(taskId: string) {
   return Number(count || 0) > 0;
 }
 
+async function acquisitionProducerMayAddItems(taskId: string) {
+  "use step";
+  const admin = createAdminClient();
+  const screening = await withTransientFetchRetry(() => admin.from("ai_screening_tasks").select("filters").eq("id", taskId).single());
+  if (screening.error || !screening.data) throw screening.error || new Error("TASK_NOT_FOUND");
+  const filters = screening.data.filters && typeof screening.data.filters === "object"
+    ? screening.data.filters as Record<string, unknown>
+    : {};
+  const acquisitionTaskId = String(filters.acquisition_task_id || "");
+  if (!acquisitionTaskId) return false;
+  const acquisition = await withTransientFetchRetry(() => admin.from("ai_acquisition_tasks").select("status,current_stage").eq("id", acquisitionTaskId).single());
+  if (acquisition.error || !acquisition.data) throw acquisition.error || new Error("ACQUISITION_TASK_NOT_FOUND");
+  return ["DISCOVERY", "DEDUPLICATING"].includes(String(acquisition.data.current_stage || ""))
+    && !["COMPLETED", "FAILED", "CANCELLED"].includes(String(acquisition.data.status || ""));
+}
+
 async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrategy) {
   "use step";
   const admin = createAdminClient();
@@ -241,7 +257,11 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     const initial = await taskState(input.taskId);
     if (initial.status === "CANCELLED" || initial.cancelRequested) return { status: "CANCELLED" };
     await beginTask(input.taskId);
-    const concurrency = Math.min(6, Math.max(1, Number(process.env.AI_SCREENING_CONCURRENCY || 6)));
+    // Overlap the same already-approved evidence checks more efficiently. This
+    // changes throughput only: it neither creates extra candidates nor adds
+    // any provider/model call per candidate. The hard cap protects quotas.
+    const configuredConcurrency = Number(process.env.AI_SCREENING_CONCURRENCY || 10);
+    const concurrency = Math.min(12, Math.max(1, Number.isFinite(configuredConcurrency) ? Math.floor(configuredConcurrency) : 10));
     while (true) {
       let state = await taskState(input.taskId);
       if (state.status === "PAUSING") {
@@ -260,6 +280,13 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
       const batch = await nextPendingItems(input.taskId, concurrency);
       if (!batch.length) {
         if (await hasPendingItems(input.taskId)) {
+          await sleep("3s");
+          continue;
+        }
+        // Acquisition adds screening items incrementally while later search
+        // scopes are still running. Do not finish the consumer in the short
+        // gap between producer batches.
+        if (await acquisitionProducerMayAddItems(input.taskId)) {
           await sleep("3s");
           continue;
         }

@@ -175,7 +175,9 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   const analyzing=Number(analyzingCount.count||0);
   const discoveredTotal=Number(allCount.count||0);
   const terminalProcessed=discoveredTotal-analyzing;
-  const updatedScreening = await admin.from("ai_screening_tasks").update({ total_count: analyzing, pending_count: analyzing, updated_at: new Date().toISOString() }).eq("id", screeningTaskId);
+  // The consumer may already be processing earlier candidates. Recalculate
+  // progress from task-item truth instead of overwriting its live counters.
+  const updatedScreening = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: screeningTaskId });
   if (updatedScreening.error) throw updatedScreening.error;
   const updatedTask = await admin.from("ai_acquisition_tasks").update({ discovered_count:discoveredTotal, processed_count:terminalProcessed, updated_at: new Date().toISOString() }).eq("id", task.id);
   if (updatedTask.error) throw updatedTask.error;
@@ -264,11 +266,19 @@ async function acquisitionControlState(taskId: string, screeningTaskId: string) 
   return result.data.status === "PAUSED" ? "PAUSED" as const : "RUNNING" as const;
 }
 
-async function finalizeCandidateBatch(task: AcquisitionTask) {
+async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
   const batchSize = 100;
-  const candidates = await admin.from("ai_acquisition_candidates").select("*").eq("task_id", task.id).eq("decision", "ANALYZING").limit(batchSize);
+  const waitingCandidates = await admin.from("ai_acquisition_candidates").select("id,screening_task_item_id").eq("task_id", task.id).eq("decision", "ANALYZING").not("screening_task_item_id","is",null).limit(500);
+  if(waitingCandidates.error)throw waitingCandidates.error;
+  const waitingItemIds=(waitingCandidates.data||[]).map((row)=>String(row.screening_task_item_id||"")).filter(Boolean);
+  if(!waitingItemIds.length)return false;
+  const readyItems = await admin.from("ai_screening_task_items").select("id").eq("task_id", screeningTaskId).eq("status", "COMPLETED").in("id",waitingItemIds).limit(batchSize);
+  if(readyItems.error)throw readyItems.error;
+  const readyItemIds=(readyItems.data||[]).map((row)=>String(row.id));
+  if(!readyItemIds.length)return false;
+  const candidates = await admin.from("ai_acquisition_candidates").select("*").eq("task_id", task.id).eq("decision", "ANALYZING").in("screening_task_item_id",readyItemIds).limit(batchSize);
   if(candidates.error)throw candidates.error;
   const batch=candidates.data||[];
   if(!batch.length)return false;
@@ -385,12 +395,30 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
     if (!await beginTask(taskId)) return;
     const screeningTaskId = await createScreeningTask(task);
     let staging=await stageCandidates(task,screeningTaskId);
+    if(staging.analyzing>0) {
+      const initialState=await screeningState(screeningTaskId);
+      if(initialState.status==="QUEUED")await dispatchScreening(screeningTaskId);
+      while(await finalizeCandidateBatch(task,screeningTaskId)){}
+    }
     while(staging.control==="PAUSED"||staging.control==="CONTINUE") {
-      if(staging.control==="CONTINUE"){staging=await stageCandidates(await readTask(taskId),screeningTaskId);continue;}
+      if(staging.control==="CONTINUE"){
+        staging=await stageCandidates(await readTask(taskId),screeningTaskId);
+        if(staging.analyzing>0){
+          const state=await screeningState(screeningTaskId);
+          if(state.status==="QUEUED")await dispatchScreening(screeningTaskId);
+          while(await finalizeCandidateBatch(task,screeningTaskId)){}
+        }
+        continue;
+      }
       const control=await acquisitionControlState(taskId,screeningTaskId);
       if(control==="CANCELLED"){await finishTask(taskId,"CANCELLED");return;}
       if(control==="PAUSED"){await sleep("10s");continue;}
       staging=await stageCandidates(await readTask(taskId),screeningTaskId);
+      if(staging.analyzing>0){
+        const state=await screeningState(screeningTaskId);
+        if(state.status==="QUEUED")await dispatchScreening(screeningTaskId);
+        while(await finalizeCandidateBatch(task,screeningTaskId)){}
+      }
     }
     if(staging.control==="CANCELLED"){await finishTask(taskId,"CANCELLED");return;}
     const analyzing = staging.analyzing;
@@ -400,6 +428,9 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
       if (initialState.status === "QUEUED") await dispatchScreening(screeningTaskId);
       let pollSeconds = 15;
       while (true) {
+        while(await finalizeCandidateBatch(task,screeningTaskId)){
+          await setTaskStage(taskId,"VERIFYING","正在持续核验；符合证据和联系方式门槛的客户已实时入池");
+        }
         const state = await verificationState(taskId, screeningTaskId);
         if (state.control === "CANCELLED") { await finishTask(taskId, "CANCELLED"); return; }
         if (state.control === "PAUSED") { await sleep("30s"); continue; }
@@ -411,7 +442,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         pollSeconds = Math.min(60, pollSeconds + 15);
       }
       await setTaskStage(taskId,"FINALIZING","正在执行最终质量门槛、系统去重和客户公海准入");
-      while(await finalizeCandidateBatch(task)){
+      while(await finalizeCandidateBatch(task,screeningTaskId)){
         await setTaskStage(taskId,"FINALIZING","正在分批执行最终质量门槛、系统去重和客户公海准入");
       }
     } else await completeEmptyScreeningTask(screeningTaskId);

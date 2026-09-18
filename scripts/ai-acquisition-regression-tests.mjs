@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate.ts";
 import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match.ts";
 import { summarizeUsagePurposes } from "../lib/api-usage-purpose.ts";
+import { discoveryCandidateLooksRelevant } from "../lib/ai-acquisition/relevance.ts";
 
 const base={automationStatus:"AUTO_DEVELOP",targetDecision:"VALID",score:82,identityStatus:"MATCHED",evidenceUrls:[{source_url:"https://example.com/services",evidence_strength:"STRONG"}],contacts:[{type:"EMAIL",value_normalized:"sales@example.com",verification_status:"NEW_VERIFIED",exact_source_url:"https://example.com/contact"}]};
 assert.equal(evaluateAcquisitionGate(base).accepted,true,"完整强证据和可追溯联系方式应允许入池");
@@ -14,6 +15,11 @@ assert.equal(evaluateAcquisitionGate({...base,contacts:[{type:"PHONE",verificati
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
+const relevanceBase={businessStatus:"OPERATIONAL",matchedTerms:["mobile phone repair shop"]};
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"The Toughphone Ltd",types:["cell_phone_store"]},["手机维修店"],["mobile phone repair"]),false,"仅销售手机成品的商店不得进入维修客户付费补证");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Computer Laptop Repair",types:["computer_repair_service"]},["电脑维修店"],["computer repair"]),true,"明确电脑维修业务不得被前置门槛漏掉");
+assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"North Foods",types:["food_wholesaler"],matchedTerms:["food wholesaler"]},["食品批发商"],["food wholesaler"]),true,"跨行业的行业实词加批发角色必须继续支持，不能写死为电子行业");
+assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Harbour Hotel",types:["lodging"],matchedTerms:["hotel"]},["酒店"],["hotel"]),true,"明确行业名称匹配应支持服务业客户");
 const purposeSummary=summarizeUsagePurposes([
   {provider:"GOOGLE_PLACES",operation:"目标商家搜索",quantity:2,amount_usd:0.064},
   {provider:"GOOGLE_PLACES",operation:"商家详情与联系方式",quantity:1,amount_usd:0.02},
@@ -54,11 +60,15 @@ assert.match(workflow,/historyCutoff = new Date\(Date\.now\(\) - 14[\s\S]*复用
 assert.match(workflow,/previous\.decision === "REJECTED"[\s\S]*previous\.decision === "REVIEW"[\s\S]*reusedDecision/,"历史未通过和待复核必须保持各自业务结论");
 assert.match(workflow,/pool_status\|\|""\)!=="AI_STAGING"[\s\S]*stagingCustomerByPlace[\s\S]*refreshed/,"过期待复核客户重新分析时必须复用隔离客户档案，不能因Place ID重复导致任务失败");
 assert.match(workflow,/completeEmptyScreeningTask[\s\S]*status:"COMPLETED"[\s\S]*analyzing > 0[\s\S]*completeEmptyScreeningTask/,"零分析项的内部核验任务必须正常结束，不能永久停留在排队中");
+assert.match(workflow,/stageCandidates\(task,screeningTaskId\)[\s\S]*staging\.analyzing>0[\s\S]*dispatchScreening[\s\S]*staging\.control==="CONTINUE"/,"首批候选保存后必须立即启动核验，不能等待全部地域发现结束");
+assert.match(workflow,/while\(await finalizeCandidateBatch\(task,screeningTaskId\)\)[\s\S]*实时入池[\s\S]*verificationState/,"核验中的合格客户必须持续通过质量门槛入池，不能积压到任务尾部统一处理");
+assert.match(workflow,/refresh_ai_screening_task_totals/,"发现与核验并行时任务统计必须从明细真值刷新，不能覆盖消费者实时进度");
 assert.match(workflow,/select\("id"\)\.maybeSingle\(\)[\s\S]*alreadyInSystem[\s\S]*客户入池写入未确认/,"自动获客只有确认客户已写入系统后才能记为成功入池");
 assert.match(workflow,/industry: null, category: candidate\.types\.join\(" \| "\) \|\| null/,"暂存客户不得把用户目标行业冒充为客户已核验行业，只能保留Google实际类别作为路由提示");
 assert.match(workflow,/targetValidated[\s\S]*\? "REVIEW" : "REJECTED"[\s\S]*缺少带具体来源的有效联系方式，等待人工复核/,"已判定目标但缺少入池证据或联系方式的客户必须进入待复核，不能直接丢弃");
 assert.match(workflow,/else if \(decision !== "REVIEW"\)[\s\S]*pool_status: "INVALID"/,"待复核客户必须保留在隔离暂存区，不得按无效客户软删除");
 const discovery=fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts",import.meta.url),"utf8");
+const discoveryRelevance=fs.readFileSync(new URL("../lib/ai-acquisition/relevance.ts",import.meta.url),"utf8");
 assert.match(discovery,/nextPageToken/);
 assert.match(discovery,/page <= 3/);
 assert.match(discovery,/ai_acquisition_discovery_checkpoints[\s\S]*PAUSING[\s\S]*next_page_token/,"每次外部发现调用前必须检查暂停状态并保存下一页检查点");
@@ -67,9 +77,10 @@ assert.match(discovery,/prioritizeUncoveredQueries[\s\S]*refreshCutoff[\s\S]*rec
 assert.match(discovery,/GOOGLE_TEXT_V2_FULL_PAGE[\s\S]*const perTermLimit = 20[\s\S]*pageSize: perTermLimit/,"AI获客必须使用Google单次请求允许的完整页容量，不能为同样调用费用只取少量候选");
 assert.doesNotMatch(discovery,/results\.set\(business\.placeId[\s\S]*CACHED_SCOPE/,"新任务不得把历史缓存结果重新包装成本轮发现客户");
 assert.match(discovery,/discoveryQueries[\s\S]*ACQUISITION_COUNTRY_SEARCH_AREAS[\s\S]*ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY/,"同国家同行业后续任务必须通过地域分片继续真实扩展覆盖");
-assert.match(discovery,/DISCOVERY_STEP_FRESH_SCOPE_BATCH = 10[\s\S]*remainingScopeAllowance[\s\S]*shouldContinue[\s\S]*"CONTINUE"/,"数千至数万候选的发现阶段必须分批持久化推进，不能把全部外部调用塞入单个易超时步骤");
+assert.match(discovery,/DISCOVERY_STEP_FRESH_SCOPE_BATCH = 20[\s\S]*remainingScopeAllowance[\s\S]*shouldContinue[\s\S]*"CONTINUE"/,"数千至数万候选的发现阶段必须用有界批次持久化推进，并降低频繁挂起恢复的固定开销");
 assert.match(discovery,/places\.addressComponents[\s\S]*returnedCountry!==input\.country/,"Google地域偏向结果必须按返回国家代码严格过滤，避免跨境误采");
-assert.match(discovery,/targetBusinessSignal[\s\S]*relevantGoogleType[\s\S]*explicitlyIrrelevantType[\s\S]*hair_salon[\s\S]*targetBusinessSignal \|\| requestedMatch \|\| relevantGoogleType/,"发现阶段必须只让目标业务信号或相关Google类别进入补证，并提前拦截明显无关类别");
+assert.match(discoveryRelevance,/broadFinishedGoodsTerms[\s\S]*matchedDomainTerms[\s\S]*targetBusinessSignal[\s\S]*relevantGoogleType[\s\S]*explicitlyIrrelevantType[\s\S]*&& requestedMatch/,"发现阶段必须要求行业实词与目标业务角色形成直接关联，宽泛成品店类别不得单独进入付费补证");
+assert.doesNotMatch(discoveryRelevance,/cell_phone_store\|electronics_store\|computer_store/,"成品手机、电子或电脑商店类别不得单独作为目标客户准入依据");
 assert.match(workflow,/lookupBatchSize = 100[\s\S]*cancel_requested[\s\S]*PAUSING/,"候选持久化阶段必须分批响应取消和暂停，不能继续做无效工作");
 const taskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 assert.match(taskRoute,/action === "RETRY"/);
@@ -190,8 +201,8 @@ assert.match(acquisitionWorkflow,/verificationState[\s\S]*Promise\.all\([\s\S]*a
 assert.match(acquisitionWorkflow,/existingCandidateCount[\s\S]*taskRemainingCapacity[\s\S]*staging\.control==="PAUSED"\|\|staging\.control==="CONTINUE"/,"跨批次发现必须按任务累计候选计算剩余容量并由持久化工作流连续推进");
 assert.match(acquisitionWorkflow,/unique\.size < taskRemainingCapacity/,"每一批候选必须受任务实际剩余容量约束，不能在多国家任务中越过安全上限");
 assert.match(acquisitionWorkflow,/stagingConcurrency=10[\s\S]*Promise\.all\(candidatesToAnalyze\.slice/,"大批量真实候选建档必须采用受控并发，避免逐条串行拖慢获客任务");
-assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\S]*finalizeCandidateBatch[\s\S]*eq\("decision", "ANALYZING"\)\.limit\(batchSize\)/,"数万候选的进度和最终判定不得受Supabase默认1000行返回上限截断");
-assert.match(acquisitionWorkflow,/decisionCount[\s\S]*head:true[\s\S]*while\(await finalizeCandidateBatch\(task\)\)/,"最终汇总必须使用精确计数且质量准入必须拆成可恢复批次，避免单步骤超时");
+assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\S]*finalizeCandidateBatch[\s\S]*waitingCandidates[\s\S]*\.limit\(500\)[\s\S]*\.limit\(batchSize\)/,"数万候选的进度和最终判定不得受Supabase默认1000行返回上限截断");
+assert.match(acquisitionWorkflow,/decisionCount[\s\S]*head:true[\s\S]*while\(await finalizeCandidateBatch\(task,screeningTaskId\)\)/,"最终汇总必须使用精确计数且质量准入必须拆成可恢复批次，避免单步骤超时");
 assert.match(acquisitionWorkflow,/let pollSeconds = 15[\s\S]*sleep\(`\$\{pollSeconds\}s`\)[\s\S]*Math\.min\(60, pollSeconds \+ 15\)/,"获客核验轮询必须采用15至60秒退避，避免浪费Vercel工作流事件");
 assert.match(acquisitionWorkflow,/const batchSize = 100[\s\S]*\.in\("task_item_id", itemIds\)[\s\S]*\.in\("customer_id", customerIds\)[\s\S]*resultByItem[\s\S]*contactsByCustomer[\s\S]*evidenceByItem/,"最终质量判定必须批量预取核验结果、联系方式和证据，避免逐客户重复查询浪费执行时间");
 assert.match(acquisitionWorkflow,/terminalProcessed[\s\S]*processed_count:terminalProcessed[\s\S]*deepProcessed[\s\S]*earlyProcessed[\s\S]*processed_count:processedCount/,"父获客任务必须持续同步早停与深度核验的真实处理进度，不能到任务结束才从0跳到100%");
@@ -218,13 +229,13 @@ assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_co
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
 assert.match(reviewRoute,/trustedEvidenceUrls[\s\S]*SOURCE_CONFIRMED[\s\S]*refreshedContacts[\s\S]*evaluateAcquisitionGate/,"重新核验必须基于强证据修复可追溯联系方式后重新执行入池门槛");
 const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
-assert.match(detail,/discovery_progress[\s\S]*正在发现目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及完成进度");
+assert.match(detail,/discovery_progress[\s\S]*正在持续发现并核验目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及流水线完成进度");
 assert.match(detail,/任务编号 \{task\.task_number\}[\s\S]*创建人[\s\S]*创建于/,"任务详情标题元信息必须与AI筛选统一为编号、创建人和创建时间");
 assert.match(detailRoute,/owner:users!ai_acquisition_tasks_user_id_fkey\(id,name,email\)/,"任务详情接口必须返回真实创建人，不能把仍然存在的账号显示为历史账号");
 assert.match(detail,/task\.owner\?\.name\|\|task\.owner\?\.email\|\|"原账号（已停用）"/,"创建人缺失时必须使用明确的停用账号说明，不得暴露含糊占位词");
 assert.match(detail,/CompactTags[\s\S]*展开其余 \{remaining\.length\} 项[\s\S]*ChevronDown[\s\S]*任务条件与执行规则[\s\S]*目标国家\/地区[\s\S]*执行设置[\s\S]*目标行业[\s\S]*搜索关键词/,"任务条件和匹配关键词必须提供明确可点击的按需展开，不能把长文本整段铺开");
 assert.match(detail,/progressSteps[\s\S]*搜索发现[\s\S]*本地化检索 · 分页覆盖[\s\S]*去重初筛[\s\S]*客户库查重 · 停业与非目标早停[\s\S]*资料与业务核验[\s\S]*官网证据 · 联系方式 · AI行业判断[\s\S]*质量准入[\s\S]*入池或待复核/,"实时进度必须用可追踪大阶段准确说明内部真实处理链路");
-assert.match(detail,/4 个可追踪执行阶段，覆盖从搜索发现到客户入池的完整处理链路[\s\S]*customerProgressActive[\s\S]*客户核验进度[\s\S]*检索组合仅用于说明发现范围/,"阶段展示必须明确四项是可追踪大阶段而不是全部底层操作");
+assert.match(detail,/4 个阶段并行衔接[\s\S]*pipelineSteps[\s\S]*搜索覆盖进度[\s\S]*候选处理进度[\s\S]*已入池[\s\S]*待复核/,"流水线详情必须分别展示真实搜索和候选处理进度，不能继续伪装成四步串行流程");
 assert.match(detail,/AI获客实时处理构成[\s\S]*已完成去重与早停[\s\S]*进入深度核验[\s\S]*深度核验完成 \/ 待处理[\s\S]*最近核验进展/,"核验阶段必须解释总候选、早停候选和深度核验队列，避免进度分母含义不清");
 assert.match(detail,/progressHeartbeatAge[\s\S]*等待执行器更新[\s\S]*运行正常[\s\S]*最近更新/,"实时进度必须用最近心跳向用户说明任务是否仍在正常推进");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");

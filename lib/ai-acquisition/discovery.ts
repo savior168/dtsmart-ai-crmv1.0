@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { releaseApiCostBudget, reserveApiCostBudget } from "@/lib/api-cost-budget";
 import { ACQUISITION_COUNTRY_SEARCH_AREAS, ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, localizedSearchTerms, type AcquisitionCountry } from "./config";
+export { discoveryCandidateLooksRelevant } from "./relevance";
 
 export type DiscoveredBusiness = {
   placeId: string; companyName: string; address: string; country: AcquisitionCountry;
@@ -13,7 +14,11 @@ const GOOGLE_TEXT_SEARCH_PRO_FREE_CAP = 5000;
 const GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE = 0.032;
 const DISCOVERY_STRATEGY_VERSION = "GOOGLE_TEXT_V2_FULL_PAGE";
 const SEARCH_REFRESH_DAYS = 90;
-const DISCOVERY_STEP_FRESH_SCOPE_BATCH = 10;
+// A larger durable-step batch reduces workflow suspend/resume and database
+// bookkeeping overhead without adding a single Google request. Keep the batch
+// bounded so pause/cancel remains responsive and a slow provider cannot turn
+// one step into an excessively long serverless invocation.
+const DISCOVERY_STEP_FRESH_SCOPE_BATCH = 20;
 
 function searchScopeKey(country: AcquisitionCountry, query: string) {
   return `${DISCOVERY_STRATEGY_VERSION}\n${country}\n${query.trim().toLowerCase()}`;
@@ -204,16 +209,4 @@ export async function discoverBusinesses(input: {
   }
   const shouldContinue=stepScopeLimit>0&&freshSearchScopes>=stepScopeLimit&&remainingScopeAllowance>freshSearchScopes&&results.size<input.limit;
   return { businesses:[...results.values()].slice(0, input.limit), control:shouldContinue?"CONTINUE" as const:null };
-}
-
-export function discoveryCandidateLooksRelevant(candidate: DiscoveredBusiness, industries: string[], keywords: string[]) {
-  const requested = [...industries, ...keywords].flatMap((value) => value.toLowerCase().split(/[^\p{L}\p{N}]+/u)).filter((value) => value.length >= 3);
-  const companyText = candidate.companyName.toLowerCase().replace(/[_-]+/g, " ");
-  const targetBusinessSignal = /(?:phone|mobile|smartphone|iphone|ipad|macbook|laptop|computer|electronics|device|screen|battery|accessor|spare|parts?|repair|refurbish|wholesale|supplier|distribut|importer|手机|电脑|电子|维修|配件|批发|经销|进口|翻新)/i.test(companyText);
-  const relevantGoogleType = candidate.types.some((value) => /^(?:cell_phone_store|electronics_store|electronics_repair_shop|computer_store|computer_repair_service|wholesaler|supplier|manufacturer|telecommunications_service_provider)$/i.test(value));
-  const explicitlyIrrelevantType = candidate.types.some((value) => /^(?:hair_salon|hair_care|finance|courier_service|shipping_service|furniture_store|general_contractor|auto_parts_store|car_repair|restaurant|cafe|pharmacy|lodging|real_estate_agency)$/i.test(value));
-  const requestedMatch = requested.some((term) => companyText.includes(term));
-  return candidate.businessStatus !== "CLOSED_PERMANENTLY"
-    && !(explicitlyIrrelevantType && !targetBusinessSignal)
-    && (targetBusinessSignal || requestedMatch || relevantGoogleType);
 }
