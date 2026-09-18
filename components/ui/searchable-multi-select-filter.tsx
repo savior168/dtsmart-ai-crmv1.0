@@ -1,7 +1,8 @@
 "use client";
 
 import { Check, ChevronDown, Search } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type SearchableFilterOption = {
   value: string;
@@ -24,8 +25,12 @@ export function SearchableMultiSelectFilter({
   className?: string;
   emptyText?: string;
 }) {
-  const details = useRef<HTMLDetailsElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const visible = useMemo(() => {
     const keyword = query.trim().toLocaleLowerCase();
     return keyword
@@ -43,15 +48,39 @@ export function SearchableMultiSelectFilter({
     onChange(value.includes(next) ? value.filter((item) => item !== next) : [...value, next]);
   }
 
-  return <details ref={details} className={`group relative min-w-0 ${className}`}>
-    <summary aria-label={`${label}筛选`} className="flex h-10 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 outline-none transition hover:border-blue-300 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100">
-      <span className="truncate">{selectedLabel}</span>
-      <ChevronDown size={15} className="shrink-0 text-slate-400 transition group-open:rotate-180"/>
-    </summary>
-    <div className="absolute left-0 top-full z-50 mt-1 w-[290px] max-w-[min(290px,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(290, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const estimatedHeight = 360;
+      const opensAbove = rect.bottom + estimatedHeight > window.innerHeight && rect.top > estimatedHeight;
+      setPosition({ top: opensAbove ? Math.max(12, rect.top - estimatedHeight - 4) : rect.bottom + 4, left });
+    };
+    const closeOnOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!trigger.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    place();
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
+
+  const dropdown = open ? <div ref={menu} id={menuId} role="listbox" aria-label={`${label}选项`} className="fixed z-[100] w-[290px] max-w-[calc(100vw-24px)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl" style={position}>
       <label className="relative block">
         <Search className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} onClick={(event) => event.stopPropagation()} placeholder={`搜索${label}`} className="h-9 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-sm text-slate-700 outline-none focus:border-blue-500"/>
+        <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`搜索${label}`} className="h-9 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-sm text-slate-700 outline-none focus:border-blue-500"/>
       </label>
       <div className="mt-2 max-h-64 overflow-y-auto">
         <button type="button" onClick={() => onChange([])} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm ${value.length === 0 ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"}`}>
@@ -69,8 +98,15 @@ export function SearchableMultiSelectFilter({
       </div>
       <div className="mt-2 flex items-center justify-between border-t border-slate-100 px-1 pt-2">
         <button type="button" onClick={() => onChange([])} className="text-xs text-blue-600 hover:underline">清空</button>
-        <button type="button" onClick={() => { setQuery(""); details.current?.removeAttribute("open"); }} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white">完成</button>
+        <button type="button" onClick={() => { setQuery(""); setOpen(false); }} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white">完成</button>
       </div>
-    </div>
-  </details>;
+    </div> : null;
+
+  return <div className={`relative min-w-0 ${className}`}>
+    <button ref={trigger} type="button" aria-label={`${label}筛选`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => setOpen((current) => !current)} className="flex h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 outline-none transition hover:border-blue-300 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100">
+      <span className="truncate">{selectedLabel}</span>
+      <ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/>
+    </button>
+    {typeof document !== "undefined" ? createPortal(dropdown, document.body) : null}
+  </div>;
 }

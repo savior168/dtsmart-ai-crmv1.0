@@ -110,6 +110,8 @@ assert.doesNotMatch(aiTaskApi, /third_party_cost_usd:/, "AI筛选任务接口不
 
 const searchableFilter = read("components/ui/searchable-multi-select-filter.tsx");
 assert.match(searchableFilter, /item\.label \|\| item\.value}[\s\S]*item\.value/, "国家和行业多选必须同时支持展示名称与原始代码搜索");
+assert.match(searchableFilter, /createPortal\(dropdown, document\.body\)/, "统一国家和行业下拉必须通过页面级浮层显示，不能被单行筛选栏或表格容器裁切");
+assert.match(searchableFilter, /role="listbox"[\s\S]*aria-haspopup="listbox"[\s\S]*aria-expanded=\{open\}/, "统一国家和行业筛选必须保留明确的展开状态和列表语义");
 for (const path of [
   "components/customers-view.tsx",
   "components/customer-public-pool-view.tsx",
