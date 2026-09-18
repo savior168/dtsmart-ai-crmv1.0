@@ -129,26 +129,17 @@ export const ACQUISITION_INDUSTRY_TERMS: Record<string, string> = {
 };
 
 export const ACQUISITION_COMMON_INDUSTRIES = [
-  "手机维修店",
-  "手机维修连锁店",
-  "Apple设备维修店",
-  "手机配件批发商",
-  "手机内配件经销商",
-  "电脑维修店",
-  "笔记本电脑维修店",
-  "电脑配件批发商",
-  "笔记本配件经销商",
-  "电子设备维修服务商",
+  "汽车配件批发商",
+  "机械设备经销商",
+  "建材批发商",
+  "服装批发商",
+  "医疗器械经销商",
+  "食品饮料批发商",
+  "包装材料供应商",
+  "物流货运服务商",
+  "酒店用品供应商",
+  "软件服务公司",
 ] as const;
-
-// 成品手机、翻新整机和普通外配件商家并不是维修配件业务的目标客户。
-// 保留旧标签映射仅用于兼容历史任务，但不得继续作为系统推荐行业。
-const NON_TARGET_RECOMMENDED_INDUSTRIES = new Set([
-  "手机配件零售商",
-  "手机进口商",
-  "手机翻新商",
-  "二手手机整备商",
-]);
 
 function industryFeatures(value: string) {
   const normalized = value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -158,12 +149,30 @@ function industryFeatures(value: string) {
   return features;
 }
 
+const ACQUISITION_INDUSTRY_GROUPS = [
+  { aliases: ["电子", "消费电子", "数码", "electronics"], industries: ["消费电子批发商", "电子元器件经销商", "电子设备维修服务商", "手机维修店", "手机维修连锁店", "Apple设备维修店", "手机配件批发商", "手机内配件经销商", "电脑维修店", "笔记本电脑维修店", "电脑配件批发商", "笔记本配件经销商", "家电维修服务商"] },
+  { aliases: ["汽车", "汽配", "automotive", "auto parts"], industries: ["汽车配件批发商", "汽车维修服务商"] },
+  { aliases: ["工业", "机械", "设备", "industrial", "machinery"], industries: ["机械设备经销商", "工业设备维修商", "五金工具经销商", "实验室设备供应商"] },
+  { aliases: ["建筑", "建材", "五金", "construction", "building"], industries: ["建材批发商", "五金工具经销商", "照明产品批发商", "安防设备经销商"] },
+  { aliases: ["服装", "鞋服", "时尚", "fashion", "apparel"], industries: ["服装批发商", "鞋类批发商", "珠宝首饰批发商"] },
+  { aliases: ["医疗", "医药", "实验室", "medical", "laboratory"], industries: ["医疗器械经销商", "实验室设备供应商"] },
+  { aliases: ["食品", "饮料", "农业", "农产品", "food", "agricultural"], industries: ["食品饮料批发商", "农产品进口商", "餐饮设备供应商"] },
+  { aliases: ["包装", "印刷", "packaging", "printing"], industries: ["包装材料供应商", "印刷服务商", "塑料制品批发商", "橡胶制品供应商"] },
+  { aliases: ["物流", "货运", "仓储", "logistics", "freight"], industries: ["物流货运服务商", "仓储服务商"] },
+  { aliases: ["酒店", "餐饮", "办公", "hospitality", "restaurant"], industries: ["酒店用品供应商", "餐饮设备供应商", "办公用品批发商", "家具批发商"] },
+  { aliases: ["能源", "光伏", "照明", "solar", "energy"], industries: ["光伏设备经销商", "照明产品批发商", "安防设备经销商"] },
+  { aliases: ["化工", "塑料", "橡胶", "材料", "chemical", "materials"], industries: ["化工产品经销商", "塑料制品批发商", "橡胶制品供应商", "包装材料供应商"] },
+  { aliases: ["软件", "信息技术", "互联网", "数字营销", "software", "IT service"], industries: ["软件服务公司", "信息技术服务商", "广告营销服务商", "跨境电商卖家"] },
+] as const;
+
 export function acquisitionIndustrySuggestions(query: string, limit = 8) {
   const normalized = query.trim().toLowerCase();
   if (normalized.length < 2) return [];
   const queryFeatures = industryFeatures(normalized);
-  return Object.entries(ACQUISITION_INDUSTRY_TERMS)
-    .filter(([label]) => !NON_TARGET_RECOMMENDED_INDUSTRIES.has(label))
+  const categoryMatches = ACQUISITION_INDUSTRY_GROUPS
+    .filter((group)=>group.aliases.some((alias)=>normalized.includes(alias.toLowerCase())||alias.toLowerCase().includes(normalized)))
+    .flatMap((group)=>group.industries);
+  const similarityMatches = Object.entries(ACQUISITION_INDUSTRY_TERMS)
     .map(([label, searchTerm]) => {
       const candidate = `${label} ${searchTerm}`.toLowerCase();
       const candidateFeatures = industryFeatures(candidate);
@@ -175,8 +184,8 @@ export function acquisitionIndustrySuggestions(query: string, limit = 8) {
     })
     .filter((item) => item.score >= 0.22)
     .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label, "zh-CN"))
-    .slice(0, limit)
     .map((item) => item.label);
+  return [...new Set([...categoryMatches,...similarityMatches])].slice(0,limit);
 }
 
 const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
@@ -197,13 +206,13 @@ const INDUSTRY_KEYWORD_RECOMMENDATIONS: Record<string, string[]> = {
 };
 
 const ROLE_KEYWORD_RECOMMENDATIONS: Array<[RegExp, string[]]> = [
-  [/批发|wholesale/i, ["B2B supplier", "distributor", "bulk order"]],
-  [/进口|import/i, ["importer", "distributor", "wholesale"]],
-  [/经销|distribut/i, ["authorized distributor", "B2B supplier", "wholesale"]],
-  [/供应|supplier/i, ["B2B supplier", "manufacturer", "wholesale"]],
-  [/零售|retail|商店|store/i, ["retail store", "shop", "dealer"]],
-  [/维修|repair/i, ["repair service", "spare parts", "replacement"]],
-  [/服务|service/i, ["service company", "commercial service", "business service"]],
+  [/批发|wholesale/i, ["wholesaler", "B2B wholesale", "bulk supplier"]],
+  [/进口|import/i, ["importer", "import distributor", "B2B importer"]],
+  [/经销|distribut/i, ["distributor", "authorized distributor", "B2B distributor"]],
+  [/供应|supplier/i, ["supplier", "B2B supplier", "commercial supplier"]],
+  [/零售|retail|商店|store/i, ["retailer", "retail store", "specialist shop"]],
+  [/维修|repair/i, ["repair service", "repair centre", "maintenance service"]],
+  [/服务|service/i, ["service provider", "commercial service", "business service"]],
 ];
 
 export function acquisitionKeywordRecommendations(industries: string[]) {
@@ -214,7 +223,9 @@ export function acquisitionKeywordRecommendations(industries: string[]) {
 export function acquisitionKeywordRecommendationGroups(industries: string[]) {
   return industries.map((industry) => {
     const exact = INDUSTRY_KEYWORD_RECOMMENDATIONS[industry];
-    const keywords = exact || ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(industry))?.[1] || [];
+    const searchTerm = ACQUISITION_INDUSTRY_TERMS[industry] || industry;
+    const roleKeywords = ROLE_KEYWORD_RECOMMENDATIONS.find(([pattern]) => pattern.test(`${industry} ${searchTerm}`))?.[1] || [];
+    const keywords = exact || [searchTerm, ...roleKeywords.map((role)=>`${searchTerm} ${role}`)];
     return { industry, keywords: [...new Set(keywords)] };
   }).filter((group) => group.keywords.length > 0);
 }
@@ -241,11 +252,11 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
   const translations = COMMON_LOCAL_TERMS[country] || {};
   const normalizedKeywords = [...new Set(keywords.map((value) => value.trim()).filter(Boolean))];
   const knownKeywordOwners = new Map<string, Set<string>>();
-  for (const [industry, recommendations] of Object.entries(INDUSTRY_KEYWORD_RECOMMENDATIONS)) {
-    for (const keyword of recommendations) {
+  for (const group of acquisitionKeywordRecommendationGroups(industries)) {
+    for (const keyword of group.keywords) {
       const normalized = keyword.trim().toLowerCase();
       if (!knownKeywordOwners.has(normalized)) knownKeywordOwners.set(normalized, new Set());
-      knownKeywordOwners.get(normalized)?.add(industry);
+      knownKeywordOwners.get(normalized)?.add(group.industry);
     }
   }
   const groups = industryTerms.map((term, index) => {
@@ -254,7 +265,7 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
     const industry = industries[index];
     const applicableKeywords = normalizedKeywords.filter((keyword) => {
       const owners = knownKeywordOwners.get(keyword.toLowerCase());
-      return !owners?.size || !INDUSTRY_KEYWORD_RECOMMENDATIONS[industry] || owners.has(industry);
+      return !owners?.size || owners.has(industry);
     });
     if (!applicableKeywords.length) return bases;
     // Keywords may refine a selected industry, but must never become a

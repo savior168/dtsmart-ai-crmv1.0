@@ -309,37 +309,93 @@ function ChipInput({
 function IndustryPicker({ value, onChange, onNotice }: { value: string[]; onChange: (value: string[]) => void; onNotice:(message:string,tone?:"error")=>void }) {
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [recommendationBasis, setRecommendationBasis] = useState("");
+  const [relatedRecommendations, setRelatedRecommendations] = useState<string[]>([]);
+  const [recentIndustries, setRecentIndustries] = useState<string[]>([]);
+  const [preferenceKey, setPreferenceKey] = useState("");
   const normalized = query.trim();
-  const options = normalized ? acquisitionIndustrySuggestions(normalized, 12) : [];
+  const options = normalized ? acquisitionIndustrySuggestions(normalized, MAX_ACQUISITION_INDUSTRIES) : [];
   const canAddCustom = normalized.length >= 2 && normalized.length <= 60 && !value.some((item) => item.toLowerCase() === normalized.toLowerCase()) && !options.includes(normalized) && value.length < MAX_ACQUISITION_INDUSTRIES;
+  useEffect(()=>{
+    let active=true;
+    void fetch("/api/users/me",{cache:"no-store"}).then((response)=>response.ok?response.json():null).then((profile)=>{
+      if (!active||!profile?.id) return;
+      const key=`dtsmart-ai-acquisition:recent-industries:${profile.id}`;
+      setPreferenceKey(key);
+      try {
+        const saved=JSON.parse(window.localStorage.getItem(key)||"[]");
+        if (Array.isArray(saved)) setRecentIndustries(saved.filter((item):item is string=>typeof item==="string").slice(0,8));
+      } catch { /* Ignore invalid account preference data. */ }
+    }).catch(()=>undefined);
+    return ()=>{active=false};
+  },[]);
+  const rememberIndustry = (item:string) => {
+    const next = [item,...recentIndustries.filter((industry)=>industry!==item)].slice(0,8);
+    setRecentIndustries(next);
+    if (preferenceKey) try { window.localStorage.setItem(preferenceKey,JSON.stringify(next)); } catch { /* Private browsing may block storage. */ }
+  };
+  const showRelatedFor = (item:string, sourceOptions?:string[]) => {
+    setRecommendationBasis(item);
+    setRelatedRecommendations((sourceOptions||acquisitionIndustrySuggestions(item,MAX_ACQUISITION_INDUSTRIES)).filter((industry)=>industry!==item));
+  };
   const toggle = (item: string) => {
     if (value.includes(item)) onChange(value.filter((selected) => selected !== item));
-    else if (value.length < MAX_ACQUISITION_INDUSTRIES) onChange([...value, item]);
+    else if (value.length < MAX_ACQUISITION_INDUSTRIES) {
+      onChange([...value, item]);
+      rememberIndustry(item);
+      showRelatedFor(item);
+      setQuery("");
+    }
   };
   const addCustom = () => {
     if (!canAddCustom) return;
     onChange([...value, normalized]);
+    rememberIndustry(normalized);
+    showRelatedFor(normalized,options);
     setQuery("");
+  };
+  const confirmBestMatch = () => {
+    if (!normalized || value.length >= MAX_ACQUISITION_INDUSTRIES) return;
+    const exact = options.find((item)=>item.toLowerCase()===normalized.toLowerCase());
+    const selected = exact || (options.length===1?options[0]:"") || (!options.length&&canAddCustom ? normalized : "");
+    if (!selected&&options.length>1) {
+      setRecommendationBasis(normalized);
+      setRelatedRecommendations(options);
+      onNotice(`已找到 ${options.length} 个“${normalized}”相关细分行业，请选择实际目标行业`);
+      return;
+    }
+    if (!selected || value.some((item)=>item.toLowerCase()===selected.toLowerCase())) return;
+    onChange([...value,selected]);
+    rememberIndustry(selected);
+    showRelatedFor(selected,options);
+    setQuery("");
+    onNotice(selected===normalized?`已加入“${selected}”并补充精准关键词`:`已采用最匹配的“${selected}”并补充精准关键词`);
   };
   const addMany = (text:string) => {
     const incoming = splitBulkValues(text);
     const next = mergeUniqueValues(value, incoming, MAX_ACQUISITION_INDUSTRIES, (item)=>item.length>=2&&item.length<=60&&!/[<>\r\n]/.test(item));
     onChange(next);
+    if (next.length>value.length) {
+      const latest=next[next.length-1];
+      rememberIndustry(latest);
+      showRelatedFor(latest);
+    }
     setQuery("");
     if (incoming.length > 1) onNotice(`已批量加入 ${next.length-value.length} 个行业${incoming.length > next.length-value.length ? "，重复、无效或超出上限的内容已忽略" : ""}`);
   };
-  const recommendations=(normalized ? options : [...ACQUISITION_COMMON_INDUSTRIES]).filter((item)=>!value.includes(item));
-  const visibleRecommendations=normalized||showAll?recommendations:recommendations.slice(0,6);
+  const personalizedRecommendations=[...new Set([...recentIndustries,...ACQUISITION_COMMON_INDUSTRIES])];
+  const recommendations=(normalized ? options : recommendationBasis ? relatedRecommendations : personalizedRecommendations).filter((item)=>!value.includes(item));
+  const visibleRecommendations=normalized||recommendationBasis||showAll?recommendations:recommendations.slice(0,6);
   const addRecommendedIndustries=()=>onChange(mergeUniqueValues(value,recommendations,MAX_ACQUISITION_INDUSTRIES,(item)=>item.length>=2&&item.length<=60));
   return <div className="space-y-2">
     <label className="relative block">
       <Search size={16} className="absolute left-3 top-3 text-slate-400"/>
-      <input value={query} onChange={(event)=>setQuery(event.target.value)} onPaste={(event)=>{const text=event.clipboardData.getData("text");if(splitBulkValues(text).length>1){event.preventDefault();addMany(text)}}} onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();addCustom();}}} className={`${input} h-11 w-full pl-9 pr-3`} placeholder="搜索或输入明确行业" maxLength={60}/>
+      <input value={query} onChange={(event)=>setQuery(event.target.value)} onPaste={(event)=>{const text=event.clipboardData.getData("text");if(splitBulkValues(text).length>1){event.preventDefault();addMany(text)}}} onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();confirmBestMatch();}}} className={`${input} h-11 w-full pl-9 pr-3`} placeholder="输入目标行业，回车采用最匹配的标准行业" maxLength={60}/>
     </label>
     <p className="min-h-5 text-xs text-slate-400">可直接批量粘贴；多项用逗号、分号或换行分隔。</p>
     {value.length ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/40 p-3"><span className="text-xs font-medium text-slate-500">已选 {value.length}/{MAX_ACQUISITION_INDUSTRIES}</span>{value.map((item)=><button key={item} type="button" aria-label={`移除${item}`} onClick={()=>toggle(item)} className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-sm text-blue-700 shadow-sm ring-1 ring-blue-100">{item}<X size={13}/></button>)}<button type="button" onClick={()=>onChange([])} className="ml-auto text-xs text-slate-500 hover:text-blue-700">清空</button></div>:null}
     <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-      <div className="mb-2 flex items-center justify-between gap-3"><p className="text-xs font-medium text-slate-500">{normalized?"相近标准行业（按匹配度）":"常用精准行业（按开发价值排序）"}</p><span className="flex shrink-0 items-center gap-3">{recommendations.length?<button type="button" disabled={value.length>=MAX_ACQUISITION_INDUSTRIES} onClick={addRecommendedIndustries} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">批量选择</button>:null}{!normalized&&recommendations.length>6?<button type="button" onClick={()=>setShowAll((current)=>!current)} className="text-xs text-blue-700 hover:underline">{showAll?"收起":"展开更多"}</button>:null}</span></div>
+      <div className="mb-2 flex items-center justify-between gap-3"><p className="text-xs font-medium text-slate-500">{normalized?"相近标准行业（按匹配度）":recommendationBasis?`基于“${recommendationBasis}”继续推荐`:"为你推荐（近期偏好优先）"}</p><span className="flex shrink-0 items-center gap-3">{recommendations.length?<button type="button" disabled={value.length>=MAX_ACQUISITION_INDUSTRIES} onClick={addRecommendedIndustries} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">批量选择</button>:null}{recommendationBasis&&!normalized?<button type="button" onClick={()=>{setRecommendationBasis("");setRelatedRecommendations([])}} className="text-xs text-slate-500 hover:text-blue-700">返回常用推荐</button>:null}{!normalized&&!recommendationBasis&&recommendations.length>6?<button type="button" onClick={()=>setShowAll((current)=>!current)} className="text-xs text-blue-700 hover:underline">{showAll?"收起":"展开更多"}</button>:null}</span></div>
       <div className="flex flex-wrap gap-2">
         {visibleRecommendations.map((item)=><button key={item} type="button" disabled={value.length>=MAX_ACQUISITION_INDUSTRIES} aria-pressed="false" onClick={()=>toggle(item)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-600 transition hover:border-blue-300 disabled:opacity-40"><Plus size={12}/> {item}</button>)}
         {canAddCustom?<button type="button" onClick={addCustom} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-blue-400 bg-blue-50/40 px-3 text-sm font-medium text-blue-700"><Plus size={14}/>添加“{normalized}”</button>:null}
@@ -376,7 +432,7 @@ export function AcquisitionCreateView() {
   const [form, setForm] = useState(emptyAcquisitionForm);
   const keywordRecommendationGroups = acquisitionKeywordRecommendationGroups(form.industries);
   const keywordRecommendations = acquisitionKeywordRecommendations(form.industries);
-  const visibleKeywordRecommendationGroups = showAllKeywordGroups ? keywordRecommendationGroups : keywordRecommendationGroups.slice(0, 2);
+  const visibleKeywordRecommendationGroups = showAllKeywordGroups ? keywordRecommendationGroups : keywordRecommendationGroups.slice(0, 4);
   const requestKeyRef = useRef(crypto.randomUUID());
   useEffect(() => {
     window.sessionStorage.removeItem(LEGACY_DRAFT_KEY);
@@ -404,6 +460,17 @@ export function AcquisitionCreateView() {
     return [country, industry, form.cost_mode === "FREE_ONLY" ? "全免费获客" : "智能增强获客"].filter(Boolean).join("｜").slice(0, 100);
   })();
   const hasDraftContent = Boolean(form.name.trim() || form.countries.length || form.industries.length || form.keywords.length || form.task_cost_limit_usd || form.schedule_type === "scheduled");
+  function updateIndustries(industries:string[]) {
+    setForm((current)=>{
+      const newlyAdded=industries.filter((industry)=>!current.industries.includes(industry));
+      const removed=current.industries.filter((industry)=>!industries.includes(industry));
+      const recommendedKeywords=acquisitionKeywordRecommendations(newlyAdded);
+      const removedRecommendations=new Set(acquisitionKeywordRecommendations(removed));
+      const retainedRecommendations=new Set(acquisitionKeywordRecommendations(industries));
+      const retainedKeywords=current.keywords.filter((keyword)=>!removedRecommendations.has(keyword)||retainedRecommendations.has(keyword));
+      return {...current,industries,keywords:mergeUniqueValues(retainedKeywords,recommendedKeywords,MAX_ACQUISITION_KEYWORDS,(keyword)=>keyword.length<=80)};
+    });
+  }
   useEffect(() => {
     if (form.name_mode !== "AUTO" || form.name === automaticName) return;
     setForm((current)=>current.name_mode === "AUTO" ? {...current,name:automaticName} : current);
@@ -482,7 +549,7 @@ export function AcquisitionCreateView() {
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>
           <div className="grid items-start gap-4 p-4 xl:grid-cols-2">
           <div><span className="mb-1.5 block h-5 text-sm font-medium text-slate-700">目标行业 <b className="text-rose-500">*</b></span>
-          <IndustryPicker value={form.industries} onChange={(industries) => setForm({ ...form, industries })} onNotice={(message,tone)=>toast(message,tone)}/>
+          <IndustryPicker value={form.industries} onChange={updateIndustries} onNotice={(message,tone)=>toast(message,tone)}/>
           </div>
           <div>
           <ChipInput
@@ -493,7 +560,7 @@ export function AcquisitionCreateView() {
             placeholder="必填，可直接批量粘贴；多项用逗号、分号或换行分隔，不会放宽目标行业范围。"
             onNotice={(message,tone)=>toast(message,tone)}
           />
-          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-medium text-slate-500">行业推荐关键词 <span className="font-normal text-slate-400">· {keywordRecommendationGroups.length} 个目标行业</span></span><span className="flex items-center gap-3"><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">批量选择推荐</button>{keywordRecommendationGroups.length>2?<button type="button" aria-expanded={showAllKeywordGroups} onClick={()=>setShowAllKeywordGroups((current)=>!current)} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">{showAllKeywordGroups?"收起":"查看全部"}<ChevronDown size={13} className={`transition ${showAllKeywordGroups?"rotate-180":""}`}/></button>:null}</span></div><div className={`space-y-3 ${showAllKeywordGroups?"max-h-[360px] overflow-y-auto pr-1":""}`}>{visibleKeywordRecommendationGroups.map((group)=>{const originalIndex=keywordRecommendationGroups.findIndex((item)=>item.industry===group.industry);return <div key={group.industry} className="grid gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]"><div className="pt-1.5 text-xs font-medium text-slate-600"><span className="mr-1 text-slate-400">{originalIndex+1}.</span>{group.industry}</div><div className="flex flex-wrap items-center gap-2">{group.keywords.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={`${group.industry}:${keyword}`} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div></div>})}</div>{keywordRecommendationGroups.length>2&&!showAllKeywordGroups?<p className="mt-3 text-xs text-slate-400">默认展示前 2 个目标行业，点击“查看全部”后可选择其余 {keywordRecommendationGroups.length-2} 个行业的推荐词。</p>:<p className="mt-3 text-xs text-slate-400">每个行业按相关度推荐；上方关键词顺序即任务实际检索顺序，可手动增删。</p>}</div>:null}
+          {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-medium text-slate-500">精准关键词推荐 <span className="font-normal text-slate-400">· 已随目标行业自动补入，可继续增删</span></span><span className="flex items-center gap-3"><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">补齐全部推荐</button>{keywordRecommendationGroups.length>4?<button type="button" aria-expanded={showAllKeywordGroups} onClick={()=>setShowAllKeywordGroups((current)=>!current)} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">{showAllKeywordGroups?"收起":"查看全部"}<ChevronDown size={13} className={`transition ${showAllKeywordGroups?"rotate-180":""}`}/></button>:null}</span></div><div className={`space-y-3 ${showAllKeywordGroups?"max-h-[360px] overflow-y-auto pr-1":""}`}>{visibleKeywordRecommendationGroups.map((group)=>{const originalIndex=keywordRecommendationGroups.findIndex((item)=>item.industry===group.industry);return <div key={group.industry} className="grid gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]"><div className="pt-1.5 text-xs font-medium text-slate-600"><span className="mr-1 text-slate-400">{originalIndex+1}.</span>{group.industry}</div><div className="flex flex-wrap items-center gap-2">{group.keywords.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={`${group.industry}:${keyword}`} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div></div>})}</div>{keywordRecommendationGroups.length>4&&!showAllKeywordGroups?<p className="mt-3 text-xs text-slate-400">默认展示前 4 个目标行业，可展开选择其余 {keywordRecommendationGroups.length-4} 个行业的推荐词。</p>:<p className="mt-3 text-xs text-slate-400">推荐词只细化对应行业，不会放宽本次目标行业范围；可手动增删。</p>}</div>:null}
           </div>
           </div>
         </section>
