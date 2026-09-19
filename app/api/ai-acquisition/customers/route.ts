@@ -3,6 +3,9 @@ import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } f
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const validScopes = new Set(["today", "week", "accepted", "review"]);
+type CountedFilterOption = { value: string; count: number };
+type FilterOptions = { countries: CountedFilterOption[]; industries: CountedFilterOption[] };
+const filterOptionsCache = new Map<string, { expiresAt: number; value: FilterOptions }>();
 
 export async function GET(request: NextRequest) {
   try {
@@ -115,48 +118,57 @@ export async function GET(request: NextRequest) {
     // and country the product can theoretically support. Load the scoped
     // candidates in pages so the option counts are not limited to the visible
     // table page or Supabase's default row cap.
-    const optionCandidates: Array<{country:string|null;staging_customer_id:string|null;imported_customer_id:string|null}> = [];
-    for (let offset = 0; offset < 20000; offset += 1000) {
-      let optionQuery = admin
-        .from("ai_acquisition_candidates")
-        .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id)");
-      if (ownerId) optionQuery = optionQuery.eq("task.user_id", ownerId);
-      if (taskId) optionQuery = optionQuery.eq("task_id", taskId);
-      if (scope === "review") optionQuery = optionQuery.eq("decision", "REVIEW");
-      else optionQuery = optionQuery.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
-      if (scope === "today") optionQuery = optionQuery.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
-      if (scope === "week") optionQuery = optionQuery.gte("processed_at", `${weekStartDate}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
-      const optionPage = await optionQuery.range(offset, offset + 999);
-      if (optionPage.error) throw optionPage.error;
-      const pageRows = optionPage.data || [];
-      optionCandidates.push(...pageRows.map((row) => ({
-        country: row.country,
-        staging_customer_id: row.staging_customer_id,
-        imported_customer_id: row.imported_customer_id,
-      })));
-      if (pageRows.length < 1000) break;
+    const optionsCacheKey = [ownerId || "all", taskId || "all", scope, today].join(":");
+    const cachedFilterOptions = filterOptionsCache.get(optionsCacheKey);
+    let filterOptions = cachedFilterOptions?.expiresAt && cachedFilterOptions.expiresAt > Date.now()
+      ? cachedFilterOptions.value
+      : null;
+    if (!filterOptions) {
+      const optionCandidates: Array<{country:string|null;staging_customer_id:string|null;imported_customer_id:string|null}> = [];
+      for (let offset = 0; offset < 20000; offset += 1000) {
+        let optionQuery = admin
+          .from("ai_acquisition_candidates")
+          .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id)");
+        if (ownerId) optionQuery = optionQuery.eq("task.user_id", ownerId);
+        if (taskId) optionQuery = optionQuery.eq("task_id", taskId);
+        if (scope === "review") optionQuery = optionQuery.eq("decision", "REVIEW");
+        else optionQuery = optionQuery.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
+        if (scope === "today") optionQuery = optionQuery.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+        if (scope === "week") optionQuery = optionQuery.gte("processed_at", `${weekStartDate}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+        const optionPage = await optionQuery.range(offset, offset + 999);
+        if (optionPage.error) throw optionPage.error;
+        const pageRows = optionPage.data || [];
+        optionCandidates.push(...pageRows.map((row) => ({
+          country: row.country,
+          staging_customer_id: row.staging_customer_id,
+          imported_customer_id: row.imported_customer_id,
+        })));
+        if (pageRows.length < 1000) break;
+      }
+      const optionCustomerIds = [...new Set(optionCandidates.map((row) => String(row.imported_customer_id || row.staging_customer_id || "")).filter(Boolean))];
+      const optionProfiles: Array<{id:string;industry:string|null;category:string|null}> = [];
+      for (let offset = 0; offset < optionCustomerIds.length; offset += 500) {
+        const profilePage = await admin.from("customers").select("id,industry,category").in("id", optionCustomerIds.slice(offset, offset + 500));
+        if (profilePage.error) throw profilePage.error;
+        optionProfiles.push(...(profilePage.data || []));
+      }
+      const optionProfileById = new Map(optionProfiles.map((profile) => [String(profile.id), profile]));
+      const countryCounts = new Map<string,number>();
+      const industryCounts = new Map<string,number>();
+      for (const candidate of optionCandidates) {
+        const countryValue = String(candidate.country || "").trim();
+        if (countryValue) countryCounts.set(countryValue, (countryCounts.get(countryValue) || 0) + 1);
+        const customerId = String(candidate.imported_customer_id || candidate.staging_customer_id || "");
+        const profile = optionProfileById.get(customerId);
+        const industryValue = String(profile?.industry || profile?.category || "").trim();
+        if (industryValue) industryCounts.set(industryValue, (industryCounts.get(industryValue) || 0) + 1);
+      }
+      const countedOptions = (counts:Map<string,number>) => [...counts.entries()]
+        .map(([value,count]) => ({ value, count }))
+        .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
+      filterOptions = { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) };
+      filterOptionsCache.set(optionsCacheKey, { expiresAt: Date.now() + 60_000, value: filterOptions });
     }
-    const optionCustomerIds = [...new Set(optionCandidates.map((row) => String(row.imported_customer_id || row.staging_customer_id || "")).filter(Boolean))];
-    const optionProfiles: Array<{id:string;industry:string|null;category:string|null}> = [];
-    for (let offset = 0; offset < optionCustomerIds.length; offset += 500) {
-      const profilePage = await admin.from("customers").select("id,industry,category").in("id", optionCustomerIds.slice(offset, offset + 500));
-      if (profilePage.error) throw profilePage.error;
-      optionProfiles.push(...(profilePage.data || []));
-    }
-    const optionProfileById = new Map(optionProfiles.map((profile) => [String(profile.id), profile]));
-    const countryCounts = new Map<string,number>();
-    const industryCounts = new Map<string,number>();
-    for (const candidate of optionCandidates) {
-      const countryValue = String(candidate.country || "").trim();
-      if (countryValue) countryCounts.set(countryValue, (countryCounts.get(countryValue) || 0) + 1);
-      const customerId = String(candidate.imported_customer_id || candidate.staging_customer_id || "");
-      const profile = optionProfileById.get(customerId);
-      const industryValue = String(profile?.industry || profile?.category || "").trim();
-      if (industryValue) industryCounts.set(industryValue, (industryCounts.get(industryValue) || 0) + 1);
-    }
-    const countedOptions = (counts:Map<string,number>) => [...counts.entries()]
-      .map(([value,count]) => ({ value, count }))
-      .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
 
     const canControlTasks = hasPermission(account, "ai.acquisition.control");
     let filterTask:null|{id:string;task_number:string;name:string;countries:string[];industries:string[];keywords:string[]}=null;
@@ -184,7 +196,7 @@ export async function GET(request: NextRequest) {
       }),
       count: result.count || 0,
       summary: { today: todayResult.count || 0, week: weekResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },
-      filter_options: { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) },
+      filter_options: filterOptions,
       filter_task: filterTask,
       show_owner: hasPermission(account, "ai.acquisition.data_all"),
     });
