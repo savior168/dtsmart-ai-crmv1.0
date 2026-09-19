@@ -226,6 +226,7 @@ assert.match(listRoute,/ai_acquisition_candidates[\s\S]*eq\("decision", "ACCEPTE
 const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.ts",import.meta.url),"utf8");
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const screeningListRoute=fs.readFileSync(new URL("../app/api/ai/tasks/route.ts",import.meta.url),"utf8");
+const recoveryRoute=fs.readFileSync(new URL("../app/api/cron/ai-task-recovery/route.ts",import.meta.url),"utf8");
 const relevanceRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
 const reviewRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
 const evidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
@@ -260,6 +261,10 @@ const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.t
 const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatch.ts",import.meta.url),"utf8");
 assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
 assert.match(acquisitionDispatch,/current_stage_detail[\s\S]*maintenanceProtected[\s\S]*includes\("系统维护暂停"\)/,"维护名单只能保护仍带维护暂停标记的任务，人工继续后不得被自动再次暂停");
+assert.match(acquisitionDispatch,/settleStalePausingTasks[\s\S]*eq\("status", "PAUSING"\)[\s\S]*executor_heartbeat_at\.is\.null[\s\S]*status: "PAUSED"[\s\S]*等待人工继续执行[\s\S]*ai_screening_tasks[\s\S]*status: "PAUSED"/,"失效执行器遗留的正在暂停状态必须安全收口父子任务，且不得自动继续执行");
+assert.match(recoveryRoute,/screeningRecovery = maintenancePaused\.screening[\s\S]*recoverWithDeadline\("acquisition", rescueStalledAiAcquisitionTasks\)[\s\S]*screening_recovery_skipped/,"维护中的AI筛选不得阻断AI获客暂停收口和其他获客任务恢复");
+assert.doesNotMatch(recoveryRoute,/if \(maintenancePaused\.acquisition \|\| maintenancePaused\.screening\) \{[\s\S]*return NextResponse\.json/,"维护名单不得让整个恢复器提前返回");
+assert.match(acquisitionWorkflow,/normalizedErrorMessage[\s\S]*ACQUISITION_FINISH_COUNT_[\s\S]*ACQUISITION_FINISH_CANDIDATE_TOTALS[\s\S]*ACQUISITION_FINISH_TASK_UPDATE/,"任务完成收口必须保留可定位的数据库错误，不能只显示Unknown error");
 assert.match(detail,/discovery_progress[\s\S]*正在持续发现并核验目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及流水线完成进度");
 assert.match(detail,/任务编号 \{task\.task_number\}[\s\S]*创建人[\s\S]*创建于/,"任务详情标题元信息必须与AI筛选统一为编号、创建人和创建时间");
 assert.match(detailRoute,/owner:users!ai_acquisition_tasks_user_id_fkey\(id,name,email\)/,"任务详情接口必须返回真实创建人，不能把仍然存在的账号显示为历史账号");

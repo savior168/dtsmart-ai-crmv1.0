@@ -11,6 +11,39 @@ function maintenancePausedTaskIds() {
   );
 }
 
+async function settleStalePausingTasks(admin: ReturnType<typeof createAdminClient>) {
+  const cutoff = new Date(Date.now() - 3 * 60_000).toISOString();
+  const stale = await admin.from("ai_acquisition_tasks")
+    .select("id,started_at,elapsed_ms,pause_started_at")
+    .eq("status", "PAUSING")
+    .or(`executor_heartbeat_at.is.null,executor_heartbeat_at.lt.${cutoff}`)
+    .order("updated_at", { ascending: true })
+    .limit(10);
+  if (stale.error) throw stale.error;
+  let settled = 0;
+  for (const task of stale.data || []) {
+    const now = new Date();
+    const startedAt = task.started_at ? new Date(task.started_at).getTime() : NaN;
+    const pausedAt = task.pause_started_at ? new Date(task.pause_started_at).getTime() : now.getTime();
+    const elapsed = Number(task.elapsed_ms || 0) + (Number.isFinite(startedAt) ? Math.max(0, pausedAt - startedAt) : 0);
+    const saved = await admin.from("ai_acquisition_tasks").update({
+      status: "PAUSED", current_stage_detail: "任务已在安全检查点暂停，等待人工继续执行",
+      elapsed_ms: elapsed, started_at: null, pause_started_at: task.pause_started_at || now.toISOString(),
+      active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null,
+      error_message: null, updated_at: now.toISOString(),
+    }).eq("id", task.id).eq("status", "PAUSING").select("id").maybeSingle();
+    if (saved.error) throw saved.error;
+    if (!saved.data) continue;
+    const child = await admin.from("ai_screening_tasks").update({
+      status: "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null,
+      executor_heartbeat_at: null, updated_at: now.toISOString(),
+    }).eq("request_key", `acquisition:${task.id}`).in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+    if (child.error) throw child.error;
+    settled += 1;
+  }
+  return settled;
+}
+
 async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof createAdminClient>, taskId: string) {
   const child = await admin.from("ai_screening_tasks").select("id,status").eq("request_key", `acquisition:${taskId}`).maybeSingle();
   if (child.error) throw child.error;
@@ -38,9 +71,9 @@ async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof create
 export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
   const admin = createAdminClient();
   const maintenancePausedIds = maintenancePausedTaskIds();
+  let recovered = await settleStalePausingTasks(admin);
   const claimed = await admin.rpc("claim_stalled_ai_acquisition_tasks", { p_limit: 1 }).abortSignal(signal || new AbortController().signal);
   if (claimed.error) throw claimed.error;
-  let recovered = 0;
   for (const row of claimed.data || []) {
     const taskId = String(row.task_id || "");
     if (!taskId) continue;

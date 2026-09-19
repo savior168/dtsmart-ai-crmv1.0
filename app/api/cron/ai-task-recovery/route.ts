@@ -50,21 +50,25 @@ export async function GET(request: NextRequest) {
     acquisition: maintenanceIds("AI_MAINTENANCE_PAUSED_ACQUISITION_IDS").length,
     screening: maintenanceIds("AI_MAINTENANCE_PAUSED_SCREENING_IDS").length,
   };
-  // During an incident the exact protected IDs have already had their durable
-  // Workflow runs cancelled. Do not keep polling or writing the saturated
-  // database from a per-minute cron; manual resume is the only exit path.
-  if (maintenancePaused.acquisition || maintenancePaused.screening) {
-    return NextResponse.json({ ok: true, maintenance_mode: true, maintenance_paused: maintenancePaused });
-  }
   try {
+    // Maintenance-paused screening tasks have no per-task marker that can
+    // safely distinguish them after a manual resume, so leave that queue
+    // untouched. Acquisition recovery remains active: its dispatcher protects
+    // marked maintenance tasks and safely settles abandoned PAUSING states.
+    const screeningRecovery = maintenancePaused.screening
+      ? Promise.resolve({ recovered: 0, error: null, skipped: true })
+      : recoverWithDeadline("screening", rescueStalledCloudTasks);
     const [screening, acquisition] = await Promise.all([
-      recoverWithDeadline("screening", rescueStalledCloudTasks),
+      screeningRecovery,
       recoverWithDeadline("acquisition", rescueStalledAiAcquisitionTasks),
     ]);
     return NextResponse.json({
       ok: !screening.error && !acquisition.error,
+      maintenance_mode: maintenancePaused.acquisition > 0 || maintenancePaused.screening > 0,
+      maintenance_paused: maintenancePaused,
       recovered: screening.recovered + acquisition.recovered,
       screening_recovered: screening.recovered,
+      screening_recovery_skipped: "skipped" in screening && screening.skipped,
       acquisition_recovered: acquisition.recovered,
       screening_error: screening.error,
       acquisition_error: acquisition.error,

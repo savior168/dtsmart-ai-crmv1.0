@@ -7,6 +7,7 @@ import type { AcquisitionCountry } from "../lib/ai-acquisition/config";
 import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
 import { createScreeningTaskNumber } from "../lib/ai/task-number";
+import { normalizedErrorMessage } from "../lib/ai/error-normalization";
 
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
@@ -373,7 +374,7 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   const admin = createAdminClient();
   const decisionCount=async(decision:string)=>{
     const result=await admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId).eq("decision",decision);
-    if(result.error)throw result.error;
+    if(result.error)throw new Error(normalizedErrorMessage(result.error,{stage:`ACQUISITION_FINISH_COUNT_${decision}`}));
     return Number(result.count||0);
   };
   const [acceptedCount,reviewCount,rejectedCount,duplicateCount,reusedResult,totalResult,analyzingResult]=await Promise.all([
@@ -382,14 +383,14 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
     admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId),
     admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId).eq("decision","ANALYZING"),
   ]);
-  if(reusedResult.error||totalResult.error||analyzingResult.error)throw reusedResult.error||totalResult.error||analyzingResult.error;
+  if(reusedResult.error||totalResult.error||analyzingResult.error)throw new Error(normalizedErrorMessage(reusedResult.error||totalResult.error||analyzingResult.error,{stage:"ACQUISITION_FINISH_CANDIDATE_TOTALS"}));
   const processedCount=acceptedCount+reviewCount+rejectedCount+duplicateCount;
   const discoveredCount=Number(totalResult.count||0);
   const analyzingCount=Number(analyzingResult.count||0);
   if(status==="COMPLETED"&&(processedCount!==discoveredCount||analyzingCount>0))throw new Error(`ACQUISITION_COMPLETION_INTEGRITY_FAILED: processed=${processedCount}, discovered=${discoveredCount}, analyzing=${analyzingCount}`);
   const now = new Date();
   const task = await admin.from("ai_acquisition_tasks").select("started_at,elapsed_ms").eq("id", taskId).single();
-  if (task.error) throw task.error;
+  if (task.error) throw new Error(normalizedErrorMessage(task.error,{stage:"ACQUISITION_FINISH_TASK_STATE"}));
   const started = task.data.started_at ? new Date(task.data.started_at).getTime() : NaN;
   const elapsed = Number(task.data.elapsed_ms || 0) + (Number.isFinite(started) ? Math.max(0, now.getTime() - started) : 0);
   const finalStage=status==="COMPLETED"?"FINISHED":status;
@@ -398,13 +399,13 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
     admin.from("ai_acquisition_discovery_checkpoints").select("task_id",{count:"exact",head:true}).eq("task_id",taskId).in("status",["RUNNING","PAUSED","COMPLETED","BUDGET_LIMITED"]),
     admin.from("ai_acquisition_discovery_checkpoints").select("task_id",{count:"exact",head:true}).eq("task_id",taskId).eq("status","BUDGET_LIMITED"),
   ]);
-  if(checkpointTotal.error||freshCheckpoints.error||budgetCheckpoints.error)throw checkpointTotal.error||freshCheckpoints.error||budgetCheckpoints.error;
+  if(checkpointTotal.error||freshCheckpoints.error||budgetCheckpoints.error)throw new Error(normalizedErrorMessage(checkpointTotal.error||freshCheckpoints.error||budgetCheckpoints.error,{stage:"ACQUISITION_FINISH_CHECKPOINT_TOTALS"}));
   const noFreshSearch=Number(checkpointTotal.count||0)>0&&Number(freshCheckpoints.count||0)===0;
   const reusedCandidates=Number(reusedResult.count||0);
   const budgetLimited=Number(budgetCheckpoints.count||0)>0;
   const completedDetail=noFreshSearch?`本次任务范围与近期已完成搜索重合，未重复调用第三方平台；复用 ${reusedCandidates} 条近期核验结论，无新增候选进入分析`:budgetLimited?"发现阶段触发费用保护后停止；已发现候选均已完成去重、核验或历史结论复用":"当前检索策略可返回分页、去重、核验和准入判定均已完成";
   const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?completedDetail:status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, discovered_count:discoveredCount, processed_count:processedCount, accepted_count:acceptedCount, review_count:reviewCount, rejected_count:rejectedCount, duplicate_count:duplicateCount, elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message:errorMessage?.slice(0,1000)||null, updated_at:now.toISOString() }).eq("id",taskId);
-  if (update.error) throw update.error;
+  if (update.error) throw new Error(normalizedErrorMessage(update.error,{stage:"ACQUISITION_FINISH_TASK_UPDATE"}));
 }
 
 async function releaseTaskForRecovery(taskId: string, error: unknown) {
