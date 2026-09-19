@@ -25,10 +25,10 @@ export async function POST(request: NextRequest) {
     let account: { id: string; name: string | null; email: string; status: string; failed_login_attempts: number | null; locked_until: string | null; must_change_password: boolean; temporary_password_expires_at: string | null } | null = null;
     let accountError: { message?: string } | null = null;
     if (classified.type === "phone") {
-      const profile = await admin.from("profiles").select("id").eq("phone", classified.value).limit(1).maybeSingle().abortSignal(AbortSignal.timeout(8_000));
+      const profile = await admin.from("profiles").select("id").eq("phone", classified.value).limit(1).abortSignal(AbortSignal.timeout(8_000)).maybeSingle();
       if (profile.error) accountError = profile.error;
       else if (profile.data?.id) {
-        const found = await admin.from("users").select(accountFields).eq("id", profile.data.id).maybeSingle().abortSignal(AbortSignal.timeout(8_000));
+        const found = await admin.from("users").select(accountFields).eq("id", profile.data.id).abortSignal(AbortSignal.timeout(8_000)).maybeSingle();
         account = found.data;
         accountError = found.error;
       }
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       account = found.data?.find((item) => String(item.name || "").trim().toLowerCase() === classified.value) || null;
       accountError = found.error;
     } else {
-      const found = await admin.from("users").select(accountFields).eq("email", classified.value).maybeSingle().abortSignal(AbortSignal.timeout(8_000));
+      const found = await admin.from("users").select(accountFields).eq("email", classified.value).abortSignal(AbortSignal.timeout(8_000)).maybeSingle();
       account = found.data;
       accountError = found.error;
     }
