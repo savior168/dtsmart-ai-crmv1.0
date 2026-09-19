@@ -1627,6 +1627,7 @@ function identityAnchoredRecoveryText(customer: CustomerRow, website: WebsiteEvi
 export function deterministicAnalysis(customer: CustomerRow, records: ChannelRecord[]): CustomerAnalysis | null {
   const googleRecord = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
   const google = googleRecord?.evidence as GooglePlaceEvidence | undefined;
+  const snapshotOnlyGoogle = google?.evidence_origin === "ACQUISITION_SEARCH_SNAPSHOT";
   const googleUrl = google?.verified_google_maps_url || googleRecord?.source_url || customer.google_url || "";
   const websiteRecord = records.find((item) => item.channel === "website" && item.status === "COLLECTED");
   const website = websiteRecord?.evidence as WebsiteEvidence | undefined;
@@ -1752,8 +1753,10 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
     business_relevance: salesFields.relevance,
     customer_value: salesFields.value,
     followup_suggestion: salesFields.followup,
-    confidence_score: crossSourceConflict ? Math.min(79, Math.max(...evidenceSummaries.map((item) => item.confidence))) : Math.max(...evidenceSummaries.map((item) => item.confidence)),
-    evidence_sufficiency: "充分",
+    confidence_score: snapshotOnlyGoogle && !website?.reachable
+      ? Math.min(79, Math.max(...evidenceSummaries.map((item) => item.confidence)))
+      : crossSourceConflict ? Math.min(79, Math.max(...evidenceSummaries.map((item) => item.confidence))) : Math.max(...evidenceSummaries.map((item) => item.confidence)),
+    evidence_sufficiency: snapshotOnlyGoogle && !website?.reachable ? "一般" : "充分",
     evidence_conflicts: evidenceConflicts,
     score_breakdown: selected.scored.breakdown,
     suggested_contact_order: ["电话", "邮箱", "WhatsApp"],
@@ -2390,7 +2393,9 @@ async function completeFromReusableCache(input: { taskId: string; taskItemId: st
   }).eq("id", resultWrite.data.id);
   if (resultStatus.error) throw resultStatus.error;
   await admin.from("ai_screening_model_calls").upsert({ task_id: input.taskId, task_item_id: input.taskItemId, customer_id: customer.id, channel: "cross_user_result_reuse", attempt_number: 1, model: "REUSED_RESULT", model_version: String((cachedResult.model_snapshot as Record<string, unknown> | undefined)?.primary_model || "REUSED_RESULT"), input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 0, pricing_snapshot: { reused: true }, cost_usd: 0, status: "COMPLETED", cache_hit: true, completed_at: now, duration_ms: Date.now() - started }, { onConflict: "task_item_id,channel,attempt_number" });
-  await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
+  // Totals are a rebuildable progress projection. A transient refresh timeout
+  // must not turn an already durable reused result into a failed customer.
+  await optionalWrite("TASK_TOTAL_REFRESH", warnings, async () => admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId }));
   return { status: "COMPLETED" as const, resultId: resultWrite.data.id, reused: true };
 }
 
@@ -2977,8 +2982,9 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
     }).eq("id", resultWrite.data.id);
     if (finalResult.error) throw durableError(finalResult.error, "RESULT_COMPLETION");
     await recordStage({ taskId: input.taskId, taskItemId: input.taskItemId, customerId: input.customerId, stage: "COMPLETED", startedAt: started, status: "COMPLETED", details: { writeback_warning_count: writebackWarnings.length } });
-    const totals = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId });
-    if (totals.error) throw durableError(totals.error, "TASK_TOTAL_REFRESH");
+    // The result and task item are already durable. The workflow finalizer can
+    // retry this derived aggregate; it must never invalidate the analysis.
+    await optionalWrite("TASK_TOTAL_REFRESH", writebackWarnings, async () => admin.rpc("refresh_ai_screening_task_totals", { p_task_id: input.taskId }));
     return { status: "COMPLETED" as const, resultId: resultWrite.data.id, writebackWarnings };
   } finally {
     analysisController.abort();

@@ -43,7 +43,10 @@ export function applyTrustedAcquisitionGoogleSnapshot(
     place_id: customer.google_place_id || undefined,
     candidate_count: 1,
     identity_status: "MATCHED",
-    identity_confidence: 100,
+    // Text Search is a trustworthy same-response locator, but it is not the
+    // same as a subsequently fetched Place Details record. Keep thin snapshot
+    // confidence below a fully verified merchant profile.
+    identity_confidence: customer.address ? 85 : 78,
     match_signals: [
       "本次AI获客Google搜索返回的Place ID与客户暂存记录一致",
       customer.address ? "商家名称与完整地址来自同一Google搜索响应" : "商家名称与Place ID来自同一Google搜索响应",
@@ -51,6 +54,7 @@ export function applyTrustedAcquisitionGoogleSnapshot(
     ],
     mismatch_signals: evidence?.mismatch_signals || [],
     verified_google_maps_url: customer.google_url || evidence?.verified_google_maps_url,
+    evidence_origin: "ACQUISITION_SEARCH_SNAPSHOT",
     error: snapshotError,
   };
 }

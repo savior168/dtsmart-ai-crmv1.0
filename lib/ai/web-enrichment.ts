@@ -48,6 +48,7 @@ export type GooglePlaceEvidence = {
   match_signals?: string[];
   mismatch_signals?: string[];
   verified_google_maps_url?: string;
+  evidence_origin?: "PUBLIC_PAGE" | "PLACES_API" | "ACQUISITION_SEARCH_SNAPSHOT";
   error?: string;
 };
 
@@ -1366,7 +1367,12 @@ export async function collectGooglePlaceEvidence(input: {
     for (const candidateId of candidateIds) {
       if (paidCandidateIds.size >= 1) break;
       paidCandidateIds.add(candidateId);
-      const detail = await readDetail(candidateId, baseIdentityFields);
+      // A concrete Maps URL already identifies the requested Place. Fetch its
+      // identity and actionable contacts together, avoiding a slower and more
+      // expensive second request after the identity has already matched.
+      const detail = await readDetail(candidateId, directPlaceId === candidateId
+        ? `${baseIdentityFields},internationalPhoneNumber,nationalPhoneNumber,websiteUri`
+        : baseIdentityFields);
       if (!detail) continue;
       details.push(detail);
       const addressSimilarity = addressIdentityScore(input.address, detail.formattedAddress);
@@ -1575,6 +1581,7 @@ export async function collectGooglePlaceEvidence(input: {
       match_signals: top.matchSignals,
       mismatch_signals: top.mismatchSignals,
       verified_google_maps_url: result.googleMapsUri || (result.id ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(result.id)}` : input.google_url || undefined),
+      evidence_origin: "PLACES_API",
       error: paidDetailLimitReached ? `已达到单客户${maxPaidDetailCallsPerCustomer}次付费Place Details上限，系统停止继续付费取证。` : undefined,
     };
     return evidence;

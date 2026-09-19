@@ -208,7 +208,9 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
     });
   }
 }
-analyzeTaskItem.maxRetries = 0;
+// Checkpointed customer analysis is idempotent. One infrastructure retry
+// prevents a transient database/network interruption from failing the task.
+analyzeTaskItem.maxRetries = 1;
 
 async function finishTask(taskId: string) {
   "use step";
