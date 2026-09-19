@@ -47,6 +47,7 @@ assert.match(strategiesView, /所有AI筛选任务均由绑定账户的 Vercel �
 assert.match(acquisitionRecoveryMigration, /t\.status in \('QUEUED','RUNNING'\)/, "manual pause states must never be claimed by automatic recovery");
 assert.doesNotMatch(acquisitionRecoveryMigration, /t\.status in \([^)]*PAUSING/, "PAUSING must remain a user-controlled state");
 assert.match(acquisitionDispatcher, /maintenancePausedIds\.has\(taskId\)[\s\S]*state\.data\.status === "PAUSING"[\s\S]*"PAUSED"/, "recovery dispatcher must defensively preserve manual and maintenance pauses");
-assert.match(recoveryCron, /applyMaintenancePausesWithDeadline[\s\S]*MAINTENANCE_PAUSE_TIMEOUT/, "maintenance pause must be bounded so it cannot hang the recovery endpoint");
+assert.match(recoveryCron, /maintenance_mode: true[\s\S]*maintenance_paused: maintenancePaused/, "maintenance mode must return before recovery touches the saturated database");
+assert.doesNotMatch(recoveryCron, /createAdminClient|applyMaintenancePauses/, "maintenance recovery cron must not keep polling or writing the database");
 
 console.log("AI cloud executor regression tests passed");

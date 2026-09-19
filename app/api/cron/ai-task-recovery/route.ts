@@ -1,50 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rescueStalledCloudTasks } from "@/lib/ai/task-dispatch";
 import { rescueStalledAiAcquisitionTasks } from "@/lib/ai-acquisition/dispatch";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
 
 const RECOVERY_DEADLINE_MS = 12_000;
-const MAINTENANCE_PAUSE_DEADLINE_MS = 8_000;
 
 function maintenanceIds(name: string) {
   return (process.env[name] || "")
     .split(",")
     .map((value) => value.trim())
     .filter((value) => /^[0-9a-f-]{36}$/i.test(value));
-}
-
-async function applyMaintenancePauses() {
-  const acquisitionIds = maintenanceIds("AI_MAINTENANCE_PAUSED_ACQUISITION_IDS");
-  const screeningIds = maintenanceIds("AI_MAINTENANCE_PAUSED_SCREENING_IDS");
-  if (!acquisitionIds.length && !screeningIds.length) return { acquisition: 0, screening: 0 };
-  const admin = createAdminClient();
-  const now = new Date().toISOString();
-  const [acquisition, screening] = await Promise.all([
-    acquisitionIds.length
-      ? admin.from("ai_acquisition_tasks").update({ status: "PAUSED", current_stage_detail: "系统维护暂停；仅允许人工继续执行", started_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now }).in("id", acquisitionIds).in("status", ["QUEUED", "RUNNING", "PAUSING"]).select("id")
-      : Promise.resolve({ data: [], error: null }),
-    screeningIds.length
-      ? admin.from("ai_screening_tasks").update({ status: "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now }).in("id", screeningIds).in("status", ["QUEUED", "RUNNING", "PAUSING"]).select("id")
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-  if (acquisition.error || screening.error) throw acquisition.error || screening.error;
-  return { acquisition: acquisition.data?.length || 0, screening: screening.data?.length || 0 };
-}
-
-async function applyMaintenancePausesWithDeadline() {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      applyMaintenancePauses(),
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error("MAINTENANCE_PAUSE_TIMEOUT")), MAINTENANCE_PAUSE_DEADLINE_MS);
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
 }
 
 async function recoverWithDeadline(label: string, recover: (signal: AbortSignal) => Promise<number>) {
@@ -80,8 +46,17 @@ export async function GET(request: NextRequest) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
+  const maintenancePaused = {
+    acquisition: maintenanceIds("AI_MAINTENANCE_PAUSED_ACQUISITION_IDS").length,
+    screening: maintenanceIds("AI_MAINTENANCE_PAUSED_SCREENING_IDS").length,
+  };
+  // During an incident the exact protected IDs have already had their durable
+  // Workflow runs cancelled. Do not keep polling or writing the saturated
+  // database from a per-minute cron; manual resume is the only exit path.
+  if (maintenancePaused.acquisition || maintenancePaused.screening) {
+    return NextResponse.json({ ok: true, maintenance_mode: true, maintenance_paused: maintenancePaused });
+  }
   try {
-    const maintenancePaused = await applyMaintenancePausesWithDeadline();
     const [screening, acquisition] = await Promise.all([
       recoverWithDeadline("screening", rescueStalledCloudTasks),
       recoverWithDeadline("acquisition", rescueStalledAiAcquisitionTasks),
@@ -93,7 +68,6 @@ export async function GET(request: NextRequest) {
       acquisition_recovered: acquisition.recovered,
       screening_error: screening.error,
       acquisition_error: acquisition.error,
-      maintenance_paused: maintenancePaused,
     });
   } catch (error) {
     console.error("[ai-task-recovery] cron rescue failed", error);
