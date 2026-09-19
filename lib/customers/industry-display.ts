@@ -31,3 +31,24 @@ export function customerIndustryDisplay(customer: IndustryCustomer) {
   const text = distinct.length ? distinct.join("、") : "待AI核验";
   return { text, verified: false, title: distinct.length ? `原始商家类别映射：${text}（待AI核验）` : "尚无已核验行业，请先完成AI筛选" };
 }
+
+/**
+ * Compact server-side filters for raw Google/business categories. The public
+ * pool sends the normalized label instead of every raw category value, which
+ * keeps multi-select URLs bounded even when thousands of source categories
+ * map to the same user-facing industry.
+ */
+export function rawCategoryPatternsForIndustryLabel(label: string) {
+  const patterns: Record<string, string[]> = {
+    "手机维修": ["*phone*repair*", "*mobile*repair*", "*cell phone*repair*", "*smartphone*repair*", "*telefonreparatur*"],
+    "电脑维修": ["*computer*repair*", "*laptop*repair*", "*notebook*repair*", "*pc repair*"],
+    "手机配件零售": ["*phone*accessor*", "*mobile*accessor*", "*cellular*accessor*", "*accessory store*"],
+    "手机零售": ["*cell phone*store*", "*mobile phone*store*", "*telephone store*", "*mobile phone shop*"],
+    "电信运营服务": ["*telecommunications service provider*", "*mobile network operator*", "*telekom partner*"],
+    "批发或分销": ["*wholesale*", "*wholesaler*", "*distributor*", "*importer*"],
+    "软件或IT服务": ["*software*", "*it service*", "*computer service*", "*technical support*"],
+    "电子产品零售": ["*electronics store*", "*consumer electronics*"],
+    "维修服务": ["*repair service*"],
+  };
+  return patterns[label] || [];
+}

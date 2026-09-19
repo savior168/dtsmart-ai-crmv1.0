@@ -262,8 +262,12 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
     // Overlap the same already-approved evidence checks more efficiently. This
     // changes throughput only: it neither creates extra candidates nor adds
     // any provider/model call per candidate. The hard cap protects quotas.
-    const configuredConcurrency = Number(process.env.AI_SCREENING_CONCURRENCY || 10);
-    const concurrency = Math.min(12, Math.max(1, Number.isFinite(configuredConcurrency) ? Math.floor(configuredConcurrency) : 10));
+    // Multiple acquisition tasks can run at once. A per-task default of 10
+    // multiplied into dozens of concurrent website, Places and database calls,
+    // starving interactive CRM requests. Four keeps continuous throughput
+    // while reserving database capacity for users; operators may tune up to 6.
+    const configuredConcurrency = Number(process.env.AI_SCREENING_CONCURRENCY || 4);
+    const concurrency = Math.min(6, Math.max(1, Number.isFinite(configuredConcurrency) ? Math.floor(configuredConcurrency) : 4));
     while (true) {
       let state = await taskState(input.taskId);
       if (state.status === "PAUSING") {

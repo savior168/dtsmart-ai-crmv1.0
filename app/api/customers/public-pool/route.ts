@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { postgrestContains } from "@/lib/postgrest-search";
-import { customerIndustryLabels } from "@/lib/customers/industry-display";
+import { customerIndustryLabels, rawCategoryPatternsForIndustryLabel } from "@/lib/customers/industry-display";
 
 type PoolDbRow = Record<string, unknown> & {
   id: string;
@@ -25,6 +25,7 @@ type PoolDbRow = Record<string, unknown> & {
 
 const RESTRICTED_POOL_EMAILS = new Set(["laura@dt-smart.com", "xavia@dt-smart.com"]);
 const RESTRICTED_POOL_BATCHES = ["255 WT谷歌数据 波兰 (2).xlsx", "500 WT谷歌数据 波兰 (1).xlsx"] as const;
+const poolOptionsCache = new Map<string, { expiresAt: number; payload: Record<string, unknown> }>();
 
 function maskPhone(value: unknown) {
   const text = String(value || "").trim();
@@ -49,7 +50,6 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
-    await admin.rpc("refresh_expired_public_customers");
     const params = request.nextUrl.searchParams;
     const tab = params.get("tab") || "available";
     const restrictedBatchView = tab === "available" && RESTRICTED_POOL_EMAILS.has(account.email.trim().toLowerCase());
@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
     const createdTo = params.get("created_to")?.trim() || "";
     const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
+    const industryGroups = [...new Set(params.getAll("industry_group").map((value) => value.trim()).filter(Boolean))];
     const aiLevel = params.get("ai_level")?.trim().toUpperCase() || "";
     const aiStatus = params.get("ai_status")?.trim().toLowerCase() || "all";
     const target = params.get("target")?.trim() || "";
@@ -119,6 +120,11 @@ export async function GET(request: NextRequest) {
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
+      const optionCacheKey = [account.id, account.role, tab, restrictedBatchView ? "restricted" : "all", ...(claimScopeOwnerIds || [])].join("|");
+      const cachedOptions = poolOptionsCache.get(optionCacheKey);
+      if (cachedOptions && cachedOptions.expiresAt > Date.now()) {
+        return NextResponse.json(cachedOptions.payload, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=90" } });
+      }
       const optionRows: Array<{ id: string; country:string | null; industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin.from("customers").select("id,country,industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
@@ -160,7 +166,7 @@ export async function GET(request: NextRequest) {
       const industryOptionMap = new Map<string, { value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>();
       for (const item of verifiedIndustryMap.values()) industryOptionMap.set(item.label, { ...item, value: `industry:${item.label}`, tone: "verified" });
       for (const [label, categories] of rawIndustryMap.entries()) {
-        const rawValues = [...categories].map((category) => `raw:${category}`);
+        const rawValues = categories.size ? [`group:${label}`] : [];
         const current = industryOptionMap.get(label);
         industryOptionMap.set(label, current
           ? { ...current, values: [...current.values, ...rawValues], tone: "mixed" }
@@ -191,7 +197,7 @@ export async function GET(request: NextRequest) {
         ? await admin.from("ai_screening_tasks").select("id,task_number,name,total_count,created_at").gt("total_count", 0).order("created_at", { ascending: false }).limit(500)
         : { data: [], error: null };
       if (screeningTasks.error) throw screeningTasks.error;
-      return NextResponse.json({
+      const payload = {
         countries,
         industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
@@ -202,7 +208,9 @@ export async function GET(request: NextRequest) {
         ].filter((option) => optionRows.some((item) => sourceGroup(item.source) === option.value)),
         batches,
         screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}`, customer_count: Number(task.total_count || 0) })),
-      }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
+      };
+      poolOptionsCache.set(optionCacheKey, { expiresAt: Date.now() + 60_000, payload });
+      return NextResponse.json(payload, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=90" } });
     }
 
     // Website contact and follow-up status are compatibility columns. Probe
@@ -238,7 +246,16 @@ export async function GET(request: NextRequest) {
     const verifiedIndustries = industries.filter((value) => value.startsWith("ai:")).map((value) => value.slice(3));
     const rawCategories = industries.filter((value) => value.startsWith("raw:")).map((value) => value.slice(4));
     const quoted = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
-    if (verifiedIndustries.length && !rawCategories.length) query = query.eq("ai_screening_done", true).in("industry", verifiedIndustries);
+    if (industryGroups.length) {
+      const anyIndustry = [
+        ...industryGroups.map((value) => `and(ai_screening_done.is.true,industry.eq.${quoted(value)})`),
+        ...industryGroups.flatMap((label) => rawCategoryPatternsForIndustryLabel(label).flatMap((pattern) => [
+          `and(ai_screening_done.is.false,category.ilike.${quoted(pattern)})`,
+          `and(ai_screening_done.is.null,category.ilike.${quoted(pattern)})`,
+        ])),
+      ];
+      if (anyIndustry.length) query = query.or(anyIndustry.join(","));
+    } else if (verifiedIndustries.length && !rawCategories.length) query = query.eq("ai_screening_done", true).in("industry", verifiedIndustries);
     else if (!verifiedIndustries.length && rawCategories.length) query = query.or("ai_screening_done.is.false,ai_screening_done.is.null").in("category", rawCategories);
     else if (verifiedIndustries.length || rawCategories.length) {
       const anyIndustry = [

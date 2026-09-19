@@ -371,6 +371,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const sourceBatchRef = useRef<HTMLDivElement>(null);
   const screeningTaskRef = useRef<HTMLDivElement>(null);
   const requestVersion = useRef(0);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const optionsAbortRef = useRef<AbortController | null>(null);
   const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
     countries: [],
     industries: [],
@@ -401,7 +403,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const appendIndustryFilters = useCallback((params: URLSearchParams) => {
     for (const value of industries) {
       const option = filterOptions.industries.find((item) => item.value === value);
-      for (const filterValue of option?.values || []) params.append("industry", filterValue);
+      for (const filterValue of option?.values || []) {
+        if (filterValue.startsWith("group:")) params.append("industry_group", filterValue.slice(6));
+        else params.append("industry", filterValue);
+      }
     }
   }, [filterOptions.industries, industries]);
   const appendSourceBatchFilters = useCallback((params: URLSearchParams) => {
@@ -413,6 +418,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       return;
     }
     const version = ++requestVersion.current;
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
     setLoading(true);
     setError("");
     try {
@@ -437,7 +445,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
       params.set("sort", sort);
       params.set("direction", direction);
-      const body = await api(`/api/customers/public-pool?${params}`);
+      const body = await api(`/api/customers/public-pool?${params}`, { signal: controller.signal });
       if (version !== requestVersion.current) return;
       const nextCount = Number(body.count || 0);
       setRows(body.data || []);
@@ -451,7 +459,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       }
       setSelected(new Set());
     } catch (caught) {
-      if (version === requestVersion.current) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
+      if (version === requestVersion.current && !(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
@@ -521,7 +529,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, []);
   useEffect(() => {
     if (!["available", "claimed", "pending"].includes(tab)) return;
-    api(`/api/customers/public-pool?tab=${tab}&options=1`)
+    optionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    optionsAbortRef.current = controller;
+    api(`/api/customers/public-pool?tab=${tab}&options=1`, { signal: controller.signal })
       .then((body) =>
         setFilterOptions({
           countries: body.countries || [],
@@ -532,9 +543,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
           screening_tasks: body.screening_tasks || [],
         }),
       )
-      .catch(() =>
-        setFilterOptions({ countries: [], industries: [], owners: [], sources: [], batches: [], screening_tasks: [] }),
-      );
+      .catch((caught) => {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) setFilterOptions({ countries: [], industries: [], owners: [], sources: [], batches: [], screening_tasks: [] });
+      });
+    return () => controller.abort();
   }, [tab]);
   useEffect(
     () => setPage(1),
