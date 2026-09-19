@@ -17,13 +17,16 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     if (ownerId !== account.id && (!hasPermission(account, "ai.acquisition.data_all") || !await canReadAiOwner(account, ownerId))) throw new Error("FORBIDDEN");
     const itemId = String(candidate.data.screening_task_item_id || "");
     const customerId = String(candidate.data.staging_customer_id || candidate.data.imported_customer_id || "");
-    const [result, evidence, contacts] = await Promise.all([
-      itemId ? admin.from("ai_screening_results").select("score,grade,target_decision,identity_status,evidence_sufficiency_score,short_reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle() : Promise.resolve({ data: null, error: null }),
-      itemId ? admin.from("ai_screening_evidence").select("id,source_url,source_type,channel,title,evidence_type,evidence_strength,evidence_confidence,identity_match_status,normalized_fact,translated_fact,content,original_excerpt,metadata,created_at:fetched_at").eq("task_item_id", itemId).order("fetched_at", { ascending: true }) : Promise.resolve({ data: [], error: null }),
+    const result = itemId
+      ? await admin.from("ai_screening_results").select("id,score,grade,target_decision,identity_status,evidence_sufficiency_score,short_reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle()
+      : { data: null, error: null };
+    if (result.error) throw result.error;
+    const [evidence, contacts] = await Promise.all([
+      result.data?.id ? admin.from("ai_screening_evidence").select("id,source_url,source_type,channel,title,evidence_type,evidence_strength,evidence_confidence,identity_match_status,normalized_fact,translated_fact,content,original_excerpt,metadata,created_at:fetched_at").eq("result_id", result.data.id).order("fetched_at", { ascending: true }) : Promise.resolve({ data: [], error: null }),
       customerId ? admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id", customerId).in("type", ["PHONE","EMAIL","WHATSAPP"]).in("verification_status", ["NEW_VERIFIED","SOURCE_CONFIRMED","MATCHED_ORIGINAL"]).not("exact_source_url", "is", null).order("type", { ascending: true }) : Promise.resolve({ data: [], error: null }),
     ]);
     if (result.error || evidence.error || contacts.error) throw result.error || evidence.error || contacts.error;
-    return NextResponse.json({ candidate: candidate.data, analysis: result.data, evidence: evidence.data || [], contacts: contacts.data || [] });
+    return NextResponse.json({ candidate: candidate.data, analysis: result.data, evidence: evidence.data || [], contacts: contacts.data || [], evidence_available: Boolean(result.data?.id) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "核验依据加载失败";
     const databaseError = error as { code?: string; details?: string; hint?: string };

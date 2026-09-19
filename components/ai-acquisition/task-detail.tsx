@@ -47,6 +47,7 @@ type UsageSummary = {
 type GoogleSkuUsage = { key:string; label:string; usageCount:number; pendingSystemUsage:number; projectedUsage:number; freeLimit:number|null; projectedRemaining:number|null; projectedOverageCalls:number; projectedOverageCostUsd:number };
 type GoogleBilling = { state:"NOT_CONFIGURED"|"CONNECTED"|"NO_DATA"|"ERROR"; message:string; skuUsage?:GoogleSkuUsage[] };
 type EvidenceData = {
+  evidence_available?: boolean;
   candidate: Candidate;
   analysis: {
     score?: number;
@@ -250,11 +251,15 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     setEvidenceLoading(true);
     setEvidence(null);
     try {
-      const r = await fetch(`/api/ai-acquisition/candidates/${id}/evidence`, {
-        cache: "no-store",
-      });
-      const b = await r.json();
-      if (!r.ok) throw new Error(b.error || "依据加载失败");
+      let r: Response | null = null;
+      let b: EvidenceData & {error?:string} = {} as EvidenceData;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        r = await fetch(`/api/ai-acquisition/candidates/${id}/evidence`, { cache: "no-store" });
+        b = await r.json().catch(() => ({} as EvidenceData));
+        if (r.ok || r.status < 500 || attempt === 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!r?.ok) throw new Error(b.error || "依据加载失败");
       setEvidence(b);
     } catch (e) {
       toast(e instanceof Error ? e.message : "依据加载失败", "error");
@@ -626,6 +631,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       >
         {evidence ? (
           <div className="space-y-5">
+            {!evidence.evidence_available ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800"><b className="mr-2">早筛依据</b>{evidence.candidate.decision_reason || "该候选在深度核验前已因重复、停业或缺少目标行业信号停止，因此没有生成完整AI证据报告。"}</p> : null}
             <section className="grid gap-3 md:grid-cols-3">
               <div className="rounded-xl bg-blue-50 p-4">
                 <small>AI评分</small>

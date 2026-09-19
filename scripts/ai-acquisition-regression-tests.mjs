@@ -224,6 +224,7 @@ const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const relevanceRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
 const reviewRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
+const evidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
 const actualCostPolicy=fs.readFileSync(new URL("../lib/api-cost-actual.ts",import.meta.url),"utf8");
 assert.match(usageRoute,/ai\.acquisition\.usage\.view/);
 assert.match(usageRoute,/amount_type/);
@@ -245,6 +246,7 @@ assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null
 assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_count[\s\S]*noNewSearchUnits/,"任务详情必须使用数据库端聚合的完整检索进度和真实无新增判断");
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
 assert.match(reviewRoute,/trustedEvidenceUrls[\s\S]*SOURCE_CONFIRMED[\s\S]*refreshedContacts[\s\S]*evaluateAcquisitionGate/,"重新核验必须基于强证据修复可追溯联系方式后重新执行入池门槛");
+assert.match(evidenceRoute,/select\("id,score[\s\S]*result\.data\?\.id[\s\S]*eq\("result_id", result\.data\.id\)[\s\S]*evidence_available/,"查看依据必须通过已索引的最终结果读取证据，并让无深度核验的早筛候选正常返回");
 const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
 const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatch.ts",import.meta.url),"utf8");
 assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
