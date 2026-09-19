@@ -239,7 +239,7 @@ assert.match(detailRoute,/actualCostUsd\(metricCostRows\)[\s\S]*google_actual_co
 assert.match(detailRoute,/eq\("request_key", `acquisition:\$\{id\}`\)[\s\S]*const screeningIds = \[String\(acquisitionChild\.data\?\.id/,'费用归属必须只使用当前获客任务的专属筛选子任务，不能读取候选记录中的历史任务ID');
 assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweight\?\{\}:\{costs:[\s\S]*usage_summary:/,"完整详情必须以当前任务费用流水重算汇总，轻量轮询不得用空流水覆盖已加载费用");
 assert.match(detailRoute,/liveDecisionCounts[\s\S]*liveTerminal[\s\S]*rejected_count:liveDecisionCounts\.REJECTED[\s\S]*duplicate_count:liveDecisionCounts\.DUPLICATE/,"暂停中的任务详情也必须按候选真实状态展示拒绝和重复计数");
-assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*status: "RUNNING"/,"恢复旧任务前必须先用修复后的早筛规则重新排队误拒候选");
+assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*liveChildExecutor[\s\S]*WAITING_FOR_MANUAL_RESUME[\s\S]*status: "QUEUED"[\s\S]*select\("id"\)\.maybeSingle\(\)[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)[\s\S]*继续执行启动失败/ ,"人工继续必须安全接管失效执行器、避免重复执行，并在启动失败时回退为暂停");
 assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durableItemIds[\s\S]*const itemIds[\s\S]*status: "COMPLETED"[\s\S]*lease_owner: null[\s\S]*is_latest_valid: false/,"失败任务重试必须保留已经持久化完成的客户，只重置真正未完成的项目并清理旧租约");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
@@ -250,7 +250,8 @@ assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquis
 assert.doesNotMatch(detailRoute,/rescueStalledAiAcquisitionTasks/,"任务详情读取不得触发恢复调度或数据库领取");
 assert.doesNotMatch(listRoute,/rescueStalledAiAcquisitionTasks/,"任务中心读取不得触发恢复调度或数据库领取");
 assert.doesNotMatch(screeningListRoute,/rescueStalledCloudTasks/,"AI筛选任务列表读取不得触发恢复调度或数据库领取");
-assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null \}[\s\S]*verificationTotal[\s\S]*earlyProcessed[\s\S]*liveProcessed[\s\S]*verification_progress:verificationProgress/,"实时轮询必须跳过客户明细并按早停加深度核验返回真实轻量进度");
+assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null \}[\s\S]*verificationTotal[\s\S]*earlyProcessed[\s\S]*liveTerminal[\s\S]*verification_progress:verificationProgress/,"实时轮询必须跳过客户明细并按最终业务决策返回真实轻量进度");
+assert.doesNotMatch(detailRoute,/Math\.max\(liveProcessed,liveTerminal\)/,"任务完成量不得把技术失败或未形成业务决策的尝试计为已处理");
 assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_count[\s\S]*noNewSearchUnits/,"任务详情必须使用数据库端聚合的完整检索进度和真实无新增判断");
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
 assert.match(reviewRoute,/trustedEvidenceUrls[\s\S]*SOURCE_CONFIRMED[\s\S]*refreshedContacts[\s\S]*evaluateAcquisitionGate/,"重新核验必须基于强证据修复可追溯联系方式后重新执行入池门槛");
@@ -258,6 +259,7 @@ assert.match(evidenceRoute,/select\("id,score[\s\S]*result\.data\?\.id[\s\S]*eq\
 const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
 const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatch.ts",import.meta.url),"utf8");
 assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
+assert.match(acquisitionDispatch,/current_stage_detail[\s\S]*maintenanceProtected[\s\S]*includes\("系统维护暂停"\)/,"维护名单只能保护仍带维护暂停标记的任务，人工继续后不得被自动再次暂停");
 assert.match(detail,/discovery_progress[\s\S]*正在持续发现并核验目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及流水线完成进度");
 assert.match(detail,/任务编号 \{task\.task_number\}[\s\S]*创建人[\s\S]*创建于/,"任务详情标题元信息必须与AI筛选统一为编号、创建人和创建时间");
 assert.match(detailRoute,/owner:users!ai_acquisition_tasks_user_id_fkey\(id,name,email\)/,"任务详情接口必须返回真实创建人，不能把仍然存在的账号显示为历史账号");
@@ -265,8 +267,8 @@ assert.match(detail,/task\.owner\?\.name\|\|task\.owner\?\.email\|\|"原账号�
 assert.match(detail,/CompactTags[\s\S]*展开其余 \{remaining\.length\} 项[\s\S]*ChevronDown[\s\S]*任务条件与执行规则[\s\S]*目标国家\/地区[\s\S]*执行设置[\s\S]*目标行业[\s\S]*搜索关键词/,"任务条件和匹配关键词必须提供明确可点击的按需展开，不能把长文本整段铺开");
 assert.match(detail,/1\. 搜索范围[\s\S]*2\. 发现并去重[\s\S]*3\. 完成核验[\s\S]*4\. 当前结果/,"实时进度必须按用户可理解的四项结果概览展示");
 assert.match(detail,/remainingCandidates[\s\S]*剩余[\s\S]*待处理[\s\S]*搜索完成度[\s\S]*候选核验完成度/,"实时进度必须分别展示搜索和候选核验完成度及剩余量");
-assert.match(detail,/查看处理明细[\s\S]*快速排除或重复[\s\S]*进入深度核验[\s\S]*深度核验完成/,"技术处理构成必须折叠展示，且口径清晰可核对");
-assert.match(detail,/maintenancePaused[\s\S]*系统维护保护中[\s\S]*不会新增调用或费用[\s\S]*管理员手动恢复[\s\S]*只有人工点击“继续执行”后才会恢复[\s\S]*最近进展/,"维护暂停必须说明任务未执行、无新增费用且只能人工恢复");
+assert.match(detail,/查看处理明细[\s\S]*快速排除或重复[\s\S]*进入深度核验[\s\S]*核验成功[\s\S]*技术失败[\s\S]*需重试/,"技术处理构成必须折叠展示，并区分成功、待处理和技术失败");
+assert.match(detail,/maintenancePaused[\s\S]*task\.status === "RUNNING" && !maintenancePaused[\s\S]*task\.status === "PAUSED" \|\| maintenancePaused[\s\S]*StatusBadge status=\{maintenancePaused\?"PAUSED":task\.status\}[\s\S]*不会新增调用或费用[\s\S]*只有人工点击“继续执行”后才会恢复[\s\S]*最近进展/,"维护暂停必须显示为暂停、只提供人工继续入口，并明确不会新增费用");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
 assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
 assert.match(detail,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");

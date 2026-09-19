@@ -142,7 +142,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const verificationTotal=Number(verificationTask?.total_count||0);
     const verificationCompleted=Math.min(verificationTotal,Number(verificationTask?.processed_count||0)||Number(verificationTask?.success_count||0)+Number(verificationTask?.failed_count||0));
     const earlyProcessed=Math.max(0,Number(task.discovered_count||0)-verificationTotal);
-    const liveProcessed=Math.min(Number(task.discovered_count||0),Math.max(Number(task.processed_count||0),earlyProcessed+verificationCompleted));
     const verificationProgress=verificationTask?{status:verificationTask.status,total:verificationTotal,completed:verificationCompleted,pending:Math.max(0,Number(verificationTask.pending_count||0)),success:Number(verificationTask.success_count||0),failed:Number(verificationTask.failed_count||0),early_processed:earlyProcessed,updated_at:verificationTask.updated_at}:null;
     const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,decision_reason,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
     if(traceRows.error) console.error("[ai-acquisition-task] optional search analytics unavailable", { task_id:id, code:traceRows.error.code });
@@ -175,7 +174,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const liveTask={...task,discovered_count:liveDiscovered,processed_count:liveTerminal,accepted_count:liveDecisionCounts.ACCEPTED,review_count:liveDecisionCounts.REVIEW,rejected_count:liveDecisionCounts.REJECTED,duplicate_count:liveDecisionCounts.DUPLICATE};
     const reusedCandidates=(traceRows.data||[]).filter((row)=>String(row.decision_reason||"").startsWith("复用近14天历史核验结论")).length;
     const noNewSearchUnits=totalCheckpoints>0&&completedFreshSearches===0&&completedSearches===totalCheckpoints&&incrementalSkipped+concurrentlySkipped+reusedSearches>=totalCheckpoints;
-    return NextResponse.json({ task: presentTask({...liveTask,processed_count:Math.max(liveProcessed,liveTerminal)}), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},usage_summary:{...usageData,...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    return NextResponse.json({ task: presentTask(liveTask), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},usage_summary:{...usageData,...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"
@@ -205,16 +204,66 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const result = await admin.from("ai_acquisition_tasks").update({ status: "PAUSING", pause_started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id).eq("status", "RUNNING");
       if (result.error) throw result.error;
     } else if (action === "RESUME") {
-      if (task.status !== "PAUSED") return NextResponse.json({ error: "只有已暂停任务可以恢复" }, { status: 409 });
-      const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
+      const maintenancePaused = String(task.current_stage_detail || "").includes("系统维护暂停");
+      if (task.status !== "PAUSED" && !maintenancePaused) return NextResponse.json({ error: "只有已暂停任务可以恢复" }, { status: 409 });
+      const child = await admin.from("ai_screening_tasks").select("id,status,active_executor,workflow_run_id,executor_heartbeat_at").eq("request_key", `acquisition:${id}`).maybeSingle();
       if (child.error) throw child.error;
       if (child.data) await requeueCorrectedEarlyRejections(task, String(child.data.id));
       const now = new Date();
+      const heartbeatAt = task.executor_heartbeat_at ? new Date(task.executor_heartbeat_at).getTime() : NaN;
+      const liveExecutor = task.active_executor === "VERCEL_WORKFLOW"
+        && Boolean(task.workflow_run_id)
+        && Number.isFinite(heartbeatAt)
+        && now.getTime() - heartbeatAt < 120_000;
+      const childHeartbeatAt = child.data?.executor_heartbeat_at ? new Date(child.data.executor_heartbeat_at).getTime() : NaN;
+      const liveChildExecutor = child.data?.active_executor === "VERCEL_WORKFLOW"
+        && Boolean(child.data.workflow_run_id)
+        && Number.isFinite(childHeartbeatAt)
+        && now.getTime() - childHeartbeatAt < 120_000;
       const pauseStarted = task.pause_started_at ? new Date(task.pause_started_at).getTime() : now.getTime();
       const pausedDuration = Number(task.paused_duration_ms || 0) + Math.max(0, now.getTime() - pauseStarted);
-      const result = await admin.from("ai_acquisition_tasks").update({ status: "RUNNING", started_at: now.toISOString(), pause_started_at: null, paused_duration_ms: pausedDuration, executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", id).eq("status", "PAUSED");
+      if (child.data && !liveChildExecutor) {
+        const resetLeases = await admin.from("ai_screening_task_items").update({
+          status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", progress: 0,
+          current_step: "WAITING_FOR_MANUAL_RESUME", pipeline_stage: "NORMALIZED", lease_owner: null,
+          lease_token: null, lease_expires_at: null, executor_heartbeat_at: null, error_message: null,
+          error_code: null, completed_at: null, updated_at: now.toISOString(),
+        }).eq("task_id", child.data.id).eq("status", "RUNNING").neq("analysis_status", "COMPLETED");
+        if (resetLeases.error) throw resetLeases.error;
+        const resetChild = await admin.from("ai_screening_tasks").update({
+          status: "QUEUED", cancel_requested: false, active_executor: null, workflow_run_id: null,
+          last_dispatch_at: null, executor_heartbeat_at: null, error_message: null, finished_at: null,
+          completed_at: null, updated_at: now.toISOString(),
+        }).eq("id", child.data.id);
+        if (resetChild.error) throw resetChild.error;
+      }
+      const result = await admin.from("ai_acquisition_tasks").update({
+        status: "RUNNING", current_stage_detail: "用户已手动继续执行，正在从已保存检查点恢复",
+        cancel_requested: false, started_at: now.toISOString(), pause_started_at: null,
+        paused_duration_ms: pausedDuration, active_executor: liveExecutor ? task.active_executor : "VERCEL_DISPATCHING",
+        workflow_run_id: liveExecutor ? task.workflow_run_id : null, last_dispatch_at: liveExecutor ? task.last_dispatch_at : now.toISOString(),
+        executor_heartbeat_at: liveExecutor ? now.toISOString() : null, error_message: null, updated_at: now.toISOString(),
+      }).eq("id", id).in("status", maintenancePaused ? ["PAUSED", "RUNNING"] : ["PAUSED"]).select("id").maybeSingle();
       if (result.error) throw result.error;
-      await admin.from("ai_screening_tasks").update({ status: "RUNNING", updated_at: now.toISOString() }).eq("request_key", `acquisition:${id}`).in("status", ["QUEUED","PAUSING","PAUSED"]);
+      if (!result.data) return NextResponse.json({ error: "任务状态已变化，请刷新后重试" }, { status: 409 });
+      if (liveExecutor) {
+        const resumedChild = await admin.from("ai_screening_tasks").update({ status: "RUNNING", cancel_requested: false, updated_at: now.toISOString() }).eq("request_key", `acquisition:${id}`).in("status", ["QUEUED","PAUSING","PAUSED"]);
+        if (resumedChild.error) throw resumedChild.error;
+      } else {
+        try {
+          const run = await start(aiAcquisitionWorkflow, [id]);
+          const dispatched = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", last_dispatch_at: now.toISOString(), updated_at: new Date().toISOString() }).eq("id", id).eq("active_executor", "VERCEL_DISPATCHING");
+          if (dispatched.error) throw dispatched.error;
+        } catch (dispatchError) {
+          await admin.from("ai_acquisition_tasks").update({
+            status: "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null,
+            executor_heartbeat_at: null, current_stage_detail: "继续执行启动失败，任务仍保持暂停，可稍后重试",
+            error_message: (dispatchError instanceof Error ? dispatchError.message : "继续执行启动失败").slice(0, 1000),
+            updated_at: new Date().toISOString(),
+          }).eq("id", id).eq("active_executor", "VERCEL_DISPATCHING");
+          throw dispatchError;
+        }
+      }
     } else if (action === "REASSESS_REVIEWS") {
       if (!["COMPLETED", "FAILED"].includes(task.status)) return NextResponse.json({ error: "只有已完成或失败的任务可以重新核验待复核客户" }, { status: 409 });
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();

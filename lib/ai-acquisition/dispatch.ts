@@ -45,9 +45,11 @@ export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
     const taskId = String(row.task_id || "");
     if (!taskId) continue;
     try {
-      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested").eq("id", taskId).single();
+      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested,current_stage_detail").eq("id", taskId).single();
       if (state.error) throw state.error;
-      if (maintenancePausedIds.has(taskId) || state.data.status === "PAUSING" || state.data.cancel_requested) {
+      const maintenanceProtected = maintenancePausedIds.has(taskId)
+        && String(state.data.current_stage_detail || "").includes("系统维护暂停");
+      if (maintenanceProtected || state.data.status === "PAUSING" || state.data.cancel_requested) {
         await admin.from("ai_acquisition_tasks").update({ status: state.data.cancel_requested ? "CANCELLED" : "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: new Date().toISOString() }).eq("id", taskId);
         continue;
       }
