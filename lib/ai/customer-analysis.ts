@@ -118,6 +118,11 @@ export function hasCoreDeviceRepairEvidence(text: string) {
 
 export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis["industry_type"] | null {
   const positive = positiveTargetEvidenceText(text);
+  // Camera/film businesses frequently use words such as repair, restoration,
+  // accessories and parts. Those words describe photographic equipment, not
+  // phone/computer repair-parts demand. Require explicit target-device facts
+  // before allowing them into a phone/computer acquisition task.
+  if (/(?:film lab|film processing|film develop(?:ing|ment)?|analogue camera|analog camera|camera store|camera shop|camera repair|camera restoration|camera re-?skinning|photograph(?:y|ic) (?:store|shop|lab)|darkroom|35mm film|120 film|胶片(?:冲洗|店|实验室)|模拟相机|胶片相机|相机(?:商店|维修|修复|翻新)|摄影器材)/i.test(positive)) return "其他";
   if (/(?:\bfoods?\b|fresh produce|fruit(?:s)?(?:\s*(?:and|&|,)\s*vegetables?)?|vegetable(?:s)?|food wholesal(?:e|er)|food distributor|food supplier|restaurant suppl(?:y|ier)|catering suppl(?:y|ier)|冷藏食品|生鲜(?:食品|果蔬)?|果蔬(?:批发|配送|供应)?|水果(?:批发|配送|供应)?|蔬菜(?:批发|配送|供应)?|食品(?:批发|配送|供应)|餐饮供应)/i.test(positive)) return "食品批发或餐饮供应";
   if (/(?:computer recycling|electronics? recycling|e-?waste|waste electrical|WEEE|IT asset disposal|computer removal|office clearance|废旧电脑回收|电子废弃物|电子垃圾|废品回收|电脑回收|设备回收|清运服务)/i.test(positive)) return "其他";
   if (/(?:\b(?:auto|automotive|motor|vehicle|truck|trailer|car)\s*(?:parts?|spares?|components?|accessories?)\b|car body parts?|motor factors?|tyres?|brakes?|suspension|clutch|汽车(?:配件|零件|维修)|机动车(?:配件|零件)|轮胎(?:店|批发|供应)?|卡车(?:配件|零件))/i.test(positive)) return "其他";
@@ -132,7 +137,7 @@ export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis
 
 export function isDirectNonTargetBusinessEvidence(text: string) {
   return (!hasDirectTargetBusinessEvidence(text) || (Boolean(dominantNonTargetIndustryForText(text)) && !hasCoreDeviceRepairEvidence(text)))
-    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|电器维修|家电维修|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|home appliance|appliance repair|pharmacy|pharmacist|tobacco|vape|shisha|auction)/i.test(text);
+    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|电器维修|家电维修|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|胶片|模拟相机|相机(?:商店|维修|修复|翻新)|摄影器材|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|home appliance|appliance repair|pharmacy|pharmacist|tobacco|vape|shisha|auction|film lab|film processing|analogue camera|analog camera|camera (?:store|shop|repair|restoration)|photograph(?:y|ic) (?:store|shop|lab))/i.test(text);
 }
 
 const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|手机、平板配件销售|手机壳|保护膜|移动电源|充电器|耳机|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;

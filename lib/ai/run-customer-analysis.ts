@@ -478,7 +478,7 @@ export function prioritizeGoogleReviews(reviews: string[]) {
     .map((item) => item.review);
 }
 
-const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品|药房|药店|药剂师|疫苗接种|电子烟|烟草|水烟|拍卖|破产清算|资产处置/;
+const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品|药房|药店|药剂师|疫苗接种|电子烟|烟草|水烟|拍卖|破产清算|资产处置|摄影、胶片或相机业务/;
 
 function recordBusinessText(record?: ChannelRecord) {
   if (!record?.evidence) return "";
@@ -1447,7 +1447,7 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "板级或元器件级维修", pattern: /(?:component[- ]level repair|board[- ]level repair|microsoldering|micro soldering|板级维修|元器件级维修)/i },
   { label: "键盘或触控板维修", pattern: /(?:keyboard|trackpad|touchpad|klawiatur|teclado|clavier|tastiera|键盘|触控板).{0,20}(?:replacement|repair|wymian|napraw|repar|r[eé]paration|sostituzione|更换|维修)/i },
   { label: "专业维修车间", pattern: /(?:repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|专业维修车间|专用维修车间)/i },
-  { label: "使用手机或电脑维修备件", pattern: /(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)/i },
+  { label: "使用手机或电脑维修备件", pattern: /(?:(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|notebook|macbook|pc|手机|平板|电脑|笔记本|苹果设备)[\s\S]{0,80}(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)|(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)[\s\S]{0,80}(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|notebook|macbook|pc|手机|平板|电脑|笔记本|苹果设备))/i },
   { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone adapters?|phone chargers?|earbuds?|earphones?|headphones?|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|手机配件|平板配件)/i },
   { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "多门店或连锁经营", pattern: /(?:(?:at least|over|more than|拥有|设有|共有)\s*\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|门店|分店|直营网点|维修中心)|\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)|multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i },
@@ -1462,6 +1462,7 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "食品批发或餐饮供应", pattern: /(?:food wholesale|food distributor|vegetable wholesale|fruit wholesale|食品批发|蔬菜批发|水果批发|餐饮供应)/i },
   { label: "电子烟、烟草或水烟零售", pattern: /(?:tobacco shop|tobacconist|vape shop|vaping store|e[- ]?cigarette|smoke shop|shisha shop|电子烟|烟草店|水烟店)/i },
   { label: "拍卖、破产清算或资产处置", pattern: /(?:insolvency auction|liquidation auction|auction house|auction calendar|versteigerungskalender|insolvenzverfahren|拍卖行|破产拍卖|清算拍卖)/i },
+  { label: "摄影、胶片或相机业务", pattern: /(?:film lab|film processing|film develop(?:ing|ment)?|analogue camera|analog camera|camera store|camera shop|camera repair|camera restoration|camera re-?skinning|photograph(?:y|ic) (?:store|shop|lab)|darkroom|35mm film|120 film|胶片(?:冲洗|店|实验室)|模拟相机|胶片相机|相机(?:商店|维修|修复|翻新)|摄影器材)/i },
 ];
 
 function verifiedFactLabels(text: string) {
