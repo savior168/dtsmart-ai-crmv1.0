@@ -4,7 +4,10 @@ import { rescueStalledAiAcquisitionTasks } from "@/lib/ai-acquisition/dispatch";
 
 export const maxDuration = 60;
 
-const RECOVERY_DEADLINE_MS = 12_000;
+// Recovery is a safety net, never a foreground workload. If the database is
+// busy, yield quickly and retry on the next cron tick instead of occupying
+// capacity needed by login and business pages.
+const RECOVERY_DEADLINE_MS = 4_000;
 
 function maintenanceIds(name: string) {
   return (process.env[name] || "")

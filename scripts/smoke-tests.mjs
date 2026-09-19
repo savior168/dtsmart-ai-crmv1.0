@@ -148,6 +148,7 @@ for (const filter of ["target", "grade"]) {
 
 const loginApi = read("app/api/auth/password-login/route.ts");
 assert.match(loginApi,/isTransientAuthError[\s\S]*登录服务暂时繁忙，请稍后重试[\s\S]*Infrastructure failures are not invalid-password attempts[\s\S]*isTransientAuthError\(error\)/,"认证网关超时必须返回可重试提示，且不得累计密码错误次数");
+assert.match(loginApi,/57014[\s\S]*PGRST003[\s\S]*statement timeout/,"数据库繁忙和语句超时必须识别为可重试基础设施异常，不能误报账号资料损坏");
 const registerApi = read("app/api/auth/register/route.ts");
 const authForm = read("components/password-auth-form.tsx");
 const loginPage = read("app/login/page.tsx");

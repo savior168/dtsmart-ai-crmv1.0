@@ -11,7 +11,7 @@ function maintenancePausedTaskIds() {
   );
 }
 
-async function settleStalePausingTasks(admin: ReturnType<typeof createAdminClient>) {
+async function settleStalePausingTasks(admin: ReturnType<typeof createAdminClient>, signal?: AbortSignal) {
   const cutoff = new Date(Date.now() - 3 * 60_000).toISOString();
   const stale = await admin.from("ai_acquisition_tasks")
     .select("id,started_at,elapsed_ms,pause_started_at")
@@ -21,7 +21,8 @@ async function settleStalePausingTasks(admin: ReturnType<typeof createAdminClien
     // Keep each cron invocation bounded. A cron runs every minute, so settling
     // two abandoned pauses per pass is faster and safer than holding database
     // connections while serially updating a large backlog.
-    .limit(2);
+    .limit(2)
+    .abortSignal(signal || new AbortController().signal);
   if (stale.error) throw stale.error;
   let settled = 0;
   for (const task of stale.data || []) {
@@ -34,28 +35,28 @@ async function settleStalePausingTasks(admin: ReturnType<typeof createAdminClien
       elapsed_ms: elapsed, started_at: null, pause_started_at: task.pause_started_at || now.toISOString(),
       active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null,
       error_message: null, updated_at: now.toISOString(),
-    }).eq("id", task.id).eq("status", "PAUSING").select("id").maybeSingle();
+    }).eq("id", task.id).eq("status", "PAUSING").select("id").abortSignal(signal || new AbortController().signal).maybeSingle();
     if (saved.error) throw saved.error;
     if (!saved.data) continue;
     const child = await admin.from("ai_screening_tasks").update({
       status: "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null,
       executor_heartbeat_at: null, updated_at: now.toISOString(),
-    }).eq("request_key", `acquisition:${task.id}`).in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+    }).eq("request_key", `acquisition:${task.id}`).in("status", ["QUEUED", "RUNNING", "PAUSING"]).abortSignal(signal || new AbortController().signal);
     if (child.error) throw child.error;
     settled += 1;
   }
   return settled;
 }
 
-async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof createAdminClient>, taskId: string) {
-  const child = await admin.from("ai_screening_tasks").select("id,status").eq("request_key", `acquisition:${taskId}`).maybeSingle();
+async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof createAdminClient>, taskId: string, signal?: AbortSignal) {
+  const child = await admin.from("ai_screening_tasks").select("id,status").eq("request_key", `acquisition:${taskId}`).abortSignal(signal || new AbortController().signal).maybeSingle();
   if (child.error) throw child.error;
   if (child.data?.status !== "COMPLETED") return false;
-  const analyzing = await admin.from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", taskId).eq("decision", "ANALYZING");
+  const analyzing = await admin.from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", taskId).eq("decision", "ANALYZING").abortSignal(signal || new AbortController().signal);
   if (analyzing.error) throw analyzing.error;
   if (Number(analyzing.count || 0) > 0) return false;
   const count = async (decision: string) => {
-    const result = await admin.from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", taskId).eq("decision", decision);
+    const result = await admin.from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", taskId).eq("decision", decision).abortSignal(signal || new AbortController().signal);
     if (result.error) throw result.error;
     return Number(result.count || 0);
   };
@@ -66,7 +67,7 @@ async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof create
     processed_count: accepted + review + rejected + duplicate, accepted_count: accepted, review_count: review,
     rejected_count: rejected, duplicate_count: duplicate, started_at: null, finished_at: now,
     active_executor: null, executor_heartbeat_at: now, error_message: null, updated_at: now,
-  }).eq("id", taskId).eq("active_executor", "VERCEL_DISPATCHING");
+  }).eq("id", taskId).eq("active_executor", "VERCEL_DISPATCHING").abortSignal(signal || new AbortController().signal);
   if (saved.error) throw saved.error;
   return true;
 }
@@ -74,14 +75,15 @@ async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof create
 export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
   const admin = createAdminClient();
   const maintenancePausedIds = maintenancePausedTaskIds();
-  let recovered = await settleStalePausingTasks(admin);
+  let recovered = await settleStalePausingTasks(admin, signal);
+  console.info("[ai-acquisition-recovery] stale pause settlement completed", { settled: recovered });
   const claimed = await admin.rpc("claim_stalled_ai_acquisition_tasks", { p_limit: 1 }).abortSignal(signal || new AbortController().signal);
   if (claimed.error) throw claimed.error;
   for (const row of claimed.data || []) {
     const taskId = String(row.task_id || "");
     if (!taskId) continue;
     try {
-      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested,current_stage_detail").eq("id", taskId).single();
+      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested,current_stage_detail").eq("id", taskId).abortSignal(signal || new AbortController().signal).single();
       if (state.error) throw state.error;
       const maintenanceProtected = maintenancePausedIds.has(taskId)
         && String(state.data.current_stage_detail || "").includes("系统维护暂停");
@@ -89,7 +91,7 @@ export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
         await admin.from("ai_acquisition_tasks").update({ status: state.data.cancel_requested ? "CANCELLED" : "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: new Date().toISOString() }).eq("id", taskId);
         continue;
       }
-      if (await reconcileCompletedAcquisitionTask(admin, taskId)) {
+      if (await reconcileCompletedAcquisitionTask(admin, taskId, signal)) {
         recovered += 1;
         continue;
       }

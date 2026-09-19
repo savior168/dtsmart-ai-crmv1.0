@@ -438,6 +438,8 @@ assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*to
 assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
 assert.match(acquisitionTaskCenter,/查看明细[\s\S]*查看真实费用/,"任务中心必须提供真实用量详情入口且不得用空数据伪装为零费用");
 assert.match(listRoute,/optional progress unavailable[\s\S]*optional today accepted unavailable/,"任务列表附属进度和今日统计异常不得拖垮核心列表");
+assert.match(acquisitionDispatch,/settleStalePausingTasks\(admin, signal\)[\s\S]*stale pause settlement completed/,"获客恢复器的暂停收敛查询必须受统一截止时间控制并记录阶段结果");
+assert.match(recoveryRoute,/yield quickly[\s\S]*RECOVERY_DEADLINE_MS = 4_000/,"恢复器必须快速让出数据库容量，不能每分钟持续阻塞前台业务");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");

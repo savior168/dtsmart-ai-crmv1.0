@@ -15,8 +15,8 @@ function isTransientAuthError(error: unknown) {
   const candidate = error as { code?: unknown; message?: unknown; status?: unknown } | null;
   const code = String(candidate?.code || candidate?.status || "");
   const message = String(candidate?.message || "");
-  return ["408", "429", "502", "503", "504", "525", "529"].includes(code)
-    || /(?:gateway timeout|temporar(?:y|ily)|timed? out|fetch failed|network|ssl handshake failed|cloudflare)/i.test(message);
+  return ["408", "429", "502", "503", "504", "525", "529", "57014", "PGRST003"].includes(code)
+    || /(?:gateway timeout|temporar(?:y|ily)|timed? out|statement timeout|fetch failed|network|ssl handshake failed|cloudflare|aborted)/i.test(message);
 }
 
 export async function POST(request: NextRequest) {
@@ -54,7 +54,10 @@ export async function POST(request: NextRequest) {
       console.warn("[auth/password-login] account lookup temporarily unavailable", { message: accountError.message });
       return NextResponse.json({ error: "登录服务暂时繁忙，请稍后重试" }, { status: 503 });
     }
-    if (accountError || !account) return NextResponse.json({ error: "账号资料异常，请联系系统管理员" }, { status: 403 });
+    if (accountError || !account) {
+      console.error("[auth/password-login] account lookup failed", { code:(accountError as {code?:string}|null)?.code, message:accountError?.message, account_found:Boolean(account) });
+      return NextResponse.json({ error: "账号资料异常，请联系系统管理员" }, { status: 403 });
+    }
     const statusMessages: Record<string, string> = {
       PENDING: "注册申请正在等待系统管理员审核，暂时无法登录",
       REJECTED: "注册申请未通过审核，请联系系统管理员",
