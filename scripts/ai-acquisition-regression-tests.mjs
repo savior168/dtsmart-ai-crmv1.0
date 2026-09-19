@@ -239,6 +239,9 @@ assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejecti
 assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durableItemIds[\s\S]*const itemIds[\s\S]*status: "COMPLETED"[\s\S]*lease_owner: null[\s\S]*is_latest_valid: false/,"失败任务重试必须保留已经持久化完成的客户，只重置真正未完成的项目并清理旧租约");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
+assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "REVIEW"\)[\s\S]*is_latest_valid: false[\s\S]*WAITING_REASSESSMENT[\s\S]*decision: "ANALYZING"/,"待复核重判必须作废旧结果并按当前证据规则重新排队");
+assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
+assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
 assert.match(detailRoute,/requirePermission\("ai\.acquisition\.view"\)[\s\S]*rescueStalledAiAcquisitionTasks\(\)[\s\S]*best-effort recovery failed/,"任务详情读取必须提供幂等的停滞任务自恢复，不能只依赖定时器");
 assert.match(listRoute,/requirePermission\("ai\.acquisition\.view"\)[\s\S]*rescueStalledAiAcquisitionTasks\(\)[\s\S]*best-effort task recovery failed/,"任务中心读取必须提供幂等的停滞任务自恢复，不能只依赖定时器");
