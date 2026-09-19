@@ -24,7 +24,7 @@ insert into tmp_ai_false_positives (candidate_id, verified_industry, reason) val
 ('cedbc55f-0fba-45dd-8205-e4e74ae31314','其他','Google商家明确分类为汽车配件业务'),
 ('557bf26d-bf89-45f8-804f-ab86c0e6f14a','其他','Google商家明确分类为汽车配件业务'),
 ('3e6f853b-3a0d-4810-8ea4-aa7f6aa64ef8','其他','Google商家明确分类为汽车配件业务'),
-('4b908d94-0e24-4a06-b891-a36a-10fd38100c18','其他','Google商家明确分类为电气及照明产品批发商'),
+('4b908d94-0e24-4a06-b891-a36b50a08675','其他','Google商家明确分类为电气及照明产品批发商'),
 ('5f0cc5c7-1f8a-4a34-bacc-596af4a2adc4','其他','官网与Google商家均显示汽车配件业务'),
 ('860747ed-a110-4272-b565-e6a7b98af341','其他','官网与Google商家均显示汽车配件业务'),
 ('1a3310ea-9a0e-4762-8de1-97664e88df8f','其他','官网与Google商家均显示汽车配件业务'),
