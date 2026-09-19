@@ -349,7 +349,9 @@ assert.match(aiTaskDetailApi, /creator: creator\.data/, "任务详情接口必�
 const customersView = read("components/customers-view.tsx");
 const customerListFields = read("lib/customers/list-fields.ts");
 const currentUserAuth = read("lib/auth/current-user.ts");
-assert.match(currentUserAuth,/auth\.getUser\(\)[\s\S]*isTransientReadError\(error\)[\s\S]*AUTHORIZATION_UNAVAILABLE[\s\S]*accountError && isTransientReadError\(accountError\)[\s\S]*AUTHORIZATION_UNAVAILABLE/,"临时认证或账号读取故障不得误判为未登录或账号不存在");
+assert.match(currentUserAuth,/auth\.getClaims\(\)[\s\S]*isTransientReadError\(error\)[\s\S]*AUTHORIZATION_UNAVAILABLE[\s\S]*accountError && isTransientReadError\(accountError\)[\s\S]*AUTHORIZATION_UNAVAILABLE/,"临时认证或账号读取故障不得误判为未登录或账号不存在");
+assert.doesNotMatch(currentUserAuth,/auth\.getUser\(\)/,"业务接口鉴权不得为每个请求远程读取认证用户");
+assert.match(currentUserAuth,/claims\.iat[\s\S]*force_logout_at[\s\S]*SESSION_REVOKED/,"强制退出必须继续使用已验签令牌的签发时间判定");
 assert.match(currentUserAuth,/AUTHORIZATION_UNAVAILABLE"\) return 503/,"权限服务临时不可用必须返回503而不是误报业务权限错误");
 const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /if \(!requested \|\| requested === account\.id \|\| requested\.toLowerCase\(\) === "all"\) return account\.id/, "主管服务端默认必须只读取自己的数据");

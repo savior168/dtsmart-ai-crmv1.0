@@ -46,20 +46,21 @@ export type CurrentAccount = {
   permissions: string[];
 };
 
-function tokenIssuedAt(accessToken: string) {
-  try {
-    const payload = JSON.parse(Buffer.from(accessToken.split(".")[1], "base64url").toString("utf8")) as { iat?: number };
-    return payload.iat ? payload.iat * 1000 : 0;
-  } catch {
-    return 0;
-  }
-}
-
 export async function requireUser(options: { allowPasswordChange?: boolean } = {}) {
   const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
+  // Verify the signed access token locally (JWKS keys are cached by auth-js)
+  // instead of calling /auth/v1/user for every application API request. This
+  // preserves cryptographic identity verification while preventing an Auth
+  // gateway slowdown from cascading into a system-wide request storm.
+  const { data: claimsData, error } = await supabase.auth.getClaims();
   if (error && isTransientReadError(error)) throw new Error("AUTHORIZATION_UNAVAILABLE");
-  if (error || !user) throw new Error("UNAUTHORIZED");
+  const claims = claimsData?.claims;
+  if (error || !claims?.sub) throw new Error("UNAUTHORIZED");
+  const user = {
+    id: String(claims.sub),
+    email: typeof claims.email === "string" ? claims.email : undefined,
+    user_metadata: claims.user_metadata && typeof claims.user_metadata === "object" ? claims.user_metadata : {},
+  };
   const admin = createAdminClient();
   const { data, error: accountError } = await readCurrentAccount(admin, user.id);
   if (accountError && isTransientReadError(accountError)) throw new Error("AUTHORIZATION_UNAVAILABLE");
@@ -98,8 +99,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     permissions,
   };
   if (account.status !== "ACTIVE") throw new Error(`ACCOUNT_${account.status}`);
-  const { data: sessionData } = await supabase.auth.getSession();
-  const issuedAt = sessionData.session?.access_token ? tokenIssuedAt(sessionData.session.access_token) : 0;
+  const issuedAt = Number.isFinite(Number(claims.iat)) ? Number(claims.iat) * 1000 : 0;
   if (account.force_logout_at && issuedAt && Date.parse(account.force_logout_at) > issuedAt) {
     await supabase.auth.signOut().catch(() => undefined);
     throw new Error("SESSION_REVOKED");

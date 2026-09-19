@@ -53,11 +53,20 @@ export async function GET(request: NextRequest) {
     acquisition: maintenanceIds("AI_MAINTENANCE_PAUSED_ACQUISITION_IDS").length,
     screening: maintenanceIds("AI_MAINTENANCE_PAUSED_SCREENING_IDS").length,
   };
+  if (maintenancePaused.acquisition > 0) {
+    return NextResponse.json({
+      ok: true,
+      maintenance_mode: true,
+      maintenance_paused: maintenancePaused,
+      recovered: 0,
+      screening_recovered: 0,
+      acquisition_recovered: 0,
+    });
+  }
   try {
-    // Maintenance-paused screening tasks have no per-task marker that can
-    // safely distinguish them after a manual resume, so leave that queue
-    // untouched. Acquisition recovery remains active: its dispatcher protects
-    // marked maintenance tasks and safely settles abandoned PAUSING states.
+    // A maintenance-paused screening task has no safe per-task recovery marker,
+    // so skip only that queue. Acquisition recovery still closes manual pause
+    // transitions and recovers unrelated acquisition tasks.
     const screeningRecovery = maintenancePaused.screening
       ? Promise.resolve({ recovered: 0, error: null, skipped: true })
       : recoverWithDeadline("screening", rescueStalledCloudTasks);
