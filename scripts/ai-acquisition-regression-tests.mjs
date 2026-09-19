@@ -225,6 +225,7 @@ assert.match(listRoute,/summaryRows[\s\S]*active_tasks[\s\S]*completed_tasks[\s\
 assert.match(listRoute,/ai_acquisition_candidates[\s\S]*eq\("decision", "ACCEPTED"\)[\s\S]*not\("imported_customer_id", "is", null\)/,"今日及历史获客只能统计已核验通过且成功写入系统的客户");
 const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.ts",import.meta.url),"utf8");
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
+const screeningListRoute=fs.readFileSync(new URL("../app/api/ai/tasks/route.ts",import.meta.url),"utf8");
 const relevanceRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
 const reviewRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
 const evidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
@@ -246,8 +247,9 @@ assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
-assert.match(detailRoute,/requirePermission\("ai\.acquisition\.view"\)[\s\S]*rescueStalledAiAcquisitionTasks\(\)[\s\S]*best-effort recovery failed/,"任务详情读取必须提供幂等的停滞任务自恢复，不能只依赖定时器");
-assert.match(listRoute,/requirePermission\("ai\.acquisition\.view"\)[\s\S]*rescueStalledAiAcquisitionTasks\(\)[\s\S]*best-effort task recovery failed/,"任务中心读取必须提供幂等的停滞任务自恢复，不能只依赖定时器");
+assert.doesNotMatch(detailRoute,/rescueStalledAiAcquisitionTasks/,"任务详情读取不得触发恢复调度或数据库领取");
+assert.doesNotMatch(listRoute,/rescueStalledAiAcquisitionTasks/,"任务中心读取不得触发恢复调度或数据库领取");
+assert.doesNotMatch(screeningListRoute,/rescueStalledCloudTasks/,"AI筛选任务列表读取不得触发恢复调度或数据库领取");
 assert.match(detailRoute,/lightweight[\s\S]*\{ data: \[\], count: 0, error: null \}[\s\S]*verificationTotal[\s\S]*earlyProcessed[\s\S]*liveProcessed[\s\S]*verification_progress:verificationProgress/,"实时轮询必须跳过客户明细并按早停加深度核验返回真实轻量进度");
 assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_count[\s\S]*noNewSearchUnits/,"任务详情必须使用数据库端聚合的完整检索进度和真实无新增判断");
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");

@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { countEligiblePendingAiCustomers, getReservedAiCustomerIds } from "@/lib/ai/task-eligibility";
 import { resolveAiOwnerScope } from "@/lib/ai/owner-scope";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, AI_COST_MODES, type AiCostMode, type AiExecutionMode } from "@/lib/ai/task-types";
-import { dispatchAiScreeningTask, rescueStalledCloudTasks } from "@/lib/ai/task-dispatch";
+import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { createScreeningTaskNumber } from "@/lib/ai/task-number";
 import { costLedgerRange, shanghaiToday } from "@/lib/cost-center";
 
@@ -30,12 +30,6 @@ export async function GET(request: NextRequest) {
       if (children.error) throw children.error;
       for (const row of children.data || []) acquisitionChildIds.add(String(row.id));
       if ((children.data || []).length < 1000) break;
-    }
-    try {
-      await rescueStalledCloudTasks();
-    } catch (rescueError) {
-      // A best-effort recovery check must not prevent the task list loading.
-      console.error("AI task cloud recovery dispatch failed", rescueError);
     }
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).is("archived_at", null);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);

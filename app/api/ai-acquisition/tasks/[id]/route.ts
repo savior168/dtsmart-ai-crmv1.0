@@ -7,7 +7,6 @@ import { plannedDiscoveryScopeCount } from "@/lib/ai-acquisition/discovery";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorrectedEarlyRejections } from "@/lib/ai-acquisition/requeue";
-import { rescueStalledAiAcquisitionTasks } from "@/lib/ai-acquisition/dispatch";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -41,11 +40,6 @@ async function loadCustomerStates(customerIds: string[]) {
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
-    try {
-      await rescueStalledAiAcquisitionTasks();
-    } catch (recoveryError) {
-      console.error("[ai-acquisition-task] best-effort recovery failed", recoveryError);
-    }
     const { id } = await context.params;
     const task = await authorizedTask(id, account);
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
