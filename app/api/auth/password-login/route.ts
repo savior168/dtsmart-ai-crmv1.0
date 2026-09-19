@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { classifyIdentifier, isUsername, listAuthUsers, normalizePhone } from "@/lib/auth/identifiers";
+import { classifyIdentifier, isUsername } from "@/lib/auth/identifiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CAPTCHA_COOKIE, verifyCaptcha } from "@/lib/auth/captcha";
 
@@ -20,19 +20,28 @@ export async function POST(request: NextRequest) {
     const captcha = await verifyCaptcha(body.captcha);
     if (!captcha.ok) return NextResponse.json({ error: captcha.error }, { status: 400 });
     const classified = classifyIdentifier(identifier);
-    const authUsers = await listAuthUsers();
-    const matchedUser = authUsers.find((item) => {
-      if (classified.type === "email") return item.email?.toLowerCase() === classified.value;
-      if (classified.type === "phone") return normalizePhone(item.phone || "") === classified.value;
-      const username = String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase();
-      return username === classified.value;
-    });
-    if (!matchedUser) return NextResponse.json({ error: "账号或密码错误，请检查后重试" }, { status: 401 });
     const admin = createAdminClient();
-    const { data: account, error: accountError } = await admin.from("users")
-      .select("id,status,failed_login_attempts,locked_until,must_change_password,temporary_password_expires_at")
-      .eq("id", matchedUser.id)
-      .maybeSingle();
+    const accountFields = "id,name,email,status,failed_login_attempts,locked_until,must_change_password,temporary_password_expires_at";
+    let account: { id: string; name: string | null; email: string; status: string; failed_login_attempts: number | null; locked_until: string | null; must_change_password: boolean; temporary_password_expires_at: string | null } | null = null;
+    let accountError: { message?: string } | null = null;
+    if (classified.type === "phone") {
+      const profile = await admin.from("profiles").select("id").eq("phone", classified.value).limit(1).maybeSingle().abortSignal(AbortSignal.timeout(8_000));
+      if (profile.error) accountError = profile.error;
+      else if (profile.data?.id) {
+        const found = await admin.from("users").select(accountFields).eq("id", profile.data.id).maybeSingle().abortSignal(AbortSignal.timeout(8_000));
+        account = found.data;
+        accountError = found.error;
+      }
+    } else if (classified.type === "username") {
+      if (!isUsername(identifier)) return NextResponse.json({ error: "请输入有效的用户名、邮箱或国际格式手机号" }, { status: 400 });
+      const found = await admin.from("users").select(accountFields).ilike("name", classified.value).limit(20).abortSignal(AbortSignal.timeout(8_000));
+      account = found.data?.find((item) => String(item.name || "").trim().toLowerCase() === classified.value) || null;
+      accountError = found.error;
+    } else {
+      const found = await admin.from("users").select(accountFields).eq("email", classified.value).maybeSingle().abortSignal(AbortSignal.timeout(8_000));
+      account = found.data;
+      accountError = found.error;
+    }
     if (accountError || !account) return NextResponse.json({ error: "账号资料异常，请联系系统管理员" }, { status: 403 });
     const statusMessages: Record<string, string> = {
       PENDING: "注册申请正在等待系统管理员审核，暂时无法登录",
@@ -47,13 +56,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `登录失败次数过多，请在 ${new Date(account.locked_until).toLocaleString("zh-CN")} 后重试` }, { status: 423 });
     }
     let credentials: { email: string; password: string } | { phone: string; password: string };
-    if (classified.type === "email") credentials = { email: classified.value, password };
+    if (classified.type === "email") credentials = { email: account.email, password };
     else if (classified.type === "phone") credentials = { phone: classified.value, password };
     else {
-      if (!isUsername(identifier)) return NextResponse.json({ error: "请输入有效的用户名、邮箱或国际格式手机号" }, { status: 400 });
-      if (matchedUser.email) credentials = { email: matchedUser.email, password };
-      else if (matchedUser.phone) credentials = { phone: matchedUser.phone, password };
-      else return NextResponse.json({ error: "该账号尚未绑定可登录的邮箱或手机号" }, { status: 400 });
+      if (account.email) credentials = { email: account.email, password };
+      else return NextResponse.json({ error: "该账号尚未绑定可登录的邮箱" }, { status: 400 });
     }
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
