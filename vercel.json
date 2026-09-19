@@ -4,7 +4,7 @@
   "crons": [
     {
       "path": "/api/cron/ai-task-recovery",
-      "schedule": "* * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

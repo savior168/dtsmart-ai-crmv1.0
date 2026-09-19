@@ -227,6 +227,7 @@ const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const screeningListRoute=fs.readFileSync(new URL("../app/api/ai/tasks/route.ts",import.meta.url),"utf8");
 const recoveryRoute=fs.readFileSync(new URL("../app/api/cron/ai-task-recovery/route.ts",import.meta.url),"utf8");
+const vercelConfig=fs.readFileSync(new URL("../vercel.json",import.meta.url),"utf8");
 const relevanceRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
 const reviewRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
 const evidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
@@ -440,6 +441,7 @@ assert.match(acquisitionTaskCenter,/查看明细[\s\S]*查看真实费用/,"任�
 assert.match(listRoute,/optional progress unavailable[\s\S]*optional today accepted unavailable/,"任务列表附属进度和今日统计异常不得拖垮核心列表");
 assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_limit: 1[\s\S]*stalled task claim completed/,"获客恢复器必须只通过受限RPC领取单个停滞任务并记录阶段结果");
 assert.match(recoveryRoute,/yield quickly[\s\S]*RECOVERY_DEADLINE_MS = 4_000/,"恢复器必须快速让出数据库容量，不能每分钟持续阻塞前台业务");
+assert.match(vercelConfig,/"schedule": "\*\/5 \* \* \* \*"/,"停滞任务巡检应每5分钟执行，避免无待恢复任务时仍每分钟争抢数据库连接");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");
