@@ -122,17 +122,22 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     void load();
   }, [load]);
   useEffect(() => {
-    if (!canViewUsage) return;
+    // Cost history is intentionally loaded only when the user opens this
+    // panel. Loading today's ledger and the entire historical ledger beside
+    // every task-list request caused avoidable database contention while
+    // acquisition workers were writing candidates.
+    if (!canViewUsage || !costSummaryOpen) return;
     let active = true;
     setCostOverview(null);
     const today = quickCostDateRange("TODAY");
     const todayParams = new URLSearchParams({ from:today.from, to:today.to, page:"1", pageSize:"10" });
     const historyParams = new URLSearchParams({ all_time:"1", page:"1", pageSize:"10" });
     if (scopeUserId) { todayParams.set("user_id", scopeUserId); historyParams.set("user_id", scopeUserId); }
-    void Promise.all([
-      fetch(`/api/ai-acquisition/usage?${todayParams}`, { cache:"no-store" }).then(async (response)=>response.ok?response.json():null),
-      fetch(`/api/ai-acquisition/usage?${historyParams}`, { cache:"no-store" }).then(async (response)=>response.ok?response.json():null),
-    ]).then(([todayBody, historyBody])=>{
+    void (async()=>{
+      const todayResponse=await fetch(`/api/ai-acquisition/usage?${todayParams}`, { cache:"no-store" });
+      const todayBody=todayResponse.ok?await todayResponse.json():null;
+      const historyResponse=await fetch(`/api/ai-acquisition/usage?${historyParams}`, { cache:"no-store" });
+      const historyBody=historyResponse.ok?await historyResponse.json():null;
       if (!active || !todayBody || !historyBody) return;
       setCostOverview({
         todayCalls:Number(todayBody.summary?.calls||0),
@@ -145,9 +150,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         googleCalls:Number(historyBody.summary?.google_calls||0),
         freeCalls:Number(historyBody.summary?.google_free_calls||0),
       });
-    }).catch(()=>undefined);
+    })().catch(()=>undefined);
     return ()=>{active=false};
-  }, [canViewUsage, scopeUserId]);
+  }, [canViewUsage, costSummaryOpen, scopeUserId]);
   async function openGoogleDetails() {
     setGoogleDetailsOpen(true);
     if (googleBilling || googleBillingLoading) return;

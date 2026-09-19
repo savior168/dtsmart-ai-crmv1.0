@@ -239,7 +239,8 @@ assert.match(usageRoute,/actualCostUsd\(taskCosts\)[\s\S]*google_cost_usd:[\s\S]
 assert.match(detailRoute,/actualCostUsd\(metricCostRows\)[\s\S]*google_actual_cost_usd:confirmedGoogleCost/,"任务详情接口必须单独返回实际费用和Google平台确认费用");
 assert.match(detailRoute,/eq\("request_key", `acquisition:\$\{id\}`\)[\s\S]*const screeningIds = \[String\(acquisitionChild\.data\?\.id/,'费用归属必须只使用当前获客任务的专属筛选子任务，不能读取候选记录中的历史任务ID');
 assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweight\?\{\}:\{costs:[\s\S]*usage_summary:/,"完整详情必须以当前任务费用流水重算汇总，轻量轮询不得用空流水覆盖已加载费用");
-assert.match(detailRoute,/liveDecisionCounts[\s\S]*liveTerminal[\s\S]*rejected_count:liveDecisionCounts\.REJECTED[\s\S]*duplicate_count:liveDecisionCounts\.DUPLICATE/,"暂停中的任务详情也必须按候选真实状态展示拒绝和重复计数");
+assert.match(detailRoute,/const liveTerminal=/,"任务详情必须使用工作流持久化的完整终态计数");
+assert.match(detailRoute,/processed_count:Math\.min\(liveDiscovered,Math\.max/,"任务详情已核验数不得超过候选总数");
 assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*liveChildExecutor[\s\S]*WAITING_FOR_MANUAL_RESUME[\s\S]*status: "QUEUED"[\s\S]*select\("id"\)\.maybeSingle\(\)[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)[\s\S]*继续执行启动失败/ ,"人工继续必须安全接管失效执行器、避免重复执行，并在启动失败时回退为暂停");
 assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durableItemIds[\s\S]*const itemIds[\s\S]*status: "COMPLETED"[\s\S]*lease_owner: null[\s\S]*is_latest_valid: false/,"失败任务重试必须保留已经持久化完成的客户，只重置真正未完成的项目并清理旧租约");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
@@ -413,6 +414,7 @@ const customerResults=fs.readFileSync(new URL("../components/ai-acquisition/cust
 const customerResultsRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/customers/route.ts",import.meta.url),"utf8");
 const customerResultsPage=fs.readFileSync(new URL("../app/ai-acquisition/customers/page.tsx",import.meta.url),"utf8");
 const acquisitionTaskDetail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
+const acquisitionTaskCenter=fs.readFileSync(new URL("../components/ai-acquisition/task-center.tsx",import.meta.url),"utf8");
 const acquisitionTaskReport=fs.readFileSync(new URL("../components/ai-acquisition/task-report.tsx",import.meta.url),"utf8");
 const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
@@ -431,6 +433,8 @@ assert.match(acquisitionTaskRoute,/optional telemetry unavailable[\s\S]*optional
 assert.match(acquisitionTaskRoute,/detail load failed[\s\S]*code:detail\.code[\s\S]*details:detail\.details[\s\S]*hint:detail\.hint[\s\S]*500/,"任务详情核心异常必须保留结构化诊断信息并返回正确的服务端错误状态");
 assert.match(acquisitionTaskDetail,/quiet = false[\s\S]*p\.set\("lightweight", "1"\)[\s\S]*load\(true\), 15000/,"执行中任务详情必须使用低频轻量静默轮询，不能反复加载完整分析");
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
+assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
+assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*todayResponse[\s\S]*historyResponse/,"任务中心费用统计必须按需且串行加载，避免与获客写入争抢数据库");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");

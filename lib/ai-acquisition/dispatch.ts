@@ -18,7 +18,10 @@ async function settleStalePausingTasks(admin: ReturnType<typeof createAdminClien
     .eq("status", "PAUSING")
     .or(`executor_heartbeat_at.is.null,executor_heartbeat_at.lt.${cutoff}`)
     .order("updated_at", { ascending: true })
-    .limit(10);
+    // Keep each cron invocation bounded. A cron runs every minute, so settling
+    // two abandoned pauses per pass is faster and safer than holding database
+    // connections while serially updating a large backlog.
+    .limit(2);
   if (stale.error) throw stale.error;
   let settled = 0;
   for (const task of stale.data || []) {
