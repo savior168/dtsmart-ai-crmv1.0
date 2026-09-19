@@ -118,6 +118,11 @@ export function hasCoreDeviceRepairEvidence(text: string) {
 
 export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis["industry_type"] | null {
   const positive = positiveTargetEvidenceText(text);
+  if (/(?:\bfoods?\b|fresh produce|fruit(?:s)?(?:\s*(?:and|&|,)\s*vegetables?)?|vegetable(?:s)?|food wholesal(?:e|er)|food distributor|food supplier|restaurant suppl(?:y|ier)|catering suppl(?:y|ier)|冷藏食品|生鲜(?:食品|果蔬)?|果蔬(?:批发|配送|供应)?|水果(?:批发|配送|供应)?|蔬菜(?:批发|配送|供应)?|食品(?:批发|配送|供应)|餐饮供应)/i.test(positive)) return "食品批发或餐饮供应";
+  if (/(?:computer recycling|electronics? recycling|e-?waste|waste electrical|WEEE|IT asset disposal|computer removal|office clearance|废旧电脑回收|电子废弃物|电子垃圾|废品回收|电脑回收|设备回收|清运服务)/i.test(positive)) return "其他";
+  if (/(?:\b(?:auto|automotive|motor|vehicle|truck|trailer|car)\s*(?:parts?|spares?|components?|accessories?)\b|car body parts?|motor factors?|tyres?|brakes?|suspension|clutch|汽车(?:配件|零件|维修)|机动车(?:配件|零件)|轮胎(?:店|批发|供应)?|卡车(?:配件|零件))/i.test(positive)) return "其他";
+  if (/(?:electrical equipment|electrical distributor|lighting wholesal|fasteners?|marine supplies|welding supplies|tool wholesal|家居用品批发|电气设备供应|照明产品批发|紧固件供应|焊接用品|船舶用品)/i.test(positive)) return "其他";
+  if (/(?:\bvap(?:e|ing)\b|tobacco wholesal|digital marketing|marketing agency|call cent(?:er|re)|网站设计|数字营销|烟草批发|电子烟)/i.test(positive)) return "其他";
   if (/(?:home appliance|appliance repair|white goods|household appliances?|elektroger[aä]t|haushaltsger[aä]t|电器维修|家电维修)/i.test(positive)) return "电器或家电维修";
   if (/(?:mobile network operator|telecommunications service provider|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|sim card|mobile plan|mobile contract|phone contract|运营商营业厅|电信运营商|电信合作伙伴|通信合约|手机套餐|宽带套餐)/i.test(positive)) return "运营商营业厅";
   if (/(?:software development|software company|cloud services|web hosting|managed IT|managed services|IT support|technical support|computer technical support|network (?:setup|configuration|maintenance|management|support)|server (?:setup|configuration|maintenance|support)|IT[- ]service|Netzwerk(?:service|betreuung)|Systembetreuung|软件开发|云服务|网络托管|IT系统|IT咨询|计算机技术支持|电脑技术支持|网络(?:设置|配置|维护|管理|支持)|服务器(?:设置|配置|维护|支持))/i.test(positive)) return "软件或IT服务";
@@ -489,7 +494,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
       && hasDirectTargetBusinessEvidence(item.fact_zh));
   const hasStrongDirectContradiction = contradicting.some((item) =>
     ["website", "google_maps"].includes(item.channel)
-      && /(?:软件|IT服务|技术支持|网络|NAS|服务器|运营商|永久关闭|已停业|食品|铁路|电气安全)/.test(item.fact_zh));
+      && /(?:软件|IT服务|技术支持|网络|NAS|服务器|运营商|永久关闭|已停业|食品|果蔬|水果|蔬菜|餐饮供应|fresh produce|fruit|vegetable|food wholesal|food distributor|铁路|电气安全)/i.test(item.fact_zh));
   // A verified official source can conclusively prove a non-target business as
   // well. Requiring positive evidence here used to turn real negative findings
   // into the misleading generic "insufficient information" state.
@@ -498,8 +503,12 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const strongEnoughForHighConfidence = supporting.length >= 2 && independentSources >= 2;
   const supportingText = supporting.map((item) => item.fact_zh).join("；");
   const allEvidenceText = evidence.map((item) => item.fact_zh).join("；");
-  const primaryNonTargetIndustry = dominantNonTargetIndustryForText(supportingText);
-  const dominantNonTargetWithoutCoreRepair = Boolean(primaryNonTargetIndustry) && !hasCoreDeviceRepairEvidence(supportingText);
+  // Direct contradiction facts are intentionally removed from `supporting`.
+  // Industry arbitration must therefore inspect the complete saved evidence;
+  // otherwise an explicit fruit/food wholesaler contradiction disappears and
+  // a generic model label such as "distributor" can incorrectly win.
+  const primaryNonTargetIndustry = dominantNonTargetIndustryForText(allEvidenceText);
+  const dominantNonTargetWithoutCoreRepair = Boolean(primaryNonTargetIndustry) && !hasCoreDeviceRepairEvidence(allEvidenceText);
   const verifiedProductFit = /(?:手机|电脑|iPhone|iPad|MacBook|LCD|OLED|屏幕|电池|配件|维修件|触摸屏|尾插|排线|摄像头)/i.test(supportingText);
   const verifiedBuyingRole = /(?:配件批发|配件进口|配件分销|B2B|MOQ|批量供货|渠道供货|经销商|代理商|采购记录|海关记录|批发商|进口商|分销商)/i.test(supportingText);
   const verifiedChain = /(?:连锁|多家门店|多门店|分店)/.test(supportingText);
@@ -656,8 +665,10 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     + metric("contactability") * 0.03
     - metric("contradiction_risk") * 0.06,
   )));
+  const productSpecificTradeIndustry = /^(?:维修内配件零售|维修内配件批发|进口商或分销商)$/.test(normalizedIndustry);
   const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|其他维修行业|混合经营)$/.test(normalizedIndustry)
     && !dominantNonTargetWithoutCoreRepair
+    && (!productSpecificTradeIndustry || verifiedProductFit)
     && !(computerRepairClaim && !verifiedComputerHardwareRepair)
     && !itSupportOnly
     && evidenceSufficient
@@ -755,9 +766,16 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // text and conceal the official page used for contact writeback.
   const evidenceLead = readableEvidenceLead(supporting.slice(0, 3));
   const allEvidenceLead = readableEvidenceLead(evidence.slice(0, 4));
-  const finalIndustry = dominantNonTargetWithoutCoreRepair
+  const finalNonTargetIndustry = dominantNonTargetIndustryForText(`${input.customer_name}；${allEvidenceText}`);
+  const finalIndustry = finalNonTargetIndustry && !hasCoreDeviceRepairEvidence(allEvidenceText)
+    ? finalNonTargetIndustry
+    : dominantNonTargetWithoutCoreRepair
     ? primaryNonTargetIndustry!
     : itSupportOnly ? "软件或IT服务" : computerRepairClaim && !verifiedComputerHardwareRepair ? "其他" : normalizedIndustry;
+  if (finalNonTargetIndustry && !hasCoreDeviceRepairEvidence(allEvidenceText)) {
+    score = Math.min(score, unrelatedBusinessCeiling);
+    confidence = Math.min(confidence, evidence.length ? 90 : 25);
+  }
   const lowEvidenceReason = evidence.length
     ? `公开来源实际识别到：${allEvidenceLead}。据此将该企业归类为“${finalIndustry}”；上述事实未证明其经营手机、电脑维修配件或相关批发分销业务。每条事实均保留来源链接供核验。`
     : "已完成可用公开入口检索，但没有取得可追溯的目标经营事实；后续新增有效公开入口后可重新分析。";
@@ -788,7 +806,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
     industry_type: finalIndustry,
     ai_score: score,
     ai_level: scoreToLevel(score),
-    is_target_customer: !itSupportOnly && !(computerRepairClaim && !verifiedComputerHardwareRepair) && evidenceSufficient && score >= 60 && confidence >= 60,
+    is_target_customer: !finalNonTargetIndustry && !itSupportOnly && !(computerRepairClaim && !verifiedComputerHardwareRepair) && evidenceSufficient && score >= 60 && confidence >= 60,
     confidence_score: confidence,
     evidence_sufficiency: evidenceSufficient ? (strongEnoughForHighConfidence ? analysis.evidence_sufficiency : "一般") : "一般",
     ai_reason: aiReason,
