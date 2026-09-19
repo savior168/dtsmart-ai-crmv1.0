@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { CalendarClock, ChevronDown, ExternalLink, RefreshCw, Search } from "lucide-react";
+import { CalendarClock, ChevronDown, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
@@ -32,6 +32,7 @@ import type { AcquisitionTask, Candidate } from "./types";
 import { decisionLabels } from "./types";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
 import { acquisitionBusinessLabel } from "@/lib/ai-acquisition/display-labels";
+import { GroupedEvidenceSection, VerifiedContactsSection, type EvidenceDisplayItem, type VerifiedContactDisplayItem } from "@/components/ai-screening/evidence-sections";
 type UsageSummary = {
   total_calls: number;
   free_calls: number;
@@ -62,9 +63,18 @@ type EvidenceData = {
     id: string;
     source_url: string;
     source_type: string;
+    channel?: string;
+    title?: string;
     evidence_type: string;
     evidence_strength: string;
-    content_excerpt: string;
+    evidence_confidence?: number;
+    identity_match_status?: string;
+    normalized_fact?: string;
+    translated_fact?: string;
+    content?: string;
+    original_excerpt?: string;
+    metadata?: { media_urls?: string[] } | null;
+    created_at?: string;
   }>;
   contacts: Array<{
     id: string;
@@ -75,6 +85,7 @@ type EvidenceData = {
     exact_source_url: string;
   }>;
 };
+const identityLabel: Record<string, string> = { MATCHED: "主体一致", AMBIGUOUS: "主体待确认", CONFLICT: "主体冲突", NOT_FOUND: "未确认主体" };
 const tone: Record<string, string> = {
   ACCEPTED: "bg-emerald-50 text-emerald-700",
   REVIEW: "bg-amber-50 text-amber-700",
@@ -478,11 +489,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   "客户名称",
                   "国家/地区",
                   "AI评分",
-                  "匹配关键词",
                   "联系号码",
                   "邮箱",
                   "官网",
                   "公开渠道",
+                  "匹配关键词",
                   "Google地址",
                   "商机线索",
                   "销售建议",
@@ -503,7 +514,6 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   </td>
                   <td className="px-3 py-4"><CountryLabel value={r.country}/></td>
                   <td className="px-3 py-4"><CustomerScoreBadge score={r.ai_score} level={r.ai_level}/></td>
-                  <td className="px-4 py-4">{r.matched_keywords?.length?<div className="space-y-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="block max-w-[166px] truncate whitespace-nowrap rounded bg-blue-50 px-2 py-1 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="block text-[11px] font-normal text-slate-400">另有 {r.matched_keywords.length-3} 项</span>:null}</div>:<small className="text-slate-400">未记录</small>}</td>
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai" display="phone"/>
                   </td>
@@ -512,6 +522,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   </td>
                   <td className="px-4 py-4">{r.customer_profile?.website||r.source_website?<span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span>:null}</td>
                   <td className="px-4 py-4"><CustomerPublicChannels customer={{...r.customer_profile,google_url:r.customer_profile?.google_url||r.google_url}}/></td>
+                  <td className="px-4 py-4">{r.matched_keywords?.length?<div className="space-y-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="block max-w-[166px] truncate whitespace-nowrap rounded bg-blue-50 px-2 py-1 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="block text-[11px] font-normal text-slate-400">另有 {r.matched_keywords.length-3} 项</span>:null}</div>:<small className="text-slate-400">未记录</small>}</td>
                   <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-slate-600">{r.customer_profile?.company_scale_evidence||r.customer_profile?.customer_value||"暂无可核验的采购、批发或经营规模线索"}</p></td>
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>
@@ -626,36 +637,41 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               <div className="rounded-xl bg-slate-50 p-4">
                 <small>主体状态</small>
                 <b className="mt-1 block">
-                  {evidence.analysis?.identity_status || "—"}
+                  {identityLabel[evidence.analysis?.identity_status || ""] || "主体待核验"}
                 </b>
               </div>
               <div className="rounded-xl bg-slate-50 p-4">
                 <small>证据充分度</small>
                 <b className="mt-1 block">
-                  {evidence.analysis?.evidence_sufficiency_score ?? "—"}
+                  {evidence.analysis?.evidence_sufficiency_score != null ? `${evidence.analysis.evidence_sufficiency_score} / 100` : "—"}
                 </b>
               </div>
             </section>
-            <section>
-              <h3 className="font-semibold">可开发联系方式</h3>
-              <div className="mt-2 grid gap-2 md:grid-cols-2">
-                {evidence.contacts.map((c) => (
-                  <div key={c.id} className="rounded-lg border p-3 text-sm">
-                    <div><b>{c.type === "WHATSAPP" ? "WhatsApp" : c.type === "EMAIL" ? "邮箱" : "电话"}</b><span className="ml-2 break-all text-blue-700">{c.value_raw}</span></div>
-                    <small className="mt-1 block text-slate-500">{c.verification_status} · {c.source_channel}</small>
-                    <div className="mt-2 flex flex-wrap gap-3">
-                      <a href={c.exact_source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline">核验具体来源<ExternalLink size={12}/></a>
-                      {c.type === "WHATSAPP" ? <a href={`https://wa.me/${String(c.value_raw).replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">发起WhatsApp对话<ExternalLink size={12}/></a> : null}
-                    </div>
-                  </div>
-                ))}
-                {!evidence.contacts.length ? (
-                  <p className="text-sm text-slate-400">
-                    没有通过来源核验的联系方式
-                  </p>
-                ) : null}
-              </div>
-            </section>
+            {evidence.analysis?.short_reason ? <p className="rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-3 text-sm leading-6 text-slate-700"><b className="mr-2 text-blue-800">核验结论</b>{evidence.analysis.short_reason}</p> : null}
+            <VerifiedContactsSection
+              contacts={evidence.contacts as VerifiedContactDisplayItem[]}
+              customer={{
+                country: evidence.candidate.country,
+                phone: evidence.candidate.customer_profile?.phone,
+                whatsapp: evidence.candidate.customer_profile?.whatsapp,
+                email: evidence.candidate.customer_profile?.email,
+                website: evidence.candidate.customer_profile?.website || evidence.candidate.source_website,
+                google_url: evidence.candidate.customer_profile?.google_url || evidence.candidate.google_url,
+                facebook_url: evidence.candidate.customer_profile?.facebook_url,
+                instagram_url: evidence.candidate.customer_profile?.instagram_url,
+                linkedin_url: evidence.candidate.customer_profile?.linkedin_url,
+                tiktok_url: evidence.candidate.customer_profile?.tiktok_url,
+              }}
+              evidence={evidence.evidence.map((item) => ({
+                id: item.id, channel: item.channel || item.source_type, source_type: item.source_type,
+                source_url: item.source_url, title: item.title,
+                normalized_fact: item.translated_fact || item.normalized_fact || item.content,
+                original_excerpt: item.original_excerpt, metadata: item.metadata,
+                fetched_at: item.created_at, evidence_type: item.evidence_type,
+                evidence_confidence: item.evidence_confidence,
+                identity_match_label: identityLabel[item.identity_match_status || ""] || "主体待核验",
+              })) as EvidenceDisplayItem[]}
+            />
             <section>
               <h3 className="font-semibold">商机线索与销售建议</h3>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
@@ -663,35 +679,15 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-sm"><b className="text-blue-800">AI销售建议</b><p className="mt-1 leading-6 text-slate-600">{evidence.analysis?.followup_suggestion||evidence.analysis?.customer_value||"先依据已核验经营事实联系客户，再确认实际采购需求"}</p><small className="mt-2 block text-slate-400">建议不代表客户已经表达采购意向。</small></div>
               </div>
             </section>
-            <section>
-              <h3 className="font-semibold">采集分析依据</h3>
-              <div className="mt-2 space-y-2">
-                {evidence.evidence.map((e) => (
-                  <a
-                    key={e.id}
-                    href={e.source_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block rounded-lg border p-3 hover:border-blue-300"
-                  >
-                    <div className="flex justify-between gap-3">
-                      <b className="text-sm">
-                        {e.evidence_type || e.source_type}
-                      </b>
-                      <span className="text-xs text-slate-400">
-                        {e.evidence_strength}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {e.content_excerpt || e.source_url}
-                    </p>
-                    <small className="mt-1 block truncate text-blue-700">
-                      {e.source_url}
-                    </small>
-                  </a>
-                ))}
-              </div>
-            </section>
+            <GroupedEvidenceSection evidence={evidence.evidence.map((item) => ({
+              id: item.id, channel: item.channel || item.source_type, source_type: item.source_type,
+              source_url: item.source_url, title: item.title,
+              normalized_fact: item.translated_fact || item.normalized_fact || item.content,
+              original_excerpt: item.original_excerpt, metadata: item.metadata,
+              fetched_at: item.created_at, evidence_type: item.evidence_type,
+              evidence_confidence: item.evidence_confidence,
+              identity_match_label: identityLabel[item.identity_match_status || ""] || "主体待核验",
+            })) as EvidenceDisplayItem[]} />
             {canControl&&evidence.candidate.decision==="REVIEW"?<section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="max-w-2xl text-sm leading-6 text-slate-500">人工操作不会绕过质量门槛。重新校验仅在行业、主体在营、具体来源页和有效联系方式全部通过后入池。</p><div className="flex gap-2"><button type="button" className={`${button} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={()=>{setReviewAction({action:"DISCARD",candidateId:evidence.candidate.id});setEvidence(null)}}>确认舍弃</button><button type="button" className={primaryButton} onClick={()=>{setReviewAction({action:"RECHECK_AND_ACCEPT",candidateId:evidence.candidate.id});setEvidence(null)}}>重新校验并入池</button></div></section>:null}
           </div>
         ) : null}

@@ -14,8 +14,8 @@ function isTransientFetchFailure(error: unknown) {
   const candidate = error && typeof error === "object" ? error as { message?: unknown; code?: unknown; status?: unknown } : null;
   const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
   const code = String(candidate?.code || candidate?.status || "");
-  return ["502", "503", "504", "525", "529"].includes(code)
-    || /(?:fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|error code 52[59]|cloudflare)/i.test(message);
+  return ["40001", "40P01", "55P03", "57014", "502", "503", "504", "525", "529"].includes(code)
+    || /(?:canceling statement due to statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|error code 52[59]|cloudflare)/i.test(message);
 }
 
 async function withTransientFetchRetry<T>(operation: () => PromiseLike<T>, attempts = 4): Promise<T> {

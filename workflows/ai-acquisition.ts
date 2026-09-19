@@ -14,6 +14,14 @@ type AcquisitionTask = {
   target_count: number; discovered_count: number; task_cost_limit_usd: number | null; status: string; cancel_requested: boolean;
 };
 
+function isRecoverableInfrastructureError(error: unknown) {
+  const candidate = error && typeof error === "object" ? error as { message?: unknown; code?: unknown; status?: unknown } : null;
+  const code = String(candidate?.code || candidate?.status || "");
+  const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
+  return ["40001", "40P01", "55P03", "57014", "502", "503", "504", "525", "529"].includes(code)
+    || /(?:canceling statement due to statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|cloudflare)/i.test(message);
+}
+
 async function readTask(taskId: string) {
   "use step";
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*").eq("id", taskId).single();
@@ -317,9 +325,10 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const evidenceComplete = gate.evidenceComplete;
       const accepted = gate.accepted && industryMatchesTask;
       const targetValidated = result?.automation_status === "AUTO_DEVELOP" && result?.target_decision === "VALID" && Number(result?.score || 0) >= 60;
+      const explicitlyNeedsReview = result?.automation_status === "AUTO_HOLD" || result?.target_decision === "REVIEW";
       let decision: "ACCEPTED" | "REVIEW" | "REJECTED" | "DUPLICATE" = gate.accepted && !industryMatchesTask
         ? "REJECTED"
-        : accepted ? "ACCEPTED" : targetValidated || !result ? "REVIEW" : "REJECTED";
+        : accepted ? "ACCEPTED" : targetValidated || explicitlyNeedsReview || !result ? "REVIEW" : "REJECTED";
       let reason = accepted ? "目标行业、主体、在营证据和可用联系方式均已核验"
         : gate.accepted && !industryMatchesTask ? `已核验行业“${String(result?.industry_type || "未知") }”与本任务目标行业不一致，未进入客户公海`
         : targetValidated ? (!gate.evidenceComplete ? "已判定为目标客户，但可追溯经营证据不足，等待人工复核" : gate.actionableContacts.length === 0 ? "已判定为目标客户，但缺少带具体来源的有效联系方式，等待人工复核" : "目标客户主体核验仍需人工确认")
@@ -390,6 +399,23 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   if (update.error) throw update.error;
 }
 
+async function releaseTaskForRecovery(taskId: string, error: unknown) {
+  "use step";
+  const admin = createAdminClient();
+  const candidate = error && typeof error === "object" ? error as { message?: unknown; code?: unknown } : null;
+  const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
+  const code = String(candidate?.code || "");
+  const saved = await admin.from("ai_acquisition_tasks").update({
+    status: "RUNNING",
+    active_executor: null,
+    last_dispatch_at: null,
+    executor_heartbeat_at: null,
+    error_message: `基础服务短暂异常，系统将从检查点自动恢复${code ? `（${code}）` : ""}：${message}`.slice(0, 1000),
+    updated_at: new Date().toISOString(),
+  }).eq("id", taskId).in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+  if (saved.error) throw saved.error;
+}
+
 export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string | null = null) {
   "use workflow";
   try {
@@ -452,6 +478,11 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
     } else await completeEmptyScreeningTask(screeningTaskId);
     await finishTask(taskId, "COMPLETED");
   } catch (error) {
+    if (isRecoverableInfrastructureError(error)) {
+      try { await releaseTaskForRecovery(taskId, error); }
+      catch (recoveryError) { console.error("[ai-acquisition] failed to persist automatic recovery state", recoveryError); }
+      return;
+    }
     await finishTask(taskId, "FAILED", error instanceof Error ? error.message : String(error));
   }
 }

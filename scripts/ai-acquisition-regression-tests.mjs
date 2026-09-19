@@ -209,6 +209,8 @@ assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\
 assert.match(acquisitionWorkflow,/decisionCount[\s\S]*head:true[\s\S]*while\(await finalizeCandidateBatch\(task,screeningTaskId\)\)/,"最终汇总必须使用精确计数且质量准入必须拆成可恢复批次，避免单步骤超时");
 assert.match(acquisitionWorkflow,/let pollSeconds = 15[\s\S]*sleep\(`\$\{pollSeconds\}s`\)[\s\S]*Math\.min\(60, pollSeconds \+ 15\)/,"获客核验轮询必须采用15至60秒退避，避免浪费Vercel工作流事件");
 assert.match(acquisitionWorkflow,/const batchSize = 100[\s\S]*\.in\("task_item_id", itemIds\)[\s\S]*\.in\("customer_id", customerIds\)[\s\S]*resultByItem[\s\S]*contactsByCustomer[\s\S]*evidenceByItem/,"最终质量判定必须批量预取核验结果、联系方式和证据，避免逐客户重复查询浪费执行时间");
+assert.match(acquisitionWorkflow,/explicitlyNeedsReview[\s\S]*target_decision === "REVIEW"[\s\S]*\? "REVIEW" : "REJECTED"/,"模型明确要求人工复核的候选不得被父获客任务错误降级为未通过");
+assert.match(acquisitionWorkflow,/isRecoverableInfrastructureError[\s\S]*57014[\s\S]*releaseTaskForRecovery/,"数据库超时等可恢复基础设施异常不得直接把获客任务标记为永久失败");
 assert.match(acquisitionWorkflow,/updateAcquisitionTaskTotals[\s\S]*accepted_count: accepted[\s\S]*rejected_count: rejected[\s\S]*duplicate_count: duplicate[\s\S]*finalizeCandidateBatch[\s\S]*updateAcquisitionTaskTotals/,"父获客任务必须持续同步早停、重复、入池和待复核的真实计数，不能到任务结束才更新");
 assert.match(listRoute,/overlaps\("industries"/);
 assert.match(listRoute,/ALL_QUALIFIED_WITHIN_SUPPORTED_SOURCES/);
@@ -243,6 +245,8 @@ assert.match(detailRoute,/get_ai_acquisition_discovery_progress[\s\S]*raw_hit_co
 assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_count[\s\S]*raw_hit_count/,"任务中心必须使用数据库端完整进度，不能在1000个检索分片后停止增长");
 assert.match(reviewRoute,/trustedEvidenceUrls[\s\S]*SOURCE_CONFIRMED[\s\S]*refreshedContacts[\s\S]*evaluateAcquisitionGate/,"重新核验必须基于强证据修复可追溯联系方式后重新执行入池门槛");
 const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
+const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatch.ts",import.meta.url),"utf8");
+assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
 assert.match(detail,/discovery_progress[\s\S]*正在持续发现并核验目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及流水线完成进度");
 assert.match(detail,/任务编号 \{task\.task_number\}[\s\S]*创建人[\s\S]*创建于/,"任务详情标题元信息必须与AI筛选统一为编号、创建人和创建时间");
 assert.match(detailRoute,/owner:users!ai_acquisition_tasks_user_id_fkey\(id,name,email\)/,"任务详情接口必须返回真实创建人，不能把仍然存在的账号显示为历史账号");
@@ -253,7 +257,9 @@ assert.match(detail,/4 个阶段并行衔接[\s\S]*pipelineSteps[\s\S]*搜索覆
 assert.match(detail,/AI获客实时处理构成[\s\S]*已完成去重与早停[\s\S]*进入深度核验[\s\S]*深度核验完成 \/ 待处理[\s\S]*最近核验进展/,"核验阶段必须解释总候选、早停候选和深度核验队列，避免进度分母含义不清");
 assert.match(detail,/stageTitle[\s\S]*已暂停 · 暂停前阶段[\s\S]*任务已在安全检查点暂停[\s\S]*最近更新/,"实时进度必须统一暂停状态并明确从安全检查点恢复");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
-assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"匹配关键词"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并按业务重要性排列");
+assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
+assert.match(detail,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");
+assert.match(detail,/核验结论[\s\S]*identityLabel\[evidence\.analysis\?\.identity_status/,"获客依据摘要必须使用中文业务标签并明确展示核验结论");
 assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CustomerScoreBadge[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");
 assert.doesNotMatch(detail,/"客户与地区"|"AI匹配"|"商机线索与销售建议"/,"本次客户列表不得继续使用混合字段标题");
 assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*平均入池成本参考/,"搜索策略效果必须默认折叠并保留从发现到转化的质量与成本闭环");
@@ -268,8 +274,9 @@ assert.doesNotMatch(detail,/toggleUsageDetails\("OPENAI"\)|OpenAI 调用与费�
 assert.match(detail,/toggleGoogleDetails\(\)[\s\S]*id="google-usage-details"[\s\S]*visibleUsageBreakdown/,"Google概览必须在卡片下方展开任务和账号额度明细");
 assert.match(detail,/showCustomerResults\(nextDecision[\s\S]*setDecision\(nextDecision\)[\s\S]*scrollIntoView[\s\S]*showCustomerResults\("ACCEPTED"\)[\s\S]*showCustomerResults\("REVIEW"\)/,"结果概览卡必须加载对应分类并可靠定位到客户列表");
 assert.match(detail,/成功入池客户[\s\S]*\{formatNumber\(task\.accepted_count\)\}<\/div>[\s\S]*待人工复核[\s\S]*\{formatNumber\(task\.review_count\)\}<\/div>[\s\S]*\{formatNumber\(task\.processed_count\)\} \/ \{formatNumber\(task\.discovered_count\)\}<\/div>/,"结果概览数字不得重复追加突兀的单位");
-assert.match(detail,/核验具体来源/);
-assert.match(detail,/发起WhatsApp对话/);
+const sharedEvidenceSections=fs.readFileSync(new URL("../components/ai-screening/evidence-sections.tsx",import.meta.url),"utf8");
+assert.match(sharedEvidenceSections,/核对发现来源|打开来源核验/);
+assert.match(sharedEvidenceSections,/https:\/\/wa\.me/);
 assert.match(detail,/本次获取的客户[\s\S]*成功入池[\s\S]*待复核[\s\S]*未通过[\s\S]*重复/,"任务详情必须优先提供本次获客结果分类");
 assert.match(detail,/CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*iconOnly[\s\S]*CustomerPublicChannels/,"任务客户列表必须用统一平台图标展示已核验联系方式、官网与第三方公开渠道");
 assert.match(detail,/r\.customer_profile\?\.website\|\|r\.source_website[\s\S]*Google 商家提供/,"Google商家绑定官网即使尚未写入主档也必须在公开来源中可访问并标明来源");
