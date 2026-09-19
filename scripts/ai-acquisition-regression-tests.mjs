@@ -344,6 +344,8 @@ assert.doesNotMatch(taskCenter,/scopeUserId \|\| "all"/,"AI获客任务中心显
 assert.match(taskCenter,/ownerQuery[\s\S]*customers\?scope=\$\{customerScope\}\$\{ownerQuery\}/,"任务中心进入客户结果时必须保持当前归属人范围");
 assert.match(taskCenter,/"Google调用"[\s\S]*"总Token"[\s\S]*"实际费用"/,"任务中心必须分列提供Google调用、Token和实际费用");
 assert.match(taskCenter,/"获客模式"[\s\S]*"状态"[\s\S]*"候选核验进度"[\s\S]*"成功入池"[\s\S]*"待复核"[\s\S]*"去重后候选"[\s\S]*"目标国家\/地区"[\s\S]*"目标行业"[\s\S]*"Google调用"[\s\S]*"总Token"[\s\S]*"实际费用"[\s\S]*"任务耗时"[\s\S]*"创建时间"/,"获客列表必须按业务重要性拆分单一含义字段，不能杂合展示");
+assert.match(listRoute,/terminalCount[\s\S]*accepted_count[\s\S]*review_count[\s\S]*rejected_count[\s\S]*duplicate_count[\s\S]*processed_count: processedCount/,"任务中心必须用全部终态候选校准历史核验进度");
+assert.match(acquisitionWorkflow,/processedCount!==discoveredCount\|\|analyzingCount>0[\s\S]*ACQUISITION_COMPLETION_INTEGRITY_FAILED/,"存在未处理或仍在分析的候选时任务不得标记为已完成");
 assert.match(taskCenter,/table-fixed[\s\S]*<colgroup>[\s\S]*w-\[260px\][\s\S]*w-\[220px\][\s\S]*whitespace-nowrap px-4 py-3 font-medium/,"获客任务列表必须按内容分配稳定列宽并禁止标题逐字换行");
 assert.match(taskCenter,/line-clamp-2 font-medium leading-5 text-slate-900 hover:text-blue-700/,"获客任务名称必须与AI筛选统一使用深色正文，只在悬停时提供蓝色交互反馈");
 assert.match(taskCenter,/OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\}<\/small><small[\s\S]*Google已确认 \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"实际费用必须将OpenAI和Google已确认金额分行展示，不能挤成一条难读文本");

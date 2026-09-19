@@ -376,12 +376,17 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
     if(result.error)throw result.error;
     return Number(result.count||0);
   };
-  const [acceptedCount,reviewCount,rejectedCount,duplicateCount,reusedResult]=await Promise.all([
+  const [acceptedCount,reviewCount,rejectedCount,duplicateCount,reusedResult,totalResult,analyzingResult]=await Promise.all([
     decisionCount("ACCEPTED"),decisionCount("REVIEW"),decisionCount("REJECTED"),decisionCount("DUPLICATE"),
     admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId).like("decision_reason","复用近14天历史核验结论%"),
+    admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId),
+    admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId).eq("decision","ANALYZING"),
   ]);
-  if(reusedResult.error)throw reusedResult.error;
+  if(reusedResult.error||totalResult.error||analyzingResult.error)throw reusedResult.error||totalResult.error||analyzingResult.error;
   const processedCount=acceptedCount+reviewCount+rejectedCount+duplicateCount;
+  const discoveredCount=Number(totalResult.count||0);
+  const analyzingCount=Number(analyzingResult.count||0);
+  if(status==="COMPLETED"&&(processedCount!==discoveredCount||analyzingCount>0))throw new Error(`ACQUISITION_COMPLETION_INTEGRITY_FAILED: processed=${processedCount}, discovered=${discoveredCount}, analyzing=${analyzingCount}`);
   const now = new Date();
   const task = await admin.from("ai_acquisition_tasks").select("started_at,elapsed_ms").eq("id", taskId).single();
   if (task.error) throw task.error;
@@ -398,7 +403,7 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   const reusedCandidates=Number(reusedResult.count||0);
   const budgetLimited=Number(budgetCheckpoints.count||0)>0;
   const completedDetail=noFreshSearch?`本次任务范围与近期已完成搜索重合，未重复调用第三方平台；复用 ${reusedCandidates} 条近期核验结论，无新增候选进入分析`:budgetLimited?"发现阶段触发费用保护后停止；已发现候选均已完成去重、核验或历史结论复用":"当前检索策略可返回分页、去重、核验和准入判定均已完成";
-  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?completedDetail:status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, processed_count:processedCount, accepted_count:acceptedCount, review_count:reviewCount, rejected_count:rejectedCount, duplicate_count:duplicateCount, elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message:errorMessage?.slice(0,1000)||null, updated_at:now.toISOString() }).eq("id",taskId);
+  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?completedDetail:status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, discovered_count:discoveredCount, processed_count:processedCount, accepted_count:acceptedCount, review_count:reviewCount, rejected_count:rejectedCount, duplicate_count:duplicateCount, elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message:errorMessage?.slice(0,1000)||null, updated_at:now.toISOString() }).eq("id",taskId);
   if (update.error) throw update.error;
 }
 

@@ -12,7 +12,11 @@ function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
     ? String(task.last_dispatch_at)
     : null;
-  return { ...task, scheduled_at: scheduled };
+  const terminalCount = ["accepted_count", "review_count", "rejected_count", "duplicate_count"]
+    .reduce((total, key) => total + Math.max(0, Number(task[key] || 0)), 0);
+  const discoveredCount = Math.max(0, Number(task.discovered_count || 0));
+  const processedCount = Math.min(discoveredCount, Math.max(Number(task.processed_count || 0), terminalCount));
+  return { ...task, processed_count: processedCount, progress_consistent: task.status !== "COMPLETED" || processedCount === discoveredCount, scheduled_at: scheduled };
 }
 
 export async function GET(request: NextRequest) {
