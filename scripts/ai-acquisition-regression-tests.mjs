@@ -235,6 +235,7 @@ assert.match(detailRoute,/eq\("request_key", `acquisition:\$\{id\}`\)[\s\S]*cons
 assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweight\?\{\}:\{costs:[\s\S]*usage_summary:/,"完整详情必须以当前任务费用流水重算汇总，轻量轮询不得用空流水覆盖已加载费用");
 assert.match(detailRoute,/liveDecisionCounts[\s\S]*liveTerminal[\s\S]*rejected_count:liveDecisionCounts\.REJECTED[\s\S]*duplicate_count:liveDecisionCounts\.DUPLICATE/,"暂停中的任务详情也必须按候选真实状态展示拒绝和重复计数");
 assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*status: "RUNNING"/,"恢复旧任务前必须先用修复后的早筛规则重新排队误拒候选");
+assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durableItemIds[\s\S]*const itemIds[\s\S]*status: "COMPLETED"[\s\S]*lease_owner: null[\s\S]*is_latest_valid: false/,"失败任务重试必须保留已经持久化完成的客户，只重置真正未完成的项目并清理旧租约");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");

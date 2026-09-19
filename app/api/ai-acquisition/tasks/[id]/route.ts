@@ -235,13 +235,32 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
       if (child.error) throw child.error;
       if (child.data) {
-        const failedItems = await admin.from("ai_screening_task_items").select("id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
+        const failedItems = await admin.from("ai_screening_task_items").select("id,status,analysis_status,writeback_status,result_id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
         if (failedItems.error) throw failedItems.error;
-        const itemIds = (failedItems.data || []).map((row) => String(row.id));
+        const durableItemIds = (failedItems.data || [])
+          .filter((row) => row.analysis_status === "COMPLETED" && row.writeback_status === "COMPLETED" && row.result_id)
+          .map((row) => String(row.id));
+        const itemIds = (failedItems.data || [])
+          .filter((row) => !(row.analysis_status === "COMPLETED" && row.writeback_status === "COMPLETED" && row.result_id))
+          .map((row) => String(row.id));
+        if (durableItemIds.length) {
+          const repaired = await admin.from("ai_screening_task_items").update({
+            status: "COMPLETED", progress: 100, current_step: "COMPLETED", pipeline_stage: "COMPLETED",
+            lease_owner: null, lease_token: null, lease_expires_at: null, executor_heartbeat_at: null,
+            error_message: null, error_code: null, completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          }).in("id", durableItemIds);
+          if (repaired.error) throw repaired.error;
+        }
         if (itemIds.length) {
           const invalidated = await admin.from("ai_screening_results").update({ is_latest_valid: false }).in("task_item_id", itemIds);
           if (invalidated.error) throw invalidated.error;
-          const resetItems = await admin.from("ai_screening_task_items").update({ status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null, result_id: null, progress: 0, current_step: "WAITING", error_message: null, error_code: null, completed_at: null, updated_at: new Date().toISOString() }).in("id", itemIds);
+          const resetItems = await admin.from("ai_screening_task_items").update({
+            status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null,
+            result_id: null, progress: 0, current_step: "WAITING", pipeline_stage: "NORMALIZED",
+            lease_owner: null, lease_token: null, lease_expires_at: null, executor_heartbeat_at: null,
+            started_at: null, retry_at: null, error_message: null, error_code: null, completed_at: null,
+            updated_at: new Date().toISOString(),
+          }).in("id", itemIds);
           if (resetItems.error) throw resetItems.error;
         }
         await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: child.data.id });

@@ -7,6 +7,9 @@ export function acquisitionErrorMessageZh(message?: string | null) {
   if (/budget|费用|额度|limit/i.test(value)) {
     return "任务触发费用或额度边界后已安全停止，已完成的进度和调用记录均已保留。";
   }
+  if (/57014|statement timeout|canceling statement due to statement timeout/i.test(value)) {
+    return "此前因数据库查询超时中断。已完成客户、搜索检查点和费用记录均已保留；重试只会继续未完成项，修复后同类短暂超时将自动从检查点恢复。";
+  }
   if (/workflow|fatalerror|failed after|acquisition_screening/i.test(value)) {
     return "任务执行异常，系统已保留完成进度和费用记录，可从检查点安全重试。";
   }
@@ -18,5 +21,6 @@ export function acquisitionFailureStage(message?: string | null) {
   if (/google_place_id.*does not exist|42703/i.test(value)) return "候选保存失败";
   if (/screening/i.test(value)) return "AI核验失败";
   if (/budget|费用|额度|limit/i.test(value)) return "费用边界停止";
+  if (/57014|statement timeout|canceling statement due to statement timeout/i.test(value)) return "数据库查询超时";
   return "执行异常";
 }

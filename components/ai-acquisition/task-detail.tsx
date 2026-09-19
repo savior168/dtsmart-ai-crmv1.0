@@ -440,7 +440,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       </section>:null}
       {task.error_message ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          <div><b>{acquisitionFailureStage(task.error_message)}</b><p className="mt-1 leading-6">{acquisitionErrorMessageZh(task.error_message)}</p>{discoveryProgress?<small className="mt-1 block text-rose-500">已保留 {discoveryProgress.completed} 个检索检查点、{formatNumber(discoveryProgress.raw_hits)} 条原始命中和全部费用记录。</small>:null}</div>
+          <div><b>{acquisitionFailureStage(task.error_message)}</b><p className="mt-1 leading-6">{acquisitionErrorMessageZh(task.error_message)}</p><small className="mt-1 block text-rose-500">已完成 {formatNumber(task.processed_count)} 位，剩余 {formatNumber(Math.max(0,task.discovered_count-task.processed_count))} 位待继续处理；已完成结果不会重复分析或计费。</small>{discoveryProgress?<small className="mt-1 block text-rose-500">已保留 {discoveryProgress.completed} 个检索检查点、{formatNumber(discoveryProgress.raw_hits)} 条原始命中和全部费用记录。</small>:null}</div>
           {canControl&&task.status==="FAILED"?<button className={primaryButton} onClick={()=>setAction("RETRY")}><RefreshCw size={15}/>从检查点重试</button>:null}
         </div>
       ) : null}
