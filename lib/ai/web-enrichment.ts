@@ -1370,7 +1370,12 @@ export async function collectGooglePlaceEvidence(input: {
       // A concrete Maps URL already identifies the requested Place. Fetch its
       // identity and actionable contacts together, avoiding a slower and more
       // expensive second request after the identity has already matched.
-      const detail = await readDetail(candidateId, directPlaceId === candidateId
+      // Acquisition discovery already supplied the exact Place ID. It is only
+      // a locator (identity still needs name/address verification), but once we
+      // pay for that selected entity's detail request we must also request its
+      // public phone and website. Otherwise clearly matched target businesses
+      // finish with no contact row and are needlessly sent to manual review.
+      const detail = await readDetail(candidateId, directPlaceId === candidateId || storedPlaceIdHint === candidateId
         ? `${baseIdentityFields},internationalPhoneNumber,nationalPhoneNumber,websiteUri`
         : baseIdentityFields);
       if (!detail) continue;
