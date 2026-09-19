@@ -359,8 +359,8 @@ assert.match(listRoute,/terminalCount[\s\S]*accepted_count[\s\S]*review_count[\s
 assert.match(acquisitionWorkflow,/processedCount!==discoveredCount\|\|analyzingCount>0[\s\S]*ACQUISITION_COMPLETION_INTEGRITY_FAILED/,"存在未处理或仍在分析的候选时任务不得标记为已完成");
 assert.match(taskCenter,/table-fixed[\s\S]*<colgroup>[\s\S]*w-\[260px\][\s\S]*w-\[220px\][\s\S]*whitespace-nowrap px-4 py-3 font-medium/,"获客任务列表必须按内容分配稳定列宽并禁止标题逐字换行");
 assert.match(taskCenter,/line-clamp-2 font-medium leading-5 text-slate-900 hover:text-blue-700/,"获客任务名称必须与AI筛选统一使用深色正文，只在悬停时提供蓝色交互反馈");
-assert.match(taskCenter,/OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\}<\/small><small[\s\S]*Google已确认 \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"实际费用必须将OpenAI和Google已确认金额分行展示，不能挤成一条难读文本");
-assert.match(taskCenter,/formatNumber\(t\.usage\?\.google_calls\)[\s\S]*formatTokens\(t\.usage\?\.total_tokens\)[\s\S]*OpenAI \{formatCost\(t\.usage\?\.openai_cost_usd\)\}[\s\S]*Google已确认 \{formatCost\(t\.usage\?\.google_cost_usd\)\}/,"任务列表必须从任务账本展示Google、Token和分项实际费用");
+assert.match(taskCenter,/tasks\/\$\{t\.id\}#usage-details[\s\S]*查看明细[\s\S]*查看真实费用/,"任务中心费用列必须进入按需加载的真实账本明细，不能以空数据伪装零费用");
+assert.doesNotMatch(taskCenter,/formatNumber\(t\.usage\?\.google_calls\)|formatTokens\(t\.usage\?\.total_tokens\)/,"任务列表不得在后台任务运行时同步聚合费用流水");
 assert.match(acquisitionWorkflow,/\.in\("google_maps_place_id", placeIds\)/,"AI获客去重必须批量使用客户表真实Google Place字段");
 assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI获客暂存客户必须写入真实Google Place字段");
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
@@ -435,6 +435,9 @@ assert.match(acquisitionTaskDetail,/quiet = false[\s\S]*p\.set\("lightweight", "
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
 assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
 assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*todayResponse[\s\S]*historyResponse/,"任务中心费用统计必须按需且串行加载，避免与获客写入争抢数据库");
+assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
+assert.match(acquisitionTaskCenter,/查看明细[\s\S]*查看真实费用/,"任务中心必须提供真实用量详情入口且不得用空数据伪装为零费用");
+assert.match(listRoute,/optional progress unavailable[\s\S]*optional today accepted unavailable/,"任务列表附属进度和今日统计异常不得拖垮核心列表");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");

@@ -6,7 +6,6 @@ import { DEFAULT_ACQUISITION_DISCOVERY_CEILING, MAX_ACQUISITION_INDUSTRIES, MAX_
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
-import { isActuallyIncurredCost } from "@/lib/api-cost-actual";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -82,33 +81,18 @@ export async function GET(request: NextRequest) {
     const checkpointResult = pageTaskIds.length
       ? await admin.rpc("get_ai_acquisition_discovery_progress", { p_task_ids: pageTaskIds })
       : { data: [], error: null };
-    if (checkpointResult.error) throw checkpointResult.error;
+    if (checkpointResult.error) {
+      console.warn("[ai-acquisition/tasks] optional progress unavailable", { code: checkpointResult.error.code });
+    }
     const checkpointByTask = new Map<string, { completed:number; rawHits:number }>();
     for (const checkpoint of checkpointResult.data || []) {
       const taskId = String(checkpoint.task_id);
       checkpointByTask.set(taskId, { completed:Number(checkpoint.terminal_count||0), rawHits:Number(checkpoint.raw_hit_count||0) });
     }
     const usageByTask = new Map<string,{google_calls:number;openai_calls:number;total_tokens:number;openai_cost_usd:number;google_cost_usd:number;total_cost_usd:number}>();
-    if (pageTaskIds.length && hasPermission(account, "ai.acquisition.usage.view")) {
-      const costParentByTask = new Map(pageTaskIds.map((taskId)=>[taskId,taskId]));
-      const childResult = await admin.from("ai_acquisition_candidates").select("task_id,screening_task_id").in("task_id",pageTaskIds).not("screening_task_id","is",null);
-      if(childResult.error)throw childResult.error;
-      for(const child of childResult.data||[])if(child.screening_task_id)costParentByTask.set(String(child.screening_task_id),String(child.task_id));
-      const costTaskIds=[...costParentByTask.keys()];
-      const costRows:Array<{task_id:string|null;provider:string;quantity:number;input_tokens:number;output_tokens:number;amount_usd:number;amount_type:string}>=[];
-      for(let offset=0;;offset+=1000){const chunk=await admin.from("api_cost_ledger").select("task_id,provider,quantity,input_tokens,output_tokens,amount_usd,amount_type").in("task_id",costTaskIds).range(offset,offset+999);if(chunk.error)throw chunk.error;costRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
-      for(const cost of costRows){
-        const parentId=costParentByTask.get(String(cost.task_id||""));
-        if(!parentId)continue;
-        const current=usageByTask.get(parentId)||{google_calls:0,openai_calls:0,total_tokens:0,openai_cost_usd:0,google_cost_usd:0,total_cost_usd:0};
-        const quantity=Math.max(0,Number(cost.quantity||1));
-        const amount=Number(cost.amount_usd||0);
-        if(cost.provider==="GOOGLE_PLACES"){current.google_calls+=quantity;if(isActuallyIncurredCost(cost))current.google_cost_usd+=amount}
-        if(cost.provider==="OPENAI"){current.openai_calls+=quantity;current.openai_cost_usd+=amount;current.total_tokens+=Number(cost.input_tokens||0)+Number(cost.output_tokens||0)}
-        if(isActuallyIncurredCost(cost))current.total_cost_usd+=amount;
-        usageByTask.set(parentId,current);
-      }
-    }
+    // Per-task usage stays available on the task detail and usage pages. The
+    // task center must remain a fast control surface, so it never scans or
+    // aggregates the append-only billing ledger while workers are writing.
     const summaryRows: Array<{ id:string; status: string; accepted_count: number | null; review_count: number | null }> = [];
     for (let offset = 0; ; offset += 1000) {
       let summaryQuery = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");
@@ -125,16 +109,16 @@ export async function GET(request: NextRequest) {
       if ((chunk.data || []).length < 1000) break;
     }
     const sum = (key: "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
-    let totalAccepted = 0;
+    const totalAccepted = sum("accepted_count");
     let todayAccepted = 0;
     const summaryTaskIds = summaryRows.map((row) => row.id);
     for (let offset = 0; offset < summaryTaskIds.length; offset += 150) {
       const result = await admin.from("ai_acquisition_candidates").select("id", { count:"exact", head:true }).in("task_id", summaryTaskIds.slice(offset, offset + 150)).eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
-      if (result.error) throw result.error;
+      if (result.error) {
+        console.warn("[ai-acquisition/tasks] optional today accepted unavailable", { code: result.error.code });
+        break;
+      }
       todayAccepted += result.count || 0;
-      const allResult = await admin.from("ai_acquisition_candidates").select("id", { count:"exact", head:true }).in("task_id", summaryTaskIds.slice(offset, offset + 150)).eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
-      if (allResult.error) throw allResult.error;
-      totalAccepted += allResult.count || 0;
     }
     const summary = {
       tasks: summaryRows.length,

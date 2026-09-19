@@ -16,7 +16,6 @@ import {
   formatCost,
   formatDuration,
   formatNumber,
-  formatTokens,
   input,
   panel,
   primaryButton,
@@ -363,7 +362,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#customer-results`} className="font-medium text-slate-800 hover:text-blue-700 hover:underline">{formatNumber(t.discovered_count)} 条</Link></td>
                     <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
                     <td className="px-4 py-3"><span className="block max-w-52 truncate" title={(t.industries?.length?t.industries:[t.industry]).join("、")}>{(t.industries?.length?t.industries:[t.industry]).slice(0,2).join("、")}{(t.industries?.length||1)>2?` +${(t.industries?.length||1)-2}`:""}</span></td>
-                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatNumber(t.usage?.google_calls)} 次</Link></td><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-slate-700 hover:text-blue-700 hover:underline">{formatTokens(t.usage?.total_tokens)}</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="block font-semibold text-slate-800 hover:text-blue-700 hover:underline">{formatCost(t.usage?.total_cost_usd)}</Link><small className="mt-1 block whitespace-nowrap text-slate-500">OpenAI {formatCost(t.usage?.openai_cost_usd)}</small><small className="mt-0.5 block whitespace-nowrap text-slate-500">Google已确认 {formatCost(t.usage?.google_cost_usd)}</small></td></>:null}
+                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-blue-600 hover:underline">查看明细</Link></td><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-blue-600 hover:underline">查看明细</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-blue-600 hover:underline">查看真实费用</Link></td></>:null}
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>
                     <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">
