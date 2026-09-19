@@ -437,6 +437,8 @@ assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!light
 assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
 assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*todayResponse[\s\S]*historyResponse/,"任务中心费用统计必须按需且串行加载，避免与获客写入争抢数据库");
 assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
+assert.match(listRoute,/coreOnly[\s\S]*!coreOnly&&offset<20000[\s\S]*!coreOnly && pageTaskIds[\s\S]*if \(coreOnly\)[\s\S]*data: presentedTasks/,"任务中心必须先返回核心任务列表，不能等待全量统计和筛选项扫描");
+assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*setTasks[\s\S]*void fetch\(`\/api\/ai-acquisition\/tasks\?\$\{p\}`[\s\S]*setSummary/,"任务中心必须先展示核心任务，再异步补充真实汇总统计");
 assert.match(acquisitionTaskCenter,/查看明细[\s\S]*查看真实费用/,"任务中心必须提供真实用量详情入口且不得用空数据伪装为零费用");
 assert.match(listRoute,/optional progress unavailable[\s\S]*optional today accepted unavailable/,"任务列表附属进度和今日统计异常不得拖垮核心列表");
 assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_limit: 1[\s\S]*stalled task claim completed/,"获客恢复器必须只通过受限RPC领取单个停滞任务并记录阶段结果");

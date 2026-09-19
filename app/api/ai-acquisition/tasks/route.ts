@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
+    const coreOnly = request.nextUrl.searchParams.get("core") === "1";
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const status = request.nextUrl.searchParams.get("status") || "";
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
     const to = request.nextUrl.searchParams.get("to") || "";
     const admin = createAdminClient();
     const optionRows: Array<{countries:string[] | null;industries:string[] | null;industry:string | null}> = [];
-    for(let offset=0;offset<20000;offset+=1000){
+    for(let offset=0;!coreOnly&&offset<20000;offset+=1000){
       let optionQuery=admin.from("ai_acquisition_tasks").select("countries,industries,industry");
       if(ownerId)optionQuery=optionQuery.eq("user_id",ownerId);
       const optionPage=await optionQuery.order("created_at",{ascending:false}).range(offset,offset+999);
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
     const result = await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
     const pageTaskIds = (result.data || []).map((row) => String(row.id));
-    const checkpointResult = pageTaskIds.length
+    const checkpointResult = !coreOnly && pageTaskIds.length
       ? await admin.rpc("get_ai_acquisition_discovery_progress", { p_task_ids: pageTaskIds })
       : { data: [], error: null };
     if (checkpointResult.error) {
@@ -90,6 +91,19 @@ export async function GET(request: NextRequest) {
       checkpointByTask.set(taskId, { completed:Number(checkpoint.terminal_count||0), rawHits:Number(checkpoint.raw_hit_count||0) });
     }
     const usageByTask = new Map<string,{google_calls:number;openai_calls:number;total_tokens:number;openai_cost_usd:number;google_cost_usd:number;total_cost_usd:number}>();
+    const presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
+    if (coreOnly) {
+      return NextResponse.json({
+        data: presentedTasks,
+        count: result.count || 0,
+        can_create: hasPermission(account, "ai.acquisition.create"),
+        can_control: hasPermission(account, "ai.acquisition.control"),
+        can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"),
+        can_view_usage: hasPermission(account, "ai.acquisition.usage.view"),
+        can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"),
+        show_owner: hasPermission(account, "ai.acquisition.data_all"),
+      });
+    }
     // Per-task usage stays available on the task detail and usage pages. The
     // task center must remain a fast control surface, so it never scans or
     // aggregates the append-only billing ledger while workers are writing.
@@ -129,7 +143,7 @@ export async function GET(request: NextRequest) {
       review: sum("review_count"),
       failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
     };
-    return NextResponse.json({ data: (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); }), count: result.count || 0, summary, filter_options:filterOptions, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    return NextResponse.json({ data: presentedTasks, count: result.count || 0, summary, filter_options:filterOptions, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";
     console.error("[ai-acquisition/tasks] list failed", error);

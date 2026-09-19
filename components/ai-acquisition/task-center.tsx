@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarCheck2, Check, ChevronDown, CircleHelp, LoaderCircle, Plus, RefreshCw, Search, Settings2, TriangleAlert, UserRoundPlus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CostModeBadge,
   ConfirmDialog,
@@ -84,7 +84,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [pendingAction, setPendingAction] = useState<{task:AcquisitionTask;action:AcquisitionAction}|null>(null),
     [actionBusy, setActionBusy] = useState(false);
   const {toast,node:toastNode}=useToast();
+  const loadRequestRef=useRef(0);
   const load = useCallback(async () => {
+    const requestId=++loadRequestRef.current;
     setLoading(true);
     setError("");
     try {
@@ -101,16 +103,28 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       if (costMode) p.set("cost_mode", costMode);
       if (from) p.set("from", from);
       if (to) p.set("to", to);
-      const r = await fetch(`/api/ai-acquisition/tasks?${p}`, {
+      const coreParams = new URLSearchParams(p);
+      coreParams.set("core", "1");
+      const r = await fetch(`/api/ai-acquisition/tasks?${coreParams}`, {
         cache: "no-store",
       });
       const b = await r.json();
+      if(requestId!==loadRequestRef.current)return;
       if (!r.ok) throw new Error(b.error || "加载失败");
       setTasks(b.data || []);
       setCount(b.count || 0);
-      setSummary(b.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 });
-      setFilterOptions(b.filter_options || {countries:[],industries:[]});
       setShowOwner(Boolean(b.show_owner));
+      // The control table is the primary task-center surface. Load the exact
+      // all-time counters and filter facets afterwards so their broader scans
+      // can never hold the task list in a loading state.
+      void fetch(`/api/ai-acquisition/tasks?${p}`, { cache: "no-store" })
+        .then(async (overviewResponse) => ({ ok: overviewResponse.ok, body: await overviewResponse.json().catch(() => ({})) }))
+        .then(({ ok, body }) => {
+          if (!ok || requestId!==loadRequestRef.current) return;
+          setSummary(body.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 });
+          setFilterOptions(body.filter_options || {countries:[],industries:[]});
+        })
+        .catch(() => undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
