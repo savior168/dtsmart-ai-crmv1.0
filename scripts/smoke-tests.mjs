@@ -151,6 +151,8 @@ const registerApi = read("app/api/auth/register/route.ts");
 const authForm = read("components/password-auth-form.tsx");
 const loginPage = read("app/login/page.tsx");
 const globalStyles = read("app/globals.css");
+const routingMiddleware = read("middleware.ts");
+const sessionMiddleware = read("lib/supabase/middleware.ts");
 const permissionMigration = read("supabase/migrations/202608310002_user_access_control.sql");
 assert.match(loginApi, /verifyCaptcha\(body\.captcha\)/, "登录必须由服务端校验图形验证码");
 assert.match(registerApi, /verifyCaptcha\(body\.captcha\)/, "注册必须由服务端校验图形验证码");
@@ -173,6 +175,8 @@ assert.match(loginPage, /tradeos-auth-network[\s\S]*全球发现[\s\S]*主体核
 assert.match(globalStyles, /tradeos-auth-network-flow[\s\S]*tradeos-auth-node-pulse[\s\S]*prefers-reduced-motion/, "登录页科技动效必须支持系统减少动画设置");
 assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用户必须固定为待审核销售员");
 assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");
+assert.match(routingMiddleware, /api\/cron\/ai-task-recovery/, "AI任务自动恢复接口必须绕过浏览器登录中间件，避免定时请求被307重定向");
+assert.match(sessionMiddleware, /api\/cron\/ai-task-recovery/, "AI任务自动恢复接口必须由CRON_SECRET自行鉴权，不能要求浏览器会话");
 assert.match(permissionMigration, /zzccxry@gmail\.com[\s\S]*role = 'SALES'[\s\S]*role = 'ADMIN'/, "权限迁移必须把指定账号设为唯一系统管理员、其余账号设为销售员");
 assert.match(permissionMigration, /必须保留至少一名|current_user_is_admin/, "权限系统必须具备系统管理员保护规则");
 assert.match(taskDetail, /label="所属行业"[\s\S]*全部目标客户[\s\S]*全部AI等级[\s\S]*查询[\s\S]*重置/, "任务详情必须在同一筛选行提供行业、目标客户、AI等级、查询和重置");
