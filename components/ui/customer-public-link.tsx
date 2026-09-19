@@ -22,7 +22,10 @@ function WebsiteIcon({ size = 14 }: { size?: number }) {
 /** Compact, readable link used by customer lists instead of exposing raw URLs. */
 export function CustomerPublicLink({ value, kind, size = "compact", iconOnly = false }: { value?: string | null; kind: "website" | "map"; size?: "compact" | "normal"; iconOnly?: boolean }) {
   const target = urlTarget(value);
-  if (!target) return null;
+  if (!target) {
+    const emptyLabel = kind === "website" ? "暂无官网" : "暂无地图链接";
+    return <span className="text-slate-400" title={emptyLabel} aria-label={emptyLabel}>—</span>;
+  }
   const website = kind === "website";
   const label = website ? "官网" : "Google Maps";
   const normal = size === "normal";

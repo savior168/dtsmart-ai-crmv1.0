@@ -92,7 +92,10 @@ export function CustomerContactSummary({ customer, source, display = "all" }: { 
   const verifiedContacts = uniqueCollected.filter((item) => !originalKeys.has(contactKey(item.type, item.value, customer.country)));
   const allContacts = source === "original" ? originalContacts : source === "ai" ? uniqueCollected : [...originalContacts, ...verifiedContacts];
   const contacts = display === "phone" ? allContacts.filter((item) => item.type !== "EMAIL") : display === "email" ? allContacts.filter((item) => item.type === "EMAIL") : allContacts;
-  if (!contacts.length) return <span className="text-slate-400">—</span>;
+  if (!contacts.length) {
+    const emptyLabel = display === "phone" ? "暂无已核验电话" : display === "email" ? "暂无已核验邮箱" : "暂无可联系信息";
+    return <span className="text-slate-400" title={emptyLabel} aria-label={emptyLabel}>—</span>;
+  }
   const copyContact = (value: string, key: string) => {
     void navigator.clipboard?.writeText(value).then(() => {
       setCopiedKey(key);

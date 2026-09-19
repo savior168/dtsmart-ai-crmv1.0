@@ -50,6 +50,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const industries = [...new Set(request.nextUrl.searchParams.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = request.nextUrl.searchParams.get("level") || "";
     const readiness = request.nextUrl.searchParams.get("readiness") || "";
+    const evidenceStatus = request.nextUrl.searchParams.get("evidence_status") || "";
+    const sort = request.nextUrl.searchParams.get("sort") || "SALES_PRIORITY";
     const lightweight = request.nextUrl.searchParams.get("lightweight") === "1";
     const report = request.nextUrl.searchParams.get("report") === "1";
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
@@ -66,12 +68,18 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
     }
     if (["A","B","C","D"].includes(level)) query = query.eq("ai_level", level);
-    if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true).eq("evidence_complete", true);
+    if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true);
     if (readiness === "NO_CONTACT") query = query.eq("has_actionable_contact", false);
-    if (readiness === "EVIDENCE_GAP") query = query.eq("evidence_complete", false);
+    if (evidenceStatus === "COMPLETE") query = query.eq("evidence_complete", true);
+    if (evidenceStatus === "GAP") query = query.eq("evidence_complete", false);
     const candidates = lightweight
       ? { data: [], count: 0, error: null }
-      : await query.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+      : await (sort === "RECENT"
+          ? query.order("updated_at", { ascending: false })
+          : sort === "SCORE"
+            ? query.order("ai_score", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false })
+            : query.order("has_actionable_contact", { ascending: false }).order("evidence_complete", { ascending: false }).order("ai_score", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false }))
+        .range((page - 1) * pageSize, page * pageSize - 1);
     if (candidates.error) throw candidates.error;
     const candidateRows = candidates.data || [];
     const customerIds = [...new Set(candidateRows.flatMap((row) => [row.staging_customer_id, row.imported_customer_id]).filter(Boolean).map(String))];

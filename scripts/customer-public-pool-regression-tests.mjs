@@ -75,6 +75,7 @@ assert.match(poolView, /available: "待认领客户"[\s\S]*claimed: "认领记�
 assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s\S]*"protection"/, "待认领客户不得因历史列偏好显示无意义的保护期字段");
 assert.match(poolView, /field === "phone"[\s\S]*CustomerContactSummary customer=\{row\} source="all"/, "待认领列表必须用同一联系方式列兼容录入数据与AI获客数据");
 assert.match(contactSummary, /const previewLimit=display==="email"\?1:2;[\s\S]*orderedContacts\.slice\(0,previewLimit\)\.map\(renderPreviewContact\)[\s\S]*展开/, "联系方式摘要必须在单行内显示适合列宽的预览项和展开入口");
+assert.match(contactSummary, /暂无已核验电话[\s\S]*暂无已核验邮箱[\s\S]*aria-label=\{emptyLabel\}>—</, "客户表格缺失联系方式必须以紧凑横线展示，并提供明确的辅助说明");
 assert.match(contactSummary, /sourceGroup\(item, customer\.source\)[\s\S]*展开后可打开核验页面/, "联系方式紧凑预览必须通过悬停保留公开来源说明");
 assert.match(contactSummary, /sourceTooltip[\s\S]*数据来源：\$\{originalSourceLabel\(customer\.source\)\}[\s\S]*AI核验来源：\$\{item\.verifiedBy\}[\s\S]*AI采集来源：\$\{item\.channelLabel/, "联系方式悬停说明必须保留原始来源、AI核验来源与AI采集渠道");
 assert.match(contactSummary, /function ConflictMarker[\s\S]*来源存在冲突，待人工核对[\s\S]*TriangleAlert/, "只有来源冲突这类异常状态才应常驻显示提示图标");

@@ -144,6 +144,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [industries, setIndustries] = useState<string[]>([]),
     [level, setLevel] = useState(""),
     [readiness, setReadiness] = useState(""),
+    [evidenceStatus, setEvidenceStatus] = useState(""),
+    [resultSort, setResultSort] = useState("SALES_PRIORITY"),
     [usage, setUsage] = useState<UsageSummary | null>(null),
     [usageScope, setUsageScope] = useState<"GOOGLE" | null>(null),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
@@ -176,6 +178,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       for (const industry of industries) p.append("industry", industry);
       if (level) p.set("level", level);
       if (readiness) p.set("readiness", readiness);
+      if (evidenceStatus) p.set("evidence_status", evidenceStatus);
+      p.set("sort", resultSort);
       if (quiet) p.set("lightweight", "1");
       let r: Response | null = null;
       let b: TaskDetailPayload = {};
@@ -207,7 +211,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [taskId, page, pageSize, decision, search, countries, industries, level, readiness]);
+  }, [taskId, page, pageSize, decision, search, countries, industries, level, readiness, evidenceStatus, resultSort]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -340,15 +344,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     setIndustries([]);
     setLevel("");
     setReadiness("");
+    setEvidenceStatus("");
+    setResultSort("SALES_PRIORITY");
     window.history.replaceState(null,"",`?decision=${nextDecision}#customer-results`);
     requestAnimationFrame(()=>document.getElementById("customer-results")?.scrollIntoView({behavior:"smooth",block:"start"}));
   }
-  const progressSteps=[
-    {key:"DISCOVERY",label:"搜索发现",detail:"本地化检索 · 分页覆盖"},
-    {key:"DEDUPLICATING",label:"去重初筛",detail:"客户库查重 · 停业与非目标早停"},
-    {key:"VERIFYING",label:"资料与业务核验",detail:"商家详情 · 官网证据 · 联系方式 · AI行业判断"},
-    {key:"FINALIZING",label:"质量准入",detail:"质量门槛 · 最终去重 · 入池或待复核"},
-  ];
   const discoveryCompleted=Number(discoveryProgress?.completed||0);
   const discoveryTotal=Number(discoveryProgress?.total||0);
   const discoveryPercent=discoveryTotal?Math.min(100,Math.round(discoveryCompleted/discoveryTotal*100)):0;
@@ -358,15 +358,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
   const verificationTotal=Number(verificationProgress?.total||0);
   const verificationCompleted=Number(verificationProgress?.completed||0);
   const earlyProcessed=Number(verificationProgress?.early_processed||0);
-  const pipelineSteps=progressSteps.map((step)=>{
-    if(step.key==="DISCOVERY")return {...step,value:`${formatNumber(discoveryCompleted)} / ${formatNumber(discoveryTotal)} 组检索`,state:discoveryTotal>0&&discoveryCompleted>=discoveryTotal?"done":"active"};
-    if(step.key==="DEDUPLICATING")return {...step,value:`${formatNumber(earlyProcessed)} 位已早停`,state:candidateTotal>0?discoveryCompleted>=discoveryTotal&&discoveryTotal>0?"done":"active":"waiting"};
-    if(step.key==="VERIFYING")return {...step,value:`${formatNumber(verificationCompleted)} / ${formatNumber(verificationTotal)} 位`,state:verificationTotal>0?verificationCompleted>=verificationTotal?"done":"active":"waiting"};
-    const admitted=Number(task.accepted_count||0)+Number(task.review_count||0);
-    return {...step,value:`${formatNumber(task.accepted_count)} 位入池 · ${formatNumber(task.review_count)} 位待复核`,state:admitted>0||verificationCompleted>0?task.status==="COMPLETED"?"done":"active":"waiting"};
-  });
   const runningStageTitle=({WAITING:"等待开始执行",DISCOVERY:"正在持续发现并核验目标客户",DEDUPLICATING:"正在保存候选并精准初筛",VERIFYING:"正在持续核验并实时入池",FINALIZING:"正在完成最后一批质量准入"} as Record<string,string>)[discoveryProgress?.stage||""]||"正在执行AI获客";
-  const stageTitle=task.status==="PAUSED"?`已暂停 · 暂停前阶段：${runningStageTitle.replace(/^正在/,"")}`:task.status==="PAUSING"?`正在安全暂停 · ${runningStageTitle.replace(/^正在/,"")}`:runningStageTitle;
+  const maintenancePaused=String(discoveryProgress?.stage_detail||"").includes("系统维护暂停");
+  const stageTitle=maintenancePaused?"系统维护保护中":task.status==="PAUSED"?`已暂停 · 暂停前阶段：${runningStageTitle.replace(/^正在/,"")}`:task.status==="PAUSING"?`正在安全暂停 · ${runningStageTitle.replace(/^正在/,"")}`:runningStageTitle;
+  const remainingSearches=Math.max(0,discoveryTotal-discoveryCompleted);
+  const remainingCandidates=Math.max(0,candidateTotal-candidateCompleted);
   return (
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
@@ -418,8 +414,16 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         }
       />
       {task.scheduled_at ? <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><CalendarClock size={16}/><b>预约执行：</b>{new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false})}<span className="text-blue-600">（预约等待时间不计入有效耗时）</span></div> : null}
-      {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} overflow-hidden`} aria-label="AI获客实时执行进度"><div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3"><div><div className="flex flex-wrap items-center gap-2"><b>{stageTitle}</b><StatusBadge status={task.status}/></div><p className="mt-1 text-xs text-slate-500">{task.status==="PAUSED"?"任务已在安全检查点暂停；继续后从当前进度恢复，不重复已完成搜索。":discoveryProgress.stage_detail||"搜索、初筛、核验与质量准入采用流水线并行处理；只有通过真实证据门槛的客户才会入池。"}</p></div><div className="text-right text-xs text-slate-400"><p>有效耗时 {formatDuration(effectiveElapsedMs(task))}</p>{discoveryProgress.updated_at?<p className="mt-1">最近更新 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</p>:null}</div></div><div className="p-4"><div className="mb-2 text-xs text-slate-500">4 个阶段并行衔接，数量均来自当前任务真实记录，不代表固定串行等待</div><ol className="grid gap-2 lg:grid-cols-4">{pipelineSteps.map((step,stepIndex)=><li key={step.key} className={`flex min-w-0 items-start gap-2 rounded-lg border px-3 py-2.5 text-xs ${step.state==="active"?"border-blue-200 bg-blue-50 text-blue-700":step.state==="done"?"border-emerald-100 bg-emerald-50/70 text-emerald-700":"border-slate-100 bg-slate-50 text-slate-400"}`}><span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step.state==="active"?"bg-blue-600 text-white":step.state==="done"?"bg-emerald-600 text-white":"bg-slate-200 text-slate-500"}`}>{step.state==="done"?"✓":stepIndex+1}</span><span className="min-w-0"><b className="block font-medium">{step.label}</b><span className="mt-0.5 block leading-4 opacity-80">{step.detail}</span><strong className="mt-1 block font-semibold">{step.value}</strong></span></li>)}</ol><div className="mt-4 grid gap-4 lg:grid-cols-2"><div><div className="flex items-end justify-between gap-3"><span><b className="text-sm">搜索覆盖进度</b><small className="ml-2 text-slate-400">{formatNumber(discoveryCompleted)} / {formatNumber(discoveryTotal)} 组</small></span><b className="text-sm text-blue-700">{discoveryPercent}%</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500 transition-all" style={{width:`${discoveryPercent}%`}}/></div></div><div><div className="flex items-end justify-between gap-3"><span><b className="text-sm">候选处理进度</b><small className="ml-2 text-slate-400">{formatNumber(candidateCompleted)} / {formatNumber(candidateTotal)} 位</small></span><b className="text-sm text-emerald-700">{candidatePercent}%</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{width:`${candidatePercent}%`}}/></div></div></div><div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>原始命中 {formatNumber(discoveryProgress.raw_hits)} 条 · 去重候选 {formatNumber(task.discovered_count)} 位 · 已入池 {formatNumber(task.accepted_count)} 位 · 待复核 {formatNumber(task.review_count)} 位</span>{discoveryProgress.current_query&&discoveryProgress.stage==="DISCOVERY"?<span className="max-w-[48rem] truncate text-blue-700" title={discoveryProgress.current_query}>当前检索：{discoveryProgress.current_query}{discoveryProgress.current_country?` · ${COUNTRY_NAMES.of(discoveryProgress.current_country)||discoveryProgress.current_country}`:""}</span>:null}</div></div></section>:null}
-      {verificationProgress&&verificationTotal>0?<section className={`${panel} grid gap-3 px-4 py-3 text-xs sm:grid-cols-2 xl:grid-cols-4`} aria-label="AI获客实时处理构成"><div><span className="text-slate-500">已完成去重与早停</span><b className="ml-2 text-sm text-slate-800">{formatNumber(earlyProcessed)} 位</b></div><div><span className="text-slate-500">进入深度核验</span><b className="ml-2 text-sm text-slate-800">{formatNumber(verificationTotal)} 位</b></div><div><span className="text-slate-500">深度核验完成 / 待处理</span><b className="ml-2 text-sm text-blue-700">{formatNumber(verificationCompleted)} / {formatNumber(verificationProgress.pending)}</b></div><div className="sm:text-right"><span className="text-slate-500">最近核验进展</span><b className="ml-2 font-medium text-slate-700">{verificationProgress.updated_at?new Date(verificationProgress.updated_at).toLocaleString("zh-CN",{hour12:false}):"等待首批结果"}</b></div></section>:null}
+      {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} overflow-hidden`} aria-label="AI获客实时执行进度">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3"><div><div className="flex flex-wrap items-center gap-2"><b>{stageTitle}</b><StatusBadge status={task.status}/></div><p className="mt-1 text-xs text-slate-500">{maintenancePaused?"当前任务暂不继续执行，也不会新增调用或费用；已完成的搜索和核验结果均已保留，维护结束后由管理员手动恢复。":task.status==="PAUSED"?"任务已在安全检查点暂停；只有人工点击“继续执行”后才会恢复，且不会重复已完成搜索。":discoveryProgress.stage_detail||"系统一边搜索、一边核验；符合真实证据和联系方式门槛的客户会持续入池。"}</p></div><div className="text-right text-xs text-slate-400"><p>有效耗时 {formatDuration(effectiveElapsedMs(task))}</p>{discoveryProgress.updated_at?<p className="mt-1">最近进展 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</p>:null}</div></div>
+        <div className="p-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3"><small className="text-slate-500">1. 搜索范围</small><b className="mt-1 block text-lg text-blue-700">{formatNumber(discoveryCompleted)} / {formatNumber(discoveryTotal)} 组</b><span className="text-xs text-slate-500">已完成搜索；剩余 {formatNumber(remainingSearches)} 组</span></article>
+          <article className="rounded-lg border bg-slate-50 px-4 py-3"><small className="text-slate-500">2. 发现并去重</small><b className="mt-1 block text-lg">{formatNumber(candidateTotal)} 位候选</b><span className="text-xs text-slate-500">来自 {formatNumber(discoveryProgress.raw_hits)} 条原始命中</span></article>
+          <article className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-3"><small className="text-slate-500">3. 完成核验</small><b className="mt-1 block text-lg text-emerald-700">{formatNumber(candidateCompleted)} / {formatNumber(candidateTotal)} 位</b><span className="text-xs text-slate-500">剩余 {formatNumber(remainingCandidates)} 位待处理</span></article>
+          <article className="rounded-lg border bg-slate-50 px-4 py-3"><small className="text-slate-500">4. 当前结果</small><b className="mt-1 block text-lg"><span className="text-emerald-700">入池 {formatNumber(task.accepted_count)}</span><span className="mx-2 text-slate-300">·</span><span className="text-amber-700">待复核 {formatNumber(task.review_count)}</span></b><span className="text-xs text-slate-500">未通过 {formatNumber(task.rejected_count)} · 重复 {formatNumber(task.duplicate_count)}</span></article>
+        </div><div className="mt-4 grid gap-4 lg:grid-cols-2"><div><div className="flex items-end justify-between gap-3"><span><b className="text-sm">搜索完成度</b><small className="ml-2 text-slate-400">{formatNumber(discoveryCompleted)} / {formatNumber(discoveryTotal)} 组</small></span><b className="text-sm text-blue-700">{discoveryPercent}%</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500 transition-all" style={{width:`${discoveryPercent}%`}}/></div></div><div><div className="flex items-end justify-between gap-3"><span><b className="text-sm">候选核验完成度</b><small className="ml-2 text-slate-400">{formatNumber(candidateCompleted)} / {formatNumber(candidateTotal)} 位</small></span><b className="text-sm text-emerald-700">{candidatePercent}%</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{width:`${candidatePercent}%`}}/></div></div></div>{discoveryProgress.current_query&&discoveryProgress.stage==="DISCOVERY"?<p className="mt-3 truncate text-xs text-blue-700" title={discoveryProgress.current_query}>正在搜索：{discoveryProgress.current_query}{discoveryProgress.current_country?` · ${COUNTRY_NAMES.of(discoveryProgress.current_country)||discoveryProgress.current_country}`:""}</p>:null}
+        {verificationProgress&&verificationTotal>0?<details className="mt-4 rounded-lg border bg-slate-50/60 px-3 py-2 text-xs"><summary className="cursor-pointer font-medium text-blue-700">查看处理明细</summary><div className="mt-2 grid gap-2 text-slate-500 sm:grid-cols-3"><span>快速排除或重复：<b className="text-slate-800">{formatNumber(earlyProcessed)} 位</b></span><span>进入深度核验：<b className="text-slate-800">{formatNumber(verificationTotal)} 位</b></span><span>深度核验完成：<b className="text-slate-800">{formatNumber(verificationCompleted)} 位</b>，待处理 <b className="text-slate-800">{formatNumber(verificationProgress.pending)} 位</b></span></div></details>:null}</div>
+      </section>:null}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" aria-label="AI获客结果概览">
         <button type="button" onClick={()=>showCustomerResults("ACCEPTED")} className={`${panel} p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50/30`}><small className="text-slate-500">成功入池客户</small><div className="mt-2 text-xl font-semibold text-emerald-700">{formatNumber(task.accepted_count)}</div><small className="mt-1 block text-slate-500">已核验有效并写入客户公海</small></button>
         <button type="button" onClick={()=>showCustomerResults("REVIEW")} className={`${panel} p-4 text-left transition hover:border-amber-300 hover:bg-amber-50/30`}><small className="text-slate-500">待人工复核</small><div className="mt-2 text-xl font-semibold text-amber-700">{formatNumber(task.review_count)}</div><small className="mt-1 block text-slate-500">点击处理证据不足的候选</small></button>
@@ -477,13 +481,15 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             ] as const).map(([value,label,total])=><button key={label} type="button" onClick={()=>{setDecision(value);setPage(1)}} className={`whitespace-nowrap border-b-2 pb-3 text-sm ${decision===value?"border-blue-600 font-medium text-blue-600":"border-transparent text-slate-500 hover:text-slate-800"}`}>{label}<span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs">{total}</span></button>)}
           </nav>
         </div>
-          <form className="grid w-full gap-2 border-b p-4 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(4,minmax(140px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
+          <form className="grid w-full gap-2 border-b p-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_repeat(6,minmax(135px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
           <label className="relative"><Search size={15} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={(event)=>setDraft(event.target.value)} placeholder="搜索客户名称或地址"/></label>
-          <select className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
-          {(task.industries?.length||1)>1?<SearchableMultiSelectFilter label="所属行业" value={industries} options={(task.industries?.length?task.industries:[task.industry]).filter(Boolean).map((value)=>({value,label:value}))} onChange={(value)=>{setPage(1);setIndustries(value)}}/>:null}
-          <select className={`${input} w-full`} value={readiness} onChange={(event)=>{setPage(1);setReadiness(event.target.value)}}><option value="">全部开发条件</option><option value="ACTIONABLE">可直接开发</option><option value="NO_CONTACT">缺少有效联系方式</option><option value="EVIDENCE_GAP">依据不足</option></select>
           {task.countries.length>1?<SearchableMultiSelectFilter label="国家/地区" value={countries} options={task.countries.map((value)=>({value,label:COUNTRY_NAMES.of(value)||value}))} onChange={(value)=>{setPage(1);setCountries(value)}}/>:null}
-          <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||countries.length||industries.length||level||readiness)?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountries([]);setIndustries([]);setLevel("");setReadiness("");setPage(1)}}>清除</button>:null}</div>
+          {(task.industries?.length||1)>1?<SearchableMultiSelectFilter label="核验行业" value={industries} options={(task.industries?.length?task.industries:[task.industry]).filter(Boolean).map((value)=>({value,label:value}))} onChange={(value)=>{setPage(1);setIndustries(value)}}/>:null}
+          <select aria-label="AI等级" className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
+          <select aria-label="联系状态" className={`${input} w-full`} value={readiness} onChange={(event)=>{setPage(1);setReadiness(event.target.value)}}><option value="">全部联系状态</option><option value="ACTIONABLE">有已核验联系方式</option><option value="NO_CONTACT">缺少有效联系方式</option></select>
+          <select aria-label="证据状态" className={`${input} w-full`} value={evidenceStatus} onChange={(event)=>{setPage(1);setEvidenceStatus(event.target.value)}}><option value="">全部证据状态</option><option value="COMPLETE">经营与行业证据充分</option><option value="GAP">证据不足</option></select>
+          <select aria-label="结果排序" className={`${input} w-full`} value={resultSort} onChange={(event)=>{setPage(1);setResultSort(event.target.value)}}><option value="SALES_PRIORITY">销售优先</option><option value="SCORE">AI评分从高到低</option><option value="RECENT">最近处理</option></select>
+          <div className="flex gap-2"><button className={button}>查询</button>{(search||decision||countries.length||industries.length||level||readiness||evidenceStatus||resultSort!=="SALES_PRIORITY")?<button type="button" className="text-sm text-blue-700" onClick={()=>{setDraft("");setSearch("");setDecision("");setCountries([]);setIndustries([]);setLevel("");setReadiness("");setEvidenceStatus("");setResultSort("SALES_PRIORITY");setPage(1)}}>清除</button>:null}</div>
           </form>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[2360px] table-fixed text-left text-sm">
@@ -525,7 +531,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="max-w-56 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai" display="email"/>
                   </td>
-                  <td className="px-4 py-4">{r.customer_profile?.website||r.source_website?<span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span>:null}</td>
+                  <td className="px-4 py-4"><span title={!r.customer_profile?.website&&r.source_website?"Google 商家提供的官网":"企业官网"}><CustomerPublicLink value={r.customer_profile?.website||r.source_website} kind="website" iconOnly/>{!r.customer_profile?.website&&r.source_website?<span className="sr-only">Google 商家提供</span>:null}</span></td>
                   <td className="px-4 py-4"><CustomerPublicChannels customer={{...r.customer_profile,google_url:r.customer_profile?.google_url||r.google_url}}/></td>
                   <td className="px-4 py-4">{r.matched_keywords?.length?<div className="space-y-1" title={`匹配关键词：${r.matched_keywords.join("、")}`}>{r.matched_keywords.slice(0,3).map((keyword)=><span key={keyword} className="block max-w-[166px] truncate whitespace-nowrap rounded bg-blue-50 px-2 py-1 text-[11px] font-normal text-blue-700">{keyword}</span>)}{r.matched_keywords.length>3?<span className="block text-[11px] font-normal text-slate-400">另有 {r.matched_keywords.length-3} 项</span>:null}</div>:<small className="text-slate-400">未记录</small>}</td>
                   <td className="px-4 py-4"><span className="line-clamp-3 leading-5 text-slate-600">{r.address||"地址待核验"}</span></td>
