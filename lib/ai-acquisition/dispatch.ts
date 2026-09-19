@@ -2,6 +2,15 @@ import { start } from "workflow/api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 
+function maintenancePausedTaskIds() {
+  return new Set(
+    (process.env.AI_MAINTENANCE_PAUSED_ACQUISITION_IDS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => /^[0-9a-f-]{36}$/i.test(value)),
+  );
+}
+
 async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof createAdminClient>, taskId: string) {
   const child = await admin.from("ai_screening_tasks").select("id,status").eq("request_key", `acquisition:${taskId}`).maybeSingle();
   if (child.error) throw child.error;
@@ -28,6 +37,7 @@ async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof create
 
 export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
   const admin = createAdminClient();
+  const maintenancePausedIds = maintenancePausedTaskIds();
   const claimed = await admin.rpc("claim_stalled_ai_acquisition_tasks", { p_limit: 1 }).abortSignal(signal || new AbortController().signal);
   if (claimed.error) throw claimed.error;
   let recovered = 0;
@@ -35,6 +45,12 @@ export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
     const taskId = String(row.task_id || "");
     if (!taskId) continue;
     try {
+      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested").eq("id", taskId).single();
+      if (state.error) throw state.error;
+      if (maintenancePausedIds.has(taskId) || state.data.status === "PAUSING" || state.data.cancel_requested) {
+        await admin.from("ai_acquisition_tasks").update({ status: state.data.cancel_requested ? "CANCELLED" : "PAUSED", active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: new Date().toISOString() }).eq("id", taskId);
+        continue;
+      }
       if (await reconcileCompletedAcquisitionTask(admin, taskId)) {
         recovered += 1;
         continue;

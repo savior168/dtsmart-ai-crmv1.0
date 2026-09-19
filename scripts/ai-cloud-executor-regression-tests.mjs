@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, acquisitionCreateView, settingsView, strategiesView, taskUi] = await Promise.all([
+const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, acquisitionCreateView, settingsView, strategiesView, taskUi, acquisitionRecoveryMigration, acquisitionDispatcher, recoveryCron] = await Promise.all([
   read("supabase/migrations/202609110002_ai_screening_vercel_only.sql"),
   read("workflows/ai-screening.ts"),
   read("lib/ai/task-dispatch.ts"),
@@ -15,6 +15,9 @@ const [migration, workflow, dispatcher, runner, createRoute, retryRoute, setting
   read("components/ai-screening/settings-view.tsx"),
   read("app/ai-screening/strategies/page.tsx"),
   read("components/ai-screening/ui.tsx"),
+  read("supabase/migrations/202609190007_ai_acquisition_manual_pause_boundary.sql"),
+  read("lib/ai-acquisition/dispatch.ts"),
+  read("app/api/cron/ai-task-recovery/route.ts"),
 ]);
 
 assert.match(migration, /ai_default_dispatch_policy = 'VERCEL_ONLY'/, "system default must be cloud-only");
@@ -41,5 +44,9 @@ assert.doesNotMatch(settingsView, /任务执行方式|Vercel 云端 Workflow/, "
 assert.match(acquisitionCreateView, /云端执行与页面关闭[\s\S]*Vercel 云端 Workflow[\s\S]*关闭页面不会中断任务/, "acquisition rules must document cloud execution and safe page closing");
 assert.match(acquisitionCreateView, /任务由云端工作流执行；创建成功后可关闭页面，任务会按计划继续/, "acquisition confirmation must retain a concise cloud execution notice");
 assert.match(strategiesView, /所有AI筛选任务均由绑定账户的 Vercel 云端 Workflow 执行/, "strategy documentation must match production behavior");
+assert.match(acquisitionRecoveryMigration, /t\.status in \('QUEUED','RUNNING'\)/, "manual pause states must never be claimed by automatic recovery");
+assert.doesNotMatch(acquisitionRecoveryMigration, /t\.status in \([^)]*PAUSING/, "PAUSING must remain a user-controlled state");
+assert.match(acquisitionDispatcher, /maintenancePausedIds\.has\(taskId\)[\s\S]*state\.data\.status === "PAUSING"[\s\S]*"PAUSED"/, "recovery dispatcher must defensively preserve manual and maintenance pauses");
+assert.match(recoveryCron, /applyMaintenancePausesWithDeadline[\s\S]*MAINTENANCE_PAUSE_TIMEOUT/, "maintenance pause must be bounded so it cannot hang the recovery endpoint");
 
 console.log("AI cloud executor regression tests passed");
