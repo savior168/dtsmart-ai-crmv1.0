@@ -262,7 +262,7 @@ const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.t
 const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatch.ts",import.meta.url),"utf8");
 assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
 assert.match(acquisitionDispatch,/current_stage_detail[\s\S]*maintenanceProtected[\s\S]*includes\("系统维护暂停"\)/,"维护名单只能保护仍带维护暂停标记的任务，人工继续后不得被自动再次暂停");
-assert.match(acquisitionDispatch,/settleStalePausingTasks[\s\S]*eq\("status", "PAUSING"\)[\s\S]*executor_heartbeat_at\.is\.null[\s\S]*status: "PAUSED"[\s\S]*等待人工继续执行[\s\S]*ai_screening_tasks[\s\S]*status: "PAUSED"/,"失效执行器遗留的正在暂停状态必须安全收口父子任务，且不得自动继续执行");
+assert.doesNotMatch(acquisitionDispatch,/settleStalePausingTasks|eq\("status", "PAUSING"\)/,"恢复器不得每分钟扫描人工暂停边界并与前台查询争抢数据库；运行中工作流负责在安全检查点收口暂停");
 assert.match(recoveryRoute,/screeningRecovery = maintenancePaused\.screening[\s\S]*recoverWithDeadline\("acquisition", rescueStalledAiAcquisitionTasks\)[\s\S]*screening_recovery_skipped/,"维护中的AI筛选不得阻断AI获客暂停收口和其他获客任务恢复");
 assert.doesNotMatch(recoveryRoute,/if \(maintenancePaused\.acquisition \|\| maintenancePaused\.screening\) \{[\s\S]*return NextResponse\.json/,"维护名单不得让整个恢复器提前返回");
 assert.match(acquisitionWorkflow,/normalizedErrorMessage[\s\S]*ACQUISITION_FINISH_COUNT_[\s\S]*ACQUISITION_FINISH_CANDIDATE_TOTALS[\s\S]*ACQUISITION_FINISH_TASK_UPDATE/,"任务完成收口必须保留可定位的数据库错误，不能只显示Unknown error");
@@ -438,7 +438,7 @@ assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*to
 assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
 assert.match(acquisitionTaskCenter,/查看明细[\s\S]*查看真实费用/,"任务中心必须提供真实用量详情入口且不得用空数据伪装为零费用");
 assert.match(listRoute,/optional progress unavailable[\s\S]*optional today accepted unavailable/,"任务列表附属进度和今日统计异常不得拖垮核心列表");
-assert.match(acquisitionDispatch,/settleStalePausingTasks\(admin, signal\)[\s\S]*stale pause settlement completed/,"获客恢复器的暂停收敛查询必须受统一截止时间控制并记录阶段结果");
+assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_limit: 1[\s\S]*stalled task claim completed/,"获客恢复器必须只通过受限RPC领取单个停滞任务并记录阶段结果");
 assert.match(recoveryRoute,/yield quickly[\s\S]*RECOVERY_DEADLINE_MS = 4_000/,"恢复器必须快速让出数据库容量，不能每分钟持续阻塞前台业务");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");

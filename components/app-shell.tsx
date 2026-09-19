@@ -438,11 +438,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     const refresh = () => void loadProfile();
     window.addEventListener("dtsmart-profile-updated", refresh);
     window.addEventListener("dtsmart-auth-changed", refresh);
-    window.addEventListener("focus", refresh);
     return () => {
       window.removeEventListener("dtsmart-profile-updated", refresh);
       window.removeEventListener("dtsmart-auth-changed", refresh);
-      window.removeEventListener("focus", refresh);
     };
   }, [loadProfile]);
   const canLoadNotices = Boolean(profile) && path !== "/login" && path !== "/reset-password";
@@ -478,10 +476,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (path === "/login" || path === "/reset-password") {
       profileRequestRef.current += 1;
       setProfile(null);
-    } else {
+    } else if (!profile) {
       void loadProfile();
     }
-  }, [loadProfile, path]);
+  }, [loadProfile, path, profile]);
   useEffect(() => {
     const updateTitle = (event: Event) => setPageTitleOverride(String((event as CustomEvent<string>).detail || ""));
     window.addEventListener("dtsmart-page-title", updateTitle);

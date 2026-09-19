@@ -181,7 +181,7 @@ assert.match(loginPage, /tradeos-auth-network[\s\S]*全球发现[\s\S]*主体核
 assert.match(globalStyles, /tradeos-auth-network-flow[\s\S]*tradeos-auth-node-pulse[\s\S]*prefers-reduced-motion/, "登录页科技动效必须支持系统减少动画设置");
 assert.match(registerApi, /role: "SALES"[\s\S]*status: "PENDING"/, "新注册用户必须固定为待审核销售员");
 assert.match(registerApi, /REGISTRATION_REVIEW/, "新注册申请必须生成系统内审核通知");
-assert.match(routingMiddleware, /api\/cron\/ai-task-recovery/, "AI任务自动恢复接口必须绕过浏览器登录中间件，避免定时请求被307重定向");
+assert.match(routingMiddleware, /api\(\?:\/\|\$\)/, "API必须绕过页面导航中间件，由各接口自行鉴权，避免重复会话检查阻塞前台请求");
 assert.match(sessionMiddleware, /api\/cron\/ai-task-recovery/, "AI任务自动恢复接口必须由CRON_SECRET自行鉴权，不能要求浏览器会话");
 assert.match(permissionMigration, /zzccxry@gmail\.com[\s\S]*role = 'SALES'[\s\S]*role = 'ADMIN'/, "权限迁移必须把指定账号设为唯一系统管理员、其余账号设为销售员");
 assert.match(permissionMigration, /必须保留至少一名|current_user_is_admin/, "权限系统必须具备系统管理员保护规则");
