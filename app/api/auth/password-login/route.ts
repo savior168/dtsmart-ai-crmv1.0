@@ -11,6 +11,14 @@ function loginError(message?: string) {
   return "账号或密码错误，请检查后重试";
 }
 
+function isTransientAuthError(error: unknown) {
+  const candidate = error as { code?: unknown; message?: unknown; status?: unknown } | null;
+  const code = String(candidate?.code || candidate?.status || "");
+  const message = String(candidate?.message || "");
+  return ["408", "429", "502", "503", "504", "525", "529"].includes(code)
+    || /(?:gateway timeout|temporar(?:y|ily)|timed? out|fetch failed|network|ssl handshake failed|cloudflare)/i.test(message);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -41,6 +49,10 @@ export async function POST(request: NextRequest) {
       const found = await admin.from("users").select(accountFields).eq("email", classified.value).abortSignal(AbortSignal.timeout(8_000)).maybeSingle();
       account = found.data;
       accountError = found.error;
+    }
+    if (accountError && isTransientAuthError(accountError)) {
+      console.warn("[auth/password-login] account lookup temporarily unavailable", { message: accountError.message });
+      return NextResponse.json({ error: "登录服务暂时繁忙，请稍后重试" }, { status: 503 });
     }
     if (accountError || !account) return NextResponse.json({ error: "账号资料异常，请联系系统管理员" }, { status: 403 });
     const statusMessages: Record<string, string> = {
@@ -84,6 +96,12 @@ export async function POST(request: NextRequest) {
     });
     const { data, error } = await supabase.auth.signInWithPassword(credentials);
     if (error || !data.user) {
+      // Infrastructure failures are not invalid-password attempts. Never lock
+      // a valid account because the upstream Auth gateway timed out.
+      if (error && isTransientAuthError(error)) {
+        console.warn("[auth/password-login] auth provider temporarily unavailable", { status: error.status, message: error.message });
+        return NextResponse.json({ error: "登录服务暂时繁忙，请稍后重试" }, { status: 503 });
+      }
       const { data: settings } = await admin.from("system_security_settings").select("max_failed_login_attempts,lock_minutes").eq("id", true).maybeSingle();
       const attempts = Number(account.failed_login_attempts || 0) + 1;
       const maxAttempts = Number(settings?.max_failed_login_attempts || 5);

@@ -147,6 +147,7 @@ for (const filter of ["target", "grade"]) {
 }
 
 const loginApi = read("app/api/auth/password-login/route.ts");
+assert.match(loginApi,/isTransientAuthError[\s\S]*登录服务暂时繁忙，请稍后重试[\s\S]*Infrastructure failures are not invalid-password attempts[\s\S]*isTransientAuthError\(error\)/,"认证网关超时必须返回可重试提示，且不得累计密码错误次数");
 const registerApi = read("app/api/auth/register/route.ts");
 const authForm = read("components/password-auth-form.tsx");
 const loginPage = read("app/login/page.tsx");
@@ -347,6 +348,8 @@ assert.match(aiTaskDetailApi, /creator: creator\.data/, "任务详情接口必�
 const customersView = read("components/customers-view.tsx");
 const customerListFields = read("lib/customers/list-fields.ts");
 const currentUserAuth = read("lib/auth/current-user.ts");
+assert.match(currentUserAuth,/auth\.getUser\(\)[\s\S]*isTransientReadError\(error\)[\s\S]*AUTHORIZATION_UNAVAILABLE[\s\S]*accountError && isTransientReadError\(accountError\)[\s\S]*AUTHORIZATION_UNAVAILABLE/,"临时认证或账号读取故障不得误判为未登录或账号不存在");
+assert.match(currentUserAuth,/AUTHORIZATION_UNAVAILABLE"\) return 503/,"权限服务临时不可用必须返回503而不是误报业务权限错误");
 const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /if \(!requested \|\| requested === account\.id \|\| requested\.toLowerCase\(\) === "all"\) return account\.id/, "主管服务端默认必须只读取自己的数据");
 assert.match(currentUserAuth, /account\.role === "ADMIN"[\s\S]*requested\.toLowerCase\(\) === "all"/, "只有系统管理员能够主动选择全部用户数据");

@@ -58,9 +58,11 @@ function tokenIssuedAt(accessToken: string) {
 export async function requireUser(options: { allowPasswordChange?: boolean } = {}) {
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
+  if (error && isTransientReadError(error)) throw new Error("AUTHORIZATION_UNAVAILABLE");
   if (error || !user) throw new Error("UNAUTHORIZED");
   const admin = createAdminClient();
   const { data, error: accountError } = await readCurrentAccount(admin, user.id);
+  if (accountError && isTransientReadError(accountError)) throw new Error("AUTHORIZATION_UNAVAILABLE");
   if (accountError || !data) throw new Error("ACCOUNT_NOT_FOUND");
   const role = normalizeRole(data.role);
   const cachedPermissions = permissionCache.get(role);
@@ -156,6 +158,7 @@ export function clearPermissionCache(role?: UserRole) {
 export function authErrorStatus(message: string) {
   if (message === "UNAUTHORIZED" || message === "SESSION_REVOKED") return 401;
   if (message === "FORBIDDEN") return 403;
+  if (message === "AUTHORIZATION_UNAVAILABLE") return 503;
   if (message.startsWith("ACCOUNT_") || message === "PASSWORD_CHANGE_REQUIRED") return 423;
   return 400;
 }
