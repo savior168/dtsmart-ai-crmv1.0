@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const { account } = await requirePermission("ai.acquisition.view");
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
     const params = request.nextUrl.searchParams;
+    const mode = params.get("mode") === "summary" ? "summary" : params.get("mode") === "filters" ? "filters" : "core";
     const scope = validScopes.has(params.get("scope") || "") ? String(params.get("scope")) : "accepted";
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
@@ -81,7 +82,9 @@ export async function GET(request: NextRequest) {
     if (["A", "B", "C", "D"].includes(level)) query = query.eq("ai_level", level);
     if (from) query=query.gte("processed_at",`${from}T00:00:00.000+08:00`);
     if (to) query=query.lte("processed_at",`${to}T23:59:59.999+08:00`);
-    const result = await query.order("processed_at", { ascending: false, nullsFirst: false }).range((page - 1) * pageSize, page * pageSize - 1);
+    const result = mode === "core"
+      ? await query.order("processed_at", { ascending: false, nullsFirst: false }).range((page - 1) * pageSize, page * pageSize - 1)
+      : { data: [], count: 0, error: null };
     if (result.error) throw result.error;
     const rows = result.data || [];
     const customerIds = [...new Set(rows.map((row) => String(row.imported_customer_id || row.staging_customer_id || "")).filter(Boolean))];
@@ -104,13 +107,15 @@ export async function GET(request: NextRequest) {
       verifiedContactsByCustomer.set(customerId,items);
     }
 
-    const summaryQueries = [
+    const summaryQueries = mode === "summary" ? [
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`).limit(0),
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).gte("processed_at", `${weekStartDate}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`).limit(0),
       base().eq("decision", "ACCEPTED").not("imported_customer_id", "is", null).limit(0),
       base().eq("decision", "REVIEW").limit(0),
-    ];
-    const [todayResult, weekResult, acceptedResult, reviewResult] = await Promise.all(summaryQueries);
+    ] : [];
+    const [todayResult, weekResult, acceptedResult, reviewResult] = mode === "summary"
+      ? await Promise.all(summaryQueries)
+      : [{ count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }];
     const summaryError = todayResult.error || weekResult.error || acceptedResult.error || reviewResult.error;
     if (summaryError) throw summaryError;
 
@@ -118,12 +123,15 @@ export async function GET(request: NextRequest) {
     // and country the product can theoretically support. Load the scoped
     // candidates in pages so the option counts are not limited to the visible
     // table page or Supabase's default row cap.
-    const optionsCacheKey = [ownerId || "all", taskId || "all", scope, today].join(":");
-    const cachedFilterOptions = filterOptionsCache.get(optionsCacheKey);
-    let filterOptions = cachedFilterOptions?.expiresAt && cachedFilterOptions.expiresAt > Date.now()
-      ? cachedFilterOptions.value
-      : null;
-    if (!filterOptions) {
+    let filterOptions: FilterOptions = { countries: [], industries: [] };
+    if (mode === "filters") {
+      const optionsCacheKey = [ownerId || "all", taskId || "all", scope, today].join(":");
+      const cachedFilterOptions = filterOptionsCache.get(optionsCacheKey);
+      const cachedValue = cachedFilterOptions?.expiresAt && cachedFilterOptions.expiresAt > Date.now()
+        ? cachedFilterOptions.value
+        : null;
+      if (cachedValue) filterOptions = cachedValue;
+      else {
       const optionCandidates: Array<{country:string|null;staging_customer_id:string|null;imported_customer_id:string|null}> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin
@@ -166,8 +174,9 @@ export async function GET(request: NextRequest) {
       const countedOptions = (counts:Map<string,number>) => [...counts.entries()]
         .map(([value,count]) => ({ value, count }))
         .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
-      filterOptions = { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) };
-      filterOptionsCache.set(optionsCacheKey, { expiresAt: Date.now() + 60_000, value: filterOptions });
+        filterOptions = { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) };
+        filterOptionsCache.set(optionsCacheKey, { expiresAt: Date.now() + 5 * 60_000, value: filterOptions });
+      }
     }
 
     const canControlTasks = hasPermission(account, "ai.acquisition.control");

@@ -463,6 +463,9 @@ assert.match(customerResultsRoute,/params\.get\("task_search"\)[\s\S]*ai_acquisi
 assert.match(customerResultsRoute,/can_control:[\s\S]*task\?\.user_id[\s\S]*account\.role==="ADMIN"[\s\S]*show_owner/ ,"客户结果接口必须分别返回跨用户可见性与逐任务可操作权限");
 assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*\.in\("industry",industries\)[\s\S]*\.in\("category",industries\)[\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
 assert.match(customerResultsRoute,/optionCandidates[\s\S]*range\(offset, offset \+ 999\)[\s\S]*countryCounts[\s\S]*industryCounts[\s\S]*filter_options/,"行业和国家选项必须按当前结果范围全部数据去重计数，不能只取当前分页");
+assert.match(customerResultsRoute,/const mode = params\.get\("mode"\)[\s\S]*mode === "core"[\s\S]*mode === "summary"[\s\S]*mode === "filters"/,"客户结果接口必须拆分首屏、汇总和筛选项查询，禁止一次请求争抢全部数据库资源");
+assert.match(customerResultsRoute,/const result = mode === "core"[\s\S]*data: \[\], count: 0, error: null[\s\S]*if \(mode === "filters"\)/,"汇总和筛选项辅助请求不得重复执行客户分页与精确总数查询");
+assert.match(customerResults,/setRows\(body\.data\|\|\[\]\)[\s\S]*setLoading\(false\)[\s\S]*mode=summary[\s\S]*mode=filters/,"客户结果必须先展示核心列表，再串行补充汇总和真实筛选项");
 assert.match(customerResultsRoute,/phone\.ilike[\s\S]*email\.ilike[\s\S]*whatsapp\.ilike[\s\S]*website\.ilike[\s\S]*google_url\.ilike[\s\S]*customer_contacts/,"客户结果文本搜索必须与客户公海一致覆盖名称、联系方式、地址和公开链接");
 const acquisitionReport=fs.readFileSync(new URL("../components/ai-acquisition/task-report.tsx",import.meta.url),"utf8");
 assert.match(acquisitionReport,/获客质量漏斗[\s\S]*高价值客户摘要[\s\S]*搜索组合效果[\s\S]*第三方调用与成本汇总/,"已完成获客任务必须提供结果、质量、搜索效果与成本完整报告");
