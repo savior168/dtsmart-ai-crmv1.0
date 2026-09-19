@@ -23,6 +23,9 @@ assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Birm
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"PC Repair Guru",types:["service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把PC repair识别为同域候选并进入证据核验");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"North Foods",types:["food_wholesaler"],matchedTerms:["food wholesaler"]},["食品批发商"],["food wholesaler"]),true,"跨行业的行业实词加批发角色必须继续支持，不能写死为电子行业");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Harbour Hotel",types:["lodging"],matchedTerms:["hotel"]},["酒店"],["hotel"]),true,"明确行业名称匹配应支持服务业客户");
+assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Motor Parts Direct",types:["auto_parts_store"],matchedTerms:["spare parts"]},["手机配件批发商"],["mobile phone spare parts wholesaler"]),false,"汽车配件商不得因spare parts泛词进入手机配件核验");
+assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Environmental Computer Recycling and Removals Ltd",types:["recycling_center"],matchedTerms:["computer repair"]},["电脑维修店"],["computer repair shop"]),false,"电脑回收清运不得因computer词进入电脑维修核验");
+assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Fresh Produce Wholesale",types:["food_wholesaler"],matchedTerms:["wholesale"]},["食品饮料批发商"],["food wholesaler"]),true,"用户明确选择食品行业时必须允许食品批发候选");
 const purposeSummary=summarizeUsagePurposes([
   {provider:"GOOGLE_PLACES",operation:"目标商家搜索",quantity:2,amount_usd:0.064},
   {provider:"GOOGLE_PLACES",operation:"商家详情与联系方式",quantity:1,amount_usd:0.02},
@@ -161,7 +164,7 @@ assert.match(create,/options\.length===1[\s\S]*options\.length>1[\s\S]*请选择
 assert.match(create,/const removed=current\.industries[\s\S]*removedRecommendations[\s\S]*retainedRecommendations[\s\S]*retainedKeywords/,"移除行业时必须清理只属于该行业的自动推荐词并保留其他行业共享词");
 assert.match(acquisitionConfig,/const searchTerm = ACQUISITION_INDUSTRY_TERMS\[industry\] \|\| industry[\s\S]*roleKeywordBuilder[\s\S]*industryKeywordCore\(searchTerm\)/,"关键词推荐必须覆盖整个行业库和自定义行业，不能只服务单一垂直行业");
 assert.match(acquisitionConfig,/acquisitionKeywordRecommendationGroups\(industries\)[\s\S]*knownKeywordOwners[\s\S]*owners\.has\(industry\)/,"多行业检索时自动推荐词必须只用于其所属行业，不能跨行业污染查询");
-assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 20[\s\S]*MAX_ACQUISITION_KEYWORDS = 30[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 80/,"行业与关键词容量必须使用明确的任务规划上限，不能沿用任意8项硬限制");
+assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 20[\s\S]*MAX_ACQUISITION_KEYWORDS = 30[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 32/,"行业与关键词输入保持灵活，但执行计划必须限制为精准优先的搜索词规模");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_GROUPS[\s\S]*EUROPE[\s\S]*ASIA[\s\S]*AFRICA[\s\S]*NORTH_AMERICA[\s\S]*SOUTH_AMERICA[\s\S]*OCEANIA/,"获客国家必须按六大业务洲别准确分组");
 assert.match(create,/groupKey[\s\S]*visibleCountryGroups[\s\S]*按洲选择[\s\S]*最多选择8个[\s\S]*grid-cols-3[\s\S]*跨洲搜索结果/,"国家选择器必须提供始终可见的紧凑洲别切换、分组跨洲搜索和选择上限提示");
 assert.match(create,/grid-cols-3 gap-x-1 gap-y-0\.5[\s\S]*min-h-7[\s\S]*py-0\.5[\s\S]*COUNTRY_NAMES\.of\(code\)/,"国家多选列表必须使用紧凑三列布局");
@@ -189,8 +192,8 @@ assert.match(create,/免费发现与核验优先[\s\S]*禁止正金额调用[\s\
 assert.match(create,/costLimitOpen[\s\S]*单任务费用保护[\s\S]*继承全局上限[\s\S]*inputMode="decimal"/,"低频单任务费用保护必须默认折叠，并使用统一非原生数字输入交互");
 assert.doesNotMatch(create,/type="number"[\s\S]{0,500}单任务费用上限/,"单任务费用保护不得使用带原生微调箭头的数字控件");
 const listRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/route.ts",import.meta.url),"utf8");
-assert.match(acquisitionConfig,/DEFAULT_ACQUISITION_DISCOVERY_CEILING = 50000/,"AI获客任务必须使用可覆盖数万真实候选的安全上限");
-assert.match(acquisitionConfig,/ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY = 1000/,"单个任务必须能持续消费足够多的未覆盖地域检索单元");
+assert.match(acquisitionConfig,/DEFAULT_ACQUISITION_DISCOVERY_CEILING = 10000/,"单任务安全上限必须避免五万候选挤压核验队列");
+assert.match(acquisitionConfig,/ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY = 120/,"单任务必须采用精准优先的有限新检索单元，后续任务通过覆盖账本继续扩展");
 assert.match(listRoute,/targetCount = DEFAULT_ACQUISITION_DISCOVERY_CEILING/,"新建任务不得继续使用500条低上限");
 assert.match(workflow,/remainingCountries[\s\S]*remainingCapacity[\s\S]*countryLimit[\s\S]*limit: countryLimit/,"多国家任务必须动态分配剩余容量，不能把每个国家硬限制为200条");
 assert.doesNotMatch(workflow,/Math\.min\(200,[\s\S]*perCountry/,"工作流不得保留单国家200条候选硬上限");
@@ -205,10 +208,10 @@ assert.match(acquisitionWorkflow,/verificationState[\s\S]*Promise\.all\([\s\S]*a
 assert.match(acquisitionWorkflow,/existingCandidateCount[\s\S]*taskRemainingCapacity[\s\S]*staging\.control==="PAUSED"\|\|staging\.control==="CONTINUE"/,"跨批次发现必须按任务累计候选计算剩余容量并由持久化工作流连续推进");
 assert.match(acquisitionWorkflow,/unique\.size < taskRemainingCapacity/,"每一批候选必须受任务实际剩余容量约束，不能在多国家任务中越过安全上限");
 assert.match(acquisitionWorkflow,/stagingConcurrency=10[\s\S]*Promise\.all\(candidatesToAnalyze\.slice/,"大批量真实候选建档必须采用受控并发，避免逐条串行拖慢获客任务");
-assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\S]*finalizeCandidateBatch[\s\S]*waitingCandidates[\s\S]*\.limit\(500\)[\s\S]*\.limit\(batchSize\)/,"数万候选的进度和最终判定不得受Supabase默认1000行返回上限截断");
+assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\S]*finalizeCandidateBatch[\s\S]*waitingCandidates[\s\S]*\.limit\(125\)[\s\S]*\.limit\(batchSize\)/,"全部候选必须通过可恢复的小批次判定且不得受Supabase默认行数截断");
 assert.match(acquisitionWorkflow,/decisionCount[\s\S]*head:true[\s\S]*while\(await finalizeCandidateBatch\(task,screeningTaskId\)\)/,"最终汇总必须使用精确计数且质量准入必须拆成可恢复批次，避免单步骤超时");
 assert.match(acquisitionWorkflow,/let pollSeconds = 15[\s\S]*sleep\(`\$\{pollSeconds\}s`\)[\s\S]*Math\.min\(60, pollSeconds \+ 15\)/,"获客核验轮询必须采用15至60秒退避，避免浪费Vercel工作流事件");
-assert.match(acquisitionWorkflow,/const batchSize = 100[\s\S]*\.in\("task_item_id", itemIds\)[\s\S]*\.in\("customer_id", customerIds\)[\s\S]*resultByItem[\s\S]*contactsByCustomer[\s\S]*evidenceByItem/,"最终质量判定必须批量预取核验结果、联系方式和证据，避免逐客户重复查询浪费执行时间");
+assert.match(acquisitionWorkflow,/const batchSize = 25[\s\S]*\.in\("task_item_id", itemIds\)[\s\S]*\.in\("customer_id", customerIds\)[\s\S]*resultByItem[\s\S]*contactsByCustomer[\s\S]*evidenceByItem/,"最终质量判定必须小批量预取，避免多任务并发时数据库语句超时");
 assert.match(acquisitionWorkflow,/explicitlyNeedsReview[\s\S]*target_decision === "REVIEW"[\s\S]*\? "REVIEW" : "REJECTED"/,"模型明确要求人工复核的候选不得被父获客任务错误降级为未通过");
 assert.match(acquisitionWorkflow,/isRecoverableInfrastructureError[\s\S]*57014[\s\S]*releaseTaskForRecovery/,"数据库超时等可恢复基础设施异常不得直接把获客任务标记为永久失败");
 assert.match(acquisitionWorkflow,/updateAcquisitionTaskTotals[\s\S]*accepted_count: accepted[\s\S]*rejected_count: rejected[\s\S]*duplicate_count: duplicate[\s\S]*finalizeCandidateBatch[\s\S]*updateAcquisitionTaskTotals/,"父获客任务必须持续同步早停、重复、入池和待复核的真实计数，不能到任务结束才更新");

@@ -280,8 +280,11 @@ async function acquisitionControlState(taskId: string, screeningTaskId: string) 
 async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: string) {
   "use step";
   const admin = createAdminClient();
-  const batchSize = 100;
-  const waitingCandidates = await admin.from("ai_acquisition_candidates").select("id,screening_task_item_id").eq("task_id", task.id).eq("decision", "ANALYZING").not("screening_task_item_id","is",null).limit(500);
+  // Keep the IN lists and joined evidence/contact reads below PostgREST and
+  // database statement-timeout pressure when several acquisition tasks finish
+  // concurrently. The loop drains all ready rows through durable small steps.
+  const batchSize = 25;
+  const waitingCandidates = await admin.from("ai_acquisition_candidates").select("id,screening_task_item_id").eq("task_id", task.id).eq("decision", "ANALYZING").not("screening_task_item_id","is",null).limit(125);
   if(waitingCandidates.error)throw waitingCandidates.error;
   const waitingItemIds=(waitingCandidates.data||[]).map((row)=>String(row.screening_task_item_id||"")).filter(Boolean);
   if(!waitingItemIds.length)return false;

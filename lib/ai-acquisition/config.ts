@@ -16,9 +16,13 @@ export const ACQUISITION_COUNTRY_GROUPS = [
 ] as const satisfies ReadonlyArray<{key:string;label:string;countries:ReadonlyArray<AcquisitionCountry>}>;
 export const MAX_ACQUISITION_INDUSTRIES = 20;
 export const MAX_ACQUISITION_KEYWORDS = 30;
-export const MAX_ACQUISITION_SEARCH_TERMS = 80;
-export const DEFAULT_ACQUISITION_DISCOVERY_CEILING = 50000;
-export const ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY = 1000;
+// Keep user input expressive, but execute a precision-first search plan. A
+// single 14-industry task previously expanded to 1,000 geographic queries and
+// tens of thousands of weak candidates before quality verification could catch
+// up. Later tasks can continue uncovered scopes through the shared ledger.
+export const MAX_ACQUISITION_SEARCH_TERMS = 32;
+export const DEFAULT_ACQUISITION_DISCOVERY_CEILING = 10000;
+export const ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY = 120;
 
 // Google Text Search exposes only a small number of pages for one broad query.
 // Geographic shards let later tasks keep expanding coverage instead of paying

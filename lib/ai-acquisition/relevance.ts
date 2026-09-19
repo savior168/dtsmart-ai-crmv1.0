@@ -35,6 +35,24 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
   const matchedDomainTerms = requestedDomainTerms.filter((term) => candidateTokens.has(term) || equivalentMatch(term));
   const hasSpecificDomainMatch = matchedDomainTerms.some((term) => !broadFinishedGoodsTerms.has(term));
   const businessText = `${candidate.companyName} ${candidate.types.join(" ")}`.toLowerCase().replace(/[_-]+/g, " ");
+  const requestedText = `${industries.join(" ")} ${keywords.join(" ")}`.toLowerCase();
+  const requestedAutomotive = /(?:汽车|汽配|机动车|轮胎|automotive|auto parts|car parts|motor parts|truck parts|tyre)/i.test(requestedText);
+  const requestedFood = /(?:食品|饮料|果蔬|水果|蔬菜|餐饮|农业|food|beverage|fruit|vegetable|produce|catering)/i.test(requestedText);
+  const requestedRecycling = /(?:回收|废品|电子废弃物|清运|recycl|e-?waste|WEEE|asset disposal|removal)/i.test(requestedText);
+  const requestedTelecomMarketing = /(?:电信|通信|营销|广告|网站设计|telecom|marketing|advertising|web design|call cent)/i.test(requestedText);
+  const automotiveCandidate = candidate.types.some((value)=>/^(?:auto_parts_store|car_repair|car_dealer|tire_shop|truck_parts_supplier)$/i.test(value))
+    || /(?:\b(?:auto|automotive|motor|vehicle|truck|trailer|car)\s+(?:parts?|spares?|components?|accessories?)\b|motor factors?|tyres?|汽车(?:配件|零件)|轮胎)/i.test(businessText);
+  const foodCandidate = candidate.types.some((value)=>/^(?:food_wholesaler|food_store|grocery_store|restaurant|cafe|catering_service)$/i.test(value))
+    || /(?:fresh produce|fruit and vegetable|food wholesal|food distributor|果蔬|食品批发|餐饮供应)/i.test(businessText);
+  const recyclingCandidate = /(?:computer recycling|electronics? recycling|e-?waste|WEEE|IT asset disposal|computer removal|office clearance|废旧电脑回收|电子废弃物|废品回收|清运)/i.test(businessText);
+  const telecomMarketingCandidate = /(?:digital marketing|marketing agency|call cent(?:er|re)|website design|电信服务商|数字营销|网站设计)/i.test(businessText);
+  // A verified top-level sector mismatch is stronger than generic words such
+  // as parts, repair, wholesale or computer. Stop it before any paid evidence
+  // collection, while still allowing the same sector for users who selected it.
+  if ((automotiveCandidate && !requestedAutomotive)
+    || (foodCandidate && !requestedFood)
+    || (recyclingCandidate && !requestedRecycling)
+    || (telecomMarketingCandidate && !requestedTelecomMarketing)) return false;
   const targetBusinessSignal = /(?:repair|refurbish|wholesale|supplier|distribut|importer|manufacturer|factory|agency|contractor|screen replacement|battery replacement|spare parts|维修|翻新|批发|供应|经销|进口|制造|配件)/i.test(businessText);
   const relevantGoogleType = candidate.types.some((value) => /(?:^|_)(?:repair|wholesaler|supplier|manufacturer|distributor|importer|agency|contractor)(?:_|$)/i.test(value));
   const explicitlyIrrelevantType = candidate.types.some((value) => /^(?:hair_salon|hair_care|finance|courier_service|shipping_service|furniture_store|general_contractor|auto_parts_store|car_repair|restaurant|cafe|pharmacy|lodging|real_estate_agency)$/i.test(value));
