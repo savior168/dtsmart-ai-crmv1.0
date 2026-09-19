@@ -184,6 +184,12 @@ assert.match(poolApi, /searchable\.push\("contact_name", "phone", "whatsapp", "e
 assert.match(poolApi, /tab !== "claimed" \|\| account\.role === "ADMIN"/, "已认领客户的他人联系方式不得被非管理员通过搜索探测");
 assert.match(poolApi, /customerIndustryLabels\(item\)[\s\S]*rawIndustryMap[\s\S]*industryOptionMap/, "公海所属行业必须按标准化行业去重");
 assert.match(poolView, /SearchableMultiSelectFilter[\s\S]*label="所属行业"/, "公海所属行业必须支持搜索和多选");
+assert.doesNotMatch(poolView, /setTabCounts\(\(current\) => \(\{ \.\.\.current, \[tab\]: nextCount \}\)\)/, "筛选结果数量不得覆盖公海页签总数");
+assert.match(poolView, /没有符合当前筛选条件的客户[\s\S]*清除筛选/, "筛选无结果时必须明确说明并提供清除筛选入口");
+assert.match(poolApi, /optionCacheKey[\s\S]*countries\.join[\s\S]*aiStatus[\s\S]*sourceBatches\.join/, "行业选项缓存必须区分当前关联筛选条件");
+assert.match(poolApi, /params\.get\("options"\) === "1"[\s\S]*if \(aiStatus === "done"\) optionQuery = optionQuery\.eq\("ai_status", "COMPLETED"\)/, "所属行业选项必须与当前AI分析状态使用同一数据范围");
+assert.match(poolApi, /industryCustomerIds[\s\S]*count: industryCustomerIds\.get\(item\.label\)\?\.size/, "所属行业选项必须显示当前真实客户数量");
+assert.match(poolView, /availableIndustries[\s\S]*setIndustries\(\(current\) => current\.filter/, "关联条件变化后必须清除已失效的行业选项");
 assert.match(poolView, /来源批次多选[\s\S]*搜索来源批次[\s\S]*type="checkbox"/, "来源批次必须支持搜索与多选");
 assert.match(poolView, /AI筛选批次多选[\s\S]*搜索任务编号或任务名称[\s\S]*type="checkbox"/, "AI筛选批次必须支持搜索与多选");
 assert.match(poolView, /appendSourceBatchFilters\(params\)/, "列表、导出与全选必须复用同一导入批次多选条件");

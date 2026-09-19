@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
     if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionCacheKey = [account.id, account.role, tab, restrictedBatchView ? "restricted" : "all", ...(claimScopeOwnerIds || [])].join("|");
+      const optionCacheKey = [account.id, account.role, tab, restrictedBatchView ? "restricted" : "all", countries.join(","), aiLevel, aiStatus, target, sourceType, sourceBatches.join(","), ...(claimScopeOwnerIds || [])].join("|");
       const cachedOptions = poolOptionsCache.get(optionCacheKey);
       if (cachedOptions && cachedOptions.expiresAt > Date.now()) {
         return NextResponse.json(cachedOptions.payload, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=90" } });
@@ -135,6 +135,19 @@ export async function GET(request: NextRequest) {
           if (claimScopeOwnerIds) optionQuery = optionQuery.in("owner_id", claimScopeOwnerIds);
         }
         if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
+        if (countries.length) optionQuery = optionQuery.in("country", countries);
+        if (["A", "B", "C", "D"].includes(aiLevel)) optionQuery = optionQuery.eq("ai_level", aiLevel);
+        if (aiStatus === "pending") optionQuery = optionQuery.eq("ai_status", "PENDING");
+        else if (aiStatus === "done") optionQuery = optionQuery.eq("ai_status", "COMPLETED");
+        else if (aiStatus === "failed") optionQuery = optionQuery.eq("ai_status", "FAILED");
+        if (target === "valid") optionQuery = optionQuery.eq("ai_screening_done", true).eq("is_target_customer", true);
+        if (target === "invalid") optionQuery = optionQuery.eq("ai_screening_done", true).eq("is_target_customer", false);
+        if (target === "review") optionQuery = optionQuery.eq("ai_screening_done", true).is("is_target_customer", null);
+        if (sourceType === "IMPORT") optionQuery = optionQuery.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);
+        if (sourceType === "AI_ACQUISITION") optionQuery = optionQuery.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
+        if (sourceType === "MANUAL") optionQuery = optionQuery.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
+        if (!restrictedBatchView && sourceBatches.length === 1) optionQuery = optionQuery.eq("source_batch", sourceBatches[0]);
+        else if (!restrictedBatchView && sourceBatches.length > 1) optionQuery = optionQuery.in("source_batch", sourceBatches);
         const optionPage = await optionQuery.order("updated_at", { ascending: false }).range(offset, offset + 999);
         if (optionPage.error) throw optionPage.error;
         const pageRows = optionPage.data || [];
@@ -148,11 +161,15 @@ export async function GET(request: NextRequest) {
       if (owners.error) throw owners.error;
       const verifiedIndustryMap = new Map<string, { value: string; label: string; values: string[] }>();
       const rawIndustryMap = new Map<string, Set<string>>();
+      const industryCustomerIds = new Map<string, Set<string>>();
       for (const item of optionRows) {
         const display = customerIndustryLabels(item);
         if (display.verified && item.industry?.trim()) {
           const value = item.industry.trim();
           verifiedIndustryMap.set(value, { value: `ai:${value}`, label: value, values: [`ai:${value}`] });
+          const ids = industryCustomerIds.get(value) || new Set<string>();
+          ids.add(item.id);
+          industryCustomerIds.set(value, ids);
         }
         else if (item.category?.trim()) {
           const rawCategory = item.category.trim();
@@ -160,22 +177,25 @@ export async function GET(request: NextRequest) {
             const categories = rawIndustryMap.get(label) || new Set<string>();
             categories.add(rawCategory);
             rawIndustryMap.set(label, categories);
+            const ids = industryCustomerIds.get(label) || new Set<string>();
+            ids.add(item.id);
+            industryCustomerIds.set(label, ids);
           }
         }
       }
-      const industryOptionMap = new Map<string, { value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>();
-      for (const item of verifiedIndustryMap.values()) industryOptionMap.set(item.label, { ...item, value: `industry:${item.label}`, tone: "verified" });
+      const industryOptionMap = new Map<string, { value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed"; count: number }>();
+      for (const item of verifiedIndustryMap.values()) industryOptionMap.set(item.label, { ...item, value: `industry:${item.label}`, tone: "verified", count: industryCustomerIds.get(item.label)?.size || 0 });
       for (const [label, categories] of rawIndustryMap.entries()) {
         const rawValues = categories.size ? [`group:${label}`] : [];
         const current = industryOptionMap.get(label);
         industryOptionMap.set(label, current
-          ? { ...current, values: [...current.values, ...rawValues], tone: "mixed" }
-          : { value: `industry:${label}`, label, values: rawValues, tone: "raw" });
+          ? { ...current, values: [...current.values, ...rawValues], tone: "mixed", count: industryCustomerIds.get(label)?.size || 0 }
+          : { value: `industry:${label}`, label, values: rawValues, tone: "raw", count: industryCustomerIds.get(label)?.size || 0 });
       }
       const industries = [...industryOptionMap.values()];
       const countryCount=new Map<string,number>();
       for(const item of optionRows){const value=String(item.country||"").trim();if(value)countryCount.set(value,(countryCount.get(value)||0)+1)}
-      const countries=[...countryCount].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
+      const countryOptions=[...countryCount].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
       const sourceGroup = (value?: string | null) => {
         const normalized = String(value || "").toUpperCase();
         if (["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"].includes(normalized)) return "IMPORT";
@@ -198,7 +218,7 @@ export async function GET(request: NextRequest) {
         : { data: [], error: null };
       if (screeningTasks.error) throw screeningTasks.error;
       const payload = {
-        countries,
+        countries: countryOptions,
         industries: industries.sort((left, right) => left.label.localeCompare(right.label, "zh-CN")),
         owners: owners.data || [],
         sources: [

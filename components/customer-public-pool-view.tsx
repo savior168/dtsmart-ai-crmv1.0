@@ -120,7 +120,7 @@ type AssignmentOptions = {
 };
 type PoolFilterOptions = {
   countries: SearchableFilterOption[];
-  industries: Array<{ value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed" }>;
+  industries: Array<{ value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed"; count?: number }>;
   owners: Owner[];
   sources: Array<{ value: string; label: string }>;
   batches: Array<{ value: string; label: string; source: string }>;
@@ -450,7 +450,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       const nextCount = Number(body.count || 0);
       setRows(body.data || []);
       setCount(nextCount);
-      setTabCounts((current) => ({ ...current, [tab]: nextCount }));
       setRole(body.role || "SALES");
       const scopedBatches = Array.isArray(body.restricted_batches) ? body.restricted_batches.map(String) : [];
       setRestrictedBatches(scopedBatches);
@@ -532,22 +531,32 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     optionsAbortRef.current?.abort();
     const controller = new AbortController();
     optionsAbortRef.current = controller;
-    api(`/api/customers/public-pool?tab=${tab}&options=1`, { signal: controller.signal })
-      .then((body) =>
-        setFilterOptions({
+    const params = new URLSearchParams({ tab, options: "1" });
+    for (const country of countries) params.append("country", country);
+    if (aiLevel) params.set("ai_level", aiLevel);
+    if (aiStatus !== "all") params.set("ai_status", aiStatus);
+    if (target) params.set("target", target);
+    if (sourceType) params.set("source_type", sourceType);
+    appendSourceBatchFilters(params);
+    api(`/api/customers/public-pool?${params}`, { signal: controller.signal })
+      .then((body) => {
+        const nextOptions = {
           countries: body.countries || [],
           industries: body.industries || [],
           owners: body.owners || [],
           sources: body.sources || [],
           batches: body.batches || [],
           screening_tasks: body.screening_tasks || [],
-        }),
-      )
+        };
+        setFilterOptions(nextOptions);
+        const availableIndustries = new Set(nextOptions.industries.map((item: { value: string }) => item.value));
+        setIndustries((current) => current.filter((value) => availableIndustries.has(value)));
+      })
       .catch((caught) => {
         if (!(caught instanceof DOMException && caught.name === "AbortError")) setFilterOptions({ countries: [], industries: [], owners: [], sources: [], batches: [], screening_tasks: [] });
       });
     return () => controller.abort();
-  }, [tab]);
+  }, [aiLevel, aiStatus, appendSourceBatchFilters, countries, sourceType, tab, target]);
   useEffect(
     () => setPage(1),
     [aiLevel, aiStatus, customerStatus, countries, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target],
@@ -637,6 +646,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         for(const country of countries)params.append("country",country);
         appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
+        if (aiStatus !== "all") params.set("ai_status", aiStatus);
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
         if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
@@ -670,7 +680,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         for(const country of countries)params.append("country",country);
         appendIndustryFilters(params);
         if (aiLevel) params.set("ai_level", aiLevel);
-        if (aiStatus !== "all") params.set("ai_status", aiStatus);
         if (aiStatus !== "all") params.set("ai_status", aiStatus);
         if (target) params.set("target", target);
         if (customerStatus && tab === "claimed") params.set("status", customerStatus);
@@ -879,6 +888,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
               rows={rows}
               tab={tab as "available" | "claimed" | "pending"}
               loading={loading}
+              hasActiveFilters={Boolean(query.trim() || createdFrom || createdTo || countries.length || industries.length || aiLevel || aiStatus !== "all" || target || customerStatus || ownerId || sourceType || sourceBatches.length || screeningTaskIds.length)}
+              resetFilters={resetFilters}
               fields={fields}
               sort={sort}
               direction={direction}
@@ -959,6 +970,8 @@ function PoolTable({
   rows,
   tab,
   loading,
+  hasActiveFilters,
+  resetFilters,
   fields,
   sort,
   direction,
@@ -973,6 +986,8 @@ function PoolTable({
   rows: PoolRow[];
   tab: "available" | "claimed" | "pending";
   loading: boolean;
+  hasActiveFilters: boolean;
+  resetFilters: () => void;
   fields: CustomerListColumn[];
   sort: string;
   direction: "asc" | "desc";
@@ -1049,7 +1064,10 @@ function PoolTable({
         </div>
       ) : !rows.length ? (
         <div className="grid min-h-56 place-items-center text-sm text-slate-400">
-          当前分类暂无客户
+          <div className="text-center">
+            <p>{hasActiveFilters ? "没有符合当前筛选条件的客户" : "当前公海暂无待认领客户"}</p>
+            {hasActiveFilters ? <button type="button" onClick={resetFilters} className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-medium text-blue-700 hover:bg-blue-100">清除筛选</button> : null}
+          </div>
         </div>
       ) : null}
     </section>
