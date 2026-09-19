@@ -26,9 +26,9 @@ async function reconcileCompletedAcquisitionTask(admin: ReturnType<typeof create
   return true;
 }
 
-export async function rescueStalledAiAcquisitionTasks() {
+export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
   const admin = createAdminClient();
-  const claimed = await admin.rpc("claim_stalled_ai_acquisition_tasks", { p_limit: 3 });
+  const claimed = await admin.rpc("claim_stalled_ai_acquisition_tasks", { p_limit: 1 }).abortSignal(signal || new AbortController().signal);
   if (claimed.error) throw claimed.error;
   let recovered = 0;
   for (const row of claimed.data || []) {
