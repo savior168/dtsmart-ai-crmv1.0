@@ -83,7 +83,8 @@ assert.match(workflow,/unreachableVerifiedTarget[\s\S]*\(explicitlyNeedsReview \
 assert.match(workflow,/AI_SCREENING_RESULT_MISSING/,"核验明细完成却缺少最终结果时必须按执行异常重试，不能污染人工复核队列");
 assert.match(workflow,/else if \(decision !== "REVIEW"\)[\s\S]*pool_status: "INVALID"/,"待复核客户必须保留在隔离暂存区，不得按无效客户软删除");
 const acquisitionRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
-assert.match(acquisitionRequeue,/requeueInvalidAcquisitionAcceptances[\s\S]*is_target_customer\.eq\.false,has_actionable_contact\.eq\.false,evidence_complete\.eq\.false/,"历史入池记录只要不满足现行行业、联系方式或证据门槛就必须重新核验");
+assert.match(acquisitionRequeue,/requeueInvalidAcquisitionAcceptances[\s\S]*customer_contacts[\s\S]*MATCHED_ORIGINAL[\s\S]*actionableCustomerIds\.add/,"历史入池记录必须依据当前可追溯联系方式重新检查，不能信任陈旧布尔标记");
+assert.match(acquisitionRequeue,/!row\.is_target_customer[\s\S]*!actionableCustomerIds\.has[\s\S]*acquisitionIndustryMatchesVerifiedResult/,"历史入池记录必须重新核对目标标记、当前联系方式和当前客户行业");
 assert.match(acquisitionRequeue,/pool_status === "AVAILABLE"[\s\S]*!row\.owner_id[\s\S]*AI_ACQUISITION_STAGING[\s\S]*acquisition_scope: "PRIVATE"/,"异常入池重验只能移动未认领公海客户，并必须先回到隔离暂存区");
 const discovery=fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts",import.meta.url),"utf8");
 const discoveryRelevance=fs.readFileSync(new URL("../lib/ai-acquisition/relevance.ts",import.meta.url),"utf8");

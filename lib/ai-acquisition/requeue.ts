@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { discoveryCandidateLooksRelevant, type DiscoveryRelevanceCandidate } from "./relevance";
+import { acquisitionIndustryMatchesVerifiedResult } from "./industry-match";
 
 type RequeueTask = {
   id: string;
@@ -307,12 +308,11 @@ export async function requeueAcquisitionReviews(task: RequeueTask, screeningTask
  * job. Valid accepted rows are not touched. */
 export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, screeningTaskId: string) {
   const admin = createAdminClient();
-  const candidates: Array<{id:string;screening_task_item_id:string;staging_customer_id:string;imported_customer_id:string}> = [];
+  let candidates: Array<{id:string;screening_task_item_id:string;staging_customer_id:string;imported_customer_id:string;is_target_customer:boolean;has_actionable_contact:boolean;evidence_complete:boolean}> = [];
   for (let offset = 0; ; offset += 1000) {
     const page = await admin.from("ai_acquisition_candidates")
-      .select("id,screening_task_item_id,staging_customer_id,imported_customer_id")
+      .select("id,screening_task_item_id,staging_customer_id,imported_customer_id,is_target_customer,has_actionable_contact,evidence_complete")
       .eq("task_id", task.id).eq("screening_task_id", screeningTaskId).eq("decision", "ACCEPTED")
-      .or("is_target_customer.eq.false,has_actionable_contact.eq.false,evidence_complete.eq.false")
       .not("screening_task_item_id", "is", null).not("staging_customer_id", "is", null)
       .not("imported_customer_id", "is", null)
       .range(offset, offset + 999);
@@ -321,6 +321,32 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
     if ((page.data || []).length < 1000) break;
   }
   if (!candidates.length) return { inspected: 0, eligible: 0, requeued: 0, skipped_owned: 0 };
+
+  const allImportedIds = [...new Set(candidates.map((row) => String(row.imported_customer_id)))];
+  const customerState = new Map<string,{id:string;industry:string|null;pool_status:string|null;owner_id:string|null;owner_user_id:string|null;deleted_at:string|null}>();
+  const actionableCustomerIds = new Set<string>();
+  for (let offset = 0; offset < allImportedIds.length; offset += 100) {
+    const ids = allImportedIds.slice(offset, offset + 100);
+    const [states, contacts] = await Promise.all([
+      admin.from("customers").select("id,industry,pool_status,owner_id,owner_user_id,deleted_at").in("id", ids),
+      admin.from("customer_contacts").select("customer_id,type,verification_status,exact_source_url").in("customer_id", ids)
+        .in("type", ["PHONE", "EMAIL", "WHATSAPP"]).in("verification_status", ["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL"]).not("exact_source_url", "is", null),
+    ]);
+    if (states.error || contacts.error) throw states.error || contacts.error;
+    for (const row of states.data || []) customerState.set(String(row.id), row);
+    for (const row of contacts.data || []) {
+      if (/^https?:\/\//i.test(String(row.exact_source_url || ""))) actionableCustomerIds.add(String(row.customer_id));
+    }
+  }
+  const targetIndustries = task.industries?.length ? task.industries : [task.industry];
+  candidates = candidates.filter((row) => {
+    const customerId = String(row.imported_customer_id);
+    const state = customerState.get(customerId);
+    return !row.is_target_customer || !row.has_actionable_contact || !row.evidence_complete
+      || !actionableCustomerIds.has(customerId)
+      || !acquisitionIndustryMatchesVerifiedResult(targetIndustries, state?.industry || null);
+  });
+  if (!candidates.length) return { inspected: allImportedIds.length, eligible: 0, requeued: 0, skipped_owned: 0 };
 
   const importedIds = [...new Set(candidates.map((row) => String(row.imported_customer_id)))];
   const sharedAcceptedIds = new Set<string>();
@@ -331,13 +357,9 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
     for (const row of shared.data || []) sharedAcceptedIds.add(String(row.imported_customer_id));
   }
   const movableIds = new Set<string>();
-  for (let offset = 0; offset < importedIds.length; offset += 100) {
-    const states = await admin.from("customers").select("id,pool_status,owner_id,owner_user_id,deleted_at")
-      .in("id", importedIds.slice(offset, offset + 100));
-    if (states.error) throw states.error;
-    for (const row of states.data || []) {
-      if (row.pool_status === "AVAILABLE" && !row.owner_id && !row.owner_user_id && !row.deleted_at && !sharedAcceptedIds.has(String(row.id))) movableIds.add(String(row.id));
-    }
+  for (const customerId of importedIds) {
+    const row = customerState.get(customerId);
+    if (row?.pool_status === "AVAILABLE" && !row.owner_id && !row.owner_user_id && !row.deleted_at && !sharedAcceptedIds.has(customerId)) movableIds.add(customerId);
   }
   const eligible = candidates.filter((row) => movableIds.has(String(row.imported_customer_id)));
   if (!eligible.length) return { inspected: candidates.length, eligible: 0, requeued: 0, skipped_owned: candidates.length };
