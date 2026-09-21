@@ -304,12 +304,15 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_EVIDENCE_GAPS_REQUEUED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, ...recovery } });
       return NextResponse.json({ ok: true, recovery });
     } else if (action === "RETRY") {
-      if (task.status !== "FAILED") return NextResponse.json({ error: "只有失败任务可以重试" }, { status: 409 });
+      if (!["FAILED", "COMPLETED"].includes(task.status)) return NextResponse.json({ error: "只有失败任务或存在未核验项的已完成任务可以重试" }, { status: 409 });
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
       if (child.error) throw child.error;
       if (child.data) {
         const failedItems = await admin.from("ai_screening_task_items").select("id,customer_id,status,analysis_status,writeback_status,result_id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
         if (failedItems.error) throw failedItems.error;
+        if (task.status === "COMPLETED" && !(failedItems.data || []).length) {
+          return NextResponse.json({ error: "该已完成任务没有可恢复的未核验项" }, { status: 409 });
+        }
         const failedCustomerIds = [...new Set((failedItems.data || []).map((row) => String(row.customer_id || "")).filter(Boolean))];
         for (let offset = 0; offset < failedCustomerIds.length; offset += 100) {
           // A previous rejected conclusion may have soft-deleted the staging
@@ -341,6 +344,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
           const resetItems = await admin.from("ai_screening_task_items").update({
             status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null,
             result_id: null, progress: 0, current_step: "WAITING", pipeline_stage: "NORMALIZED",
+            attempt_count: 0, retryable: true,
             lease_owner: null, lease_token: null, lease_expires_at: null, executor_heartbeat_at: null,
             started_at: null, retry_at: null, error_message: null, error_code: null, completed_at: null,
             updated_at: new Date().toISOString(),
@@ -352,7 +356,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         if (resetChild.error) throw resetChild.error;
       }
       const now = new Date().toISOString();
-      const resetTask = await admin.from("ai_acquisition_tasks").update({ status: "QUEUED", cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now }).eq("id", id).eq("status", "FAILED");
+      const resetTask = await admin.from("ai_acquisition_tasks").update({ status: "QUEUED", current_stage: "VERIFYING", current_stage_detail: "正在从检查点恢复未完成的候选核验", cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now }).eq("id", id).in("status", ["FAILED", "COMPLETED"]);
       if (resetTask.error) throw resetTask.error;
       const run = await start(aiAcquisitionWorkflow, [id]);
       const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);

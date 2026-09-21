@@ -392,9 +392,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 继续执行
               </button>
             ) : null}
-            {canControl && task.status === "FAILED" ? (
+            {canControl && (task.status === "FAILED" || (task.status === "COMPLETED" && Number(task.processed_count||0) < Number(task.discovered_count||0))) ? (
               <button className={button} onClick={() => setAction("RETRY")}>
-                重试失败项
+                {task.status === "COMPLETED" ? "恢复未核验项" : "重试失败项"}
               </button>
             ) : null}
             {canControl && task.review_count > 0 && ["COMPLETED", "FAILED"].includes(task.status) ? (

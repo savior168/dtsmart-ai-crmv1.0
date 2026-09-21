@@ -258,6 +258,7 @@ assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*channel_checkpoint: \{\}, checkpoint: \{\}[\s\S]*analyzed_channels: \[\], skipped_channels: \[\]/,"待复核重判必须清空旧渠道检查点，重新核对Google商家、官网和公开渠道，不能只用旧证据重算分数");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
+assert.match(detailRoute,/action === "RETRY"[\s\S]*\["FAILED", "COMPLETED"\][\s\S]*没有可恢复的未核验项[\s\S]*attempt_count: 0, retryable: true[\s\S]*正在从检查点恢复未完成的候选核验/,"历史已完成任务若仍有超时失败项，必须允许从检查点安全恢复并获得一轮新的有限重试机会");
 assert.match(detailRoute,/failedItems[\s\S]*customer_id/,"从检查点重试必须定位失败项对应的暂存客户");
 assert.match(detailRoute,/deleted_at: null[\s\S]*pool_status: "AI_STAGING"[\s\S]*eq\("source", "AI_ACQUISITION_STAGING"\)/,"从检查点重试必须仅恢复本任务的软删除AI暂存客户，避免CUSTOMER_NOT_FOUND无限失败");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
@@ -327,6 +328,7 @@ assert.match(detail,/CustomerScoreBadge score=\{r\.ai_score\}/,"AI获客客户�
 assert.match(publicPool,/CustomerScoreBadge score=\{row\.ai_score\}/,"客户公海必须复用同一评分组件，避免同字段多套样式");
 assert.match(detail,/确认舍弃[\s\S]*重新校验并入池/,"待复核客户必须提供安全的人工处理闭环");
 assert.match(detail,/task\.review_count > 0[\s\S]*\["COMPLETED", "FAILED"\][\s\S]*REASSESS_REVIEWS[\s\S]*重新核验待复核[\s\S]*清空待复核客户的旧评分、旧结论与旧渠道检查点/,"已完成或失败任务必须提供可审计的全量待复核重新核验入口，并明确不会沿用旧评分或旧采集检查点");
+assert.match(detail,/task\.status === "COMPLETED"[\s\S]*task\.processed_count[\s\S]*task\.discovered_count[\s\S]*恢复未核验项/,"已完成但仍有未核验候选的历史任务必须在页面提供明确恢复入口");
 assert.match(detail,/返回任务中心[\s\S]*查看任务报告[\s\S]*停止任务[\s\S]*继续执行[\s\S]*重试失败项[\s\S]*取消任务/,"AI获客任务详情必须与AI筛选统一任务控制文案与按钮层级，同时保留完整状态控制");
 const acquisitionEvidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
 assert.match(acquisitionEvidenceRoute,/created_at:fetched_at[\s\S]*order\("fetched_at"/,"核验依据必须使用证据表真实时间字段，避免点击依据加载失败");
