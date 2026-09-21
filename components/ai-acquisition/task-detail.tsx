@@ -241,7 +241,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               ? "任务已重新开始"
               : action === "RECHECK_EVIDENCE_GAPS"
                 ? "证据缺口已重新进入核验，不会重复搜索"
-                : "任务已取消",
+                : action === "REASSESS_REVIEWS"
+                  ? "待复核客户已重新进入补证、分析和评分"
+                  : "任务已取消",
       );
       setAction(null);
       await load();

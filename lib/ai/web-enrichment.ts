@@ -997,6 +997,9 @@ function googleCidLookupUrl(value?: string | null) {
   if (!value) return null;
   try {
     const decoded = decodeURIComponent(value);
+    const parsed = new URL(decoded);
+    const decimalCid = parsed.searchParams.get("cid");
+    if (decimalCid && /^\d+$/.test(decimalCid)) return `https://www.google.com/maps?cid=${decimalCid}`;
     const matches = [...decoded.matchAll(/!1s0x[0-9a-f]+:(0x[0-9a-f]+)/gi)];
     const hex = matches.at(-1)?.[1];
     return hex ? `https://www.google.com/maps?cid=${BigInt(hex).toString()}` : null;
@@ -1033,9 +1036,9 @@ export async function collectPublicGooglePlaceEvidence(input: {
   };
   try {
     const providedUrl = safePublicUrl(input.google_url);
-    const isSpecificPlaceUrl = Boolean(providedUrl && /google\.[^/]+\/maps\/place\//i.test(providedUrl));
+    const cidLookupPage = googleCidLookupUrl(providedUrl);
+    const isSpecificPlaceUrl = Boolean(providedUrl && (/google\.[^/]+\/maps\/place\//i.test(providedUrl) || cidLookupPage));
     const canonicalSearchPage = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-    const cidLookupPage = isSpecificPlaceUrl ? googleCidLookupUrl(providedUrl) : null;
     const searchPage = cidLookupPage || (isSpecificPlaceUrl ? providedUrl! : canonicalSearchPage);
     const pageResponse = await fetchPublic(searchPage, { signal: request.signal, headers });
     if (!pageResponse.ok) return undefined;

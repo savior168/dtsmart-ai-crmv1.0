@@ -308,8 +308,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
       if (child.error) throw child.error;
       if (child.data) {
-        const failedItems = await admin.from("ai_screening_task_items").select("id,status,analysis_status,writeback_status,result_id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
+        const failedItems = await admin.from("ai_screening_task_items").select("id,customer_id,status,analysis_status,writeback_status,result_id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
         if (failedItems.error) throw failedItems.error;
+        const failedCustomerIds = [...new Set((failedItems.data || []).map((row) => String(row.customer_id || "")).filter(Boolean))];
+        for (let offset = 0; offset < failedCustomerIds.length; offset += 100) {
+          // A previous rejected conclusion may have soft-deleted the staging
+          // customer before a later reassessment/retry invalidated that result.
+          // Restore only this task's AI staging rows so CUSTOMER_NOT_FOUND does
+          // not become a permanent retry loop; never touch real pool customers.
+          const restored = await admin.from("customers").update({
+            deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: new Date().toISOString(),
+          }).in("id", failedCustomerIds.slice(offset, offset + 100)).eq("source", "AI_ACQUISITION_STAGING");
+          if (restored.error) throw restored.error;
+        }
         const durableItemIds = (failedItems.data || [])
           .filter((row) => row.analysis_status === "COMPLETED" && row.writeback_status === "COMPLETED" && row.result_id)
           .map((row) => String(row.id));

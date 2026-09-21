@@ -258,6 +258,8 @@ assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*channel_checkpoint: \{\}, checkpoint: \{\}[\s\S]*analyzed_channels: \[\], skipped_channels: \[\]/,"待复核重判必须清空旧渠道检查点，重新核对Google商家、官网和公开渠道，不能只用旧证据重算分数");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
+assert.match(detailRoute,/failedItems[\s\S]*customer_id/,"从检查点重试必须定位失败项对应的暂存客户");
+assert.match(detailRoute,/deleted_at: null[\s\S]*pool_status: "AI_STAGING"[\s\S]*eq\("source", "AI_ACQUISITION_STAGING"\)/,"从检查点重试必须仅恢复本任务的软删除AI暂存客户，避免CUSTOMER_NOT_FOUND无限失败");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
 assert.doesNotMatch(detailRoute,/rescueStalledAiAcquisitionTasks/,"任务详情读取不得触发恢复调度或数据库领取");
 assert.doesNotMatch(listRoute,/rescueStalledAiAcquisitionTasks/,"任务中心读取不得触发恢复调度或数据库领取");

@@ -1405,7 +1405,18 @@ function deterministicScore(input: {
   // must clear the target threshold instead of being mislabeled as D.
   if (input.rule.target && googleDirectBusinessEvidence) {
     const reviewSignal = Math.min(6, Math.round(Math.log10(reviewCount + 1) * 2.5));
-    const serviceSignal = Math.min(4, specificServices);
+    // A direct Google business fact is a legitimate minimum target signal,
+    // but different service breadth, identity quality, website corroboration
+    // and contactability must still produce different business-value scores.
+    // The old four-point cap made most snapshot-only repair businesses land on
+    // the same 65/66 score even when their observable evidence differed.
+    const identitySignal = input.candidate.confidence >= 90 ? 2 : input.candidate.confidence >= 80 ? 1 : 0;
+    const serviceSignal = Math.min(9,
+      specificServices
+      + Math.min(3, Math.max(0, directFactBreadth - 1))
+      + identitySignal
+      + (websiteReachable ? 1 : 0)
+      + (verifiedContacts ? 1 : 0));
     rawScore = Math.max(rawScore, 60 + reviewSignal + serviceSignal + (verifiedContacts ? 1 : 0));
   }
   if (completeDirectTargetChain) rawScore = Math.max(rawScore, 85);
