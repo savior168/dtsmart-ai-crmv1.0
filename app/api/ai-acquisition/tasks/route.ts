@@ -201,13 +201,16 @@ export async function POST(request: NextRequest) {
     }
     if (task.error || !task.data) throw task.error || new Error("AI获客任务创建失败");
     try {
-      const run = await start(aiAcquisitionWorkflow, [task.data.id, scheduledAt]);
-      const updated = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", last_dispatch_at: scheduledAt || new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", task.data.id).select("*").single();
+      const executionToken = scheduledAt || new Date().toISOString();
+      const prepared = await admin.from("ai_acquisition_tasks").update({ active_executor: "VERCEL_DISPATCHING", last_dispatch_at: executionToken, updated_at: new Date().toISOString() }).eq("id", task.data.id).eq("status", "QUEUED");
+      if (prepared.error) throw prepared.error;
+      const run = await start(aiAcquisitionWorkflow, [task.data.id, scheduledAt, executionToken]);
+      const updated = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", task.data.id).eq("last_dispatch_at", executionToken).select("*").single();
       if (updated.error) throw updated.error;
       await admin.from("audit_logs").insert({ user_id: user.id, action: "AI_ACQUISITION_TASK_CREATE", target_type: "ai_acquisition_task", target_id: task.data.id, content: { task_number: task.data.task_number, cost_mode: costMode, countries, industries, keywords, scheduled_at: scheduledAt, search_policy: "ALL_QUALIFIED_WITHIN_SUPPORTED_SOURCES", task_cost_limit_usd: taskCostLimit } });
       return NextResponse.json({ task: presentTask(updated.data) }, { status: 201 });
     } catch (dispatchError) {
-      await admin.from("ai_acquisition_tasks").update({ status: "FAILED", error_message: dispatchError instanceof Error ? dispatchError.message : "云端任务启动失败", updated_at: new Date().toISOString() }).eq("id", task.data.id);
+      await admin.from("ai_acquisition_tasks").update({ status: "FAILED", active_executor: null, workflow_run_id: null, error_message: dispatchError instanceof Error ? dispatchError.message : "云端任务启动失败", updated_at: new Date().toISOString() }).eq("id", task.data.id);
       throw dispatchError;
     }
   } catch (error) {

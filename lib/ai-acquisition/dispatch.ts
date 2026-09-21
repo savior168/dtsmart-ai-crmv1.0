@@ -51,7 +51,7 @@ export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
     const taskId = String(row.task_id || "");
     if (!taskId) continue;
     try {
-      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested,current_stage_detail").eq("id", taskId).abortSignal(signal || new AbortController().signal).single();
+      const state = await admin.from("ai_acquisition_tasks").select("status,cancel_requested,current_stage_detail,last_dispatch_at").eq("id", taskId).abortSignal(signal || new AbortController().signal).single();
       if (state.error) throw state.error;
       const maintenanceProtected = maintenancePausedIds.has(taskId)
         && String(state.data.current_stage_detail || "").includes("系统维护暂停");
@@ -63,8 +63,10 @@ export async function rescueStalledAiAcquisitionTasks(signal?: AbortSignal) {
         recovered += 1;
         continue;
       }
-      const run = await start(aiAcquisitionWorkflow, [taskId]);
-      const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", last_dispatch_at: new Date().toISOString(), error_message: null, updated_at: new Date().toISOString() }).eq("id", taskId).eq("active_executor", "VERCEL_DISPATCHING");
+      const executionToken = String(state.data.last_dispatch_at || "");
+      if (!executionToken) throw new Error("ACQUISITION_DISPATCH_TOKEN_MISSING");
+      const run = await start(aiAcquisitionWorkflow, [taskId, null, executionToken]);
+      const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", error_message: null, updated_at: new Date().toISOString() }).eq("id", taskId).eq("active_executor", "VERCEL_DISPATCHING").eq("last_dispatch_at", executionToken);
       if (saved.error) throw saved.error;
       recovered += 1;
     } catch (error) {

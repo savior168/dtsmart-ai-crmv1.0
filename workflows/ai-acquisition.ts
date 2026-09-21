@@ -30,10 +30,12 @@ async function readTask(taskId: string) {
   return result.data as AcquisitionTask;
 }
 
-async function beginTask(taskId: string) {
+async function beginTask(taskId: string, executionToken: string | null) {
   "use step";
   const now = new Date().toISOString();
-  const result = await createAdminClient().from("ai_acquisition_tasks").update({ status: "RUNNING", current_stage:"DISCOVERY", current_stage_detail:"正在按国家和本地化检索表达发现目标商家", active_executor: "VERCEL_WORKFLOW", started_at: now, executor_heartbeat_at: now, last_dispatch_at: now, error_message: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "RUNNING"]).select("id").maybeSingle();
+  let query = createAdminClient().from("ai_acquisition_tasks").update({ status: "RUNNING", current_stage:"DISCOVERY", current_stage_detail:"正在按国家和本地化检索表达发现目标商家", active_executor: "VERCEL_WORKFLOW", started_at: now, executor_heartbeat_at: now, error_message: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "RUNNING"]);
+  if (executionToken) query = query.eq("last_dispatch_at", executionToken);
+  const result = await query.select("id").maybeSingle();
   if (result.error) throw result.error;
   return Boolean(result.data);
 }
@@ -375,9 +377,14 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
   return true;
 }
 
-async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANCELLED", errorMessage?: string) {
+async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANCELLED", errorMessage?: string, executionToken?: string | null) {
   "use step";
   const admin = createAdminClient();
+  if (executionToken) {
+    const current = await admin.from("ai_acquisition_tasks").select("last_dispatch_at").eq("id", taskId).single();
+    if (current.error) throw current.error;
+    if (String(current.data.last_dispatch_at || "") !== executionToken) return false;
+  }
   const decisionCount=async(decision:string)=>{
     const result=await admin.from("ai_acquisition_candidates").select("id",{count:"exact",head:true}).eq("task_id",taskId).eq("decision",decision);
     if(result.error)throw new Error(normalizedErrorMessage(result.error,{stage:`ACQUISITION_FINISH_COUNT_${decision}`}));
@@ -410,17 +417,20 @@ async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANC
   const reusedCandidates=Number(reusedResult.count||0);
   const budgetLimited=Number(budgetCheckpoints.count||0)>0;
   const completedDetail=noFreshSearch?`本次任务范围与近期已完成搜索重合，未重复调用第三方平台；复用 ${reusedCandidates} 条近期核验结论，无新增候选进入分析`:budgetLimited?"发现阶段触发费用保护后停止；已发现候选均已完成去重、核验或历史结论复用":"当前检索策略可返回分页、去重、核验和准入判定均已完成";
-  const update = await admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?completedDetail:status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, discovered_count:discoveredCount, processed_count:processedCount, accepted_count:acceptedCount, review_count:reviewCount, rejected_count:rejectedCount, duplicate_count:duplicateCount, elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message:errorMessage?.slice(0,1000)||null, updated_at:now.toISOString() }).eq("id",taskId);
+  let updateQuery = admin.from("ai_acquisition_tasks").update({ status, current_stage:finalStage, current_stage_detail:status==="COMPLETED"?completedDetail:status==="FAILED"?"执行异常，已保留完成进度和检查点，可安全重试":null, discovered_count:discoveredCount, processed_count:processedCount, accepted_count:acceptedCount, review_count:reviewCount, rejected_count:rejectedCount, duplicate_count:duplicateCount, elapsed_ms: elapsed, started_at: null, finished_at: now.toISOString(), active_executor: null, executor_heartbeat_at: now.toISOString(), error_message:errorMessage?.slice(0,1000)||null, updated_at:now.toISOString() }).eq("id",taskId);
+  if (executionToken) updateQuery = updateQuery.eq("last_dispatch_at", executionToken);
+  const update = await updateQuery;
   if (update.error) throw new Error(normalizedErrorMessage(update.error,{stage:"ACQUISITION_FINISH_TASK_UPDATE"}));
+  return true;
 }
 
-async function releaseTaskForRecovery(taskId: string, error: unknown) {
+async function releaseTaskForRecovery(taskId: string, error: unknown, executionToken?: string | null) {
   "use step";
   const admin = createAdminClient();
   const candidate = error && typeof error === "object" ? error as { message?: unknown; code?: unknown } : null;
   const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
   const code = String(candidate?.code || "");
-  const saved = await admin.from("ai_acquisition_tasks").update({
+  let saveQuery = admin.from("ai_acquisition_tasks").update({
     status: "RUNNING",
     active_executor: null,
     last_dispatch_at: null,
@@ -428,16 +438,18 @@ async function releaseTaskForRecovery(taskId: string, error: unknown) {
     error_message: `基础服务短暂异常，系统将从检查点自动恢复${code ? `（${code}）` : ""}：${message}`.slice(0, 1000),
     updated_at: new Date().toISOString(),
   }).eq("id", taskId).in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+  if (executionToken) saveQuery = saveQuery.eq("last_dispatch_at", executionToken);
+  const saved = await saveQuery;
   if (saved.error) throw saved.error;
 }
 
-export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string | null = null) {
+export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string | null = null, executionToken: string | null = null) {
   "use workflow";
   try {
     if (scheduledAt && new Date(scheduledAt).getTime() > Date.now()) await sleep(new Date(scheduledAt));
     const task = await readTask(taskId);
-    if (task.cancel_requested) { await finishTask(taskId, "CANCELLED"); return; }
-    if (!await beginTask(taskId)) return;
+    if (task.cancel_requested) { await finishTask(taskId, "CANCELLED", undefined, executionToken); return; }
+    if (!await beginTask(taskId, executionToken)) return;
     const screeningTaskId = await createScreeningTask(task);
     let staging=await stageCandidates(task,screeningTaskId);
     if(staging.analyzing>0) {
@@ -456,7 +468,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         continue;
       }
       const control=await acquisitionControlState(taskId,screeningTaskId);
-      if(control==="CANCELLED"){await finishTask(taskId,"CANCELLED");return;}
+      if(control==="CANCELLED"){await finishTask(taskId,"CANCELLED",undefined,executionToken);return;}
       if(control==="PAUSED"){await sleep("10s");continue;}
       staging=await stageCandidates(await readTask(taskId),screeningTaskId);
       if(staging.analyzing>0){
@@ -465,7 +477,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         while(await finalizeCandidateBatch(task,screeningTaskId)){}
       }
     }
-    if(staging.control==="CANCELLED"){await finishTask(taskId,"CANCELLED");return;}
+    if(staging.control==="CANCELLED"){await finishTask(taskId,"CANCELLED",undefined,executionToken);return;}
     const analyzing = staging.analyzing;
     if (analyzing > 0) {
       await setTaskStage(taskId,"VERIFYING","正在核验主体、在营状态、目标行业、证据和有效联系方式");
@@ -477,7 +489,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
           await setTaskStage(taskId,"VERIFYING","正在持续核验；符合证据和联系方式门槛的客户已实时入池");
         }
         const state = await verificationState(taskId, screeningTaskId);
-        if (state.control === "CANCELLED") { await finishTask(taskId, "CANCELLED"); return; }
+        if (state.control === "CANCELLED") { await finishTask(taskId, "CANCELLED", undefined, executionToken); return; }
         if (state.control === "PAUSED") { await sleep("30s"); continue; }
         if (["COMPLETED","FAILED","CANCELLED"].includes(state.screening.status)) {
           if (state.screening.status !== "COMPLETED") throw new Error(state.screening.error_message || `ACQUISITION_SCREENING_${state.screening.status}`);
@@ -491,13 +503,13 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         await setTaskStage(taskId,"FINALIZING","正在分批执行最终质量门槛、系统去重和客户公海准入");
       }
     } else await completeEmptyScreeningTask(screeningTaskId);
-    await finishTask(taskId, "COMPLETED");
+    await finishTask(taskId, "COMPLETED", undefined, executionToken);
   } catch (error) {
     if (isRecoverableInfrastructureError(error)) {
-      try { await releaseTaskForRecovery(taskId, error); }
+      try { await releaseTaskForRecovery(taskId, error, executionToken); }
       catch (recoveryError) { console.error("[ai-acquisition] failed to persist automatic recovery state", recoveryError); }
       return;
     }
-    await finishTask(taskId, "FAILED", error instanceof Error ? error.message : String(error));
+    await finishTask(taskId, "FAILED", error instanceof Error ? error.message : String(error), executionToken);
   }
 }
