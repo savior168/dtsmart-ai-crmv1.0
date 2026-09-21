@@ -241,6 +241,17 @@ function hasCriticalIdentityMismatch(signals?: string[]) {
   return Boolean(signals?.some((signal) => /地址信息不一致|官网与原始官网域名不一致/.test(signal)));
 }
 
+// Identity signals are produced by multiple collectors and historical rule
+// versions. Keep their wording compatibility in one place so a verified
+// Google entity is not downgraded merely because one producer says
+// “具体Google商家页” while another says “具体Google商家入口”.
+const GOOGLE_STRONG_IDENTITY_SIGNAL = /名称|地址|电话|官网|域名|国家(?:或地区)?(?:代码)?一致|具体\s*Google\s*商家(?:入口|页)|客户提供.*Google\s*商家(?:入口|页)|Place\s*ID|place_id|name|address|phone|website|domain|country\s*(?:code)?/i;
+const GOOGLE_DIRECT_ENTITY_ANCHOR = /地址|具体\s*Google\s*商家(?:入口|页)|客户提供.*Google\s*商家(?:入口|页)|Place\s*ID|place_id|address/i;
+
+function googleStrongIdentitySignals(signals?: string[]) {
+  return (signals || []).filter((signal) => GOOGLE_STRONG_IDENTITY_SIGNAL.test(signal));
+}
+
 function websiteHost(value?: string | null) {
   try {
     return new URL(/^https?:\/\//i.test(String(value || "")) ? String(value) : `https://${value}`).hostname
@@ -258,7 +269,7 @@ export function verifiedOfficialWebsiteFromGoogle(records: ChannelRecord[]) {
   const host = websiteHost(candidate);
   if (!candidate || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return null;
   const confidence = Number(google?.identity_confidence || 0);
-  const strongSignals = (google?.match_signals || []).filter((signal) => /名称|地址|电话|官网|域名|具体Google商家入口|Place ID/.test(signal));
+  const strongSignals = googleStrongIdentitySignals(google?.match_signals);
   const signalText = strongSignals.join("；");
   const exactNameAndAddress = /名称/.test(signalText) && /地址/.test(signalText);
   const minimumConfidence = exactNameAndAddress ? 80 : 90;
@@ -354,7 +365,7 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   const googleConfidence = Number(google?.identity_confidence || 0);
   const googleMatchSignals = google?.match_signals || [];
   const googleMismatchSignals = google?.mismatch_signals || [];
-  const exactGoogleSignals = googleMatchSignals.filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/i.test(signal)).length;
+  const exactGoogleSignals = googleStrongIdentitySignals(googleMatchSignals).length;
   const onlyReplaceableContactMismatches = googleMismatchSignals.length > 0
     && googleMismatchSignals.every((signal) => /电话|官网|域名|换号|分店/.test(signal));
   const normalizedGoogleStatus: IdentityStatus | null = google?.identity_status
@@ -838,7 +849,7 @@ export function discoveredPublicChannelUrls(customer: CustomerRow, records: Chan
 
   const googleRecord = records.find((item) => item.channel === "google_maps" && item.status === "COLLECTED");
   const google = googleRecord?.evidence as GooglePlaceEvidence | undefined;
-  const googleStrongSignals = (google?.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
+  const googleStrongSignals = googleStrongIdentitySignals(google?.match_signals);
   const googleSignalText = googleStrongSignals.join("；");
   const googleExactNameAndAddress = /名称/.test(googleSignalText) && /地址/.test(googleSignalText);
   const googleEntityVerified = Boolean(
@@ -908,7 +919,7 @@ export function contactCandidatesFromRecords(customer: CustomerRow, records: Cha
     if (record.channel === "google_maps") {
       const item = record.evidence as GooglePlaceEvidence;
       const url = item.verified_google_maps_url || record.source_url || customer.google_url || "";
-      const strongSignals = (item.match_signals || []).filter((signal) => /名称|电话|官网|域名|地址|具体Google商家入口|Place ID/.test(signal));
+      const strongSignals = googleStrongIdentitySignals(item.match_signals);
       const signalText = strongSignals.join("；");
       const exactNameAndAddress = /名称/.test(signalText) && /地址/.test(signalText);
       const strictlyMatched = item.identity_status === "MATCHED"
@@ -918,7 +929,7 @@ export function contactCandidatesFromRecords(customer: CustomerRow, records: Cha
       const sourceConfirmed = ["MATCHED", "LIKELY_MATCHED"].includes(String(item.identity_status || ""))
         && ["MATCHED", "LIKELY_MATCHED"].includes(identityStatus)
         && Number(item.identity_confidence || 0) >= 70
-        && strongSignals.some((signal) => /地址|具体Google商家入口|Place ID/.test(signal))
+        && strongSignals.some((signal) => GOOGLE_DIRECT_ENTITY_ANCHOR.test(signal))
         && !hasCriticalIdentityMismatch(item.mismatch_signals);
       const googleIdentity: IdentityStatus = strictlyMatched ? "MATCHED"
         : sourceConfirmed ? (identityStatus === "MATCHED" ? "MATCHED" : "LIKELY_MATCHED")
