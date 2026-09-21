@@ -218,9 +218,9 @@ export async function requeueAcquisitionEvidenceGaps(task: RequeueTask, screenin
 }
 
 /** Reassess historical REVIEW rows with the current evidence, identity and
- * scoring rules. Old scores/results are invalidated so clustered legacy
- * fallback scores cannot survive. Saved channel checkpoints remain available
- * to the executor, avoiding needless refetches where evidence is still valid. */
+ * scoring rules. Old scores/results and channel checkpoints are invalidated:
+ * REVIEW can be caused by a stale/partial Google or website fetch, so reusing
+ * the old checkpoint would only recalculate the same incorrect conclusion. */
 export async function requeueAcquisitionReviews(task: RequeueTask, screeningTaskId: string) {
   const admin = createAdminClient();
   const candidates: Array<{id:string;screening_task_item_id:string;staging_customer_id:string}> = [];
@@ -245,6 +245,8 @@ export async function requeueAcquisitionReviews(task: RequeueTask, screeningTask
     const resetItems = await admin.from("ai_screening_task_items").update({
       status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null,
       result_id: null, progress: 0, current_step: "WAITING_REASSESSMENT", pipeline_stage: "NORMALIZED",
+      channel_checkpoint: {}, checkpoint: {}, checkpoint_version: "1.0", last_completed_channel: null,
+      last_checkpoint_at: null, analyzed_channels: [], skipped_channels: [], early_stop_reason: null,
       lease_owner: null, lease_token: null, lease_expires_at: null, executor_heartbeat_at: null,
       started_at: null, retry_at: null, error_message: null, error_code: null, completed_at: null,
       updated_at: now,

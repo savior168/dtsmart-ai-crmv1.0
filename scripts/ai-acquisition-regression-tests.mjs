@@ -79,7 +79,7 @@ assert.match(workflow,/while\(await finalizeCandidateBatch\(task,screeningTaskId
 assert.match(workflow,/refresh_ai_screening_task_totals/,"发现与核验并行时任务统计必须从明细真值刷新，不能覆盖消费者实时进度");
 assert.match(workflow,/select\("id"\)\.maybeSingle\(\)[\s\S]*alreadyInSystem[\s\S]*客户入池写入未确认/,"自动获客只有确认客户已写入系统后才能记为成功入池");
 assert.match(workflow,/industry: null, category: candidate\.types\.join\(" \| "\) \|\| null/,"暂存客户不得把用户目标行业冒充为客户已核验行业，只能保留Google实际类别作为路由提示");
-assert.match(workflow,/unreachableVerifiedTarget[\s\S]*\? "REVIEW" : "REJECTED"[\s\S]*暂不可触达，不进入人工复核/,"已确认目标但缺少联系方式的客户必须自动归档为暂不可触达，不能把补证工作转嫁给销售人工复核");
+assert.match(workflow,/unreachableVerifiedTarget[\s\S]*\(explicitlyNeedsReview \|\| unreachableVerifiedTarget\) \? "REVIEW" : "REJECTED"[\s\S]*保留待补证，禁止按不可触达自动归档/,"已确认目标但缺少联系方式的客户必须保留补证入口，不能把采集缺口伪装成不可触达结论");
 assert.match(workflow,/AI_SCREENING_RESULT_MISSING/,"核验明细完成却缺少最终结果时必须按执行异常重试，不能污染人工复核队列");
 assert.match(workflow,/else if \(decision !== "REVIEW"\)[\s\S]*pool_status: "INVALID"/,"待复核客户必须保留在隔离暂存区，不得按无效客户软删除");
 const discovery=fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts",import.meta.url),"utf8");
@@ -255,6 +255,7 @@ assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durab
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "REVIEW"\)[\s\S]*is_latest_valid: false[\s\S]*WAITING_REASSESSMENT[\s\S]*decision: "ANALYZING"/,"待复核重判必须作废旧结果并按当前证据规则重新排队");
+assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*channel_checkpoint: \{\}, checkpoint: \{\}[\s\S]*analyzed_channels: \[\], skipped_channels: \[\]/,"待复核重判必须清空旧渠道检查点，重新核对Google商家、官网和公开渠道，不能只用旧证据重算分数");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
