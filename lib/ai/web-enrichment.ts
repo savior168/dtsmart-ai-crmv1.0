@@ -11,6 +11,7 @@ export type WebsiteEvidence = {
   structured_types?: string[];
   structured_names?: string[];
   structured_descriptions?: string[];
+  structured_people?: StructuredPersonEvidence[];
   headings: string[];
   text_excerpt?: string;
   image_alts: string[];
@@ -20,8 +21,18 @@ export type WebsiteEvidence = {
   whatsapps?: string[];
   social_urls?: string[];
   video_urls?: string[];
-  pages?: Array<{ url: string; title?: string; description?: string; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; video_urls?: string[]; emails: string[]; phones: string[]; whatsapps?: string[]; social_urls?: string[] }>;
+  pages?: Array<{ url: string; title?: string; description?: string; structured_people?: StructuredPersonEvidence[]; headings: string[]; text_excerpt?: string; image_alts: string[]; image_urls: string[]; video_urls?: string[]; emails: string[]; phones: string[]; whatsapps?: string[]; social_urls?: string[] }>;
   error?: string;
+};
+
+export type StructuredPersonEvidence = {
+  full_name: string;
+  job_title: string;
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+  source_url?: string;
+  source_excerpt: string;
 };
 
 export type GooglePlaceEvidence = {
@@ -265,25 +276,55 @@ function extractRelevantWebsiteVideos(html: string, baseUrl: string) {
   return uniqueOriginalMedia(values, baseUrl, 8);
 }
 
-function extractStructuredBusinessData(html: string) {
+export function extractStructuredBusinessData(html: string) {
   const types: string[] = [];
   const names: string[] = [];
   const descriptions: string[] = [];
+  const people: StructuredPersonEvidence[] = [];
   const visit = (value: unknown) => {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) { value.forEach(visit); return; }
     const record = value as Record<string, unknown>;
     const rawTypes = Array.isArray(record["@type"]) ? record["@type"] : [record["@type"]];
-    rawTypes.filter((item): item is string => typeof item === "string").forEach((item) => types.push(item));
+    const objectTypes = rawTypes.filter((item): item is string => typeof item === "string");
+    objectTypes.forEach((item) => types.push(item));
     if (typeof record.name === "string") names.push(compactText(record.name));
     if (typeof record.description === "string") descriptions.push(compactText(record.description));
     for (const key of ["category", "serviceType", "knowsAbout", "makesOffer", "itemOffered", "department", "hasOfferCatalog", "@graph"]) visit(record[key]);
   };
+  const visitPeople = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visitPeople); return; }
+    const record = value as Record<string, unknown>;
+    const rawTypes = Array.isArray(record["@type"]) ? record["@type"] : [record["@type"]];
+    if (rawTypes.some((item) => typeof item === "string" && item.toLowerCase() === "person")) {
+      const fullName = typeof record.name === "string" ? compactText(record.name) : "";
+      const jobTitle = typeof record.jobTitle === "string" ? compactText(record.jobTitle) : "";
+      const email = typeof record.email === "string" ? compactText(record.email).replace(/^mailto:/i, "") : "";
+      const phone = typeof record.telephone === "string" ? compactText(record.telephone).replace(/^tel:/i, "") : "";
+      const sameAs = Array.isArray(record.sameAs) ? record.sameAs : [record.sameAs];
+      const linkedinUrl = sameAs.find((item): item is string => typeof item === "string" && /linkedin\.com\//i.test(item)) || "";
+      if (fullName && jobTitle) {
+        people.push({
+          full_name: fullName,
+          job_title: jobTitle,
+          ...(email ? { email } : {}),
+          ...(phone ? { phone } : {}),
+          ...(linkedinUrl ? { linkedin_url: linkedinUrl } : {}),
+          // Keep the exact structured values together so users can audit that
+          // the name, title and any direct contact came from one Person object.
+          source_excerpt: JSON.stringify({ name: fullName, jobTitle, ...(email ? { email } : {}), ...(phone ? { telephone: phone } : {}), ...(linkedinUrl ? { sameAs: linkedinUrl } : {}) }),
+        });
+      }
+    }
+    Object.values(record).forEach(visitPeople);
+  };
   for (const match of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try { visit(JSON.parse(match[1].trim())); } catch { /* malformed third-party JSON-LD is ignored */ }
+    try { const value=JSON.parse(match[1].trim());visit(value);visitPeople(value); } catch { /* malformed third-party JSON-LD is ignored */ }
   }
   for (const match of html.matchAll(/itemtype=["'][^"']*schema\.org\/([^"'\s>]+)["']/gi)) types.push(match[1]);
-  return { types: unique(types).slice(0, 24), names: unique(names).slice(0, 12), descriptions: unique(descriptions).slice(0, 12) };
+  const uniquePeople = [...new Map(people.map((person) => [`${person.full_name.toLocaleLowerCase()}|${person.job_title.toLocaleLowerCase()}|${person.email || ""}|${person.phone || ""}`, person])).values()];
+  return { types: unique(types).slice(0, 24), names: unique(names).slice(0, 12), descriptions: unique(descriptions).slice(0, 12), people: uniquePeople.slice(0, 20) };
 }
 
 function decodeCloudflareEmail(encoded: string) {
@@ -641,6 +682,7 @@ async function collectWebsiteEvidenceOnce(url?: string | null, options: FetchOpt
       structured_types: structured.types,
       structured_names: structured.names,
       structured_descriptions: structured.descriptions,
+      structured_people: structured.people.map((person) => ({ ...person, source_url: normalized })),
       headings: matches(html, /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi, 16),
       text_excerpt: visibleText.slice(0, 5000),
       image_alts: matches(html, /<img[^>]+alt=["']([^"']+)["'][^>]*>/gi, 16),
@@ -683,7 +725,7 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
     // of shallow same-origin navigation pages and let the multilingual model
     // interpret their original text. This keeps coverage global without
     // crawling an entire site or inflating token cost.
-    const keywords = /about|company|service|product|contact|support|team|portfolio|solution|repair|shop|store|business|o nas|kontakt|usług|serwis|napraw|produkt|empresa|nosotros|contacto|servicio|reparaci|producto|à propos|contact|service|répar|produit|azienda|chi siamo|contatt|servizi|ripar|prodott|empresa|sobre|contato|serviç|repara|produto|über uns|kontakt|dienst|reparatur|produkt|о нас|контакт|услуг|ремонт|продукт|会社|私たち|連絡|サービス|修理|製品|公司|关于|服务|维修|产品|联系|會社|關於|服務|維修|產品|聯絡/i;
+    const keywords = /about|company|service|product|contact|support|team|our-team|leadership|management|people|staff|portfolio|solution|repair|shop|store|business|o nas|kontakt|zesp[oó]ł|zarząd|kierownictw|usług|serwis|napraw|produkt|empresa|nosotros|equipo|direcci[oó]n|contacto|servicio|reparaci|producto|à propos|équipe|direction|contact|service|répar|produit|azienda|chi siamo|squadra|direzione|contatt|servizi|ripar|prodott|empresa|sobre|equipe|gest[aã]o|contato|serviç|repara|produto|über uns|team|geschäftsführung|leitung|kontakt|dienst|reparatur|produkt|о нас|команда|руководств|контакт|услуг|ремонт|продукт|会社|私たち|チーム|経営陣|連絡|サービス|修理|製品|公司|关于|团队|管理层|负责人|服务|维修|产品|联系|會社|關於|團隊|管理層|負責人|服務|維修|產品|聯絡/i;
     const excluded = /privacy|policy|terms|legal|cookie|login|sign[ -]?in|register|account|cart|checkout|wishlist|blog|news|press|career|vacan|polityka|regulamin|privacidad|mentions-l[eé]gales|impressum|隐私|条款|登录|注册|购物车/i;
     const navigationLinks = [...html.matchAll(/<a[^>]+href=['\"]([^'\"#]+)['\"][^>]*>([\s\S]*?)<\/a>/gi)]
       .map((match, index) => ({ url: sameWebsiteUrl(url, match[1]), text: compactText(match[2]), index }))
@@ -735,7 +777,7 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
     // page that actually proves the customer's activity.
     take(/repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|维修|修理/i, 3);
     take(/product|parts?|spare|accessor|wholesale|dealer|trade|b2b|shop|store|produkt|配件|批发|产品/i, 2);
-    take(/about|company|team|contact|impressum|legal|kontakt|über-uns|o-nas|关于|联系|公司/i, 2);
+    take(/about|company|team|our-team|leadership|management|people|staff|contact|impressum|legal|kontakt|über-uns|geschäftsführung|leitung|o-nas|zesp[oó]ł|zarząd|kierownictw|equipo|direcci[oó]n|équipe|direction|squadra|direzione|equipe|gest[aã]o|команда|руководств|チーム|経営陣|关于|團隊|团队|管理层|管理層|负责人|負責人|联系|公司/i, 3);
     for (const item of ranked) {
       if (selected.length >= 8) break;
       if (!selected.includes(item.url)) selected.push(item.url);
@@ -750,7 +792,7 @@ async function discoverImportantWebsitePages(url: string, options: FetchOptions 
 
 async function discoverRelevantChildPages(rootUrl: string, seedUrls: string[], options: FetchOptions = {}) {
   const request = requestSignal(options, 5_000);
-  const businessPath = /repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|screen|battery|charging|motherboard|parts?|spare|accessor|wholesale|dealer|trade|b2b|product|produkt|about|company|contact|kontakt|impressum|维修|修理|屏幕|电池|主板|配件|批发|关于|联系/i;
+  const businessPath = /repair|service|serwis|reparatur|reparasjon|napraw|reparaci|r[eé]paration|ripar|screen|battery|charging|motherboard|parts?|spare|accessor|wholesale|dealer|trade|b2b|product|produkt|about|company|team|our-team|leadership|management|people|staff|contact|kontakt|impressum|维修|修理|屏幕|电池|主板|配件|批发|关于|团队|管理层|负责人|联系/i;
   const excluded = /privacy|policy|terms|cookie|login|sign[ -]?in|register|account|cart|checkout|wishlist|blog|news|press|career|vacan|隐私|条款|登录|注册|购物车/i;
   try {
     const rootOrigin = new URL(rootUrl).origin;
@@ -796,6 +838,7 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
     structured_types: unique([...(homepage.structured_types || []), ...pages.flatMap((page) => page.structured_types || [])]).slice(0, 40),
     structured_names: unique([...(homepage.structured_names || []), ...pages.flatMap((page) => page.structured_names || [])]).slice(0, 24),
     structured_descriptions: unique([...(homepage.structured_descriptions || []), ...pages.flatMap((page) => page.structured_descriptions || [])]).slice(0, 24),
+    structured_people: [...new Map([...(homepage.structured_people || []), ...pages.flatMap((page) => page.structured_people || [])].map((person) => [`${person.full_name.toLocaleLowerCase()}|${person.job_title.toLocaleLowerCase()}|${person.source_url || ""}`, person])).values()].slice(0, 30),
     headings: unique([...homepage.headings, ...pages.flatMap((page) => page.headings)]).slice(0, 40),
     image_alts: unique([...homepage.image_alts, ...pages.flatMap((page) => page.image_alts)]).slice(0, 40),
     image_urls: unique([...homepage.image_urls, ...pages.flatMap((page) => page.image_urls)]).slice(0, 30),
@@ -805,7 +848,7 @@ export async function collectDeepWebsiteEvidence(url?: string | null, options: F
     whatsapps: unique([...(homepage.whatsapps || []), ...pages.flatMap((page) => page.whatsapps || [])]),
     social_urls: unique([...(homepage.social_urls || []), ...pages.flatMap((page) => page.social_urls || [])]),
     text_excerpt: [homepage.text_excerpt, ...pages.map((page) => page.text_excerpt)].filter(Boolean).join("\n\n").slice(0, 16_000),
-    pages: pages.map(({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps, social_urls }) => ({ url: pageUrl, title, description, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps, social_urls })),
+    pages: pages.map(({ url: pageUrl, title, description, structured_people, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps, social_urls }) => ({ url: pageUrl, title, description, structured_people, headings, text_excerpt, image_alts, image_urls, video_urls, emails, phones, whatsapps, social_urls })),
   };
 }
 

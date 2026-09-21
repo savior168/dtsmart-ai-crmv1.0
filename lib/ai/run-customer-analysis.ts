@@ -1059,6 +1059,7 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
     structured_types: (item.structured_types || []).slice(0, 12),
     structured_names: (item.structured_names || []).slice(0, 6),
     structured_descriptions: (item.structured_descriptions || []).map((value) => value.slice(0, 240)).slice(0, deep ? 6 : 3),
+    structured_people: (item.structured_people || []).slice(0, 8),
     headings: (item.headings || []).slice(0, deep ? 6 : 4),
     text_excerpt: item.text_excerpt?.slice(0, deep ? 900 : 520),
     image_alts: (item.image_alts || []).filter(Boolean).slice(0, deep ? 5 : 3),
@@ -1074,6 +1075,7 @@ export function evidenceForModel(records: ChannelRecord[], tier: "fast" | "deep"
       url: page.url,
       title: page.title,
       description: page.description?.slice(0, 240),
+      structured_people: (page.structured_people || []).slice(0, 5),
       headings: (page.headings || []).slice(0, 3),
       text_excerpt: page.text_excerpt?.slice(0, deep ? 360 : 180),
       image_alts: (page.image_alts || []).filter(Boolean).slice(0, 2),
@@ -2257,39 +2259,61 @@ async function saveVerifiedContacts(input: { taskId: string; resultId: string; c
 function compactSourceText(value: unknown) { return String(value || "").replace(/\s+/g, " ").trim(); }
 function normalizeComparableUrl(value: unknown) { try { const url=new URL(String(value||""));url.hash="";return url.toString().replace(/\/$/,"").toLowerCase(); } catch { return ""; } }
 
+const DECISION_MAKER_ROLE_PATTERNS={PROCUREMENT:/(?:procurement|purchasing|buyer|sourcing|supply chain|采购|采买|买手|供应链|einkauf|beschaffung|acheteur|approvisionnement|compras|abastecimiento|acquisti)/i,OWNER:/(?:owner|founder|co-founder|proprietor|老板|业主|创始人|inhaber|gründer|fondateur|propriétaire|propietario|fundador|titolare|fondatore)/i,EXECUTIVE:/(?:chief executive|ceo|managing director|general manager|executive director|director|总经理|董事|执行董事|geschäftsführer|geschäftsleitung|directeur général|directeur exécutif|director gerente|amministratore delegato)/i,OPERATIONS:/(?:operations?|store manager|branch manager|运营|营运|店长|门店经理|betriebsleiter|filialleiter|directeur des opérations|responsable de magasin|gerente de operaciones|gerente de tienda|responsabile operativo)/i,OTHER:/$a/} as const;
+export function decisionMakerRoleForTitle(title:string):keyof typeof DECISION_MAKER_ROLE_PATTERNS {
+  for(const role of ["PROCUREMENT","OWNER","EXECUTIVE","OPERATIONS"] as const)if(DECISION_MAKER_ROLE_PATTERNS[role].test(title))return role;
+  return "OTHER";
+}
+
 async function saveVerifiedDecisionMakers(input: { resultId: string; customer: CustomerRow; analysis: CustomerAnalysis; records: ChannelRecord[] }) {
-  const proposals=Array.isArray(input.analysis.decision_makers)?input.analysis.decision_makers:[];
-  if(!proposals.length)return 0;
+  const modelProposals=Array.isArray(input.analysis.decision_makers)?input.analysis.decision_makers:[];
   const pages=new Map<string,{text:string;emails:string[];phones:string[];whatsapps:string[]}>();
+  const structuredProposals: NonNullable<CustomerAnalysis["decision_makers"]> = [];
   for(const record of input.records){
     if(record.status!=="COLLECTED"||!record.evidence||!("url" in record.evidence))continue;
     const website=record.evidence as WebsiteEvidence;
     for(const page of [{...website},...(website.pages||[])]){
       const url=normalizeComparableUrl(page.url);if(!url)continue;
       pages.set(url,{text:compactSourceText([page.title,page.description,...(page.headings||[]),page.text_excerpt].filter(Boolean).join(" ")),emails:page.emails||[],phones:page.phones||[],whatsapps:page.whatsapps||[]});
+      for(const person of (["website","linkedin","facebook","instagram"].includes(record.channel)?page.structured_people||[]:[])){
+        const sourceUrl=person.source_url||page.url;
+        const contactType=person.email?"EMAIL":person.phone?"PHONE":"NONE";
+        structuredProposals.push({full_name:person.full_name,job_title:person.job_title,role_type:"OTHER",contact_type:contactType,contact_value:person.email||person.phone||"",source_url:sourceUrl,source_excerpt:person.source_excerpt});
+      }
     }
   }
-  const rolePatterns={PROCUREMENT:/(?:procurement|purchasing|buyer|sourcing|supply chain|采购|买手|供应链|einkauf|acheteur|compras)/i,OWNER:/(?:owner|founder|co-founder|proprietor|老板|创始人|inhaber|fondateur|propietario)/i,EXECUTIVE:/(?:chief executive|ceo|managing director|general manager|director|总经理|董事|geschäftsführer|directeur général)/i,OPERATIONS:/(?:operations?|store manager|branch manager|运营|店长|manager)/i,OTHER:/$a/} as const;
+  const rolePatterns=DECISION_MAKER_ROLE_PATTERNS;
+  const roleRank={PROCUREMENT:0,OWNER:1,EXECUTIVE:2,OPERATIONS:3,OTHER:4} as const;
+  const proposals=[...modelProposals,...structuredProposals.map((proposal)=>({...proposal,role_type:decisionMakerRoleForTitle(proposal.job_title)}))]
+    .sort((left,right)=>roleRank[left.role_type]-roleRank[right.role_type]);
+  if(!proposals.length)return 0;
   const rows=[];
-  for(const proposal of proposals.slice(0,6)){
+  for(const proposal of proposals.slice(0,12)){
+    if(rows.length>=6)break;
     const fullName=compactSourceText(proposal.full_name),title=compactSourceText(proposal.job_title),sourceUrl=normalizeComparableUrl(proposal.source_url),excerpt=compactSourceText(proposal.source_excerpt);
     const page=pages.get(sourceUrl),role=proposal.role_type;
-    if(!page||fullName.length<2||title.length<2||excerpt.length<8||!rolePatterns[role]?.test(title))continue;
+    if(!page||fullName.length<2||title.length<2||excerpt.length<8||role==="OTHER"||!rolePatterns[role]?.test(title))continue;
+    const structuredMatch=structuredProposals.some((person)=>normalizeComparableUrl(person.source_url)===sourceUrl&&compactSourceText(person.full_name).toLocaleLowerCase()===fullName.toLocaleLowerCase()&&compactSourceText(person.job_title).toLocaleLowerCase()===title.toLocaleLowerCase()&&compactSourceText(person.source_excerpt)===excerpt);
     const pageLower=page.text.toLocaleLowerCase(),excerptLower=excerpt.toLocaleLowerCase(),nameLower=fullName.toLocaleLowerCase(),titleLower=title.toLocaleLowerCase();
-    if(!pageLower.includes(nameLower)||!pageLower.includes(titleLower)||!pageLower.includes(excerptLower)||!excerptLower.includes(nameLower)||!excerptLower.includes(titleLower))continue;
+    // JSON-LD can be stale or invisible. Even structured Person data is only
+    // accepted when a user opening the exact source page can see the same name
+    // and current title. Model excerpts must additionally be verbatim page text.
+    if(!pageLower.includes(nameLower)||!pageLower.includes(titleLower)||!excerptLower.includes(nameLower)||!excerptLower.includes(titleLower))continue;
+    if(!structuredMatch&&!pageLower.includes(excerptLower))continue;
     let contactType=proposal.contact_type,contactValue=compactSourceText(proposal.contact_value);
     if(contactType==="EMAIL"){
-      const normalized=normalizeEmailStrict(contactValue);if(!normalized||!page.emails.some(value=>normalizeEmailStrict(value)===normalized)||!excerptLower.includes(normalized.toLocaleLowerCase())){contactType="NONE";contactValue="";}
+      const normalized=normalizeEmailStrict(contactValue);if(!normalized||!page.emails.some(value=>normalizeEmailStrict(value)===normalized)||!pageLower.includes(normalized.toLocaleLowerCase())||!excerptLower.includes(normalized.toLocaleLowerCase())){contactType="NONE";contactValue="";}
     }else if(contactType==="PHONE"||contactType==="WHATSAPP"){
       const normalized=normalizePhoneInternational(contactValue,input.customer.country),source=contactType==="WHATSAPP"?page.whatsapps:page.phones;
-      if(!normalized||!source.some(value=>normalizePhoneInternational(value,input.customer.country)===normalized)||!excerpt.replace(/\D/g,"").includes(normalized.replace(/\D/g,""))){contactType="NONE";contactValue="";}
+      if(!normalized||!source.some(value=>normalizePhoneInternational(value,input.customer.country)===normalized)||!page.text.replace(/\D/g,"").includes(normalized.replace(/\D/g,""))||!excerpt.replace(/\D/g,"").includes(normalized.replace(/\D/g,""))){contactType="NONE";contactValue="";}
     }else{contactType="NONE";contactValue="";}
-    rows.push({customer_id:input.customer.id,screening_result_id:input.resultId,full_name:fullName,job_title:title,role_type:role,contact_type:contactType,contact_value:contactValue||null,exact_source_url:proposal.source_url,source_excerpt:excerpt.slice(0,1000),verification_status:"SOURCE_VERIFIED",confidence:contactType==="NONE"?88:96,verified_at:new Date().toISOString(),updated_at:new Date().toISOString()});
+    rows.push({customer_id:input.customer.id,screening_result_id:input.resultId,full_name:fullName,job_title:title,role_type:role,contact_type:contactType,contact_value:contactValue||null,exact_source_url:proposal.source_url,source_excerpt:excerpt.slice(0,1000),verification_status:"SOURCE_VERIFIED",confidence:contactType==="NONE"?(structuredMatch?92:88):(structuredMatch?98:96),verified_at:new Date().toISOString(),updated_at:new Date().toISOString()});
   }
-  if(!rows.length)return 0;
-  const write=await createAdminClient().from("customer_decision_makers").upsert(rows,{onConflict:"customer_id,full_name,job_title,exact_source_url"});
+  const uniqueRows=[...new Map(rows.map((row)=>[`${row.customer_id}|${row.full_name.toLocaleLowerCase()}|${row.job_title.toLocaleLowerCase()}|${normalizeComparableUrl(row.exact_source_url)}`,row])).values()];
+  if(!uniqueRows.length)return 0;
+  const write=await createAdminClient().from("customer_decision_makers").upsert(uniqueRows,{onConflict:"customer_id,full_name,job_title,exact_source_url"});
   if(write.error)throw write.error;
-  return rows.length;
+  return uniqueRows.length;
 }
 
 async function completeFromReusableCache(input: { taskId: string; taskItemId: string; customerId: string; strategy: AiStrategy; executionLease?: ExecutionLease }, customer: CustomerRow, cache: Record<string, unknown>, started: number) {
