@@ -41,7 +41,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const itemId=String(candidate.data.screening_task_item_id||"");
       const [result,contacts,evidence]=await Promise.all([
         admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
-        admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id",customerId),
+        admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId),
         admin.from("ai_screening_evidence").select("source_url,evidence_strength").eq("task_item_id",itemId),
       ]);
       if (result.error||contacts.error||evidence.error) throw result.error||contacts.error||evidence.error;
@@ -60,7 +60,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         if(repaired.error)throw repaired.error;
       }
       const refreshedContacts=repairableContacts.length
-        ? await admin.from("customer_contacts").select("type,value_raw,value_normalized,verification_status,identity_match_status,source_channel,exact_source_url").eq("customer_id",customerId)
+        ? await admin.from("customer_contacts").select("type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId)
         : contacts;
       if(refreshedContacts.error)throw refreshedContacts.error;
       const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:refreshedContacts.data||[]});

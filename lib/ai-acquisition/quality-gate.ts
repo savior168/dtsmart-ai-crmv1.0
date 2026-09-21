@@ -4,7 +4,7 @@ export type AcquisitionGateInput = {
   score?: number | null;
   identityStatus?: string | null;
   evidenceUrls: Array<{ source_url?: string | null; evidence_strength?: string | null }>;
-  contacts: Array<{ type?: string | null; value_normalized?: string | null; verification_status?: string | null; exact_source_url?: string | null }>;
+  contacts: Array<{ type?: string | null; value_normalized?: string | null; verification_status?: string | null; identity_match_status?: string | null; contact_status?: string | null; exact_source_url?: string | null }>;
 };
 
 export function evaluateAcquisitionGate(input: AcquisitionGateInput) {
@@ -12,6 +12,8 @@ export function evaluateAcquisitionGate(input: AcquisitionGateInput) {
   const actionableContacts = input.contacts.filter((contact) =>
     ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type)) &&
     ["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL"].includes(String(contact.verification_status)) &&
+    ["MATCHED", "LIKELY_MATCHED"].includes(String(contact.identity_match_status)) &&
+    !["SHARED_CORPORATE", "SHARED_ACROSS_CUSTOMERS"].includes(String(contact.contact_status || "")) &&
     /^https?:\/\//i.test(String(contact.exact_source_url || "")),
   );
   const identityMatched = ["MATCHED", "LIKELY_MATCHED"].includes(String(input.identityStatus || ""));

@@ -301,7 +301,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
     const customerIds = batch.map((row) => String(row.staging_customer_id || "")).filter(Boolean);
     const [results, contacts, evidence] = await Promise.all([
       admin.from("ai_screening_results").select("task_item_id,id,score,grade,automation_status,target_decision,identity_status,industry_type,evidence_sufficiency_score,short_reason").in("task_item_id", itemIds).eq("is_latest_valid", true),
-      admin.from("customer_contacts").select("customer_id,id,type,value_raw,value_normalized,verification_status,identity_match_status,exact_source_url").in("customer_id", customerIds),
+      admin.from("customer_contacts").select("customer_id,id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,exact_source_url").in("customer_id", customerIds),
       admin.from("ai_screening_evidence").select("task_item_id,id,source_url,evidence_strength").in("task_item_id", itemIds),
     ]);
     if (results.error || contacts.error || evidence.error) throw results.error || contacts.error || evidence.error;

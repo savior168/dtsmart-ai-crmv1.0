@@ -329,13 +329,15 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
     const ids = allImportedIds.slice(offset, offset + 100);
     const [states, contacts] = await Promise.all([
       admin.from("customers").select("id,industry,pool_status,owner_id,owner_user_id,deleted_at").in("id", ids),
-      admin.from("customer_contacts").select("customer_id,type,verification_status,exact_source_url").in("customer_id", ids)
+      admin.from("customer_contacts").select("customer_id,type,verification_status,identity_match_status,contact_status,exact_source_url").in("customer_id", ids)
         .in("type", ["PHONE", "EMAIL", "WHATSAPP"]).in("verification_status", ["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL"]).not("exact_source_url", "is", null),
     ]);
     if (states.error || contacts.error) throw states.error || contacts.error;
     for (const row of states.data || []) customerState.set(String(row.id), row);
     for (const row of contacts.data || []) {
-      if (/^https?:\/\//i.test(String(row.exact_source_url || ""))) actionableCustomerIds.add(String(row.customer_id));
+      if (["MATCHED", "LIKELY_MATCHED"].includes(String(row.identity_match_status || ""))
+          && !["SHARED_CORPORATE", "SHARED_ACROSS_CUSTOMERS"].includes(String(row.contact_status || ""))
+          && /^https?:\/\//i.test(String(row.exact_source_url || ""))) actionableCustomerIds.add(String(row.customer_id));
     }
   }
   const targetIndustries = task.industries?.length ? task.industries : [task.industry];

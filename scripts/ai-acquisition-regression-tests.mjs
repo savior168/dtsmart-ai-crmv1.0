@@ -5,13 +5,15 @@ import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/
 import { summarizeUsagePurposes } from "../lib/api-usage-purpose.ts";
 import { discoveryCandidateLooksRelevant } from "../lib/ai-acquisition/relevance.ts";
 
-const base={automationStatus:"AUTO_DEVELOP",targetDecision:"VALID",score:82,identityStatus:"MATCHED",evidenceUrls:[{source_url:"https://example.com/services",evidence_strength:"STRONG"}],contacts:[{type:"EMAIL",value_normalized:"sales@example.com",verification_status:"NEW_VERIFIED",exact_source_url:"https://example.com/contact"}]};
+const base={automationStatus:"AUTO_DEVELOP",targetDecision:"VALID",score:82,identityStatus:"MATCHED",evidenceUrls:[{source_url:"https://example.com/services",evidence_strength:"STRONG"}],contacts:[{type:"EMAIL",value_normalized:"sales@example.com",verification_status:"NEW_VERIFIED",identity_match_status:"MATCHED",contact_status:"ACTIVE_UNKNOWN",exact_source_url:"https://example.com/contact"}]};
 assert.equal(evaluateAcquisitionGate(base).accepted,true,"完整强证据和可追溯联系方式应允许入池");
 assert.equal(evaluateAcquisitionGate({...base,targetDecision:"INVALID"}).accepted,false,"非目标不得入池");
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"CONFLICTED"}).accepted,false,"主体冲突不得入池");
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).accepted,false,"主体未确认不得自动入池");
 assert.equal(evaluateAcquisitionGate({...base,evidenceUrls:[{source_url:"https://example.com",evidence_strength:"WEAK_HINT"}]}).accepted,false,"弱提示不能替代经营证据");
 assert.equal(evaluateAcquisitionGate({...base,contacts:[{type:"PHONE",verification_status:"SOURCE_CONFIRMED",exact_source_url:null}]}).accepted,false,"联系方式无具体来源页面不得入池");
+assert.equal(evaluateAcquisitionGate({...base,contacts:[{...base.contacts[0],identity_match_status:"AMBIGUOUS"}]}).accepted,false,"来源页与客户主体未匹配的联系方式不得入池");
+assert.equal(evaluateAcquisitionGate({...base,contacts:[{...base.contacts[0],contact_status:"SHARED_CORPORATE"}]}).accepted,false,"集团共享联系方式不得当作具体门店的可触达联系方式");
 assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).verifiedTarget,true,"目标行业、主体和经营证据已核验时不得因缺联系方式否定目标属性");
 assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).accepted,false,"缺少可追溯联系方式的目标客户不得直接入池");
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evidenceComplete,false,"主体未匹配时不得把单一来源链接标为证据完整");
@@ -69,6 +71,7 @@ assert.match(workflow,/CLOSED_PERMANENTLY/);
 assert.match(workflow,/Google Place ID已存在/);
 assert.match(workflow,/lookupBatchSize = 100[\s\S]*Promise\.all\([\s\S]*\.in\("place_id", placeIds\)[\s\S]*terminalRows[\s\S]*insert\(terminalRows\)/,"广域候选必须批量查询去重和批量保存早停结果，避免逐条浪费数据库与执行资源");
 assert.match(workflow,/evaluateAcquisitionGate/);
+assert.match(workflow,/customer_contacts[\s\S]*identity_match_status,contact_status,exact_source_url[\s\S]*evaluateAcquisitionGate/,"自动入池门槛必须读取联系方式的主体匹配和共享状态");
 assert.match(workflow,/pause_started_at/);
 assert.match(workflow,/discoverBusinesses[\s\S]*discovery\.control[\s\S]*break/,"工作流必须消费分页检查点状态，避免任务暂停或封顶后继续重复发现");
 assert.doesNotMatch(workflow,/screening_task_id:previous\.screening_task_id|previous\.decision === "REJECTED"|recentByPlace/,"强制重新核验的获客任务不得复用旧任务最终结论或写入旧筛选任务ID");
@@ -83,7 +86,7 @@ assert.match(workflow,/unreachableVerifiedTarget[\s\S]*\(explicitlyNeedsReview \
 assert.match(workflow,/AI_SCREENING_RESULT_MISSING/,"核验明细完成却缺少最终结果时必须按执行异常重试，不能污染人工复核队列");
 assert.match(workflow,/else if \(decision !== "REVIEW"\)[\s\S]*pool_status: "INVALID"/,"待复核客户必须保留在隔离暂存区，不得按无效客户软删除");
 const acquisitionRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
-assert.match(acquisitionRequeue,/requeueInvalidAcquisitionAcceptances[\s\S]*customer_contacts[\s\S]*MATCHED_ORIGINAL[\s\S]*actionableCustomerIds\.add/,"历史入池记录必须依据当前可追溯联系方式重新检查，不能信任陈旧布尔标记");
+assert.match(acquisitionRequeue,/requeueInvalidAcquisitionAcceptances[\s\S]*customer_contacts[\s\S]*MATCHED_ORIGINAL[\s\S]*identity_match_status[\s\S]*SHARED_CORPORATE[\s\S]*actionableCustomerIds\.add/,"历史入池记录必须依据主体匹配、非共享且可追溯的当前联系方式重新检查");
 assert.match(acquisitionRequeue,/!row\.is_target_customer[\s\S]*!actionableCustomerIds\.has[\s\S]*acquisitionIndustryMatchesVerifiedResult/,"历史入池记录必须重新核对目标标记、当前联系方式和当前客户行业");
 assert.match(acquisitionRequeue,/pool_status === "AVAILABLE"[\s\S]*!row\.owner_id[\s\S]*AI_ACQUISITION_STAGING[\s\S]*acquisition_scope: "PRIVATE"/,"异常入池重验只能移动未认领公海客户，并必须先回到隔离暂存区");
 const discovery=fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts",import.meta.url),"utf8");
