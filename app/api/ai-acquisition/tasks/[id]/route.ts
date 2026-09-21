@@ -6,7 +6,7 @@ import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { plannedDiscoveryScopeCount } from "@/lib/ai-acquisition/discovery";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
-import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorrectedEarlyRejections } from "@/lib/ai-acquisition/requeue";
+import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorrectedEarlyRejections, requeueInvalidAcquisitionAcceptances } from "@/lib/ai-acquisition/requeue";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -303,6 +303,30 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (saved.error) throw saved.error;
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_EVIDENCE_GAPS_REQUEUED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, ...recovery } });
       return NextResponse.json({ ok: true, recovery });
+    } else if (action === "REVALIDATE_ACCEPTED") {
+      if (task.status !== "COMPLETED") return NextResponse.json({ error: "只有已完成任务可以校验历史入池质量" }, { status: 409 });
+      const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
+      if (child.error) throw child.error;
+      if (!child.data) return NextResponse.json({ error: "该任务没有可重新核验的记录" }, { status: 409 });
+      const recovery = await requeueInvalidAcquisitionAcceptances(task, String(child.data.id));
+      if (!recovery.requeued) {
+        const detail = recovery.skipped_owned ? `；另有 ${recovery.skipped_owned} 条已被认领，未自动移动` : "";
+        return NextResponse.json({ error: `没有发现可安全自动重验的异常入池记录${detail}` }, { status: 409 });
+      }
+      const now = new Date().toISOString();
+      const resetChild = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, error_message: null, completed_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now }).eq("id", child.data.id);
+      if (resetChild.error) throw resetChild.error;
+      const resetTask = await admin.from("ai_acquisition_tasks").update({
+        status: "QUEUED", current_stage: "VERIFYING", current_stage_detail: `正在重新核验 ${recovery.requeued} 条不满足现行准入门槛的历史入池记录`,
+        cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null,
+        workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now,
+      }).eq("id", id).eq("status", "COMPLETED");
+      if (resetTask.error) throw resetTask.error;
+      const run = await start(aiAcquisitionWorkflow, [id]);
+      const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
+      if (saved.error) throw saved.error;
+      await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_ACCEPTED_REVALIDATION_STARTED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, quality_gate_bypassed: false, ...recovery } });
+      return NextResponse.json({ ok: true, recovery });
     } else if (action === "RETRY") {
       if (!["FAILED", "COMPLETED"].includes(task.status)) return NextResponse.json({ error: "只有失败任务或存在未核验项的已完成任务可以重试" }, { status: 409 });
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
@@ -317,11 +341,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         for (let offset = 0; offset < failedCustomerIds.length; offset += 100) {
           // A previous rejected conclusion may have soft-deleted the staging
           // customer before a later reassessment/retry invalidated that result.
-          // Restore only this task's AI staging rows so CUSTOMER_NOT_FOUND does
-          // not become a permanent retry loop; never touch real pool customers.
+          // Restore only the exact customer rows attached to this task's failed
+          // items. Historical reassessment rows may already carry the promoted
+          // AI_ACQUISITION source even after being returned to staging.
           const restored = await admin.from("customers").update({
             deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: new Date().toISOString(),
-          }).in("id", failedCustomerIds.slice(offset, offset + 100)).eq("source", "AI_ACQUISITION_STAGING");
+          }).in("id", failedCustomerIds.slice(offset, offset + 100)).in("source", ["AI_ACQUISITION_STAGING", "AI_ACQUISITION"]);
           if (restored.error) throw restored.error;
         }
         const durableItemIds = (failedItems.data || [])

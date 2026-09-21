@@ -82,6 +82,9 @@ assert.match(workflow,/industry: null, category: candidate\.types\.join\(" \| "\
 assert.match(workflow,/unreachableVerifiedTarget[\s\S]*\(explicitlyNeedsReview \|\| unreachableVerifiedTarget\) \? "REVIEW" : "REJECTED"[\s\S]*保留待补证，禁止按不可触达自动归档/,"已确认目标但缺少联系方式的客户必须保留补证入口，不能把采集缺口伪装成不可触达结论");
 assert.match(workflow,/AI_SCREENING_RESULT_MISSING/,"核验明细完成却缺少最终结果时必须按执行异常重试，不能污染人工复核队列");
 assert.match(workflow,/else if \(decision !== "REVIEW"\)[\s\S]*pool_status: "INVALID"/,"待复核客户必须保留在隔离暂存区，不得按无效客户软删除");
+const acquisitionRequeue=fs.readFileSync(new URL("../lib/ai-acquisition/requeue.ts",import.meta.url),"utf8");
+assert.match(acquisitionRequeue,/requeueInvalidAcquisitionAcceptances[\s\S]*is_target_customer\.eq\.false,has_actionable_contact\.eq\.false,evidence_complete\.eq\.false/,"历史入池记录只要不满足现行行业、联系方式或证据门槛就必须重新核验");
+assert.match(acquisitionRequeue,/pool_status === "AVAILABLE"[\s\S]*!row\.owner_id[\s\S]*AI_ACQUISITION_STAGING[\s\S]*acquisition_scope: "PRIVATE"/,"异常入池重验只能移动未认领公海客户，并必须先回到隔离暂存区");
 const discovery=fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts",import.meta.url),"utf8");
 const discoveryRelevance=fs.readFileSync(new URL("../lib/ai-acquisition/relevance.ts",import.meta.url),"utf8");
 assert.match(discovery,/nextPageToken/);
@@ -260,8 +263,9 @@ assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
 assert.match(detailRoute,/action === "RETRY"[\s\S]*\["FAILED", "COMPLETED"\][\s\S]*没有可恢复的未核验项[\s\S]*attempt_count: 0, retryable: true[\s\S]*正在从检查点恢复未完成的候选核验/,"历史已完成任务若仍有超时失败项，必须允许从检查点安全恢复并获得一轮新的有限重试机会");
 assert.match(detailRoute,/failedItems[\s\S]*customer_id/,"从检查点重试必须定位失败项对应的暂存客户");
-assert.match(detailRoute,/deleted_at: null[\s\S]*pool_status: "AI_STAGING"[\s\S]*eq\("source", "AI_ACQUISITION_STAGING"\)/,"从检查点重试必须仅恢复本任务的软删除AI暂存客户，避免CUSTOMER_NOT_FOUND无限失败");
+assert.match(detailRoute,/deleted_at: null[\s\S]*pool_status: "AI_STAGING"[\s\S]*in\("source", \["AI_ACQUISITION_STAGING", "AI_ACQUISITION"\]\)/,"从检查点重试必须恢复本任务精确关联的历史或当前AI暂存客户，避免CUSTOMER_NOT_FOUND无限失败");
 assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id\]\)/,"证据缺口恢复必须使用新部署工作流且不得重复创建获客任务");
+assert.match(detailRoute,/action === "REVALIDATE_ACCEPTED"[\s\S]*requeueInvalidAcquisitionAcceptances[\s\S]*status: "QUEUED"[\s\S]*AI_ACQUISITION_ACCEPTED_REVALIDATION_STARTED/,"历史异常入池记录必须支持安全退出公海并按现行质量门槛重验");
 assert.doesNotMatch(detailRoute,/rescueStalledAiAcquisitionTasks/,"任务详情读取不得触发恢复调度或数据库领取");
 assert.doesNotMatch(listRoute,/rescueStalledAiAcquisitionTasks/,"任务中心读取不得触发恢复调度或数据库领取");
 assert.doesNotMatch(screeningListRoute,/rescueStalledCloudTasks/,"AI筛选任务列表读取不得触发恢复调度或数据库领取");

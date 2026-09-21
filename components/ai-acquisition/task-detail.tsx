@@ -159,7 +159,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [canControl, setCanControl] = useState(false),
     [canEvidence, setCanEvidence] = useState(false),
     [busy, setBusy] = useState(false),
-    [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "REASSESS_REVIEWS" | "RECHECK_EVIDENCE_GAPS" | null>(null),
+    [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "REASSESS_REVIEWS" | "RECHECK_EVIDENCE_GAPS" | "REVALIDATE_ACCEPTED" | null>(null),
     [evidence, setEvidence] = useState<EvidenceData | null>(null),
     [evidenceLoading, setEvidenceLoading] = useState(false),
     [reviewAction, setReviewAction] = useState<{action:"DISCARD" | "RECHECK_AND_ACCEPT";candidateId:string} | null>(null);
@@ -241,6 +241,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               ? "任务已重新开始"
               : action === "RECHECK_EVIDENCE_GAPS"
                 ? "证据缺口已重新进入核验，不会重复搜索"
+                : action === "REVALIDATE_ACCEPTED"
+                  ? "异常入池记录已退出公海并重新进入严格核验"
                 : action === "REASSESS_REVIEWS"
                   ? "待复核客户已重新进入补证、分析和评分"
                   : "任务已取消",
@@ -400,6 +402,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             {canControl && task.review_count > 0 && ["COMPLETED", "FAILED"].includes(task.status) ? (
               <button className={button} onClick={() => setAction("REASSESS_REVIEWS")}>
                 重新核验待复核
+              </button>
+            ) : null}
+            {canControl && task.status === "COMPLETED" ? (
+              <button className={button} onClick={() => setAction("REVALIDATE_ACCEPTED")}>
+                校验入池质量
               </button>
             ) : null}
             {canControl && task.status === "COMPLETED" ? (
@@ -608,6 +615,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   ? "重新核验全部待复核客户？"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "重新校验证据缺口？"
+                : action === "REVALIDATE_ACCEPTED"
+                  ? "校验历史入池质量？"
                   : "取消AI获客任务？"
         }
         description={
@@ -621,6 +630,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   ? "清空待复核客户的旧评分、旧结论与旧渠道检查点，重新核对Google商家、官网及公开渠道，重新提取带来源的联系方式并按现行规则评分；不改动已正确入池、未通过或重复记录。"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "只重新核验因Google详情预算降级而缺少主体锚点的候选，不重复搜索，也不改动已正确入池、重复或人工复核结果。"
+                : action === "REVALIDATE_ACCEPTED"
+                  ? "仅重新核验不满足现行目标行业、证据完整性或可追溯联系方式门槛的历史入池记录。未认领记录会先退出公海；已认领客户不会被自动移动。"
                   : "已产生的来源、核验和费用明细会保留，未完成候选不会进入客户公海。"
         }
         confirmLabel={
@@ -634,6 +645,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   ? "开始全面重新核验"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "开始重新校验"
+                : action === "REVALIDATE_ACCEPTED"
+                  ? "开始严格复验"
                   : "确认取消"
         }
         busy={busy}
