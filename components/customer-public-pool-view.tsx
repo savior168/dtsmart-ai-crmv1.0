@@ -120,7 +120,7 @@ type AssignmentOptions = {
 };
 type PoolFilterOptions = {
   countries: SearchableFilterOption[];
-  industries: Array<{ value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed"; count?: number }>;
+  industries: Array<{ value: string; label: string; tone: "verified" | "raw" | "mixed"; count?: number }>;
   owners: Owner[];
   sources: Array<{ value: string; label: string }>;
   batches: Array<{ value: string; label: string; source: string }>;
@@ -402,13 +402,10 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   }, [draftFields]);
   const appendIndustryFilters = useCallback((params: URLSearchParams) => {
     for (const value of industries) {
-      const option = filterOptions.industries.find((item) => item.value === value);
-      for (const filterValue of option?.values || []) {
-        if (filterValue.startsWith("group:")) params.append("industry_group", filterValue.slice(6));
-        else params.append("industry", filterValue);
-      }
+      const label = value.startsWith("industry:") ? value.slice("industry:".length).trim() : value.trim();
+      if (label) params.append("industry_group", label);
     }
-  }, [filterOptions.industries, industries]);
+  }, [industries]);
   const appendSourceBatchFilters = useCallback((params: URLSearchParams) => {
     for (const value of sourceBatches) params.append("source_batch", value);
   }, [sourceBatches]);

@@ -159,14 +159,14 @@ export async function GET(request: NextRequest) {
         ? await admin.from("users").select("id,name,email").in("id", ownerIds).order("name")
         : { data: [], error: null };
       if (owners.error) throw owners.error;
-      const verifiedIndustryMap = new Map<string, { value: string; label: string; values: string[] }>();
+      const verifiedIndustryMap = new Map<string, { value: string; label: string }>();
       const rawIndustryMap = new Map<string, Set<string>>();
       const industryCustomerIds = new Map<string, Set<string>>();
       for (const item of optionRows) {
         const display = customerIndustryLabels(item);
         if (display.verified && item.industry?.trim()) {
           const value = item.industry.trim();
-          verifiedIndustryMap.set(value, { value: `ai:${value}`, label: value, values: [`ai:${value}`] });
+          verifiedIndustryMap.set(value, { value: `industry:${value}`, label: value });
           const ids = industryCustomerIds.get(value) || new Set<string>();
           ids.add(item.id);
           industryCustomerIds.set(value, ids);
@@ -183,14 +183,13 @@ export async function GET(request: NextRequest) {
           }
         }
       }
-      const industryOptionMap = new Map<string, { value: string; label: string; values: string[]; tone: "verified" | "raw" | "mixed"; count: number }>();
+      const industryOptionMap = new Map<string, { value: string; label: string; tone: "verified" | "raw" | "mixed"; count: number }>();
       for (const item of verifiedIndustryMap.values()) industryOptionMap.set(item.label, { ...item, value: `industry:${item.label}`, tone: "verified", count: industryCustomerIds.get(item.label)?.size || 0 });
-      for (const [label, categories] of rawIndustryMap.entries()) {
-        const rawValues = categories.size ? [`group:${label}`] : [];
+      for (const label of rawIndustryMap.keys()) {
         const current = industryOptionMap.get(label);
         industryOptionMap.set(label, current
-          ? { ...current, values: [...current.values, ...rawValues], tone: "mixed", count: industryCustomerIds.get(label)?.size || 0 }
-          : { value: `industry:${label}`, label, values: rawValues, tone: "raw", count: industryCustomerIds.get(label)?.size || 0 });
+          ? { ...current, tone: "mixed", count: industryCustomerIds.get(label)?.size || 0 }
+          : { value: `industry:${label}`, label, tone: "raw", count: industryCustomerIds.get(label)?.size || 0 });
       }
       const industries = [...industryOptionMap.values()];
       const countryCount=new Map<string,number>();
@@ -272,6 +271,8 @@ export async function GET(request: NextRequest) {
         ...industryGroups.flatMap((label) => rawCategoryPatternsForIndustryLabel(label).flatMap((pattern) => [
           `and(ai_screening_done.is.false,category.ilike.${quoted(pattern)})`,
           `and(ai_screening_done.is.null,category.ilike.${quoted(pattern)})`,
+          `and(ai_screening_done.is.true,industry.is.null,category.ilike.${quoted(pattern)})`,
+          `and(ai_screening_done.is.true,industry.eq.${quoted("")},category.ilike.${quoted(pattern)})`,
         ])),
       ];
       if (anyIndustry.length) query = query.or(anyIndustry.join(","));

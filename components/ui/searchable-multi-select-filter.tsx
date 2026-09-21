@@ -17,6 +17,7 @@ export function SearchableMultiSelectFilter({
   onChange,
   className = "",
   emptyText = "当前范围暂无可选项",
+  showCounts = false,
 }: {
   label: string;
   value: string[];
@@ -24,6 +25,10 @@ export function SearchableMultiSelectFilter({
   onChange: (value: string[]) => void;
   className?: string;
   emptyText?: string;
+  /** Only enable when every option count is computed with the same scope and
+   * predicates as the list query. Misleading facet counts are worse than no
+   * count, so list filters hide them by default. */
+  showCounts?: boolean;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -42,7 +47,7 @@ export function SearchableMultiSelectFilter({
     : value.length === 1
       ? options.find((item) => item.value === value[0])?.label || value[0]
       : `${label}（${value.length}）`;
-  const total = options.reduce((sum, item) => sum + Math.max(0, Number(item.count || 0)), 0);
+  const total = showCounts ? options.reduce((sum, item) => sum + Math.max(0, Number(item.count || 0)), 0) : 0;
 
   function toggle(next: string) {
     onChange(value.includes(next) ? value.filter((item) => item !== next) : [...value, next]);
@@ -91,7 +96,7 @@ export function SearchableMultiSelectFilter({
           return <button key={item.value} type="button" role="option" aria-selected={selected} onClick={() => toggle(item.value)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${selected ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"}`}>
             <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"}`}>{selected ? <Check size={11}/> : null}</span>
             <span className="min-w-0 flex-1 truncate" title={item.label || item.value}>{item.label || item.value}</span>
-            {item.count != null ? <small className="shrink-0 text-slate-400">{item.count}</small> : null}
+            {showCounts && item.count != null ? <small className="shrink-0 text-slate-400">{item.count}</small> : null}
           </button>;
         })}
         {visible.length === 0 ? <p className="px-3 py-5 text-center text-xs text-slate-400">{emptyText}</p> : null}

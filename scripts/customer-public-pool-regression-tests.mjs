@@ -46,6 +46,7 @@ const attachmentApi = read("app/api/attachments/[id]/route.ts");
 const followupApi = read("app/api/customers/[id]/followups/route.ts");
 const followupEditApi = read("app/api/followups/[id]/route.ts");
 const assignmentApi = read("app/api/admin/customer-assignments/route.ts");
+const searchableMultiSelect = read("components/ui/searchable-multi-select-filter.tsx");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -107,6 +108,11 @@ assert.match(poolDeleteApi, /requireAdmin\(\)[\s\S]*请填写永久删除原因[
 assert.match(permanentDelete, /quotes[\s\S]*sales_orders[\s\S]*客户已有报价或订单记录/, "存在报价或订单的客户不得物理删除");
 assert.match(customersView, /const crossUserReadOnly = currentRole !== "ADMIN" && canViewAll && scopeUserId !== defaultScopeUserId/, "系统管理员切换归属人后仍须保留客户管理与删除权限");
 assert.match(poolApi, /params\.get\("options"\) === "1"[\s\S]*industries[\s\S]*owners/, "客户公海必须提供完整筛选选项");
+assert.match(poolView, /value\.startsWith\("industry:"\)[\s\S]*params\.append\("industry_group", label\)/, "公海行业筛选必须直接由稳定选中值生成请求参数，不得依赖异步选项缓存二次翻译");
+assert.doesNotMatch(poolView, /option\?\.values|filterValue\.startsWith\("group:"\)/, "公海行业筛选不得保留会因选项刷新而丢失条件的隐藏值映射");
+assert.match(poolApi, /value: `industry:\$\{value\}`[\s\S]*value: `industry:\$\{label\}`/, "已核验和原始类别映射行业必须共用同一种稳定选项值协议");
+assert.match(poolApi, /ai_screening_done\.is\.true,industry\.is\.null,category\.ilike/, "已完成筛选但行业字段缺失的历史客户必须仍可按原始类别筛选");
+assert.match(searchableMultiSelect, /showCounts = false[\s\S]*showCounts && item\.count != null/, "未经同口径验证的筛选项数量必须默认隐藏，避免误导用户");
 assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得使用存在双外键歧义的嵌套关系");
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");
