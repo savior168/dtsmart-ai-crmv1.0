@@ -381,6 +381,7 @@ assert.match(taskCenter,/"Google调用"[\s\S]*"总Token"[\s\S]*"实际费用"/,"
 assert.match(taskCenter,/"获客模式"[\s\S]*"状态"[\s\S]*"候选核验进度"[\s\S]*"成功入池"[\s\S]*"待复核"[\s\S]*"去重后候选"[\s\S]*"目标国家\/地区"[\s\S]*"目标行业"[\s\S]*"Google调用"[\s\S]*"总Token"[\s\S]*"实际费用"[\s\S]*"任务耗时"[\s\S]*"创建时间"/,"获客列表必须按业务重要性拆分单一含义字段，不能杂合展示");
 assert.match(listRoute,/terminalCount[\s\S]*accepted_count[\s\S]*review_count[\s\S]*rejected_count[\s\S]*duplicate_count[\s\S]*processed_count: processedCount/,"任务中心必须用全部终态候选校准历史核验进度");
 assert.match(acquisitionWorkflow,/processedCount!==discoveredCount\|\|analyzingCount>0[\s\S]*ACQUISITION_COMPLETION_INTEGRITY_FAILED/,"存在未处理或仍在分析的候选时任务不得标记为已完成");
+assert.match(acquisitionWorkflow,/verifiedIndustryMismatch[\s\S]*identity_status[\s\S]*hasTraceableBusinessEvidence[\s\S]*!industryMatchesTask[\s\S]*verifiedIndustryMismatch[\s\S]*\? "REJECTED"/,"主体和公开证据已核实且行业不匹配时必须直接判为未通过，不能继续堆入人工复核");
 assert.match(taskCenter,/table-fixed[\s\S]*<colgroup>[\s\S]*w-\[260px\][\s\S]*w-\[220px\][\s\S]*whitespace-nowrap px-4 py-3 font-medium/,"获客任务列表必须按内容分配稳定列宽并禁止标题逐字换行");
 assert.match(taskCenter,/line-clamp-2 font-medium leading-5 text-slate-900 hover:text-blue-700/,"获客任务名称必须与AI筛选统一使用深色正文，只在悬停时提供蓝色交互反馈");
 assert.match(taskCenter,/tasks\/\$\{t\.id\}#usage-details[\s\S]*查看明细[\s\S]*查看真实费用/,"任务中心费用列必须进入按需加载的真实账本明细，不能以空数据伪装零费用");
