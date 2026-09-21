@@ -27,6 +27,7 @@ import { AI_CHANNEL_LABELS, AI_CHANNEL_ORDER, type AiChannel, type AiStrategy } 
 import { AI_FIELD_MAPPING_VERSION, mapCustomerForAi, type AiMappedCustomer } from "./semantic-fields";
 import { AI_RULE_VERSION, findReusableAnalysis, saveReusableAnalysis } from "./reuse-cache";
 import { applyTrustedAcquisitionGoogleSnapshot } from "./acquisition-google-snapshot";
+import { officialWebsiteUrl } from "@/lib/public-url";
 import {
   compatibilityTargetDecision,
   evaluateEvidenceGate,
@@ -1031,8 +1032,8 @@ function verifiedWebsiteForWriteback(
   identityStatus: unknown,
   verifiedWebsite: unknown,
 ) {
-  if (customer.website || !["MATCHED", "LIKELY_MATCHED"].includes(String(identityStatus || ""))) return null;
-  return firstVerifiedContact(contacts, "WEBSITE") || String(verifiedWebsite || "").trim() || null;
+  if (officialWebsiteUrl(customer.website) || !["MATCHED", "LIKELY_MATCHED"].includes(String(identityStatus || ""))) return null;
+  return officialWebsiteUrl(firstVerifiedContact(contacts, "WEBSITE")) || officialWebsiteUrl(verifiedWebsite);
 }
 
 function withoutEmpty<T extends Record<string, unknown>>(value: T): T {

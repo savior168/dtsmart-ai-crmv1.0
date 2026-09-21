@@ -7,6 +7,7 @@ import { plannedDiscoveryScopeCount } from "@/lib/ai-acquisition/discovery";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorrectedEarlyRejections, requeueInvalidAcquisitionAcceptances } from "@/lib/ai-acquisition/requeue";
+import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -102,7 +103,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       const customerId = String(row.staging_customer_id || row.imported_customer_id || "");
       const customerContacts=contactsByCustomer.get(customerId)||[];
       const sourceWebsite=customerContacts.find((contact)=>contact.type==="WEBSITE"&&contact.source_channel==="google_maps"&&String(contact.value_raw||"").trim());
-      return { ...row, customer_profile: profileById.get(customerId) || null, verified_contacts: customerContacts, source_website:sourceWebsite?.value_raw||null, source_website_status:sourceWebsite?.verification_status||null };
+      const profile=profileById.get(customerId)||null;
+      const rawWebsite=profile?.website||sourceWebsite?.value_raw||null;
+      const website=officialWebsiteUrl(rawWebsite);
+      const historicalChannel=publicChannelForUrl(rawWebsite);
+      const customerProfile=profile?{...profile,website,facebook_url:profile.facebook_url||(historicalChannel==="facebook"?rawWebsite:null),instagram_url:profile.instagram_url||(historicalChannel==="instagram"?rawWebsite:null),linkedin_url:profile.linkedin_url||(historicalChannel==="linkedin"?rawWebsite:null),tiktok_url:profile.tiktok_url||(historicalChannel==="tiktok"?rawWebsite:null)}:null;
+      return { ...row, customer_profile: customerProfile, verified_contacts: customerContacts, source_website:website, source_website_status:website?sourceWebsite?.verification_status||null:null };
     });
     const acquisitionChild = await createAdminClient().from("ai_screening_tasks").select("id,status,total_count,pending_count,success_count,failed_count,processed_count,updated_at").eq("request_key", `acquisition:${id}`).maybeSingle();
     if (acquisitionChild.error) {

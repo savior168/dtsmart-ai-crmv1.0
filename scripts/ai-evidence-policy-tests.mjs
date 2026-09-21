@@ -12,6 +12,7 @@ const acquisitionSnapshot = await jiti.import(resolve("lib/ai/acquisition-google
 const web = await jiti.import(resolve("lib/ai/web-enrichment.ts"));
 const errors = await jiti.import(resolve("lib/ai/error-normalization.ts"));
 const presentation = await jiti.import(resolve("lib/ai/presentation.ts"));
+const publicUrl = await jiti.import(resolve("lib/public-url.ts"));
 const source = (file) => readFileSync(resolve(file), "utf8");
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; process.stdout.write(`✓ ${name}\n`); };
@@ -19,6 +20,7 @@ const evidence = (fact, kind="支持", channel="website", url="https://shop.exam
 const gate = (overrides={}) => policy.evaluateEvidenceGate({ strategy:"SMART", identityStatus:"MATCHED", identityConfidence:96, industryConfidence:96, decisionConfidence:96, score:82, industry:"MOBILE_PHONE_REPAIR_SHOP", evidence:[evidence("官网明确提供手机换屏和电池更换服务")], hasCriticalConflict:false, ...overrides });
 
 test("01 只卖手机成品不判维修店",()=>assert.equal(policy.primaryIndustryFor("手机成品零售"),"MOBILE_PHONE_RETAILER"));
+test("01a 社媒主页不得冒充企业官网",()=>{assert.equal(publicUrl.officialWebsiteUrl("https://facebook.com/repair-shop"),null);assert.equal(publicUrl.officialWebsiteUrl("https://www.instagram.com/repair-shop"),null);assert.equal(publicUrl.officialWebsiteUrl("https://repair-shop.co.uk/contact"),"https://repair-shop.co.uk/contact");assert.equal(publicUrl.publicChannelForUrl("https://facebook.com/repair-shop"),"facebook");});
 test("02 运营商营业厅单独分类",()=>assert.equal(policy.primaryIndustryFor("运营商营业厅"),"MOBILE_NETWORK_OPERATOR_STORE"));
 test("03 外配件零售与内配件分离",()=>assert.equal(policy.primaryIndustryFor("手机外配件零售"),"MOBILE_ACCESSORY_RETAILER"));
 test("04 维修店不自动映射批发商",()=>assert.notEqual(policy.primaryIndustryFor("手机维修店"),"MOBILE_REPAIR_PARTS_WHOLESALER"));

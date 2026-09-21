@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 
 const validScopes = new Set(["today", "week", "accepted", "review"]);
 type CountedFilterOption = { value: string; count: number };
@@ -201,7 +202,10 @@ export async function GET(request: NextRequest) {
         const profile=profileById.get(customerId);
         const sourceWebsite=sourceWebsiteByCustomer.get(customerId);
         const task = Array.isArray(row.task) ? row.task[0] : row.task;
-        return { ...row, task, source:profile?.source||"AI_ACQUISITION", phone:profile?.phone||null, whatsapp:profile?.whatsapp||null, email:profile?.email||null, website_phone:profile?.website_phone||null, website_email:profile?.website_email||null, verified_contacts:verifiedContactsByCustomer.get(customerId)||[], display_industry:profile?.industry||profile?.category||"待确认行业", website:profile?.website||sourceWebsite?.value_raw||null, website_source:profile?.website?"customer_profile":sourceWebsite?.source_channel||null, facebook_url:profile?.facebook_url||null,instagram_url:profile?.instagram_url||null,linkedin_url:profile?.linkedin_url||null,tiktok_url:profile?.tiktok_url||null,other_public_urls:profile?.other_public_urls||[],can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
+        const rawWebsite=profile?.website||sourceWebsite?.value_raw||null;
+        const website=officialWebsiteUrl(rawWebsite);
+        const historicalChannel=publicChannelForUrl(rawWebsite);
+        return { ...row, task, source:profile?.source||"AI_ACQUISITION", phone:profile?.phone||null, whatsapp:profile?.whatsapp||null, email:profile?.email||null, website_phone:profile?.website_phone||null, website_email:profile?.website_email||null, verified_contacts:verifiedContactsByCustomer.get(customerId)||[], display_industry:profile?.industry||profile?.category||"待确认行业", website, website_source:website?(profile?.website?"customer_profile":sourceWebsite?.source_channel||null):null, facebook_url:profile?.facebook_url||(historicalChannel==="facebook"?rawWebsite:null),instagram_url:profile?.instagram_url||(historicalChannel==="instagram"?rawWebsite:null),linkedin_url:profile?.linkedin_url||(historicalChannel==="linkedin"?rawWebsite:null),tiktok_url:profile?.tiktok_url||(historicalChannel==="tiktok"?rawWebsite:null),other_public_urls:profile?.other_public_urls||[],can_control:canControlTasks&&(String(task?.user_id||"")===account.id||account.role==="ADMIN") };
       }),
       count: result.count || 0,
       summary: { today: todayResult.count || 0, week: weekResult.count || 0, accepted: acceptedResult.count || 0, review: reviewResult.count || 0 },

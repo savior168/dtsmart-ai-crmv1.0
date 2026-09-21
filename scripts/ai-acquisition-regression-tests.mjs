@@ -20,6 +20,9 @@ assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evide
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["电子设备维修服务商"],"其他维修行业"),true,"用户明确选择电子设备维修时应允许已核验的其他电子维修客户");
+assert.match(fs.readFileSync("app/api/ai-acquisition/candidates/[id]/review/route.ts","utf8"),/acquisitionIndustryMatchesVerifiedResult[\s\S]*industry_type/,"人工复核重新入池也必须复用任务行业匹配门槛");
+assert.match(fs.readFileSync("app/api/ai-acquisition/customers/route.ts","utf8"),/officialWebsiteUrl[\s\S]*historicalChannel[\s\S]*facebook_url/,"AI获客结果不得把历史Facebook地址继续显示为官网");
 const relevanceBase={businessStatus:"OPERATIONAL",matchedTerms:["mobile phone repair shop"]};
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"The Toughphone Ltd",types:["cell_phone_store"]},["手机维修店"],["mobile phone repair"]),false,"仅销售手机成品的商店不得进入维修客户付费补证");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Computer Laptop Repair",types:["computer_repair_service"]},["电脑维修店"],["computer repair"]),true,"明确电脑维修业务不得被前置门槛漏掉");

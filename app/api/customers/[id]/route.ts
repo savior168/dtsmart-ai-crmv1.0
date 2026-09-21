@@ -3,6 +3,7 @@ import { requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -57,6 +58,7 @@ function validateCustomerContactPayload(payload: Record<string, unknown>) {
   const whatsapp = String(payload.whatsapp || "").trim();
   if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
   validateExternalUrl(payload.website, "官网网址");
+  assertOfficialWebsiteUrl(payload.website);
   validateExternalUrl(payload.google_url, "Google 地图网址", /(^|\.)google\.[a-z.]+$|(^|\.)googleusercontent\.com$|(^|\.)goo\.gl$/);
   validateExternalUrl(payload.facebook_url, "Facebook 链接", /(^|\.)facebook\.com$|(^|\.)fb\.com$/);
   validateExternalUrl(payload.instagram_url, "Instagram 链接", /(^|\.)instagram\.com$/);
@@ -78,7 +80,15 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       : { data: null };
     const mayRead = account.role === "ADMIN" || data.owner_id === user.id || Boolean(directReport.data) || publicUnclaimed;
     if (!mayRead) return NextResponse.json({ error: "无权查看其他销售员的客户资料" }, { status: 403 });
-    return NextResponse.json(data);
+    const historicalChannel = publicChannelForUrl(data.website);
+    return NextResponse.json({
+      ...data,
+      website: officialWebsiteUrl(data.website),
+      facebook_url: data.facebook_url || (historicalChannel === "facebook" ? data.website : null),
+      instagram_url: data.instagram_url || (historicalChannel === "instagram" ? data.website : null),
+      linkedin_url: data.linkedin_url || (historicalChannel === "linkedin" ? data.website : null),
+      tiktok_url: data.tiktok_url || (historicalChannel === "tiktok" ? data.website : null),
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "查询失败" }, { status: 400 });
   }

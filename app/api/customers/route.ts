@@ -5,6 +5,7 @@ import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
+import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
 // ownership or workflow transitions. Those fields belong to dedicated flows.
@@ -78,6 +79,7 @@ function validateManualContactInput(body: Record<string, unknown>) {
   if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
   validateManualUrl(body.website, "官网网址");
+  assertOfficialWebsiteUrl(body.website);
   validateManualUrl(body.google_url, "Google Maps网址", /(^|\.)google\.[a-z.]+$|(^|\.)googleusercontent\.com$|(^|\.)goo\.gl$/);
   validateManualUrl(body.facebook_url, "Facebook 链接", /(^|\.)facebook\.com$|(^|\.)fb\.com$/);
   validateManualUrl(body.instagram_url, "Instagram 链接", /(^|\.)instagram\.com$/);
@@ -299,15 +301,23 @@ export async function GET(request: NextRequest) {
       // Customer ownership is independent from the optional follow-up join.
       // If an older database does not expose followup_status, exports must not
       // silently lose the customer's real owner and creator.
-      responseData = responseData.map((item) => ({
-        ...item,
-        website: item.website || (contactsByCustomer.get(item.id) as Array<Record<string, unknown>> | undefined)?.find((contact) =>
+      responseData = responseData.map((item) => {
+        const rawWebsite = item.website || (contactsByCustomer.get(item.id) as Array<Record<string, unknown>> | undefined)?.find((contact) =>
           contact.type === "WEBSITE" && contact.verification_status === "NEW_VERIFIED"
-        )?.value_raw || null,
-        creator: creatorById.get(String(item.created_by || "")) || null,
-        owner: creatorById.get(String(item.owner_id || "")) || null,
-        verified_contacts: contactsByCustomer.get(item.id) || [],
-      }));
+        )?.value_raw || null;
+        const historicalChannel = publicChannelForUrl(rawWebsite);
+        return {
+          ...item,
+          website: officialWebsiteUrl(rawWebsite),
+          facebook_url: item.facebook_url || (historicalChannel === "facebook" ? rawWebsite : null),
+          instagram_url: item.instagram_url || (historicalChannel === "instagram" ? rawWebsite : null),
+          linkedin_url: item.linkedin_url || (historicalChannel === "linkedin" ? rawWebsite : null),
+          tiktok_url: item.tiktok_url || (historicalChannel === "tiktok" ? rawWebsite : null),
+          creator: creatorById.get(String(item.created_by || "")) || null,
+          owner: creatorById.get(String(item.owner_id || "")) || null,
+          verified_contacts: contactsByCustomer.get(item.id) || [],
+        };
+      });
       if (!followupRows.error) {
         const byId = new Map((followupRows.data || []).map((item) => [item.id, item.followup_status || "WAITING_CONTACT"]));
         responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT" }));

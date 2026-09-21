@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { evaluateAcquisitionGate } from "@/lib/ai-acquisition/quality-gate";
+import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/industry-match";
+import { officialWebsiteUrl } from "@/lib/public-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 async function refreshTaskCounts(taskId:string) {
@@ -22,10 +24,10 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     const action = String(body.action||"");
     if (!["DISCARD","RECHECK_AND_ACCEPT"].includes(action)) return NextResponse.json({error:"不支持的复核操作"},{status:400});
     const admin = createAdminClient();
-    const candidate = await admin.from("ai_acquisition_candidates").select("*,task:ai_acquisition_tasks!inner(id,user_id,task_number)").eq("id",id).maybeSingle();
+    const candidate = await admin.from("ai_acquisition_candidates").select("*,task:ai_acquisition_tasks!inner(id,user_id,task_number,industry,industries)").eq("id",id).maybeSingle();
     if (candidate.error) throw candidate.error;
     if (!candidate.data) return NextResponse.json({error:"待复核客户不存在"},{status:404});
-    const task = candidate.data.task as unknown as {id:string;user_id:string;task_number:string};
+    const task = candidate.data.task as unknown as {id:string;user_id:string;task_number:string;industry:string;industries:string[]|null};
     if (task.user_id!==account.id && account.role!=="ADMIN") throw new Error("FORBIDDEN");
     if (candidate.data.decision!=="REVIEW") return NextResponse.json({error:"该客户已处理，请刷新后查看"},{status:409});
     const customerId=String(candidate.data.staging_customer_id||"");
@@ -40,7 +42,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     } else {
       const itemId=String(candidate.data.screening_task_item_id||"");
       const [result,contacts,evidence]=await Promise.all([
-        admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
+        admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status,industry_type").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
         admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId),
         admin.from("ai_screening_evidence").select("source_url,evidence_strength").eq("task_item_id",itemId),
       ]);
@@ -64,6 +66,8 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         : contacts;
       if(refreshedContacts.error)throw refreshedContacts.error;
       const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:refreshedContacts.data||[]});
+      const targetIndustries=task.industries?.length?task.industries:[task.industry];
+      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”与本任务目标行业不一致，不能入池`},{status:409});
       if (!gate.accepted) return NextResponse.json({error:"当前证据仍未达到入池门槛，请先补齐目标行业、主体在营和可追溯有效联系方式依据"},{status:409});
       const normalized=gate.actionableContacts.map((row)=>String(row.value_normalized||"")).filter(Boolean);
       const duplicate=normalized.length?await admin.from("customer_contacts").select("customer_id").in("value_normalized",normalized).neq("customer_id",customerId).limit(1):{data:[],error:null};
@@ -88,7 +92,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const profile=await admin.from("customers").select("phone,email,whatsapp,website").eq("id",customerId).maybeSingle();
       if(profile.error)throw profile.error;
       const completed=await admin.from("customers").update({
-        phone:profile.data?.phone||first("PHONE"),email:profile.data?.email||first("EMAIL"),whatsapp:profile.data?.whatsapp||first("WHATSAPP"),website:profile.data?.website||first("WEBSITE"),updated_at:new Date().toISOString(),
+        phone:profile.data?.phone||first("PHONE"),email:profile.data?.email||first("EMAIL"),whatsapp:profile.data?.whatsapp||first("WHATSAPP"),website:officialWebsiteUrl(profile.data?.website)||officialWebsiteUrl(first("WEBSITE")),updated_at:new Date().toISOString(),
       }).eq("id",customerId);
       if(completed.error)throw completed.error;
     }

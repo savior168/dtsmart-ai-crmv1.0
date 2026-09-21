@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { customerIndustryLabels, rawCategoryPatternsForIndustryLabel } from "@/lib/customers/industry-display";
 
@@ -359,6 +360,9 @@ export async function GET(request: NextRequest) {
       const verifiedWebsite = verifiedContactsByCustomer.get(row.id)?.find((item) =>
         item.type === "WEBSITE" && ["MATCHED_ORIGINAL", "NEW_VERIFIED"].includes(String(item.verification_status || ""))
       )?.value_raw || null;
+      const rawWebsite = row.website || verifiedWebsite;
+      const website = officialWebsiteUrl(rawWebsite);
+      const historicalChannel = publicChannelForUrl(rawWebsite);
       return {
         ...row,
         followup_status: "followup_status" in row ? row.followup_status : "WAITING_CONTACT",
@@ -369,12 +373,12 @@ export async function GET(request: NextRequest) {
         website_phone: full ? websitePhone : maskPhone(websitePhone),
         website_email: full ? websiteEmail : maskEmail(websiteEmail),
         address: full ? row.address : maskAddress(row.address),
-        website: full ? row.website || verifiedWebsite : null,
+        website: full ? website : null,
         google_url: full ? row.google_url : null,
-        facebook_url: full ? row.facebook_url : null,
-        instagram_url: full ? row.instagram_url : null,
-        linkedin_url: full ? row.linkedin_url : null,
-        tiktok_url: full ? row.tiktok_url : null,
+        facebook_url: full ? row.facebook_url || (historicalChannel === "facebook" ? rawWebsite : null) : null,
+        instagram_url: full ? row.instagram_url || (historicalChannel === "instagram" ? rawWebsite : null) : null,
+        linkedin_url: full ? row.linkedin_url || (historicalChannel === "linkedin" ? rawWebsite : null) : null,
+        tiktok_url: full ? row.tiktok_url || (historicalChannel === "tiktok" ? rawWebsite : null) : null,
         other_public_urls: full ? row.other_public_urls : [],
         contact_masked: !full,
         owner: row.owner_id ? ownerById.get(row.owner_id) || null : null,
