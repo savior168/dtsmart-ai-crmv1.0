@@ -320,6 +320,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const customerId = String(candidate.staging_customer_id || "");
       const itemId = String(candidate.screening_task_item_id || "");
       const result = resultByItem.get(itemId);
+      if (!result) throw new Error(`AI_SCREENING_RESULT_MISSING: completed item ${itemId} has no latest valid result`);
       const customerContacts = contactsByCustomer.get(customerId) || [];
       const itemEvidence = evidenceByItem.get(itemId) || [];
       const gate = evaluateAcquisitionGate({ automationStatus: result?.automation_status, targetDecision: result?.target_decision, score: result?.score, identityStatus: result?.identity_status, evidenceUrls: itemEvidence, contacts: customerContacts });
@@ -328,14 +329,15 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const verifiedContacts = gate.actionableContacts;
       const evidenceComplete = gate.evidenceComplete;
       const accepted = gate.accepted && industryMatchesTask;
-      const targetValidated = result?.automation_status === "AUTO_DEVELOP" && result?.target_decision === "VALID" && Number(result?.score || 0) >= 60;
       const explicitlyNeedsReview = result?.automation_status === "AUTO_HOLD" || result?.target_decision === "REVIEW";
+      const unreachableVerifiedTarget = gate.verifiedTarget && industryMatchesTask && gate.actionableContacts.length === 0;
       let decision: "ACCEPTED" | "REVIEW" | "REJECTED" | "DUPLICATE" = gate.accepted && !industryMatchesTask
         ? "REJECTED"
-        : accepted ? "ACCEPTED" : targetValidated || explicitlyNeedsReview || !result ? "REVIEW" : "REJECTED";
+        : accepted ? "ACCEPTED" : explicitlyNeedsReview ? "REVIEW" : "REJECTED";
       let reason = accepted ? "目标行业、主体、在营证据和可用联系方式均已核验"
         : gate.accepted && !industryMatchesTask ? `已核验行业“${String(result?.industry_type || "未知") }”与本任务目标行业不一致，未进入客户公海`
-        : targetValidated ? (!gate.evidenceComplete ? "已判定为目标客户，但可追溯经营证据不足，等待人工复核" : gate.actionableContacts.length === 0 ? "已判定为目标客户，但缺少带具体来源的有效联系方式，等待人工复核" : "目标客户主体核验仍需人工确认")
+        : unreachableVerifiedTarget ? "已确认目标行业、主体和经营证据，但公开渠道暂未发现带具体来源的有效联系方式；已自动归档为暂不可触达，不进入人工复核"
+        : explicitlyNeedsReview ? String(result?.short_reason || "可靠来源存在主体或经营事实冲突，需要人工复核")
           : String(result?.short_reason || "核验证据不足，未进入客户公海");
       if (accepted) {
         const normalized = verifiedContacts.map((row) => String(row.value_normalized || "")).filter(Boolean);

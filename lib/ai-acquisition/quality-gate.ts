@@ -8,13 +8,16 @@ export type AcquisitionGateInput = {
 };
 
 export function evaluateAcquisitionGate(input: AcquisitionGateInput) {
-  const evidenceComplete = input.evidenceUrls.some((row) => /^https?:\/\//i.test(String(row.source_url || "")) && String(row.evidence_strength || "") !== "WEAK_HINT");
+  const hasTraceableBusinessEvidence = input.evidenceUrls.some((row) => /^https?:\/\//i.test(String(row.source_url || "")) && String(row.evidence_strength || "") !== "WEAK_HINT");
   const actionableContacts = input.contacts.filter((contact) =>
     ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type)) &&
     ["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL"].includes(String(contact.verification_status)) &&
     /^https?:\/\//i.test(String(contact.exact_source_url || "")),
   );
-  const accepted = input.automationStatus === "AUTO_DEVELOP" && input.targetDecision === "VALID" &&
-    Number(input.score || 0) >= 60 && ["MATCHED", "LIKELY_MATCHED"].includes(String(input.identityStatus || "")) && evidenceComplete && actionableContacts.length > 0;
-  return { accepted, evidenceComplete, actionableContacts };
+  const identityMatched = ["MATCHED", "LIKELY_MATCHED"].includes(String(input.identityStatus || ""));
+  const verifiedTarget = input.automationStatus === "AUTO_DEVELOP" && input.targetDecision === "VALID" &&
+    Number(input.score || 0) >= 60 && identityMatched && hasTraceableBusinessEvidence;
+  const evidenceComplete = input.targetDecision !== "REVIEW" && identityMatched && hasTraceableBusinessEvidence;
+  const accepted = verifiedTarget && actionableContacts.length > 0;
+  return { accepted, verifiedTarget, evidenceComplete, hasTraceableBusinessEvidence, actionableContacts };
 }

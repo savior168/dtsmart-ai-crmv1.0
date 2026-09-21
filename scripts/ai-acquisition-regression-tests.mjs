@@ -12,6 +12,9 @@ assert.equal(evaluateAcquisitionGate({...base,identityStatus:"CONFLICTED"}).acce
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).accepted,false,"主体未确认不得自动入池");
 assert.equal(evaluateAcquisitionGate({...base,evidenceUrls:[{source_url:"https://example.com",evidence_strength:"WEAK_HINT"}]}).accepted,false,"弱提示不能替代经营证据");
 assert.equal(evaluateAcquisitionGate({...base,contacts:[{type:"PHONE",verification_status:"SOURCE_CONFIRMED",exact_source_url:null}]}).accepted,false,"联系方式无具体来源页面不得入池");
+assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).verifiedTarget,true,"目标行业、主体和经营证据已核验时不得因缺联系方式否定目标属性");
+assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).accepted,false,"缺少可追溯联系方式的目标客户不得直接入池");
+assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evidenceComplete,false,"主体未匹配时不得把单一来源链接标为证据完整");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
@@ -43,6 +46,7 @@ const incrementalSearchMigration=fs.readFileSync(new URL("../supabase/migrations
 const coverageEfficiencyMigration=fs.readFileSync(new URL("../supabase/migrations/202609170001_ai_acquisition_coverage_efficiency.sql",import.meta.url),"utf8");
 const acquisitionScaleMigration=fs.readFileSync(new URL("../supabase/migrations/202609170002_ai_acquisition_scale.sql",import.meta.url),"utf8");
 const costIsolationMigration=fs.readFileSync(new URL("../supabase/migrations/202609180003_ai_acquisition_task_cost_isolation.sql",import.meta.url),"utf8");
+const strictReviewQueueMigration=fs.readFileSync(new URL("../supabase/migrations/202609210001_strict_ai_acquisition_review_queue.sql",import.meta.url),"utf8");
 assert.match(migration,/AI_STAGING/);
 assert.match(migration,/claim_stalled_ai_acquisition_tasks/);
 assert.match(migration,/revoke all on public\.ai_acquisition_tasks/);
@@ -57,6 +61,9 @@ assert.match(coverageEfficiencyMigration,/target_count between 1 and 5000[\s\S]*
 assert.match(acquisitionScaleMigration,/target_count between 1 and 50000/,"单个全国获客任务必须支持数万真实候选的安全上限");
 assert.match(acquisitionScaleMigration,/get_ai_acquisition_discovery_progress[\s\S]*sum\(checkpoint\.result_count\)[\s\S]*grant execute[\s\S]*service_role/,"数千检索分片的进度和原始命中必须在数据库端精确聚合，不能受接口1000行上限截断");
 assert.match(costIsolationMigration,/request_key = 'acquisition:' \|\| p_task_id::text[\s\S]*get_ai_acquisition_usage_summary/,"任务用量只能归属稳定request_key绑定的核验子任务，不能从候选历史引用推断");
+assert.match(strictReviewQueueMigration,/decision = 'REVIEW'[\s\S]*automation_status = 'AUTO_DEVELOP'[\s\S]*target_decision = 'VALID'[\s\S]*identity_status in \('MATCHED', 'LIKELY_MATCHED'\)/,"历史待复核只能自动处理已有确定目标和主体结论的记录");
+assert.match(strictReviewQueueMigration,/not exists \([\s\S]*customer_contacts[\s\S]*PHONE', 'EMAIL', 'WHATSAPP'[\s\S]*exact_source_url/,"历史待复核自动归档必须确认不存在可追溯有效联系方式");
+assert.match(strictReviewQueueMigration,/暂不可触达，不进入人工复核[\s\S]*pool_status = 'INVALID'[\s\S]*acquisition_scope = 'PRIVATE'/,"确定目标但不可触达的历史记录必须退出人工复核且保持隔离，不能误入公海");
 const workflow=fs.readFileSync(new URL("../workflows/ai-acquisition.ts",import.meta.url),"utf8");
 assert.match(workflow,/CLOSED_PERMANENTLY/);
 assert.match(workflow,/Google Place ID已存在/);
@@ -72,7 +79,8 @@ assert.match(workflow,/while\(await finalizeCandidateBatch\(task,screeningTaskId
 assert.match(workflow,/refresh_ai_screening_task_totals/,"发现与核验并行时任务统计必须从明细真值刷新，不能覆盖消费者实时进度");
 assert.match(workflow,/select\("id"\)\.maybeSingle\(\)[\s\S]*alreadyInSystem[\s\S]*客户入池写入未确认/,"自动获客只有确认客户已写入系统后才能记为成功入池");
 assert.match(workflow,/industry: null, category: candidate\.types\.join\(" \| "\) \|\| null/,"暂存客户不得把用户目标行业冒充为客户已核验行业，只能保留Google实际类别作为路由提示");
-assert.match(workflow,/targetValidated[\s\S]*\? "REVIEW" : "REJECTED"[\s\S]*缺少带具体来源的有效联系方式，等待人工复核/,"已判定目标但缺少入池证据或联系方式的客户必须进入待复核，不能直接丢弃");
+assert.match(workflow,/unreachableVerifiedTarget[\s\S]*\? "REVIEW" : "REJECTED"[\s\S]*暂不可触达，不进入人工复核/,"已确认目标但缺少联系方式的客户必须自动归档为暂不可触达，不能把补证工作转嫁给销售人工复核");
+assert.match(workflow,/AI_SCREENING_RESULT_MISSING/,"核验明细完成却缺少最终结果时必须按执行异常重试，不能污染人工复核队列");
 assert.match(workflow,/else if \(decision !== "REVIEW"\)[\s\S]*pool_status: "INVALID"/,"待复核客户必须保留在隔离暂存区，不得按无效客户软删除");
 const discovery=fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts",import.meta.url),"utf8");
 const discoveryRelevance=fs.readFileSync(new URL("../lib/ai-acquisition/relevance.ts",import.meta.url),"utf8");
