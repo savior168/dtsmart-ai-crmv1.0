@@ -106,6 +106,7 @@ assert.doesNotMatch(discoveryRelevance,/cell_phone_store\|electronics_store\|com
 assert.match(workflow,/lookupBatchSize = 100[\s\S]*cancel_requested[\s\S]*PAUSING/,"候选持久化阶段必须分批响应取消和暂停，不能继续做无效工作");
 const taskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 assert.match(taskRoute,/action === "RETRY"/);
+assert.match(taskRoute,/action === "PAUSE"[\s\S]*executorIsLive[\s\S]*nextStatus = executorIsLive \? "PAUSING" : "PAUSED"[\s\S]*仅可由用户手动继续[\s\S]*\.in\("status", \["RUNNING", "PAUSING"\]\)[\s\S]*ai_screening_tasks[\s\S]*status: "PAUSED"/,"失效执行器的任务在用户暂停时必须立即进入已暂停，且已卡在安全暂停的任务可以自愈");
 const config=fs.readFileSync(new URL("../lib/ai-acquisition/config.ts",import.meta.url),"utf8");
 assert.doesNotMatch(config,/"CN"/);
 assert.match(config,/Handyreparatur/);
@@ -295,7 +296,7 @@ assert.match(detail,/CompactTags[\s\S]*展开其余 \{remaining\.length\} 项[\s
 assert.match(detail,/1\. 搜索范围[\s\S]*2\. 发现并去重[\s\S]*3\. 完成核验[\s\S]*4\. 当前结果/,"实时进度必须按用户可理解的四项结果概览展示");
 assert.match(detail,/remainingCandidates[\s\S]*剩余[\s\S]*待处理[\s\S]*搜索完成度[\s\S]*候选核验完成度/,"实时进度必须分别展示搜索和候选核验完成度及剩余量");
 assert.match(detail,/查看处理明细[\s\S]*快速排除或重复[\s\S]*进入深度核验[\s\S]*核验成功[\s\S]*技术失败[\s\S]*需重试/,"技术处理构成必须折叠展示，并区分成功、待处理和技术失败");
-assert.match(detail,/maintenancePaused[\s\S]*task\.status === "RUNNING" && !maintenancePaused[\s\S]*task\.status === "PAUSED" \|\| maintenancePaused[\s\S]*StatusBadge status=\{maintenancePaused\?"PAUSED":task\.status\}[\s\S]*不会新增调用或费用[\s\S]*只有人工点击“继续执行”后才会恢复[\s\S]*最近进展/,"维护暂停必须显示为暂停、只提供人工继续入口，并明确不会新增费用");
+assert.match(detail,/maintenancePaused[\s\S]*\["RUNNING", "PAUSING"\]\.includes\(task\.status\) && !maintenancePaused[\s\S]*task\.status === "PAUSED" \|\| maintenancePaused[\s\S]*StatusBadge status=\{maintenancePaused\?"PAUSED":task\.status\}[\s\S]*不会新增调用或费用[\s\S]*只有人工点击“继续执行”后才会恢复[\s\S]*最近进展/,"维护暂停必须显示为暂停；失效执行器卡在暂停中时必须提供完成暂停入口");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
 assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
 assert.match(detail,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");

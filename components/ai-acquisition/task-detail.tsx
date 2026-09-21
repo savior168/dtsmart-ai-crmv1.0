@@ -384,9 +384,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             </Link>
             <Link href={`/ai-acquisition/customers?scope=accepted&task_id=${task.id}`} className={button}>查看本任务入池客户</Link>
             {task.status === "COMPLETED" ? <Link href={`/ai-acquisition/tasks/${task.id}/report`} className={primaryButton}>查看任务报告</Link> : null}
-            {canControl && task.status === "RUNNING" && !maintenancePaused ? (
+            {canControl && ["RUNNING", "PAUSING"].includes(task.status) && !maintenancePaused ? (
               <button className={button} onClick={() => setAction("PAUSE")}>
-                停止任务
+                {task.status === "PAUSING" ? "完成暂停" : "停止任务"}
               </button>
             ) : null}
             {canControl && (task.status === "PAUSED" || maintenancePaused) ? (

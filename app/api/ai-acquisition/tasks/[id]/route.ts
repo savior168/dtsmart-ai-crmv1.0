@@ -202,8 +202,27 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const result = await admin.from("ai_acquisition_tasks").update({ cancel_requested: true, status: ["QUEUED","PAUSED"].includes(task.status) ? "CANCELLED" : task.status, updated_at: new Date().toISOString() }).eq("id", id).in("status", ["QUEUED","RUNNING","PAUSING","PAUSED"]);
       if (result.error) throw result.error;
     } else if (action === "PAUSE") {
-      const result = await admin.from("ai_acquisition_tasks").update({ status: "PAUSING", pause_started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id).eq("status", "RUNNING");
+      const now = new Date();
+      const heartbeatAt = task.executor_heartbeat_at ? new Date(task.executor_heartbeat_at).getTime() : NaN;
+      const executorIsLive = task.active_executor === "VERCEL_WORKFLOW"
+        && Boolean(task.workflow_run_id)
+        && Number.isFinite(heartbeatAt)
+        && now.getTime() - heartbeatAt < 120_000;
+      const nextStatus = executorIsLive ? "PAUSING" : "PAUSED";
+      const result = await admin.from("ai_acquisition_tasks").update({
+        status: nextStatus, pause_started_at: now.toISOString(),
+        current_stage_detail: executorIsLive ? "正在安全暂停，当前步骤完成后停止" : "执行器已失效，任务已安全暂停；仅可由用户手动继续",
+        ...(executorIsLive ? {} : { active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null }),
+        updated_at: now.toISOString(),
+      }).eq("id", id).in("status", ["RUNNING", "PAUSING"]);
       if (result.error) throw result.error;
+      if (!executorIsLive) {
+        const child = await admin.from("ai_screening_tasks").update({
+          status: "PAUSED", active_executor: null, workflow_run_id: null,
+          last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now.toISOString(),
+        }).eq("request_key", `acquisition:${id}`).in("status", ["QUEUED", "RUNNING", "PAUSING"]);
+        if (child.error) throw child.error;
+      }
     } else if (action === "RESUME") {
       const maintenancePaused = String(task.current_stage_detail || "").includes("系统维护暂停");
       if (task.status !== "PAUSED" && !maintenancePaused) return NextResponse.json({ error: "只有已暂停任务可以恢复" }, { status: 409 });
