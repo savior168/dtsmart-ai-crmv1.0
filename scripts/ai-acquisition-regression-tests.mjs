@@ -324,6 +324,7 @@ assert.match(scoreBadge,/score>=80[\s\S]*score>=65[\s\S]*score>=50/,"相似客�
 assert.match(detail,/CustomerScoreBadge score=\{r\.ai_score\}/,"AI获客客户列表必须复用全局客户评分组件");
 assert.match(publicPool,/CustomerScoreBadge score=\{row\.ai_score\}/,"客户公海必须复用同一评分组件，避免同字段多套样式");
 assert.match(detail,/确认舍弃[\s\S]*重新校验并入池/,"待复核客户必须提供安全的人工处理闭环");
+assert.match(detail,/task\.review_count > 0[\s\S]*\["COMPLETED", "FAILED"\][\s\S]*REASSESS_REVIEWS[\s\S]*重新核验待复核[\s\S]*清空待复核客户的旧评分、旧结论与旧渠道检查点/,"已完成或失败任务必须提供可审计的全量待复核重新核验入口，并明确不会沿用旧评分或旧采集检查点");
 assert.match(detail,/返回任务中心[\s\S]*查看任务报告[\s\S]*停止任务[\s\S]*继续执行[\s\S]*重试失败项[\s\S]*取消任务/,"AI获客任务详情必须与AI筛选统一任务控制文案与按钮层级，同时保留完整状态控制");
 const acquisitionEvidenceRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/evidence/route.ts",import.meta.url),"utf8");
 assert.match(acquisitionEvidenceRoute,/created_at:fetched_at[\s\S]*order\("fetched_at"/,"核验依据必须使用证据表真实时间字段，避免点击依据加载失败");

@@ -159,7 +159,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [canControl, setCanControl] = useState(false),
     [canEvidence, setCanEvidence] = useState(false),
     [busy, setBusy] = useState(false),
-    [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "RECHECK_EVIDENCE_GAPS" | null>(null),
+    [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "REASSESS_REVIEWS" | "RECHECK_EVIDENCE_GAPS" | null>(null),
     [evidence, setEvidence] = useState<EvidenceData | null>(null),
     [evidenceLoading, setEvidenceLoading] = useState(false),
     [reviewAction, setReviewAction] = useState<{action:"DISCARD" | "RECHECK_AND_ACCEPT";candidateId:string} | null>(null);
@@ -395,6 +395,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 重试失败项
               </button>
             ) : null}
+            {canControl && task.review_count > 0 && ["COMPLETED", "FAILED"].includes(task.status) ? (
+              <button className={button} onClick={() => setAction("REASSESS_REVIEWS")}>
+                重新核验待复核
+              </button>
+            ) : null}
             {canControl && task.status === "COMPLETED" ? (
               <button className={button} onClick={() => setAction("RECHECK_EVIDENCE_GAPS")}>
                 校验证据缺口
@@ -597,6 +602,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               ? "恢复AI获客任务？"
               : action === "RETRY"
                 ? "从检查点重试任务？"
+                : action === "REASSESS_REVIEWS"
+                  ? "重新核验全部待复核客户？"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "重新校验证据缺口？"
                   : "取消AI获客任务？"
@@ -608,6 +615,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               ? "将从已保存节点继续，不重复导入已处理客户。"
               : action === "RETRY"
                 ? "只恢复失败或中断的核验项；保留已处理候选和原始发现依据，不重复调用 Google Places 搜索。"
+                : action === "REASSESS_REVIEWS"
+                  ? "清空待复核客户的旧评分、旧结论与旧渠道检查点，重新核对Google商家、官网及公开渠道，重新提取带来源的联系方式并按现行规则评分；不改动已正确入池、未通过或重复记录。"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "只重新核验因Google详情预算降级而缺少主体锚点的候选，不重复搜索，也不改动已正确入池、重复或人工复核结果。"
                   : "已产生的来源、核验和费用明细会保留，未完成候选不会进入客户公海。"
@@ -619,6 +628,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
               ? "确认恢复"
               : action === "RETRY"
                 ? "确认重试"
+                : action === "REASSESS_REVIEWS"
+                  ? "开始全面重新核验"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "开始重新校验"
                   : "确认取消"
