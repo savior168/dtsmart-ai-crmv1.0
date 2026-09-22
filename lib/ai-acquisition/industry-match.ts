@@ -1,3 +1,5 @@
+import { hasPhoneComputerRepairPartsTradeEvidence } from "../ai/target-trade-evidence.js";
+
 const VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY: Record<string, Set<string>> = {
   "手机维修店": new Set(["手机维修店", "维修连锁", "混合经营"]),
   "手机维修服务商": new Set(["手机维修店", "维修连锁", "混合经营"]),
@@ -18,12 +20,19 @@ const VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY: Record<string, Set<string>> = {
 };
 
 /** 最终入池行业必须与用户创建任务时选择的目标行业一致。 */
-export function acquisitionIndustryMatchesVerifiedResult(targetIndustries: string[], verifiedIndustry?: string | null) {
+export function acquisitionIndustryMatchesVerifiedResult(
+  targetIndustries: string[],
+  verifiedIndustry?: string | null,
+  evidenceFacts: Array<string | null | undefined> = [],
+) {
   if (!verifiedIndustry) return false;
   const knownTargets = targetIndustries
     .map((industry) => VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY[industry])
     .filter((allowed): allowed is Set<string> => Boolean(allowed));
   // 自定义行业暂未进入本映射时，仍由证据门控处理，避免误伤其他业务模块。
   if (!knownTargets.length) return true;
-  return knownTargets.some((allowed) => allowed.has(verifiedIndustry));
+  const coarseIndustryMatch = knownTargets.some((allowed) => allowed.has(verifiedIndustry));
+  if (!coarseIndustryMatch) return false;
+  if (verifiedIndustry === "进口商或分销商") return hasPhoneComputerRepairPartsTradeEvidence(evidenceFacts);
+  return true;
 }

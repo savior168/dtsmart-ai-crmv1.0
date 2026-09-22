@@ -44,7 +44,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const [result,contacts,evidence]=await Promise.all([
         admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status,industry_type").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
         admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId),
-        admin.from("ai_screening_evidence").select("source_url,evidence_strength").eq("task_item_id",itemId),
+        admin.from("ai_screening_evidence").select("source_url,evidence_strength,translated_fact,original_excerpt").eq("task_item_id",itemId),
       ]);
       if (result.error||contacts.error||evidence.error) throw result.error||contacts.error||evidence.error;
       const identityStatus=String(result.data?.identity_status||"");
@@ -67,7 +67,8 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       if(refreshedContacts.error)throw refreshedContacts.error;
       const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:refreshedContacts.data||[]});
       const targetIndustries=task.industries?.length?task.industries:[task.industry];
-      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”与本任务目标行业不一致，不能入池`},{status:409});
+      const industryEvidence=(evidence.data||[]).flatMap((row)=>[row.translated_fact,row.original_excerpt]);
+      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”缺少与本任务目标产品直接匹配的经营证据，不能入池`},{status:409});
       if (!gate.accepted) return NextResponse.json({error:"当前证据仍未达到入池门槛，请先补齐目标行业、主体在营和可追溯有效联系方式依据"},{status:409});
       const normalized=gate.actionableContacts.map((row)=>String(row.value_normalized||"")).filter(Boolean);
       const duplicate=normalized.length?await admin.from("customer_contacts").select("customer_id").in("value_normalized",normalized).neq("customer_id",customerId).limit(1):{data:[],error:null};

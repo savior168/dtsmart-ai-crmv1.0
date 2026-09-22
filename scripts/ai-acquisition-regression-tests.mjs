@@ -20,6 +20,14 @@ assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evide
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["Google商家页将该企业分类为汽车配件批发商"]),false,"汽车配件批发商不得借粗行业标签进入手机维修配件任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["官网经营食品批发与餐饮供应"]),false,"食品批发商不得借wholesale泛词进入手机维修配件任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["官网销售手机壳、耳机、充电器并提供批发账户"]),false,"只批发手机外配或成品不得冒充维修内配件分销商");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["Google商家评论和官网服务页确认该企业提供手机换屏、换电池维修", "官网向trade accounts批发mobile accessories and batteries"]),true,"已核验维修企业同时经营相关配件或电池批发应认定为目标客户");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["官网向trade accounts批发mobile accessories and batteries"]),false,"没有维修业务或维修内配件证据时普通外配电池批发不得自动入池");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["企业官网显示向维修门店批发iPhone LCD屏幕总成、充电尾插和主板维修配件"]),true,"具有手机维修内配件及批发角色的直接证据应允许匹配");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["官网主营手机和电脑维修内配件批发、分销及经销"]),true,"明确的手机电脑维修内配件贸易商即使自身不提供维修服务也应直接匹配");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["电脑配件批发商"],"进口商或分销商",["官网提供MacBook replacement screens, batteries and keyboards to trade accounts"]),true,"电脑维修配件及贸易账户证据应允许匹配");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["电子设备维修服务商"],"其他维修行业"),true,"用户明确选择电子设备维修时应允许已核验的其他电子维修客户");
 assert.match(fs.readFileSync("app/api/ai-acquisition/candidates/[id]/review/route.ts","utf8"),/acquisitionIndustryMatchesVerifiedResult[\s\S]*industry_type/,"人工复核重新入池也必须复用任务行业匹配门槛");
 assert.match(fs.readFileSync("app/api/ai-acquisition/customers/route.ts","utf8"),/officialWebsiteUrl[\s\S]*historicalChannel[\s\S]*facebook_url/,"AI获客结果不得把历史Facebook地址继续显示为官网");

@@ -304,7 +304,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
     const [results, contacts, evidence] = await Promise.all([
       admin.from("ai_screening_results").select("task_item_id,id,score,grade,automation_status,target_decision,identity_status,industry_type,evidence_sufficiency_score,short_reason").in("task_item_id", itemIds).eq("is_latest_valid", true),
       admin.from("customer_contacts").select("customer_id,id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,exact_source_url").in("customer_id", customerIds),
-      admin.from("ai_screening_evidence").select("task_item_id,id,source_url,evidence_strength").in("task_item_id", itemIds),
+      admin.from("ai_screening_evidence").select("task_item_id,id,source_url,evidence_strength,translated_fact,original_excerpt").in("task_item_id", itemIds),
     ]);
     if (results.error || contacts.error || evidence.error) throw results.error || contacts.error || evidence.error;
     const resultByItem = new Map((results.data || []).map((row) => [String(row.task_item_id), row]));
@@ -327,7 +327,8 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const itemEvidence = evidenceByItem.get(itemId) || [];
       const gate = evaluateAcquisitionGate({ automationStatus: result?.automation_status, targetDecision: result?.target_decision, score: result?.score, identityStatus: result?.identity_status, evidenceUrls: itemEvidence, contacts: customerContacts });
       const targetIndustries = task.industries?.length ? task.industries : [task.industry];
-      const industryMatchesTask = acquisitionIndustryMatchesVerifiedResult(targetIndustries, result?.industry_type);
+      const industryEvidence = itemEvidence.flatMap((row) => [row.translated_fact, row.original_excerpt]);
+      const industryMatchesTask = acquisitionIndustryMatchesVerifiedResult(targetIndustries, result?.industry_type, industryEvidence);
       const verifiedContacts = gate.actionableContacts;
       const evidenceComplete = gate.evidenceComplete;
       const accepted = gate.accepted && industryMatchesTask;

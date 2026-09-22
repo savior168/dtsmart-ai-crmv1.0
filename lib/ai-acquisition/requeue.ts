@@ -341,12 +341,31 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
     }
   }
   const targetIndustries = task.industries?.length ? task.industries : [task.industry];
+  const evidenceFactsByItem = new Map<string,string[]>();
+  const allItemIds = [...new Set(candidates.map((row) => String(row.screening_task_item_id)).filter(Boolean))];
+  for (let offset = 0; offset < allItemIds.length; offset += 100) {
+    const page = await admin.from("ai_screening_evidence").select("task_item_id,translated_fact,original_excerpt")
+      .in("task_item_id", allItemIds.slice(offset, offset + 100));
+    if (page.error) throw page.error;
+    for (const row of page.data || []) {
+      const itemId = String(row.task_item_id || "");
+      evidenceFactsByItem.set(itemId, [
+        ...(evidenceFactsByItem.get(itemId) || []),
+        String(row.translated_fact || ""),
+        String(row.original_excerpt || ""),
+      ].filter(Boolean));
+    }
+  }
   candidates = candidates.filter((row) => {
     const customerId = String(row.imported_customer_id);
     const state = customerState.get(customerId);
     return !row.is_target_customer || !row.has_actionable_contact || !row.evidence_complete
       || !actionableCustomerIds.has(customerId)
-      || !acquisitionIndustryMatchesVerifiedResult(targetIndustries, state?.industry || null);
+      || !acquisitionIndustryMatchesVerifiedResult(
+        targetIndustries,
+        state?.industry || null,
+        evidenceFactsByItem.get(String(row.screening_task_item_id)) || [],
+      );
   });
   if (!candidates.length) return { inspected: allImportedIds.length, eligible: 0, requeued: 0, skipped_owned: 0 };
 

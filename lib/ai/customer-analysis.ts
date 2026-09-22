@@ -1,4 +1,5 @@
 import type { CustomerEvidence } from "./web-enrichment";
+import { hasPhoneComputerRepairPartsProductEvidence, hasPhoneComputerRepairPartsTradeEvidence } from "./target-trade-evidence.js";
 
 const ANALYSIS_INDUSTRIES = [
   "手机成品零售", "二手或翻新手机销售", "运营商营业厅", "手机维修店", "Apple或MacBook维修店",
@@ -514,8 +515,10 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   // a generic model label such as "distributor" can incorrectly win.
   const primaryNonTargetIndustry = dominantNonTargetIndustryForText(allEvidenceText);
   const dominantNonTargetWithoutCoreRepair = Boolean(primaryNonTargetIndustry) && !hasCoreDeviceRepairEvidence(allEvidenceText);
-  const verifiedProductFit = /(?:手机|电脑|iPhone|iPad|MacBook|LCD|OLED|屏幕|电池|配件|维修件|触摸屏|尾插|排线|摄像头)/i.test(supportingText);
-  const verifiedBuyingRole = /(?:配件批发|配件进口|配件分销|B2B|MOQ|批量供货|渠道供货|经销商|代理商|采购记录|海关记录|批发商|进口商|分销商)/i.test(supportingText);
+  const verifiedTargetTradeEvidence = hasPhoneComputerRepairPartsTradeEvidence(supporting.map((item) => item.fact_zh));
+  const verifiedProductFit = hasPhoneComputerRepairPartsProductEvidence(supportingText)
+    || /(?:手机|智能手机|平板|电脑|笔记本|iPhone|iPad|MacBook|phone|mobile|smartphone|tablet|computer|laptop|notebook|\bpc\b).{0,45}(?:维修|检修|换屏|换电池|repair)|(?:维修|检修|换屏|换电池|repair).{0,45}(?:手机|智能手机|平板|电脑|笔记本|iPhone|iPad|MacBook|phone|mobile|smartphone|tablet|computer|laptop|notebook|\bpc\b)/i.test(supportingText);
+  const verifiedBuyingRole = verifiedTargetTradeEvidence;
   const verifiedChain = /(?:连锁|多家门店|多门店|分店)/.test(supportingText);
   const verifiedHighVolumeRepair = verifiedChain || /(?:大量近期维修评论|高频维修|大型维修中心|多名维修技师|丰富维修案例|配件库存|超过\s*\d+\s*条维修评论|more than \d+ repair reviews|multiple technicians|large repair center)/i.test(supportingText);
   const verifiedProcurement = /(?:海关记录|采购记录|采购订单|进口记录)/.test(supportingText)
@@ -673,7 +676,7 @@ export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: O
   const productSpecificTradeIndustry = /^(?:维修内配件零售|维修内配件批发|进口商或分销商)$/.test(normalizedIndustry);
   const verifiedTargetIndustry = /^(?:手机维修店|Apple或MacBook维修店|电脑维修店|维修内配件零售|维修内配件批发|进口商或分销商|维修连锁|其他维修行业|混合经营)$/.test(normalizedIndustry)
     && !dominantNonTargetWithoutCoreRepair
-    && (!productSpecificTradeIndustry || verifiedProductFit)
+    && (!productSpecificTradeIndustry || verifiedTargetTradeEvidence)
     && !(computerRepairClaim && !verifiedComputerHardwareRepair)
     && !itSupportOnly
     && evidenceSufficient

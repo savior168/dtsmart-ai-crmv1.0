@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { hasPhoneComputerRepairPartsTradeEvidence } from "./target-trade-evidence.js";
 import { createAdminClient } from "../supabase/admin";
 import { budgetExceededMessage, releaseApiCostBudget, reserveApiCostBudget } from "../api-cost-budget";
 import {
@@ -1474,7 +1475,6 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "专业维修车间", pattern: /(?:repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|专业维修车间|专用维修车间)/i },
   { label: "使用手机或电脑维修备件", pattern: /(?:(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|notebook|macbook|pc|手机|平板|电脑|笔记本|苹果设备)[\s\S]{0,80}(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)|(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)[\s\S]{0,80}(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|notebook|macbook|pc|手机|平板|电脑|笔记本|苹果设备))/i },
   { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone adapters?|phone chargers?|earbuds?|earphones?|headphones?|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|手机配件|平板配件)/i },
-  { label: "配件批发、分销或进口", pattern: /(?:wholesale|wholesaler|distributor|distribution|importer|b2b|bulk order|trade account|hurtownia|sprzedaż hurtowa|dystrybutor|mayorista|grossiste|ingrosso|批发|分销|进口商)/i },
   { label: "多门店或连锁经营", pattern: /(?:(?:at least|over|more than|拥有|设有|共有)\s*\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|门店|分店|直营网点|维修中心)|\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)|multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
   { label: "软件开发、云服务或网络托管", pattern: /(?:software development|software company|cloud services|web hosting|cyber ?security|软件开发|软件公司|云服务|网络托管|信息安全)/i },
@@ -1492,7 +1492,9 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 
 function verifiedFactLabels(text: string) {
   const positiveText = positiveTargetEvidenceText(text);
-  return VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(positiveText)).map((item) => item.label);
+  const labels = VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(positiveText)).map((item) => item.label);
+  if (hasPhoneComputerRepairPartsTradeEvidence([positiveText])) labels.push("手机或电脑维修配件批发、分销或进口");
+  return labels;
 }
 
 type DeterministicCandidate = {
