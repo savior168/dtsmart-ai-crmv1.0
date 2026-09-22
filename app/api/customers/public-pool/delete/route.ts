@@ -18,7 +18,11 @@ export async function POST(request: NextRequest) {
       results: ids.map((id) => result.failures.find((item) => item.id === id) || { id, ok: result.successIds.includes(id) }),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "公海客户删除失败";
+    const message = error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error && typeof error.message === "string"
+        ? error.message
+        : "公海客户删除失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }

@@ -52,6 +52,39 @@ export async function permanentlyDeleteCustomers({
     .map((id) => ({ id, ok: false, error: linkedIds.has(id) ? "客户已有报价或订单记录，为保证业务凭证完整不可物理删除；请通过客户阶段继续流转" : "客户不存在、已删除或您没有删除权限" }));
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
+  // AI acquisition candidates keep historical task provenance after a
+  // customer is removed. A candidate can point both at the customer and at an
+  // AI screening item which itself is deleted through the customer's cascade.
+  // PostgreSQL can otherwise process the two SET NULL cascade paths in an
+  // order that leaves the candidate temporarily referencing an already
+  // deleted task item (23503). Detach both paths explicitly before deleting
+  // the customer so the operation is deterministic.
+  const screeningItemIds: string[] = [];
+  for (let offset = 0; offset < allowedIds.length; offset += 200) {
+    const page = await admin.from("ai_screening_task_items")
+      .select("id")
+      .in("customer_id", allowedIds.slice(offset, offset + 200));
+    if (page.error && !/does not exist|schema cache/i.test(page.error.message)) throw page.error;
+    screeningItemIds.push(...(page.data || []).map((item) => item.id));
+  }
+  for (let offset = 0; offset < screeningItemIds.length; offset += 200) {
+    const detached = await admin.from("ai_acquisition_candidates")
+      .update({ screening_task_item_id: null })
+      .in("screening_task_item_id", screeningItemIds.slice(offset, offset + 200));
+    if (detached.error && !/does not exist|schema cache/i.test(detached.error.message)) throw detached.error;
+  }
+  for (let offset = 0; offset < allowedIds.length; offset += 200) {
+    const batch = allowedIds.slice(offset, offset + 200);
+    const stagingDetached = await admin.from("ai_acquisition_candidates")
+      .update({ staging_customer_id: null })
+      .in("staging_customer_id", batch);
+    if (stagingDetached.error && !/does not exist|schema cache/i.test(stagingDetached.error.message)) throw stagingDetached.error;
+    const importedDetached = await admin.from("ai_acquisition_candidates")
+      .update({ imported_customer_id: null })
+      .in("imported_customer_id", batch);
+    if (importedDetached.error && !/does not exist|schema cache/i.test(importedDetached.error.message)) throw importedDetached.error;
+  }
+
   // Legacy compatibility tables created before ON DELETE CASCADE must be
   // detached first. Newer related records are removed by their FK cascades.
   const compatibilityErrors: string[] = [];
