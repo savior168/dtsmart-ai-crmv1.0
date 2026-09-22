@@ -8,6 +8,7 @@ import {
   Download,
   ChevronDown,
   ChevronUp,
+  Eye,
   FileSpreadsheet,
   Plus,
   Search,
@@ -1000,16 +1001,16 @@ export function CustomersView() {
                       </td>
                     ))}
                     <td className="sticky right-0 z-10 min-w-44 align-middle bg-white px-4 py-3">
-                      <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}
                         prefetch={false}
                         onClick={(event) => event.stopPropagation()}
-                        className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                         title={crossUserReadOnly ? "查看客户详情（跨用户数据只读）" : "查看客户详情"}
                         aria-label={`查看${row.company_name}详情`}
                       >
-                        详情
+                        <Eye size={14}/>
                       </Link>
                       {!crossUserReadOnly ? <RowActionMenu ariaLabel={`${row.company_name}操作菜单`}>
                         <RowActionItem onClick={() => router.push(`/customers/${row.id}?action=followup`)}>新增跟进</RowActionItem>
