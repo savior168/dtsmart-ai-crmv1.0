@@ -281,6 +281,7 @@ assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*channel_checkpoint: \{\}, checkpoint: \{\}[\s\S]*analyzed_channels: \[\], skipped_channels: \[\]/,"待复核重判必须清空旧渠道检查点，重新核对Google商家、官网和公开渠道，不能只用旧证据重算分数");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
+assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*processed_count: Math\.max\(0, Number\(task\.processed_count \|\| 0\) - recovery\.requeued\)[\s\S]*review_count: 0[\s\S]*duplicate_count: Number\(task\.duplicate_count \|\| 0\) \+ Number\(recovery\.deduplicated \|\| 0\)/,"待复核重判后任务中心必须立即显示当前决策数量和真实未完成进度");
 assert.match(detailRoute,/action === "RETRY"[\s\S]*\["FAILED", "COMPLETED"\][\s\S]*没有可恢复的未核验项[\s\S]*attempt_count: 0, retryable: true[\s\S]*正在从检查点恢复未完成的候选核验/,"历史已完成任务若仍有超时失败项，必须允许从检查点安全恢复并获得一轮新的有限重试机会");
 assert.match(detailRoute,/failedItems[\s\S]*customer_id/,"从检查点重试必须定位失败项对应的暂存客户");
 assert.match(detailRoute,/deleted_at: null[\s\S]*pool_status: "AI_STAGING"[\s\S]*in\("source", \["AI_ACQUISITION_STAGING", "AI_ACQUISITION"\]\)/,"从检查点重试必须恢复本任务精确关联的历史或当前AI暂存客户，避免CUSTOMER_NOT_FOUND无限失败");

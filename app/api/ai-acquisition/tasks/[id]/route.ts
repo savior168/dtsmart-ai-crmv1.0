@@ -303,6 +303,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (resetChild.error) throw resetChild.error;
       const resetTask = await admin.from("ai_acquisition_tasks").update({
         status: "QUEUED", current_stage: "VERIFYING", current_stage_detail: `正在重新分析、补证并评分 ${recovery.requeued} 条待复核客户`,
+        processed_count: Math.max(0, Number(task.processed_count || 0) - recovery.requeued),
+        review_count: 0,
+        duplicate_count: Number(task.duplicate_count || 0) + Number(recovery.deduplicated || 0),
         cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null,
         workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now,
       }).eq("id", id).in("status", ["COMPLETED", "FAILED"]);
