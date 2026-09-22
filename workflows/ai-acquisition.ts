@@ -287,15 +287,17 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
   // database statement-timeout pressure when several acquisition tasks finish
   // concurrently. The loop drains all ready rows through durable small steps.
   const batchSize = 25;
-  const waitingCandidates = await admin.from("ai_acquisition_candidates").select("id,screening_task_item_id").eq("task_id", task.id).eq("decision", "ANALYZING").not("screening_task_item_id","is",null).limit(125);
-  if(waitingCandidates.error)throw waitingCandidates.error;
-  const waitingItemIds=(waitingCandidates.data||[]).map((row)=>String(row.screening_task_item_id||"")).filter(Boolean);
-  if(!waitingItemIds.length)return false;
-  const readyItems = await admin.from("ai_screening_task_items").select("id").eq("task_id", screeningTaskId).eq("status", "COMPLETED").in("id",waitingItemIds).limit(batchSize);
-  if(readyItems.error)throw readyItems.error;
-  const readyItemIds=(readyItems.data||[]).map((row)=>String(row.id));
-  if(!readyItemIds.length)return false;
-  const candidates = await admin.from("ai_acquisition_candidates").select("*").eq("task_id", task.id).eq("decision", "ANALYZING").in("screening_task_item_id",readyItemIds).limit(batchSize);
+  // Filter by the joined screening-item status before applying the limit.
+  // Limiting ANALYZING candidates first can permanently hide later completed
+  // rows behind an earlier pending page (head-of-line blocking), so verified
+  // customers would not enter the pool until the entire child task finished.
+  const candidates = await admin.from("ai_acquisition_candidates")
+    .select("*,screening_item:ai_screening_task_items!inner(id,status,task_id)")
+    .eq("task_id", task.id)
+    .eq("decision", "ANALYZING")
+    .eq("screening_item.task_id", screeningTaskId)
+    .eq("screening_item.status", "COMPLETED")
+    .limit(batchSize);
   if(candidates.error)throw candidates.error;
   const batch=candidates.data||[];
   if(!batch.length)return false;

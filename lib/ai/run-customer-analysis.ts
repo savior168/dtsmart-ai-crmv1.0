@@ -29,6 +29,7 @@ import { AI_FIELD_MAPPING_VERSION, mapCustomerForAi, type AiMappedCustomer } fro
 import { AI_RULE_VERSION, findReusableAnalysis, saveReusableAnalysis } from "./reuse-cache";
 import { applyTrustedAcquisitionGoogleSnapshot } from "./acquisition-google-snapshot";
 import { officialWebsiteUrl } from "@/lib/public-url";
+import { googleProfileHasTemporalBusinessConflict } from "./google-profile-consistency";
 import {
   compatibilityTargetDecision,
   evaluateEvidenceGate,
@@ -269,7 +270,7 @@ export function verifiedOfficialWebsiteFromGoogle(records: ChannelRecord[]) {
   const google = record?.evidence as GooglePlaceEvidence | undefined;
   const candidate = String(google?.website || "").trim();
   const host = websiteHost(candidate);
-  if (!candidate || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host)) return null;
+  if (!candidate || !host || NON_OFFICIAL_WEBSITE_HOSTS.test(host) || googleProfileHasTemporalBusinessConflict(google)) return null;
   const confidence = Number(google?.identity_confidence || 0);
   const strongSignals = googleStrongIdentitySignals(google?.match_signals);
   const signalText = strongSignals.join("；");
@@ -367,6 +368,22 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   const googleConfidence = Number(google?.identity_confidence || 0);
   const googleMatchSignals = google?.match_signals || [];
   const googleMismatchSignals = google?.mismatch_signals || [];
+  const temporalBusinessConflict = googleProfileHasTemporalBusinessConflict(google);
+  if (google && temporalBusinessConflict) return {
+    status: "CONFLICTED" as const,
+    confidence: Math.min(69, Number(google.identity_confidence || 0)),
+    verifiedBusinessName: google.name || null,
+    verifiedAddress: google.formatted_address || null,
+    verifiedWebsite: null,
+    verifiedGoogleMapsUrl: google.verified_google_maps_url || customer.google_url,
+    placeId: google.place_id || null,
+    candidateCount: Number(google.candidate_count || 0),
+    matchSignals: googleMatchSignals,
+    mismatchSignals: [...new Set([
+      ...googleMismatchSignals,
+      "Google当前商家名称属于非目标行业，但经营描述或评论指向另一家手机电脑业务，疑似商家更名、换主体或历史资料残留",
+    ])],
+  };
   const exactGoogleSignals = googleStrongIdentitySignals(googleMatchSignals).length;
   const onlyReplaceableContactMismatches = googleMismatchSignals.length > 0
     && googleMismatchSignals.every((signal) => /电话|官网|域名|换号|分店/.test(signal));
@@ -1160,7 +1177,7 @@ function googleCategoryText(item: GooglePlaceEvidence) {
 }
 
 export function hasVerifiedGoogleBusinessCategory(item: GooglePlaceEvidence) {
-  if (item.identity_status !== "MATCHED") return false;
+  if (item.identity_status !== "MATCHED" || googleProfileHasTemporalBusinessConflict(item)) return false;
   const signals = (item.match_signals || []).join("；");
   const corroboratedIdentity = /(?:地址|电话|官网|place.?id|address|phone|website|domain)/i.test(signals);
   const exactNameAndAddress = /名称/.test(signals) && /地址/.test(signals);
@@ -1660,7 +1677,9 @@ export function deterministicAnalysis(customer: CustomerRow, records: ChannelRec
   const websiteRecord = records.find((item) => item.channel === "website" && item.status === "COLLECTED");
   const website = websiteRecord?.evidence as WebsiteEvidence | undefined;
   const candidates: DeterministicCandidate[] = [];
-  if (google?.name && /^https?:\/\//i.test(googleUrl) && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))) {
+  if (google?.name && /^https?:\/\//i.test(googleUrl)
+      && ["MATCHED", "LIKELY_MATCHED"].includes(String(google.identity_status))
+      && !googleProfileHasTemporalBusinessConflict(google)) {
     candidates.push({
       channel: "google_maps",
       url: googleUrl,

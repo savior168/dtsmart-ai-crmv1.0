@@ -4,6 +4,7 @@ import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate.ts";
 import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match.ts";
 import { summarizeUsagePurposes } from "../lib/api-usage-purpose.ts";
 import { discoveryCandidateLooksRelevant } from "../lib/ai-acquisition/relevance.ts";
+import { googleProfileHasTemporalBusinessConflict } from "../lib/ai/google-profile-consistency.ts";
 
 const base={automationStatus:"AUTO_DEVELOP",targetDecision:"VALID",score:82,identityStatus:"MATCHED",evidenceUrls:[{source_url:"https://example.com/services",evidence_strength:"STRONG"}],contacts:[{type:"EMAIL",value_normalized:"sales@example.com",verification_status:"NEW_VERIFIED",identity_match_status:"MATCHED",contact_status:"ACTIVE_UNKNOWN",exact_source_url:"https://example.com/contact"}]};
 assert.equal(evaluateAcquisitionGate(base).accepted,true,"完整强证据和可追溯联系方式应允许入池");
@@ -41,11 +42,17 @@ assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Comp
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Trust Computers & Repairs",types:["electronics_store","service"]},["电脑维修店"],["computer repair shop"]),true,"电脑和维修的复数形式不得被完全匹配误杀");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Birmingham Laptop Repairs",types:["electronics_store","service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把laptop repair识别为同域候选并进入证据核验");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"PC Repair Guru",types:["service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把PC repair识别为同域候选并进入证据核验");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"iRepairFone",types:["service"]},["手机维修店"],["mobile phone repair"]),true,"紧凑维修品牌名不得因Google泛类别而在补证前被误拒");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"360phonefix.co.uk",types:["establishment"]},["手机维修店"],["mobile phone repair"]),true,"包含phone fix的域名式商家名必须进入证据核验");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"fixmybrokenscreen.co.uk",types:["establishment"]},["手机维修店"],["mobile phone repair"]),true,"包含screen fix的紧凑商家名必须进入证据核验");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"City Barber",types:["hair_salon"]},["手机维修店"],["mobile phone repair"]),false,"精确维修查询不能让明确理发店绕过跨行业门槛");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"North Foods",types:["food_wholesaler"],matchedTerms:["food wholesaler"]},["食品批发商"],["food wholesaler"]),true,"跨行业的行业实词加批发角色必须继续支持，不能写死为电子行业");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Harbour Hotel",types:["lodging"],matchedTerms:["hotel"]},["酒店"],["hotel"]),true,"明确行业名称匹配应支持服务业客户");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Motor Parts Direct",types:["auto_parts_store"],matchedTerms:["spare parts"]},["手机配件批发商"],["mobile phone spare parts wholesaler"]),false,"汽车配件商不得因spare parts泛词进入手机配件核验");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Environmental Computer Recycling and Removals Ltd",types:["recycling_center"],matchedTerms:["computer repair"]},["电脑维修店"],["computer repair shop"]),false,"电脑回收清运不得因computer词进入电脑维修核验");
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Fresh Produce Wholesale",types:["food_wholesaler"],matchedTerms:["wholesale"]},["食品饮料批发商"],["food wholesaler"]),true,"用户明确选择食品行业时必须允许食品批发候选");
+assert.equal(googleProfileHasTemporalBusinessConflict({name:"ابو عبدالله للحلاقة",description:"Mobile Phone/Gadget Repairs & Sales. Alamo's repairs phones.",reviews:[],types:["hair_care"]}),true,"Google当前理发店名称与历史手机维修描述冲突时必须阻止自动认定主体和行业");
+assert.equal(googleProfileHasTemporalBusinessConflict({name:"Alamo's Mobile Repairs",description:"Mobile Phone/Gadget Repairs & Sales",reviews:[],types:["mobile_phone_repair_shop"]}),false,"名称与经营内容一致的手机维修商家不得被误判为历史资料冲突");
 const purposeSummary=summarizeUsagePurposes([
   {provider:"GOOGLE_PLACES",operation:"目标商家搜索",quantity:2,amount_usd:0.064},
   {provider:"GOOGLE_PLACES",operation:"商家详情与联系方式",quantity:1,amount_usd:0.02},
@@ -180,6 +187,7 @@ assert.match(acquisitionConfig,/电脑维修店[\s\S]*computer repair shop[\s\S]
 assert.doesNotMatch(acquisitionConfig,/\["(?:repair|supplier|shop|store|wholesaler|distributor|screen repair|battery replacement|board repair|replacement parts|computer parts)"(?:,|\])/,"推荐词不得使用会扩大到无关行业的裸角色词或裸配件词");
 assert.match(acquisitionConfig,/B2B wholesale supplier[\s\S]*repair centre[\s\S]*industryKeywordCore[\s\S]*roleKeywordBuilder/,"自定义行业推荐必须由行业核心对象与业务角色组成完整搜索短语");
 assert.match(acquisitionConfig,/keywordAlreadyScopesIndustry\(term, keyword\)[\s\S]*\? keyword : `\$\{base\} \$\{keyword\}`/,"已包含行业对象的精准短语不得再次拼接行业造成重复，用户自定义关键词仍必须受行业限定");
+assert.match(acquisitionConfig,/canonicalSearchScopeToken[\s\S]*smartphone[\s\S]*return "phone"[\s\S]*laptop[\s\S]*return "computer"[\s\S]*meaningfulSearchTokens\(industryTerm\)\.map\(canonicalSearchScopeToken\)[\s\S]*meaningfulSearchTokens\(keyword\)\.map\(canonicalSearchScopeToken\)/,"手机和电脑同义词必须按业务域去重，避免拼接成低质量重复查询");
 assert.match(acquisitionConfig,/ACQUISITION_COMMON_INDUSTRIES[\s\S]*汽车配件批发商[\s\S]*机械设备经销商[\s\S]*服装批发商[\s\S]*医疗器械经销商[\s\S]*酒店用品供应商[\s\S]*软件服务公司/,"未形成个人偏好前的行业推荐必须覆盖多行业，不得固化成单一垂直行业");
 assert.match(acquisitionConfig,/ACQUISITION_INDUSTRY_GROUPS[\s\S]*aliases:[\s\S]*industries:[\s\S]*categoryMatches[\s\S]*similarityMatches/,"行业推荐必须同时支持大类到兼容细分行业的分类关系和文本相似度");
 assert.match(acquisitionConfig,/aliases: \["手机", "手机维修"[\s\S]*手机维修配件经销商[\s\S]*手机屏幕批发商[\s\S]*手机电池批发商[\s\S]*手机主板配件经销商[\s\S]*手机维修工具供应商/,"手机维修业务域必须覆盖维修、连锁、维修配件批发经销和核心内配件细分行业");
@@ -239,7 +247,8 @@ assert.match(acquisitionWorkflow,/verificationState[\s\S]*Promise\.all\([\s\S]*a
 assert.match(acquisitionWorkflow,/existingCandidateCount[\s\S]*taskRemainingCapacity[\s\S]*staging\.control==="PAUSED"\|\|staging\.control==="CONTINUE"/,"跨批次发现必须按任务累计候选计算剩余容量并由持久化工作流连续推进");
 assert.match(acquisitionWorkflow,/unique\.size < taskRemainingCapacity/,"每一批候选必须受任务实际剩余容量约束，不能在多国家任务中越过安全上限");
 assert.match(acquisitionWorkflow,/stagingConcurrency=10[\s\S]*Promise\.all\(candidatesToAnalyze\.slice/,"大批量真实候选建档必须采用受控并发，避免逐条串行拖慢获客任务");
-assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\S]*finalizeCandidateBatch[\s\S]*waitingCandidates[\s\S]*\.limit\(125\)[\s\S]*\.limit\(batchSize\)/,"全部候选必须通过可恢复的小批次判定且不得受Supabase默认行数截断");
+assert.match(acquisitionWorkflow,/select\("id",\{count:"exact",head:true\}\)[\s\S]*finalizeCandidateBatch[\s\S]*ai_screening_task_items!inner[\s\S]*screening_item\.status[\s\S]*COMPLETED[\s\S]*\.limit\(batchSize\)/,"最终准入必须在数据库中过滤已完成核验项后再限量，避免待处理行造成队头阻塞");
+assert.doesNotMatch(acquisitionWorkflow,/waitingCandidates[\s\S]*\.limit\(125\)/,"最终准入不得先截取前125条待判候选再查完成状态");
 assert.match(acquisitionWorkflow,/decisionCount[\s\S]*head:true[\s\S]*while\(await finalizeCandidateBatch\(task,screeningTaskId\)\)/,"最终汇总必须使用精确计数且质量准入必须拆成可恢复批次，避免单步骤超时");
 assert.match(acquisitionWorkflow,/let pollSeconds = 15[\s\S]*sleep\(`\$\{pollSeconds\}s`\)[\s\S]*Math\.min\(60, pollSeconds \+ 15\)/,"获客核验轮询必须采用15至60秒退避，避免浪费Vercel工作流事件");
 assert.match(acquisitionWorkflow,/const batchSize = 25[\s\S]*\.in\("task_item_id", itemIds\)[\s\S]*\.in\("customer_id", customerIds\)[\s\S]*resultByItem[\s\S]*contactsByCustomer[\s\S]*evidenceByItem/,"最终质量判定必须小批量预取，避免多任务并发时数据库语句超时");

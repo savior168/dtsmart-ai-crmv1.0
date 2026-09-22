@@ -253,9 +253,16 @@ function meaningfulSearchTokens(value: string) {
   return value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length >= 3 && !SEARCH_SCOPE_STOPWORDS.has(token));
 }
 
+function canonicalSearchScopeToken(token: string) {
+  if (/^(?:phone|mobile|smartphone|cellphone|iphone|handy|telefon)$/.test(token)) return "phone";
+  if (/^(?:computer|pc|laptop|notebook|desktop|mac|macbook)$/.test(token)) return "computer";
+  if (/^(?:part|parts|spare|spares|component|components|accessory|accessories)$/.test(token)) return "parts";
+  return token;
+}
+
 function keywordAlreadyScopesIndustry(industryTerm: string, keyword: string) {
-  const industryTokens = meaningfulSearchTokens(industryTerm);
-  const keywordTokens = new Set(meaningfulSearchTokens(keyword));
+  const industryTokens = meaningfulSearchTokens(industryTerm).map(canonicalSearchScopeToken);
+  const keywordTokens = new Set(meaningfulSearchTokens(keyword).map(canonicalSearchScopeToken));
   return industryTokens.some((token) => keywordTokens.has(token));
 }
 

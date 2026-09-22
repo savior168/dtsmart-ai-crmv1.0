@@ -56,10 +56,22 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
   const targetBusinessSignal = /(?:repair|refurbish|wholesale|supplier|distribut|importer|manufacturer|factory|agency|contractor|screen replacement|battery replacement|spare parts|维修|翻新|批发|供应|经销|进口|制造|配件)/i.test(businessText);
   const relevantGoogleType = candidate.types.some((value) => /(?:^|_)(?:repair|wholesaler|supplier|manufacturer|distributor|importer|agency|contractor)(?:_|$)/i.test(value));
   const explicitlyIrrelevantType = candidate.types.some((value) => /^(?:hair_salon|hair_care|finance|courier_service|shipping_service|furniture_store|general_contractor|auto_parts_store|car_repair|restaurant|cafe|pharmacy|lodging|real_estate_agency)$/i.test(value));
+  const compactBusinessText = businessText.replace(/[^\p{L}\p{N}]+/gu, "");
+  const candidateRepairRole = /(?:repair|repairology|fix|clinic|surgery|doctor|smash|serwis|napraw|repar|维修|修理)/i.test(businessText)
+    || /(?:repair|repairology|fix|serwis|napraw|repar)/i.test(compactBusinessText);
+  const matchedQueryText = (candidate.matchedTerms || []).join(" ").toLowerCase();
+  const matchedQueryHasTargetDomain = /(?:phone|mobile|smartphone|cell ?phone|iphone|ipad|computer|pc|laptop|notebook|macbook|screen|手机|电脑|笔记本)/i.test(matchedQueryText);
+  const matchedQueryHasTargetRole = /(?:repair|fix|replacement|service|维修|修理|更换)/i.test(matchedQueryText);
+  // Search-query provenance is only a recall signal and never proves the
+  // business by itself. A repair-branded result from a precise device-repair
+  // query may proceed to evidence verification even when Google returned a
+  // generic type or a compact brand such as iRepairFone/fixmybrokenscreen.
+  const preciseRepairQueryRecall = candidateRepairRole && matchedQueryHasTargetDomain && matchedQueryHasTargetRole;
   // Discovery is a recall-oriented gate. It may send an uncertain candidate to
   // evidence verification, but must never reject an obvious repair/supply lead
   // merely because Google returned a generic category or a plural/synonym.
-  const requestedMatch = matchedDomainTerms.length > 0 && (hasSpecificDomainMatch || targetBusinessSignal || relevantGoogleType);
+  const requestedMatch = (matchedDomainTerms.length > 0 && (hasSpecificDomainMatch || targetBusinessSignal || relevantGoogleType))
+    || preciseRepairQueryRecall;
   return candidate.businessStatus !== "CLOSED_PERMANENTLY"
     && !(explicitlyIrrelevantType && !requestedMatch)
     && requestedMatch;
