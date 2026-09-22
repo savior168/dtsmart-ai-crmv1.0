@@ -302,6 +302,7 @@ assert.match(acquisitionDispatch,/current_stage_detail[\s\S]*maintenanceProtecte
 assert.doesNotMatch(acquisitionDispatch,/settleStalePausingTasks|eq\("status", "PAUSING"\)/,"恢复器不得每分钟扫描人工暂停边界并与前台查询争抢数据库；运行中工作流负责在安全检查点收口暂停");
 assert.match(recoveryRoute,/screeningRecovery = maintenancePaused\.screening[\s\S]*recoverWithDeadline\("acquisition", rescueStalledAiAcquisitionTasks\)[\s\S]*screening_recovery_skipped/,"维护中的AI筛选不得阻断AI获客暂停收口和其他获客任务恢复");
 assert.doesNotMatch(recoveryRoute,/if \(maintenancePaused\.acquisition \|\| maintenancePaused\.screening\) \{[\s\S]*return NextResponse\.json/,"维护名单不得让整个恢复器提前返回");
+assert.doesNotMatch(recoveryRoute,/if \(maintenancePaused\.acquisition > 0\) \{[\s\S]*return NextResponse\.json/,"过期的获客维护名单不得阻断已人工恢复和其他排队任务");
 assert.match(acquisitionWorkflow,/normalizedErrorMessage[\s\S]*ACQUISITION_FINISH_COUNT_[\s\S]*ACQUISITION_FINISH_CANDIDATE_TOTALS[\s\S]*ACQUISITION_FINISH_TASK_UPDATE/,"任务完成收口必须保留可定位的数据库错误，不能只显示Unknown error");
 assert.match(detail,/discovery_progress[\s\S]*正在持续发现并核验目标客户[\s\S]*当前检索/,"任务详情必须实时展示实际检索表达及流水线完成进度");
 assert.match(detail,/任务编号 \{task\.task_number\}[\s\S]*创建人[\s\S]*创建于/,"任务详情标题元信息必须与AI筛选统一为编号、创建人和创建时间");
