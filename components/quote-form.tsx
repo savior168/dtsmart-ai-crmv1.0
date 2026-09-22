@@ -16,6 +16,7 @@ import {
   Paperclip,
   Plus,
   Save,
+  Search,
   Send,
   Trash2,
   XCircle,
@@ -65,6 +66,10 @@ type Attachment = {
   mime_type: string | null;
   size_bytes: number | null;
   created_at: string;
+};
+type QuoteProduct = {
+  id:string;sku:string;supplier_code:string|null;name_zh:string;name_en:string|null;brand:string|null;model:string|null;quality:string|null;description_en:string|null;unit:string;minimum_order_quantity:number;
+  total_cost_cny:number;suggested_price_usd:number;sale_reference_usd:number|null;exchange_rate:number;pricing_rule:Record<string,unknown>;quantity:number;
 };
 type Detail = {
   quote: QuoteData;
@@ -117,6 +122,9 @@ export function QuoteForm({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(editing);
   const [message, setMessage] = useState("");
+  const [productQuery,setProductQuery]=useState("");
+  const [productOptions,setProductOptions]=useState<QuoteProduct[]>([]);
+  const [productSearching,setProductSearching]=useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmation, setConfirmation] = useState({
     order_number: "",
@@ -218,13 +226,7 @@ export function QuoteForm({
         shipping_cost: Number(q.shipping_cost || 0),
         notes: q.notes || "",
         status: q.status,
-        items: (body.items || []).map((item: QuoteItem, index: number) => ({
-          ...item,
-          line_number: index + 1,
-          description_zh: null,
-          procurement_cost: 0,
-          preparation_requirement: null,
-        })),
+        items: (body.items || []).map((item: QuoteItem, index: number) => ({...item,line_number:index+1})),
       });
     })();
   }, [quoteId]);
@@ -270,6 +272,9 @@ export function QuoteForm({
       ],
     }));
   }
+  async function searchProducts(){setProductSearching(true);const params=new URLSearchParams({q:productQuery,quantity:"1"});const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));setProductSearching(false);if(!response.ok){setMessage(body.error||"可报价商品加载失败");return}setProductOptions(body.data||[])}
+  function addProduct(product:QuoteProduct){const item:QuoteItem={...emptyItem(),product_id:product.id,product_sku_snapshot:product.sku,supplier_code_snapshot:product.supplier_code,item_name:product.name_en||product.name_zh,brand:product.brand||"",model:product.model||"",quality:product.quality||"",description:product.description_en||"",quantity:Math.max(1,Math.ceil(Number(product.minimum_order_quantity)||1)),unit_price:Number(product.suggested_price_usd||0),procurement_cost:0,unit_cost_cny:Number(product.total_cost_cny||0),suggested_unit_price:Number(product.suggested_price_usd||0),exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule};setForm(current=>{const hasOnlyEmpty=current.items.length===1&&!current.items[0].item_name;const rows=hasOnlyEmpty?[item]:[...current.items,item];return{...current,items:rows.map((row,index)=>({...row,line_number:index+1}))}});setProductOptions([]);setProductQuery("");setMessage(`已添加 ${product.sku} · ${product.name_zh}，请核对数量和实际销售价。`)}
+  async function refreshItemPricing(index:number,item:QuoteItem){if(!item.product_id)return;const params=new URLSearchParams({q:item.product_sku_snapshot||item.item_name,quantity:String(item.quantity)});const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));if(!response.ok)return;const product=(body.data||[]).find((row:QuoteProduct)=>row.id===item.product_id) as QuoteProduct|undefined;if(!product)return;setForm(current=>({...current,items:current.items.map((row,rowIndex)=>rowIndex===index?{...row,unit_cost_cny:Number(product.total_cost_cny||0),suggested_unit_price:Number(product.suggested_price_usd||0),exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule}:row)}))}
   function insertItem(index: number) {
     setForm((current) => {
       const rows = [...current.items];
@@ -772,13 +777,14 @@ export function QuoteForm({
                 </div>
               ) : null}
             </div>
+            {!readonly?<section className="mb-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4"><div className="flex flex-wrap items-end gap-3"><label className="min-w-[320px] flex-1"><span className="mb-1.5 block text-sm font-medium text-slate-700">从商品库添加</span><div className="relative"><Search size={17} className="absolute left-3 top-3 text-slate-400"/><input value={productQuery} onChange={event=>setProductQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();void searchProducts()}}} placeholder="搜索商品名称、SKU、供应商货号、品牌或型号" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm"/></div></label><button type="button" disabled={productSearching} onClick={()=>void searchProducts()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{productSearching?<LoaderCircle size={16} className="animate-spin"/>:<Search size={16}/>}搜索商品</button></div>{productOptions.length?<div className="mt-3 grid gap-2 lg:grid-cols-2">{productOptions.map(product=><button key={product.id} type="button" onClick={()=>addProduct(product)} className="rounded-lg border border-slate-200 bg-white p-3 text-left hover:border-blue-300 hover:bg-blue-50"><div className="flex items-start justify-between gap-3"><div><b className="text-blue-700">{product.sku} · {product.name_zh}</b><small className="mt-1 block text-slate-500">{[product.brand,product.model,product.quality].filter(Boolean).join(" / ")||"规格未维护"}</small></div><span className="shrink-0 text-sm font-semibold text-emerald-700">建议 USD {Number(product.suggested_price_usd).toFixed(2)}</span></div><small className="mt-2 block text-slate-500">完整成本 CNY {Number(product.total_cost_cny).toFixed(2)} · MOQ {Number(product.minimum_order_quantity)} {product.unit}</small></button>)}</div>:null}</section>:null}
             <div className="overflow-x-auto rounded-xl border">
               <table className="w-full min-w-[1050px] text-left text-xs">
                 <thead className="bg-slate-50">
                   <tr>
                     {[
                       "序号",
-                      "产品",
+                      "产品 / SKU",
                       "品牌",
                       "型号",
                       "质量",
@@ -808,14 +814,14 @@ export function QuoteForm({
                         ] as const
                       ).map((key) => (
                         <td key={key} className="px-2 py-2">
-                          <input
+                          <div><input
                             disabled={readonly}
                             value={String(item[key] || "")}
                             onChange={(e) =>
                               updateItem(index, key, e.target.value)
                             }
                             className="h-9 w-full min-w-24 rounded border px-2"
-                          />
+                          />{key==="item_name"&&item.product_sku_snapshot?<small className="mt-1 block text-blue-600">{item.product_sku_snapshot}{item.supplier_code_snapshot?` · 供应商 ${item.supplier_code_snapshot}`:""}</small>:null}</div>
                         </td>
                       ))}
                       {(["quantity", "unit_price"] as const).map((key) => (
@@ -829,6 +835,7 @@ export function QuoteForm({
                             onChange={(e) =>
                               updateItem(index,key,key==="quantity"?Math.max(1,Math.round(Number(e.target.value)||1)):Number(e.target.value))
                             }
+                            onBlur={()=>key==="quantity"?void refreshItemPricing(index,item):undefined}
                             className="h-9 w-24 rounded border px-2 text-right"
                           />
                         </td>
@@ -838,6 +845,7 @@ export function QuoteForm({
                           Number(item.quantity || 0) *
                           Number(item.unit_price || 0)
                         ).toFixed(2)}
+                        {item.suggested_unit_price!==null&&item.suggested_unit_price!==undefined?<small className="mt-1 block font-normal text-slate-500">建议单价 {Number(item.suggested_unit_price).toFixed(2)}</small>:null}
                       </td>
                       <td className="px-2 py-2">
                         {!readonly ? (

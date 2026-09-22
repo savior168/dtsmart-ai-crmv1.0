@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateNormalizedProduct } from "@/lib/product-import";
+import { activeTier, completeCostCny, type PriceTier } from "@/lib/product-pricing";
 
 export async function GET(request: Request) {
   try {
@@ -23,7 +24,8 @@ export async function GET(request: Request) {
     const canViewSales = hasPermission(account, "pricebooks.sales.view");
     const rows = (data || []).map((product) => ({
       ...product,
-      total_cost_cny: canViewCostTotal ? (product.prices || []).filter((price: { price_kind: string; is_active: boolean }) => price.is_active && ["PROCUREMENT", "PACKAGING", "OTHER_COST"].includes(price.price_kind)).reduce((sum: number, price: { amount: number }) => sum + Number(price.amount), 0) : null,
+      total_cost_cny: canViewCostTotal ? completeCostCny((product.prices || []) as PriceTier[], Number(product.minimum_order_quantity) || 1) : null,
+      sale_reference_usd: canViewSales ? activeTier((product.prices || []) as PriceTier[], "SALE_REFERENCE", Number(product.minimum_order_quantity) || 1)?.amount ?? null : null,
       prices: (product.prices || []).filter((price: { price_kind: string }) =>
         (["PROCUREMENT", "PACKAGING", "OTHER_COST"].includes(price.price_kind) && canViewCost)
         || (price.price_kind === "SALE_REFERENCE" && canViewSales)),
@@ -42,16 +44,18 @@ export async function POST(request: Request) {
     const { supabase, user } = await requirePermission("products.manage");
     const body = await request.json();
     const { normalized, issues } = validateNormalizedProduct(body);
-    if (issues.some((issue) => issue.includes("SKU") || issue.includes("商品名称"))) return NextResponse.json({ error: issues.join("；") }, { status: 400 });
+    if (issues.some((issue) => issue.includes("商品名称"))) return NextResponse.json({ error: issues.join("；") }, { status: 400 });
     const admin = createAdminClient();
     const payload = {
-      sku: normalized.sku, name_zh: normalized.name_zh, name_en: normalized.name_en,
+      name_zh: normalized.name_zh, name_en: normalized.name_en,
       brand: normalized.brand, model: normalized.model, part_type: normalized.part_type,
       quality: normalized.quality, color: normalized.color, packaging: normalized.packaging,
       description_zh: normalized.description_zh, description_en: normalized.description_en,
       aliases: normalized.aliases, unit: normalized.unit,
       minimum_order_quantity: normalized.minimum_order_quantity, created_by: user.id, updated_by: user.id,
       category_id: body.category_id || null, image_url: String(body.image_url || "").trim() || null,
+      supplier_code: String(body.supplier_code || normalized.sku || "").trim() || null,
+      supplier_source: String(body.supplier_source || "").trim() || null,
     };
     const { data, error } = await admin.from("products").insert(payload).select("*").single();
     if (error) throw error;

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as XLSX from "xlsx";
 import { parseProductWorkbook, validateNormalizedProduct } from "../lib/product-import.ts";
+import { activeTier, completeCostCny, suggestedUsdPrice } from "../lib/product-pricing.ts";
 
 const root = process.cwd();
 const read = (path) => readFileSync(resolve(root, path), "utf8");
@@ -27,11 +28,12 @@ assert.equal(standard.normalized_data.procurement_cny, 320, "人民币采购价�
 assert.equal(standard.normalized_data.sale_usd, 58.5, "美元销售参考价必须保持数值精度");
 const matrix = parsed.candidates.find((row) => row.source_sheet === "官方屏幕-电池");
 assert.ok(matrix, "矩阵价格表必须保留候选而非静默丢弃");
-assert.equal(matrix.status, "REVIEW", "矩阵候选在缺少SKU时必须进入核对区，禁止猜测发布");
+assert.equal(matrix.status, "REVIEW", "矩阵候选在型号或品质语义不明确时必须进入核对区，禁止猜测发布");
 assert.ok(matrix.source_cell, "每个候选必须保留原单元格定位");
 
 const invalid = validateNormalizedProduct({ name_zh: "测试商品", procurement_cny: 10 });
-assert.ok(invalid.issues.some((issue) => issue.includes("SKU")), "缺少SKU必须被拦截");
+assert.ok(!invalid.issues.some((issue) => issue.includes("SKU")), "SKU必须由系统生成，不能要求用户填写");
+assert.deepEqual(invalid.issues, [], "有商品名称和价格时应允许系统自动生成SKU");
 const valid = validateNormalizedProduct({ sku: "TEST-001", name_zh: "测试商品", procurement_cny: 10, minimum_order_quantity: 1 });
 assert.deepEqual(valid.issues, [], "完整商品候选应通过校验");
 
@@ -40,6 +42,7 @@ for (const code of ["products.view","products.manage","pricebooks.view","pricebo
   assert.match(permissions, new RegExp(code.replaceAll(".", "\\.")), `权限目录缺少 ${code}`);
 }
 const migration = read("supabase/migrations/202609220002_product_catalog_pricebook.sql");
+const closedLoopMigration = read("supabase/migrations/202609220003_product_quote_closed_loop.sql");
 assert.match(migration, /product_import_batches[\s\S]*file_sha256[\s\S]*unique\(file_sha256\)/, "相同源文件必须幂等去重");
 assert.match(migration, /status in \('REVIEW','ERROR'\)[\s\S]*仍有待处理或错误数据，不能发布/, "待核对或错误行必须阻止发布");
 assert.match(migration, /source_import_row_id[\s\S]*source_note/, "价格必须追溯到导入来源");
@@ -48,9 +51,25 @@ assert.match(migration, /role_code = 'SALES'[\s\S]*pricebooks\.cost\.total\.view
 assert.match(migration, /role_code = 'WAREHOUSE'[\s\S]*pricebooks\.cost\.view/, "仓库员默认可查看成本拆分");
 assert.match(migration, /price_kind='SALE_REFERENCE' and public\.current_user_has_business_permission\('pricebooks\.sales\.view'\)/, "销售参考价必须单独鉴权");
 assert.match(migration, /if target\.status = 'PUBLISHED'[\s\S]*idempotent/, "重复发布必须幂等");
+assert.match(closedLoopMigration, /candidate := 'ZK-' \|\| to_char\(current_date, 'YYMM'\)[\s\S]*nextval[\s\S]*not exists\(select 1 from public\.products where sku=candidate\)/, "系统SKU必须由数据库序列并发安全生成并避让历史编码");
+assert.match(closedLoopMigration, /product_cost_at_quantity/, "报价成本必须按数量档位计算");
+assert.match(closedLoopMigration, /sales_pricing_settings[\s\S]*sales_pricing_rules/, "必须同时支持全局和商品或分类覆盖规则");
+assert.match(closedLoopMigration, /product_sku_snapshot[\s\S]*exchange_rate_snapshot[\s\S]*pricing_rule_snapshot/, "报价必须保存商品、汇率和规则快照");
+
+const tiers = [
+  {price_kind:"PROCUREMENT",currency:"CNY",amount:100,minimum_quantity:1,is_active:true,effective_from:"2026-01-01"},
+  {price_kind:"PROCUREMENT",currency:"CNY",amount:80,minimum_quantity:100,is_active:true,effective_from:"2026-01-01"},
+  {price_kind:"PACKAGING",currency:"CNY",amount:2,minimum_quantity:1,is_active:true,effective_from:"2026-01-01"},
+  {price_kind:"OTHER_COST",currency:"CNY",amount:3,minimum_quantity:1,is_active:true,effective_from:"2026-01-01"},
+];
+assert.equal(activeTier(tiers,"PROCUREMENT",50)?.amount,100,"数量50必须使用MOQ1采购价");
+assert.equal(activeTier(tiers,"PROCUREMENT",100)?.amount,80,"数量100必须使用MOQ100采购价");
+assert.equal(completeCostCny(tiers,100),85,"完整成本不能把不同MOQ采购价相加");
+assert.equal(suggestedUsdPrice(72,7.2,{markup_percent:20,minimum_margin_percent:15,rounding_increment:0.5}),12,"建议价必须满足加价和最低毛利并向上取整");
 
 const shell = read("components/app-shell.tsx");
-assert.match(shell, /label: "商品中心"[\s\S]*商品资料[\s\S]*产品价格表/, "商品中心必须使用规范二级菜单");
+assert.match(shell, /label: "商品中心"[\s\S]*商品资料[\s\S]*商品分类[\s\S]*产品价格表[\s\S]*销售报价设置[\s\S]*导入报价表/, "商品中心必须提供完整且有序的业务入口");
+assert.match(shell, /if \(href === "\/products"\) return path === "\/products"/, "商品资料必须精确匹配，禁止与分类、价格、报价设置或导入页面同时高亮");
 for (const path of ["components/product-catalog-view.tsx","components/product-pricebook-view.tsx","components/product-import-view.tsx","components/product-import-review-view.tsx"]) {
   const source = read(path);
   assert.match(source, /AppPagination|AppDialog|AppFilterBar/, `${path} 必须复用现有统一组件`);

@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { authErrorStatus, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await requirePermission("products.view");
-    const { data, error } = await createAdminClient().from("product_categories").select("id,code,name_zh,name_en,parent_id,sort_order,is_active").eq("is_active", true).order("sort_order").order("name_zh");
+    const url = new URL(request.url);
+    let query = createAdminClient().from("product_categories").select("id,code,name_zh,name_en,parent_id,sort_order,is_active");
+    if (url.searchParams.get("active") !== "all") query = query.eq("is_active", true);
+    const { data, error } = await query.order("sort_order").order("name_zh");
     if (error) throw error;
     return NextResponse.json({ data: data || [] });
   } catch (error) {

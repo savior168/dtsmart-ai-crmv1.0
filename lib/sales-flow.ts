@@ -31,6 +31,9 @@ export function normalizeQuoteItems(value: unknown): QuoteItem[] {
     const item = (raw || {}) as Record<string, unknown>;
     const normalized: QuoteItem = {
       line_number: index + 1,
+      product_id: text(item.product_id, 80) || null,
+      product_sku_snapshot: text(item.product_sku_snapshot, 80) || null,
+      supplier_code_snapshot: text(item.supplier_code_snapshot, 160) || null,
       item_name: text(item.item_name, 160),
       brand: text(item.brand, 120),
       model: text(item.model, 160),
@@ -40,6 +43,10 @@ export function normalizeQuoteItems(value: unknown): QuoteItem[] {
       quantity: positive(item.quantity),
       unit_price: nonNegative(item.unit_price),
       procurement_cost: 0,
+      unit_cost_cny: nonNegative(item.unit_cost_cny) < 0 ? null : nonNegative(item.unit_cost_cny),
+      suggested_unit_price: nonNegative(item.suggested_unit_price) < 0 ? null : nonNegative(item.suggested_unit_price),
+      exchange_rate_snapshot: positive(item.exchange_rate_snapshot) || null,
+      pricing_rule_snapshot: item.pricing_rule_snapshot && typeof item.pricing_rule_snapshot === "object" ? item.pricing_rule_snapshot as Record<string, unknown> : null,
       preparation_requirement: null,
     };
     if (!normalized.item_name) throw new Error(`第 ${index + 1} 行缺少产品名称`);

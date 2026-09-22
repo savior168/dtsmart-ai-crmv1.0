@@ -75,7 +75,6 @@ function number(value: unknown): number | null {
 
 function validate(normalized: ProductImportNormalized) {
   const issues: string[] = [];
-  if (!normalized.sku) issues.push("缺少唯一SKU，请核对后填写");
   if (!normalized.name_zh) issues.push("缺少商品名称");
   if (normalized.procurement_cny === null && normalized.packaging_cny === null && normalized.other_cost_cny === null && normalized.sale_usd === null) issues.push("缺少可识别的人民币成本或美元销售参考价");
   if (normalized.procurement_cny !== null && normalized.procurement_cny < 0) issues.push("人民币采购价不能为负数");
@@ -148,7 +147,7 @@ function parseMatrixSheet(sheetName: string, rows: unknown[][]) {
       normalized.quality = above.slice(-1)[0] || "";
       normalized.procurement_cny = price;
       const issues = validate(normalized);
-      issues.push("矩阵报价已识别，但必须补充唯一SKU并核对型号、品质及价格含义");
+      issues.push("矩阵报价已识别，请核对商品名称、型号、品质及价格含义；系统SKU将在发布时自动生成");
       output.push({
         source_sheet: sheetName,
         source_row: rowIndex + 1,

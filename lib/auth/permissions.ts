@@ -78,6 +78,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "pricebooks.manage", label: "维护产品价格", group: "商品中心", description: "新增、调整或停用产品价格版本", kind: "ACTION", core: true },
   { code: "pricebooks.import", label: "导入产品报价表", group: "商品中心", description: "上传并预览产品报价表，处理字段歧义和异常行", kind: "ACTION", core: true },
   { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "将全部校验通过的导入批次发布到商品与价格主档", kind: "ACTION", core: true },
+  { code: "pricebooks.rules.manage", label: "维护销售报价规则", group: "商品中心", description: "维护报价汇率、加价率、最低毛利和商品或分类覆盖规则", kind: "ACTION", core: true },
 
   { code: "quotes.view", label: "报价单", group: "销售管理", description: "查看权限范围内的报价单", kind: "PAGE" },
   { code: "quotes.data_all", label: "查看全部报价", group: "销售管理", description: "可按归属人只读查看全部报价", kind: "DATA" },

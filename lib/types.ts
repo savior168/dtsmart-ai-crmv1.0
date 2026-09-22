@@ -91,6 +91,9 @@ export const STOCK_STATUS_LABELS: Record<StockOrderStatus, string> = {
 
 export type QuoteItem = {
   id?: string;
+  product_id?: string | null;
+  product_sku_snapshot?: string | null;
+  supplier_code_snapshot?: string | null;
   line_number: number;
   item_name: string;
   brand: string;
@@ -101,5 +104,9 @@ export type QuoteItem = {
   quantity: number;
   unit_price: number;
   procurement_cost: number;
+  unit_cost_cny?: number | null;
+  suggested_unit_price?: number | null;
+  exchange_rate_snapshot?: number | null;
+  pricing_rule_snapshot?: Record<string, unknown> | null;
   preparation_requirement?: string | null;
 };

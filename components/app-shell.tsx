@@ -31,6 +31,15 @@ import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
   {
+    label: "商品中心", icon: PackageSearch, defaultHref: "/products", children: [
+      { label: "商品资料", href: "/products", permission: "products.view" },
+      { label: "商品分类", href: "/products/categories", permission: "products.view" },
+      { label: "产品价格表", href: "/products/prices", permission: "pricebooks.view" },
+      { label: "销售报价设置", href: "/products/pricing", permission: "pricebooks.view" },
+      { label: "导入报价表", href: "/products/import", permission: "pricebooks.import" },
+    ],
+  },
+  {
     label: "客户中心", icon: UsersRound, defaultHref: "/customers/pool", children: [
       { label: "客户公海", href: "/customers/pool", permission: "customers.view" },
       { label: "我的客户", href: "/customers", permission: "customers.view" },
@@ -42,12 +51,6 @@ const menu = [
       { label: "AI获客", href: "/ai-acquisition", permission: "ai.acquisition.view" },
       { label: "获客结果", href: "/ai-acquisition/customers", permission: "ai.acquisition.view" },
       { label: "AI筛选", href: "/ai-screening", permission: "ai.tasks.view" },
-    ],
-  },
-  {
-    label: "商品中心", icon: PackageSearch, defaultHref: "/products", children: [
-      { label: "商品资料", href: "/products", permission: "products.view" },
-      { label: "产品价格表", href: "/products/prices", permission: "pricebooks.view" },
     ],
   },
   {
@@ -99,6 +102,8 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/followups$/, "客户中心 / 跟进管理"],
   [/^\/products\/import\/[^/]+$/, "商品中心 / 产品价格表 / 导入核对"],
   [/^\/products\/import$/, "商品中心 / 产品价格表 / 导入"],
+  [/^\/products\/pricing$/, "商品中心 / 销售报价设置"],
+  [/^\/products\/categories$/, "商品中心 / 商品分类"],
   [/^\/products\/prices$/, "商品中心 / 产品价格表"],
   [/^\/products$/, "商品中心 / 商品资料"],
   [/^\/quotes\/new$/, "销售管理 / 报价单 / 创建报价单"],
@@ -137,6 +142,9 @@ function isActive(path: string, href: string, fromPool = false) {
     return path !== "/ai-acquisition/customers" &&
       (path === "/ai-acquisition" || path.startsWith("/ai-acquisition/"));
   }
+  // Product center has several sibling pages below /products. The product
+  // master entry is exact-match only, otherwise every sibling looks selected.
+  if (href === "/products") return path === "/products";
   return href === "/"
     ? path === "/"
     : path === href || path.startsWith(`${href}/`);
