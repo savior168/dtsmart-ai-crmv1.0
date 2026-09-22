@@ -10,6 +10,7 @@ export const panel = "rounded-[10px] border border-[#e1e6ef] bg-white";
 export const input = "h-[38px] rounded-[7px] border border-[#dbe2ec] bg-white px-[10px] text-sm text-[#334157] outline-none transition focus:border-[#1763e8] focus:ring-2 focus:ring-blue-100";
 export const button = "inline-flex h-[38px] items-center justify-center gap-1.5 rounded-[7px] border border-[#d8dfe9] bg-white px-[14px] text-sm font-medium text-[#314057] transition hover:border-[#1763e8] hover:text-[#1763e8] disabled:cursor-not-allowed disabled:opacity-45";
 export const primaryButton = `${button} border-blue-600 bg-blue-600 text-white hover:border-blue-700 hover:bg-blue-700 hover:text-white`;
+export const taskDetailButton = "inline-flex h-8 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700";
 
 const statusMap: Record<string, { label: string; className: string }> = {
   QUEUED: { label: "排队中", className: "bg-amber-50 text-amber-700" },

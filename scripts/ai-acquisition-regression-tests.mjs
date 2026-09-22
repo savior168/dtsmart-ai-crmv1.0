@@ -297,6 +297,7 @@ assert.match(listRoute,/get_ai_acquisition_discovery_progress[\s\S]*terminal_cou
 assert.match(reviewRoute,/trustedEvidenceUrls[\s\S]*SOURCE_CONFIRMED[\s\S]*refreshedContacts[\s\S]*evaluateAcquisitionGate/,"重新核验必须基于强证据修复可追溯联系方式后重新执行入池门槛");
 assert.match(evidenceRoute,/select\("id,score[\s\S]*result\.data\?\.id[\s\S]*eq\("result_id", result\.data\.id\)[\s\S]*evidence_available/,"查看依据必须通过已索引的最终结果读取证据，并让无深度核验的早筛候选正常返回");
 const detail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
+const candidateEvidenceDialog=fs.readFileSync(new URL("../components/ai-acquisition/candidate-evidence-dialog.tsx",import.meta.url),"utf8");
 const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatch.ts",import.meta.url),"utf8");
 assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
 assert.match(acquisitionDispatch,/current_stage_detail[\s\S]*maintenanceProtected[\s\S]*includes\("系统维护暂停"\)/,"维护名单只能保护仍带维护暂停标记的任务，人工继续后不得被自动再次暂停");
@@ -316,8 +317,8 @@ assert.match(detail,/查看处理明细[\s\S]*快速排除或重复[\s\S]*进入
 assert.match(detail,/maintenancePaused[\s\S]*\["RUNNING", "PAUSING"\]\.includes\(task\.status\) && !maintenancePaused[\s\S]*task\.status === "PAUSED" \|\| maintenancePaused[\s\S]*StatusBadge status=\{maintenancePaused\?"PAUSED":task\.status\}[\s\S]*不会新增调用或费用[\s\S]*只有人工点击“继续执行”后才会恢复[\s\S]*最近进展/,"维护暂停必须显示为暂停；失效执行器卡在暂停中时必须提供完成暂停入口");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
 assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"AI评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
-assert.match(detail,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");
-assert.match(detail,/核验结论[\s\S]*identityLabel\[evidence\.analysis\?\.identity_status/,"获客依据摘要必须使用中文业务标签并明确展示核验结论");
+assert.match(candidateEvidenceDialog,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情与跨任务结果必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");
+assert.match(candidateEvidenceDialog,/identityLabel\[evidence\.analysis\?\.identity_status[\s\S]*核验结论/,"获客依据摘要必须使用中文业务标签并明确展示核验结论");
 assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CustomerScoreBadge[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");
 assert.doesNotMatch(detail,/"客户与地区"|"AI匹配"|"商机线索与销售建议"/,"本次客户列表不得继续使用混合字段标题");
 assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*平均入池成本参考/,"搜索策略效果必须默认折叠并保留从发现到转化的质量与成本闭环");
@@ -352,7 +353,7 @@ assert.match(contactSummary,/EXCEL_IMPORT[\s\S]*BATCH_IMPORT[\s\S]*Excel导入[\
 assert.match(scoreBadge,/score>=80[\s\S]*score>=65[\s\S]*score>=50/,"相似客户页面必须共用统一评分分档样式");
 assert.match(detail,/CustomerScoreBadge score=\{r\.ai_score\}/,"AI获客客户列表必须复用全局客户评分组件");
 assert.match(publicPool,/CustomerScoreBadge score=\{row\.ai_score\}/,"客户公海必须复用同一评分组件，避免同字段多套样式");
-assert.match(detail,/确认舍弃[\s\S]*重新校验并入池/,"待复核客户必须提供安全的人工处理闭环");
+assert.match(candidateEvidenceDialog,/确认舍弃[\s\S]*重新校验并入池/,"待复核客户必须提供安全的人工处理闭环");
 assert.match(detail,/task\.review_count > 0[\s\S]*\["COMPLETED", "FAILED"\][\s\S]*REASSESS_REVIEWS[\s\S]*重新核验待复核[\s\S]*清空待复核客户的旧评分、旧结论与旧渠道检查点/,"已完成或失败任务必须提供可审计的全量待复核重新核验入口，并明确不会沿用旧评分或旧采集检查点");
 assert.match(detail,/task\.status === "COMPLETED"[\s\S]*task\.processed_count[\s\S]*task\.discovered_count[\s\S]*恢复未核验项/,"已完成但仍有未核验候选的历史任务必须在页面提供明确恢复入口");
 assert.match(detail,/返回任务中心[\s\S]*查看任务报告[\s\S]*停止任务[\s\S]*继续执行[\s\S]*重试失败项[\s\S]*取消任务/,"AI获客任务详情必须与AI筛选统一任务控制文案与按钮层级，同时保留完整状态控制");
@@ -410,7 +411,7 @@ assert.match(taskCenter,/SearchableMultiSelectFilter label="国家\/地区"[\s\S
 assert.match(taskCenter,/获客成效与实际成本[\s\S]*查看成效与成本[\s\S]*costSummaryOpen\?<div[\s\S]*今日实际费用[\s\S]*历史累计实际费用[\s\S]*平均入池客户实际成本[\s\S]*历史核验入池率/,"任务中心成效摘要必须默认收起，并可展开查看今日、历史、获客成本和入池效率");
 assert.match(taskCenter,/AI获客任务<\/h2>[\s\S]*任务名称[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}`\}[\s\S]*sticky right-0[\s\S]*查看详情[\s\S]*查看任务报告/,"获客任务列表必须保留明显的详情入口，任务名称链接作为辅助入口");
 assert.match(screeningTaskCenter,/href=\{`\/ai-screening\/tasks\/\$\{task\.id\}`\}[\s\S]*查看详情[\s\S]*RowActionMenu/,"AI筛选任务列表必须与AI获客一样保留独立详情入口并把状态操作放入菜单");
-assert.match(globalStyles,/td:last-child > div > a\[href\^="\/ai-screening\/tasks\/"\][\s\S]*height: 2rem[\s\S]*border-radius: \.375rem[\s\S]*font-size: \.75rem/,"AI筛选和AI获客的查看详情入口必须使用统一按钮尺寸与视觉样式");
+assert.match(globalStyles,/a\[href\^="\/ai-screening\/tasks\/"\],[\s\S]*a\[href\^="\/ai-acquisition\/tasks\/"\][\s\S]*height: 2rem[\s\S]*border-radius: \.375rem[\s\S]*font-size: \.75rem/,"AI筛选和AI获客的查看详情入口必须使用统一按钮尺寸与视觉样式");
 assert.doesNotMatch(taskCenter,/查看成功入池客户|查看待复核客户|查看搜索效果与成本/,"任务列表操作菜单不得重复任务详情页已有的客户和分析入口");
 assert.match(taskCenter,/Google价目估算、共享免费额度和预计超额费用不计入实际费用/,"实际费用说明必须明确排除未确认的Google估算和预计超额费用");
 const taskNumber=fs.readFileSync(new URL("../lib/ai/task-number.ts",import.meta.url),"utf8");
@@ -460,7 +461,7 @@ const acquisitionTaskCenter=fs.readFileSync(new URL("../components/ai-acquisitio
 const acquisitionTaskReport=fs.readFileSync(new URL("../components/ai-acquisition/task-report.tsx",import.meta.url),"utf8");
 const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
-assert.match(customerResults,/本周成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*处理复核/,"任务中心客户结果卡必须落到可处理的统一客户清单");
+assert.match(customerResults,/本周成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*复核判定/,"任务中心客户结果卡必须落到可处理的统一客户清单");
 assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*清除当前任务/,"获客结果页必须支持按来源任务精确筛选并提供可撤销的筛选状态");
 assert.match(customerResults,/flex-nowrap[\s\S]*overflow-x-auto[\s\S]*任务名称或编号[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*TODAY:"今日",WEEK:"本周",MONTH:"本月"/,"客户结果必须把任务、客户和快捷日期筛选合并为不越界的紧凑单行工具栏");
 assert.match(customerResults,/CustomerPublicChannels customer=\{row\}/,"获客结果、客户公海和我的客户必须共用Google Maps与官方社媒的公开渠道组件");
@@ -494,7 +495,11 @@ assert.match(customerResults,/placeholder="任务名称或编号"[\s\S]*客户�
 assert.match(fs.readFileSync(new URL("../components/ui/searchable-multi-select-filter.tsx",import.meta.url),"utf8"),/value: string\[\][\s\S]*搜索\$\{label\}[\s\S]*value\.includes[\s\S]*Check size=\{11\}/,"行业和国家必须共用同一套可搜索多选控件、字体颜色和勾选样式");
 assert.doesNotMatch(customerResults,/ACQUISITION_COUNTRY_GROUPS|ACQUISITION_INDUSTRY_TERMS/,"客户结果筛选不得继续展示与当前结果无关的全量配置项");
 assert.match(customerResults,/UserScopeSelect[^>]*permission="ai\.acquisition\.data_all"[^>]*initializeDefault=\{false\}/,"跨用户客户结果必须提供归属人范围且不得初始化二次刷新");
-assert.match(customerResults,/row\.can_control\?"处理复核":"查看详情"/,"只读跨用户访问不得显示误导性的复核处理入口");
+assert.match(customerResults,/showEvidence\(row\.id\)[\s\S]*row\.can_control\?"复核判定":"查看依据"/,"待复核客户必须在当前列表直接打开统一依据弹窗，只读跨用户访问不得显示误导性的处理入口");
+assert.match(customerResults,/runReviewAction[\s\S]*CandidateEvidenceDialog/ ,"获客结果页必须在当前列表复用统一依据弹窗并提交复核操作");
+assert.match(candidateEvidenceDialog,/DISCARD[\s\S]*RECHECK_AND_ACCEPT/,"统一依据弹窗必须支持舍弃和重新校验，并复用服务端质量门槛");
+assert.doesNotMatch(customerResults,/decision=REVIEW&candidate=|处理复核/,"待复核客户不得再跳回任务详情或使用含糊的处理复核文案");
+assert.match(detail,/r\.decision === "REVIEW" && canControl \? "复核判定" : "查看依据"/,"任务详情与客户结果必须统一复核入口文案");
 assert.doesNotMatch(customerResults,/国家代码，如 US/,"客户结果页不得要求用户手工记忆国家代码");
 assert.match(customerResults,/"客户名称","国家\/地区","AI评分","联系号码","邮箱","官网","公开渠道","匹配关键词","Google地址","证据状态","来源任务"[\s\S]*进入待复核时间[\s\S]*入池时间[\s\S]*sticky left-0[\s\S]*sticky right-0/,"客户结果必须按客户、地区、评分和联系入口展示，并固定客户名称与操作列");
 assert.doesNotMatch(customerResults,/"目标行业"|"联系与证据"|"处理时间","操作"/,"客户结果不得继续使用含义错误或混合字段");
