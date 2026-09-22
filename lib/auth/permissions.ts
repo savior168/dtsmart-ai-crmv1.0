@@ -4,7 +4,7 @@ export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "D
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
-export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "销售管理" | "仓库管理" | "报表中心" | "站内通知" | "系统管理";
+export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "商品中心" | "销售管理" | "仓库管理" | "报表中心" | "站内通知" | "系统管理";
 
 export type PermissionDefinition = {
   code: string;
@@ -69,6 +69,16 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "followups.edit", label: "修改本人跟进记录", group: "客户中心", description: "修改本人创建的跟进内容与附件", kind: "ACTION" },
   { code: "followups.export", label: "导出跟进记录", group: "客户中心", description: "导出当前筛选范围内的跟进记录", kind: "ACTION" },
 
+  { code: "products.view", label: "商品资料", group: "商品中心", description: "进入商品资料并搜索可报价SKU", kind: "PAGE" },
+  { code: "products.manage", label: "维护商品资料", group: "商品中心", description: "新增、编辑、启用或停用商品主档", kind: "ACTION", core: true },
+  { code: "pricebooks.view", label: "产品价格表", group: "商品中心", description: "进入产品价格表并查看有效销售参考价", kind: "PAGE" },
+  { code: "pricebooks.sales.view", label: "查看销售参考价", group: "商品中心", description: "查看已发布美元销售参考价；不包含采购成本和利润底线", kind: "DATA" },
+  { code: "pricebooks.cost.total.view", label: "查看完整成本合计", group: "商品中心", description: "仅查看采购、包装和其他费用合计，不显示成本拆分和来源", kind: "DATA" },
+  { code: "pricebooks.cost.view", label: "查看采购成本", group: "商品中心", description: "查看人民币采购价、包装费、其他成本及其来源；销售员默认不可见", kind: "DATA" },
+  { code: "pricebooks.manage", label: "维护产品价格", group: "商品中心", description: "新增、调整或停用产品价格版本", kind: "ACTION", core: true },
+  { code: "pricebooks.import", label: "导入产品报价表", group: "商品中心", description: "上传并预览产品报价表，处理字段歧义和异常行", kind: "ACTION", core: true },
+  { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "将全部校验通过的导入批次发布到商品与价格主档", kind: "ACTION", core: true },
+
   { code: "quotes.view", label: "报价单", group: "销售管理", description: "查看权限范围内的报价单", kind: "PAGE" },
   { code: "quotes.data_all", label: "查看全部报价", group: "销售管理", description: "可按归属人只读查看全部报价", kind: "DATA" },
   { code: "quotes.create", label: "创建报价单", group: "销售管理", description: "为本人客户创建报价单", kind: "ACTION" },
@@ -128,6 +138,8 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("ai.acquisition.")) return "ai.acquisition.view";
   if (code.startsWith("ai.")) return "ai.tasks.view";
   if (code.startsWith("followups.")) return "followups.view";
+  if (code.startsWith("products.")) return "products.view";
+  if (code.startsWith("pricebooks.")) return "pricebooks.view";
   if (code.startsWith("quotes.")) return "quotes.view";
   if (code.startsWith("orders.")) return "orders.view";
   if (code.startsWith("stock.")) return "stock.view";

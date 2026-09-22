@@ -1,0 +1,58 @@
+import { NextResponse } from "next/server";
+import { authErrorStatus, hasPermission, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+export async function GET(request: Request) {
+  try {
+    const { account } = await requirePermission("pricebooks.view");
+    const url = new URL(request.url);
+    const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+    const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("page_size")) || 20));
+    const query = (url.searchParams.get("q") || "").trim().replace(/[%_,()]/g, "");
+    const canViewCost = hasPermission(account, "pricebooks.cost.view");
+    const canViewSales = hasPermission(account, "pricebooks.sales.view");
+    const includeHistory = url.searchParams.get("history") === "true";
+    const admin = createAdminClient();
+    let productIds: string[] | null = null;
+    if (query) {
+      const { data: matching } = await admin.from("products").select("id").or(`sku.ilike.%${query}%,name_zh.ilike.%${query}%,name_en.ilike.%${query}%,brand.ilike.%${query}%,model.ilike.%${query}%`).limit(500);
+      productIds = (matching || []).map((row) => row.id);
+      if (!productIds.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize, can_view_cost: canViewCost, can_view_sales: canViewSales, can_manage: hasPermission(account, "pricebooks.manage"), can_import: hasPermission(account, "pricebooks.import") });
+    }
+    let builder = admin.from("product_prices").select("*,product:products(id,sku,name_zh,name_en,brand,model,quality,unit,is_active)", { count: "exact" });
+    if (!includeHistory) builder = builder.eq("is_active", true);
+    const allowedKinds = [...(canViewCost ? ["PROCUREMENT", "PACKAGING", "OTHER_COST"] : []), ...(canViewSales ? ["SALE_REFERENCE"] : [])];
+    if (!allowedKinds.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize, can_view_cost: false, can_view_sales: false, can_manage: false, can_import: false });
+    builder = builder.in("price_kind", allowedKinds);
+    if (productIds) builder = builder.in("product_id", productIds);
+    const { data, count, error } = await builder.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
+    if (error) throw error;
+    return NextResponse.json({ data: data || [], count: count || 0, page, page_size: pageSize, can_view_cost: canViewCost, can_view_sales: canViewSales, can_manage: hasPermission(account, "pricebooks.manage"), can_import: hasPermission(account, "pricebooks.import") });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "产品价格加载失败";
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { supabase, user } = await requirePermission("pricebooks.manage");
+    const body = await request.json();
+    const productId = String(body.product_id || "");
+    const supportedKinds = new Set(["PROCUREMENT", "PACKAGING", "OTHER_COST", "SALE_REFERENCE"]);
+    const priceKind = supportedKinds.has(String(body.price_kind)) ? String(body.price_kind) : "PROCUREMENT";
+    const currency = priceKind === "SALE_REFERENCE" ? "USD" : "CNY";
+    const amount = Number(body.amount);
+    const minimumQuantity = Math.max(0.001, Number(body.minimum_quantity) || 1);
+    if (!productId || !Number.isFinite(amount) || amount < 0) return NextResponse.json({ error: "商品与有效价格为必填项" }, { status: 400 });
+    const admin = createAdminClient();
+    await admin.from("product_prices").update({ is_active: false, effective_to: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() }).eq("product_id", productId).eq("price_kind", priceKind).eq("currency", currency).eq("is_active", true).eq("minimum_quantity", minimumQuantity);
+    const { data, error } = await admin.from("product_prices").insert({ product_id: productId, price_kind: priceKind, currency, amount, minimum_quantity: minimumQuantity, effective_from: body.effective_from || new Date().toISOString().slice(0, 10), source_note: String(body.source_note || "手工维护").slice(0, 500), created_by: user.id }).select("*").single();
+    if (error) throw error;
+    await writeAudit(supabase, user.id, "PRODUCT_PRICE_CREATE", "product_price", data.id, { product_id: productId, price_kind: priceKind, currency, amount, minimum_quantity: minimumQuantity });
+    return NextResponse.json({ data }, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "产品价格保存失败";
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 500 });
+  }
+}

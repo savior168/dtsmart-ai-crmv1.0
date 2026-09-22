@@ -8,6 +8,7 @@ import {
   Bell,
   Boxes,
   ClipboardList,
+  PackageSearch,
   ChevronDown,
   ChevronLeft,
   LayoutDashboard,
@@ -41,6 +42,12 @@ const menu = [
       { label: "AI获客", href: "/ai-acquisition", permission: "ai.acquisition.view" },
       { label: "获客结果", href: "/ai-acquisition/customers", permission: "ai.acquisition.view" },
       { label: "AI筛选", href: "/ai-screening", permission: "ai.tasks.view" },
+    ],
+  },
+  {
+    label: "商品中心", icon: PackageSearch, defaultHref: "/products", children: [
+      { label: "商品资料", href: "/products", permission: "products.view" },
+      { label: "产品价格表", href: "/products/prices", permission: "pricebooks.view" },
     ],
   },
   {
@@ -90,6 +97,10 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/ai-screening\/usage$/, "AI筛选 / 用量与费用"],
   [/^\/ai-screening\/customers\/[^/]+\/evidence$/, "AI筛选 / 客户分析依据"],
   [/^\/followups$/, "客户中心 / 跟进管理"],
+  [/^\/products\/import\/[^/]+$/, "商品中心 / 产品价格表 / 导入核对"],
+  [/^\/products\/import$/, "商品中心 / 产品价格表 / 导入"],
+  [/^\/products\/prices$/, "商品中心 / 产品价格表"],
+  [/^\/products$/, "商品中心 / 商品资料"],
   [/^\/quotes\/new$/, "销售管理 / 报价单 / 创建报价单"],
   [/^\/quotes\/[^/]+\/print$/, "销售管理 / 报价单 / 打印预览"],
   [/^\/quotes\/[^/]+$/, "销售管理 / 报价单 / 报价详情"],
