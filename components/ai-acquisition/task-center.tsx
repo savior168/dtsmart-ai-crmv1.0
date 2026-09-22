@@ -26,7 +26,6 @@ import type { AcquisitionTask } from "./types";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
-import { quickCostDateRange } from "@/lib/cost-center";
 import { TodayUsageLink } from "@/components/ai-usage/today-usage-link";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
@@ -76,6 +75,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [costOverview, setCostOverview] = useState<CostOverview | null>(null),
+    [costOverviewLoading, setCostOverviewLoading] = useState(false),
+    [costOverviewError, setCostOverviewError] = useState(""),
     [costSummaryOpen, setCostSummaryOpen] = useState(false),
     [googleDetailsOpen, setGoogleDetailsOpen] = useState(false),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
@@ -143,19 +144,18 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     if (!canViewUsage || !costSummaryOpen) return;
     let active = true;
     setCostOverview(null);
-    const today = quickCostDateRange("TODAY");
-    const todayParams = new URLSearchParams({ from:today.from, to:today.to, page:"1", pageSize:"10" });
-    const historyParams = new URLSearchParams({ all_time:"1", page:"1", pageSize:"10" });
-    if (scopeUserId) { todayParams.set("user_id", scopeUserId); historyParams.set("user_id", scopeUserId); }
+    setCostOverviewLoading(true);
+    setCostOverviewError("");
+    const historyParams = new URLSearchParams({ all_time:"1", overview:"1", page:"1", pageSize:"10" });
+    if (scopeUserId) historyParams.set("user_id", scopeUserId);
     void (async()=>{
-      const todayResponse=await fetch(`/api/ai-acquisition/usage?${todayParams}`, { cache:"no-store" });
-      const todayBody=todayResponse.ok?await todayResponse.json():null;
       const historyResponse=await fetch(`/api/ai-acquisition/usage?${historyParams}`, { cache:"no-store" });
-      const historyBody=historyResponse.ok?await historyResponse.json():null;
-      if (!active || !todayBody || !historyBody) return;
+      const historyBody=await historyResponse.json().catch(()=>({}));
+      if (!historyResponse.ok) throw new Error(historyBody.error||"获客成本数据加载失败");
+      if (!active) return;
       setCostOverview({
-        todayCalls:Number(todayBody.summary?.calls||0),
-        todayCost:Number(todayBody.summary?.total_cost_usd||0),
+        todayCalls:Number(historyBody.today_summary?.calls||0),
+        todayCost:Number(historyBody.today_summary?.total_cost_usd||0),
         totalCost:Number(historyBody.summary?.total_cost_usd||0),
         accepted:Number(historyBody.summary?.accepted||0),
         processed:Number(historyBody.summary?.processed||0),
@@ -164,7 +164,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         googleCalls:Number(historyBody.summary?.google_calls||0),
         freeCalls:Number(historyBody.summary?.google_free_calls||0),
       });
-    })().catch(()=>undefined);
+    })().catch((caught)=>{if(active)setCostOverviewError(caught instanceof Error?caught.message:"获客成本数据加载失败")}).finally(()=>{if(active)setCostOverviewLoading(false)});
     return ()=>{active=false};
   }, [canViewUsage, costSummaryOpen, scopeUserId]);
   async function openGoogleDetails() {
@@ -236,12 +236,12 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <span className="min-w-0"><b className="block font-semibold">获客成效与实际成本</b><span className="mt-1 block truncate text-xs text-slate-500">今日实际 {costOverview?formatCost(costOverview.todayCost):"—"} · 历史实际 {costOverview?formatCost(costOverview.totalCost):"—"} · 历史入池率 {costOverview&&costOverview.processed?`${(costOverview.accepted/costOverview.processed*100).toFixed(1)}%`:"—"}</span></span>
           <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-blue-600">{costSummaryOpen?"收起":"查看成效与成本"}<ChevronDown size={16} className={`transition ${costSummaryOpen?"rotate-180":""}`}/></span>
         </button>
-        {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">实际费用仅包含OpenAI已完成调用与Google平台已确认金额；Google价目估算、共享免费额度和预计超额费用不计入实际费用。</p>{canViewGoogleBilling?<button type="button" onClick={()=>void openGoogleDetails()} className="text-xs font-medium text-blue-600 hover:underline">查看Google调用与账号额度</button>:null}</div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">实际费用仅包含OpenAI已完成调用与Google平台已确认金额；Google价目估算、共享免费额度和预计超额费用不计入实际费用。</p>{canViewGoogleBilling?<button type="button" onClick={()=>void openGoogleDetails()} className="text-xs font-medium text-blue-600 hover:underline">查看Google调用与账号额度</button>:null}</div>{costOverviewLoading?<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">正在汇总真实调用、费用与入池数据…</p>:costOverviewError?<div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><span>{costOverviewError}</span><button type="button" className="font-medium underline" onClick={()=>{setCostSummaryOpen(false);window.setTimeout(()=>setCostSummaryOpen(true),0)}}>重新加载</button></div>:<><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link href="/ai-usage?business_type=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>今日实际费用</span><span className="text-blue-600">查看今日明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日 {costOverview?formatNumber(costOverview.todayCalls):"—"} 次API调用</span></Link>
           <Link href="/ai-usage?business_type=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>历史累计实际费用</span><span className="text-blue-600">查看用量明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">OpenAI {costOverview?formatCost(costOverview.openaiCost):"—"} · Google已确认 {costOverview?formatCost(costOverview.googleActualCost):"—"}</span></Link>
           <Link href={`/ai-acquisition/customers?scope=accepted${ownerQuery}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>平均入池客户实际成本</span><span className="text-blue-600">查看入池客户</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">历史实际费用 ÷ {costOverview?formatNumber(costOverview.accepted):"—"} 位成功入池客户</span></Link>
           <article className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"><small className="text-slate-500">历史核验入池率</small><b className="mt-1 block text-xl">{costOverview&&costOverview.processed?`${(costOverview.accepted/costOverview.processed*100).toFixed(1)}%`:"—"}</b><span className="text-xs text-slate-400">成功入池 {costOverview?formatNumber(costOverview.accepted):"—"} ÷ 已核验 {costOverview?formatNumber(costOverview.processed):"—"}</span></article>
-        </div><p className="mt-3 text-xs text-slate-400">历史Google Places调用 {costOverview?formatNumber(costOverview.googleCalls):"—"} 次，其中系统记录免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次；详细额度以Google结算账号为准。</p></div>:null}
+        </div><p className="mt-3 text-xs text-slate-400">历史Google Places调用 {costOverview?formatNumber(costOverview.googleCalls):"—"} 次，其中系统记录免费调用 {costOverview?formatNumber(costOverview.freeCalls):"—"} 次；详细额度以Google结算账号为准。</p></>}</div>:null}
       </section> : null}
       <section className={`${panel} overflow-hidden`}>
         <div className="border-b border-slate-100 px-5 pt-5">

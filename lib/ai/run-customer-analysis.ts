@@ -1443,7 +1443,7 @@ function deterministicScore(input: {
     // The old four-point cap made most snapshot-only repair businesses land on
     // the same 65/66 score even when their observable evidence differed.
     const identitySignal = input.candidate.confidence >= 90 ? 2 : input.candidate.confidence >= 80 ? 1 : 0;
-    const serviceSignal = Math.min(9,
+    const serviceSignal = Math.min(16,
       specificServices
       + Math.min(3, Math.max(0, directFactBreadth - 1))
       + identitySignal
@@ -1454,8 +1454,15 @@ function deterministicScore(input: {
   if (completeDirectTargetChain) rawScore = Math.max(rawScore, 85);
   const qualifiesForA = completeDirectTargetChain || (input.rule.target && matchingSources >= 2
     && (verifiedProcurementEvidence || highVolumeRepair || (wholesale && scaleValue >= 15)));
+  // A complete two-source repair chain belongs in A, but it must not make
+  // every ordinary repair shop land on the identical 89-point ceiling.  The
+  // ceiling now varies only with observable service/fact breadth and verified
+  // contactability; no hash, random jitter or company-name signal is used.
+  const directChainCeiling = Math.min(89, 85 + Math.min(4, Math.floor(
+    (specificServices + Math.max(0, directFactBreadth - 1) + (verifiedContacts ? 1 : 0)) / 3,
+  )));
   const targetMaximum = repairOnly
-    ? highVolumeRepair ? 94 : completeDirectTargetChain ? 89 : 84
+    ? highVolumeRepair ? 94 : completeDirectTargetChain ? directChainCeiling : 84
     : accessoryRetail ? 69
       : qualifiesForA ? (verifiedProcurementEvidence ? 100 : 89) : 84;
   const score = Math.max(0, Math.min(input.rule.target ? targetMaximum : 39, input.rule.target ? Math.max(60, rawScore) : rawScore));

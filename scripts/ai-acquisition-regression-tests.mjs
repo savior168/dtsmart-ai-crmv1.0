@@ -289,6 +289,7 @@ assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decis
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*eq\("decision", "REVIEW"\)[\s\S]*is_latest_valid: false[\s\S]*WAITING_REASSESSMENT[\s\S]*decision: "ANALYZING"/,"待复核重判必须作废旧结果并按当前证据规则重新排队");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*channel_checkpoint: \{\}, checkpoint: \{\}[\s\S]*analyzed_channels: \[\], skipped_channels: \[\]/,"待复核重判必须清空旧渠道检查点，重新核对Google商家、官网和公开渠道，不能只用旧证据重算分数");
 assert.match(relevanceRequeue,/requeueAcquisitionReviews[\s\S]*ai_score: null[\s\S]*ai_level: null/,"待复核重判必须清空旧评分，不能保留历史扎堆分数");
+assert.match(fs.readFileSync(new URL("../lib/ai/run-customer-analysis.ts",import.meta.url),"utf8"),/const serviceSignal = Math\.min\(16,[\s\S]*const directChainCeiling = Math\.min\(89,[\s\S]*specificServices[\s\S]*directFactBreadth[\s\S]*verifiedContacts/,"获客评分必须按真实服务广度、事实广度和可联系性拉开分差，禁止固定档位扎堆");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*requeueAcquisitionReviews[\s\S]*old_scores_invalidated: true[\s\S]*quality_gate_bypassed: false/,"待复核批量重判必须保留审计记录且不能绕过自动准入门槛");
 assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*processed_count: Math\.max\(0, Number\(task\.processed_count \|\| 0\) - recovery\.requeued\)[\s\S]*review_count: 0[\s\S]*duplicate_count: Number\(task\.duplicate_count \|\| 0\) \+ Number\(recovery\.deduplicated \|\| 0\)/,"待复核重判后任务中心必须立即显示当前决策数量和真实未完成进度");
 assert.match(detailRoute,/action === "RETRY"[\s\S]*\["FAILED", "COMPLETED"\][\s\S]*没有可恢复的未核验项[\s\S]*attempt_count: 0, retryable: true[\s\S]*正在从检查点恢复未完成的候选核验/,"历史已完成任务若仍有超时失败项，必须允许从检查点安全恢复并获得一轮新的有限重试机会");
@@ -418,6 +419,8 @@ assert.match(acquisitionWorkflow,/google_maps_place_id: candidate\.placeId/,"AI�
 assert.doesNotMatch(taskCenter,/成本模式/,"AI获客任务中心不得混用成本模式旧称");
 assert.match(taskCenter,/SearchableMultiSelectFilter label="国家\/地区"[\s\S]*filterOptions\.countries/,"任务中心国家筛选必须来自当前数据去重结果，并支持搜索和多选");
 assert.match(taskCenter,/获客成效与实际成本[\s\S]*查看成效与成本[\s\S]*costSummaryOpen\?<div[\s\S]*今日实际费用[\s\S]*历史累计实际费用[\s\S]*平均入池客户实际成本[\s\S]*历史核验入池率/,"任务中心成效摘要必须默认收起，并可展开查看今日、历史、获客成本和入池效率");
+assert.match(usageRoute,/overview[\s\S]*today_summary:[\s\S]*todaySummary/,"成本概览必须一次请求同时返回今日与历史真实汇总，避免重复全表扫描");
+assert.match(taskCenter,/all_time:"1", overview:"1"[\s\S]*costOverviewLoading[\s\S]*costOverviewError[\s\S]*重新加载/,"成本概览必须区分加载、零值和失败状态，不能把接口异常伪装成横线");
 assert.match(taskCenter,/AI获客任务<\/h2>[\s\S]*任务名称[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}`\}[\s\S]*sticky right-0[\s\S]*查看详情[\s\S]*查看任务报告/,"获客任务列表必须保留明显的详情入口，任务名称链接作为辅助入口");
 assert.match(screeningTaskCenter,/href=\{`\/ai-screening\/tasks\/\$\{task\.id\}`\}[\s\S]*查看详情[\s\S]*RowActionMenu/,"AI筛选任务列表必须与AI获客一样保留独立详情入口并把状态操作放入菜单");
 assert.match(globalStyles,/a\[href\^="\/ai-screening\/tasks\/"\],[\s\S]*a\[href\^="\/ai-acquisition\/tasks\/"\][\s\S]*height: 2rem[\s\S]*border-radius: \.375rem[\s\S]*font-size: \.75rem/,"AI筛选和AI获客的查看详情入口必须使用统一按钮尺寸与视觉样式");
@@ -486,7 +489,7 @@ assert.match(acquisitionTaskRoute,/detail load failed[\s\S]*code:detail\.code[\s
 assert.match(acquisitionTaskDetail,/quiet = false[\s\S]*p\.set\("lightweight", "1"\)[\s\S]*load\(true\), 15000/,"执行中任务详情必须使用低频轻量静默轮询，不能反复加载完整分析");
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
 assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
-assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*todayResponse[\s\S]*historyResponse/,"任务中心费用统计必须按需且串行加载，避免与获客写入争抢数据库");
+assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*all_time:"1", overview:"1"[\s\S]*historyResponse/,"任务中心费用统计必须按需用单次概览请求加载，避免重复扫描与获客写入争抢数据库");
 assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
 assert.match(listRoute,/coreOnly[\s\S]*!coreOnly&&offset<20000[\s\S]*!coreOnly && pageTaskIds[\s\S]*if \(coreOnly\)[\s\S]*data: presentedTasks/,"任务中心必须先返回核心任务列表，不能等待全量统计和筛选项扫描");
 assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*setTasks[\s\S]*void fetch\(`\/api\/ai-acquisition\/tasks\?\$\{p\}`[\s\S]*setSummary/,"任务中心必须先展示核心任务，再异步补充真实汇总统计");

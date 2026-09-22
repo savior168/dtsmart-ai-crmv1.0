@@ -87,6 +87,7 @@ assert.match(contactSummary, /verifiedChannel === "官网"[\s\S]*rank: 0[\s\S]*v
 assert.match(contactSummary, /collapseThreshold = 1[\s\S]*contacts\.length <= collapseThreshold[\s\S]*orderedContacts\.map[\s\S]*expanded \? <div[\s\S]*renderGroups\(\)[\s\S]*: null/, "单个联系方式直接显示，多个联系方式默认只显示紧凑摘要并按需展开全部");
 assert.match(contactSummary, /flex h-5 min-w-0 items-center[\s\S]*overflow-hidden/, "多个联系方式预览必须锁定为单行且溢出不增加客户行高度");
 assert.match(contactSummary, /display === "phone"[\s\S]*display === "email"/, "联系号码和邮箱必须可按列分别展示");
+assert.match(contactSummary, /min-w-0 flex-1 truncate[\s\S]*overflow-hidden[\s\S]*复制\$\{item\.label\}/, "联系方式预览必须为号码保留可收缩区域，复制按钮不得遮挡号码");
 assert.match(contactSummary, /verified && item\.type === "WHATSAPP"[\s\S]*return 0[\s\S]*verified && item\.type === "PHONE"[\s\S]*return 1[\s\S]*!verified && item\.type === "PHONE"[\s\S]*return 2/, "外贸销售号码预览必须优先展示已核验WhatsApp，再展示已核验和原始电话");
 assert.match(contactSummary, /https:\/\/wa\.me\/\$\{whatsappDigits\}[\s\S]*复制\$\{item\.label\}/, "WhatsApp预览必须可直达对话并支持单条复制");
 assert.match(contactSummary, /splitStoredContactValues[\s\S]*split\(\/[\s\S]*normalizePhoneInternational[\s\S]*for \(const value of splitStoredContactValues/, "历史聚合字段中的多个电话或邮箱必须拆分、规范化和去重后展示");
@@ -124,7 +125,9 @@ assert.match(customersView, /setFromDate[\s\S]*setToDate[\s\S]*CompactDateRange 
 assert.match(customersApi, /fromDate[\s\S]*created_at[\s\S]*T00:00:00\.000\+08:00[\s\S]*toDate[\s\S]*T23:59:59\.999\+08:00/, "我的客户创建日期必须按北京时间自然日过滤");
 assert.match(poolView, /created_from[\s\S]*created_to[\s\S]*CompactDateRange label="录入日期"[\s\S]*录入开始日期[\s\S]*录入结束日期/, "客户公海列表、导出和全选必须携带同一录入日期范围");
 assert.match(poolApi, /verifiedWebsite[\s\S]*type === "WEBSITE"[\s\S]*row\.website \|\| verifiedWebsite/, "公海客户主档官网为空时必须回退展示已核验官网");
-assert.match(customersApi, /website: item\.website \|\|[\s\S]*type === "WEBSITE"[\s\S]*verification_status === "NEW_VERIFIED"/, "我的客户主档官网为空时必须回退展示已核验官网");
+assert.match(customersApi, /contact\.type === "WEBSITE" && contact\.verification_status === "NEW_VERIFIED"/, "我的客户列表只能用已核验官网作为主档官网回退");
+assert.match(customersApi, /const rawWebsite = item\.website \|\|[\s\S]*\?\.value_raw \|\| null/, "我的客户主档官网为空时必须回退展示已核验官网");
+assert.match(customersApi, /website: officialWebsiteUrl\(rawWebsite\)/, "我的客户回退官网必须排除社媒及非官网链接");
 assert.match(poolApi, /createdFrom[\s\S]*createdTo[\s\S]*created_at[\s\S]*T00:00:00\.000\+08:00[\s\S]*T23:59:59\.999\+08:00/, "客户公海创建日期必须按北京时间自然日过滤");
 assert.match(listFields, /CUSTOMER_LIST_COLUMN_STORAGE_KEY[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS/, "两张客户列表必须共享字段设置和默认顺序");
 assert.match(listFields, /"company_name",[\s\S]*"country",[\s\S]*"ai_score"/, "客户列表默认顺序必须先展示国家地区，再展示AI评分");

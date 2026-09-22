@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     const status = params.get("status") || "";
     const costMode = params.get("cost_mode") || "";
     const allTime = params.get("all_time") === "1";
+    const overview = params.get("overview") === "1";
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
     const admin = createAdminClient();
@@ -75,6 +76,16 @@ export async function GET(request: NextRequest) {
     }).filter((task) => allTime || task.calls > 0 || candidateTaskIdsInRange.has(task.id) || (Date.parse(task.created_at) >= rangeStart && Date.parse(task.created_at) <= rangeEnd));
     const quantity = (items: CostRow[]) => items.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
     const summary = { tasks: rows.length, discovered: discoveredCandidates.length, processed: processedCandidates.length, accepted:acceptedCandidates.length, calls: quantity(costs), free_calls: quantity(costs.filter((row) => row.amount_type === "FREE")), google_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES")), google_free_calls: quantity(costs.filter((row) => row.provider === "GOOGLE_PLACES" && row.amount_type === "FREE")), openai_calls: quantity(costs.filter((row) => row.provider === "OPENAI")), openai_cost_usd: costs.filter((row) => row.provider === "OPENAI").reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES" && isActuallyIncurredCost(row)).reduce((sum, row) => sum + Number(row.amount_usd || 0), 0), google_catalog_cost_usd: costs.filter((row) => row.provider === "GOOGLE_PLACES").reduce((sum,row)=>sum+Number(row.amount_usd||0),0), total_cost_usd: actualCostUsd(costs), purpose_breakdown:summarizeUsagePurposes(costs) };
+    const todayStart = Date.parse(`${today}T00:00:00.000+08:00`);
+    const todayEnd = Date.parse(`${today}T23:59:59.999+08:00`);
+    const todayCosts = costs.filter((row) => { const timestamp=Date.parse(row.occurred_at); return timestamp>=todayStart&&timestamp<=todayEnd; });
+    const todayProcessed = candidates.filter((candidate) => { const timestamp=Date.parse(String(candidate.processed_at||"")); return Number.isFinite(timestamp)&&timestamp>=todayStart&&timestamp<=todayEnd; });
+    const todaySummary = {
+      calls: quantity(todayCosts),
+      total_cost_usd: actualCostUsd(todayCosts),
+      processed: todayProcessed.length,
+      accepted: todayProcessed.filter((candidate)=>candidate.decision==="ACCEPTED"&&Boolean(candidate.imported_customer_id)).length,
+    };
     const dailyByDate=new Map<string,{date:string;discovered:number;processed:number;accepted:number;calls:number;cost:number}>();
     const dailyRow=(date:string)=>{const current=dailyByDate.get(date)||{date,discovered:0,processed:0,accepted:0,calls:0,cost:0};dailyByDate.set(date,current);return current};
     if(!allTime){
@@ -84,7 +95,7 @@ export async function GET(request: NextRequest) {
       for(const cost of costs){const row=dailyRow(shanghaiDay(cost.occurred_at));row.calls+=Math.max(0,Number(cost.quantity||1));if(isActuallyIncurredCost(cost))row.cost+=Number(cost.amount_usd||0)}
     }
     const daily=[...dailyByDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
-    return NextResponse.json({ summary, daily, data: rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
+    return NextResponse.json({ summary, today_summary:overview?todaySummary:undefined, daily, data: overview?[]:rows.slice((page - 1) * pageSize, page * pageSize), count: rows.length, show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客用量查询失败";
     console.error("[ai-acquisition/usage] query failed", error);
