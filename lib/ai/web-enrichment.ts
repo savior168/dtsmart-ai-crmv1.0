@@ -1640,8 +1640,8 @@ export async function collectGooglePlaceEvidence(input: {
     const message = error instanceof Error ? error.message : "Google商家读取失败";
     if (message.includes("GOOGLE_PLACES_COST_BUDGET_EXCEEDED")) {
       return publicEvidence
-        ? { ...publicEvidence, error: "Google Places付费调用未获授权（免费模式、渠道开关或费用上限限制）；已保留免费公开页证据并停止付费调用。" }
-        : { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: "Google Places付费调用未获授权（免费模式、渠道开关或费用上限限制）；本次仅使用其他免费渠道继续分析。" };
+        ? { ...publicEvidence, error: "Google Places付费调用未获授权（标准分析、渠道开关或费用上限限制）；已保留免费公开页证据并停止付费调用。" }
+        : { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: "Google Places付费调用未获授权（标准分析、渠道开关或费用上限限制）；本次仅使用其他免费渠道继续分析。" };
     }
     return publicEvidence || { configured: true, query, types: [], reviews: [], emails: [], identity_status: "NOT_FOUND", identity_confidence: 0, error: message };
   } finally {

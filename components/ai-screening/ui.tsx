@@ -34,8 +34,8 @@ export function StrategyBadge({ strategy }: { strategy: string }) {
 
 export function CostModeBadge({ mode, context="screening" }: { mode?: string | null; context?:"screening"|"acquisition" }) {
   const freeOnly = mode === "FREE_ONLY";
-  const suffix=context==="acquisition"?"获客":"分析";
-  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{freeOnly ? `全免费${suffix}` : `智能增强${suffix}`}</span>;
+  const label=context==="acquisition"?(freeOnly?"标准获客":"智能获客"):(freeOnly?"标准分析":"智能分析");
+  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-medium ${freeOnly ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{label}</span>;
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description: ReactNode; actions?: ReactNode }) {

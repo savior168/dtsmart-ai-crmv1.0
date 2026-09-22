@@ -5,8 +5,8 @@ const flow = ["字段清洗与主体匹配", "官网和免费公开来源", "证
 
 const modes = [
   {
-    name: "智能增强分析",
-    tag: "按需增强",
+    name: "智能分析",
+    tag: "按需补证",
     tone: "border-blue-200 bg-blue-50/30 text-blue-700",
     intro: "优先完成免费证据链；仅当客户仍具潜在价值且关键证据存在冲突时，才在费用开关、单客户次数和日/周/月硬上限内补充付费证据。",
     rules: [
@@ -17,7 +17,7 @@ const modes = [
     ],
   },
   {
-    name: "全免费分析",
+    name: "标准分析",
     tag: "零付费调用",
     tone: "border-emerald-200 bg-emerald-50/30 text-emerald-700",
     intro: "使用相同的主体核验、官网深度分析、证据规则和评分标准，但严格禁止所有正金额第三方API调用。",

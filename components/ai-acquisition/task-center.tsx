@@ -16,6 +16,7 @@ import {
   formatCost,
   formatDuration,
   formatNumber,
+  formatTokens,
   input,
   panel,
   primaryButton,
@@ -123,6 +124,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         .then(async (overviewResponse) => ({ ok: overviewResponse.ok, body: await overviewResponse.json().catch(() => ({})) }))
         .then(({ ok, body }) => {
           if (!ok || requestId!==loadRequestRef.current) return;
+          if (Array.isArray(body.data)) setTasks(body.data);
            setSummary(body.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, historical_accepted:0, removed_results:0, repeated_results:0, unique_linked_customers:0, current_customers:0, available_customers:0, claimed_customers:0, review:0, failed_tasks:0 });
           setFilterOptions(body.filter_options || {countries:[],industries:[]});
         })
@@ -300,7 +302,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           </select>
           <SearchableMultiSelectFilter label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:COUNTRY_NAMES.of(item.value)||item.value}))} onChange={(value)=>{setPage(1);setCountries(value)}}/>
           <SearchableMultiSelectFilter label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setPage(1);setIndustries(value)}}/>
-          <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">全免费获客</option><option value="ADAPTIVE">智能增强获客</option></select>
+          <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">标准获客</option><option value="ADAPTIVE">智能获客</option></select>
           {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} initializeDefault={false} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
           <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
           </div>
@@ -315,20 +317,20 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <ErrorState message={error} reload={() => void load()} />
         ) : tasks.length ? (
           <div className="overflow-x-auto">
-            <table className={`w-full table-fixed text-left text-sm ${showOwner ? "min-w-[2260px]" : "min-w-[2080px]"}`}>
+            <table className={`w-full table-fixed text-left text-sm ${showOwner ? "min-w-[2160px]" : "min-w-[1980px]"}`}>
               <colgroup>
                 <col className="w-[260px]" />
-                {showOwner ? <col className="w-[180px]" /> : null}
-                <col className="w-[145px]" />
                 <col className="w-[115px]" />
                 <col className="w-[170px]" />
                 <col className="w-[105px]" />
                 <col className="w-[90px]" />
-                <col className="w-[190px]" />
+                <col className="w-[120px]" />
                 <col className="w-[145px]" />
                 <col className="w-[220px]" />
-                {canViewUsage ? <><col className="w-[115px]" /><col className="w-[115px]" /><col className="w-[175px]" /></> : null}
+                <col className="w-[145px]" />
+                {canViewUsage ? <><col className="w-[125px]" /><col className="w-[210px]" /></> : null}
                 <col className="w-[110px]" />
+                {showOwner ? <col className="w-[180px]" /> : null}
                 <col className="w-[185px]" />
                 <col className="w-[150px]" />
               </colgroup>
@@ -336,8 +338,6 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                 <tr>
                   {[
                     "任务名称 / 编号",
-                    ...(showOwner ? ["归属人"] : []),
-                    "获客模式",
                     "状态",
                     "候选核验进度",
                     "成功入池",
@@ -345,8 +345,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     "去重后候选",
                     "目标国家/地区",
                     "目标行业",
-                    ...(canViewUsage?["Google调用","总Token","实际费用"]:[]),
+                    "获客模式",
+                    ...(canViewUsage?["Google调用","Token / 实际费用"]:[]),
                     "任务耗时",
+                    ...(showOwner ? ["归属人"] : []),
                     "创建时间",
                     "操作",
                   ].map((x,index,headers) => (
@@ -371,8 +373,6 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                         {t.task_number}
                       </small>
                     </td>
-                    {showOwner ? <td className="px-4 py-4"><b className="block truncate font-medium text-slate-800" title={t.owner?.name?.trim()?t.owner?.email||t.owner.name:t.owner?.email||"未命名用户"}>{t.owner?.name?.trim() || t.owner?.email || "未命名用户"}</b></td> : null}
-                    <td className="px-4 py-3"><CostModeBadge mode={t.cost_mode} context="acquisition" />{t.task_cost_limit_usd!=null?<small className="mt-1 block text-slate-400">任务上限 {formatCost(t.task_cost_limit_usd)}</small>:null}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={t.status} />
                       {t.error_message ? (
@@ -387,8 +387,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#customer-results`} className="font-medium text-slate-800 hover:text-blue-700 hover:underline">{formatNumber(t.discovered_count)} 条</Link></td>
                     <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
                     <td className="px-4 py-3"><span className="block max-w-52 truncate" title={(t.industries?.length?t.industries:[t.industry]).join("、")}>{(t.industries?.length?t.industries:[t.industry]).slice(0,2).join("、")}{(t.industries?.length||1)>2?` +${(t.industries?.length||1)-2}`:""}</span></td>
-                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-blue-600 hover:underline">查看明细</Link></td><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-blue-600 hover:underline">查看明细</Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="font-medium text-blue-600 hover:underline">查看真实费用</Link></td></>:null}
+                    <td className="px-4 py-3"><CostModeBadge mode={t.cost_mode} context="acquisition" />{t.task_cost_limit_usd!=null?<small className="mt-1 block text-slate-400">任务上限 {formatCost(t.task_cost_limit_usd)}</small>:null}</td>
+                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="group/usage block" title="查看本任务Google Places调用明细"><b className="font-medium text-slate-800">{t.usage?`${formatNumber(t.usage.google_calls)} 次`:"统计中…"}</b><small className="mt-1 block text-blue-600 group-hover/usage:underline">查看明细</small></Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="group/usage block" title="查看本任务Token与实际费用明细"><b className="whitespace-nowrap font-medium text-slate-800">{t.usage?formatCost(t.usage.total_cost_usd):"统计中…"}</b><small className="mt-1 block whitespace-nowrap text-slate-500">{t.usage?`${formatTokens(t.usage.total_tokens)} Token · OpenAI ${formatNumber(t.usage.openai_calls)} 次`:"正在读取真实台账"}</small><small className="mt-1 block text-blue-600 group-hover/usage:underline">查看明细</small></Link></td></>:null}
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
+                    {showOwner ? <td className="px-4 py-4"><b className="block truncate font-medium text-slate-800" title={t.owner?.name?.trim()?t.owner?.email||t.owner.name:t.owner?.email||"未命名用户"}>{t.owner?.name?.trim() || t.owner?.email || "未命名用户"}</b></td> : null}
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>
                     <td className="sticky right-0 z-10 bg-white px-4 py-4 shadow-[-1px_0_0_#e2e8f0]"><div className="flex items-center gap-2 whitespace-nowrap">
                       <Link className={taskDetailButton} href={`/ai-acquisition/tasks/${t.id}`}>查看详情</Link>

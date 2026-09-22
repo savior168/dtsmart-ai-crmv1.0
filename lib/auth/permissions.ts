@@ -50,7 +50,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "ai.acquisition.control", label: "控制AI获客任务", group: "AI获客与筛选", description: "暂停、继续、取消或重试本人有权管理的获客任务", kind: "ACTION" },
   { code: "ai.acquisition.evidence.view", label: "查看AI获客依据", group: "AI获客与筛选", description: "查看目标匹配、在营状态、联系信息与来源页面的核验依据", kind: "ACTION" },
   { code: "ai.acquisition.usage.view", label: "查看AI获客用量与费用", group: "AI获客与筛选", description: "查看获客调用量、免费额度使用和可核对的费用明细", kind: "ACTION" },
-  { code: "ai.acquisition.settings.manage", label: "管理AI获客规则与费用控制", group: "AI获客与筛选", description: "配置支持国家、质量准入门槛、免费额度和智能增强费用上限", kind: "ACTION", core: true },
+  { code: "ai.acquisition.settings.manage", label: "管理AI获客规则与费用控制", group: "AI获客与筛选", description: "配置支持国家、质量准入门槛、标准模式免费渠道和智能模式费用上限", kind: "ACTION", core: true },
   { code: "ai.tasks.view", label: "AI筛选", group: "AI获客与筛选", description: "进入AI筛选并查看任务详情", kind: "PAGE" },
   { code: "ai.data_all", label: "查看全部AI筛选数据", group: "AI获客与筛选", description: "可按归属人查看任务、结果与用量", kind: "DATA" },
   { code: "ai.tasks.create", label: "创建AI筛选任务", group: "AI获客与筛选", description: "选择客户并创建筛选任务", kind: "ACTION" },

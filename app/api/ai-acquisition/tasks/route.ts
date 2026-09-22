@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       checkpointByTask.set(taskId, { completed:Number(checkpoint.terminal_count||0), rawHits:Number(checkpoint.raw_hit_count||0) });
     }
     const usageByTask = new Map<string,{google_calls:number;openai_calls:number;total_tokens:number;openai_cost_usd:number;google_cost_usd:number;total_cost_usd:number}>();
-    const presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
+    let presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
     if (coreOnly) {
       return NextResponse.json({
         data: presentedTasks,
@@ -105,8 +105,17 @@ export async function GET(request: NextRequest) {
       });
     }
     // Per-task usage stays available on the task detail and usage pages. The
-    // task center must remain a fast control surface, so it never scans or
-    // aggregates the append-only billing ledger while workers are writing.
+    // task center reads the current page through one indexed aggregate RPC;
+    // the fast core response above remains independent from billing data.
+    if (pageTaskIds.length && hasPermission(account, "ai.acquisition.usage.view")) {
+      const usageResult = await admin.rpc("get_ai_acquisition_task_center_usage", { p_task_ids: pageTaskIds });
+      if (usageResult.error) console.warn("[ai-acquisition/tasks] optional task usage unavailable", { code: usageResult.error.code });
+      else for (const row of usageResult.data || []) usageByTask.set(String(row.task_id), {
+        google_calls:Number(row.google_calls||0), openai_calls:Number(row.openai_calls||0), total_tokens:Number(row.total_tokens||0),
+        openai_cost_usd:Number(row.openai_cost_usd||0), google_cost_usd:Number(row.google_cost_usd||0), total_cost_usd:Number(row.total_cost_usd||0),
+      });
+      presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
+    }
     const summaryRows: Array<{ id:string; status: string; accepted_count: number | null; review_count: number | null }> = [];
     for (let offset = 0; ; offset += 1000) {
       let summaryQuery = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");

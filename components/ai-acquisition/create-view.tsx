@@ -457,7 +457,7 @@ export function AcquisitionCreateView() {
   const automaticName = (() => {
     const country = form.countries.length === 1 ? COUNTRY_NAMES.of(form.countries[0]) || form.countries[0] : form.countries.length > 1 ? `${COUNTRY_NAMES.of(form.countries[0]) || form.countries[0]}等${form.countries.length}国` : "";
     const industry = form.industries.length === 1 ? form.industries[0] : form.industries.length > 1 ? `${form.industries[0]}等${form.industries.length}行业` : "";
-    return [country, industry, form.cost_mode === "FREE_ONLY" ? "全免费获客" : "智能增强获客"].filter(Boolean).join("｜").slice(0, 100);
+    return [country, industry, form.cost_mode === "FREE_ONLY" ? "标准获客" : "智能获客"].filter(Boolean).join("｜").slice(0, 100);
   })();
   const hasDraftContent = Boolean(form.name.trim() || form.countries.length || form.industries.length || form.keywords.length || form.task_cost_limit_usd || form.schedule_type === "scheduled");
   function updateIndustries(industries:string[]) {
@@ -571,7 +571,7 @@ export function AcquisitionCreateView() {
             {[
               {
                 id: "ADAPTIVE",
-                title: "智能增强获客",
+                title: "智能获客",
                 text: "免费发现与核验优先；仅对高相关、证据不足的候选在限额内补证。",
                 facts: [["数据来源","官网、公开页面、Google免费额度"],["补证策略","高相关候选按需付费"],["停止条件","达标、非目标或触及上限"],["适用场景","兼顾数量、质量与成本"]],
                 steps: ["免费发现", "目标初判", "按需付费补证", "高可信入池"],
@@ -579,7 +579,7 @@ export function AcquisitionCreateView() {
               },
               {
                 id: "FREE_ONLY",
-                title: "全免费获客",
+                title: "标准获客",
                 text: "仅使用官网、公开页面和系统记录金额为0的额度；需要进入付费路径时停止并留痕。",
                 facts: [["数据来源","官网、公开页面、免费额度"],["补证策略","禁止正金额调用"],["停止条件","免费证据用尽或确认非目标"],["适用场景","零预算，证据不足待复核"]],
                 steps: ["免费发现", "免费核验", "同等证据门槛", "入池或待复核"],
@@ -616,7 +616,7 @@ export function AcquisitionCreateView() {
         ["目标行业",form.industries.length ? (form.industries.length<=2?form.industries.join("、"):`已选 ${form.industries.length} 个`) : "尚未选择",form.industries.join("、")],
         ["搜索关键词",form.keywords.length?`已选择 ${form.keywords.length} 个`:"尚未选择",form.keywords.join("、")],
         ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行",""],
-        ["获客模式",form.cost_mode==="FREE_ONLY"?"全免费获客":"智能增强获客",""],
+        ["获客模式",form.cost_mode==="FREE_ONLY"?"标准获客":"智能获客",""],
         ["任务费用上限",form.cost_mode==="FREE_ONLY"?"$0.00":form.task_cost_limit_usd?`$${Number(form.task_cost_limit_usd).toFixed(2)}`:"继承全局上限",""],
       ].map(([label,value,title])=><div key={label} className="flex justify-between gap-[10px] border-b border-dashed border-[#dbe2ec] py-[7px]"><dt className="shrink-0 text-[#6f7c90]">{label}</dt><dd title={title||undefined} className="max-w-[190px] break-words text-right font-semibold">{value}</dd></div>)}</dl><p className={`mt-2 text-xs leading-5 ${invalid?"text-amber-700":"text-slate-500"}`}>{invalid?"请完整填写任务名称、目标行业、搜索关键词、国家/地区和有效执行时间。":"仅通过目标、在营、证据、联系方式和系统去重门槛的客户进入公海。"}</p><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} mt-[14px] w-full justify-center`}>{form.schedule_type==="scheduled"?"预约并创建":"创建并自动执行"}</button><button type="button" disabled={!hasDraftContent} onClick={saveDraft} className={`${button} mt-2 w-full justify-center`}>{hasSavedDraft?"更新草稿":"暂存草稿"}</button></aside>
       </div>
@@ -636,7 +636,7 @@ export function AcquisitionCreateView() {
               ["2. 低成本发现","优先使用公开来源和可核对免费额度，按本地化检索表达发现商家；连续分页无新候选即提前结束。"],
               ["3. 前置早停","Google 商家永久停业、基础类别明显不相关或系统已有相同 Place ID 的候选立即停止，不继续产生补证费用。"],
               ["4. 主体与在营核验","交叉核对名称、地址、电话、官网域名、Google 商家和公开页面，主体冲突或缺少当前在营依据不进入公海。"],
-              ["5. 按需补证","只对行业高度相关但缺少关键证据的候选继续采集官网、地图和社媒公开信息；智能增强模式才允许在费用边界内调用付费能力。"],
+              ["5. 按需补证","只对行业高度相关但缺少关键证据的候选继续采集官网、地图和社媒公开信息；智能模式才允许在费用边界内调用付费能力。"],
               ["6. 联系方式核验","电话、邮箱和 WhatsApp 必须保存发现该联系方式的具体页面；列表可直接打开来源核验，WhatsApp 另可直达对话。"],
               ["7. AI评分与准入","基于已核验事实形成行业、等级、评分和理由；行业、主体、在营、证据、有效联系方式任一门槛不通过都不进入客户公海。"],
               ["8. 全局去重入池","按 Place ID、规范化电话、邮箱、WhatsApp 等强身份与现有客户、历史获客结果去重，只把新的合格客户送入待认领公海。"],
@@ -644,14 +644,14 @@ export function AcquisitionCreateView() {
           </ol>
           <section className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-4"><h3 className="font-semibold text-cyan-900">云端执行与页面关闭</h3><p className="mt-1.5 leading-6 text-cyan-800">新建、继续和失败重试任务均由绑定账户的 Vercel 云端 Workflow 调度，本地页面不参与任务执行，创建成功后关闭页面不会中断任务。系统保存任务进度和检查点；发生可恢复异常时从最近检查点继续，不重新处理已完成客户。</p></section>
           <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h3 className="font-semibold text-blue-900">暂停、恢复、重试与完成</h3><p className="mt-1.5 leading-6 text-blue-800">暂停在安全节点停止新调用，恢复应从最近成功检查点继续；失败重试只处理未完成步骤，不重复已入账调用和已处理客户。系统会尽量覆盖所选国家、行业、关键词的全部检索组合和Google可返回分页；分页耗尽、达到任务安全上限或触发费用保护后停止，所有原因均留痕。</p></section>
-          <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能增强任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；全免费模式只允许系统记录金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计价状态、成本参考和有效执行耗时；服务商最终结算以其账单为准。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
+          <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能获客任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；标准获客只允许系统记录金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计价状态、成本参考和有效执行耗时；服务商最终结算以其账单为准。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
           <section className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"><h3 className="font-semibold text-violet-900">候选进入AI筛选后的底层核验</h3><p className="mt-1.5 leading-6 text-violet-800">候选先规范化名称、地址、电话、邮箱域名、官网和 Place ID，再按“官网与关键子页 → 免费公开来源 → 必要时 Google 主体候选 → 已核验社媒”的顺序采集。确定性规则先判断明确经营事实；仅在主体通过且证据确有歧义时，模型才综合已采集证据。最后执行证据门控、评分一致性校准、联系方式具体来源校验和原子写回；抓取失败、主体冲突或证据不足不会被伪造成有效或无效结论。</p></section>
         </div>
       </AppDialog>
       <AppDialog
         open={confirm}
         title="确认创建AI获客任务"
-        description="创建后将按设定时间执行；智能增强模式可能在费用限制内产生付费调用。"
+        description="创建后将按设定时间执行；智能获客可能在费用限制内产生付费调用。"
         onClose={() => !busy && setConfirm(false)}
         width="max-w-xl"
       >
@@ -663,7 +663,7 @@ export function AcquisitionCreateView() {
               ["目标行业",`已选 ${form.industries.length} 个`],
               ["搜索关键词",`已选 ${form.keywords.length} 个`],
               ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"立即执行"],
-              ["获客模式",form.cost_mode === "FREE_ONLY"?"全免费获客":"智能增强获客"],
+              ["获客模式",form.cost_mode === "FREE_ONLY"?"标准获客":"智能获客"],
               ["费用保护",form.cost_mode === "FREE_ONLY"?"禁止正金额调用":form.task_cost_limit_usd?`任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"遵循全局上限"],
             ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{value}</dd></div>)}
           </dl>

@@ -2640,7 +2640,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
               earlyStopReason = "规则无法直接判断时，由高精度模型综合一次全部已采集且通过主体校验的证据。";
             } else {
               analysis = deterministicAnalysis(customer, records) || insufficientDataAnalysis(customer, records);
-              earlyStopReason = "OpenAI付费调用未获授权（免费模式、渠道开关或费用上限限制），本客户未调用付费模型，继续依据已采集公开证据和规则完成判断。";
+              earlyStopReason = "OpenAI付费调用未获授权（标准分析、渠道开关或费用上限限制），本客户未调用付费模型，继续依据已采集公开证据和规则完成判断。";
             }
           } else if (!analysis) {
             analysis = insufficientDataAnalysis(customer, records);
@@ -2670,7 +2670,7 @@ export async function runCustomerAnalysis(input: { taskId: string; taskItemId: s
         userId: costContext.userId, customerId: input.customerId, taskId: input.taskId, operation: "客户分析-final_escalation",
       });
       if (!reserved.allowed) {
-        earlyStopReason = "OpenAI付费调用未获授权（免费模式、渠道开关或费用上限限制），未调用最终付费复核；按已取得的真实证据完成判断。";
+        earlyStopReason = "OpenAI付费调用未获授权（标准分析、渠道开关或费用上限限制），未调用最终付费复核；按已取得的真实证据完成判断。";
       } else {
       let escalationCostRecorded = false;
       try {

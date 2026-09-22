@@ -1,5 +1,5 @@
 -- AI筛选费用策略必须在服务端持久化并在每次付费调用前原子校验。
--- 免费模式仍允许明确免费的Google IDs Only请求，但禁止任何正金额调用。
+-- 标准模式仍允许明确免费的 Google IDs Only 请求，但禁止任何正金额调用。
 
 alter table public.cost_center_settings
   add column if not exists google_paid_enabled boolean not null default true,
@@ -78,7 +78,7 @@ begin
       from public.ai_screening_tasks where id=p_task_id;
   end if;
 
-  -- 零金额请求必须继续放行，确保免费模式仍可使用IDs Only等明确免费渠道。
+  -- 零金额请求必须继续放行，确保标准模式仍可使用 IDs Only 等明确免费渠道。
   if v_amount > 0 and v_task_mode='FREE_ONLY' then
     insert into public.api_cost_budget_events(provider,user_id,customer_id,task_id,operation,attempted_amount_usd,blocked_period,used_usd,limit_usd)
       values(p_provider,p_user_id,p_customer_id,p_task_id,p_operation,v_amount,'FREE_MODE',0,0);
