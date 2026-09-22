@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  Eye,
   FileSpreadsheet,
   LoaderCircle,
   Mail,
@@ -1024,7 +1025,7 @@ function PoolTable({
               </th>
             ) : null}
             {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 bg-slate-50` : ""} ${poolColumnWidth[field] || "w-32"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
-            <th className="sticky right-0 z-30 w-28 bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
+            <th className="sticky right-0 z-30 w-36 bg-slate-50 px-3 py-3 text-center shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -1040,11 +1041,11 @@ function PoolTable({
                   />
                 </td>
               ) : null}
-              {fields.map((field) => <td key={field} className={`overflow-hidden px-3 py-4 align-top ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
-              <td className="sticky right-0 z-20 align-top bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
-                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`} aria-label={`查看${row.company_name}详情`}>详情</Link> : null}
-                {row.can_claim ? <button onClick={() => claim(row)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-100">认领</button> : null}
+              {fields.map((field) => <td key={field} className={`overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
+              <td className="sticky right-0 z-20 align-middle bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
+                <div className="flex items-center justify-center gap-2 whitespace-nowrap">
+                {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`} aria-label={`查看${row.company_name}详情`}><Eye size={14}/></Link> : null}
+                {row.can_claim ? <button onClick={() => claim(row)} className="inline-flex h-8 items-center rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100">认领</button> : null}
                 {!row.can_claim && !row.can_open_customer ? (
                   <span className="text-xs text-slate-400">已被认领</span>
                 ) : null}

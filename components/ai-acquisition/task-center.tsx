@@ -33,7 +33,7 @@ import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { countryInfo } from "@/lib/countries";
 
 const COUNTRY_NAMES = { of: (value: string) => countryInfo(value).name };
-type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; review:number; failed_tasks:number };
+type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; historical_accepted:number; removed_results:number; repeated_results:number; unique_linked_customers:number; current_customers:number; available_customers:number; claimed_customers:number; review:number; failed_tasks:number };
 type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted" | "review" | "failed";
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; processed:number; openaiCost:number; googleActualCost:number; googleCalls:number; freeCalls:number };
 type GoogleSkuUsage = { key:string; label:string; usageCount:number; acquisitionSystemUsage:number; acquisitionSystemCostUsd:number; screeningSystemUsage:number; screeningSystemCostUsd:number; pendingSystemUsage:number; projectedUsage:number; freeLimit:number|null; projectedRemaining:number|null; projectedOverageCalls:number; projectedOverageCostUsd:number };
@@ -59,7 +59,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
   const router=useRouter();
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
-    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 }),
+    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, historical_accepted:0, removed_results:0, repeated_results:0, unique_linked_customers:0, current_customers:0, available_customers:0, claimed_customers:0, review:0, failed_tasks:0 }),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
@@ -123,7 +123,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         .then(async (overviewResponse) => ({ ok: overviewResponse.ok, body: await overviewResponse.json().catch(() => ({})) }))
         .then(({ ok, body }) => {
           if (!ok || requestId!==loadRequestRef.current) return;
-          setSummary(body.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, review:0, failed_tasks:0 });
+           setSummary(body.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, historical_accepted:0, removed_results:0, repeated_results:0, unique_linked_customers:0, current_customers:0, available_customers:0, claimed_customers:0, review:0, failed_tasks:0 });
           setFilterOptions(body.filter_options || {countries:[],industries:[]});
         })
         .catch(() => undefined);
@@ -217,7 +217,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         {[
           { key:"today_accepted" as const, label:"今日获客", value:summary.today_accepted, note:"今日核验通过并成功入池", icon:CalendarCheck2, tone:"bg-blue-50 text-blue-700" },
-          { key:"accepted" as const, label:"历史总获客", value:summary.accepted, note:"累计核验通过并成功入池", icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
+          { key:"accepted" as const, label:"有效入池结果", value:summary.accepted, note:`当前有关联；历史累计 ${formatNumber(summary.historical_accepted)}`, icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
           { key:"review" as const, label:"待人工复核", value:summary.review, note:"需核对证据后处理", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
           { key:"active" as const, label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
           { key:"completed" as const, label:"已完成任务", value:summary.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
@@ -228,6 +228,16 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
           return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${ownerQuery}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
         })}
+      </section>
+      <section className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 text-xs text-slate-600`} aria-label="AI获客统计口径说明">
+        <b className="text-slate-800">统计口径</b>
+        <span>历史入池结果 <b>{formatNumber(summary.historical_accepted)}</b></span>
+        <span>已删除 <b>{formatNumber(summary.removed_results)}</b></span>
+        <span>当前有效结果 <b>{formatNumber(summary.accepted)}</b></span>
+        <span>跨任务重复 <b>{formatNumber(summary.repeated_results)}</b></span>
+        <span>当前唯一客户 <b>{formatNumber(summary.current_customers)}</b></span>
+        <Link href="/customers/pool" className="font-medium text-blue-700 hover:underline">公海待认领 {formatNumber(summary.available_customers)}</Link>
+        <span>已认领 <b>{formatNumber(summary.claimed_customers)}</b></span>
       </section>
       {toastNode}
       <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
@@ -348,7 +358,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
               </thead>
               <tbody>
                 {tasks.map((t) => (
-                  <tr key={t.id} className="group cursor-pointer border-t border-slate-100 align-top hover:bg-blue-50/30">
+                  <tr key={t.id} className="group cursor-pointer border-t border-slate-100 align-middle hover:bg-blue-50/30">
                     <td className="sticky left-0 z-10 bg-white px-4 py-3 shadow-[1px_0_0_#e2e8f0]">
                       <Link
                         className="line-clamp-2 font-medium leading-5 text-slate-900 hover:text-blue-700 hover:underline"

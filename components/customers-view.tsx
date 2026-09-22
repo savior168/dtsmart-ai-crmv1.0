@@ -956,7 +956,7 @@ export function CustomersView() {
                     {fields.map((key) => (
                       <td
                         key={key}
-                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} overflow-hidden px-3 py-3 align-top`}
+                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} overflow-hidden px-3 py-3 align-middle`}
                         title={
                           key === "company_name" ? displayCustomerName(row.company_name) : undefined
                         }
@@ -999,7 +999,7 @@ export function CustomersView() {
                         )}
                       </td>
                     ))}
-                    <td className="sticky right-0 z-10 min-w-44 align-top bg-white px-4 py-3">
+                    <td className="sticky right-0 z-10 min-w-44 align-middle bg-white px-4 py-3">
                       <div className="flex items-center gap-1.5 whitespace-nowrap">
                       <Link
                         href={`/customers/${row.id}`}

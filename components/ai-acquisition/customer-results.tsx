@@ -25,7 +25,7 @@ type TaskFilter={id:string;task_number:string;name:string;countries:string[];ind
 const COUNTRY_NAMES={of:(value:string)=>countryInfo(value).name};
 const tabs:Array<{value:Scope;label:string;note:string}>=[
   {value:"week",label:"本周成功入池",note:"本周核验通过并写入客户公海"},
-  {value:"accepted",label:"全部成功入池",note:"历史累计核验通过的AI获客客户"},
+  {value:"accepted",label:"全部有效入池结果",note:"仍关联客户主档的历史入池结果；同一客户可能被不同任务重复命中"},
   {value:"review",label:"待人工复核",note:"证据不足，需人工决定是否入池"},
 ];
 export function AcquisitionCustomerResults({initialScope,initialOwnerId="",initialDate="",initialEndDate="",initialTaskId=""}:{initialScope:Scope;initialOwnerId?:string;initialDate?:string;initialEndDate?:string;initialTaskId?:string}){

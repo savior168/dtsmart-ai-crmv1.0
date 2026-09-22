@@ -490,7 +490,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="group border-t align-top hover:bg-blue-50/30">
+                <tr key={r.id} className="group border-t align-middle hover:bg-blue-50/30">
                   <td className="sticky left-0 z-10 bg-white px-3 py-4 shadow-[1px_0_0_#e2e8f0] group-hover:bg-blue-50">
                     <span className="block min-w-0"><span className="block truncate font-medium text-blue-700" title={r.company_name}>{r.company_name}</span><CandidateIndustryLabel candidate={r}/></span>
                   </td>

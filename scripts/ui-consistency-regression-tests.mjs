@@ -132,4 +132,15 @@ for (const path of [
   assert.match(read(path), /countryInfo/, `${path} 必须兼容国家代码、中文名称和历史国家值`);
 }
 
+const globalStyles = read("app/globals.css");
+assert.match(globalStyles, /\.crm-content table th \{[^}]*vertical-align:middle/, "系统所有数据表表头必须统一垂直居中");
+assert.match(globalStyles, /\.crm-content table td \{[^}]*vertical-align:middle/, "系统所有数据表单元格必须统一垂直居中");
+assert.match(globalStyles, /td:last-child:has\([^}]*text-align:center/, "系统数据表操作单元格必须统一居中");
+assert.match(globalStyles, /td:last-child > button,[\s\S]*min-height:32px/, "系统数据表操作按钮必须统一使用适中的紧凑高度");
+const publicPool = read("components/customer-public-pool-view.tsx");
+assert.match(publicPool, /w-36[^>]*text-center[^>]*>操作/, "客户公海操作列必须预留一致宽度并居中");
+assert.match(publicPool, /grid h-8 w-8 shrink-0 place-items-center/, "客户公海详情操作必须使用紧凑的等宽图标按钮");
+assert.match(publicPool, /aria-label=\{`查看\$\{row\.company_name\}详情`}/, "客户公海详情图标必须保留可访问名称");
+assert.match(publicPool, /flex items-center justify-center gap-2 whitespace-nowrap/, "客户公海行操作必须统一居中排列");
+
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");

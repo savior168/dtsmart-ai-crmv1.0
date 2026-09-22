@@ -31,8 +31,21 @@ button,input,select,textarea { font:inherit; }
 .crm-content select,
 .crm-content textarea { background-color:#fff; }
 .crm-content table { font-size:14px; line-height:1.45; }
-.crm-content table th { font-size:13px; color:#475569; }
-.crm-content table td { color:#334155; font-weight:400; }
+.crm-content table th { font-size:13px; color:#475569; vertical-align:middle; }
+.crm-content table td { color:#334155; font-weight:400; vertical-align:middle; }
+/* Data-list actions share one compact rhythm without changing ordinary cells. */
+.crm-content table tbody td:last-child:has(> a, > button, > div > a, > div > button) { text-align:center; }
+.crm-content table tbody td:last-child > a,
+.crm-content table tbody td:last-child > button,
+.crm-content table tbody td:last-child > div > a,
+.crm-content table tbody td:last-child > div > button {
+  display:inline-flex;
+  min-height:32px;
+  align-items:center;
+  justify-content:center;
+  border-radius:8px;
+}
+.crm-content table tbody td:last-child > .flex { justify-content:center; gap:8px; }
 button { cursor:pointer; }
 /* Keep keyboard focus unmistakable without turning a compact field into a heavy blue box. */
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:1px solid color-mix(in srgb, var(--crm-primary) 72%, white); outline-offset:1px; box-shadow:0 0 0 3px color-mix(in srgb, var(--crm-primary) 12%, transparent); }

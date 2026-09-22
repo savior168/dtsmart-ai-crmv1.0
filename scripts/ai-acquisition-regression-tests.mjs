@@ -261,7 +261,7 @@ assert.match(listRoute,/request_key/);
 assert.match(listRoute,/createAcquisitionTaskNumber\(user\.id, requestKey, costMode\)/);
 assert.match(listRoute,/acquisitionTaskNumberPrefix\(user\.id, requestKey, costMode\)[\s\S]*like\("task_number", `\$\{numberPrefix\}-%`\)/,"AI获客重复提交必须按稳定请求身份复用原任务，不能因时间戳生成重复任务");
 assert.match(listRoute,/body\.cost_mode === "FREE_ONLY" \? "FREE_ONLY" : "ADAPTIVE"/,"后端缺省模式必须是智能增强获客");
-assert.match(listRoute,/summaryRows[\s\S]*active_tasks[\s\S]*completed_tasks[\s\S]*today_accepted[\s\S]*accepted[\s\S]*review[\s\S]*failed_tasks/,"任务中心概览必须按完整筛选范围汇总必要业务数据");
+assert.match(listRoute,/summaryRows[\s\S]*active_tasks[\s\S]*completed_tasks[\s\S]*today_accepted[\s\S]*historical_accepted[\s\S]*removed_results[\s\S]*repeated_results[\s\S]*current_customers[\s\S]*available_customers[\s\S]*claimed_customers[\s\S]*review[\s\S]*failed_tasks/,"任务中心概览必须按完整筛选范围汇总历史结果、有效结果、唯一客户及公海流转口径");
 assert.match(listRoute,/ai_acquisition_candidates[\s\S]*eq\("decision", "ACCEPTED"\)[\s\S]*not\("imported_customer_id", "is", null\)/,"今日及历史获客只能统计已核验通过且成功写入系统的客户");
 const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.ts",import.meta.url),"utf8");
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
@@ -389,7 +389,8 @@ assert.match(acquisitionCreatePage,/requirePermission\("ai\.acquisition\.create"
 assert.match(todayUsageLink,/href=\{`\/ai-usage\?business_type=\$\{module\}`\}[\s\S]*AI用量与费用/,"统一用量入口必须只负责进入同一用量页面");
 assert.doesNotMatch(todayUsageLink,/useEffect|fetch\(|今日 \{formatNumber|fetchedToday/,"统一用量入口不得重复请求或重复展示今日费用");
 assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得使用额外的更多筛选弹层");
-assert.match(taskCenter,/今日获客[\s\S]*历史总获客[\s\S]*待人工复核[\s\S]*进行中[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果，待人工复核应排在进行中之前");
+assert.match(taskCenter,/今日获客[\s\S]*有效入池结果[\s\S]*待人工复核[\s\S]*进行中[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果，且有效入池结果必须与点击后的客户结果一致");
+assert.match(taskCenter,/统计口径[\s\S]*历史入池结果[\s\S]*已删除[\s\S]*当前有效结果[\s\S]*跨任务重复[\s\S]*当前唯一客户[\s\S]*公海待认领[\s\S]*已认领/,"任务中心必须直接解释历史结果、删除、跨任务重复与当前公海数量的差异");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
 assert.match(acquisitionWorkflow,/decision:"DUPLICATE"[\s\S]*has_actionable_contact:false[\s\S]*evidence_complete:false/,"去重候选必须写入非空布尔状态，不能让数据库默认值或空值中断整批任务");
 assert.match(acquisitionWorkflow,/decision: "ANALYZING", is_target_customer:false, has_actionable_contact:false, evidence_complete:false/,"待核验候选必须显式写入布尔默认状态");
@@ -473,7 +474,7 @@ const acquisitionTaskCenter=fs.readFileSync(new URL("../components/ai-acquisitio
 const acquisitionTaskReport=fs.readFileSync(new URL("../components/ai-acquisition/task-report.tsx",import.meta.url),"utf8");
 const acquisitionTaskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const aiOwnerScope=fs.readFileSync(new URL("../lib/ai/owner-scope.ts",import.meta.url),"utf8");
-assert.match(customerResults,/本周成功入池[\s\S]*全部成功入池[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*复核判定/,"任务中心客户结果卡必须落到可处理的统一客户清单");
+assert.match(customerResults,/本周成功入池[\s\S]*全部有效入池结果[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*复核判定/,"任务中心客户结果卡必须落到可处理的统一客户清单，并明确结果记录可能跨任务重复");
 assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*清除当前任务/,"获客结果页必须支持按来源任务精确筛选并提供可撤销的筛选状态");
 assert.match(customerResults,/flex-nowrap[\s\S]*overflow-x-auto[\s\S]*任务名称或编号[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*TODAY:"今日",WEEK:"本周",MONTH:"本月"/,"客户结果必须把任务、客户和快捷日期筛选合并为不越界的紧凑单行工具栏");
 assert.match(customerResults,/CustomerPublicChannels customer=\{row\}/,"获客结果、客户公海和我的客户必须共用Google Maps与官方社媒的公开渠道组件");
@@ -494,7 +495,7 @@ assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/
 assert.match(listRoute,/coreOnly[\s\S]*!coreOnly&&offset<20000[\s\S]*!coreOnly && pageTaskIds[\s\S]*if \(coreOnly\)[\s\S]*data: presentedTasks/,"任务中心必须先返回核心任务列表，不能等待全量统计和筛选项扫描");
 assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*setTasks[\s\S]*void fetch\(`\/api\/ai-acquisition\/tasks\?\$\{p\}`[\s\S]*setSummary/,"任务中心必须先展示核心任务，再异步补充真实汇总统计");
 assert.match(acquisitionTaskCenter,/查看明细[\s\S]*查看真实费用/,"任务中心必须提供真实用量详情入口且不得用空数据伪装为零费用");
-assert.match(listRoute,/optional progress unavailable[\s\S]*optional today accepted unavailable/,"任务列表附属进度和今日统计异常不得拖垮核心列表");
+assert.match(listRoute,/optional progress unavailable[\s\S]*if \(coreOnly\)[\s\S]*return NextResponse\.json/,"任务列表附属统计不得拖垮核心列表");
 assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_limit: 1[\s\S]*stalled task claim completed/,"获客恢复器必须只通过受限RPC领取单个停滞任务并记录阶段结果");
 assert.match(recoveryRoute,/yield quickly[\s\S]*RECOVERY_DEADLINE_MS = 4_000/,"恢复器必须快速让出数据库容量，不能每分钟持续阻塞前台业务");
 assert.match(vercelConfig,/"schedule": "\*\/5 \* \* \* \*"/,"停滞任务巡检应每5分钟执行，避免无待恢复任务时仍每分钟争抢数据库连接");
