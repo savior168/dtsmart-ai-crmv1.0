@@ -199,7 +199,7 @@ for (const href of ["/ai-screening/new", "/ai-screening/failures", "/ai-screenin
 assert.match(taskCenter, /TodayUsageLink module="screening"/, "AI筛选任务中心必须通过统一组件进入筛选用量页");
 assert.match(read("app/api/ai/tasks/route.ts"), /countEligiblePendingAiCustomers\(pendingScope\.ownerIds\)/, "待AI筛选卡片必须排除活动任务占用客户并与创建任务资格一致");
 assert.match(read("lib/ai/task-eligibility.ts"), /countEligiblePendingAiCustomers[\s\S]*rpc\("count_eligible_pending_ai_customers"/, "待筛选资格统计必须通过数据库一次聚合，避免逐页传输全部客户");
-assert.match(read("supabase/migrations/202609180003_ai_screening_eligible_pending_count.sql"), /ai_score is null[\s\S]*not exists[\s\S]*t\.status in \('QUEUED', 'RUNNING', 'PAUSING', 'PAUSED'\)[\s\S]*i\.status in \('PENDING', 'RUNNING'\)/, "待筛选数据库统计必须排除活动任务占用客户");
+assert.match(read("supabase/migrations/202609180005_ai_screening_eligible_pending_count.sql"), /ai_score is null[\s\S]*not exists[\s\S]*t\.status in \('QUEUED', 'RUNNING', 'PAUSING', 'PAUSED'\)[\s\S]*i\.status in \('PENDING', 'RUNNING'\)/, "待筛选数据库统计必须排除活动任务占用客户");
 assert.match(read("components/app-shell.tsx"), /savedChanges[\s\S]*\/api\/users\/avatar\?v=[\s\S]*setProfile\(\(current\)/, "头像保存后必须立即更新顶栏状态并使用新版本地址");
 assert.match(read("components/ai-acquisition/task-detail.tsx"), /acquisitionBusinessLabel[\s\S]*发现类型：/, "未筛选获客候选必须显示中文发现类型，不得冒充AI核验结果");
 assert.match(read("lib/ai-acquisition/display-labels.ts"), /point_of_interest: "商家"[\s\S]*electronics_repair_shop: "电子产品维修店"/, "Google原始业务类型必须统一映射为中文展示标签");
