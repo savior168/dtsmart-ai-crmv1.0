@@ -10,9 +10,13 @@ import {
   Send,
 } from "lucide-react";
 import { STOCK_STATUS_LABELS, type StockOrderStatus } from "@/lib/types";
+import { summarizeProductSpecificationsSnapshot } from "@/lib/product-specifications";
 type Item = {
   id: string;
   line_number: number;
+  product_type_snapshot: string | null;
+  product_specifications_snapshot: Record<string, string> | null;
+  product_color_snapshot: string | null;
   item_name: string;
   brand: string | null;
   model: string | null;
@@ -20,6 +24,7 @@ type Item = {
   description: string | null;
   description_zh: string | null;
   procurement_cost: number;
+  procurement_cost_confirmed: boolean;
   quantity: number;
   preparation_requirement: string | null;
 };
@@ -54,11 +59,13 @@ type Payload = {
   can_prepare: boolean;
   can_submit: boolean;
   can_update: boolean;
+  can_edit_procurement: boolean;
   allowed_statuses: StockOrderStatus[];
 };
 export function StockOrderDetailView({ id }: { id: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [procurementDraft, setProcurementDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,6 +86,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
     }
     setData(body);
     setItems(body.items || []);
+    setProcurementDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, item.procurement_cost_confirmed ? String(item.procurement_cost) : ""])));
     setRequirements(body.order.stocking_requirements || "");
     setExpected(
       body.order.expected_ready_at
@@ -92,19 +100,13 @@ export function StockOrderDetailView({ id }: { id: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const totalCost = useMemo(
-    () =>
-      items.reduce(
-        (sum, item) =>
-          sum + Number(item.procurement_cost || 0) * Number(item.quantity || 0),
-        0,
-      ),
-    [items],
-  );
+  const totalCost = useMemo(() => items.every((item) => item.procurement_cost_confirmed)
+    ? items.reduce((sum, item) => sum + Number(item.procurement_cost) * Number(item.quantity), 0)
+    : null, [items]);
   function updateItem(
     index: number,
-    key: "description_zh" | "procurement_cost" | "preparation_requirement",
-    value: string | number,
+    key: "description_zh" | "preparation_requirement",
+    value: string,
   ) {
     setItems((current) =>
       current.map((item, row) =>
@@ -135,6 +137,14 @@ export function StockOrderDetailView({ id }: { id: string }) {
       expected_ready_at: expected,
       items,
     });
+  }
+  async function saveProcurementCosts() {
+    const costs = items.map((item) => {
+      const raw = (procurementDraft[item.id] || "").trim();
+      if (raw && !/^\d+(?:\.\d{1,2})?$/.test(raw)) throw new Error(`第 ${item.line_number} 行采购价应为非负金额，最多两位小数`);
+      return { line_number: item.line_number, procurement_cost: raw ? Number(raw) : null };
+    });
+    await request(`/api/stock-orders/${id}/procurement`, "PATCH", { items: costs });
   }
   async function submit() {
     if (!requirements.trim()) {
@@ -229,7 +239,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>
             <p className="mb-3 text-xs text-slate-500">
-              产品、品牌、型号、质量和数量来自已确认销售订单，不可改写；销售员仅补充仓库专用字段。
+              产品、品牌、型号、质量和数量来自已确认销售订单，不可改写；销售员填写理货要求，采购人员另行确认实际采购单价。
             </p>
             <div className="overflow-x-auto rounded-xl border">
               <table className="w-full min-w-[1200px] text-left text-sm">
@@ -242,7 +252,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "型号",
                       "客户质量/描述",
                       "中文质量/描述（仓库）",
-                      "采购成本",
+                      "实际采购单价（CNY）",
                       "数量",
                       "理货要求",
                     ].map((x) => (
@@ -257,7 +267,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     <tr key={item.id} className="border-t">
                       <td className="px-3 py-3">{item.line_number}</td>
                       <td className="px-3 py-3 font-medium">
-                        {item.item_name}
+                        {item.product_type_snapshot || "未维护类型"}
+                        <small className="mt-1 block font-normal text-slate-500">{item.item_name}</small>
                       </td>
                       <td className="px-3 py-3">{item.brand || "-"}</td>
                       <td className="px-3 py-3">{item.model || "-"}</td>
@@ -265,6 +276,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         {[item.quality, item.description]
                           .filter(Boolean)
                           .join(" · ") || "-"}
+                        {item.product_color_snapshot || item.product_specifications_snapshot ? <small className="mt-1 block text-slate-500">{[item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", summarizeProductSpecificationsSnapshot(item.product_specifications_snapshot)].filter(Boolean).join(" · ")}</small> : null}
                       </td>
                       <td className="px-3 py-2">
                         {data.can_prepare ? (
@@ -285,23 +297,17 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        {data.can_prepare ? (
+                        {data.can_edit_procurement ? (
                           <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={Number(item.procurement_cost || 0)}
-                            onChange={(e) =>
-                              updateItem(
-                                index,
-                                "procurement_cost",
-                                Number(e.target.value),
-                              )
-                            }
+                            inputMode="decimal"
+                            value={procurementDraft[item.id] ?? ""}
+                            onChange={(e) => setProcurementDraft((current) => ({ ...current, [item.id]: e.target.value }))}
+                            placeholder="待采购核价"
+                            aria-label={`第 ${item.line_number} 行实际采购单价`}
                             className="h-9 w-28 rounded border px-2 text-right"
                           />
                         ) : (
-                          Number(item.procurement_cost).toFixed(2)
+                          item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-500">待采购核价</span>
                         )}
                       </td>
                       <td className="px-3 py-3">{item.quantity}</td>
@@ -332,10 +338,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       colSpan={6}
                       className="px-3 py-3 text-right font-medium"
                     >
-                      采购成本合计
+                      已确认采购金额合计
                     </td>
                     <td className="px-3 py-3 font-bold text-amber-800">
-                      {totalCost.toFixed(2)}
+                      {totalCost === null ? "待全部核价" : totalCost.toFixed(2)}
                     </td>
                     <td colSpan={2} />
                   </tr>
@@ -343,6 +349,12 @@ export function StockOrderDetailView({ id }: { id: string }) {
               </table>
             </div>
           </div>
+          {data.can_edit_procurement ? (
+            <section className="mx-5 mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+              <p className="text-sm text-amber-900">采购人员填写实际采购单价；留空表示尚未确认，0 仅用于已确认免费取得的商品。该价格不含包装费和其他费用。</p>
+              <button disabled={busy} onClick={() => void saveProcurementCosts().catch((cause) => setError(cause instanceof Error ? cause.message : "采购价格式不正确"))} className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 text-sm text-amber-900"><Save size={16} />保存采购核价</button>
+            </section>
+          ) : null}
           {data.can_prepare ? (
             <section className="mx-5 mb-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
               <h2 className="font-semibold">完善并提交备货信息</h2>

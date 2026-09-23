@@ -77,7 +77,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "pricebooks.cost.view", label: "查看采购成本", group: "商品中心", description: "查看人民币采购价、包装费、其他成本及其来源；销售员默认不可见", kind: "DATA" },
   { code: "pricebooks.manage", label: "维护产品价格", group: "商品中心", description: "新增、调整或停用产品价格版本", kind: "ACTION", core: true },
   { code: "pricebooks.import", label: "导入产品报价表", group: "商品中心", description: "上传并预览产品报价表，处理字段歧义和异常行", kind: "ACTION", core: true },
-  { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "将全部校验通过的导入批次发布到商品与价格主档", kind: "ACTION", core: true },
+  { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "将所选已核准商品及价格分批发布到主档，未核准内容继续隔离", kind: "ACTION", core: true },
   { code: "pricebooks.rules.manage", label: "维护销售报价规则", group: "商品中心", description: "维护报价汇率、加价率、最低毛利和商品或分类覆盖规则", kind: "ACTION", core: true },
 
   { code: "quotes.view", label: "报价单", group: "销售管理", description: "查看权限范围内的报价单", kind: "PAGE" },
@@ -96,8 +96,9 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
   { code: "stock.view", label: "备货单", group: "仓库管理", description: "查看允许范围内的备货单", kind: "PAGE" },
   { code: "stock.data_all", label: "查看全部备货单", group: "仓库管理", description: "按归属人查看全部备货进度", kind: "DATA" },
-  { code: "stock.update", label: "更新备货状态", group: "仓库管理", description: "仓库员更新备货状态与备注", kind: "ACTION" },
-  { code: "stock.prepare", label: "完善备货信息", group: "仓库管理", description: "订单归属销售员填写仓库中文描述、采购成本和理货要求", kind: "ACTION" },
+  { code: "stock.update", label: "更新备货状态", group: "仓库管理", description: "仓库人员更新备货状态与备注", kind: "ACTION" },
+  { code: "stock.procurement.edit", label: "确认实际采购价", group: "仓库管理", description: "指定采购人员核实并维护备货单实际采购单价；可与仓库备货状态权限分别授权", kind: "ACTION" },
+  { code: "stock.prepare", label: "完善备货信息", group: "仓库管理", description: "订单归属销售员填写仓库中文描述和理货要求，不修改采购价格", kind: "ACTION" },
   { code: "stock.submit", label: "提交备货单", group: "仓库管理", description: "订单归属销售员将已完善备货单提交仓库", kind: "ACTION" },
   { code: "stock.export", label: "导出备货单", group: "仓库管理", description: "按仓库模板导出备货Excel", kind: "ACTION" },
 

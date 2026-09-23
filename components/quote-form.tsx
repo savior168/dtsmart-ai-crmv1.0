@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { QuoteItem, QuoteStatus } from "@/lib/types";
 import { QUOTE_STATUS_LABELS } from "@/lib/types";
+import { summarizeProductSpecifications, type ProductFamily } from "@/lib/product-specifications";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { COUNTRY_OPTIONS, countryInfo, countrySearchTokens } from "@/lib/countries";
 import {
@@ -68,8 +69,8 @@ type Attachment = {
   created_at: string;
 };
 type QuoteProduct = {
-  id:string;sku:string;supplier_code:string|null;name_zh:string;name_en:string|null;brand:string|null;model:string|null;quality:string|null;description_en:string|null;unit:string;minimum_order_quantity:number;
-  total_cost_cny:number;suggested_price_usd:number;sale_reference_usd:number|null;exchange_rate:number;pricing_rule:Record<string,unknown>;quantity:number;
+  id:string;sku:string;supplier_code:string|null;name_zh:string;name_en:string|null;brand:string|null;model:string|null;quality:string|null;color:string|null;specifications:Record<string,string>|null;category:{product_family:ProductFamily}|null;description_en:string|null;unit:string;minimum_order_quantity:number;
+  total_cost_cny:number|null;suggested_price_usd:number;sale_reference_usd:number|null;exchange_rate:number;pricing_rule:Record<string,unknown>;quantity:number;
 };
 type Detail = {
   quote: QuoteData;
@@ -273,8 +274,22 @@ export function QuoteForm({
     }));
   }
   async function searchProducts(){setProductSearching(true);const params=new URLSearchParams({q:productQuery,quantity:"1"});const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));setProductSearching(false);if(!response.ok){setMessage(body.error||"可报价商品加载失败");return}setProductOptions(body.data||[])}
-  function addProduct(product:QuoteProduct){const item:QuoteItem={...emptyItem(),product_id:product.id,product_sku_snapshot:product.sku,supplier_code_snapshot:product.supplier_code,item_name:product.name_en||product.name_zh,brand:product.brand||"",model:product.model||"",quality:product.quality||"",description:product.description_en||"",quantity:Math.max(1,Math.ceil(Number(product.minimum_order_quantity)||1)),unit_price:Number(product.suggested_price_usd||0),procurement_cost:0,unit_cost_cny:Number(product.total_cost_cny||0),suggested_unit_price:Number(product.suggested_price_usd||0),exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule};setForm(current=>{const hasOnlyEmpty=current.items.length===1&&!current.items[0].item_name;const rows=hasOnlyEmpty?[item]:[...current.items,item];return{...current,items:rows.map((row,index)=>({...row,line_number:index+1}))}});setProductOptions([]);setProductQuery("");setMessage(`已添加 ${product.sku} · ${product.name_zh}，请核对数量和实际销售价。`)}
-  async function refreshItemPricing(index:number,item:QuoteItem){if(!item.product_id)return;const params=new URLSearchParams({q:item.product_sku_snapshot||item.item_name,quantity:String(item.quantity)});const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));if(!response.ok)return;const product=(body.data||[]).find((row:QuoteProduct)=>row.id===item.product_id) as QuoteProduct|undefined;if(!product)return;setForm(current=>({...current,items:current.items.map((row,rowIndex)=>rowIndex===index?{...row,unit_cost_cny:Number(product.total_cost_cny||0),suggested_unit_price:Number(product.suggested_price_usd||0),exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule}:row)}))}
+  function addProduct(product:QuoteProduct){
+    const item:QuoteItem={...emptyItem(),product_id:product.id,product_sku_snapshot:product.sku,supplier_code_snapshot:product.supplier_code,product_color_snapshot:product.color,product_specifications_snapshot:product.specifications,item_name:product.name_en||product.name_zh,brand:product.brand||"",model:product.model||"",quality:product.quality||"",description:product.description_en||"",quantity:Math.max(1,Math.ceil(Number(product.minimum_order_quantity)||1)),unit_price:Number(product.suggested_price_usd||0),procurement_cost:0,unit_cost_cny:product.total_cost_cny,suggested_unit_price:product.suggested_price_usd||null,exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule};
+    setForm(current=>{const hasOnlyEmpty=current.items.length===1&&!current.items[0].item_name;const rows=hasOnlyEmpty?[item]:[...current.items,item];return{...current,items:rows.map((row,index)=>({...row,line_number:index+1}))}});
+    setProductOptions([]);setProductQuery("");setMessage(product.total_cost_cny===null?`已添加 ${product.sku}，但采购价、包装费或其他成本尚未全部确认；系统未计算建议价，请核对后填写实际售价。`:`已添加 ${product.sku} · ${product.name_zh}，请核对数量和实际销售价。`);
+  }
+  async function refreshItemPricing(index:number,item:QuoteItem){
+    if(!item.product_id)return;
+    const params=new URLSearchParams({q:item.product_sku_snapshot||item.item_name,quantity:String(item.quantity)});
+    const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok){setMessage(body.error||"商品价格重新计算失败，请重试后保存报价");return}
+    const product=(body.data||[]).find((row:QuoteProduct)=>row.id===item.product_id) as QuoteProduct|undefined;
+    if(!product){setMessage("未找到当前商品，请重新搜索核对价格");return}
+    setForm(current=>({...current,items:current.items.map((row,rowIndex)=>rowIndex===index&&row.product_id===item.product_id&&row.quantity===item.quantity?{...row,unit_cost_cny:product.total_cost_cny,suggested_unit_price:product.suggested_price_usd||null,exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule}:row)}));
+    if(product.total_cost_cny===null)setMessage("当前数量的采购价、包装费或其他成本尚未全部确认；系统未计算建议价，请核对后报价。");
+  }
   function insertItem(index: number) {
     setForm((current) => {
       const rows = [...current.items];
@@ -724,7 +739,7 @@ export function QuoteForm({
               <div>
                 <h2 className="font-semibold">客户报价产品明细</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  仅填写客户可见内容；仓库中文说明、采购成本和理货要求在备货单中填写。
+                  仅填写客户可见内容；销售员在备货单中补充中文说明和理货要求，实际采购价由采购人员核实后填写。
                 </p>
               </div>
               {!readonly ? (
@@ -777,7 +792,7 @@ export function QuoteForm({
                 </div>
               ) : null}
             </div>
-            {!readonly?<section className="mb-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4"><div className="flex flex-wrap items-end gap-3"><label className="min-w-[320px] flex-1"><span className="mb-1.5 block text-sm font-medium text-slate-700">从商品库添加</span><div className="relative"><Search size={17} className="absolute left-3 top-3 text-slate-400"/><input value={productQuery} onChange={event=>setProductQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();void searchProducts()}}} placeholder="搜索商品名称、SKU、供应商货号、品牌或型号" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm"/></div></label><button type="button" disabled={productSearching} onClick={()=>void searchProducts()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{productSearching?<LoaderCircle size={16} className="animate-spin"/>:<Search size={16}/>}搜索商品</button></div>{productOptions.length?<div className="mt-3 grid gap-2 lg:grid-cols-2">{productOptions.map(product=><button key={product.id} type="button" onClick={()=>addProduct(product)} className="rounded-lg border border-slate-200 bg-white p-3 text-left hover:border-blue-300 hover:bg-blue-50"><div className="flex items-start justify-between gap-3"><div><b className="text-blue-700">{product.sku} · {product.name_zh}</b><small className="mt-1 block text-slate-500">{[product.brand,product.model,product.quality].filter(Boolean).join(" / ")||"规格未维护"}</small></div><span className="shrink-0 text-sm font-semibold text-emerald-700">建议 USD {Number(product.suggested_price_usd).toFixed(2)}</span></div><small className="mt-2 block text-slate-500">完整成本 CNY {Number(product.total_cost_cny).toFixed(2)} · MOQ {Number(product.minimum_order_quantity)} {product.unit}</small></button>)}</div>:null}</section>:null}
+            {!readonly?<section className="mb-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4"><div className="flex flex-wrap items-end gap-3"><label className="min-w-[320px] flex-1"><span className="mb-1.5 block text-sm font-medium text-slate-700">从商品库添加</span><div className="relative"><Search size={17} className="absolute left-3 top-3 text-slate-400"/><input value={productQuery} onChange={event=>{setProductQuery(event.target.value);setProductOptions([])}} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();void searchProducts()}}} placeholder="搜索商品名称、系统SKU、供应商编号/货号、品牌或型号" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm"/></div></label><button type="button" disabled={productSearching} onClick={()=>void searchProducts()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{productSearching?<LoaderCircle size={16} className="animate-spin"/>:<Search size={16}/>}搜索商品</button></div>{productOptions.length?<div className="mt-3 grid gap-2 lg:grid-cols-2">{productOptions.map(product=><button key={product.id} type="button" onClick={()=>addProduct(product)} className="rounded-lg border border-slate-200 bg-white p-3 text-left hover:border-blue-300 hover:bg-blue-50"><div className="flex items-start justify-between gap-3"><div><b className="text-blue-700">{product.sku} · {product.name_zh}</b><small className="mt-1 block text-slate-500">{[product.brand,product.model,product.quality,product.color].filter(Boolean).join(" / ")||"规格未维护"}</small><small className="mt-1 block text-slate-500">{summarizeProductSpecifications(product.specifications,product.category?.product_family||"OTHER")||"无已核实的品类专有规格"}</small></div><span className="shrink-0 text-sm font-semibold text-emerald-700">{product.suggested_price_usd>0?`建议 USD ${Number(product.suggested_price_usd).toFixed(2)}`:product.sale_reference_usd?`销售参考 USD ${Number(product.sale_reference_usd).toFixed(2)}`:"建议价待补齐成本"}</span></div><small className="mt-2 block text-slate-500">完整成本 {product.total_cost_cny===null?"采购、包装或其他成本未确认":`CNY ${Number(product.total_cost_cny).toFixed(2)}`} · MOQ {Number(product.minimum_order_quantity)} {product.unit}</small></button>)}</div>:null}</section>:null}
             <div className="overflow-x-auto rounded-xl border">
               <table className="w-full min-w-[1050px] text-left text-xs">
                 <thead className="bg-slate-50">
@@ -821,7 +836,7 @@ export function QuoteForm({
                               updateItem(index, key, e.target.value)
                             }
                             className="h-9 w-full min-w-24 rounded border px-2"
-                          />{key==="item_name"&&item.product_sku_snapshot?<small className="mt-1 block text-blue-600">{item.product_sku_snapshot}{item.supplier_code_snapshot?` · 供应商 ${item.supplier_code_snapshot}`:""}</small>:null}</div>
+                          />{key==="item_name"&&item.product_sku_snapshot?<small className="mt-1 block text-blue-600">{item.product_sku_snapshot}{item.supplier_code_snapshot?` · 单品货号 ${item.supplier_code_snapshot}`:""}</small>:null}{key==="quality"&&item.product_color_snapshot?<small className="mt-1 block text-slate-500">颜色：{item.product_color_snapshot}</small>:null}</div>
                         </td>
                       ))}
                       {(["quantity", "unit_price"] as const).map((key) => (

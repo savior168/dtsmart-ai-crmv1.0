@@ -9,7 +9,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const { id } = await context.params;
     const [{ data: order, error }, { data: items, error: itemError }] = await Promise.all([
       supabase.from("stock_orders").select("stock_number,quote_number,order_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,salesperson:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).single(),
-      supabase.from("stock_order_items").select("line_number,item_name,brand,model,quality,description,description_zh,procurement_cost,quantity,preparation_requirement").eq("stock_order_id", id).order("line_number"),
+      supabase.from("stock_order_items").select("line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,procurement_cost,procurement_cost_confirmed,quantity,preparation_requirement").eq("stock_order_id", id).order("line_number"),
     ]);
     if (error) throw error;
     if (itemError) throw itemError;

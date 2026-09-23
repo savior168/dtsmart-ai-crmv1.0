@@ -94,6 +94,9 @@ export type QuoteItem = {
   product_id?: string | null;
   product_sku_snapshot?: string | null;
   supplier_code_snapshot?: string | null;
+  product_type_snapshot?: string | null;
+  product_specifications_snapshot?: Record<string, string> | null;
+  product_color_snapshot?: string | null;
   line_number: number;
   item_name: string;
   brand: string;

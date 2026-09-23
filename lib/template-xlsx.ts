@@ -43,6 +43,21 @@ type StockExportData = {
 const PI_TEMPLATE = path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx");
 const STOCK_TEMPLATE = path.join(process.cwd(), "assets", "templates", "Warehouse_Stock_Template.xlsx");
 
+// Keep the template writer directly executable by Node's TypeScript-strip test.
+const stockSpecificationLabels: Record<string, string> = {
+  assembly: "交付形态", panel_subtype: "显示技术细分", size_grade: "尺寸规格", fingerprint_support: "指纹功能", glass_grade: "玻璃或盖板版本",
+  capacity_mah: "标称容量（mAh）", cell_material: "电芯材料", health_grade: "拆机电池健康度", diagnostic_support: "跑诊断支持情况", certification: "认证信息",
+  assembly_scope: "装配范围", frame_structure: "一体或分体", included_parts: "随附配件", market_version: "区域版本",
+  component_position: "配件位置", connector_variant: "接口或排线版本",
+};
+
+function stockSpecificationText(value: Record<string, string> | null | undefined) {
+  return Object.entries(value || {})
+    .filter(([key, entry]) => key !== "color_source" && typeof entry === "string" && entry.trim())
+    .map(([key, entry]) => `${stockSpecificationLabels[key] || key}：${entry}`)
+    .join(" · ");
+}
+
 function escapeXml(value: unknown) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
@@ -164,7 +179,7 @@ export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteIte
     const item = items[index];
     const rowValues: Array<[string, unknown]> = item ? [
       [`B${row}`, item.item_name], [`D${row}`, item.brand || ""], [`E${row}`, item.model || ""],
-      [`F${row}`, item.quality || ""], [`G${row}`, item.description || ""], [`I${row}`, Number(item.unit_price || 0)],
+      [`F${row}`, item.quality || ""], [`G${row}`, [item.product_color_snapshot ? `Color: ${item.product_color_snapshot}` : "", item.description || ""].filter(Boolean).join("; ")], [`I${row}`, Number(item.unit_price || 0)],
       [`J${row}`, Number(item.quantity || 0)],
     ] : [[`B${row}`, ""], [`D${row}`, ""], [`E${row}`, ""], [`F${row}`, ""], [`G${row}`, ""], [`I${row}`, ""], [`J${row}`, ""]];
     for (const [cell, value] of rowValues) xml = setCell(xml, cell, value);
@@ -177,7 +192,7 @@ export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteIte
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
 
-export async function buildStockWorkbook(stock: StockExportData, items: QuoteItem[]) {
+export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { procurement_cost_confirmed?: boolean })[]) {
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
@@ -189,14 +204,14 @@ export async function buildStockWorkbook(stock: StockExportData, items: QuoteIte
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
-  xml = setCell(xml, "J11", "", "SUMPRODUCT(J13:J999,K13:K999)");
+  xml = setCell(xml, "J11", "", "IF(COUNT(J13:J999)<COUNT(K13:K999),\"\",SUMPRODUCT(J13:J999,K13:K999))");
   for (let index = 0; index < Math.max(items.length, 9); index += 1) {
     const row = 13 + index;
     const item = items[index];
     const valuesForRow: Array<[string, unknown]> = item ? [
-      [`B${row}`, index + 1], [`C${row}`, item.item_name], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
-      [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, Number(item.procurement_cost || 0)],
-      [`K${row}`, Number(item.quantity || 0)], [`L${row}`, item.description_zh || ""], [`N${row}`, item.preparation_requirement || ""],
+      [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
+      [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, item.procurement_cost_confirmed ? Number(item.procurement_cost) : ""],
+      [`K${row}`, Number(item.quantity || 0)], [`L${row}`, [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；")], [`N${row}`, item.preparation_requirement || ""],
     ] : [[`B${row}`, ""], [`C${row}`, ""], [`E${row}`, ""], [`F${row}`, ""], [`G${row}`, ""], [`H${row}`, ""], [`J${row}`, ""], [`K${row}`, ""], [`L${row}`, ""], [`N${row}`, ""]];
     for (const [cell, value] of valuesForRow) xml = setCell(xml, cell, value);
   }

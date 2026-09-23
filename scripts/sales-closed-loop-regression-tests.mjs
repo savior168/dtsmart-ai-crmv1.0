@@ -36,6 +36,14 @@ assert.match(attachmentDetail, /报价发送后附件作为业务凭证保留，
 const stockApi = read("app/api/stock-orders/[id]/route.ts");
 assert.match(stockApi, /\["WAREHOUSE","ADMIN"\]\.includes\(account\.role\)/, "备货状态只能由仓库员或系统管理员更新");
 assert.doesNotMatch(stockApi, /unit_price|total_amount|phone|email,address/, "仓库接口不得返回销售价格、客户联系方式或利润数据");
+assert.match(stockApi, /procurement_cost_confirmed[\s\S]*can_edit_procurement: \["WAREHOUSE","ADMIN"\][\s\S]*stock\.procurement\.edit/, "采购核价状态和独立权限必须由服务端返回");
+assert.doesNotMatch(read("app/api/stock-orders/[id]/draft/route.ts"), /procurement_cost:/, "销售员保存备货草稿不能传入采购价");
+assert.match(read("app/api/stock-orders/[id]/procurement/route.ts"), /requirePermission\("stock\.procurement\.edit"\)[\s\S]*\["WAREHOUSE", "ADMIN"\][\s\S]*save_stock_order_procurement_costs/, "采购核价仅可由有权限的采购仓库角色或管理员执行");
+const stockCostMigration = read("supabase/migrations/202609230005_stock_procurement_cost_separation.sql");
+assert.match(stockCostMigration, /procurement_cost_confirmed boolean not null default false/, "历史备货采购价必须默认未确认");
+assert.doesNotMatch(stockCostMigration.match(/create or replace function public\.capture_stock_product_type_and_cost\(\)[\s\S]*?end \$\$;/)?.[0] || "", /new\.procurement_cost\s*:=/, "建单触发器不能把含包装费的报价成本伪装成采购价");
+assert.doesNotMatch(stockCostMigration.match(/create or replace function public\.update_stock_order_draft\([\s\S]*?end \$\$;/)?.[0] || "", /procurement_cost\s*=/, "销售备货草稿数据库函数不能修改采购价");
+assert.match(stockCostMigration, /actor\.role not in \('WAREHOUSE','ADMIN'\)[\s\S]*current_user_has_business_permission\('stock\.procurement\.edit'\)/, "数据库核价必须同时校验角色和独立权限");
 
 const migration = read("supabase/migrations/202609010001_sales_quote_stock_cost_center.sql");
 const orderMigration = read("supabase/migrations/202609010002_sales_order_workflow.sql");

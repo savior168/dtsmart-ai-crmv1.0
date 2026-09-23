@@ -13,7 +13,6 @@ export async function PATCH(
       ? body.items.map((item: Record<string, unknown>, index: number) => ({
           line_number: index + 1,
           description_zh: String(item.description_zh || "").trim(),
-          procurement_cost: Number(item.procurement_cost || 0),
           preparation_requirement: String(
             item.preparation_requirement || "",
           ).trim(),

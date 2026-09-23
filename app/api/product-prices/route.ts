@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const admin = createAdminClient();
     let productIds: string[] | null = null;
     if (query) {
-      const { data: matching } = await admin.from("products").select("id").or(`sku.ilike.%${query}%,name_zh.ilike.%${query}%,name_en.ilike.%${query}%,brand.ilike.%${query}%,model.ilike.%${query}%`).limit(500);
+      const { data: matching } = await admin.from("products").select("id").or(`sku.ilike.%${query}%,supplier_identifier.ilike.%${query}%,supplier_code.ilike.%${query}%,name_zh.ilike.%${query}%,name_en.ilike.%${query}%,brand.ilike.%${query}%,model.ilike.%${query}%`).limit(500);
       productIds = (matching || []).map((row) => row.id);
       if (!productIds.length) return NextResponse.json({ data: [], count: 0, page, page_size: pageSize, can_view_cost: canViewCost, can_view_sales: canViewSales, can_manage: hasPermission(account, "pricebooks.manage"), can_import: hasPermission(account, "pricebooks.import") });
     }
@@ -42,11 +42,17 @@ export async function POST(request: Request) {
     const body = await request.json();
     const productId = String(body.product_id || "");
     const supportedKinds = new Set(["PROCUREMENT", "PACKAGING", "OTHER_COST", "SALE_REFERENCE"]);
-    const priceKind = supportedKinds.has(String(body.price_kind)) ? String(body.price_kind) : "PROCUREMENT";
+    const priceKind = String(body.price_kind || "");
+    if (!supportedKinds.has(priceKind)) return NextResponse.json({ error: "请选择有效的价格项目" }, { status: 400 });
     const currency = priceKind === "SALE_REFERENCE" ? "USD" : "CNY";
+    const amountText = String(body.amount ?? "").trim();
+    const quantityText = String(body.minimum_quantity ?? "").trim();
+    if (!/^\d+(?:\.\d{1,4})?$/.test(amountText)) return NextResponse.json({ error: "请明确填写非负价格，最多四位小数" }, { status: 400 });
+    if (!/^\d+(?:\.\d{1,3})?$/.test(quantityText)) return NextResponse.json({ error: "请明确填写正数起订量，最多三位小数" }, { status: 400 });
     const amount = Number(body.amount);
-    const minimumQuantity = Math.max(0.001, Number(body.minimum_quantity) || 1);
+    const minimumQuantity = Number(body.minimum_quantity);
     if (!productId || !Number.isFinite(amount) || amount < 0) return NextResponse.json({ error: "商品与有效价格为必填项" }, { status: 400 });
+    if (!Number.isFinite(minimumQuantity) || minimumQuantity <= 0) return NextResponse.json({ error: "起订量必须大于0" }, { status: 400 });
     const { data, error } = await supabase.rpc("save_product_price", { p_product_id: productId, p_price_kind: priceKind, p_currency: currency, p_amount: amount, p_minimum_quantity: minimumQuantity, p_effective_from: body.effective_from || new Date().toISOString().slice(0, 10), p_source_note: String(body.source_note || "手工维护").slice(0, 500) });
     if (error) throw error;
     return NextResponse.json({ data }, { status: 201 });
