@@ -26,20 +26,19 @@ export function acquisitionIndustryMatchesVerifiedResult(
   evidenceFacts: Array<string | null | undefined> = [],
 ) {
   if (!verifiedIndustry) return false;
-  const knownTargets = targetIndustries
-    .map((industry) => VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY[industry])
-    .filter((allowed): allowed is Set<string> => Boolean(allowed));
+  const knownTargets = targetIndustries.filter((industry) => VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY[industry]);
   // 自定义行业暂未进入本映射时，仍由证据门控处理，避免误伤其他业务模块。
   if (!knownTargets.length) return true;
-  const coarseIndustryMatch = knownTargets.some((allowed) => allowed.has(verifiedIndustry));
-  if (!coarseIndustryMatch) return false;
-  if (targetIndustries.includes("手机维修连锁店") && !targetIndustries.some((industry) => industry !== "手机维修连锁店")) {
-    const facts = evidenceFacts.join(" ");
-    // A primary industry label is not evidence of either phone repair or
-    // multiple locations. Both must be supported by the verified facts.
-    return /(?:手机维修|手机换屏|手机屏幕更换|iPhone维修|phone repair|smartphone repair|mobile phone repair)/i.test(facts)
-      && /(?:多门店|连锁经营|连锁门店|分店|加盟|chain|franchise|multiple locations|multiple branches|multi.location)/i.test(facts);
-  }
-  if (verifiedIndustry === "进口商或分销商") return hasPhoneComputerRepairPartsTradeEvidence(evidenceFacts);
-  return true;
+  const facts = evidenceFacts.join(" ");
+  return knownTargets.some((industry) => {
+    if (!VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY[industry].has(verifiedIndustry)) return false;
+    // Each selected target must pass its own evidence gate. A second target
+    // must not turn the chain target's broad industry aliases into a bypass.
+    if (industry === "手机维修连锁店") {
+      return /(?:手机维修|手机换屏|手机屏幕更换|iPhone维修|phone repair|smartphone repair|mobile phone repair)/i.test(facts)
+        && /(?:多门店|连锁经营|连锁门店|分店|加盟|chain|franchise|multiple locations|multiple branches|multi.location)/i.test(facts);
+    }
+    if (verifiedIndustry === "进口商或分销商") return hasPhoneComputerRepairPartsTradeEvidence(evidenceFacts);
+    return true;
+  });
 }

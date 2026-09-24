@@ -23,6 +23,9 @@ assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手�
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"手机维修店",["官网证明提供手机维修"]),false,"普通手机维修店不能仅凭行业标签进入连锁店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"Apple或MacBook维修店",["官网证明提供手机维修并有多门店或连锁经营"]),true,"主行业为Apple维修但有手机维修和连锁证据时不能误拒");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"电脑维修店",["官网证明提供多门店或连锁经营"]),false,"仅有连锁证据而无手机维修证据不能入池");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"电脑维修店",["官网仅证明电脑或笔记本维修"]),false,"混合目标行业不得绕过连锁手机维修证据门槛");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"手机维修店",["官网证明提供手机维修"]),true,"混合目标行业中普通手机维修仍可匹配手机维修店");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"Apple或MacBook维修店",["官网证明仅提供电脑维修"]),false,"Apple或MacBook标签不能替代手机维修证据");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"维修连锁",["Mobile SMART Car Body Repair Glasgow offers mobile repair franchises and multiple locations"]),false,"汽车上门维修不得因 mobile repair 和连锁词误入手机维修连锁任务");
 assert.equal(acquisitionDuplicateSource("Google Place ID已存在于系统客户资料"),"系统已有客户 · 商家ID");
 assert.equal(acquisitionDuplicateSource("该Google商家已由其他任务核验入池，本任务不重复移动或重新分析客户档案"),"系统已有客户 · 商家ID");
@@ -300,7 +303,7 @@ assert.match(detailRoute,/eq\("request_key", `acquisition:\$\{id\}`\)[\s\S]*cons
 assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweight\?\{\}:\{costs:[\s\S]*usage_summary:/,"完整详情必须以当前任务费用流水重算汇总，轻量轮询不得用空流水覆盖已加载费用");
 assert.match(detailRoute,/const liveTerminal=/,"任务详情必须使用工作流持久化的完整终态计数");
 assert.match(detailRoute,/processed_count:Math\.min\(liveDiscovered,Math\.max/,"任务详情已核验数不得超过候选总数");
-assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*liveChildExecutor[\s\S]*WAITING_FOR_MANUAL_RESUME[\s\S]*status: "QUEUED"[\s\S]*select\("id"\)\.maybeSingle\(\)[\s\S]*start\(aiAcquisitionWorkflow, \[id, null, executionToken\]\)[\s\S]*继续执行启动失败/ ,"人工继续必须安全接管失效执行器、避免重复执行，并在启动失败时回退为暂停");
+assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*liveChildExecutor[\s\S]*WAITING_FOR_MANUAL_RESUME[\s\S]*status: "QUEUED"[\s\S]*select\("id"\)\.maybeSingle\(\)[\s\S]*start\(aiAcquisitionWorkflow, \[id, null, executionToken, recheckOnly\]\)[\s\S]*继续执行启动失败/ ,"人工继续必须安全接管失效执行器、避免重复执行，并在启动失败时回退为暂停");
 assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durableItemIds[\s\S]*const itemIds[\s\S]*status: "COMPLETED"[\s\S]*lease_owner: null[\s\S]*is_latest_valid: false/,"失败任务重试必须保留已经持久化完成的客户，只重置真正未完成的项目并清理旧租约");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
 assert.match(relevanceRequeue,/requeueAcquisitionEvidenceGaps[\s\S]*target_decision === "INVALID"[\s\S]*"AMBIGUOUS", "NOT_FOUND"[\s\S]*!modelCallItemIds[\s\S]*is_latest_valid: false[\s\S]*decision: "ANALYZING"/,"预算降级恢复只能重新排队无模型调用且主体缺失的错误拒绝项，不能改动已正确决策");
@@ -313,7 +316,12 @@ assert.match(detailRoute,/action === "REASSESS_REVIEWS"[\s\S]*processed_count: M
 assert.match(detailRoute,/action === "RETRY"[\s\S]*\["FAILED", "COMPLETED"\][\s\S]*没有可恢复的未核验项[\s\S]*attempt_count: 0, retryable: true[\s\S]*正在从检查点恢复未完成的候选核验/,"历史已完成任务若仍有超时失败项，必须允许从检查点安全恢复并获得一轮新的有限重试机会");
 assert.match(detailRoute,/failedItems[\s\S]*customer_id/,"从检查点重试必须定位失败项对应的暂存客户");
 assert.match(detailRoute,/deleted_at: null[\s\S]*pool_status: "AI_STAGING"[\s\S]*in\("source", \["AI_ACQUISITION_STAGING", "AI_ACQUISITION"\]\)/,"从检查点重试必须恢复本任务精确关联的历史或当前AI暂存客户，避免CUSTOMER_NOT_FOUND无限失败");
-assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id, null, now\]\)/,"证据缺口恢复必须使用带执行令牌的新部署工作流且不得重复创建获客任务");
+assert.match(detailRoute,/action === "RECHECK_EVIDENCE_GAPS"[\s\S]*requeueAcquisitionEvidenceGaps[\s\S]*status: "QUEUED"[\s\S]*start\(aiAcquisitionWorkflow, \[id, null, now, true\]\)/,"证据缺口恢复必须使用带执行令牌的新部署工作流且不得重复创建获客任务");
+for (const action of ["REASSESS_REVIEWS", "REASSESS_MISMATCHES", "RECHECK_EVIDENCE_GAPS", "REVALIDATE_ACCEPTED"]) {
+  const block = detailRoute.split(`action === "${action}"`)[1]?.split('} else if (action === "')[0] || "";
+  assert.match(block,/start\(aiAcquisitionWorkflow, \[id, null, now, true\]\)/,`${action} 只能重核既有候选，不得重新搜索`);
+}
+assert.match(fs.readFileSync("workflows/ai-acquisition.ts","utf8"),/recheckOnly\?await recheckCandidates\(taskId,screeningTaskId\):await stageCandidates\(task,screeningTaskId\)/,"重核工作流必须跳过候选采集");
 assert.match(detailRoute,/action === "REVALIDATE_ACCEPTED"[\s\S]*requeueInvalidAcquisitionAcceptances[\s\S]*status: "QUEUED"[\s\S]*AI_ACQUISITION_ACCEPTED_REVALIDATION_STARTED/,"历史异常入池记录必须支持安全退出公海并按现行质量门槛重验");
 assert.doesNotMatch(detailRoute,/rescueStalledAiAcquisitionTasks/,"任务详情读取不得触发恢复调度或数据库领取");
 assert.doesNotMatch(listRoute,/rescueStalledAiAcquisitionTasks/,"任务中心读取不得触发恢复调度或数据库领取");

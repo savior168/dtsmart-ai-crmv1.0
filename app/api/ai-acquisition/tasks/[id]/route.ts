@@ -282,7 +282,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       } else {
         try {
           const executionToken = now.toISOString();
-          const run = await start(aiAcquisitionWorkflow, [id, null, executionToken]);
+          const recheckOnly = ["VERIFYING", "FINALIZING"].includes(String(task.current_stage || ""));
+          const run = await start(aiAcquisitionWorkflow, [id, null, executionToken, recheckOnly]);
           const dispatched = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", last_dispatch_at: executionToken, updated_at: new Date().toISOString() }).eq("id", id).eq("active_executor", "VERCEL_DISPATCHING");
           if (dispatched.error) throw dispatched.error;
         } catch (dispatchError) {
@@ -314,7 +315,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now,
       }).eq("id", id).in("status", ["COMPLETED", "FAILED"]);
       if (resetTask.error) throw resetTask.error;
-      const run = await start(aiAcquisitionWorkflow, [id, null, now]);
+      const run = await start(aiAcquisitionWorkflow, [id, null, now, true]);
       const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
       if (saved.error) throw saved.error;
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_REVIEWS_REASSESSMENT_STARTED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, old_scores_invalidated: true, quality_gate_bypassed: false, ...recovery } });
@@ -337,7 +338,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now,
       }).eq("id", id).eq("status", "COMPLETED");
       if (resetTask.error) throw resetTask.error;
-      const run = await start(aiAcquisitionWorkflow, [id, null, now]);
+      const run = await start(aiAcquisitionWorkflow, [id, null, now, true]);
       const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
       if (saved.error) throw saved.error;
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_INDUSTRY_MISMATCH_REASSESSMENT_STARTED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, quality_gate_bypassed: false, human_discards_untouched: true, ...recovery } });
@@ -354,7 +355,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (resetChild.error) throw resetChild.error;
       const resetTask = await admin.from("ai_acquisition_tasks").update({ status: "QUEUED", current_stage: "VERIFYING", current_stage_detail: `正在重新校验 ${recovery.requeued} 条受Google详情预算降级影响的候选`, cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now }).eq("id", id).eq("status", "COMPLETED");
       if (resetTask.error) throw resetTask.error;
-      const run = await start(aiAcquisitionWorkflow, [id, null, now]);
+      const run = await start(aiAcquisitionWorkflow, [id, null, now, true]);
       const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
       if (saved.error) throw saved.error;
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_EVIDENCE_GAPS_REQUEUED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, ...recovery } });
@@ -378,7 +379,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now,
       }).eq("id", id).eq("status", "COMPLETED");
       if (resetTask.error) throw resetTask.error;
-      const run = await start(aiAcquisitionWorkflow, [id, null, now]);
+      const run = await start(aiAcquisitionWorkflow, [id, null, now, true]);
       const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
       if (saved.error) throw saved.error;
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_ACCEPTED_REVALIDATION_STARTED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, quality_gate_bypassed: false, ...recovery } });

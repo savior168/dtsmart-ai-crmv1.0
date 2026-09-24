@@ -7,6 +7,7 @@ import { CustomerScoreBadge } from "@/components/customer-score-badge";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerPublicChannels } from "@/components/customer-public-channels";
+import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { SearchableMultiSelectFilter } from "@/components/ui/searchable-multi-select-filter";
 import {
   ConfirmDialog,
@@ -226,6 +227,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="", initialUsage
                   ? "异常入池记录已退出公海并重新进入严格核验"
                 : action === "REASSESS_REVIEWS"
                   ? "待复核客户已重新进入补证、分析和评分"
+                  : action === "REASSESS_MISMATCHES"
+                    ? "高分行业不匹配候选已重新进入核验，不会重新搜索"
                   : "任务已取消",
       );
       setAction(null);
@@ -367,25 +370,13 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="", initialUsage
                 {task.status === "COMPLETED" ? "恢复未核验项" : "重试失败项"}
               </button>
             ) : null}
-            {canControl && task.review_count > 0 && ["COMPLETED", "FAILED"].includes(task.status) ? (
-              <button className={button} onClick={() => setAction("REASSESS_REVIEWS")}>
-                重新核验待复核
-              </button>
-            ) : null}
-            {canControl && task.status === "COMPLETED" ? (
-              <button className={button} onClick={() => setAction("REVALIDATE_ACCEPTED")}>
-                校验入池质量
-              </button>
-            ) : null}
-            {canControl && task.status === "COMPLETED" ? (
-              <button className={button} onClick={() => setAction("RECHECK_EVIDENCE_GAPS")}>
-                校验证据缺口
-              </button>
-            ) : null}
-            {canControl && task.status === "COMPLETED" && task.rejected_count > 0 ? (
-              <button className={button} onClick={() => setAction("REASSESS_MISMATCHES")}>
-                重新核验高分行业误判
-              </button>
+            {canControl && (task.status === "COMPLETED" || (task.status === "FAILED" && task.review_count > 0)) ? (
+              <RowActionMenu label="更多操作" ariaLabel={`${task.name}更多操作`}>
+                {task.review_count > 0 && ["COMPLETED", "FAILED"].includes(task.status) ? <RowActionItem onClick={() => setAction("REASSESS_REVIEWS")}>重新核验待复核</RowActionItem> : null}
+                {task.status === "COMPLETED" ? <RowActionItem onClick={() => setAction("REVALIDATE_ACCEPTED")}>校验入池质量</RowActionItem> : null}
+                {task.status === "COMPLETED" ? <RowActionItem onClick={() => setAction("RECHECK_EVIDENCE_GAPS")}>校验证据缺口</RowActionItem> : null}
+                {task.status === "COMPLETED" && task.rejected_count > 0 ? <RowActionItem onClick={() => setAction("REASSESS_MISMATCHES")}>重新核验高分行业误判</RowActionItem> : null}
+              </RowActionMenu>
             ) : null}
             {canControl &&
             ["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(task.status) ? (

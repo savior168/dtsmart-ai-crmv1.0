@@ -86,6 +86,7 @@ assert.match(read("components/ui/row-action-menu.tsx"), /closeOnOutside[\s\S]*cl
 assert.match(read("components/ui/row-action-menu.tsx"), /createPortal[\s\S]*fixed z-\[100\][\s\S]*document\.body/, "更多操作菜单必须挂载到页面浮层，不能被表格滚动容器裁切");
 assert.match(read("components/ui/row-action-menu.tsx"), /window\.addEventListener\("scroll", placeMenu, true\)[\s\S]*openUpward/, "更多操作菜单必须随表格滚动重新定位并自动避开页面边界");
 assert.match(read("components/ui/row-action-menu.tsx"), /<button[\s\S]*>\{children\}<\/button>/, "更多操作菜单项必须渲染明确的操作文字");
+assert.match(read("components/ai-acquisition/task-detail.tsx"), /<RowActionMenu label="更多操作"[\s\S]*重新核验待复核[\s\S]*校验入池质量[\s\S]*校验证据缺口[\s\S]*重新核验高分行业误判[\s\S]*<\/RowActionMenu>/, "任务详情的次要核验操作必须集中在更多操作菜单");
 assert.match(read("components/cost-center-view.tsx"), /billingDetailsOpen[\s\S]*查看明细[\s\S]*Google Places SKU明细[\s\S]*OpenAI费用明细/, "平台真实账单必须使用一个统一入口展开两个平台明细");
 assert.match(read("components/customer-crm-detail-view.tsx"), /归属与跟进历程[\s\S]*当前归属[\s\S]*曾跟进/, "客户详情必须集中展示当前归属和历史跟进人员");
 assert.match(read("app/api/customers/\[id\]/crm/route.ts"), /current_owner:[\s\S]*claims: displayClaims/, "客户详情接口必须返回当前归属和可读的归属变更记录");

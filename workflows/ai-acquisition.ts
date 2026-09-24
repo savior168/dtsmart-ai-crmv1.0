@@ -30,10 +30,10 @@ async function readTask(taskId: string) {
   return result.data as AcquisitionTask;
 }
 
-async function beginTask(taskId: string, executionToken: string | null) {
+async function beginTask(taskId: string, executionToken: string | null, recheckOnly: boolean) {
   "use step";
   const now = new Date().toISOString();
-  let query = createAdminClient().from("ai_acquisition_tasks").update({ status: "RUNNING", current_stage:"DISCOVERY", current_stage_detail:"正在按国家和本地化检索表达发现目标商家", active_executor: "VERCEL_WORKFLOW", started_at: now, executor_heartbeat_at: now, error_message: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "RUNNING"]);
+  let query = createAdminClient().from("ai_acquisition_tasks").update({ status: "RUNNING", current_stage:recheckOnly?"VERIFYING":"DISCOVERY", current_stage_detail:recheckOnly?"仅重新核验已保存候选，不再搜索新客户":"正在按国家和本地化检索表达发现目标商家", active_executor: "VERCEL_WORKFLOW", started_at: now, executor_heartbeat_at: now, error_message: null, updated_at: now }).eq("id", taskId).in("status", ["QUEUED", "RUNNING"]);
   if (executionToken) query = query.eq("last_dispatch_at", executionToken);
   const result = await query.select("id").maybeSingle();
   if (result.error) throw result.error;
@@ -196,6 +196,19 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   if (updatedScreening.error) throw updatedScreening.error;
   const totals = await updateAcquisitionTaskTotals(admin, task.id);
   return { analyzing: totals.analyzing, control: discoveryControl };
+}
+
+async function countRecheckCandidates(taskId: string) {
+  "use step";
+  const pending = await createAdminClient().from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", taskId).eq("decision", "ANALYZING");
+  if (pending.error) throw pending.error;
+  return Number(pending.count || 0);
+}
+
+async function recheckCandidates(taskId: string, screeningTaskId: string) {
+  const control = await acquisitionControlState(taskId, screeningTaskId);
+  const analyzing = await countRecheckCandidates(taskId);
+  return { analyzing, control: control === "RUNNING" ? null : control };
 }
 
 async function completeEmptyScreeningTask(screeningTaskId:string) {
@@ -454,15 +467,15 @@ async function releaseTaskForRecovery(taskId: string, error: unknown, executionT
   if (saved.error) throw saved.error;
 }
 
-export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string | null = null, executionToken: string | null = null) {
+export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string | null = null, executionToken: string | null = null, recheckOnly = false) {
   "use workflow";
   try {
     if (scheduledAt && new Date(scheduledAt).getTime() > Date.now()) await sleep(new Date(scheduledAt));
     const task = await readTask(taskId);
     if (task.cancel_requested) { await finishTask(taskId, "CANCELLED", undefined, executionToken); return; }
-    if (!await beginTask(taskId, executionToken)) return;
+    if (!await beginTask(taskId, executionToken, recheckOnly)) return;
     const screeningTaskId = await createScreeningTask(task);
-    let staging=await stageCandidates(task,screeningTaskId);
+    let staging=recheckOnly?await recheckCandidates(taskId,screeningTaskId):await stageCandidates(task,screeningTaskId);
     if(staging.analyzing>0) {
       const initialState=await screeningState(screeningTaskId);
       if(initialState.status==="QUEUED")await dispatchScreening(screeningTaskId);
@@ -470,7 +483,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
     }
     while(staging.control==="PAUSED"||staging.control==="CONTINUE") {
       if(staging.control==="CONTINUE"){
-        staging=await stageCandidates(await readTask(taskId),screeningTaskId);
+        staging=recheckOnly?await recheckCandidates(taskId,screeningTaskId):await stageCandidates(await readTask(taskId),screeningTaskId);
         if(staging.analyzing>0){
           const state=await screeningState(screeningTaskId);
           if(state.status==="QUEUED")await dispatchScreening(screeningTaskId);
@@ -481,7 +494,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
       const control=await acquisitionControlState(taskId,screeningTaskId);
       if(control==="CANCELLED"){await finishTask(taskId,"CANCELLED",undefined,executionToken);return;}
       if(control==="PAUSED"){await sleep("10s");continue;}
-      staging=await stageCandidates(await readTask(taskId),screeningTaskId);
+      staging=recheckOnly?await recheckCandidates(taskId,screeningTaskId):await stageCandidates(await readTask(taskId),screeningTaskId);
       if(staging.analyzing>0){
         const state=await screeningState(screeningTaskId);
         if(state.status==="QUEUED")await dispatchScreening(screeningTaskId);
@@ -517,6 +530,14 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         await setTaskStage(taskId,"FINALIZING","正在分批执行最终质量门槛、系统去重和客户公海准入");
       }
     } else await completeEmptyScreeningTask(screeningTaskId);
+    // A pause may arrive after the final batch was processed. Honor it before
+    // writing the terminal status instead of leaving the task stuck PAUSING.
+    while (true) {
+      const control = await acquisitionControlState(taskId, screeningTaskId);
+      if (control === "CANCELLED") { await finishTask(taskId, "CANCELLED", undefined, executionToken); return; }
+      if (control === "RUNNING") break;
+      await sleep("10s");
+    }
     await finishTask(taskId, "COMPLETED", undefined, executionToken);
   } catch (error) {
     if (isRecoverableInfrastructureError(error)) {
