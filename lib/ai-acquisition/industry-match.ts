@@ -36,7 +36,10 @@ export function acquisitionIndustryMatchesVerifiedResult(
     // Each selected target must pass its own evidence gate. A second target
     // must not turn the chain target's broad industry aliases into a bypass.
     if (industry === "手机维修连锁店") {
-      return hasPhoneRepairEvidence && /(?:多门店|连锁经营|连锁门店|分店|加盟|chain|franchise|multiple locations|multiple branches|multi.location)/i.test(facts);
+      // A bare "chain" can occur in a denial such as "Not Just Another Chain".
+      // Require an affirmative, source-backed multi-location statement.
+      const hasMultipleLocations = /(?:多门店|连锁经营|连锁门店|设有.{0,12}分店|拥有.{0,12}分店|加盟门店|multiple\s+(?:locations|stores|shops|branches)|(?:[2-9]|\d{2,})\s+(?:locations|stores|shops|branches)|franchise\s+(?:locations|stores|shops|branches))/i.test(facts);
+      return hasPhoneRepairEvidence && hasMultipleLocations;
     }
     if (["手机维修店", "手机维修服务商"].includes(industry) && verifiedIndustry !== "手机维修店") return hasPhoneRepairEvidence;
     if (verifiedIndustry === "进口商或分销商") return hasPhoneComputerRepairPartsTradeEvidence(evidenceFacts);

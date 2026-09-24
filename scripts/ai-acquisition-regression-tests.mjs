@@ -22,6 +22,8 @@ assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evide
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"手机维修店",["官网证明提供手机维修"]),false,"普通手机维修店不能仅凭行业标签进入连锁店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"Apple或MacBook维修店",["官网证明提供手机维修并有多门店或连锁经营"]),true,"主行业为Apple维修但有手机维修和连锁证据时不能误拒");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"Apple或MacBook维修店",["Mobile Phone Repair Birmingham. Not Just Another Chain. One local shop at 170 Slade Rd."]),false,"官网否认连锁身份时不得把单独的chain字样当成多门店证据");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"手机维修店",["Official site: mobile phone repair at 3 locations in Birmingham"]),true,"官网明确列出多个维修门店时应匹配连锁目标");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"电脑维修店",["官网证明提供多门店或连锁经营"]),false,"仅有连锁证据而无手机维修证据不能入池");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"电脑维修店",["官网仅证明电脑或笔记本维修"]),false,"混合目标行业不得绕过连锁手机维修证据门槛");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"手机维修店",["官网证明提供手机维修"]),true,"混合目标行业中普通手机维修仍可匹配手机维修店");
