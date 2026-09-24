@@ -46,11 +46,13 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
     || /(?:fresh produce|fruit and vegetable|food wholesal|food distributor|果蔬|食品批发|餐饮供应)/i.test(businessText);
   const recyclingCandidate = /(?:computer recycling|electronics? recycling|e-?waste|WEEE|IT asset disposal|computer removal|office clearance|废旧电脑回收|电子废弃物|废品回收|清运)/i.test(businessText);
   const telecomMarketingCandidate = /(?:digital marketing|marketing agency|call cent(?:er|re)|website design|电信服务商|数字营销|网站设计)/i.test(businessText);
+  const explicitDeviceRepairName = /(?:\b(?:phone|mobile|iphone|smartphone|computer|laptop|macbook|pc)\s+(?:and\s+)?(?:repair|repairs|fix)\b|手机维修|电脑维修)/i.test(candidate.companyName);
   // A verified top-level sector mismatch is stronger than generic words such
   // as parts, repair, wholesale or computer. Stop it before any paid evidence
-  // collection, while still allowing the same sector for users who selected it.
+  // collection. A mixed-use business explicitly named "Phone Repair" should
+  // still reach verification when Google also assigns an unrelated shop type.
   if ((automotiveCandidate && !requestedAutomotive)
-    || (foodCandidate && !requestedFood)
+    || (foodCandidate && !requestedFood && !explicitDeviceRepairName)
     || (recyclingCandidate && !requestedRecycling)
     || (telecomMarketingCandidate && !requestedTelecomMarketing)) return false;
   const targetBusinessSignal = /(?:repair|refurbish|wholesale|supplier|distribut|importer|manufacturer|factory|agency|contractor|screen replacement|battery replacement|spare parts|维修|翻新|批发|供应|经销|进口|制造|配件)/i.test(businessText);
@@ -71,6 +73,7 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
   // evidence verification, but must never reject an obvious repair/supply lead
   // merely because Google returned a generic category or a plural/synonym.
   const requestedMatch = (matchedDomainTerms.length > 0 && (hasSpecificDomainMatch || targetBusinessSignal || relevantGoogleType))
+    || (explicitDeviceRepairName && matchedQueryHasTargetDomain && matchedQueryHasTargetRole)
     || preciseRepairQueryRecall;
   return candidate.businessStatus !== "CLOSED_PERMANENTLY"
     && !(explicitlyIrrelevantType && !requestedMatch)

@@ -250,7 +250,9 @@ async function verificationState(taskId: string, screeningTaskId: string) {
     return { control: "PAUSED" as const, screening: screening.data };
   }
   const deepTotal=Number(screening.data.total_count||0);
-  const deepProcessed=Number(screening.data.success_count||0)+Number(screening.data.failed_count||0);
+  // Failed screening items have no acquisition decision yet. Counting them as
+  // processed makes the parent briefly show 100% before finalization fails.
+  const deepProcessed=Number(screening.data.success_count||0);
   const earlyProcessed=Math.max(0,Number(acquisition.data.discovered_count||0)-deepTotal);
   const processedCount=Math.min(Number(acquisition.data.discovered_count||0),earlyProcessed+deepProcessed);
   await admin.from("ai_acquisition_tasks").update({ processed_count:processedCount, executor_heartbeat_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", taskId);
@@ -329,7 +331,9 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const itemEvidence = evidenceByItem.get(itemId) || [];
       const gate = evaluateAcquisitionGate({ automationStatus: result?.automation_status, targetDecision: result?.target_decision, score: result?.score, identityStatus: result?.identity_status, evidenceUrls: itemEvidence, contacts: customerContacts });
       const targetIndustries = task.industries?.length ? task.industries : [task.industry];
-      const industryEvidence = itemEvidence.flatMap((row) => [row.translated_fact, row.original_excerpt]);
+      const industryEvidence = itemEvidence
+        .filter((row) => /^https?:\/\//i.test(String(row.source_url || "")) && row.evidence_strength !== "WEAK_HINT")
+        .flatMap((row) => [row.translated_fact, row.original_excerpt]);
       const industryMatchesTask = acquisitionIndustryMatchesVerifiedResult(targetIndustries, result?.industry_type, industryEvidence);
       const verifiedContacts = gate.actionableContacts;
       const evidenceComplete = gate.evidenceComplete;
@@ -350,7 +354,11 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
           : String(result?.short_reason || "核验证据不足，未进入客户公海");
       if (accepted) {
         const normalized = verifiedContacts.map((row) => String(row.value_normalized || "")).filter(Boolean);
-        const duplicateContacts = normalized.length ? await admin.from("customer_contacts").select("customer_id").in("value_normalized", normalized).neq("customer_id", customerId).limit(1) : { data: [], error: null };
+        const duplicateContacts = normalized.length ? await admin.from("customer_contacts")
+          .select("customer_id,customer:customers!inner(id)")
+          .in("value_normalized", normalized).neq("customer_id", customerId)
+          .is("customer.deleted_at", null).neq("customer.pool_status", "AI_STAGING")
+          .limit(1) : { data: [], error: null };
         if (duplicateContacts.error) throw duplicateContacts.error;
         if (duplicateContacts.data?.length) { decision = "DUPLICATE"; reason = "核验联系方式已存在于系统其他客户，未重复入池"; }
       }
@@ -496,6 +504,9 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         if (state.control === "PAUSED") { await sleep("30s"); continue; }
         if (["COMPLETED","FAILED","CANCELLED"].includes(state.screening.status)) {
           if (state.screening.status !== "COMPLETED") throw new Error(state.screening.error_message || `ACQUISITION_SCREENING_${state.screening.status}`);
+          if (Number(state.screening.failed_count || 0) > 0) {
+            throw new Error(`ACQUISITION_SCREENING_ITEMS_FAILED: ${state.screening.failed_count} 条候选因技术错误未完成核验；已保留检查点，请重试失败项`);
+          }
           break;
         }
         await sleep(`${pollSeconds}s`);

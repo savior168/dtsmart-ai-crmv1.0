@@ -3,7 +3,7 @@ import { hasPhoneComputerRepairPartsTradeEvidence } from "../ai/target-trade-evi
 const VERIFIED_INDUSTRY_BY_ACQUISITION_INDUSTRY: Record<string, Set<string>> = {
   "手机维修店": new Set(["手机维修店", "维修连锁", "混合经营"]),
   "手机维修服务商": new Set(["手机维修店", "维修连锁", "混合经营"]),
-  "手机维修连锁店": new Set(["手机维修店", "维修连锁", "混合经营"]),
+  "手机维修连锁店": new Set(["手机维修店", "Apple或MacBook维修店", "电脑维修店", "维修连锁", "混合经营"]),
   "Apple设备维修店": new Set(["Apple或MacBook维修店", "维修连锁", "混合经营"]),
   "手机配件批发商": new Set(["维修内配件批发", "进口商或分销商", "混合经营"]),
   "手机内配件经销商": new Set(["维修内配件零售", "维修内配件批发", "进口商或分销商", "混合经营"]),
@@ -33,6 +33,13 @@ export function acquisitionIndustryMatchesVerifiedResult(
   if (!knownTargets.length) return true;
   const coarseIndustryMatch = knownTargets.some((allowed) => allowed.has(verifiedIndustry));
   if (!coarseIndustryMatch) return false;
+  if (targetIndustries.includes("手机维修连锁店") && !targetIndustries.some((industry) => industry !== "手机维修连锁店")) {
+    const facts = evidenceFacts.join(" ");
+    // A primary industry label is not evidence of either phone repair or
+    // multiple locations. Both must be supported by the verified facts.
+    return /(?:手机维修|手机换屏|手机屏幕更换|iPhone维修|phone repair|smartphone repair|mobile repair|screen replacement)/i.test(facts)
+      && /(?:多门店|连锁经营|连锁门店|分店|加盟|chain|franchise|multiple locations|multiple branches|multi.location)/i.test(facts);
+  }
   if (verifiedIndustry === "进口商或分销商") return hasPhoneComputerRepairPartsTradeEvidence(evidenceFacts);
   return true;
 }

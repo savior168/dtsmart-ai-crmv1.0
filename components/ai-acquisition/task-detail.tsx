@@ -441,10 +441,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             <p className="mt-1 text-sm text-slate-500">
               优先核对成功入池客户的数据质量；待复核、未通过和重复记录均不会进入客户公海。
             </p>
+            <p className="mt-1 text-xs text-slate-500">AI评分衡量客户自身业务相关性，不代表符合本任务的目标行业；高分客户也可能因行业不匹配而未通过。“重复”指已存在于系统的 Google Place ID 或核验联系方式；本次搜索内部的重复命中不计入此数。</p>
           </div>
           <nav className="mt-4 flex gap-6 overflow-x-auto" aria-label="客户结果分类">
             {([
-              ["","全部候选",task.processed_count],
+              ["","全部候选",task.discovered_count],
               ["ACCEPTED","成功入池",task.accepted_count],
               ["REVIEW","待复核",task.review_count],
               ["REJECTED","未通过",task.rejected_count],
