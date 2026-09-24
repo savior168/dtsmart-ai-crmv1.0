@@ -29,3 +29,12 @@ export function acquisitionFailureStage(message?: string | null) {
   if (/57014|statement timeout|canceling statement due to statement timeout/i.test(value)) return "数据库查询超时";
   return "执行异常";
 }
+
+export function acquisitionDuplicateSource(reason?: string | null) {
+  const value = String(reason || "");
+  if (/Google Place ID已存在于系统客户资料|该Google商家已由其他任务核验入池/.test(value)) return "系统已有客户 · 商家ID";
+  if (/核验联系方式已存在于系统其他客户/.test(value)) return "系统已有客户 · 联系方式";
+  if (/近90天已有AI获客核验记录|复用历史判定/.test(value)) return "历史任务已核验";
+  if (/本次(?:采集|搜索).*重复/.test(value)) return "本次采集重复";
+  return "重复来源待核对";
+}

@@ -29,7 +29,7 @@ import {
 } from "@/components/ai-screening/ui";
 import type { AcquisitionTask, Candidate } from "./types";
 import { decisionLabels } from "./types";
-import { acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
+import { acquisitionDuplicateSource, acquisitionErrorMessageZh, acquisitionFailureStage } from "@/lib/ai-acquisition/presentation";
 import { acquisitionBusinessLabel } from "@/lib/ai-acquisition/display-labels";
 import { CandidateEvidenceDialog, type CandidateEvidenceData } from "./candidate-evidence-dialog";
 type UsageSummary = {
@@ -117,7 +117,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [canControl, setCanControl] = useState(false),
     [canEvidence, setCanEvidence] = useState(false),
     [busy, setBusy] = useState(false),
-    [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "REASSESS_REVIEWS" | "RECHECK_EVIDENCE_GAPS" | "REVALIDATE_ACCEPTED" | null>(null),
+    [action, setAction] = useState<"PAUSE" | "RESUME" | "CANCEL" | "RETRY" | "REASSESS_REVIEWS" | "REASSESS_MISMATCHES" | "RECHECK_EVIDENCE_GAPS" | "REVALIDATE_ACCEPTED" | null>(null),
     [evidence, setEvidence] = useState<CandidateEvidenceData | null>(null),
     [evidenceLoading, setEvidenceLoading] = useState(false),
     [reviewAction, setReviewAction] = useState<{action:"DISCARD" | "RECHECK_AND_ACCEPT";candidateId:string} | null>(null);
@@ -372,6 +372,11 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 校验证据缺口
               </button>
             ) : null}
+            {canControl && task.status === "COMPLETED" && task.rejected_count > 0 ? (
+              <button className={button} onClick={() => setAction("REASSESS_MISMATCHES")}>
+                重新核验高分行业误判
+              </button>
+            ) : null}
             {canControl &&
             ["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(task.status) ? (
               <button
@@ -441,7 +446,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             <p className="mt-1 text-sm text-slate-500">
               优先核对成功入池客户的数据质量；待复核、未通过和重复记录均不会进入客户公海。
             </p>
-            <p className="mt-1 text-xs text-slate-500">AI评分衡量客户自身业务相关性，不代表符合本任务的目标行业；高分客户也可能因行业不匹配而未通过。“重复”指已存在于系统的 Google Place ID 或核验联系方式；本次搜索内部的重复命中不计入此数。</p>
+            <p className="mt-1 text-xs text-slate-500">AI评分衡量客户自身业务相关性，不代表符合本任务的目标行业；高分客户也可能因行业不匹配而未通过。“重复”逐条区分系统已有客户与历史任务已核验；本次搜索内部的重复命中在发现阶段去重，不计入候选结果。</p>
           </div>
           <nav className="mt-4 flex gap-6 overflow-x-auto" aria-label="客户结果分类">
             {([
@@ -511,6 +516,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                   <td className="px-4 py-4"><p className="line-clamp-3 text-xs leading-5 text-blue-700">{r.customer_profile?.followup_suggestion||"建议先核对主营业务与采购需求后联系"}</p></td>
                   <td className="max-w-80 px-4 py-4 text-slate-600">
                     <span className={`rounded-md px-2 py-1 text-xs ${tone[r.decision] || "bg-slate-100"}`}>{decisionLabels[r.decision] || r.decision}</span>
+                    {r.decision === "DUPLICATE" ? <small className="mt-2 block font-medium text-slate-700">{acquisitionDuplicateSource(r.decision_reason)}</small> : null}
                     <small className="mt-2 block leading-5">{r.decision_reason || "—"}</small>
                     <small className={`mt-1 block ${r.evidence_complete&&r.has_actionable_contact?"text-emerald-700":"text-amber-700"}`}>{r.evidence_complete?"依据通过":"依据不足"} · {r.has_actionable_contact?"联系方式通过":"联系方式不足"}</small>
                   </td>
@@ -572,6 +578,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 ? "从检查点重试任务？"
                 : action === "REASSESS_REVIEWS"
                   ? "重新核验全部待复核客户？"
+                : action === "REASSESS_MISMATCHES"
+                  ? "重新核验高分行业不匹配候选？"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "重新校验证据缺口？"
                 : action === "REVALIDATE_ACCEPTED"
@@ -587,6 +595,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 ? "只恢复失败或中断的核验项；保留已处理候选和原始发现依据，不重复调用 Google Places 搜索。"
                 : action === "REASSESS_REVIEWS"
                   ? "清空待复核客户的旧评分、旧结论与旧渠道检查点，重新核对Google商家、官网及公开渠道，重新提取带来源的联系方式并按现行规则评分；不改动已正确入池、未通过或重复记录。"
+                : action === "REASSESS_MISMATCHES"
+                  ? "只重新分析评分高于60、被判为与本任务目标行业不匹配的候选，核对公开来源原文、主体、联系方式与重复情况；不会按高分直接入池，也不会改动人工舍弃、已入池或重复客户。重新核验可能产生实际调用费用。"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "只重新核验因Google详情预算降级而缺少主体锚点的候选，不重复搜索，也不改动已正确入池、重复或人工复核结果。"
                 : action === "REVALIDATE_ACCEPTED"
@@ -602,6 +612,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 ? "确认重试"
                 : action === "REASSESS_REVIEWS"
                   ? "开始全面重新核验"
+                : action === "REASSESS_MISMATCHES"
+                  ? "确认重新核验"
                 : action === "RECHECK_EVIDENCE_GAPS"
                   ? "开始重新校验"
                 : action === "REVALIDATE_ACCEPTED"

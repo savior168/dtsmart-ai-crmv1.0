@@ -37,7 +37,7 @@ export function acquisitionIndustryMatchesVerifiedResult(
     const facts = evidenceFacts.join(" ");
     // A primary industry label is not evidence of either phone repair or
     // multiple locations. Both must be supported by the verified facts.
-    return /(?:手机维修|手机换屏|手机屏幕更换|iPhone维修|phone repair|smartphone repair|mobile repair|screen replacement)/i.test(facts)
+    return /(?:手机维修|手机换屏|手机屏幕更换|iPhone维修|phone repair|smartphone repair|mobile phone repair)/i.test(facts)
       && /(?:多门店|连锁经营|连锁门店|分店|加盟|chain|franchise|multiple locations|multiple branches|multi.location)/i.test(facts);
   }
   if (verifiedIndustry === "进口商或分销商") return hasPhoneComputerRepairPartsTradeEvidence(evidenceFacts);

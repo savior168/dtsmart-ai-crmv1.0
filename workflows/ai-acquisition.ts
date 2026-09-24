@@ -333,7 +333,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
       const targetIndustries = task.industries?.length ? task.industries : [task.industry];
       const industryEvidence = itemEvidence
         .filter((row) => /^https?:\/\//i.test(String(row.source_url || "")) && row.evidence_strength !== "WEAK_HINT")
-        .flatMap((row) => [row.translated_fact, row.original_excerpt]);
+        .map((row) => row.original_excerpt || row.translated_fact);
       const industryMatchesTask = acquisitionIndustryMatchesVerifiedResult(targetIndustries, result?.industry_type, industryEvidence);
       const verifiedContacts = gate.actionableContacts;
       const evidenceComplete = gate.evidenceComplete;

@@ -6,7 +6,7 @@ import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { plannedDiscoveryScopeCount } from "@/lib/ai-acquisition/discovery";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
-import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorrectedEarlyRejections, requeueInvalidAcquisitionAcceptances } from "@/lib/ai-acquisition/requeue";
+import { requeueAcquisitionEvidenceGaps, requeueAcquisitionIndustryMismatches, requeueAcquisitionReviews, requeueCorrectedEarlyRejections, requeueInvalidAcquisitionAcceptances } from "@/lib/ai-acquisition/requeue";
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
@@ -314,6 +314,29 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
       if (saved.error) throw saved.error;
       await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_REVIEWS_REASSESSMENT_STARTED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, old_scores_invalidated: true, quality_gate_bypassed: false, ...recovery } });
+      return NextResponse.json({ ok: true, recovery });
+    } else if (action === "REASSESS_MISMATCHES") {
+      if (task.status !== "COMPLETED") return NextResponse.json({ error: "只有已完成任务可以重新核验历史行业误判" }, { status: 409 });
+      const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
+      if (child.error) throw child.error;
+      if (!child.data) return NextResponse.json({ error: "该任务没有可重新核验的记录" }, { status: 409 });
+      const recovery = await requeueAcquisitionIndustryMismatches(task, String(child.data.id));
+      if (!recovery.requeued) return NextResponse.json({ error: "没有历史行业不匹配候选需要重新核验" }, { status: 409 });
+      const now = new Date().toISOString();
+      const resetChild = await admin.from("ai_screening_tasks").update({ status: "QUEUED", cancel_requested: false, error_message: null, completed_at: null, finished_at: null, active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null, updated_at: now }).eq("id", child.data.id);
+      if (resetChild.error) throw resetChild.error;
+      const resetTask = await admin.from("ai_acquisition_tasks").update({
+        status: "QUEUED", current_stage: "VERIFYING", current_stage_detail: `正在依据原始来源重新核验 ${recovery.requeued} 条历史行业不匹配候选`,
+        processed_count: Math.max(0, Number(task.processed_count || 0) - recovery.requeued),
+        rejected_count: Math.max(0, Number(task.rejected_count || 0) - recovery.requeued),
+        cancel_requested: false, error_message: null, started_at: null, finished_at: null, active_executor: null,
+        workflow_run_id: null, last_dispatch_at: now, executor_heartbeat_at: null, updated_at: now,
+      }).eq("id", id).eq("status", "COMPLETED");
+      if (resetTask.error) throw resetTask.error;
+      const run = await start(aiAcquisitionWorkflow, [id, null, now]);
+      const saved = await admin.from("ai_acquisition_tasks").update({ workflow_run_id: run.runId, active_executor: "VERCEL_WORKFLOW", updated_at: new Date().toISOString() }).eq("id", id);
+      if (saved.error) throw saved.error;
+      await admin.from("audit_logs").insert({ user_id: account.id, action: "AI_ACQUISITION_INDUSTRY_MISMATCH_REASSESSMENT_STARTED", target_type: "ai_acquisition_task", target_id: id, content: { task_number: task.task_number, quality_gate_bypassed: false, human_discards_untouched: true, ...recovery } });
       return NextResponse.json({ ok: true, recovery });
     } else if (action === "RECHECK_EVIDENCE_GAPS") {
       if (task.status !== "COMPLETED") return NextResponse.json({ error: "只有已完成任务可以重新校验证据缺口" }, { status: 409 });

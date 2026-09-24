@@ -218,6 +218,59 @@ export async function requeueAcquisitionEvidenceGaps(task: RequeueTask, screenin
   return { inspected: candidates.length, eligible: eligibleItemIds.length, requeued: eligibleItemIds.length };
 }
 
+/** Historical industry-mismatch conclusions may have used a coarse primary
+ * label or a translated keyword instead of the source text. Reassess only
+ * those conclusions, preserving accepted, duplicate and other rejected rows. */
+export async function requeueAcquisitionIndustryMismatches(task: RequeueTask, screeningTaskId: string) {
+  const admin = createAdminClient();
+  const candidates: Array<{id:string;screening_task_item_id:string;staging_customer_id:string}> = [];
+  for (let offset = 0;; offset += 1000) {
+    const page = await admin.from("ai_acquisition_candidates")
+      .select("id,screening_task_item_id,staging_customer_id")
+      .eq("task_id", task.id).eq("screening_task_id", screeningTaskId).eq("decision", "REJECTED")
+      .gt("ai_score", 60)
+      .like("decision_reason", "已核验行业%与本任务目标行业不一致%")
+      .not("screening_task_item_id", "is", null).not("staging_customer_id", "is", null)
+      .range(offset, offset + 999);
+    if (page.error) throw page.error;
+    candidates.push(...((page.data || []) as typeof candidates));
+    if ((page.data || []).length < 1000) break;
+  }
+  if (!candidates.length) return { inspected: 0, requeued: 0 };
+  const now = new Date().toISOString();
+  for (let offset = 0; offset < candidates.length; offset += 100) {
+    const chunk = candidates.slice(offset, offset + 100);
+    const itemIds = chunk.map((row) => row.screening_task_item_id);
+    const customerIds = chunk.map((row) => row.staging_customer_id);
+    const candidateIds = chunk.map((row) => row.id);
+    const invalidated = await admin.from("ai_screening_results").update({ is_latest_valid: false })
+      .in("task_item_id", itemIds).eq("is_latest_valid", true);
+    if (invalidated.error) throw invalidated.error;
+    const resetItems = await admin.from("ai_screening_task_items").update({
+      status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING", automation_status: null,
+      result_id: null, progress: 0, current_step: "WAITING_INDUSTRY_REASSESSMENT", pipeline_stage: "NORMALIZED",
+      channel_checkpoint: {}, checkpoint: {}, last_completed_channel: null, last_checkpoint_at: null,
+      analyzed_channels: [], skipped_channels: [], early_stop_reason: null,
+      lease_owner: null, lease_token: null, lease_expires_at: null, executor_heartbeat_at: null,
+      started_at: null, retry_at: null, error_message: null, error_code: null, completed_at: null, updated_at: now,
+    }).in("id", itemIds).eq("task_id", screeningTaskId);
+    if (resetItems.error) throw resetItems.error;
+    const restored = await admin.from("customers").update({
+      deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: now,
+    }).in("id", customerIds).eq("source", "AI_ACQUISITION_STAGING").eq("pool_status", "INVALID");
+    if (restored.error) throw restored.error;
+    const resetCandidates = await admin.from("ai_acquisition_candidates").update({
+      decision: "ANALYZING", decision_reason: "原行业不匹配结论正在按公开来源原文重新核验",
+      imported_customer_id: null, ai_score: null, ai_level: null, is_target_customer: false,
+      has_actionable_contact: false, evidence_complete: false, processed_at: null, updated_at: now,
+    }).in("id", candidateIds).eq("task_id", task.id).eq("decision", "REJECTED");
+    if (resetCandidates.error) throw resetCandidates.error;
+  }
+  const refreshed = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: screeningTaskId });
+  if (refreshed.error) throw refreshed.error;
+  return { inspected: candidates.length, requeued: candidates.length };
+}
+
 /** Reassess historical REVIEW rows with the current evidence, identity and
  * scoring rules. Old scores/results and channel checkpoints are invalidated:
  * REVIEW can be caused by a stale/partial Google or website fetch, so reusing
@@ -344,15 +397,15 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
   const evidenceFactsByItem = new Map<string,string[]>();
   const allItemIds = [...new Set(candidates.map((row) => String(row.screening_task_item_id)).filter(Boolean))];
   for (let offset = 0; offset < allItemIds.length; offset += 100) {
-    const page = await admin.from("ai_screening_evidence").select("task_item_id,translated_fact,original_excerpt")
+    const page = await admin.from("ai_screening_evidence").select("task_item_id,source_url,evidence_strength,translated_fact,original_excerpt")
       .in("task_item_id", allItemIds.slice(offset, offset + 100));
     if (page.error) throw page.error;
     for (const row of page.data || []) {
+      if (!/^https?:\/\//i.test(String(row.source_url || "")) || row.evidence_strength === "WEAK_HINT") continue;
       const itemId = String(row.task_item_id || "");
       evidenceFactsByItem.set(itemId, [
         ...(evidenceFactsByItem.get(itemId) || []),
-        String(row.translated_fact || ""),
-        String(row.original_excerpt || ""),
+        String(row.original_excerpt || row.translated_fact || ""),
       ].filter(Boolean));
     }
   }

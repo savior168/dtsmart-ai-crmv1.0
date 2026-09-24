@@ -69,7 +69,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const targetIndustries=task.industries?.length?task.industries:[task.industry];
       const industryEvidence=(evidence.data||[])
         .filter((row)=>/^https?:\/\//i.test(String(row.source_url||""))&&row.evidence_strength!=="WEAK_HINT")
-        .flatMap((row)=>[row.translated_fact,row.original_excerpt]);
+        .map((row)=>row.original_excerpt||row.translated_fact);
       if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”缺少与本任务目标行业直接匹配的经营证据，不能入池`},{status:409});
       if (!gate.accepted) return NextResponse.json({error:"当前证据仍未达到入池门槛，请先补齐目标行业、主体在营和可追溯有效联系方式依据"},{status:409});
       const normalized=gate.actionableContacts.map((row)=>String(row.value_normalized||"")).filter(Boolean);
