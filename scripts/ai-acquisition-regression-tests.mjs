@@ -19,6 +19,15 @@ assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).verifiedTarget,true,
 assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).accepted,false,"缺少可追溯联系方式的目标客户不得直接入池");
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evidenceComplete,false,"主体未匹配时不得把单一来源链接标为证据完整");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"手机维修店",["官网证明提供手机维修"]),false,"普通手机维修店不能仅凭行业标签进入连锁店任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"Apple或MacBook维修店",["官网证明提供手机维修并有多门店或连锁经营"]),true,"主行业为Apple维修但有手机维修和连锁证据时不能误拒");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"电脑维修店",["官网证明提供多门店或连锁经营"]),false,"仅有连锁证据而无手机维修证据不能入池");
+assert.equal(discoveryCandidateLooksRelevant({companyName:"United Vape & Phone Repair Center",businessStatus:"OPERATIONAL",types:["food_store","service"],matchedTerms:["mobile device repair centres"]},["手机维修连锁店"],["mobile device repair centres"]),true,"明确标注手机维修的混合商家不得被无关Google分类提前排除，仍需补证");
+assert.equal(discoveryCandidateLooksRelevant({companyName:"Mobile Tyres And Puncture Repairs",businessStatus:"OPERATIONAL",types:["car_repair","tire_shop"],matchedTerms:["mobile device repair centres"]},["手机维修连锁店"],["mobile device repair centres"]),false,"汽车流动维修不得因mobile一词混入手机维修核验");
+assert.match(fs.readFileSync("workflows/ai-acquisition.ts","utf8"),/deepProcessed=Number\(screening\.data\.success_count\|\|0\)/,"技术失败候选不得提前计入已完成进度");
+assert.match(fs.readFileSync("workflows/ai-acquisition.ts","utf8"),/state\.screening\.failed_count[\s\S]*ACQUISITION_SCREENING_ITEMS_FAILED/,"子任务技术失败应明确提示可重试，不能只在收尾完整性校验中报错");
+assert.match(fs.readFileSync("workflows/ai-acquisition.ts","utf8"),/customer:customers!inner\(id\)[\s\S]*customer\.deleted_at[\s\S]*customer\.pool_status/,"自动去重不得把已删除或隔离中的客户当作现存重复客户");
+assert.match(fs.readFileSync("app/api/ai-acquisition/candidates/[id]/review/route.ts","utf8"),/customer:customers!inner\(id\)[\s\S]*customer\.deleted_at[\s\S]*customer\.pool_status/,"人工复核入池也不得受已删除客户的历史联系方式阻挡");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["Google商家页将该企业分类为汽车配件批发商"]),false,"汽车配件批发商不得借粗行业标签进入手机维修配件任务");

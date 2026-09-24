@@ -67,11 +67,17 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       if(refreshedContacts.error)throw refreshedContacts.error;
       const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:refreshedContacts.data||[]});
       const targetIndustries=task.industries?.length?task.industries:[task.industry];
-      const industryEvidence=(evidence.data||[]).flatMap((row)=>[row.translated_fact,row.original_excerpt]);
-      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”缺少与本任务目标产品直接匹配的经营证据，不能入池`},{status:409});
+      const industryEvidence=(evidence.data||[])
+        .filter((row)=>/^https?:\/\//i.test(String(row.source_url||""))&&row.evidence_strength!=="WEAK_HINT")
+        .flatMap((row)=>[row.translated_fact,row.original_excerpt]);
+      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”缺少与本任务目标行业直接匹配的经营证据，不能入池`},{status:409});
       if (!gate.accepted) return NextResponse.json({error:"当前证据仍未达到入池门槛，请先补齐目标行业、主体在营和可追溯有效联系方式依据"},{status:409});
       const normalized=gate.actionableContacts.map((row)=>String(row.value_normalized||"")).filter(Boolean);
-      const duplicate=normalized.length?await admin.from("customer_contacts").select("customer_id").in("value_normalized",normalized).neq("customer_id",customerId).limit(1):{data:[],error:null};
+      const duplicate=normalized.length?await admin.from("customer_contacts")
+        .select("customer_id,customer:customers!inner(id)")
+        .in("value_normalized",normalized).neq("customer_id",customerId)
+        .is("customer.deleted_at",null).neq("customer.pool_status","AI_STAGING")
+        .limit(1):{data:[],error:null};
       if (duplicate.error) throw duplicate.error;
       if (duplicate.data?.length) return NextResponse.json({error:"核验联系方式已存在于系统其他客户，不能重复入池"},{status:409});
       const updated=await admin.from("ai_acquisition_candidates").update({decision:"ACCEPTED",decision_reason:"人工发起重新校验，全部自动准入门槛通过",imported_customer_id:customerId,has_actionable_contact:true,evidence_complete:true,processed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id).eq("decision","REVIEW").select("id");

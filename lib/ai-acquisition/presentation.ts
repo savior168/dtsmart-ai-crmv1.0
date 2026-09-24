@@ -1,6 +1,10 @@
 export function acquisitionErrorMessageZh(message?: string | null) {
   const value = String(message || "").trim();
   if (!value) return "";
+  if (/ACQUISITION_SCREENING_ITEMS_FAILED/i.test(value)) {
+    const count = value.match(/:\s*(\d+)/)?.[1] || "部分";
+    return `${count} 条候选因 AI 核验技术错误未完成，已完成的结果与检索检查点均已保留。可点击“重试失败项”，无需重新采集全部候选。`;
+  }
   if (/google_place_id.*does not exist|42703/i.test(value)) {
     return "候选客户保存时检测到数据字段不一致，任务已安全停止。已完成的检索结果、检查点和费用记录均已保留，可修复后从检查点继续。";
   }
@@ -18,6 +22,7 @@ export function acquisitionErrorMessageZh(message?: string | null) {
 
 export function acquisitionFailureStage(message?: string | null) {
   const value = String(message || "");
+  if (/ACQUISITION_SCREENING_ITEMS_FAILED/i.test(value)) return "候选核验技术失败";
   if (/google_place_id.*does not exist|42703/i.test(value)) return "候选保存失败";
   if (/screening/i.test(value)) return "AI核验失败";
   if (/budget|费用|额度|limit/i.test(value)) return "费用边界停止";
