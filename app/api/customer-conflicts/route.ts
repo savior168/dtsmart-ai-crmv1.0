@@ -21,6 +21,8 @@ type ConflictCustomer = {
   owner_id: string | null;
   created_at: string;
   status: string;
+  ai_screening_done: boolean | null;
+  is_target_customer: boolean | null;
 };
 
 const IN_QUERY_BATCH_SIZE = 100;
@@ -80,7 +82,7 @@ async function loadConflictCustomers(customerIds: string[]) {
   const admin = createAdminClient();
   const customers: ConflictCustomer[] = [];
   for (const customerIdBatch of batches(Array.from(new Set(customerIds)))) {
-    const result = await admin.from("customers").select("id,owner_id,created_at,status").in("id", customerIdBatch);
+    const result = await admin.from("customers").select("id,owner_id,created_at,status,ai_screening_done,is_target_customer").in("id", customerIdBatch);
     if (result.error) throw result.error;
     customers.push(...(result.data || []));
   }
@@ -117,7 +119,7 @@ async function enrichConflicts(rows: ConflictRow[], loadedCustomers?: ConflictCu
     const expiry = item.customer_id ? expiryByCustomer.get(item.customer_id) : null;
     const fallbackExpiry = customer?.created_at ? new Date(new Date(customer.created_at).getTime() + 90 * 86400000).toISOString() : null;
     const protectionDays = expiry || fallbackExpiry ? Math.max(0, Math.ceil((new Date(String(expiry || fallbackExpiry)).getTime() - Date.now()) / 86400000)) : 0;
-    return { ...item, owner, submitters, protection_days: protectionDays };
+    return { ...item, owner, submitters, protection_days: protectionDays, current_target: customer?.ai_screening_done === true ? customer.is_target_customer : null };
   });
 }
 

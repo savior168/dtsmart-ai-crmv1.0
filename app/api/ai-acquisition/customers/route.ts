@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = params.get("level") || "";
+    const target = params.get("target") || "";
     const taskSearch = (params.get("task_search")?.trim() || "").replace(/[%_,()]/g, " ");
     const taskId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.get("task_id") || "") ? String(params.get("task_id")) : "";
     const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
@@ -81,6 +82,9 @@ export async function GET(request: NextRequest) {
       query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
     }
     if (["A", "B", "C", "D"].includes(level)) query = query.eq("ai_level", level);
+    if (target === "valid") query = query.eq("is_target_customer", true);
+    if (target === "invalid") query = query.eq("is_target_customer", false);
+    if (target === "unknown") query = query.is("is_target_customer", null);
     if (from) query=query.gte("processed_at",`${from}T00:00:00.000+08:00`);
     if (to) query=query.lte("processed_at",`${to}T23:59:59.999+08:00`);
     const result = mode === "core"

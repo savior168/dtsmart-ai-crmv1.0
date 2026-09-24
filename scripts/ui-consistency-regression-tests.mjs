@@ -21,6 +21,9 @@ const offenders = sourceFiles.filter((path) => nativeDialog.test(readFileSync(pa
 assert.deepEqual(offenders, [], `禁止使用浏览器原生弹框：${offenders.join(", ")}`);
 
 const read = (path) => readFileSync(resolve(root, path), "utf8");
+assert.match(read("components/ai-acquisition/task-detail.tsx"), /<CustomerPublicLink value=\{r\.customer_profile\?\.website\|\|r\.source_website\} kind="website"\/>/, "AI获客任务详情的官网列必须与客户公海一致显示图标和网址");
+assert.match(read("components/ai-acquisition/task-center.tsx"), /\?usage=GOOGLE#usage-details[\s\S]*\?usage=OPENAI#usage-details/, "任务中心调用与费用数据必须分别进入对应明细");
+assert.match(read("components/ai-acquisition/task-detail.tsx"), /id="usage-details"[\s\S]*id="openai-usage-details"[\s\S]*id="google-usage-details"/, "任务详情必须提供对应的费用明细目标区域");
 assert.match(read("app/layout.tsx"), /智客云｜AI精准获客，让销售更快成交/, "浏览器默认标题必须精炼表达精准获客和加速成交的销售价值");
 assert.match(read("app/login/page.tsx"), /AI智能获客 · 精准筛选/, "登录页品牌副标必须与系统核心定位一致");
 assert.doesNotMatch(read("app/login/page.tsx"), /AI 客户分析与销售转化平台/, "登录页不得继续显示旧品牌副标");
@@ -92,6 +95,13 @@ assert.match(read("components/customer-public-pool-view.tsx"), /flex flex-wrap i
 assert.match(read("components/customer-public-pool-view.tsx"), /已按 \{screeningTaskIds\.length\} 个 AI 筛选批次加载当前/, "客户公海按AI筛选批次加载后必须明确显示当前页签实际加载数量");
 assert.doesNotMatch(read("components/customer-public-pool-view.tsx"), /flex min-w-max items-(?:end|center) gap-3 overflow-x-auto/, "客户公海筛选条件不得强制横向溢出");
 const customerPanels = read("components/customer-workspace-panels-v2.tsx");
+for (const path of ["components/customers-view.tsx", "components/customer-public-pool-view.tsx", "components/ai-acquisition/task-detail.tsx", "components/ai-acquisition/customer-results.tsx", "components/customer-workspace-panels-v2.tsx"]) {
+  assert.match(read(path), /全部目标判断|全部目标客户/, `${path} 必须有目标客户筛选入口`);
+}
+for (const path of ["app/api/ai-acquisition/tasks/[id]/route.ts", "app/api/ai-acquisition/customers/route.ts"]) {
+  assert.match(read(path), /target === "valid"[\s\S]*is_target_customer", true[\s\S]*target === "invalid"[\s\S]*is_target_customer", false[\s\S]*target === "unknown"[\s\S]*is_target_customer", null/, `${path} 必须在分页计数前精确区分目标、非目标与未判断`);
+}
+assert.match(read("app/api/customer-conflicts/route.ts"), /current_target: customer\?\.ai_screening_done === true \? customer\.is_target_customer : null/, "冲突客户必须依据当前客户而非历史提交快照判断目标状态");
 assert.doesNotMatch(customerPanels, /flex min-w-max items-center gap-3 overflow-x-auto/, "客户续期和冲突列表筛选条件不得强制横向溢出");
 assert.match(customerPanels, /setReleaseType\(""\)[\s\S]*>重置<\/button>/, "保护到期与续期必须提供可一次清空全部条件的重置按钮");
 assert.match(customerPanels, /setSource\(""\)[\s\S]*>重置<\/button>/, "冲突客户必须提供可一次清空全部条件的重置按钮");

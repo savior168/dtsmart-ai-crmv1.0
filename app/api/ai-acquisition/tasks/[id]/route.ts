@@ -50,6 +50,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const countries = [...new Set(request.nextUrl.searchParams.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = [...new Set(request.nextUrl.searchParams.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = request.nextUrl.searchParams.get("level") || "";
+    const target = request.nextUrl.searchParams.get("target") || "";
     const readiness = request.nextUrl.searchParams.get("readiness") || "";
     const evidenceStatus = request.nextUrl.searchParams.get("evidence_status") || "";
     const sort = request.nextUrl.searchParams.get("sort") || "SALES_PRIORITY";
@@ -69,6 +70,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
     }
     if (["A","B","C","D"].includes(level)) query = query.eq("ai_level", level);
+    if (target === "valid") query = query.eq("is_target_customer", true);
+    if (target === "invalid") query = query.eq("is_target_customer", false);
+    if (target === "unknown") query = query.is("is_target_customer", null);
     if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true);
     if (readiness === "NO_CONTACT") query = query.eq("has_actionable_contact", false);
     if (evidenceStatus === "COMPLETE") query = query.eq("evidence_complete", true);
