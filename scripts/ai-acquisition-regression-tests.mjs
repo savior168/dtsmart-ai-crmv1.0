@@ -26,6 +26,8 @@ assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"电脑维修店",["官网仅证明电脑或笔记本维修"]),false,"混合目标行业不得绕过连锁手机维修证据门槛");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"手机维修店",["官网证明提供手机维修"]),true,"混合目标行业中普通手机维修仍可匹配手机维修店");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"Apple或MacBook维修店",["官网证明仅提供电脑维修"]),false,"Apple或MacBook标签不能替代手机维修证据");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店","手机维修店"],"电脑维修店",["Google商家“QQ PC & Phone Repairs”已核验经营内容：手机维修、电脑或笔记本维修。"]),true,"电脑维修主行业但可追溯证据明确兼营手机维修时不得误拒");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"混合经营",["官网仅证明家电维修和电子烟零售"]),false,"混合经营不能仅凭主行业标签进入手机维修任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"维修连锁",["Mobile SMART Car Body Repair Glasgow offers mobile repair franchises and multiple locations"]),false,"汽车上门维修不得因 mobile repair 和连锁词误入手机维修连锁任务");
 assert.equal(acquisitionDuplicateSource("Google Place ID已存在于系统客户资料"),"系统已有客户 · 商家ID");
 assert.equal(acquisitionDuplicateSource("该Google商家已由其他任务核验入池，本任务不重复移动或重新分析客户档案"),"系统已有客户 · 商家ID");
