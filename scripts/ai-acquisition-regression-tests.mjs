@@ -522,11 +522,12 @@ assert.match(acquisitionTaskDetail,/fetch\(`\/api\/ai-acquisition\/tasks\/\$\{ta
 assert.match(acquisitionWorkflow,/finalizeCandidateBatch[\s\S]*select\("id,screening_task_item_id,staging_customer_id,screening_item:ai_screening_task_items!inner\(id\)"\)/,"批次准入只读取必需候选字段，避免宽行扫描放大数据库压力");
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
 assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
-assert.match(acquisitionTaskCenter,/!canViewUsage \|\| error \|\| summaryLoading[\s\S]*all_time:"1", overview:"1"[\s\S]*historyResponse/,"任务中心费用概览应在核心统计加载后自动读取，展开详情不应再次触发扫描");
+assert.match(acquisitionTaskCenter,/!canViewUsage \|\| costLoadedScopeRef\.current===scopeUserId[\s\S]*all_time:"1", overview:"1"[\s\S]*historyResponse/,"任务中心费用概览应在进入页面时独立读取，展开详情不应再次触发扫描");
 assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
 assert.match(listRoute,/mode === "summary"[\s\S]*mode === "filters"[\s\S]*if \(coreOnly\)[\s\S]*mode === "page"/,"任务中心必须分离汇总、筛选项和当前页用量，不能让慢查询阻塞核心列表");
-assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*setTasks[\s\S]*summaryParams\.set\("mode","summary"\)[\s\S]*setSummary\(body\.summary\)/,"任务中心必须先展示核心任务，再独立补充真实汇总统计");
-assert.match(acquisitionTaskCenter,/summaryLoading\?"统计中":"—"[\s\S]*summaryError[\s\S]*重试统计/,"未加载或加载失败的统计不得显示为真实的零");
+assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*summaryParams\.set\("mode","summary"\)[\s\S]*setSummary\(body\.summary\)[\s\S]*fetch\(`\/api\/ai-acquisition\/tasks\?\$\{coreParams\}`/,"任务中心进入页面即并行读取真实汇总与核心任务");
+assert.match(acquisitionTaskCenter,/summaryLoading\?<span className="block h-7 w-16 animate-pulse[\s\S]*summaryError[\s\S]*重试统计/,"未加载或加载失败的统计不得显示为真实的零或突兀文字");
+assert.match(usageRoute,/if \(overview\)[\s\S]*head:true[\s\S]*today_summary:[\s\S]*const candidates:CandidateRow/,"任务中心费用概览不得逐行下载全部历史候选");
 assert.match(acquisitionTaskCenter,/t\.usage\?`\$\{formatNumber\(t\.usage\.google_calls\)\} 次`:pageUsageError\?"暂不可用":"统计中…"[\s\S]*formatCost\(t\.usage\.total_cost_usd\)[\s\S]*formatTokens\(t\.usage\.total_tokens\)[\s\S]*正在读取真实台账/,"任务中心必须直接显示Google调用、实际费用与Token，且不得用空数据伪装为零费用");
 assert.match(listRoute,/optional progress unavailable[\s\S]*if \(coreOnly\)[\s\S]*return NextResponse\.json/,"任务列表附属统计不得拖垮核心列表");
 assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_limit: 1[\s\S]*stalled task claim completed/,"获客恢复器必须只通过受限RPC领取单个停滞任务并记录阶段结果");

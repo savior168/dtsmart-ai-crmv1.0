@@ -79,7 +79,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [costOverview, setCostOverview] = useState<CostOverview | null>(null),
-    [costOverviewLoading, setCostOverviewLoading] = useState(false),
+    [costOverviewLoading, setCostOverviewLoading] = useState(canViewUsage),
     [costOverviewError, setCostOverviewError] = useState(""),
     [costRetry, setCostRetry] = useState(0),
     [costSummaryOpen, setCostSummaryOpen] = useState(false),
@@ -94,6 +94,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
   const loadRequestRef=useRef(0);
   const loadControllerRef=useRef<AbortController|null>(null);
   const costLoadedScopeRef=useRef<string|null>(null);
+  const summaryScopeRef=useRef<string|null>(null);
   const load = useCallback(async () => {
     loadControllerRef.current?.abort();
     const controller=new AbortController();
@@ -101,11 +102,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     const requestId=++loadRequestRef.current;
     setLoading(true);
     setError("");
-    setSummaryLoading(true);
-    setSummaryError("");
-    setSummary(null);
     setPageUsageError(false);
-    setFilterOptions({countries:[],industries:[]});
     try {
       const p = new URLSearchParams({
         page: String(page),
@@ -120,22 +117,19 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       if (costMode) p.set("cost_mode", costMode);
       if (from) p.set("from", from);
       if (to) p.set("to", to);
+      const summaryScope=JSON.stringify({scopeUserId,costMode,countries,industries,from,to,search});
+      const refreshSummary=summaryScopeRef.current!==summaryScope;
+      setSummaryLoading(true);
+      setSummaryError("");
+      if(refreshSummary){
+        summaryScopeRef.current=summaryScope;
+        setSummary(null);
+      }
       const coreParams = new URLSearchParams(p);
       coreParams.set("core", "1");
-      const r = await fetch(`/api/ai-acquisition/tasks?${coreParams}`, {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      const b = await r.json();
-      if(requestId!==loadRequestRef.current)return;
-      if (!r.ok) throw new Error(b.error || "加载失败");
-      setTasks(b.data || []);
-      setCount(b.count || 0);
-      setShowOwner(Boolean(b.show_owner));
-      // Keep the task table responsive. Load exact statistics independently,
-      // then the optional per-page usage and filter facets without making
-      // an unavailable statistic look like a genuine zero.
-      void (async () => {
+      // Independent metrics must not wait for the task list or each other.
+      const backgroundRequests:Promise<void>[]=[];
+      backgroundRequests.push((async()=>{
         try {
           const summaryParams=new URLSearchParams(p);
           summaryParams.set("mode","summary");
@@ -148,18 +142,21 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         } finally {
           if(requestId===loadRequestRef.current&&!controller.signal.aborted)setSummaryLoading(false);
         }
-        if(requestId!==loadRequestRef.current)return;
+      })());
+      let pageResolved=false;
+      backgroundRequests.push((async()=>{
         try {
           const pageParams=new URLSearchParams(p);
           pageParams.set("mode","page");
           const response=await fetch(`/api/ai-acquisition/tasks?${pageParams}`,{cache:"no-store",signal:controller.signal});
           const body=await response.json().catch(()=>({}));
           if(requestId===loadRequestRef.current){
-            if(response.ok&&Array.isArray(body.data))setTasks(body.data);
+            if(response.ok&&Array.isArray(body.data)){pageResolved=true;setTasks(body.data)}
             setPageUsageError(!response.ok||Boolean(body.usage_error));
           }
         } catch { if(requestId===loadRequestRef.current&&!controller.signal.aborted)setPageUsageError(true); }
-        if(requestId!==loadRequestRef.current)return;
+      })());
+      backgroundRequests.push((async()=>{
         try {
           const filterParams=new URLSearchParams(p);
           filterParams.set("mode","filters");
@@ -167,12 +164,21 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           const body=await response.json().catch(()=>({}));
           if(response.ok&&requestId===loadRequestRef.current&&body.filter_options)setFilterOptions(body.filter_options);
         } catch { /* Existing selections remain available after a facet error. */ }
-      })();
+      })());
+      void Promise.all(backgroundRequests);
+      const r = await fetch(`/api/ai-acquisition/tasks?${coreParams}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const b = await r.json();
+      if(requestId!==loadRequestRef.current)return;
+      if (!r.ok) throw new Error(b.error || "加载失败");
+      if(!pageResolved)setTasks(b.data || []);
+      setCount(b.count || 0);
+      setShowOwner(Boolean(b.show_owner));
     } catch (e) {
       if(requestId===loadRequestRef.current&&!controller.signal.aborted){
         setError(e instanceof Error ? e.message : "加载失败");
-        setSummaryLoading(false);
-        setSummaryError("获客统计暂不可用");
       }
     } finally {
       if(requestId===loadRequestRef.current&&!controller.signal.aborted)setLoading(false);
@@ -183,10 +189,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     return () => loadControllerRef.current?.abort();
   }, [load]);
   useEffect(() => {
-    // Fetch once per owner scope after the task summary settles, even when
-    // the detailed panel is collapsed. The compact cost line is then useful
-    // without an extra click, while queries stay out of the critical path.
-    if (!canViewUsage || error || summaryLoading || costLoadedScopeRef.current===scopeUserId) return;
+    // Fetch once per owner scope on entry, independently of the task summary
+    // and the collapsed detail panel.
+    if (!canViewUsage || costLoadedScopeRef.current===scopeUserId) return;
     costLoadedScopeRef.current=scopeUserId;
     let active = true;
     let settled = false;
@@ -213,9 +218,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       });
     })().catch((caught)=>{if(active)setCostOverviewError(caught instanceof Error?caught.message:"获客成本数据加载失败")}).finally(()=>{settled=true;if(active)setCostOverviewLoading(false)});
     return ()=>{active=false;if(!settled&&costLoadedScopeRef.current===scopeUserId)costLoadedScopeRef.current=null};
-  }, [canViewUsage, error, summaryLoading, scopeUserId, costRetry]);
+  }, [canViewUsage, scopeUserId, costRetry]);
   const refreshAll=()=>{
     costLoadedScopeRef.current=null;
+    summaryScopeRef.current=null;
     setCostRetry(value=>value+1);
     void load();
   };
@@ -277,7 +283,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         ].map((item)=>{
           const customerScope=item.key==="today_accepted"?"today":item.key==="accepted"?"accepted":item.key==="review"?"review":null;
           const className=`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${!customerScope&&metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`;
-          const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold" aria-busy={summaryLoading}>{summary?Number(item.value||0).toLocaleString("zh-CN"):summaryLoading?"统计中":"—"}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
+          const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold" aria-busy={summaryLoading}>{summary?Number(item.value||0).toLocaleString("zh-CN"):summaryLoading?<span className="block h-7 w-16 animate-pulse rounded bg-slate-100" aria-label="正在加载"/>:"—"}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
           return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${ownerQuery}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
         })}
       </section>
@@ -296,7 +302,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
       {canViewUsage ? <section className={`${panel} overflow-hidden`}>
         <button type="button" aria-expanded={costSummaryOpen} aria-controls="acquisition-cost-summary" onClick={()=>setCostSummaryOpen(open=>!open)} className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-50">
-          <span className="min-w-0"><b className="block font-semibold">获客成效与实际成本</b><span className="mt-1 block truncate text-xs text-slate-500">{costOverviewLoading?"正在统计真实费用…":costOverviewError?"费用统计暂不可用":`今日实际 ${costOverview?formatCost(costOverview.todayCost):"—"} · 历史实际 ${costOverview?formatCost(costOverview.totalCost):"—"} · 历史入池率 ${costOverview&&costOverview.processed?`${(costOverview.accepted/costOverview.processed*100).toFixed(1)}%`:"—"}`}</span></span>
+          <span className="min-w-0"><b className="block font-semibold">获客成效与实际成本</b>{costOverviewLoading?<span className="mt-2 block h-3 w-48 animate-pulse rounded bg-slate-100" aria-label="正在加载费用"/>:<span className="mt-1 block truncate text-xs text-slate-500">{costOverviewError?"费用统计暂不可用":`今日实际 ${costOverview?formatCost(costOverview.todayCost):"—"} · 历史实际 ${costOverview?formatCost(costOverview.totalCost):"—"} · 历史入池率 ${costOverview&&costOverview.processed?`${(costOverview.accepted/costOverview.processed*100).toFixed(1)}%`:"—"}`}</span>}</span>
           <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-blue-600">{costSummaryOpen?"收起":"查看成效与成本"}<ChevronDown size={16} className={`transition ${costSummaryOpen?"rotate-180":""}`}/></span>
         </button>
         {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">实际费用仅包含OpenAI已完成调用与Google平台已确认金额；Google价目估算、共享免费额度和预计超额费用不计入实际费用。</p>{canViewGoogleBilling?<button type="button" onClick={()=>void openGoogleDetails()} className="text-xs font-medium text-blue-600 hover:underline">查看Google调用与账号额度</button>:null}</div>{costOverviewLoading?<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">正在汇总真实调用、费用与入池数据…</p>:costOverviewError?<div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><span>{costOverviewError}</span><button type="button" className="font-medium underline" onClick={()=>{costLoadedScopeRef.current=null;setCostRetry(value=>value+1)}}>重新加载</button></div>:<><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -62,6 +62,42 @@ export async function GET(request: NextRequest) {
         if (costRows.length < 1000) break;
       }
     }
+    if (overview) {
+      // The task-center cards only need counts. Avoid transferring every
+      // historical candidate (including large text/evidence fields) on entry.
+      const candidateCounts = { discovered:0, processed:0, accepted:0 };
+      for (let offset = 0; offset < parentIds.length; offset += 150) {
+        const ids = parentIds.slice(offset, offset + 150);
+        const [discovered, processed, accepted] = await Promise.all([
+          admin.from("ai_acquisition_candidates").select("id", {count:"exact",head:true}).in("task_id", ids),
+          admin.from("ai_acquisition_candidates").select("id", {count:"exact",head:true}).in("task_id", ids).not("processed_at","is",null),
+          admin.from("ai_acquisition_candidates").select("id", {count:"exact",head:true}).in("task_id", ids).eq("decision","ACCEPTED").not("imported_customer_id","is",null).not("processed_at","is",null),
+        ]);
+        for (const result of [discovered, processed, accepted]) if (result.error) throw result.error;
+        candidateCounts.discovered += discovered.count || 0;
+        candidateCounts.processed += processed.count || 0;
+        candidateCounts.accepted += accepted.count || 0;
+      }
+      const quantity = (items: CostRow[]) => items.reduce((sum, row) => sum + Math.max(0, Number(row.quantity || 1)), 0);
+      const todayStart = Date.parse(`${today}T00:00:00.000+08:00`);
+      const todayEnd = Date.parse(`${today}T23:59:59.999+08:00`);
+      const todayCosts = costs.filter((row) => { const timestamp=Date.parse(row.occurred_at); return timestamp>=todayStart&&timestamp<=todayEnd; });
+      return NextResponse.json({
+        summary:{
+          ...candidateCounts,
+          calls:quantity(costs),
+          free_calls:quantity(costs.filter((row)=>row.amount_type==="FREE")),
+          google_calls:quantity(costs.filter((row)=>row.provider==="GOOGLE_PLACES")),
+          google_free_calls:quantity(costs.filter((row)=>row.provider==="GOOGLE_PLACES"&&row.amount_type==="FREE")),
+          openai_calls:quantity(costs.filter((row)=>row.provider==="OPENAI")),
+          openai_cost_usd:costs.filter((row)=>row.provider==="OPENAI").reduce((sum,row)=>sum+Number(row.amount_usd||0),0),
+          google_cost_usd:costs.filter((row)=>row.provider==="GOOGLE_PLACES"&&isActuallyIncurredCost(row)).reduce((sum,row)=>sum+Number(row.amount_usd||0),0),
+          total_cost_usd:actualCostUsd(costs),
+        },
+        today_summary:{calls:quantity(todayCosts),total_cost_usd:actualCostUsd(todayCosts)},
+        daily:[],data:[],count:tasks.length,show_owner:hasPermission(account,"ai.acquisition.data_all"),
+      });
+    }
     const candidates:CandidateRow[]=[];
     for (let offset = 0; offset < parentIds.length; offset += 150) {
       for (let rowOffset = 0; ; rowOffset += 1000) {
