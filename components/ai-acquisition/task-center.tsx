@@ -60,7 +60,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
   const router=useRouter();
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
-    [summary, setSummary] = useState<TaskSummary>({ tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, historical_accepted:0, removed_results:0, repeated_results:0, unique_linked_customers:0, current_customers:0, available_customers:0, claimed_customers:0, review:0, failed_tasks:0 }),
+    [summary, setSummary] = useState<TaskSummary | null>(null),
+    [summaryLoading, setSummaryLoading] = useState(true),
+    [summaryError, setSummaryError] = useState(""),
+    [pageUsageError, setPageUsageError] = useState(false),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
@@ -78,6 +81,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [costOverview, setCostOverview] = useState<CostOverview | null>(null),
     [costOverviewLoading, setCostOverviewLoading] = useState(false),
     [costOverviewError, setCostOverviewError] = useState(""),
+    [costRetry, setCostRetry] = useState(0),
     [costSummaryOpen, setCostSummaryOpen] = useState(false),
     [googleDetailsOpen, setGoogleDetailsOpen] = useState(false),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
@@ -88,10 +92,20 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [actionBusy, setActionBusy] = useState(false);
   const {toast,node:toastNode}=useToast();
   const loadRequestRef=useRef(0);
+  const loadControllerRef=useRef<AbortController|null>(null);
+  const costLoadedScopeRef=useRef<string|null>(null);
   const load = useCallback(async () => {
+    loadControllerRef.current?.abort();
+    const controller=new AbortController();
+    loadControllerRef.current=controller;
     const requestId=++loadRequestRef.current;
     setLoading(true);
     setError("");
+    setSummaryLoading(true);
+    setSummaryError("");
+    setSummary(null);
+    setPageUsageError(false);
+    setFilterOptions({countries:[],industries:[]});
     try {
       const p = new URLSearchParams({
         page: String(page),
@@ -110,6 +124,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       coreParams.set("core", "1");
       const r = await fetch(`/api/ai-acquisition/tasks?${coreParams}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
       const b = await r.json();
       if(requestId!==loadRequestRef.current)return;
@@ -117,34 +132,64 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       setTasks(b.data || []);
       setCount(b.count || 0);
       setShowOwner(Boolean(b.show_owner));
-      // The control table is the primary task-center surface. Load the exact
-      // all-time counters and filter facets afterwards so their broader scans
-      // can never hold the task list in a loading state.
-      void fetch(`/api/ai-acquisition/tasks?${p}`, { cache: "no-store" })
-        .then(async (overviewResponse) => ({ ok: overviewResponse.ok, body: await overviewResponse.json().catch(() => ({})) }))
-        .then(({ ok, body }) => {
-          if (!ok || requestId!==loadRequestRef.current) return;
-          if (Array.isArray(body.data)) setTasks(body.data);
-           setSummary(body.summary || { tasks:0, active_tasks:0, completed_tasks:0, today_accepted:0, accepted:0, historical_accepted:0, removed_results:0, repeated_results:0, unique_linked_customers:0, current_customers:0, available_customers:0, claimed_customers:0, review:0, failed_tasks:0 });
-          setFilterOptions(body.filter_options || {countries:[],industries:[]});
-        })
-        .catch(() => undefined);
+      // Keep the task table responsive. Load exact statistics independently,
+      // then the optional per-page usage and filter facets without making
+      // an unavailable statistic look like a genuine zero.
+      void (async () => {
+        try {
+          const summaryParams=new URLSearchParams(p);
+          summaryParams.set("mode","summary");
+          const response=await fetch(`/api/ai-acquisition/tasks?${summaryParams}`,{cache:"no-store",signal:controller.signal});
+          const body=await response.json().catch(()=>({}));
+          if (!response.ok || !body.summary) throw new Error(body.error||"获客统计加载失败");
+          if(requestId===loadRequestRef.current)setSummary(body.summary);
+        } catch (caught) {
+          if(requestId===loadRequestRef.current&&!controller.signal.aborted)setSummaryError(caught instanceof Error?caught.message:"获客统计加载失败");
+        } finally {
+          if(requestId===loadRequestRef.current&&!controller.signal.aborted)setSummaryLoading(false);
+        }
+        if(requestId!==loadRequestRef.current)return;
+        try {
+          const pageParams=new URLSearchParams(p);
+          pageParams.set("mode","page");
+          const response=await fetch(`/api/ai-acquisition/tasks?${pageParams}`,{cache:"no-store",signal:controller.signal});
+          const body=await response.json().catch(()=>({}));
+          if(requestId===loadRequestRef.current){
+            if(response.ok&&Array.isArray(body.data))setTasks(body.data);
+            setPageUsageError(!response.ok||Boolean(body.usage_error));
+          }
+        } catch { if(requestId===loadRequestRef.current&&!controller.signal.aborted)setPageUsageError(true); }
+        if(requestId!==loadRequestRef.current)return;
+        try {
+          const filterParams=new URLSearchParams(p);
+          filterParams.set("mode","filters");
+          const response=await fetch(`/api/ai-acquisition/tasks?${filterParams}`,{cache:"no-store",signal:controller.signal});
+          const body=await response.json().catch(()=>({}));
+          if(response.ok&&requestId===loadRequestRef.current&&body.filter_options)setFilterOptions(body.filter_options);
+        } catch { /* Existing selections remain available after a facet error. */ }
+      })();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "加载失败");
+      if(requestId===loadRequestRef.current&&!controller.signal.aborted){
+        setError(e instanceof Error ? e.message : "加载失败");
+        setSummaryLoading(false);
+        setSummaryError("获客统计暂不可用");
+      }
     } finally {
-      setLoading(false);
+      if(requestId===loadRequestRef.current&&!controller.signal.aborted)setLoading(false);
     }
   }, [page, pageSize, status, metric, search, industries, countries, costMode, from, to, scopeUserId]);
   useEffect(() => {
     void load();
+    return () => loadControllerRef.current?.abort();
   }, [load]);
   useEffect(() => {
-    // Cost history is intentionally loaded only when the user opens this
-    // panel. Loading today's ledger and the entire historical ledger beside
-    // every task-list request caused avoidable database contention while
-    // acquisition workers were writing candidates.
-    if (!canViewUsage || !costSummaryOpen) return;
+    // Fetch once per owner scope after the task summary settles, even when
+    // the detailed panel is collapsed. The compact cost line is then useful
+    // without an extra click, while queries stay out of the critical path.
+    if (!canViewUsage || error || summaryLoading || costLoadedScopeRef.current===scopeUserId) return;
+    costLoadedScopeRef.current=scopeUserId;
     let active = true;
+    let settled = false;
     setCostOverview(null);
     setCostOverviewLoading(true);
     setCostOverviewError("");
@@ -166,9 +211,14 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         googleCalls:Number(historyBody.summary?.google_calls||0),
         freeCalls:Number(historyBody.summary?.google_free_calls||0),
       });
-    })().catch((caught)=>{if(active)setCostOverviewError(caught instanceof Error?caught.message:"获客成本数据加载失败")}).finally(()=>{if(active)setCostOverviewLoading(false)});
-    return ()=>{active=false};
-  }, [canViewUsage, costSummaryOpen, scopeUserId]);
+    })().catch((caught)=>{if(active)setCostOverviewError(caught instanceof Error?caught.message:"获客成本数据加载失败")}).finally(()=>{settled=true;if(active)setCostOverviewLoading(false)});
+    return ()=>{active=false;if(!settled&&costLoadedScopeRef.current===scopeUserId)costLoadedScopeRef.current=null};
+  }, [canViewUsage, error, summaryLoading, scopeUserId, costRetry]);
+  const refreshAll=()=>{
+    costLoadedScopeRef.current=null;
+    setCostRetry(value=>value+1);
+    void load();
+  };
   async function openGoogleDetails() {
     setGoogleDetailsOpen(true);
     if (googleBilling || googleBillingLoading) return;
@@ -192,7 +242,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       if(!response.ok)throw new Error(body.error||"任务操作失败");
       toast({PAUSE:"任务正在安全暂停",RESUME:"任务已从检查点恢复",CANCEL:"任务已取消，历史结果与费用已保留",RETRY:"任务已从检查点重新排队",RECHECK_EVIDENCE_GAPS:"证据缺口已重新进入核验，不会重复搜索"}[pendingAction.action]);
       setPendingAction(null);
-      await load();
+      refreshAll();
     }catch(actionError){
       toast(actionError instanceof Error?actionError.message:"任务操作失败","error");
     }finally{setActionBusy(false)}
@@ -218,37 +268,38 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         {[
-          { key:"today_accepted" as const, label:"今日获客", value:summary.today_accepted, note:"今日核验通过并成功入池", icon:CalendarCheck2, tone:"bg-blue-50 text-blue-700" },
-          { key:"accepted" as const, label:"有效入池结果", value:summary.accepted, note:`当前有关联；历史累计 ${formatNumber(summary.historical_accepted)}`, icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
-          { key:"review" as const, label:"待人工复核", value:summary.review, note:"需核对证据后处理", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
-          { key:"active" as const, label:"进行中", value:summary.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
-          { key:"completed" as const, label:"已完成任务", value:summary.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
-          { key:"failed" as const, label:"异常任务", value:summary.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
+          { key:"today_accepted" as const, label:"今日获客", value:summary?.today_accepted, note:"今日核验通过并成功入池", icon:CalendarCheck2, tone:"bg-blue-50 text-blue-700" },
+          { key:"accepted" as const, label:"有效入池结果", value:summary?.accepted, note:`当前有关联；历史累计 ${summary?formatNumber(summary.historical_accepted):"—"}`, icon:UserRoundPlus, tone:"bg-emerald-50 text-emerald-700" },
+          { key:"review" as const, label:"待人工复核", value:summary?.review, note:"需核对证据后处理", icon:CircleHelp, tone:"bg-amber-50 text-amber-700" },
+          { key:"active" as const, label:"进行中", value:summary?.active_tasks, note:"排队、执行或暂停处理中", icon:LoaderCircle, tone:"bg-violet-50 text-violet-700" },
+          { key:"completed" as const, label:"已完成任务", value:summary?.completed_tasks, note:"已完成全部处理流程", icon:Check, tone:"bg-cyan-50 text-cyan-700" },
+          { key:"failed" as const, label:"异常任务", value:summary?.failed_tasks, note:"需要检查或重试", icon:TriangleAlert, tone:"bg-rose-50 text-rose-700" },
         ].map((item)=>{
           const customerScope=item.key==="today_accepted"?"today":item.key==="accepted"?"accepted":item.key==="review"?"review":null;
           const className=`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${!customerScope&&metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`;
-          const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold">{Number(item.value||0).toLocaleString("zh-CN")}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
+          const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold" aria-busy={summaryLoading}>{summary?Number(item.value||0).toLocaleString("zh-CN"):summaryLoading?"统计中":"—"}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
           return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${ownerQuery}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
         })}
       </section>
+      {summaryError?<div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>获客统计暂不可用：{summaryError}。下方任务列表仍可查看。</span><button type="button" className="font-medium underline" onClick={()=>void load()}>重试统计</button></div>:null}
       <section className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 text-xs text-slate-600`} aria-label="AI获客统计口径说明">
         <b className="text-slate-800">统计口径</b>
-        <span>历史入池结果 <b>{formatNumber(summary.historical_accepted)}</b></span>
-        <span>已删除 <b>{formatNumber(summary.removed_results)}</b></span>
-        <span>当前有效结果 <b>{formatNumber(summary.accepted)}</b></span>
-        <span>跨任务重复 <b>{formatNumber(summary.repeated_results)}</b></span>
-        <span>当前唯一客户 <b>{formatNumber(summary.current_customers)}</b></span>
-        <Link href="/customers/pool" className="font-medium text-blue-700 hover:underline">公海待认领 {formatNumber(summary.available_customers)}</Link>
-        <span>已认领 <b>{formatNumber(summary.claimed_customers)}</b></span>
+        <span>历史入池结果 <b>{summary?formatNumber(summary.historical_accepted):"—"}</b></span>
+        <span>已删除 <b>{summary?formatNumber(summary.removed_results):"—"}</b></span>
+        <span>当前有效结果 <b>{summary?formatNumber(summary.accepted):"—"}</b></span>
+        <span>跨任务重复 <b>{summary?formatNumber(summary.repeated_results):"—"}</b></span>
+        <span>当前唯一客户 <b>{summary?formatNumber(summary.current_customers):"—"}</b></span>
+        <Link href="/customers/pool" className="font-medium text-blue-700 hover:underline">公海待认领 {summary?formatNumber(summary.available_customers):"—"}</Link>
+        <span>已认领 <b>{summary?formatNumber(summary.claimed_customers):"—"}</b></span>
       </section>
       {toastNode}
       <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
       {canViewUsage ? <section className={`${panel} overflow-hidden`}>
         <button type="button" aria-expanded={costSummaryOpen} aria-controls="acquisition-cost-summary" onClick={()=>setCostSummaryOpen(open=>!open)} className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-50">
-          <span className="min-w-0"><b className="block font-semibold">获客成效与实际成本</b><span className="mt-1 block truncate text-xs text-slate-500">今日实际 {costOverview?formatCost(costOverview.todayCost):"—"} · 历史实际 {costOverview?formatCost(costOverview.totalCost):"—"} · 历史入池率 {costOverview&&costOverview.processed?`${(costOverview.accepted/costOverview.processed*100).toFixed(1)}%`:"—"}</span></span>
+          <span className="min-w-0"><b className="block font-semibold">获客成效与实际成本</b><span className="mt-1 block truncate text-xs text-slate-500">{costOverviewLoading?"正在统计真实费用…":costOverviewError?"费用统计暂不可用":`今日实际 ${costOverview?formatCost(costOverview.todayCost):"—"} · 历史实际 ${costOverview?formatCost(costOverview.totalCost):"—"} · 历史入池率 ${costOverview&&costOverview.processed?`${(costOverview.accepted/costOverview.processed*100).toFixed(1)}%`:"—"}`}</span></span>
           <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-blue-600">{costSummaryOpen?"收起":"查看成效与成本"}<ChevronDown size={16} className={`transition ${costSummaryOpen?"rotate-180":""}`}/></span>
         </button>
-        {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">实际费用仅包含OpenAI已完成调用与Google平台已确认金额；Google价目估算、共享免费额度和预计超额费用不计入实际费用。</p>{canViewGoogleBilling?<button type="button" onClick={()=>void openGoogleDetails()} className="text-xs font-medium text-blue-600 hover:underline">查看Google调用与账号额度</button>:null}</div>{costOverviewLoading?<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">正在汇总真实调用、费用与入池数据…</p>:costOverviewError?<div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><span>{costOverviewError}</span><button type="button" className="font-medium underline" onClick={()=>{setCostSummaryOpen(false);window.setTimeout(()=>setCostSummaryOpen(true),0)}}>重新加载</button></div>:<><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {costSummaryOpen?<div id="acquisition-cost-summary" className="border-t p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">实际费用仅包含OpenAI已完成调用与Google平台已确认金额；Google价目估算、共享免费额度和预计超额费用不计入实际费用。</p>{canViewGoogleBilling?<button type="button" onClick={()=>void openGoogleDetails()} className="text-xs font-medium text-blue-600 hover:underline">查看Google调用与账号额度</button>:null}</div>{costOverviewLoading?<p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">正在汇总真实调用、费用与入池数据…</p>:costOverviewError?<div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><span>{costOverviewError}</span><button type="button" className="font-medium underline" onClick={()=>{costLoadedScopeRef.current=null;setCostRetry(value=>value+1)}}>重新加载</button></div>:<><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Link href="/ai-usage?business_type=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>今日实际费用</span><span className="text-blue-600">查看今日明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.todayCost):"—"}</b><span className="text-xs text-slate-400">今日 {costOverview?formatNumber(costOverview.todayCalls):"—"} 次API调用</span></Link>
           <Link href="/ai-usage?business_type=acquisition" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>历史累计实际费用</span><span className="text-blue-600">查看用量明细</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.totalCost):"—"}</b><span className="text-xs text-slate-400">OpenAI {costOverview?formatCost(costOverview.openaiCost):"—"} · Google已确认 {costOverview?formatCost(costOverview.googleActualCost):"—"}</span></Link>
           <Link href={`/ai-acquisition/customers?scope=accepted${ownerQuery}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-blue-300 hover:bg-blue-50"><small className="flex items-center justify-between text-slate-500"><span>平均入池客户实际成本</span><span className="text-blue-600">查看入池客户</span></small><b className="mt-1 block text-xl">{costOverview?formatCost(costOverview.accepted?costOverview.totalCost/costOverview.accepted:0):"—"}</b><span className="text-xs text-slate-400">历史实际费用 ÷ {costOverview?formatNumber(costOverview.accepted):"—"} 位成功入池客户</span></Link>
@@ -304,7 +355,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <SearchableMultiSelectFilter label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setPage(1);setIndustries(value)}}/>
           <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">标准获客</option><option value="ADAPTIVE">智能获客</option></select>
           {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} initializeDefault={false} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
-          <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={()=>void load()}><RefreshCw size={16}/>刷新</button></div>
+          <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={refreshAll}><RefreshCw size={16}/>刷新</button></div>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
             <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={from} to={to} onFromChange={(value)=>{setPage(1);setFrom(value)}} onToChange={(value)=>{setPage(1);setTo(value)}}/>
@@ -388,7 +439,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
                     <td className="px-4 py-3"><span className="block max-w-52 truncate" title={(t.industries?.length?t.industries:[t.industry]).join("、")}>{(t.industries?.length?t.industries:[t.industry]).slice(0,2).join("、")}{(t.industries?.length||1)>2?` +${(t.industries?.length||1)-2}`:""}</span></td>
                     <td className="px-4 py-3"><CostModeBadge mode={t.cost_mode} context="acquisition" />{t.task_cost_limit_usd!=null?<small className="mt-1 block text-slate-400">任务上限 {formatCost(t.task_cost_limit_usd)}</small>:null}</td>
-                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="group/usage block" title="查看本任务Google Places调用明细"><b className="font-medium text-slate-800">{t.usage?`${formatNumber(t.usage.google_calls)} 次`:"统计中…"}</b><small className="mt-1 block text-blue-600 group-hover/usage:underline">查看明细</small></Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="group/usage block" title="查看本任务Token与实际费用明细"><b className="whitespace-nowrap font-medium text-slate-800">{t.usage?formatCost(t.usage.total_cost_usd):"统计中…"}</b><small className="mt-1 block whitespace-nowrap text-slate-500">{t.usage?`${formatTokens(t.usage.total_tokens)} Token · OpenAI ${formatNumber(t.usage.openai_calls)} 次`:"正在读取真实台账"}</small><small className="mt-1 block text-blue-600 group-hover/usage:underline">查看明细</small></Link></td></>:null}
+                    {canViewUsage?<><td className="px-4 py-3 whitespace-nowrap"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="group/usage block" title="查看本任务Google Places调用明细"><b className="font-medium text-slate-800">{t.usage?`${formatNumber(t.usage.google_calls)} 次`:pageUsageError?"暂不可用":"统计中…"}</b><small className="mt-1 block text-blue-600 group-hover/usage:underline">查看明细</small></Link></td><td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#usage-details`} className="group/usage block" title="查看本任务Token与实际费用明细"><b className="whitespace-nowrap font-medium text-slate-800">{t.usage?formatCost(t.usage.total_cost_usd):pageUsageError?"暂不可用":"统计中…"}</b><small className="mt-1 block whitespace-nowrap text-slate-500">{t.usage?`${formatTokens(t.usage.total_tokens)} Token · OpenAI ${formatNumber(t.usage.openai_calls)} 次`:pageUsageError?"用量查询失败，请刷新重试":"正在读取真实台账"}</small><small className="mt-1 block text-blue-600 group-hover/usage:underline">查看明细</small></Link></td></>:null}
                     <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDuration(effectiveElapsedMs(t))}</td>
                     {showOwner ? <td className="px-4 py-4"><b className="block truncate font-medium text-slate-800" title={t.owner?.name?.trim()?t.owner?.email||t.owner.name:t.owner?.email||"未命名用户"}>{t.owner?.name?.trim() || t.owner?.email || "未命名用户"}</b></td> : null}
                     <td className="px-4 py-3 whitespace-nowrap text-slate-500">{new Date(t.created_at).toLocaleString("zh-CN",{hour12:false})}{t.scheduled_at?<small className="mt-1 block text-blue-600">预约 {new Date(t.scheduled_at).toLocaleString("zh-CN",{hour12:false})}</small>:null}</td>

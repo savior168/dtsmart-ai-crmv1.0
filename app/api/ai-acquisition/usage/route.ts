@@ -37,19 +37,30 @@ export async function GET(request: NextRequest) {
     const tasks = taskResult.data || [];
     const parentIds = tasks.map((task) => task.id);
     const parentByCostTask = new Map(parentIds.map((id) => [id, id]));
-    for (let offset = 0; offset < parentIds.length; offset += 200) {
-      const children = await admin.from("ai_acquisition_candidates").select("task_id,screening_task_id").in("task_id", parentIds.slice(offset, offset + 200)).not("screening_task_id", "is", null);
+    for (let offset = 0; offset < parentIds.length; offset += 150) {
+      const children = await admin.from("ai_screening_tasks")
+        .select("id,request_key")
+        .in("request_key", parentIds.slice(offset, offset + 150).map((id) => `acquisition:${id}`));
       if (children.error) throw children.error;
-      for (const row of children.data || []) if (row.screening_task_id) parentByCostTask.set(row.screening_task_id, row.task_id);
+      for (const row of children.data || []) {
+        const parentId = String(row.request_key || "").slice("acquisition:".length);
+        if (parentByCostTask.has(parentId)) parentByCostTask.set(row.id, parentId);
+      }
     }
     const costIds = [...parentByCostTask.keys()];
     const costs: CostRow[] = [];
     for (let offset = 0; offset < costIds.length; offset += 150) {
-      let costQuery = admin.from("api_cost_ledger").select("task_id,provider,model_or_sku,operation,amount_type,amount_usd,quantity,input_tokens,cached_input_tokens,output_tokens,metadata,occurred_at").in("task_id", costIds.slice(offset, offset + 150));
-      if (!allTime) costQuery = costQuery.gte("occurred_at", `${from}T00:00:00.000+08:00`).lte("occurred_at", `${to}T23:59:59.999+08:00`);
-      const result = await costQuery;
-      if (result.error) throw result.error;
-      costs.push(...((result.data || []) as CostRow[]));
+      for (let rowOffset = 0; ; rowOffset += 1000) {
+        let costQuery = admin.from("api_cost_ledger")
+          .select("id,task_id,provider,model_or_sku,operation,amount_type,amount_usd,quantity,input_tokens,cached_input_tokens,output_tokens,metadata,occurred_at")
+          .in("task_id", costIds.slice(offset, offset + 150));
+        if (!allTime) costQuery = costQuery.gte("occurred_at", `${from}T00:00:00.000+08:00`).lte("occurred_at", `${to}T23:59:59.999+08:00`);
+        const result = await costQuery.order("id", { ascending: true }).range(rowOffset, rowOffset + 999);
+        if (result.error) throw result.error;
+        const costRows = (result.data || []) as CostRow[];
+        costs.push(...costRows);
+        if (costRows.length < 1000) break;
+      }
     }
     const candidates:CandidateRow[]=[];
     for (let offset = 0; offset < parentIds.length; offset += 150) {

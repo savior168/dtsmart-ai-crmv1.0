@@ -14,7 +14,7 @@ export async function POST(
     if (error) throw error;
     return NextResponse.json({ data });
   } catch (error) {
-    const message = sqlErrorMessage(error, "提交仓库失败");
+    const message = sqlErrorMessage(error, "提交采购备货失败");
     return NextResponse.json(
       { error: message },
       { status: authErrorStatus(message) || 400 },

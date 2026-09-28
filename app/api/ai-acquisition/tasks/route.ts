@@ -6,6 +6,7 @@ import { DEFAULT_ACQUISITION_DISCOVERY_CEILING, MAX_ACQUISITION_INDUSTRIES, MAX_
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
+import { loadAcquisitionTaskSummary } from "@/lib/ai-acquisition/task-center-summary";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
+    const mode = request.nextUrl.searchParams.get("mode") || "";
     const coreOnly = request.nextUrl.searchParams.get("core") === "1";
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
@@ -34,8 +36,13 @@ export async function GET(request: NextRequest) {
     const from = request.nextUrl.searchParams.get("from") || "";
     const to = request.nextUrl.searchParams.get("to") || "";
     const admin = createAdminClient();
+    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (mode === "summary") {
+      const summary = await loadAcquisitionTaskSummary(admin, { ownerId, costMode, countries, industries, from, to, search, today });
+      return NextResponse.json({ summary });
+    }
     const optionRows: Array<{countries:string[] | null;industries:string[] | null;industry:string | null}> = [];
-    for(let offset=0;!coreOnly&&offset<20000;offset+=1000){
+    for(let offset=0;(!coreOnly && mode !== "page")&&offset<20000;offset+=1000){
       let optionQuery=admin.from("ai_acquisition_tasks").select("countries,industries,industry");
       if(ownerId)optionQuery=optionQuery.eq("user_id",ownerId);
       const optionPage=await optionQuery.order("created_at",{ascending:false}).range(offset,offset+999);
@@ -48,7 +55,7 @@ export async function GET(request: NextRequest) {
       countries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.countries)?row.countries:[])),
       industries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.industries)&&row.industries.length?row.industries:[row.industry||""])),
     };
-    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (mode === "filters") return NextResponse.json({ filter_options: filterOptions });
     let acceptedMetricTaskIds: string[] = [];
     if (["accepted", "today_accepted"].includes(metric)) {
       for (let offset = 0; ; offset += 1000) {
@@ -91,6 +98,7 @@ export async function GET(request: NextRequest) {
       checkpointByTask.set(taskId, { completed:Number(checkpoint.terminal_count||0), rawHits:Number(checkpoint.raw_hit_count||0) });
     }
     const usageByTask = new Map<string,{google_calls:number;openai_calls:number;total_tokens:number;openai_cost_usd:number;google_cost_usd:number;total_cost_usd:number}>();
+    let usageUnavailable = false;
     let presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
     if (coreOnly) {
       return NextResponse.json({
@@ -109,77 +117,18 @@ export async function GET(request: NextRequest) {
     // the fast core response above remains independent from billing data.
     if (pageTaskIds.length && hasPermission(account, "ai.acquisition.usage.view")) {
       const usageResult = await admin.rpc("get_ai_acquisition_task_center_usage", { p_task_ids: pageTaskIds });
-      if (usageResult.error) console.warn("[ai-acquisition/tasks] optional task usage unavailable", { code: usageResult.error.code });
+      if (usageResult.error) {
+        usageUnavailable = true;
+        console.warn("[ai-acquisition/tasks] optional task usage unavailable", { code: usageResult.error.code });
+      }
       else for (const row of usageResult.data || []) usageByTask.set(String(row.task_id), {
         google_calls:Number(row.google_calls||0), openai_calls:Number(row.openai_calls||0), total_tokens:Number(row.total_tokens||0),
         openai_cost_usd:Number(row.openai_cost_usd||0), google_cost_usd:Number(row.google_cost_usd||0), total_cost_usd:Number(row.total_cost_usd||0),
       });
       presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
     }
-    const summaryRows: Array<{ id:string; status: string; accepted_count: number | null; review_count: number | null }> = [];
-    for (let offset = 0; ; offset += 1000) {
-      let summaryQuery = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");
-      if (ownerId) summaryQuery = summaryQuery.eq("user_id", ownerId);
-      if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) summaryQuery = summaryQuery.eq("cost_mode", costMode);
-      if (countries.length) summaryQuery = summaryQuery.overlaps("countries", countries);
-      if (industries.length) summaryQuery = summaryQuery.overlaps("industries", industries);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(from)) summaryQuery = summaryQuery.gte("created_at", `${from}T00:00:00.000+08:00`);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(to)) summaryQuery = summaryQuery.lte("created_at", `${to}T23:59:59.999+08:00`);
-      if (search) summaryQuery = summaryQuery.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
-      const chunk = await summaryQuery.order("created_at", { ascending: false }).range(offset, offset + 999);
-      if (chunk.error) throw chunk.error;
-      summaryRows.push(...(chunk.data || []));
-      if ((chunk.data || []).length < 1000) break;
-    }
-    const sum = (key: "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
-    const historicalAccepted = sum("accepted_count");
-    const summaryTaskIds = summaryRows.map((row) => row.id);
-    const acceptedCandidates: Array<{ imported_customer_id:string|null; processed_at:string|null }> = [];
-    for (let offset = 0; offset < summaryTaskIds.length; offset += 150) {
-      for (let resultOffset = 0; ; resultOffset += 1000) {
-        const result = await admin.from("ai_acquisition_candidates")
-          .select("imported_customer_id,processed_at")
-          .in("task_id", summaryTaskIds.slice(offset, offset + 150))
-          .eq("decision", "ACCEPTED")
-          .order("processed_at", { ascending:false, nullsFirst:false })
-          .range(resultOffset, resultOffset + 999);
-        if (result.error) throw result.error;
-        acceptedCandidates.push(...(result.data || []));
-        if ((result.data || []).length < 1000) break;
-      }
-    }
-    const linkedAccepted = acceptedCandidates.filter((row) => Boolean(row.imported_customer_id));
-    const acceptedCustomerIds = [...new Set(linkedAccepted.map((row) => String(row.imported_customer_id)))];
-    const customerProfiles: Array<{id:string;deleted_at:string|null;acquisition_scope:string|null;pool_status:string|null;status:string|null;owner_id:string|null}> = [];
-    for (let offset = 0; offset < acceptedCustomerIds.length; offset += 200) {
-      const profilePage = await admin.from("customers")
-        .select("id,deleted_at,acquisition_scope,pool_status,status,owner_id")
-        .in("id", acceptedCustomerIds.slice(offset, offset + 200));
-      if (profilePage.error) throw profilePage.error;
-      customerProfiles.push(...(profilePage.data || []));
-    }
-    const currentCustomers = customerProfiles.filter((row) => !row.deleted_at && row.acquisition_scope === "PUBLIC_POOL" && ["AVAILABLE", "CLAIMED"].includes(String(row.pool_status || "")));
-    const availableCustomers = currentCustomers.filter((row) => row.pool_status === "AVAILABLE" && row.status === "UNCLAIMED" && !row.owner_id);
-    const claimedCustomers = currentCustomers.filter((row) => row.pool_status === "CLAIMED" && row.status !== "UNCLAIMED" && Boolean(row.owner_id));
-    const todayStart = new Date(`${today}T00:00:00.000+08:00`).getTime();
-    const todayEnd = new Date(`${today}T23:59:59.999+08:00`).getTime();
-    const todayAccepted = linkedAccepted.filter((row) => { const timestamp = row.processed_at ? new Date(row.processed_at).getTime() : 0; return timestamp >= todayStart && timestamp <= todayEnd; }).length;
-    const summary = {
-      tasks: summaryRows.length,
-      active_tasks: summaryRows.filter((row) => ["QUEUED", "RUNNING", "PAUSING", "PAUSED"].includes(row.status)).length,
-      completed_tasks: summaryRows.filter((row) => row.status === "COMPLETED").length,
-      today_accepted: todayAccepted,
-      accepted: linkedAccepted.length,
-      historical_accepted: historicalAccepted,
-      removed_results: Math.max(0, historicalAccepted - linkedAccepted.length),
-      repeated_results: Math.max(0, linkedAccepted.length - acceptedCustomerIds.length),
-      unique_linked_customers: acceptedCustomerIds.length,
-      current_customers: currentCustomers.length,
-      available_customers: availableCustomers.length,
-      claimed_customers: claimedCustomers.length,
-      review: sum("review_count"),
-      failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
-    };
+    if (mode === "page") return NextResponse.json({ data: presentedTasks, count: result.count || 0, usage_error: usageUnavailable });
+    const summary = await loadAcquisitionTaskSummary(admin, { ownerId, costMode, countries, industries, from, to, search, today });
     return NextResponse.json({ data: presentedTasks, count: result.count || 0, summary, filter_options:filterOptions, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";

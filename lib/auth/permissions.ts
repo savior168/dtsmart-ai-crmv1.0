@@ -4,7 +4,7 @@ export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "D
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
-export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "商品中心" | "销售管理" | "仓库管理" | "报表中心" | "站内通知" | "系统管理";
+export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "商品中心" | "销售管理" | "采购管理" | "报表中心" | "站内通知" | "系统管理";
 
 export type PermissionDefinition = {
   code: string;
@@ -94,13 +94,13 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
-  { code: "stock.view", label: "备货单", group: "仓库管理", description: "查看允许范围内的备货单", kind: "PAGE" },
-  { code: "stock.data_all", label: "查看全部备货单", group: "仓库管理", description: "按归属人查看全部备货进度", kind: "DATA" },
-  { code: "stock.update", label: "更新备货状态", group: "仓库管理", description: "仓库人员更新备货状态与备注", kind: "ACTION" },
-  { code: "stock.procurement.edit", label: "确认实际采购价", group: "仓库管理", description: "指定采购人员核实并维护备货单实际采购单价；可与仓库备货状态权限分别授权", kind: "ACTION" },
-  { code: "stock.prepare", label: "完善备货信息", group: "仓库管理", description: "订单归属销售员填写仓库中文描述和理货要求，不修改采购价格", kind: "ACTION" },
-  { code: "stock.submit", label: "提交备货单", group: "仓库管理", description: "订单归属销售员将已完善备货单提交仓库", kind: "ACTION" },
-  { code: "stock.export", label: "导出备货单", group: "仓库管理", description: "按仓库模板导出备货Excel", kind: "ACTION" },
+  { code: "stock.view", label: "备货单", group: "采购管理", description: "查看允许范围内的采购备货单", kind: "PAGE" },
+  { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
+  { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
+  { code: "stock.procurement.edit", label: "确认实际采购价", group: "采购管理", description: "指定采购人员核实并维护备货单实际采购单价；可与备货状态权限分别授权", kind: "ACTION" },
+  { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "订单归属销售员填写采购备货中文描述和理货要求，不修改采购价格", kind: "ACTION" },
+  { code: "stock.submit", label: "提交备货单", group: "采购管理", description: "订单归属销售员将已完善备货单提交采购备货人员", kind: "ACTION" },
+  { code: "stock.export", label: "导出备货单", group: "采购管理", description: "按备货模板导出备货Excel", kind: "ACTION" },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },

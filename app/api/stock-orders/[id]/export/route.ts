@@ -13,7 +13,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     ]);
     if (error) throw error;
     if (itemError) throw itemError;
-    if(order.status==="DRAFT")throw new Error("请先完善备货信息并提交仓库，再导出标准备货单");
+    if(order.status==="DRAFT")throw new Error("请先完善备货信息并提交采购备货，再导出标准备货单");
     const buffer = await buildStockWorkbook(order as never, (items || []) as never);
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

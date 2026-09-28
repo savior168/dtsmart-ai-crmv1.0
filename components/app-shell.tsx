@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Bell,
-  Boxes,
+  ShoppingCart,
   ClipboardList,
   PackageSearch,
   ChevronDown,
@@ -59,7 +59,9 @@ const menu = [
       { label: "销售订单", href: "/orders", permission: "orders.view" },
     ],
   },
-  { label: "仓库管理", href: "/stock-orders", icon: Boxes, permission: "stock.view" },
+  { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
+    { label: "备货单", href: "/stock-orders", permission: "stock.view" },
+  ] },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
   {
     label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
@@ -112,8 +114,8 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/quotes$/, "销售管理 / 报价单"],
   [/^\/orders\/[^/]+$/, "销售管理 / 销售订单 / 订单详情"],
   [/^\/orders$/, "销售管理 / 销售订单"],
-  [/^\/stock-orders\/[^/]+$/, "仓库管理 / 备货单详情"],
-  [/^\/stock-orders$/, "仓库管理 / 备货单"],
+  [/^\/stock-orders\/[^/]+$/, "采购管理 / 备货单详情"],
+  [/^\/stock-orders$/, "采购管理 / 备货单"],
   [/^\/reports$/, "报表中心"],
   [/^\/settings\/costs$/, "系统管理 / 费用中心"],
   [/^\/notifications$/, "站内通知"],

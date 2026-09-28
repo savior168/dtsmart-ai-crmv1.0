@@ -289,7 +289,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                                 e.target.value,
                               )
                             }
-                            placeholder="必填：仓库中文质量/描述"
+                            placeholder="必填：采购备货中文质量/描述"
                             className="h-9 min-w-60 rounded border px-2"
                           />
                         ) : (
@@ -399,7 +399,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm text-white"
                   >
                     <Send size={16} />
-                    提交仓库备货
+                    提交采购备货
                   </button>
                 ) : null}
               </div>
