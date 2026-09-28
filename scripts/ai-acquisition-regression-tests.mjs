@@ -486,6 +486,10 @@ assert.match(usageView,/purposeExpanded[\s\S]*aria-controls="acquisition-usage-p
 assert.match(usageView,/flex flex-wrap justify-end gap-2[\s\S]*查询[\s\S]*重置[\s\S]*embedded\?<button[\s\S]*刷新/,"统一用量页的获客刷新必须并入筛选操作区，不能单独占用顶部空白行");
 assert.doesNotMatch(usageView,/embedded[\s\S]{0,100}<div className="flex justify-end"/,"嵌入式AI获客用量页不得保留独立顶部操作空白行");
 assert.match(usageView,/每日成功入池与实际费用趋势[\s\S]*核验结果与API调用构成[\s\S]*任务用量明细/,"AI获客用量必须保持与AI筛选相同的汇总、趋势、构成和明细页面骨架");
+assert.match(usageView,/day\.accepted \/ maxAccepted[\s\S]*day\.cost \/ maxCost/,"入池人数和实际费用必须分别按自身最大值绘制柱高");
+assert.match(usageView,/dailyCostLabel\(cost: number\)[\s\S]*<\$0\.0001/,"极小的已发生费用不能误显示为零");
+assert.match(usageView,/overflow-x-auto p-4 pb-5[\s\S]*min-w-max/,"多日期趋势图必须在自身区域内滚动，不能撑出卡片");
+assert.match(usageView,/lg:grid-cols-\[minmax\(0,1\.6fr\)_minmax\(280px,\.8fr\)\]/,"趋势图和构成卡片必须使用可收缩的响应式网格列");
 assert.match(usageRoute,/ai_acquisition_candidates[\s\S]*created_at,processed_at[\s\S]*createdInRange[\s\S]*processedInRange[\s\S]*decision==="ACCEPTED"[\s\S]*imported_customer_id/,"AI获客范围指标必须按候选真实发现、处理和成功入池记录统计");
 assert.match(usageRoute,/total_cost_usd: actualCostUsd\(costs\)[\s\S]*dailyByDate[\s\S]*isActuallyIncurredCost\(cost\)[\s\S]*daily/,"AI获客汇总和每日趋势必须仅使用真实已发生费用台账");
 const customerResults=fs.readFileSync(new URL("../components/ai-acquisition/customer-results.tsx",import.meta.url),"utf8");
