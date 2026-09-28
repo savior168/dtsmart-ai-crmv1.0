@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as XLSX from "xlsx";
 import { parseProductWorkbook, validateNormalizedProduct } from "../lib/product-import.ts";
-import { activeTier, completeCostCny, suggestedUsdPrice } from "../lib/product-pricing.ts";
+import { activeTier, completeCostCny, initialQuoteUnitPrice, suggestedUsdPrice } from "../lib/product-pricing.ts";
 import { normalizeProductSpecifications } from "../lib/product-specifications.ts";
 
 const root = process.cwd();
@@ -371,12 +371,23 @@ assert.equal(completeCostCny([...tiers.filter((tier)=>tier.price_kind!=="OTHER_C
 assert.equal(activeTier(tiers,"PROCUREMENT",0.5),null,"低于全部有效起订档位时不得冒用价格");
 assert.equal(completeCostCny(tiers.filter((tier)=>tier.price_kind!=="PROCUREMENT"),1),null,"没有采购成本时不得把完整成本伪装为0元");
 assert.equal(suggestedUsdPrice(72,7.2,{markup_percent:20,minimum_margin_percent:15,rounding_increment:0.5}),12,"建议价必须满足加价和最低毛利并向上取整");
+assert.equal(initialQuoteUnitPrice(12,10),12,"完整成本建议价优先用于报价预填");
+assert.equal(initialQuoteUnitPrice(0,10),10,"成本未确认但有销售参考价时不得预填零售价");
+assert.equal(initialQuoteUnitPrice(0,null),0,"无可靠建议价与参考价时不伪造销售价格");
 
 const shell = read("components/app-shell.tsx");
 assert.doesNotMatch(read("components/product-import-review-view.tsx"), /packaging_cny:\s*row\.normalized_data\.packaging_cny\s*\?\?\s*0/, "核对表单不得把未确认包装费静默改成零");
 assert.match(read("components/product-import-review-view.tsx"), /核对记录（非商品数）[\s\S]*待拆解数字线索/, "核对页必须明确区分价格线索和已确认商品数");
 assert.match(read("components/product-import-view.tsx"), /核对记录（非商品数）/, "导入批次列表不能把来源数字线索冒充商品数");
 assert.match(read("app/api/quote-products/route.ts"), /suggested_price_usd:cost===null\?0:Math\.max\(calculated,reference\)/, "成本不完整时不得把销售参考价误称为按成本计算的建议价");
+assert.match(read("app/api/product-prices/route.ts"), /if \(!sourceNote \|\| sourceNote\.length > 500\)/, "手工调价必须要求可回查的来源或说明");
+assert.match(read("components/product-pricebook-view.tsx"), /source_note:""/, "手工价格表不得预填无法核验的笼统来源");
+assert.match(read("app/api/product-prices/route.ts"), /find_product_alias_ids/, "产品价格表搜索必须覆盖商品别名");
+assert.match(read("app/api/product-prices/route.ts"), /匹配商品过多，请缩小搜索关键词/, "价格表不得在大范围匹配时静默截断商品");
+assert.match(read("supabase/migrations/202609280001_product_price_source_guard.sql"), /nullif\(btrim\(coalesce\(p_source_note,''\)\),''\) is null/, "直接调用价格函数也不得绕过来源要求");
+assert.match(read("supabase/migrations/202609280002_product_alias_search.sql"), /unnest\(p\.aliases\)[\s\S]*position\(lower\(btrim\(p_query\)\) in lower\(alias\.value\)\)>0/, "历史商品别名必须可检索且不重写原商品数据");
+assert.match(read("app/api/products/route.ts"), /find_product_alias_ids/, "商品资料搜索必须覆盖别名");
+assert.match(read("app/api/quote-products/route.ts"), /find_product_alias_ids/, "报价选品搜索必须覆盖别名");
 assert.match(shell, /label: "商品中心"[\s\S]*商品资料[\s\S]*商品分类[\s\S]*产品价格表[\s\S]*销售报价设置[\s\S]*导入报价表/, "商品中心必须提供完整且有序的业务入口");
 assert.match(shell, /if \(href === "\/products"\) return path === "\/products"/, "商品资料必须精确匹配，禁止与分类、价格、报价设置或导入页面同时高亮");
 for (const path of ["components/product-catalog-view.tsx","components/product-pricebook-view.tsx","components/product-import-view.tsx","components/product-import-review-view.tsx"]) {

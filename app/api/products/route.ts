@@ -21,8 +21,14 @@ export async function GET(request: Request) {
     if (category === "unclassified") builder = builder.is("category_id", null);
     else if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(category)) builder = builder.eq("category_id", category);
     if (query) {
-      const safeQuery = query.replace(/[%_,()]/g, "");
-      builder = builder.or(`sku.ilike.%${safeQuery}%,supplier_identifier.ilike.%${safeQuery}%,supplier_code.ilike.%${safeQuery}%,name_zh.ilike.%${safeQuery}%,name_en.ilike.%${safeQuery}%,brand.ilike.%${safeQuery}%,model.ilike.%${safeQuery}%,manufacturer_brand.ilike.%${safeQuery}%,display_technology.ilike.%${safeQuery}%,origin_type.ilike.%${safeQuery}%,part_type.ilike.%${safeQuery}%,quality.ilike.%${safeQuery}%`);
+      const safeQuery = query.replace(/[%_,().]/g, "").slice(0, 100);
+      const { data: aliasRows, error: aliasError } = await admin.rpc("find_product_alias_ids", { p_query: query.slice(0, 100) });
+      if (aliasError) throw aliasError;
+      if ((aliasRows || []).length > 100) return NextResponse.json({ error: "别名匹配过多，请缩小搜索关键词" }, { status: 422 });
+      const aliasIds = (aliasRows || []).map((row: { id: string }) => row.id);
+      const aliasFilter = aliasIds.length ? `,id.in.(${aliasIds.join(",")})` : "";
+      if (!safeQuery) builder = builder.in("id", aliasIds.length ? aliasIds : ["00000000-0000-0000-0000-000000000000"]);
+      else builder = builder.or(`sku.ilike.%${safeQuery}%,supplier_identifier.ilike.%${safeQuery}%,supplier_code.ilike.%${safeQuery}%,name_zh.ilike.%${safeQuery}%,name_en.ilike.%${safeQuery}%,brand.ilike.%${safeQuery}%,model.ilike.%${safeQuery}%,manufacturer_brand.ilike.%${safeQuery}%,display_technology.ilike.%${safeQuery}%,origin_type.ilike.%${safeQuery}%,part_type.ilike.%${safeQuery}%,quality.ilike.%${safeQuery}%${aliasFilter}`);
     }
     const { data, count, error } = await builder.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (error) throw error;

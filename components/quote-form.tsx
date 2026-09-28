@@ -24,6 +24,7 @@ import {
 import type { QuoteItem, QuoteStatus } from "@/lib/types";
 import { QUOTE_STATUS_LABELS } from "@/lib/types";
 import { summarizeProductSpecifications, type ProductFamily } from "@/lib/product-specifications";
+import { initialQuoteUnitPrice } from "@/lib/product-pricing";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { COUNTRY_OPTIONS, countryInfo, countrySearchTokens } from "@/lib/countries";
 import {
@@ -273,11 +274,12 @@ export function QuoteForm({
       ],
     }));
   }
-  async function searchProducts(){setProductSearching(true);const params=new URLSearchParams({q:productQuery,quantity:"1"});const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));setProductSearching(false);if(!response.ok){setMessage(body.error||"可报价商品加载失败");return}setProductOptions(body.data||[])}
+  async function searchProducts(){setProductSearching(true);try{const params=new URLSearchParams({q:productQuery,quantity:"1"});const response=await fetch(`/api/quote-products?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||"可报价商品加载失败");setProductOptions(body.data||[])}catch(cause){setProductOptions([]);setMessage(cause instanceof Error?cause.message:"可报价商品加载失败，请重试")}finally{setProductSearching(false)}}
   function addProduct(product:QuoteProduct){
-    const item:QuoteItem={...emptyItem(),product_id:product.id,product_sku_snapshot:product.sku,supplier_code_snapshot:product.supplier_code,product_color_snapshot:product.color,product_specifications_snapshot:product.specifications,item_name:product.name_en||product.name_zh,brand:product.brand||"",model:product.model||"",quality:product.quality||"",description:product.description_en||"",quantity:Math.max(1,Math.ceil(Number(product.minimum_order_quantity)||1)),unit_price:Number(product.suggested_price_usd||0),procurement_cost:0,unit_cost_cny:product.total_cost_cny,suggested_unit_price:product.suggested_price_usd||null,exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule};
+    const initialPrice=initialQuoteUnitPrice(product.suggested_price_usd,product.sale_reference_usd);
+    const item:QuoteItem={...emptyItem(),product_id:product.id,product_sku_snapshot:product.sku,supplier_code_snapshot:product.supplier_code,product_color_snapshot:product.color,product_specifications_snapshot:product.specifications,item_name:product.name_en||product.name_zh,brand:product.brand||"",model:product.model||"",quality:product.quality||"",description:product.description_en||"",quantity:Math.max(1,Math.ceil(Number(product.minimum_order_quantity)||1)),unit_price:initialPrice,procurement_cost:0,unit_cost_cny:product.total_cost_cny,suggested_unit_price:product.suggested_price_usd||null,exchange_rate_snapshot:Number(product.exchange_rate||0),pricing_rule_snapshot:product.pricing_rule};
     setForm(current=>{const hasOnlyEmpty=current.items.length===1&&!current.items[0].item_name;const rows=hasOnlyEmpty?[item]:[...current.items,item];return{...current,items:rows.map((row,index)=>({...row,line_number:index+1}))}});
-    setProductOptions([]);setProductQuery("");setMessage(product.total_cost_cny===null?`已添加 ${product.sku}，但采购价、包装费或其他成本尚未全部确认；系统未计算建议价，请核对后填写实际售价。`:`已添加 ${product.sku} · ${product.name_zh}，请核对数量和实际销售价。`);
+    setProductOptions([]);setProductQuery("");setMessage(product.total_cost_cny===null?`已添加 ${product.sku}。完整成本未确认，系统未计算成本建议价；${product.sale_reference_usd?"已预填美元销售参考价，":"未设置美元销售参考价，"}请核对实际销售价。`:`已添加 ${product.sku} · ${product.name_zh}，请核对数量和实际销售价。`);
   }
   async function refreshItemPricing(index:number,item:QuoteItem){
     if(!item.product_id)return;

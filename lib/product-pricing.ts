@@ -37,6 +37,15 @@ export function completeCostCny(prices: PriceTier[], quantity: number) {
   return components.reduce((sum, component) => sum + Number(component?.amount), 0);
 }
 
+export function initialQuoteUnitPrice(suggestedUsd: number | null | undefined, referenceUsd: number | null | undefined) {
+  // A sales reference may prefill the editable selling price when complete
+  // cost is unavailable. It must not be labelled as a cost-derived suggestion.
+  const suggested = Number(suggestedUsd);
+  if (Number.isFinite(suggested) && suggested > 0) return suggested;
+  const reference = Number(referenceUsd);
+  return Number.isFinite(reference) && reference > 0 ? reference : 0;
+}
+
 export function suggestedUsdPrice(costCny: number, cnyPerUsd: number, rule: PricingRule) {
   if (costCny <= 0 || cnyPerUsd <= 0) return 0;
   const costUsd = costCny / cnyPerUsd;
