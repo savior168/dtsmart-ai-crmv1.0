@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const active = url.searchParams.get("active") || "true";
     const category = url.searchParams.get("category") || "";
     const admin = createAdminClient();
-    let builder = admin.from("products").select("*,category:product_categories(id,code,name_zh,name_en,product_family),prices:product_prices(id,price_kind,currency,amount,minimum_quantity,effective_from,effective_to,is_active,source_note)", { count: "exact" });
+    let builder = admin.from("products").select("*,category:product_categories(id,code,name_zh,name_en,product_family),prices:product_prices(id,price_kind,currency,amount,minimum_quantity,effective_from,effective_to,is_active,source_note)", { count: "exact" }).eq("prices.is_active", true);
     if (active === "true") builder = builder.eq("is_active", true);
     if (active === "false") builder = builder.eq("is_active", false);
     if (category === "unclassified") builder = builder.is("category_id", null);

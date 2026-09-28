@@ -388,6 +388,7 @@ assert.match(read("supabase/migrations/202609280001_product_price_source_guard.s
 assert.match(read("supabase/migrations/202609280002_product_alias_search.sql"), /unnest\(p\.aliases\)[\s\S]*position\(lower\(btrim\(p_query\)\) in lower\(alias\.value\)\)>0/, "历史商品别名必须可检索且不重写原商品数据");
 assert.match(read("app/api/products/route.ts"), /find_product_alias_ids/, "商品资料搜索必须覆盖别名");
 assert.match(read("app/api/quote-products/route.ts"), /find_product_alias_ids/, "报价选品搜索必须覆盖别名");
+for (const path of ["app/api/products/route.ts","app/api/quote-products/route.ts"]) assert.match(read(path), /\.eq\("prices\.is_active",\s*true\)/, `${path} 不应每次读取所有历史价格版本`);
 assert.match(shell, /label: "商品中心"[\s\S]*商品资料[\s\S]*商品分类[\s\S]*产品价格表[\s\S]*销售报价设置[\s\S]*导入报价表/, "商品中心必须提供完整且有序的业务入口");
 assert.match(shell, /if \(href === "\/products"\) return path === "\/products"/, "商品资料必须精确匹配，禁止与分类、价格、报价设置或导入页面同时高亮");
 for (const path of ["components/product-catalog-view.tsx","components/product-pricebook-view.tsx","components/product-import-view.tsx","components/product-import-review-view.tsx"]) {
