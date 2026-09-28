@@ -17,6 +17,14 @@ export type ClaimedAiTaskItem = {
   leaseToken: string;
 };
 
+function isTransientAnalysisError(error: unknown) {
+  const candidate = error && typeof error === "object" ? error as { code?: unknown; status?: unknown; message?: unknown } : null;
+  const code = String(candidate?.code || candidate?.status || "");
+  const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
+  return ["40001", "40P01", "55P03", "57014", "408", "429", "500", "502", "503", "504", "525", "529"].includes(code)
+    || /(?:statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|temporarily unavailable|OPENAI_API_ERROR:\s*(?:429|5\d\d)\b)/i.test(message);
+}
+
 export async function executeClaimedAiTaskItem(
   item: ClaimedAiTaskItem,
   lease: AiExecutionLease,
@@ -73,6 +81,30 @@ export async function executeClaimedAiTaskItem(
       attemptNumber: item.attemptNumber,
       durationMs: Date.now() - startedAt,
     });
+    // A temporary database/provider outage is not a customer verdict. Return
+    // this leased item to the durable queue, with a bounded retry budget, so
+    // the parent acquisition task does not fail after one transient error.
+    if (isTransientAnalysisError(error) && item.attemptNumber < 3) {
+      const queued = await admin.from("ai_screening_task_items").update({
+        status: "PENDING",
+        analysis_status: "PENDING",
+        writeback_status: "PENDING",
+        current_step: "RETRY_PENDING",
+        pipeline_stage: "NORMALIZED",
+        progress: 0,
+        error_code: failure.code,
+        error_message: failure.message,
+        retryable: true,
+        error_context: normalized,
+        lease_owner: null,
+        lease_token: null,
+        lease_expires_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", item.taskItemId).eq("lease_owner", lease.executorId).eq("lease_token", lease.leaseToken).select("id").maybeSingle();
+      if (queued.error) throw queued.error;
+      if (!queued.data) return { status: "LEASE_LOST" as const };
+      return { status: "RETRY_PENDING" as const };
+    }
     const failed = await admin.from("ai_screening_task_items").update({
       status: "FAILED",
       analysis_status: "FAILED",

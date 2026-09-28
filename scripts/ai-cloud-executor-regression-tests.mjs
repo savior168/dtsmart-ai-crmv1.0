@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import ts from "typescript";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, acquisitionCreateView, settingsView, strategiesView, taskUi, acquisitionRecoveryMigration, acquisitionDispatcher, recoveryCron, targetedRecoveryMigration] = await Promise.all([
+const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, acquisitionCreateView, settingsView, strategiesView, taskUi, acquisitionRecoveryMigration, acquisitionDispatcher, recoveryCron, targetedRecoveryMigration, taskItemExecutor] = await Promise.all([
   read("supabase/migrations/202609110002_ai_screening_vercel_only.sql"),
   read("workflows/ai-screening.ts"),
   read("lib/ai/task-dispatch.ts"),
@@ -19,6 +20,7 @@ const [migration, workflow, dispatcher, runner, createRoute, retryRoute, setting
   read("lib/ai-acquisition/dispatch.ts"),
   read("app/api/cron/ai-task-recovery/route.ts"),
   read("supabase/migrations/202609280004_targeted_ai_screening_recovery.sql"),
+  read("lib/ai/task-item-executor.ts"),
 ]);
 
 assert.match(migration, /ai_default_dispatch_policy = 'VERCEL_ONLY'/, "system default must be cloud-only");
@@ -30,6 +32,49 @@ assert.doesNotMatch(workflow, /handoffWorkflowFailureToLocal|LOCAL_NODE/, "workf
 assert.match(workflow, /pauseForTransientRecovery[\s\S]+status: "QUEUED"[\s\S]+started_at: null[\s\S]+elapsed_ms: elapsedMs/, "temporary upstream outages must pause rather than inflate effective task duration");
 assert.match(workflow, /pause_started_at: null[\s\S]+paused_duration_ms: pausedDuration/, "cloud recovery must record paused time separately before resuming execution");
 assert.match(workflow, /WAITING_FOR_RECOVERY[\s\S]+lease_expires_at\.lt\.\$\{now\}/, "a replacement workflow must requeue expired item leases before looking for pending work");
+assert.match(taskItemExecutor, /isTransientAnalysisError\(error\) && item\.attemptNumber < 3[\s\S]+status: "PENDING"[\s\S]+lease_owner: null[\s\S]+\.eq\("lease_owner", lease\.executorId\)\.eq\("lease_token", lease\.leaseToken\)/, "transient infrastructure failures must return the leased item to the durable queue with a bounded retry budget");
+assert.match(taskItemExecutor, /if \(!queued\.data\) return \{ status: "LEASE_LOST" as const \}/, "an expired or replaced lease must not requeue another executor's item");
+const executable = ts.transpileModule(taskItemExecutor, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+async function executeWithError(analysisError, attemptNumber, currentLease = "lease-1") {
+  const writes = [];
+  const admin = {
+    from(table) {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        is() { return this; },
+        update(values) { writes.push({ table, values }); return this; },
+        maybeSingle() {
+          if (writes.length) return Promise.resolve({ data: { id: "item-1" }, error: null });
+          return Promise.resolve({ data: { analysis_status: "RUNNING", writeback_status: "PENDING", result_id: null, lease_owner: "executor-1", lease_token: currentLease }, error: null });
+        },
+        then(resolve, reject) { return Promise.resolve({ error: null }).then(resolve, reject); },
+      };
+    },
+    rpc() { return Promise.resolve({ error: null }); },
+  };
+  const module = { exports: {} };
+  const requireMock = (path) => {
+    if (path === "../supabase/admin") return { createAdminClient: () => admin };
+    if (path === "./error-normalization") return { normalizeError: () => ({ error_code: "TEST", error_message: "failure", retryable: true }) };
+    if (path === "./run-customer-analysis") return { runCustomerAnalysis: async () => { throw analysisError; }, publicAiError: () => ({ code: "TEST", message: "failure" }) };
+    throw new Error(`Unexpected module: ${path}`);
+  };
+  new Function("require", "module", "exports", executable)(requireMock, module, module.exports);
+  const result = await module.exports.executeClaimedAiTaskItem({ taskId: "task-1", taskItemId: "item-1", customerId: "customer-1", strategy: "SMART", attemptNumber, leaseToken: "lease-1" }, { executorId: "executor-1", leaseToken: "lease-1" });
+  return { result, writes };
+}
+const transientRetry = await executeWithError({ code: "57014", message: "canceling statement due to statement timeout" }, 1);
+assert.equal(transientRetry.result.status, "RETRY_PENDING", "a first statement timeout must be queued for another attempt");
+assert.equal(transientRetry.writes[0]?.values.status, "PENDING");
+assert.equal(transientRetry.writes.some(({ table }) => table === "customers"), false, "transient failure must not mark the customer failed");
+const exhaustedRetry = await executeWithError({ code: "57014", message: "canceling statement due to statement timeout" }, 3);
+assert.equal(exhaustedRetry.result.status, "FAILED", "the retry budget must prevent endless work");
+const permanentFailure = await executeWithError(new Error("INVALID_BUSINESS_INPUT"), 1);
+assert.equal(permanentFailure.result.status, "FAILED", "permanent analysis errors must not be requeued");
+const replacedLease = await executeWithError({ code: "57014", message: "statement timeout" }, 1, "new-lease");
+assert.equal(replacedLease.result.status, "LEASE_LOST", "a replaced lease must not write a stale retry");
+assert.equal(replacedLease.writes.length, 0);
 assert.match(taskUi, /now - heartbeat > 120_000[\s\S]+activeUntil - started/, "a stale workflow heartbeat must stop task duration from counting recovery wait");
 assert.match(dispatcher, /execution_mode: AI_CLOUD_EXECUTION_MODE[\s\S]+dispatch_policy: AI_CLOUD_DISPATCH_POLICY/, "all dispatches must persist cloud-only execution");
 assert.match(dispatcher, /rescueStalledCloudTasks[\s\S]+VERCEL_DISPATCHING/, "stalled cloud recovery must remain available without duplicate runs");
