@@ -295,7 +295,7 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
   // rows behind an earlier pending page (head-of-line blocking), so verified
   // customers would not enter the pool until the entire child task finished.
   const candidates = await admin.from("ai_acquisition_candidates")
-    .select("*,screening_item:ai_screening_task_items!inner(id,status,task_id)")
+    .select("id,screening_task_item_id,staging_customer_id,screening_item:ai_screening_task_items!inner(id)")
     .eq("task_id", task.id)
     .eq("decision", "ANALYZING")
     .eq("screening_item.task_id", screeningTaskId)

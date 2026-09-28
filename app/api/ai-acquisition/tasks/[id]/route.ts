@@ -154,13 +154,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const taskIds = [id, ...screeningIds];
     const canViewUsage = hasPermission(account, "ai.acquisition.usage.view");
     const discoveryProgressResult = await createAdminClient().rpc("get_ai_acquisition_discovery_progress", { p_task_ids: [id] });
-    const [costs, usageSummary, budgetEvents] = canViewUsage ? await Promise.all([
-      lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_ledger").select("provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,occurred_at,metadata").in("task_id", taskIds).order("occurred_at", { ascending: false }).limit(200),
-      createAdminClient().rpc("get_ai_acquisition_usage_summary", { p_task_id: id }),
-      lightweight ? Promise.resolve({ data: [], error: null }) : createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds),
-    ]) : [{ data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
-    if (costs.error || budgetEvents.error || discoveryProgressResult.error || usageSummary.error) {
-      console.error("[ai-acquisition-task] optional telemetry unavailable", { task_id: id, costs_error: costs.error?.code, budget_error: budgetEvents.error?.code, progress_error: discoveryProgressResult.error?.code, usage_error: usageSummary.error?.code });
+    const budgetEvents = canViewUsage && !lightweight
+      ? await createAdminClient().from("api_cost_budget_events").select("blocked_period").in("task_id", taskIds)
+      : { data: [], error: null };
+    if (budgetEvents.error || discoveryProgressResult.error) {
+      console.error("[ai-acquisition-task] optional telemetry unavailable", { task_id: id, budget_error: budgetEvents.error?.code, progress_error: discoveryProgressResult.error?.code });
     }
     const checkpointProgress=(discoveryProgressResult.data||[])[0]||null;
     const checkpointBlocks=Array.isArray(checkpointProgress?.blocked_periods)?checkpointProgress.blocked_periods.map(String):[];
@@ -210,8 +208,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       console.warn("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code, message:customerStates.error.message });
       searchStatsError = true;
     }
-    const metricCostRows:Array<{customer_id:string|null;provider:string;model_or_sku:string|null;operation:string|null;amount_usd:number;amount_type:string;quantity:number;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
-    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });searchStatsError=true;break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+    const metricCostRows:Array<{customer_id:string|null;provider:string;model_or_sku:string|null;operation:string|null;amount_usd:number;amount_type:string;quantity:number;input_tokens:number;output_tokens:number;occurred_at:string;metadata:Record<string,unknown>|null}>=[];
+    let usageError = false;
+    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,occurred_at,metadata").in("task_id",taskIds).order("id").range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });usageError=true;searchStatsError=true;break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
     const queryByCustomer=new Map<string,string>();
     const stats=new Map<string,{query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number}>();
@@ -219,7 +218,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     for(const row of traceRows){const item=metric(String(row.source_query||""));item.candidates+=1;if(row.decision==="DUPLICATE")item.duplicates+=1;else if(row.decision==="REJECTED")item.rejected+=1;else if(row.decision==="REVIEW")item.review+=1;else if(row.decision==="ACCEPTED")item.accepted+=1;const customerId=String(row.imported_customer_id||row.staging_customer_id||"");if(customerId){queryByCustomer.set(customerId,item.query);const state=stateByCustomer.get(customerId);if(row.decision==="ACCEPTED"&&state?.owner_id)item.claimed+=1;if(row.decision==="ACCEPTED"&&["FOLLOWING","QUOTE","DEAL"].includes(String(state?.status||"")))item.progressed+=1;}}
     for(const row of metricCostRows){const metadata=row.metadata&&typeof row.metadata==="object"?row.metadata as Record<string,unknown>:{};const query=row.provider==="GOOGLE_PLACES"?String(metadata.query||""):queryByCustomer.get(String(row.customer_id||""))||"";if(query&&isActuallyIncurredCost(row))metric(query).cost_usd+=Number(row.amount_usd||0);}
     const searchStats=[...stats.values()].sort((left,right)=>right.accepted-left.accepted||right.candidates-left.candidates||left.query.localeCompare(right.query));
-    const usageData=usageSummary.data&&typeof usageSummary.data==="object"?usageSummary.data as Record<string,unknown>:{};
     const totalTokens=metricCostRows.reduce((sum,row)=>sum+Number(row.input_tokens||0)+Number(row.output_tokens||0),0);
     const reportCandidates=report?await createAdminClient().from("ai_acquisition_candidates").select("id,imported_customer_id,company_name,decision,ai_score,ai_level,country,matched_keywords").eq("task_id",id).eq("decision","ACCEPTED").order("ai_score",{ascending:false,nullsFirst:false}).limit(10):{data:[],error:null};
     if(reportCandidates.error) console.error("[ai-acquisition-task] optional report candidates unavailable", { task_id:id, code:reportCandidates.error.code });
@@ -228,6 +226,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const skuTotals=new Map<string,{provider:string;model_or_sku:string;operation:string;calls:number;free_calls:number;quantity:number;amount_usd:number}>();
     for(const row of metricCostRows){const provider=String(row.provider||"未标记");const model=String(row.model_or_sku||"未标记");const operation=String(row.operation||"未标记");const key=`${provider}\u0000${model}\u0000${operation}`;const current=skuTotals.get(key)||{provider,model_or_sku:model,operation,calls:0,free_calls:0,quantity:0,amount_usd:0};current.calls+=1;current.free_calls+=row.amount_type==="FREE"?1:0;current.quantity+=Number(row.quantity||0);current.amount_usd+=isActuallyIncurredCost(row)?Number(row.amount_usd||0):0;skuTotals.set(key,current);}
     const localUsageSummary={total_calls:metricCostRows.length,free_calls:metricCostRows.filter((row)=>row.amount_type==="FREE").length,google_calls:metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES").length,openai_calls:metricCostRows.filter((row)=>row.provider==="OPENAI").length,sku_breakdown:[...skuTotals.values()].sort((left,right)=>right.amount_usd-left.amount_usd||right.calls-left.calls)};
+    const recentCosts = [...metricCostRows].sort((left,right)=>right.occurred_at.localeCompare(left.occurred_at)).slice(0,200).map((row)=>({provider:row.provider,model_or_sku:row.model_or_sku,operation:row.operation,amount_usd:row.amount_usd,amount_type:row.amount_type,quantity:row.quantity,input_tokens:row.input_tokens,output_tokens:row.output_tokens,occurred_at:row.occurred_at,metadata:row.metadata}));
     // Workers persist these counters together with candidate decisions. Do not
     // rescan the same growing candidate table five times on every detail load
     // and every 15-second poll; that was starving ordinary foreground reads.
@@ -239,7 +238,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (reusedCount.error) console.error("[ai-acquisition-task] optional reused candidate count unavailable", { task_id: id, code: reusedCount.error.code });
     const reusedCandidates = reusedCount.count || 0;
     const noNewSearchUnits=totalCheckpoints>0&&completedFreshSearches===0&&completedSearches===totalCheckpoints&&incrementalSkipped+concurrentlySkipped+reusedSearches>=totalCheckpoints;
-    return NextResponse.json({ task: presentTask(liveTask), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],...(includeSearchStats?{search_stats:searchStats,search_stats_error:searchStatsError}:{}),completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},usage_summary:{...usageData,...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    return NextResponse.json({ task: presentTask(liveTask), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:usageError?[]:recentCosts,...(includeSearchStats?{search_stats:searchStats,search_stats_error:searchStatsError}:{}),completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},...(usageError?{usage_error:true}:{usage_summary:{...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}})}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"

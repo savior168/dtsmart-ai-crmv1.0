@@ -10,7 +10,7 @@ type UsageRow = { provider:string; model_or_sku:string; operation:string; calls:
 type UsageSummary = { total_calls:number; free_calls:number; google_calls:number; openai_calls:number; total_tokens:number; total_cost_usd:number; actual_cost_usd?:number; sku_breakdown:UsageRow[] };
 type SearchStat = { query:string; candidates:number; duplicates:number; rejected:number; review:number; accepted:number; claimed:number; progressed:number; cost_usd:number };
 type Candidate = { id:string; imported_customer_id:string|null; company_name:string; decision:string; ai_score:number|null; ai_level:string|null; country:string; matched_keywords:string[]|null };
-type ReportData = { task:AcquisitionTask; candidates:Candidate[]; report_candidates?:Candidate[]; usage_summary:UsageSummary|null; search_stats:SearchStat[]; search_stats_error?:boolean; discovery_progress:{raw_hits:number}|null };
+type ReportData = { task:AcquisitionTask; candidates:Candidate[]; report_candidates?:Candidate[]; usage_summary:UsageSummary|null; usage_error?:boolean; search_stats:SearchStat[]; search_stats_error?:boolean; discovery_progress:{raw_hits:number}|null };
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type:"region" });
 
@@ -51,12 +51,13 @@ export function AcquisitionTaskReport({ taskId }:{ taskId:string }) {
   const bestSearches=[...(searchStats||[])].sort((a,b)=>b.accepted-a.accepted||a.cost_usd-b.cost_usd).slice(0,12);
   return <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
     <PageHeader title={`${task.name} · 获客报告`} description={`任务编号 ${task.task_number} · 创建于 ${new Date(task.created_at).toLocaleString("zh-CN",{hour12:false})} · 报告数据来自本任务可核验执行记录`} actions={<><Link href={`/ai-acquisition/tasks/${task.id}`} className={button}>返回任务详情</Link><button type="button" onClick={()=>window.print()} className={primaryButton}><Printer size={16}/>打印或保存PDF</button></>}/>
+    {data.usage_error?<section className={`${panel} p-4 text-sm text-amber-800`}>费用台账本次查询超时，以下成本和调用数据暂不展示；客户核验结果不受影响。请稍后刷新报告。</section>:null}
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">{[
       ["成功入池",`${formatNumber(task.accepted_count)} 个`,`待复核 ${formatNumber(task.review_count)} 个`],
       ["入池转化率",task.discovered_count?`${(task.accepted_count/task.discovered_count*100).toFixed(1)}%`:"—","成功入池 ÷ 去重后候选"],
-      ["平均有效客户成本",formatCost(averageCost),"实际已产生费用 ÷ 成功入池"],
-      ["任务实际费用",formatCost(totalCost),"不含Google未确认估算费用"],
-      ["Google / OpenAI",`${formatNumber(usage?.google_calls||0)} / ${formatNumber(usage?.openai_calls||0)} 次`,`${formatTokens(usage?.total_tokens||0)} Token`],
+      ["平均有效客户成本",usage?formatCost(averageCost):"—","实际已产生费用 ÷ 成功入池"],
+      ["任务实际费用",usage?formatCost(totalCost):"—","不含Google未确认估算费用"],
+      ["Google / OpenAI",usage?`${formatNumber(usage.google_calls)} / ${formatNumber(usage.openai_calls)} 次`:"—",usage?`${formatTokens(usage.total_tokens)} Token`:"统计暂不可用"],
       ["有效执行耗时",formatDuration(effectiveElapsedMs(task)),"不含预约等待与暂停时间"],
     ].map(([label,value,note])=><article key={label} className={`${panel} p-4`}><small className="text-slate-500">{label}</small><b className="mt-2 block text-xl text-slate-950">{value}</b><small className="mt-1 block text-slate-400">{note}</small></article>)}</section>
 

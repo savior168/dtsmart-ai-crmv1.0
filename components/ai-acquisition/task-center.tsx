@@ -376,8 +376,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                     <td className="px-4 py-3">
                       <StatusBadge status={t.status} />
                       {t.error_message ? (
-                        <small title={acquisitionErrorMessageZh(t.error_message)} className="mt-2 block line-clamp-2 text-rose-600">
-                          {acquisitionFailureStage(t.error_message)}
+                        <small title={acquisitionErrorMessageZh(t.error_message)} className={`mt-2 block line-clamp-2 ${["QUEUED","RUNNING","PAUSING"].includes(t.status)?"text-amber-700":"text-rose-600"}`}>
+                          {["QUEUED","RUNNING","PAUSING"].includes(t.status)?"此前异常：":""}{acquisitionFailureStage(t.error_message)}
                         </small>
                       ) : null}
                     </td>

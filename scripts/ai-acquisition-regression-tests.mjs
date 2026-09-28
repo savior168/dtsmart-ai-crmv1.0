@@ -302,6 +302,8 @@ assert.match(usageRoute,/actualCostUsd\(taskCosts\)[\s\S]*google_cost_usd:[\s\S]
 assert.match(detailRoute,/actualCostUsd\(metricCostRows\)[\s\S]*google_actual_cost_usd:confirmedGoogleCost/,"任务详情接口必须单独返回实际费用和Google平台确认费用");
 assert.match(detailRoute,/eq\("request_key", `acquisition:\$\{id\}`\)[\s\S]*const screeningIds = \[String\(acquisitionChild\.data\?\.id/,'费用归属必须只使用当前获客任务的专属筛选子任务，不能读取候选记录中的历史任务ID');
 assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweight\?\{\}:\{costs:[\s\S]*usage_summary:/,"完整详情必须以当前任务费用流水重算汇总，轻量轮询不得用空流水覆盖已加载费用");
+assert.doesNotMatch(detailRoute,/get_ai_acquisition_usage_summary/,"任务详情不得在费用流水重算前再执行同一任务的冗余用量RPC");
+assert.match(detailRoute,/usageError=true;searchStatsError=true[\s\S]*usageError\?\{usage_error:true\}:\{usage_summary:/,"费用查询失败时不得把不完整台账伪装为零费用");
 assert.match(detailRoute,/const liveTerminal=/,"任务详情必须使用工作流持久化的完整终态计数");
 assert.match(detailRoute,/processed_count:Math\.min\(liveDiscovered,Math\.max/,"任务详情已核验数不得超过候选总数");
 assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*liveChildExecutor[\s\S]*WAITING_FOR_MANUAL_RESUME[\s\S]*status: "QUEUED"[\s\S]*select\("id"\)\.maybeSingle\(\)[\s\S]*start\(aiAcquisitionWorkflow, \[id, null, executionToken\]\)[\s\S]*继续执行启动失败/ ,"人工继续必须安全接管失效执行器、避免重复执行，并在启动失败时回退为暂停");
@@ -357,8 +359,8 @@ assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s
 assert.match(detail,/本任务调用[\s\S]*本任务价目估算[\s\S]*结算月预计总用量[\s\S]*预计剩余免费额度[\s\S]*超过免费额度[\s\S]*超额预计费用[\s\S]*本任务 Google Places SKU用量与账号额度/,'Google明细必须直观展示本任务、账号总量、剩余额度、超额次数和预计费用');
 assert.match(detail,/本任务 Google Places SKU用量与账号额度[\s\S]*md:grid-cols-2 xl:grid-cols-4/,"四个Google SKU必须在桌面端同一行对比，平板两列、移动端单列");
 assert.doesNotMatch(detail,/最近调用记录|group\/calls/,'任务详情不得重复铺开逐次调用流水，完整审计统一进入AI用量与费用');
-assert.match(detail,/OpenAI[\s\S]*formatCost\(openaiCost\)[\s\S]*formatTokens\(usage\?\.total_tokens\)[\s\S]*Google Places[\s\S]*formatNumber\(usage\?\.google_calls\)[\s\S]*暂无平台确认费用/,"详情概览必须按统一顺序展示OpenAI实际费用及Google调用，且不得把Google估算冒充实际费用");
-assert.match(detail,/实际已产生费用 \{formatCost\(totalCost\)\}/,"平均有效客户成本只能使用实际已产生费用");
+assert.match(detail,/OpenAI[\s\S]*usage\?formatCost\(openaiCost\):"—"[\s\S]*formatTokens\(usage\.total_tokens\)[\s\S]*Google Places[\s\S]*formatNumber\(usage\.google_calls\)[\s\S]*暂无平台确认费用/,"详情概览必须按统一顺序展示OpenAI实际费用及Google调用，且不得把Google估算冒充实际费用");
+assert.match(detail,/usage\?`实际已产生费用 \$\{formatCost\(totalCost\)\}`:usageUnavailable\?"费用统计暂不可用"/,"费用查询失败时不得把未知费用伪装成零");
 assert.match(detail,/成功入池客户[\s\S]*待人工复核[\s\S]*候选核验进度[\s\S]*平均有效客户成本[\s\S]*OpenAI[\s\S]*Google Places/,"详情概览必须按业务结果、待办、进度、获客成本和统一技术用量顺序排列");
 assert.match(detail,/GOOGLE_SKU_ORDER=\["PLACES_TEXT_SEARCH_PRO","PLACES_TEXT_SEARCH_ID_ONLY","PLACES_DETAILS_PRO","PLACES_DETAILS_ENTERPRISE","PLACES_DETAILS_ENTERPRISE_ATMOSPHERE"\]/,"Google SKU必须按搜索、基础详情、企业详情和Atmosphere补证固定排序");
 assert.doesNotMatch(detail,/toggleUsageDetails\("OPENAI"\)|OpenAI 调用与费用明细/,"OpenAI概览不得提供重复的展开明细入口");
@@ -514,6 +516,8 @@ assert.match(acquisitionTaskDetail,/for \(let attempt = 0; attempt < 2; attempt 
 assert.match(acquisitionTaskRoute,/optional telemetry unavailable[\s\S]*optional search analytics unavailable[\s\S]*optional cost analytics unavailable/,"附属统计查询异常不得拖垮AI获客任务详情核心数据");
 assert.match(acquisitionTaskRoute,/detail load failed[\s\S]*code:detail\.code[\s\S]*details:detail\.details[\s\S]*hint:detail\.hint[\s\S]*500/,"任务详情核心异常必须保留结构化诊断信息并返回正确的服务端错误状态");
 assert.match(acquisitionTaskDetail,/quiet = false[\s\S]*p\.set\("lightweight", "1"\)[\s\S]*load\(true\), 15000/,"执行中任务详情必须使用低频轻量静默轮询，不能反复加载完整分析");
+assert.match(acquisitionTaskDetail,/fetch\(`\/api\/ai-acquisition\/tasks\/\$\{taskId\}\?lightweight=1`[\s\S]*任务信息已显示，候选和费用明细正在加载/,"详情页必须先展示轻量任务信息，不能等待费用明细才结束全屏加载");
+assert.match(acquisitionWorkflow,/finalizeCandidateBatch[\s\S]*select\("id,screening_task_item_id,staging_customer_id,screening_item:ai_screening_task_items!inner\(id\)"\)/,"批次准入只读取必需候选字段，避免宽行扫描放大数据库压力");
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
 assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
 assert.match(acquisitionTaskCenter,/!canViewUsage \|\| !costSummaryOpen[\s\S]*all_time:"1", overview:"1"[\s\S]*historyResponse/,"任务中心费用统计必须按需用单次概览请求加载，避免重复扫描与获客写入争抢数据库");
@@ -526,6 +530,7 @@ assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_lim
 assert.match(recoveryRoute,/yield quickly[\s\S]*RECOVERY_DEADLINE_MS = 4_000/,"恢复器必须快速让出数据库容量，不能每分钟持续阻塞前台业务");
 assert.match(vercelConfig,/"schedule": "\*\/5 \* \* \* \*"/,"停滞任务巡检应每5分钟执行，避免无待恢复任务时仍每分钟争抢数据库连接");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
+assert.match(acquisitionTaskReport,/data\.usage_error[\s\S]*usage\?formatCost\(totalCost\):"—"/,"报告费用台账超时时必须提示并隐藏未知金额，不能伪装为零费用");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
 assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");
 assert.match(acquisitionTaskRoute,/canReadAiOwner\(account, result\.data\.user_id\)/,"AI获客任务详情必须执行直属下属服务端校验");

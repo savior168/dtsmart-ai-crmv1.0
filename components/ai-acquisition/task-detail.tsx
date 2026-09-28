@@ -63,6 +63,7 @@ type TaskDetailPayload = {
   candidates?:Candidate[];
   count?:number;
   usage_summary?:Partial<UsageSummary>;
+  usage_error?:boolean;
   completion?:CompletionInfo;
   discovery_progress?:DiscoveryProgress|null;
   verification_progress?:VerificationProgress|null;
@@ -105,6 +106,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [evidenceStatus, setEvidenceStatus] = useState(""),
     [resultSort, setResultSort] = useState("SALES_PRIORITY"),
     [usage, setUsage] = useState<UsageSummary | null>(null),
+    [usageUnavailable, setUsageUnavailable] = useState(false),
     [usageScope, setUsageScope] = useState<"GOOGLE" | null>(null),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
     [googleBillingLoading, setGoogleBillingLoading] = useState(false),
@@ -160,7 +162,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         setRows(b.candidates || []);
         setCount(b.count || 0);
       }
-      if (b.usage_summary) setUsage((current) => ({ ...(current || {}), ...b.usage_summary } as UsageSummary));
+      if (b.usage_summary) { setUsage((current) => ({ ...(current || {}), ...b.usage_summary } as UsageSummary)); setUsageUnavailable(false); }
+      else if (b.usage_error) { setUsageUnavailable(true); setUsage(null); }
       if (b.completion) setCompletion(b.completion);
       setDiscoveryProgress(b.discovery_progress || null);
       setVerificationProgress(b.verification_progress || null);
@@ -189,6 +192,23 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       setSearchStatsLoading(false);
     }
   }, [taskId, searchStatsRequested, searchStatsLoading]);
+  useEffect(() => {
+    let active = true;
+    // Show the task header and live progress without waiting for candidate
+    // pagination or optional billing analytics on a busy database.
+    void fetch(`/api/ai-acquisition/tasks/${taskId}?lightweight=1`, { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() as Promise<TaskDetailPayload> : null)
+      .then((body) => {
+        if (!active || !body?.task) return;
+        setTask((current) => current || body.task!);
+        setCanControl(Boolean(body.can_control));
+        setCanEvidence(Boolean(body.can_view_evidence));
+        setDiscoveryProgress((current) => current || body.discovery_progress || null);
+        setVerificationProgress((current) => current || body.verification_progress || null);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [taskId]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -403,6 +423,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           </>
         }
       />
+      {loading ? <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">任务信息已显示，候选和费用明细正在加载…</div> : null}
+      {error ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>候选或费用明细暂时无法加载：{error}。任务信息不受影响。</span><button type="button" className="font-medium text-blue-700 hover:underline" onClick={() => void load()}>重试明细</button></div> : null}
       {task.scheduled_at ? <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"><CalendarClock size={16}/><b>预约执行：</b>{new Date(task.scheduled_at).toLocaleString("zh-CN",{hour12:false})}<span className="text-blue-600">（预约等待时间不计入有效耗时）</span></div> : null}
       {discoveryProgress && ["QUEUED","RUNNING","PAUSING","PAUSED"].includes(task.status) ? <section className={`${panel} overflow-hidden`} aria-label="AI获客实时执行进度">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3"><div><div className="flex flex-wrap items-center gap-2"><b>{stageTitle}</b><StatusBadge status={maintenancePaused?"PAUSED":task.status}/></div><p className="mt-1 text-xs text-slate-500">{maintenancePaused?"当前任务暂不继续执行，也不会新增调用或费用；已完成的搜索和核验结果均已保留，只有人工点击“继续执行”后才会恢复。":task.status==="PAUSED"?"任务已在安全检查点暂停；只有人工点击“继续执行”后才会恢复，且不会重复已完成搜索。":discoveryProgress.stage_detail||"系统一边搜索、一边核验；符合真实证据和联系方式门槛的客户会持续入池。"}</p></div><div className="text-right text-xs text-slate-400"><p>有效耗时 {formatDuration(effectiveElapsedMs(task))}</p>{discoveryProgress.updated_at?<p className="mt-1">最近进展 {new Date(discoveryProgress.updated_at).toLocaleString("zh-CN",{hour12:false})}</p>:null}</div></div>
@@ -418,9 +440,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         <button type="button" onClick={()=>showCustomerResults("ACCEPTED")} className={`${panel} p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50/30`}><small className="text-slate-500">成功入池客户</small><div className="mt-2 text-xl font-semibold text-emerald-700">{formatNumber(task.accepted_count)}</div><small className="mt-1 block text-slate-500">已核验有效并写入客户公海</small></button>
         <button type="button" onClick={()=>showCustomerResults("REVIEW")} className={`${panel} p-4 text-left transition hover:border-amber-300 hover:bg-amber-50/30`}><small className="text-slate-500">待人工复核</small><div className="mt-2 text-xl font-semibold text-amber-700">{formatNumber(task.review_count)}</div><small className="mt-1 block text-slate-500">点击处理证据不足的候选</small></button>
         <article className={`${panel} p-4`}><small className="text-slate-500">候选核验进度</small><div className="mt-2 text-xl font-semibold">{formatNumber(task.processed_count)} / {formatNumber(task.discovered_count)}</div><small className="mt-1 block text-slate-500">未通过 {formatNumber(task.rejected_count)} · 重复 {formatNumber(task.duplicate_count)}</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">平均有效客户成本</small><div className="mt-2 text-xl font-semibold">{averageAcceptedCost==null?"—":formatCost(averageAcceptedCost)}</div><small className="mt-1 block text-slate-500">实际已产生费用 {formatCost(totalCost)}</small></article>
-        <article className={`${panel} p-4`}><small className="text-slate-500">OpenAI</small><div className="mt-2 text-xl font-semibold">{formatCost(openaiCost)}</div><small className="mt-1 block text-slate-500">{formatNumber(usage?.openai_calls)} 次 · {formatTokens(usage?.total_tokens)} Token</small></article>
-        <button type="button" aria-expanded={usageScope==="GOOGLE"} aria-controls="google-usage-details" onClick={()=>void toggleGoogleDetails()} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">Google Places</small><small className="flex items-center gap-1 text-blue-600">{usageScope==="GOOGLE"?"收起明细":"查看明细"}<ChevronDown size={14} className={`transition ${usageScope==="GOOGLE"?"rotate-180":""}`}/></small></span><div className="mt-2 text-xl font-semibold">{formatNumber(usage?.google_calls)} 次</div><small className="mt-1 block text-slate-500">{googleActualCost>0?`平台已确认费用 ${formatCost(googleActualCost)}`:"暂无平台确认费用"}</small></button>
+        <article className={`${panel} p-4`}><small className="text-slate-500">平均有效客户成本</small><div className="mt-2 text-xl font-semibold">{!usage||averageAcceptedCost==null?"—":formatCost(averageAcceptedCost)}</div><small className="mt-1 block text-slate-500">{usage?`实际已产生费用 ${formatCost(totalCost)}`:usageUnavailable?"费用统计暂不可用":"费用统计读取中…"}</small></article>
+        <article className={`${panel} p-4`}><small className="text-slate-500">OpenAI</small><div className="mt-2 text-xl font-semibold">{usage?formatCost(openaiCost):"—"}</div><small className="mt-1 block text-slate-500">{usage?`${formatNumber(usage.openai_calls)} 次 · ${formatTokens(usage.total_tokens)} Token`:usageUnavailable?"调用统计暂不可用":"调用统计读取中…"}</small></article>
+        <button type="button" aria-expanded={usageScope==="GOOGLE"} aria-controls="google-usage-details" onClick={()=>void toggleGoogleDetails()} className={`${panel} p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/30`}><span className="flex items-center justify-between"><small className="text-slate-500">Google Places</small><small className="flex items-center gap-1 text-blue-600">{usageScope==="GOOGLE"?"收起明细":"查看明细"}<ChevronDown size={14} className={`transition ${usageScope==="GOOGLE"?"rotate-180":""}`}/></small></span><div className="mt-2 text-xl font-semibold">{usage?`${formatNumber(usage.google_calls)} 次`:"—"}</div><small className="mt-1 block text-slate-500">{!usage?usageUnavailable?"调用统计暂不可用":"调用统计读取中…":googleActualCost>0?`平台已确认费用 ${formatCost(googleActualCost)}`:"暂无平台确认费用"}</small></button>
       </section>
       {usageScope==="GOOGLE"?<section id="google-usage-details" className={`${panel} overflow-hidden`}>
         <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
@@ -438,8 +460,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         {visibleUsageBreakdown.length?<div className="border-b p-4"><h3 className="text-sm font-semibold">本任务 Google Places SKU用量与账号额度</h3><div className="mt-3 grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">{visibleUsageBreakdown.map((item)=>{const account=googleBilling?.skuUsage?.find((entry)=>entry.key===GOOGLE_BILLING_KEY_BY_SKU[item.model_or_sku]);const exceeded=Number(account?.projectedOverageCalls||0)>0;return <article key={item.model_or_sku} className="rounded-lg border bg-slate-50/60 p-3"><div className="flex items-start justify-between gap-2"><div><b className="text-sm text-slate-800">{item.model_or_sku}</b><small className="mt-1 block text-slate-500">{item.operations.join("、")||"Google Places调用"}</small></div><span className="shrink-0 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">本任务 {formatNumber(item.calls)} 次</span></div><div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-xs"><span className="text-slate-500">本任务免费<b className="mt-1 block text-sm text-slate-800">{formatNumber(item.free_calls)} 次</b></span><span className="text-slate-500">价目估算<b className="mt-1 block text-sm text-slate-800">{formatCost(item.amount_usd)}</b></span></div>{account?<div className="mt-3 border-t pt-3 text-xs leading-5"><p className="text-slate-500">结算月预计总量 <b className="text-slate-700">{formatNumber(account.projectedUsage)} 次</b></p><p className="text-slate-400">平台确认 {formatNumber(account.usageCount)} · 待同步 {formatNumber(account.pendingSystemUsage)}</p>{account.freeLimit==null?<p className="font-medium text-emerald-700">不限量免费</p>:exceeded?<><p className="font-medium text-rose-600">已超免费额度 {formatNumber(account.projectedOverageCalls)} 次</p><p className="text-rose-600">超额预计费用 {formatCost(account.projectedOverageCostUsd)}</p></>:<p className="font-medium text-emerald-700">预计剩余 {formatNumber(account.projectedRemaining)} 次免费</p>}</div>:<p className="mt-3 border-t pt-3 text-xs text-slate-400">{googleBillingLoading?"正在读取结算月额度…":googleBilling?.message||"账号额度暂不可用"}</p>}</article>})}</div>{googleBilling?.state!=="CONNECTED"&&!googleBillingLoading?<p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{googleBilling?.message||"账号额度暂不可用，本任务调用与成本数据不受影响。"}</p>:<p className="mt-3 text-xs text-slate-500">账号总量按平台已确认用量加系统待同步记录估算；免费额度由同一Google结算账号下的AI获客与AI筛选共享。</p>}</div>:<div className="p-8 text-center text-sm text-slate-400">本任务暂无已记录调用</div>}
       </section>:null}
       {task.error_message ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          <div><b>{acquisitionFailureStage(task.error_message)}</b><p className="mt-1 leading-6">{acquisitionErrorMessageZh(task.error_message)}</p><small className="mt-1 block text-rose-500">已完成 {formatNumber(task.processed_count)} 位，剩余 {formatNumber(Math.max(0,task.discovered_count-task.processed_count))} 位待继续处理；已完成结果不会重复分析或计费。</small>{discoveryProgress?<small className="mt-1 block text-rose-500">已保留 {discoveryProgress.completed} 个检索检查点、{formatNumber(discoveryProgress.raw_hits)} 条原始命中和全部费用记录。</small>:null}</div>
+        <div className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 text-sm ${["QUEUED","RUNNING","PAUSING"].includes(task.status)?"border-amber-200 bg-amber-50 text-amber-800":"border-rose-200 bg-rose-50 text-rose-700"}`}>
+          <div><b>{["QUEUED","RUNNING","PAUSING"].includes(task.status)?"此前异常：":""}{acquisitionFailureStage(task.error_message)}</b><p className="mt-1 leading-6">{acquisitionErrorMessageZh(task.error_message)}</p><small className="mt-1 block">已完成 {formatNumber(task.processed_count)} 位，剩余 {formatNumber(Math.max(0,task.discovered_count-task.processed_count))} 位待继续处理；已完成结果不会重复分析或计费。</small>{discoveryProgress?<small className="mt-1 block">已保留 {discoveryProgress.completed} 个检索检查点、{formatNumber(discoveryProgress.raw_hits)} 条原始命中和全部费用记录。</small>:null}</div>
           {canControl&&task.status==="FAILED"?<button className={primaryButton} onClick={()=>setAction("RETRY")}><RefreshCw size={15}/>从检查点重试</button>:null}
         </div>
       ) : null}
