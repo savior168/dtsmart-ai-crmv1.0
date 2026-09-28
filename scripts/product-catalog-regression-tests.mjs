@@ -5,13 +5,14 @@ import * as XLSX from "xlsx";
 import { parseProductWorkbook, validateNormalizedProduct } from "../lib/product-import.ts";
 import { activeTier, completeCostCny, initialQuoteUnitPrice, suggestedUsdPrice } from "../lib/product-pricing.ts";
 import { normalizeProductSpecifications } from "../lib/product-specifications.ts";
+import { parseProductPriceImport, PRICE_IMPORT_HEADERS } from "../lib/product-price-import.ts";
 
 const root = process.cwd();
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 
 const workbook = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
-  ["SKU", "商品名称", "品牌", "型号", "品质", "成本单价", "美元售价"],
+  ["供应商单品货号", "商品名称", "品牌", "型号", "品质", "成本单价", "美元售价"],
   ["LCD-IP15-OLED", "iPhone 15 OLED屏幕", "Apple", "iPhone 15", "OLED", 320, 58.5],
 ]), "标准明细");
 XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
@@ -138,6 +139,23 @@ XLSX.utils.book_append_sheet(tabularWorkbook, XLSX.utils.aoa_to_sheet([
   ["测试屏幕单片", "TEST-1", 82],
 ]), "标准明细表");
 const tabularParsed = parseProductWorkbook(XLSX.write(tabularWorkbook, { type: "buffer", bookType: "xlsx" }));
+const masterWorkbook = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(masterWorkbook, XLSX.utils.aoa_to_sheet([
+  ["商品分类编码", "供应商编号", "供应商商品货号", "商品名称", "品牌", "型号", "最小起订量"],
+  ["SCR", "1191", "RJ-15-01", "iPhone 15 OLED 屏幕", "RJ", "iPhone 15", 1],
+]), "商品资料导入");
+XLSX.utils.book_append_sheet(masterWorkbook, XLSX.utils.aoa_to_sheet([
+  ["商品分类编码", "商品分类名称"], ["SCR", "屏幕"],
+]), "分类编码参考");
+const masterParsed = parseProductWorkbook(XLSX.write(masterWorkbook, { type: "buffer", bookType: "xlsx" }));
+assert.equal(masterParsed.candidates.length, 1, "分类参考页不应变成待导入商品");
+assert.equal(masterParsed.sheets[0].mode, "TABULAR", "商品资料模板应按结构化明细处理");
+assert.equal(masterParsed.sheets[1].mode, "REFERENCE", "分类编码参考页不得阻挡发布");
+assert.equal(masterParsed.candidates[0].normalized_data.import_mode, "PRODUCT_ONLY");
+assert.equal(masterParsed.candidates[0].normalized_data.category_code, "SCR");
+assert.equal(masterParsed.candidates[0].normalized_data.sku, "RJ-15-01", "供应商单品货号不得成为系统 SKU");
+assert.ok(!masterParsed.candidates[0].issues.some((issue) => issue.includes("缺少可识别")), "仅商品资料导入无需填价格");
+assert.equal(validateNormalizedProduct({ ...masterParsed.candidates[0].normalized_data, category_id: "00000000-0000-4000-8000-000000000001" }).issues.length, 0, "核准商品资料不需要价格");
 assert.equal(tabularParsed.sheets[0].mode, "TABULAR", "标准明细表应识别为结构化来源");
 assert.equal(tabularParsed.candidates[0].status, "REVIEW", "结构化来源也不能绕过人工核对直接发布");
 assert.ok(tabularParsed.candidates[0].issues.some((issue) => issue.includes("逐行确认")), "须向采购说明核对责任");
@@ -251,6 +269,34 @@ XLSX.utils.book_append_sheet(oversizedWorkbook, oversizedSheet, "异常范围");
 assert.throws(() => parseProductWorkbook(XLSX.write(oversizedWorkbook, { type: "buffer", bookType: "xlsx" })), /超过 10000 行/, "异常表范围应拒绝，避免展开整表导致服务卡死");
 const standard = parsed.candidates.find((row) => row.normalized_data.sku === "LCD-IP15-OLED");
 assert.ok(standard, "标准明细必须识别SKU候选");
+const ambiguousSkuWorkbook = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(ambiguousSkuWorkbook, XLSX.utils.aoa_to_sheet([
+  ["系统SKU", "商品名称", "型号", "人民币采购价"],
+  ["ZK-2609-000001", "已有商品", "iPhone 15", 320],
+]), "误传的调价表");
+const ambiguousSku = parseProductWorkbook(XLSX.write(ambiguousSkuWorkbook, { type: "buffer", bookType: "xlsx" }));
+assert.ok(ambiguousSku.candidates.every((row) => row.normalized_data.sku !== "ZK-2609-000001"), "系统 SKU 不得被解析为供应商货号");
+assert.ok(validateNormalizedProduct({ sku: "ZK-2609-000001", name_zh: "已有商品", category_id: "12345678-1234-1234-1234-123456789abc", procurement_cny: 320 }).issues.some((issue) => issue.includes("系统 SKU")), "人工核准时也必须拦截误填的系统 SKU");
+const priceWorkbook = (entries) => {
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([PRICE_IMPORT_HEADERS, ...entries]), "价格更新");
+  return XLSX.write(book, { type: "buffer", bookType: "xlsx" });
+};
+const priceRows = parseProductPriceImport(priceWorkbook([["ZK-2609-000001", "采购价", 82, 1, "2026-09-28", "供应商报价 / A12"], ["ZK-2609-000001", "包装费", 0, 1, "2026-09-28", "采购确认无包装费"]]), "2026-09-28");
+assert.equal(priceRows.length, 2, "不同价格项目可以同批更新");
+assert.equal(priceRows[1].amount, 0, "明确填写的 0 价格应保留");
+assert.throws(() => parseProductPriceImport(priceWorkbook([["1191", "采购价", 82, 1, "2026-09-28", "来源"]]), "2026-09-28"), /系统 SKU/, "供应商身份编号不能用于商品调价");
+assert.throws(() => parseProductPriceImport(priceWorkbook([["ZK-2609-000001", "采购价", "", 1, "2026-09-28", "来源"]]), "2026-09-28"), /空白与 0/, "空白金额不能被当成零");
+assert.throws(() => parseProductPriceImport(priceWorkbook([["ZK-2609-000001", "采购价", 82, 1, "2026-09-28", "来源"], ["ZK-2609-000001", "采购价", 85, 1, "2026-09-28", "来源"]]), "2026-09-28"), /重复/, "同一价格阶梯不能在文件内重复");
+assert.throws(() => parseProductPriceImport(priceWorkbook([["ZK-2609-000001", "采购价", 82, 1, "2026-09-29", "来源"]]), "2026-09-28"), /晚于今天/, "未来价格不得误作今日生效");
+const formulaWorkbook = XLSX.utils.book_new();
+const formulaSheet = XLSX.utils.aoa_to_sheet([PRICE_IMPORT_HEADERS, ["ZK-2609-000001", "采购价", 82, 1, "2026-09-28", "来源"]]);
+formulaSheet.C2 = { t: "n", f: "80+2", v: 82 };
+XLSX.utils.book_append_sheet(formulaWorkbook, formulaSheet, "价格更新");
+assert.throws(() => parseProductPriceImport(XLSX.write(formulaWorkbook, { type: "buffer", bookType: "xlsx" }), "2026-09-28"), /公式/, "公式缓存值不得冒充已确认采购价");
+const priceImportMigration = read("supabase/migrations/202609280005_product_price_batch_import.sql");
+assert.match(priceImportMigration, /for update[\s\S]*?expected_price_id[\s\S]*?原价格已变化/, "发布时必须重新锁定并核对预览的旧价格版本");
+assert.match(priceImportMigration, /pricebooks\.import[\s\S]*?pricebooks\.publish[\s\S]*?pricebooks\.manage/, "调价发布必须同时验证导入、发布和价格维护权限");
 assert.equal(standard.status, "REVIEW", "来源表未明确映射系统分类时必须核对，不能直接发布");
 assert.equal(standard.normalized_data.procurement_cny, 320, "人民币采购价必须保持数值精度");
 assert.equal(standard.normalized_data.sale_usd, 58.5, "美元销售参考价必须保持数值精度");

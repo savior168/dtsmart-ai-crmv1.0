@@ -2,6 +2,8 @@ import * as XLSX from "xlsx";
 
 
 export type ProductImportNormalized = {
+  import_mode?: "PRODUCT_ONLY" | "MIXED";
+  category_code?: string;
   sku: string;
   supplier_identifier: string;
   category_id: string;
@@ -36,7 +38,10 @@ export type ProductImportCandidate = {
 };
 
 const aliases: Partial<Record<keyof ProductImportNormalized, string[]>> = {
-  sku: ["sku", "货号", "产品编码", "商品编码", "型号编码"],
+  category_code: ["商品分类编码"],
+  // The legacy normalized `sku` field is a supplier's per-product code,
+  // never our database-generated SKU. Generic SKU/code headings are ambiguous.
+  sku: ["供应商商品货号", "供应商单品货号", "供应商货号", "supplier product code", "supplier item code"],
   supplier_identifier: ["供应商编号", "供应商代码"],
   name_zh: ["中文名称", "商品名称", "产品名称", "品名", "items", "item"],
   name_en: ["英文名称", "english name", "item name"],
@@ -86,8 +91,10 @@ function number(value: unknown): number | null {
 function validate(normalized: ProductImportNormalized) {
   const issues: string[] = [];
   if (!normalized.name_zh) issues.push("缺少商品名称");
+  if (/^ZK-\d{4}-\d{6}$/i.test(normalized.sku)) issues.push("系统 SKU 不能填写为供应商单品货号；已有商品调价请使用独立的系统 SKU 导入流程");
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized.category_id)) issues.push("请先选择商品分类并核对专有规格");
-  if (normalized.procurement_cny === null && normalized.packaging_cny === null && normalized.other_cost_cny === null && normalized.sale_usd === null) issues.push("缺少可识别的人民币成本或美元销售参考价");
+  if (normalized.import_mode !== "PRODUCT_ONLY" && normalized.procurement_cny === null && normalized.packaging_cny === null && normalized.other_cost_cny === null && normalized.sale_usd === null) issues.push("缺少可识别的人民币成本或美元销售参考价");
+  if (normalized.import_mode === "PRODUCT_ONLY" && [normalized.procurement_cny, normalized.packaging_cny, normalized.other_cost_cny, normalized.sale_usd].some((price) => price !== null)) issues.push("商品资料导入不能包含价格，请使用价格更新模板单独核对");
   if (normalized.procurement_cny !== null && normalized.procurement_cny < 0) issues.push("人民币采购价不能为负数");
   if (normalized.sale_usd !== null && normalized.sale_usd < 0) issues.push("美元销售参考价不能为负数");
   if (!Number.isFinite(normalized.minimum_order_quantity) || normalized.minimum_order_quantity <= 0) issues.push("起订量必须大于0");
@@ -96,7 +103,7 @@ function validate(normalized: ProductImportNormalized) {
 
 function emptyNormalized(): ProductImportNormalized {
   return {
-    sku: "", supplier_identifier: "", category_id: "", specifications: {}, name_zh: "", name_en: "", brand: "", model: "", part_type: "", quality: "", color: "",
+    import_mode: "MIXED", category_code: "", sku: "", supplier_identifier: "", category_id: "", specifications: {}, name_zh: "", name_en: "", brand: "", model: "", part_type: "", quality: "", color: "",
     packaging: "", description_zh: "", description_en: "", aliases: [], unit: "PCS", minimum_order_quantity: 1,
     procurement_cny: null, sale_usd: null,
     packaging_cny: null, other_cost_cny: null,
@@ -119,12 +126,13 @@ function cellAddress(row: number, column: number) {
   return XLSX.utils.encode_cell({ r: row, c: column });
 }
 
-function parseTabularSheet(sheetName: string, rows: unknown[][], headerIndex: number, columns: Record<string, number>, supplierIdentifier: string) {
+function parseTabularSheet(sheetName: string, rows: unknown[][], headerIndex: number, columns: Record<string, number>, supplierIdentifier: string, productOnly = false) {
   const output: ProductImportCandidate[] = [];
   for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] || [];
     if (!row.some((value) => text(value))) continue;
     const normalized = emptyNormalized();
+    if (productOnly) normalized.import_mode = "PRODUCT_ONLY";
     const fieldIssues: string[] = [];
     for (const key of Object.keys(columns) as Array<keyof typeof columns>) {
       const column = columns[key];
@@ -908,12 +916,15 @@ function parseJcDiagnosticProducts(rows: unknown[][]) {
 }
 
 export function parseProductWorkbook(buffer: Buffer) {
-  const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: false, cellDates: true, dense: false });
+  const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: true, cellDates: true, dense: false });
   const candidates: ProductImportCandidate[] = [];
   const sheets: Array<{ name: string; source_rows: number; candidates: number; unparsed_cells?: number; unparsed_addresses?: string[]; mode: "TABULAR" | "MATRIX" | "SOURCE_REVIEW" | "EMPTY" | "REFERENCE" }> = [];
   let sourceRowCount = 0;
   for (const sheetName of workbook.SheetNames) {
     const worksheet = workbook.Sheets[sheetName];
+    if (sheetName === "商品资料导入" && Object.values(worksheet).some((cell) => cell && typeof cell === "object" && "f" in cell)) {
+      throw new Error("商品资料导入页包含公式，请粘贴已核准的实际值后重试");
+    }
     // SheetJS otherwise starts arrays at the worksheet's !ref origin (which
     // may be D3), while our provenance and column rules use real A1 addresses.
     const sourceRange = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
@@ -927,6 +938,10 @@ export function parseProductWorkbook(buffer: Buffer) {
     sourceRowCount += nonEmptyRows;
     // This known source sheet contains instructions, not saleable product rows.
     // Do not silently discard a generic "说明" sheet from another supplier.
+    if (sheetName.trim() === "分类编码参考" && text(rows[0]?.[0]) === "商品分类编码" && text(rows[0]?.[1]) === "商品分类名称") {
+      sheets.push({ name: sheetName, source_rows: nonEmptyRows, candidates: 0, mode: "REFERENCE" });
+      continue;
+    }
     if (sheetName.trim() === "注意事项"
       || (sheetName.trim() === "填写说明" && text(rows[0]?.[0]) === "填写说明"
         && /系统SKU由数据库自动生成/.test(text(rows[1]?.[1])))) {
@@ -1039,11 +1054,16 @@ export function parseProductWorkbook(buffer: Buffer) {
       const score = ["sku", "name_zh", "model", "brand", "procurement_cny", "packaging_cny", "other_cost_cny", "sale_usd"].filter((key) => columns[key] >= 0).length;
       if (score > bestScore) { bestScore = score; bestHeader = index; bestColumns = columns; }
     }
-    const parsed = bestScore >= 3 && (bestColumns.procurement_cny >= 0 || bestColumns.packaging_cny >= 0 || bestColumns.other_cost_cny >= 0 || bestColumns.sale_usd >= 0)
-      ? parseTabularSheet(sheetName, rows, bestHeader, bestColumns, supplierMetadata.identifier)
+    const productOnly = sheetName === "商品资料导入";
+    if (productOnly && (bestHeader < 0 || bestColumns.category_code < 0 || bestColumns.name_zh < 0)) {
+      throw new Error("商品资料导入页必须包含商品分类编码和商品名称列");
+    }
+    const tabular = productOnly || bestScore >= 3 && (bestColumns.procurement_cny >= 0 || bestColumns.packaging_cny >= 0 || bestColumns.other_cost_cny >= 0 || bestColumns.sale_usd >= 0);
+    const parsed = tabular
+      ? parseTabularSheet(sheetName, rows, bestHeader, bestColumns, supplierMetadata.identifier, productOnly)
       : parseMatrixSheet(sheetName, rows, supplierMetadata.rowIndex);
     candidates.push(...parsed);
-    sheets.push({ name: sheetName, source_rows: nonEmptyRows, candidates: parsed.length, mode: parsed.length ? (bestScore >= 3 ? "TABULAR" : "MATRIX") : "EMPTY" });
+    sheets.push({ name: sheetName, source_rows: nonEmptyRows, candidates: parsed.length, mode: parsed.length ? (tabular ? "TABULAR" : "MATRIX") : "EMPTY" });
   }
   // An unparsed address must be reviewable, not only buried in a sheet-level
   // warning. Keep its exact source cell and entire raw row; never infer a
@@ -1082,6 +1102,8 @@ export function validateNormalizedProduct(input: unknown): { normalized: Product
   if (value.specifications !== undefined && (typeof value.specifications !== "object" || value.specifications === null || Array.isArray(value.specifications))) specificationIssues.push("商品规格格式不正确");
   if (value.specifications && typeof value.specifications === "object" && !Array.isArray(value.specifications) && Object.values(value.specifications).some((entry) => typeof entry !== "string")) specificationIssues.push("商品规格值必须为文字");
   const normalized = emptyNormalized();
+  normalized.import_mode = value.import_mode === "PRODUCT_ONLY" ? "PRODUCT_ONLY" : "MIXED";
+  normalized.category_code = text(value.category_code).toUpperCase();
   normalized.sku = text(value.sku).toUpperCase();
   normalized.supplier_identifier = text(value.supplier_identifier);
   normalized.category_id = text(value.category_id);

@@ -76,8 +76,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "pricebooks.cost.total.view", label: "查看完整成本合计", group: "商品中心", description: "仅查看采购、包装和其他费用合计，不显示成本拆分和来源", kind: "DATA" },
   { code: "pricebooks.cost.view", label: "查看采购成本", group: "商品中心", description: "查看人民币采购价、包装费、其他成本及其来源；销售员默认不可见", kind: "DATA" },
   { code: "pricebooks.manage", label: "维护产品价格", group: "商品中心", description: "新增、调整或停用产品价格版本", kind: "ACTION", core: true },
-  { code: "pricebooks.import", label: "导入产品报价表", group: "商品中心", description: "上传并预览产品报价表，处理字段歧义和异常行", kind: "ACTION", core: true },
-  { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "将所选已核准商品及价格分批发布到主档，未核准内容继续隔离", kind: "ACTION", core: true },
+  { code: "pricebooks.import", label: "导入产品报价表", group: "商品中心", description: "上传并预览商品资料或系统 SKU 调价文件，处理来源歧义和异常行", kind: "ACTION", core: true },
+  { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "发布已核准商品及价格，或确认按系统 SKU 匹配的整批调价；未核准内容继续隔离", kind: "ACTION", core: true },
   { code: "pricebooks.rules.manage", label: "维护销售报价规则", group: "商品中心", description: "维护报价汇率、加价率、最低毛利和商品或分类覆盖规则", kind: "ACTION", core: true },
 
   { code: "quotes.view", label: "报价单", group: "销售管理", description: "查看权限范围内的报价单", kind: "PAGE" },

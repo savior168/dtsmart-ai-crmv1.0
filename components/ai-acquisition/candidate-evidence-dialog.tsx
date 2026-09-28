@@ -13,6 +13,8 @@ export type CandidateEvidenceData = {
     grade?: string;
     short_reason?: string;
     identity_status?: string;
+    industry_type?: string;
+    target_decision?: string;
     evidence_sufficiency_score?: number;
     business_scope?: string;
     company_scale_evidence?: string;
@@ -105,8 +107,13 @@ export function CandidateEvidenceDialog({
         <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-sm"><b className="text-emerald-800">可核验经营/采购线索</b><p className="mt-1 leading-6 text-slate-600">{evidence.analysis?.company_scale_evidence || evidence.analysis?.business_scope || "未发现带来源的采购、批发或经营规模线索"}</p></div>
         <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-sm"><b className="text-blue-800">AI销售建议</b><p className="mt-1 leading-6 text-slate-600">{evidence.analysis?.followup_suggestion || evidence.analysis?.customer_value || "先依据已核验经营事实联系客户，再确认实际采购需求"}</p><small className="mt-2 block text-slate-400">建议不代表客户已经表达采购意向。</small></div>
       </div></section>
+      {evidence.candidate.decision === "REVIEW" ? <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+        <b>当前复核阻点：</b>已核验行业 {evidence.analysis?.industry_type || "未确认"}；主体匹配 {evidence.analysis?.identity_status || "未确认"}；
+        带具体来源的已核验联系方式 {evidence.contacts.length} 条。评分和官网链接不能代替目标行业、主体一致性及可追溯联系方式的核验。
+        如已有新证据，需先补充来源或重新分析；下方按钮只按现有结果核对入池，不会重新采集证据。
+      </section> : null}
       <GroupedEvidenceSection evidence={items}/>
-      {canControl && evidence.candidate.decision === "REVIEW" ? <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="max-w-2xl text-sm leading-6 text-slate-500">人工操作不会绕过质量门槛。重新校验仅在行业、主体在营、具体来源页和有效联系方式全部通过后入池。</p><div className="flex gap-2"><button type="button" className={`${button} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => onReview("DISCARD", evidence.candidate.id)}>确认舍弃</button><button type="button" className={primaryButton} onClick={() => onReview("RECHECK_AND_ACCEPT", evidence.candidate.id)}>重新校验并入池</button></div></section> : null}
+      {canControl && evidence.candidate.decision === "REVIEW" ? <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="max-w-2xl text-sm leading-6 text-slate-500">人工操作不会绕过质量门槛。此操作仅按已保存的分析结果和证据检查准入条件，不会重新采集，也不会覆盖人工核实的证据。</p><div className="flex gap-2"><button type="button" className={`${button} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => onReview("DISCARD", evidence.candidate.id)}>确认舍弃</button><button type="button" className={primaryButton} onClick={() => onReview("RECHECK_AND_ACCEPT", evidence.candidate.id)}>按现有证据校验入池</button></div></section> : null}
     </div> : null}
   </AppDialog>;
 }

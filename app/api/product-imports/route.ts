@@ -3,10 +3,31 @@ import { NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseProductWorkbook } from "@/lib/product-import";
+import type { ProductImportCandidate } from "@/lib/product-import";
 import { refreshProductImportBatchCounts } from "@/lib/product-import-batch";
 import { PRODUCT_IMPORT_PARSER_VERSION } from "@/lib/product-import-version";
 
 export const runtime = "nodejs";
+
+async function resolveProductOnlyCategories(admin: ReturnType<typeof createAdminClient>, candidates: ProductImportCandidate[]) {
+  const codes = [...new Set(candidates.filter((row) => row.normalized_data.import_mode === "PRODUCT_ONLY")
+    .map((row) => row.normalized_data.category_code?.trim().toUpperCase()).filter((code): code is string => Boolean(code)))];
+  if (!codes.length) return;
+  const { data, error } = await admin.from("product_categories").select("id,code,is_active").in("code", codes);
+  if (error) throw error;
+  const byCode = new Map((data || []).map((category) => [category.code.toUpperCase(), category]));
+  for (const row of candidates) {
+    if (row.normalized_data.import_mode !== "PRODUCT_ONLY") continue;
+    const code = row.normalized_data.category_code?.trim().toUpperCase() || "";
+    const category = byCode.get(code);
+    if (!category?.is_active) {
+      row.issues.push(code ? `分类编码 ${code} 不存在或已停用，请逐行选定有效分类` : "缺少商品分类编码，请逐行选定有效分类");
+      continue;
+    }
+    row.normalized_data.category_id = category.id;
+    row.issues = row.issues.filter((issue) => !issue.includes("请选择商品分类"));
+  }
+}
 
 export async function GET(request: Request) {
   try {
@@ -44,6 +65,7 @@ export async function POST(request: Request) {
       if (rows.count !== existingBatch.candidate_count) {
         if (!["FAILED", "REVIEW", "READY"].includes(existingBatch.status)) return NextResponse.json({ error: "该批次正在发布或已结束，不能续传来源行" }, { status: 409 });
         const reparsed = parseProductWorkbook(buffer);
+        await resolveProductOnlyCategories(admin, reparsed.candidates);
         if (reparsed.candidates.length !== existingBatch.candidate_count) return NextResponse.json({ error: "同版解析所得记录数与原批次不一致，已禁止自动续传" }, { status: 409 });
         const locked = await admin.from("product_import_batches").update({ status: "FAILED", updated_at: new Date().toISOString() }).eq("id", existingBatch.id).in("status", ["FAILED", "REVIEW", "READY"]).select("id").maybeSingle();
         if (locked.error) throw locked.error;
@@ -64,6 +86,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ data: refreshed.data, duplicate: true, recovered: rows.count !== existingBatch.candidate_count }, { status: 200 });
     }
     const parsed = parseProductWorkbook(buffer);
+    await resolveProductOnlyCategories(admin, parsed.candidates);
     if (!parsed.candidates.length) return NextResponse.json({ error: "未识别到可核对的商品或数字线索；原表不会被写入正式商品库" }, { status: 422 });
     const validCount = parsed.candidates.filter((row) => row.status === "VALID").length;
     const reviewCount = parsed.candidates.filter((row) => row.status === "REVIEW").length;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, acquisitionCreateView, settingsView, strategiesView, taskUi, acquisitionRecoveryMigration, acquisitionDispatcher, recoveryCron] = await Promise.all([
+const [migration, workflow, dispatcher, runner, createRoute, retryRoute, settingsRoute, createView, acquisitionCreateView, settingsView, strategiesView, taskUi, acquisitionRecoveryMigration, acquisitionDispatcher, recoveryCron, targetedRecoveryMigration] = await Promise.all([
   read("supabase/migrations/202609110002_ai_screening_vercel_only.sql"),
   read("workflows/ai-screening.ts"),
   read("lib/ai/task-dispatch.ts"),
@@ -18,6 +18,7 @@ const [migration, workflow, dispatcher, runner, createRoute, retryRoute, setting
   read("supabase/migrations/202609190007_ai_acquisition_manual_pause_boundary.sql"),
   read("lib/ai-acquisition/dispatch.ts"),
   read("app/api/cron/ai-task-recovery/route.ts"),
+  read("supabase/migrations/202609280004_targeted_ai_screening_recovery.sql"),
 ]);
 
 assert.match(migration, /ai_default_dispatch_policy = 'VERCEL_ONLY'/, "system default must be cloud-only");
@@ -50,5 +51,9 @@ assert.match(acquisitionDispatcher, /maintenancePausedIds\.has\(taskId\)[\s\S]*s
 assert.match(recoveryCron, /recoverWithDeadline\("acquisition", rescueStalledAiAcquisitionTasks\)/, "maintenance mode must still recover explicitly resumed and unrelated acquisition tasks");
 assert.doesNotMatch(recoveryCron, /if \(maintenancePaused\.acquisition > 0\)[\s\S]*return NextResponse\.json/, "a stale acquisition maintenance list must not block the entire acquisition queue");
 assert.doesNotMatch(recoveryCron, /createAdminClient|applyMaintenancePauses/, "maintenance recovery cron must not keep polling or writing the database");
+assert.match(recoveryCron, /rescueStalledCloudTasks\(signal, maintenanceIds\("AI_MAINTENANCE_PAUSED_SCREENING_IDS"\)\)/, "screening recovery must exclude only maintenance-paused tasks");
+assert.doesNotMatch(recoveryCron, /maintenancePaused\.screening\s*\?\s*Promise\.resolve/, "one paused screening task must not suppress recovery of all others");
+assert.match(dispatcher, /claim_stalled_ai_tasks_for_vercel_excluding/, "screening dispatcher must use targeted exclusion RPC");
+assert.match(targetedRecoveryMigration, /not \(t\.id = any\(coalesce\(p_excluded_task_ids,[\s\S]+for update skip locked/i, "targeted screening recovery must exclude paused IDs and atomically claim the rest");
 
 console.log("AI cloud executor regression tests passed");

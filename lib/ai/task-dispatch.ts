@@ -43,9 +43,11 @@ export async function dispatchAiScreeningTask(input: {
 // This is deliberately an atomic, cloud-only rescue. Listing the task page
 // may check for stalled tasks, but a Workflow is started only after the
 // database has exclusively marked one task as VERCEL_DISPATCHING.
-export async function rescueStalledCloudTasks(signal?: AbortSignal) {
+export async function rescueStalledCloudTasks(signal?: AbortSignal, excludedTaskIds: string[] = []) {
   const admin = createAdminClient();
-  const claimed = await admin.rpc("claim_stalled_ai_tasks_for_vercel", { p_limit: 1 }).abortSignal(signal || new AbortController().signal);
+  const claimed = await admin.rpc("claim_stalled_ai_tasks_for_vercel_excluding", {
+    p_limit: 1, p_excluded_task_ids: excludedTaskIds,
+  }).abortSignal(signal || new AbortController().signal);
   if (claimed.error) throw claimed.error;
   let recovered = 0;
   for (const task of claimed.data || []) {

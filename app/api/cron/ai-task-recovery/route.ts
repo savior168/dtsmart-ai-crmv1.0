@@ -54,13 +54,10 @@ export async function GET(request: NextRequest) {
     screening: maintenanceIds("AI_MAINTENANCE_PAUSED_SCREENING_IDS").length,
   };
   try {
-    // A maintenance-paused screening task has no safe per-task recovery marker,
-    // so skip only that queue. Acquisition recovery is task-scoped: its
-    // dispatcher protects only IDs that still carry the maintenance-pause
-    // marker, while explicitly resumed and unrelated queued tasks continue.
-    const screeningRecovery = maintenancePaused.screening
-      ? Promise.resolve({ recovered: 0, error: null, skipped: true })
-      : recoverWithDeadline("screening", rescueStalledCloudTasks);
+    // Exclude only the explicitly paused screening IDs. Pausing one task must
+    // not suppress recovery for every other stale screening child.
+    const screeningRecovery = recoverWithDeadline("screening", (signal) =>
+      rescueStalledCloudTasks(signal, maintenanceIds("AI_MAINTENANCE_PAUSED_SCREENING_IDS")));
     const [screening, acquisition] = await Promise.all([
       screeningRecovery,
       recoverWithDeadline("acquisition", rescueStalledAiAcquisitionTasks),
@@ -71,7 +68,7 @@ export async function GET(request: NextRequest) {
       maintenance_paused: maintenancePaused,
       recovered: screening.recovered + acquisition.recovered,
       screening_recovered: screening.recovered,
-      screening_recovery_skipped: "skipped" in screening && screening.skipped,
+      screening_recovery_skipped: false,
       acquisition_recovered: acquisition.recovered,
       screening_error: screening.error,
       acquisition_error: acquisition.error,

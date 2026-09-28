@@ -321,7 +321,7 @@ const acquisitionDispatch=fs.readFileSync(new URL("../lib/ai-acquisition/dispatc
 assert.match(acquisitionDispatch,/reconcileCompletedAcquisitionTask[\s\S]*child\.data\?\.status !== "COMPLETED"[\s\S]*decision", "ANALYZING"[\s\S]*status: "COMPLETED"/,"恢复器必须直接收口子任务已完成且无待判定候选的父任务，不能让页面长期停留在执行中");
 assert.match(acquisitionDispatch,/current_stage_detail[\s\S]*maintenanceProtected[\s\S]*includes\("系统维护暂停"\)/,"维护名单只能保护仍带维护暂停标记的任务，人工继续后不得被自动再次暂停");
 assert.doesNotMatch(acquisitionDispatch,/settleStalePausingTasks|eq\("status", "PAUSING"\)/,"恢复器不得每分钟扫描人工暂停边界并与前台查询争抢数据库；运行中工作流负责在安全检查点收口暂停");
-assert.match(recoveryRoute,/screeningRecovery = maintenancePaused\.screening[\s\S]*recoverWithDeadline\("acquisition", rescueStalledAiAcquisitionTasks\)[\s\S]*screening_recovery_skipped/,"维护中的AI筛选不得阻断AI获客暂停收口和其他获客任务恢复");
+assert.match(recoveryRoute,/rescueStalledCloudTasks\(signal, maintenanceIds\("AI_MAINTENANCE_PAUSED_SCREENING_IDS"\)\)[\s\S]*recoverWithDeadline\("acquisition", rescueStalledAiAcquisitionTasks\)/,"维护中的AI筛选不得阻断其他筛选任务或获客任务恢复");
 assert.doesNotMatch(recoveryRoute,/if \(maintenancePaused\.acquisition \|\| maintenancePaused\.screening\) \{[\s\S]*return NextResponse\.json/,"维护名单不得让整个恢复器提前返回");
 assert.doesNotMatch(recoveryRoute,/if \(maintenancePaused\.acquisition > 0\) \{[\s\S]*return NextResponse\.json/,"过期的获客维护名单不得阻断已人工恢复和其他排队任务");
 assert.match(acquisitionWorkflow,/normalizedErrorMessage[\s\S]*ACQUISITION_FINISH_COUNT_[\s\S]*ACQUISITION_FINISH_CANDIDATE_TOTALS[\s\S]*ACQUISITION_FINISH_TASK_UPDATE/,"任务完成收口必须保留可定位的数据库错误，不能只显示Unknown error");
@@ -372,7 +372,7 @@ assert.match(contactSummary,/EXCEL_IMPORT[\s\S]*BATCH_IMPORT[\s\S]*Excel导入[\
 assert.match(scoreBadge,/score>=80[\s\S]*score>=65[\s\S]*score>=50/,"相似客户页面必须共用统一评分分档样式");
 assert.match(detail,/CustomerScoreBadge score=\{r\.ai_score\}/,"AI获客客户列表必须复用全局客户评分组件");
 assert.match(publicPool,/CustomerScoreBadge score=\{row\.ai_score\}/,"客户公海必须复用同一评分组件，避免同字段多套样式");
-assert.match(candidateEvidenceDialog,/确认舍弃[\s\S]*重新校验并入池/,"待复核客户必须提供安全的人工处理闭环");
+assert.match(candidateEvidenceDialog,/确认舍弃[\s\S]*按现有证据校验入池/,"待复核客户必须提供安全的人工处理闭环并明确不会重新采集");
 assert.match(detail,/task\.review_count > 0[\s\S]*\["COMPLETED", "FAILED"\][\s\S]*REASSESS_REVIEWS[\s\S]*重新核验待复核[\s\S]*清空待复核客户的旧评分、旧结论与旧渠道检查点/,"已完成或失败任务必须提供可审计的全量待复核重新核验入口，并明确不会沿用旧评分或旧采集检查点");
 assert.match(detail,/task\.status === "COMPLETED"[\s\S]*task\.processed_count[\s\S]*task\.discovered_count[\s\S]*恢复未核验项/,"已完成但仍有未核验候选的历史任务必须在页面提供明确恢复入口");
 assert.match(detail,/返回任务中心[\s\S]*查看任务报告[\s\S]*停止任务[\s\S]*继续执行[\s\S]*重试失败项[\s\S]*取消任务/,"AI获客任务详情必须与AI筛选统一任务控制文案与按钮层级，同时保留完整状态控制");
