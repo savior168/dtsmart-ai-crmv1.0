@@ -326,12 +326,15 @@ assert.match(malformedPrice.issues.join(" "), /人民币采购价格式无效/, 
 assert.equal(validateNormalizedProduct({ category_id: "12345678-1234-1234-1234-123456789abc", name_zh: "测试商品", procurement_cny: "¥1,234.50", minimum_order_quantity: 1 }).normalized.procurement_cny, 1234.5);
 const priceApi = read("app/api/product-prices/route.ts");
 assert.match(priceApi, /if \(!supportedKinds\.has\(priceKind\)\)/, "无效价格类型不得静默改为采购价");
+assert.match(priceApi, /priceKind === "SALE_REFERENCE" \? "pricebooks\.sales\.view" : "pricebooks\.cost\.view"/, "手工改价必须按价格类型核对销售或采购查看权限");
 assert.match(priceApi, /amountText = String\(body\.amount \?\? ""\)[\s\S]*if \(!\/\^\\d\+/, "未填价格不得通过 Number 空值变成已确认零元");
 assert.match(read("supabase/migrations/202609230006_product_price_validation.sql"), /p_currency is distinct from[\s\S]*p_amount is null[\s\S]*p_amount<>round\(p_amount,4\)/, "数据库须拒绝币种错配、空价格和隐式精度截断");
 assert.match(read("supabase/migrations/202609230006_product_price_validation.sql"), /pg_advisory_xact_lock\(hashtext\(p_product_id::text\)\)/, "手工改价须与导入发布使用同一商品锁");
 assert.match(read("supabase/migrations/202609230006_product_price_validation.sql"), /p_effective_from>current_date/, "未实现预约调价前不得停用现价并写入未来价格");
 assert.match(read("components/product-pricebook-view.tsx"), /loadVersion\.current[\s\S]*finally\{if\(version===loadVersion\.current\)setLoading\(false\)[\s\S]*重新加载/, "价格表加载失败不得永久转圈，且必须可重试");
 assert.match(read("components/product-pricebook-view.tsx"), /searchProducts\(\)[\s\S]*q:productQuery\.trim\(\)[\s\S]*aria-label="搜索商品"/, "手工维护价格时须能搜索超过首页100条的商品");
+assert.match(read("components/product-pricebook-view.tsx"), /key==="SALE_REFERENCE"\?Boolean\(data\?\.can_view_sales\):Boolean\(data\?\.can_view_cost\)/, "采购员的维护下拉框不得显示美元销售参考价");
+assert.match(read("supabase/migrations/202609280007_product_price_kind_write_guard.sql"), /before insert or update on public\.product_prices[\s\S]*guard_product_price_kind_write/, "价格表写入必须在数据库边界按价格类型拦截越权操作");
 for (const path of ["app/api/products/route.ts", "app/api/products/[id]/route.ts"]) {
   assert.doesNotMatch(read(path), /supplier_code:\s*String\(body\.supplier_code\s*\|\|\s*normalized\.sku/, "系统 SKU 绝不能自动伪装成供应商商品货号");
 }

@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     if (productIds) builder = builder.in("product_id", productIds);
     const { data, count, error } = await builder.order("updated_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (error) throw error;
-    return NextResponse.json({ data: data || [], count: count || 0, page, page_size: pageSize, can_view_cost: canViewCost, can_view_sales: canViewSales, can_manage: hasPermission(account, "pricebooks.manage"), can_import: hasPermission(account, "pricebooks.import") });
+    return NextResponse.json({ data: data || [], count: count || 0, page, page_size: pageSize, can_view_cost: canViewCost, can_view_sales: canViewSales, can_manage: hasPermission(account, "pricebooks.manage") && (canViewCost || canViewSales), can_import: hasPermission(account, "pricebooks.import") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "产品价格加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 500 });
@@ -47,12 +47,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { supabase } = await requirePermission("pricebooks.manage");
+    const { account, supabase } = await requirePermission("pricebooks.manage");
     const body = await request.json();
     const productId = String(body.product_id || "");
     const supportedKinds = new Set(["PROCUREMENT", "PACKAGING", "OTHER_COST", "SALE_REFERENCE"]);
     const priceKind = String(body.price_kind || "");
     if (!supportedKinds.has(priceKind)) return NextResponse.json({ error: "请选择有效的价格项目" }, { status: 400 });
+    if (!hasPermission(account, priceKind === "SALE_REFERENCE" ? "pricebooks.sales.view" : "pricebooks.cost.view"))
+      return NextResponse.json({ error: "无此价格项目的维护权限" }, { status: 403 });
     const currency = priceKind === "SALE_REFERENCE" ? "USD" : "CNY";
     const amountText = String(body.amount ?? "").trim();
     const quantityText = String(body.minimum_quantity ?? "").trim();
