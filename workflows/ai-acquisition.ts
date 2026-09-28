@@ -5,6 +5,7 @@ import { aiScreeningWorkflow } from "./ai-screening";
 import { discoverBusinesses, discoveryCandidateLooksRelevant, type DiscoveredBusiness } from "../lib/ai-acquisition/discovery";
 import type { AcquisitionCountry } from "../lib/ai-acquisition/config";
 import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match";
+import { acquisitionIndustryMismatchReason } from "../lib/ai-acquisition/decision-reason";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
 import { createScreeningTaskNumber } from "../lib/ai/task-number";
 import { normalizedErrorMessage } from "../lib/ai/error-normalization";
@@ -348,9 +349,10 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
         ? "REJECTED"
         : accepted ? "ACCEPTED" : (explicitlyNeedsReview || unreachableVerifiedTarget) ? "REVIEW" : "REJECTED";
       let reason = accepted ? "目标行业、主体、在营证据和可用联系方式均已核验"
-        : verifiedIndustryMismatch ? `已核验行业“${String(result?.industry_type || "未知") }”与本任务目标行业不一致，未进入客户公海`
+        : verifiedIndustryMismatch ? acquisitionIndustryMismatchReason(targetIndustries, result?.industry_type)
         : unreachableVerifiedTarget ? "已确认目标行业、主体和经营证据，但尚未取得带具体来源的有效联系方式；保留待补证，禁止按不可触达自动归档"
         : explicitlyNeedsReview ? String(result?.short_reason || "可靠来源存在主体或经营事实冲突，需要人工复核")
+          : result?.automation_status === "AUTO_DEVELOP" && result?.target_decision === "VALID" ? "初步目标判断为有效，但主体、经营证据、评分或可追溯联系方式未全部满足最终入池门槛"
           : String(result?.short_reason || "核验证据不足，未进入客户公海");
       if (accepted) {
         const normalized = verifiedContacts.map((row) => String(row.value_normalized || "")).filter(Boolean);

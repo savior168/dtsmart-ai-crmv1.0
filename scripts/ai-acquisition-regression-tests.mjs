@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate.ts";
 import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match.ts";
+import { acquisitionIndustryMismatchReason } from "../lib/ai-acquisition/decision-reason.ts";
 import { summarizeUsagePurposes } from "../lib/api-usage-purpose.ts";
 import { discoveryCandidateLooksRelevant } from "../lib/ai-acquisition/relevance.ts";
 import { googleProfileHasTemporalBusinessConflict } from "../lib/ai/google-profile-consistency.ts";
@@ -19,6 +20,10 @@ assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).verifiedTarget,true,
 assert.equal(evaluateAcquisitionGate({...base,contacts:[]}).accepted,false,"缺少可追溯联系方式的目标客户不得直接入池");
 assert.equal(evaluateAcquisitionGate({...base,identityStatus:"AMBIGUOUS"}).evidenceComplete,false,"主体未匹配时不得把单一来源链接标为证据完整");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机维修店"),true,"核验行业与任务目标一致才可入池");
+assert.match(acquisitionIndustryMismatchReason(["手机维修连锁店"],"手机维修店"),/缺少手机维修及多门店或连锁经营的直接证据/,
+  "连锁店任务应解释业务与连锁双重证据门槛，而非笼统称行业不一致");
+assert.match(acquisitionIndustryMismatchReason(["手机维修店"],"电脑维修店"),/缺少与本任务目标行业直接匹配的经营证据/,
+  "其他目标行业仍应说明具体的行业证据不匹配");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"手机维修店",["官网证明提供手机维修"]),false,"普通手机维修店不能仅凭行业标签进入连锁店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"Apple或MacBook维修店",["官网证明提供手机维修并有多门店或连锁经营"]),true,"主行业为Apple维修但有手机维修和连锁证据时不能误拒");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修连锁店"],"电脑维修店",["官网证明提供多门店或连锁经营"]),false,"仅有连锁证据而无手机维修证据不能入池");
@@ -136,6 +141,14 @@ assert.match(discoveryRelevance,/broadFinishedGoodsTerms[\s\S]*matchedDomainTerm
 assert.doesNotMatch(discoveryRelevance,/cell_phone_store\|electronics_store\|computer_store/,"成品手机、电子或电脑商店类别不得单独作为目标客户准入依据");
 assert.match(workflow,/lookupBatchSize = 100[\s\S]*cancel_requested[\s\S]*PAUSING/,"候选持久化阶段必须分批响应取消和暂停，不能继续做无效工作");
 const taskRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
+assert.match(taskRoute,/includeSearchStats[\s\S]*report \|\| request\.nextUrl\.searchParams\.get\("search_stats"\) === "1"/,
+  "全量搜索策略统计必须按需加载，不能拖慢日常任务详情");
+assert.match(taskRoute,/\.order\("id"\)\.limit\(1000\)[\s\S]*\.gt\("id", lastId\)[\s\S]*rows\.length < 1000/,
+  "搜索来源统计必须分页读取全部候选，不能只取前1000条");
+assert.match(taskRoute,/legacyItemSet[\s\S]*decision_reason: decisionReason/,
+  "历史正面短理由与最终拒绝冲突时，列表必须按最终准入门槛解释");
+assert.match(workflow,/acquisitionIndustryMismatchReason[\s\S]*初步目标判断为有效，但主体、经营证据、评分或可追溯联系方式未全部满足最终入池门槛/,
+  "连锁店任务和初判目标但终审未过的候选必须显示实际准入阻点");
 assert.match(taskRoute,/action === "RETRY"/);
 assert.match(taskRoute,/action === "PAUSE"[\s\S]*executorIsLive[\s\S]*nextStatus = executorIsLive \? "PAUSING" : "PAUSED"[\s\S]*仅可由用户手动继续[\s\S]*\.in\("status", \["RUNNING", "PAUSING"\]\)[\s\S]*ai_screening_tasks[\s\S]*status: "PAUSED"/,"失效执行器的任务在用户暂停时必须立即进入已暂停，且已卡在安全暂停的任务可以自愈");
 const config=fs.readFileSync(new URL("../lib/ai-acquisition/config.ts",import.meta.url),"utf8");

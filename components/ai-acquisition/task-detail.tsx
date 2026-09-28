@@ -112,6 +112,9 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
     [discoveryProgress, setDiscoveryProgress] = useState<DiscoveryProgress | null>(null),
     [verificationProgress, setVerificationProgress] = useState<VerificationProgress | null>(null),
     [searchStats, setSearchStats] = useState<SearchStat[]>([]),
+    [searchStatsRequested, setSearchStatsRequested] = useState(false),
+    [searchStatsLoading, setSearchStatsLoading] = useState(false),
+    [searchStatsError, setSearchStatsError] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [canControl, setCanControl] = useState(false),
@@ -170,6 +173,22 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       if (!quiet) setLoading(false);
     }
   }, [taskId, page, pageSize, decision, search, countries, industries, level, readiness, evidenceStatus, resultSort]);
+  const loadSearchStats = useCallback(async () => {
+    if (searchStatsRequested || searchStatsLoading) return;
+    setSearchStatsLoading(true);
+    setSearchStatsError("");
+    try {
+      const response = await fetch(`/api/ai-acquisition/tasks/${taskId}?search_stats=1&page=1&pageSize=10`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.search_stats_error || !Array.isArray(body.search_stats)) throw new Error(body.error || "搜索策略统计加载失败，请稍后重试");
+      setSearchStats(body.search_stats);
+      setSearchStatsRequested(true);
+    } catch (reason) {
+      setSearchStatsError(reason instanceof Error ? reason.message : "搜索策略统计加载失败");
+    } finally {
+      setSearchStatsLoading(false);
+    }
+  }, [taskId, searchStatsRequested, searchStatsLoading]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -558,7 +577,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         />
       </section>
       <div id="task-analysis" className="scroll-mt-4 space-y-4">
-      {searchStats.length?<details className={`${panel} group overflow-hidden`}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">搜索策略效果</h2><p className="mt-1 text-xs text-slate-500">用于复盘各检索组合的发现、核验、入池和后续转化表现，默认收起，不影响日常查看客户。</p></div><span className="flex shrink-0 items-center gap-3 text-sm"><span className="text-slate-500">组合 {formatNumber(searchStats.length)} · 发现 {formatNumber(searchTotals.candidates)} · 入池 {formatNumber(searchTotals.accepted)}</span><b className="text-slate-900">{formatCost(searchTotals.cost)}</b><ChevronDown size={16} className="text-blue-600 transition group-open:rotate-180"/></span></summary><div className="border-t"><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-4">{[["检索组合",formatNumber(searchStats.length)],["发现候选",formatNumber(searchTotals.candidates)],["成功入池",formatNumber(searchTotals.accepted)],["成本参考",formatCost(searchTotals.cost)]].map(([label,value])=><div key={label} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div><div className="max-h-80 overflow-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["检索组合","发现候选","重复","未通过","待复核","成功入池","已认领","已推进","成本参考","平均入池成本参考"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></div></details>:null}
+      <details className={`${panel} group overflow-hidden`} onToggle={(event) => { if (event.currentTarget.open) void loadSearchStats(); }}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4"><div><h2 className="font-semibold">搜索策略效果</h2><p className="mt-1 text-xs text-slate-500">展开后按全量候选统计检索组合，不影响日常查看客户。</p></div><span className="flex shrink-0 items-center gap-3 text-sm">{searchStatsRequested?<><span className="text-slate-500">组合 {formatNumber(searchStats.length)} · 发现 {formatNumber(searchTotals.candidates)} · 入池 {formatNumber(searchTotals.accepted)}</span><b className="text-slate-900">{formatCost(searchTotals.cost)}</b></>:<span className="text-slate-500">展开查看</span>}<ChevronDown size={16} className="text-blue-600 transition group-open:rotate-180"/></span></summary><div className="border-t">{searchStatsLoading?<p className="p-5 text-sm text-slate-500">正在汇总全量候选…</p>:searchStatsError?<div className="p-5 text-sm text-red-600">{searchStatsError}<button type="button" className="ml-3 text-blue-600" onClick={() => void loadSearchStats()}>重试</button></div>:searchStatsRequested&&!searchStats.length?<p className="p-5 text-sm text-slate-500">暂无检索组合记录</p>:searchStatsRequested?<><div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-4">{[["检索组合",formatNumber(searchStats.length)],["发现候选",formatNumber(searchTotals.candidates)],["成功入池",formatNumber(searchTotals.accepted)],["成本参考",formatCost(searchTotals.cost)]].map(([label,value])=><div key={label} className="rounded-lg bg-slate-50 px-4 py-3"><small className="text-slate-500">{label}</small><b className="mt-1 block text-lg">{value}</b></div>)}</div><div className="max-h-80 overflow-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{["检索组合","发现候选","重复","未通过","待复核","成功入池","已认领","已推进","成本参考","平均入池成本参考"].map((label)=><th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{searchStats.map((item)=><tr key={item.query} className="border-t"><td className="max-w-80 px-4 py-3 font-medium text-slate-700">{item.query}</td><td className="px-4 py-3">{item.candidates}</td><td className="px-4 py-3">{item.duplicates}</td><td className="px-4 py-3">{item.rejected}</td><td className="px-4 py-3">{item.review}</td><td className="px-4 py-3 font-medium text-emerald-700">{item.accepted}</td><td className="px-4 py-3">{item.claimed}</td><td className="px-4 py-3">{item.progressed}</td><td className="px-4 py-3">{formatCost(item.cost_usd)}</td><td className="px-4 py-3">{item.accepted?formatCost(item.cost_usd/item.accepted):"—"}</td></tr>)}</tbody></table></div></>:null}</div></details>
       </div>
       {node}
       <ConfirmDialog

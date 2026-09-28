@@ -8,6 +8,8 @@ import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
 import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorrectedEarlyRejections, requeueInvalidAcquisitionAcceptances } from "@/lib/ai-acquisition/requeue";
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
+import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/industry-match";
+import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const sort = request.nextUrl.searchParams.get("sort") || "SALES_PRIORITY";
     const lightweight = request.nextUrl.searchParams.get("lightweight") === "1";
     const report = request.nextUrl.searchParams.get("report") === "1";
+    const includeSearchStats = !lightweight && (report || request.nextUrl.searchParams.get("search_stats") === "1");
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
     if (decision) query = query.eq("decision", decision);
     if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
@@ -93,6 +96,23 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (customerProfiles.error || verifiedContacts.error) throw customerProfiles.error || verifiedContacts.error;
+    const legacyRejections = candidateRows.filter((row) => row.decision === "REJECTED" &&
+      String(row.decision_reason || "").includes("直接经营证据明确符合目标业务") && row.screening_task_item_id);
+    const legacyItemIds = legacyRejections.map((row) => String(row.screening_task_item_id));
+    const legacyItemSet = new Set(legacyItemIds);
+    const [legacyResults, legacyEvidence] = legacyItemIds.length ? await Promise.all([
+      createAdminClient().from("ai_screening_results").select("task_item_id,industry_type").in("task_item_id", legacyItemIds).eq("is_latest_valid", true),
+      createAdminClient().from("ai_screening_evidence").select("task_item_id,source_url,evidence_strength,translated_fact,original_excerpt").in("task_item_id", legacyItemIds),
+    ]) : [{ data: [], error: null }, { data: [], error: null }];
+    if (legacyResults.error || legacyEvidence.error) throw legacyResults.error || legacyEvidence.error;
+    const legacyResultByItem = new Map((legacyResults.data || []).map((row) => [String(row.task_item_id), row]));
+    const legacyEvidenceByItem = new Map<string, string[]>();
+    for (const row of legacyEvidence.data || []) {
+      if (!/^https?:\/\//i.test(String(row.source_url || "")) || row.evidence_strength === "WEAK_HINT") continue;
+      const key = String(row.task_item_id);
+      legacyEvidenceByItem.set(key, [...(legacyEvidenceByItem.get(key) || []), String(row.translated_fact || ""), String(row.original_excerpt || "")]);
+    }
+    const targetIndustries = Array.isArray(task.industries) && task.industries.length ? task.industries : [task.industry];
     const profileById = new Map((customerProfiles.data || []).map((row) => [String(row.id), row]));
     const contactsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const contact of verifiedContacts.data || []) {
@@ -108,7 +128,20 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       const website=officialWebsiteUrl(rawWebsite);
       const historicalChannel=publicChannelForUrl(rawWebsite);
       const customerProfile=profile?{...profile,website,facebook_url:profile.facebook_url||(historicalChannel==="facebook"?rawWebsite:null),instagram_url:profile.instagram_url||(historicalChannel==="instagram"?rawWebsite:null),linkedin_url:profile.linkedin_url||(historicalChannel==="linkedin"?rawWebsite:null),tiktok_url:profile.tiktok_url||(historicalChannel==="tiktok"?rawWebsite:null)}:null;
-      return { ...row, customer_profile: customerProfile, verified_contacts: customerContacts, source_website:website, source_website_status:website?sourceWebsite?.verification_status||null:null };
+      let decisionReason = row.decision_reason;
+      if (legacyItemSet.has(String(row.screening_task_item_id || ""))) {
+        const itemId = String(row.screening_task_item_id);
+        const result = legacyResultByItem.get(itemId);
+        const industryMatches = result && acquisitionIndustryMatchesVerifiedResult(targetIndustries, result.industry_type, legacyEvidenceByItem.get(itemId) || []);
+        const missingIndustry = !industryMatches ? acquisitionIndustryMismatchReason(targetIndustries, result?.industry_type) : "";
+        const missingContact = !row.has_actionable_contact ? "缺少带具体来源的有效联系方式" : "";
+        decisionReason = [missingIndustry, missingContact].filter(Boolean).join("；") || "最终入池门槛未全部通过，请核对完整证据";
+        if (!String(decisionReason).includes("未进入客户公海")) decisionReason += "，未进入客户公海";
+      } else if (row.decision === "REJECTED" && targetIndustries.length === 1 && targetIndustries[0] === "手机维修连锁店" &&
+        /^已核验行业“.*”与本任务目标行业不一致/.test(String(decisionReason || ""))) {
+        decisionReason = acquisitionIndustryMismatchReason(targetIndustries, String(decisionReason).match(/“([^”]+)”/)?.[1]);
+      }
+      return { ...row, decision_reason: decisionReason, customer_profile: customerProfile, verified_contacts: customerContacts, source_website:website, source_website_status:website?sourceWebsite?.verification_status||null:null };
     });
     const acquisitionChild = await createAdminClient().from("ai_screening_tasks").select("id,status,total_count,pending_count,success_count,failed_count,processed_count,updated_at").eq("request_key", `acquisition:${id}`).maybeSingle();
     if (acquisitionChild.error) {
@@ -149,18 +182,41 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const verificationCompleted=Math.min(verificationTotal,Number(verificationTask?.processed_count||0)||Number(verificationTask?.success_count||0)+Number(verificationTask?.failed_count||0));
     const earlyProcessed=Math.max(0,Number(task.discovered_count||0)-verificationTotal);
     const verificationProgress=verificationTask?{status:verificationTask.status,total:verificationTotal,completed:verificationCompleted,pending:Math.max(0,Number(verificationTask.pending_count||0)),success:Number(verificationTask.success_count||0),failed:Number(verificationTask.failed_count||0),early_processed:earlyProcessed,updated_at:verificationTask.updated_at}:null;
-    const traceRows=lightweight?{data:[],error:null}:await createAdminClient().from("ai_acquisition_candidates").select("source_query,decision,decision_reason,staging_customer_id,imported_customer_id").eq("task_id",id).limit(1000);
-    if(traceRows.error) console.error("[ai-acquisition-task] optional search analytics unavailable", { task_id:id, code:traceRows.error.code });
-    const traceCustomerIds=[...new Set((traceRows.data||[]).flatMap((row)=>[row.imported_customer_id,row.staging_customer_id]).filter(Boolean).map(String))];
+    const traceRows: Array<{source_query:string|null;decision:string;imported_customer_id:string|null;staging_customer_id:string|null}> = [];
+    let searchStatsError = false;
+    if (includeSearchStats) {
+      let lastId = "";
+      for (;;) {
+        let traceQuery = createAdminClient().from("ai_acquisition_candidates")
+          .select("id,source_query,decision,staging_customer_id,imported_customer_id")
+          .eq("task_id", id).order("id").limit(1000);
+        if (lastId) traceQuery = traceQuery.gt("id", lastId);
+        const chunk = await traceQuery;
+        if (chunk.error) {
+          console.error("[ai-acquisition-task] optional search analytics unavailable", { task_id: id, code: chunk.error.code });
+          searchStatsError = true;
+          break;
+        }
+        const rows = chunk.data || [];
+        traceRows.push(...rows);
+        if (rows.length < 1000) break;
+        lastId = String(rows[rows.length - 1].id);
+      }
+    }
+    if (searchStatsError) traceRows.length = 0;
+    const traceCustomerIds=[...new Set(traceRows.filter((row)=>row.decision==="ACCEPTED").map((row)=>row.imported_customer_id||row.staging_customer_id).filter(Boolean).map(String))];
     const customerStates=traceCustomerIds.length?await loadCustomerStates(traceCustomerIds):{data:[],error:null};
-    if(customerStates.error) console.warn("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code, message:customerStates.error.message });
+    if(customerStates.error) {
+      console.warn("[ai-acquisition-task] optional customer state analytics unavailable", { task_id:id, code:customerStates.error.code, message:customerStates.error.message });
+      searchStatsError = true;
+    }
     const metricCostRows:Array<{customer_id:string|null;provider:string;model_or_sku:string|null;operation:string|null;amount_usd:number;amount_type:string;quantity:number;input_tokens:number;output_tokens:number;metadata:Record<string,unknown>|null}>=[];
-    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
+    if(canViewUsage&&!lightweight)for(let offset=0;;offset+=1000){const chunk=await createAdminClient().from("api_cost_ledger").select("customer_id,provider,model_or_sku,operation,amount_usd,amount_type,quantity,input_tokens,output_tokens,metadata").in("task_id",taskIds).range(offset,offset+999);if(chunk.error){console.error("[ai-acquisition-task] optional cost analytics unavailable", { task_id:id, code:chunk.error.code });searchStatsError=true;break}metricCostRows.push(...(chunk.data||[]));if((chunk.data||[]).length<1000)break}
     const stateByCustomer=new Map((customerStates.data||[]).map((row)=>[String(row.id),row]));
     const queryByCustomer=new Map<string,string>();
     const stats=new Map<string,{query:string;candidates:number;duplicates:number;rejected:number;review:number;accepted:number;claimed:number;progressed:number;cost_usd:number}>();
     const metric=(query:string)=>{const key=query||"未记录检索表达";if(!stats.has(key))stats.set(key,{query:key,candidates:0,duplicates:0,rejected:0,review:0,accepted:0,claimed:0,progressed:0,cost_usd:0});return stats.get(key)!};
-    for(const row of traceRows.data||[]){const item=metric(String(row.source_query||""));item.candidates+=1;if(row.decision==="DUPLICATE")item.duplicates+=1;else if(row.decision==="REJECTED")item.rejected+=1;else if(row.decision==="REVIEW")item.review+=1;else if(row.decision==="ACCEPTED")item.accepted+=1;const customerId=String(row.imported_customer_id||row.staging_customer_id||"");if(customerId){queryByCustomer.set(customerId,item.query);const state=stateByCustomer.get(customerId);if(state?.owner_id)item.claimed+=1;if(["FOLLOWING","QUOTE","DEAL"].includes(String(state?.status||"")))item.progressed+=1;}}
+    for(const row of traceRows){const item=metric(String(row.source_query||""));item.candidates+=1;if(row.decision==="DUPLICATE")item.duplicates+=1;else if(row.decision==="REJECTED")item.rejected+=1;else if(row.decision==="REVIEW")item.review+=1;else if(row.decision==="ACCEPTED")item.accepted+=1;const customerId=String(row.imported_customer_id||row.staging_customer_id||"");if(customerId){queryByCustomer.set(customerId,item.query);const state=stateByCustomer.get(customerId);if(row.decision==="ACCEPTED"&&state?.owner_id)item.claimed+=1;if(row.decision==="ACCEPTED"&&["FOLLOWING","QUOTE","DEAL"].includes(String(state?.status||"")))item.progressed+=1;}}
     for(const row of metricCostRows){const metadata=row.metadata&&typeof row.metadata==="object"?row.metadata as Record<string,unknown>:{};const query=row.provider==="GOOGLE_PLACES"?String(metadata.query||""):queryByCustomer.get(String(row.customer_id||""))||"";if(query&&isActuallyIncurredCost(row))metric(query).cost_usd+=Number(row.amount_usd||0);}
     const searchStats=[...stats.values()].sort((left,right)=>right.accepted-left.accepted||right.candidates-left.candidates||left.query.localeCompare(right.query));
     const usageData=usageSummary.data&&typeof usageSummary.data==="object"?usageSummary.data as Record<string,unknown>:{};
@@ -179,9 +235,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const liveTerminal=["accepted_count","review_count","rejected_count","duplicate_count"]
       .reduce((sum,key)=>sum+Math.max(0,Number(task[key]||0)),0);
     const liveTask={...task,processed_count:Math.min(liveDiscovered,Math.max(Number(task.processed_count||0),liveTerminal))};
-    const reusedCandidates=(traceRows.data||[]).filter((row)=>String(row.decision_reason||"").startsWith("复用近14天历史核验结论")).length;
+    const reusedCount = lightweight ? { count: 0, error: null } : await createAdminClient().from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", id).like("decision_reason", "复用近14天历史核验结论%");
+    if (reusedCount.error) console.error("[ai-acquisition-task] optional reused candidate count unavailable", { task_id: id, code: reusedCount.error.code });
+    const reusedCandidates = reusedCount.count || 0;
     const noNewSearchUnits=totalCheckpoints>0&&completedFreshSearches===0&&completedSearches===totalCheckpoints&&incrementalSkipped+concurrentlySkipped+reusedSearches>=totalCheckpoints;
-    return NextResponse.json({ task: presentTask(liveTask), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],search_stats:searchStats,completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},usage_summary:{...usageData,...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
+    return NextResponse.json({ task: presentTask(liveTask), candidates: enrichedCandidates, count: candidates.count || 0, ...(lightweight?{}:{costs:costs.data||[],...(includeSearchStats?{search_stats:searchStats,search_stats_error:searchStatsError}:{}),completion:{budget_limited:blockedPeriods.length>0,blocked_periods:blockedPeriods,incremental_skipped:incrementalSkipped,concurrently_skipped:concurrentlySkipped,reused_searches:reusedSearches,reused_candidates:reusedCandidates,no_new_search_units:noNewSearchUnits},usage_summary:{...usageData,...localUsageSummary,total_cost_usd:actualCost,actual_cost_usd:actualCost,google_actual_cost_usd:confirmedGoogleCost,total_tokens:totalTokens}}), ...(report?{report_candidates:reportCandidates.data||[]}:{}), discovery_progress:discoveryProgress, verification_progress:verificationProgress, can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: canViewUsage, can_control: hasPermission(account, "ai.acquisition.control") && (task.user_id === account.id || account.role === "ADMIN") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务详情加载失败";
     const publicMessage = message === "UNAUTHORIZED" ? "登录已失效，请重新登录"
