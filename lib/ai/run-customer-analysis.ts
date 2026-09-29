@@ -1286,7 +1286,17 @@ export function hasTargetValueSignal(customer: CustomerRow, records: ChannelReco
 
 export function isConclusiveChannelAnalysis(analysis: CustomerAnalysis | null) {
   if (!analysis || !analysis.evidence_summaries.length) return false;
-  if (analysis.confidence_score >= 82 && analysis.evidence_sufficiency === "充分") return true;
+  const positiveConclusion = analysis.is_target_customer
+    && Number(analysis.ai_score || 0) >= 60
+    && primaryIndustryFor(analysis.industry_type) !== "UNKNOWN";
+  // A generic Apple-repair mention does not establish whether the business
+  // repairs iPhones, MacBooks, or both. Keep collecting the linked Google
+  // profile when the official site only supports this broad label.
+  const specificAppleService = analysis.industry_type !== "Apple或MacBook维修店"
+    || analysis.evidence_summaries.some((item) => item.evidence_type === "支持"
+      && /(?:iPhone|iPad|MacBook|Apple Watch|iMac|手机|电脑|笔记本|屏幕|电池|充电口|主板)/i.test(item.fact_zh));
+  if (analysis.confidence_score >= 82 && analysis.evidence_sufficiency === "充分"
+      && positiveConclusion && specificAppleService) return true;
   // A verified official website is authoritative for declared business scope.
   // A conflicting Google category is retained in the evidence, but does not
   // justify more social/model calls after the website already proves the result.
@@ -1295,7 +1305,7 @@ export function isConclusiveChannelAnalysis(analysis: CustomerAnalysis | null) {
     if (item.confidence < 80 || item.evidence_type === "中性") return false;
     if (!/^(?:website|google_maps|facebook|instagram|linkedin|tiktok|other)$/.test(item.channel)) return false;
     return item.evidence_type === "支持"
-      ? hasDirectTargetBusinessEvidence(item.fact_zh)
+      ? positiveConclusion && specificAppleService && hasDirectTargetBusinessEvidence(item.fact_zh)
       : isDirectNonTargetBusinessEvidence(item.fact_zh);
   });
 }
