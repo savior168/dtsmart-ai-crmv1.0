@@ -5,6 +5,7 @@ import type { Customer } from "@/lib/types";
 import { countryInfo } from "@/lib/countries";
 import { CustomerSocialLinksEditor, type SocialLinkRow, type SocialPlatform } from "@/components/customer-social-links-editor";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 
 type PotentialCustomer = {
   id?: string;
@@ -51,12 +52,10 @@ function validateSocialLinks(rows: SocialLinkRow[]) {
 }
 
 function validateBasicContacts(form: Record<string, string>) {
-  const phone = form.phone.trim();
-  if (phone && !/^\+?[\d\s().-]{6,25}$/.test(phone)) throw new Error("联系电话格式不正确");
+  normalizeManualPhone(form.phone, "联系电话");
   const email = form.email.trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
-  const whatsapp = form.whatsapp.trim();
-  if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
+  normalizeManualPhone(form.whatsapp, "WhatsApp号码");
   for (const [label, value] of [["官网网址", form.website], ["Google地图网址", form.google_url]] as const) {
     if (!value.trim()) continue;
     let parsed: URL;
@@ -87,7 +86,7 @@ export function CustomerForm({ customer, onDone, onCancel, analyzeAfterSave = fa
       const uniqueSocial=[...new Map(socialLinks.map((row)=>({ ...row,url:row.url.trim() })).filter((row)=>row.url).map((row)=>[`${row.platform}|${row.url.toLowerCase().replace(/\/$/,"")}`,row])).values()];
       validateSocialLinks(uniqueSocial);
       const fixed=(platform:SocialPlatform)=>uniqueSocial.find((row)=>row.platform===platform)?.url||"";
-      const allPayload:Record<string,string|string[]|boolean>={...form,country:countryInfo(form.country).name,destination,facebook_url:fixed("facebook"),instagram_url:fixed("instagram"),tiktok_url:fixed("tiktok"),linkedin_url:fixed("linkedin"),other_public_urls:uniqueSocial.filter((row)=>["youtube","x","other"].includes(row.platform)).map((row)=>row.url),confirm_potential_duplicate:potentialDuplicate};
+      const allPayload:Record<string,string|string[]|boolean>={...form,phone:normalizeManualPhone(form.phone,"联系电话"),whatsapp:normalizeManualPhone(form.whatsapp,"WhatsApp号码"),country:countryInfo(form.country).name,destination,facebook_url:fixed("facebook"),instagram_url:fixed("instagram"),tiktok_url:fixed("tiktok"),linkedin_url:fixed("linkedin"),other_public_urls:uniqueSocial.filter((row)=>["youtube","x","other"].includes(row.platform)).map((row)=>row.url),confirm_potential_duplicate:potentialDuplicate};
       const basicKeys=["company_name","contact_name","country","phone","whatsapp","email","website","google_url","address","category","notes","facebook_url","instagram_url","tiktok_url","linkedin_url","other_public_urls"];
       const payload=editBasicOnly?Object.fromEntries(basicKeys.map((key)=>[key,allPayload[key]])):allPayload;
       const response=await fetch(customer?`/api/customers/${customer.id}`:"/api/customers",{method:customer?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});

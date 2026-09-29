@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
       const quoted = industries.map((industry) => JSON.stringify(industry)).join(",");
       query = query.or(`industry.in.(${quoted}),category.in.(${quoted})`, { referencedTable: "industry_customer" });
     }
-    if (["A", "B", "C", "D"].includes(level)) query = query.eq("ai_level", level);
+    if (["A", "B", "C", "D"].includes(level)) query = query.eq("effective_level", level);
     if (from) query=query.gte("processed_at",`${from}T00:00:00.000+08:00`);
     if (to) query=query.lte("processed_at",`${to}T23:59:59.999+08:00`);
     const result = mode === "core"

@@ -208,7 +208,7 @@ export async function requeueAcquisitionEvidenceGaps(task: RequeueTask, screenin
     const ids = eligibleCandidates.slice(offset, offset + 100).map((row) => row.id);
     const resetCandidates = await admin.from("ai_acquisition_candidates").update({
       decision: "ANALYZING", decision_reason: "Google详情预算降级修复后重新执行主体、行业、证据与联系方式核验",
-      imported_customer_id: null, ai_score: null, ai_level: null, is_target_customer: false,
+      imported_customer_id: null, ai_score: null, ai_level: null, manual_score:null, manual_level:null, manual_target_decision:null, manual_industry:null, manual_reason:null, manual_evidence_ids:[], manual_reviewed_by:null, manual_reviewed_at:null, is_target_customer: false,
       has_actionable_contact: false, evidence_complete: false, processed_at: null, updated_at: now,
     }).in("id", ids).eq("task_id", task.id).eq("decision", "REJECTED");
     if (resetCandidates.error) throw resetCandidates.error;
@@ -292,7 +292,7 @@ export async function requeueAcquisitionReviews(task: RequeueTask, screeningTask
     const ids = candidates.slice(offset, offset + 100).map((row) => row.id);
     const reset = await admin.from("ai_acquisition_candidates").update({
       decision: "ANALYZING", decision_reason: "正在按现行主体、行业、证据、联系方式与评分规则重新核验",
-      imported_customer_id: null, ai_score: null, ai_level: null, is_target_customer: false,
+      imported_customer_id: null, ai_score: null, ai_level: null, manual_score:null, manual_level:null, manual_target_decision:null, manual_industry:null, manual_reason:null, manual_evidence_ids:[], manual_reviewed_by:null, manual_reviewed_at:null, is_target_customer: false,
       has_actionable_contact: false, evidence_complete: false, processed_at: null, updated_at: now,
     }).in("id", ids).eq("task_id", task.id).eq("decision", "REVIEW");
     if (reset.error) throw reset.error;
@@ -406,7 +406,7 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
   for (let offset = 0; offset < customerIds.length; offset += 100) {
     const demoted = await admin.from("customers").update({
       source: "AI_ACQUISITION_STAGING", pool_status: "AI_STAGING", acquisition_scope: "PRIVATE",
-      ai_score: null, ai_level: null, ai_status: "PENDING", ai_screening_done: false, updated_at: now,
+      ai_score: null, ai_level: null, ai_score_source:null, ai_status: "PENDING", ai_screening_done: false, updated_at: now,
     }).in("id", customerIds.slice(offset, offset + 100)).eq("pool_status", "AVAILABLE").is("owner_id", null).is("owner_user_id", null);
     if (demoted.error) throw demoted.error;
   }
@@ -414,7 +414,7 @@ export async function requeueInvalidAcquisitionAcceptances(task: RequeueTask, sc
     const ids = eligible.slice(offset, offset + 100).map((row) => row.id);
     const reset = await admin.from("ai_acquisition_candidates").update({
       decision: "ANALYZING", decision_reason: "历史入池记录不满足现行行业、证据或可追溯联系方式门槛，正在重新核验",
-      imported_customer_id: null, ai_score: null, ai_level: null, is_target_customer: false,
+      imported_customer_id: null, ai_score: null, ai_level: null, manual_score:null, manual_level:null, manual_target_decision:null, manual_industry:null, manual_reason:null, manual_evidence_ids:[], manual_reviewed_by:null, manual_reviewed_at:null, is_target_customer: false,
       has_actionable_contact: false, evidence_complete: false, processed_at: null, updated_at: now,
     }).in("id", ids).eq("task_id", task.id).eq("decision", "ACCEPTED");
     if (reset.error) throw reset.error;

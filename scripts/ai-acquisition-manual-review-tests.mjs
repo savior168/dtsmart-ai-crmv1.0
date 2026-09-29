@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { manualScoreLevel, parseManualReview } from "../lib/ai-acquisition/manual-review.ts";
+
+const evidenceId="43f37e7a-4a65-42be-b2da-e22836dc5aad";
+const valid={score:72,targetDecision:"VALID",industry:"手机维修店",reason:"官网明确提供手机换屏与电池更换服务",evidenceIds:[evidenceId]};
+assert.equal(manualScoreLevel(72),"B");
+assert.equal(manualScoreLevel(60),"C");
+assert.equal(manualScoreLevel(59),"D");
+assert.deepEqual(parseManualReview(valid),valid);
+assert.throws(()=>parseManualReview({...valid,score:59}),/60/);
+assert.throws(()=>parseManualReview({...valid,evidenceIds:[]}),/证据/);
+assert.throws(()=>parseManualReview({...valid,industry:"随意自定义"}),/标准经营行业/);
+assert.throws(()=>parseManualReview({...valid,reason:"太短"}),/理由/);
+assert.throws(()=>parseManualReview({...valid,targetDecision:"INVALID",score:72}),/低于 60/);
+assert.equal(parseManualReview({...valid,targetDecision:"INVALID",score:25,evidenceIds:[]}).score,25);
+
+const route=readFileSync(new URL("../app/api/ai-acquisition/candidates/[id]/review/route.ts",import.meta.url),"utf8");
+const migration=readFileSync(new URL("../supabase/migrations/202609290001_ai_acquisition_manual_review_score.sql",import.meta.url),"utf8");
+assert.match(route,/candidate\.data\.decision!=="REVIEW"[\s\S]*action==="SAVE_ASSESSMENT"/);
+assert.match(route,/\.eq\("updated_at",candidate\.data\.updated_at\)/);
+assert.match(route,/manual_target_decision:assessment\.targetDecision/);
+assert.match(route,/manual_evidence_ids:assessment\.evidenceIds/);
+assert.match(route,/manuallyConfirmed\?"AUTO_DEVELOP":result\.data\?\.automation_status/);
+assert.match(route,/manuallyConfirmed\?candidate\.data\.manual_score:result\.data\?\.score/);
+assert.match(route,/ai_score_source:"MANUAL_REVIEW"/);
+assert.match(migration,/create table if not exists public\.ai_acquisition_manual_review_history/);
+assert.match(migration,/old\.decision <> 'REVIEW' or new\.decision <> 'REVIEW'/);
+assert.match(migration,/effective_score integer generated always as \(coalesce\(manual_score, ai_score\)\) stored/);
+console.log("AI获客人工复核评分、行业结论、证据和审计约束测试通过");

@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
+import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
 // ownership or workflow transitions. Those fields belong to dedicated flows.
@@ -72,11 +73,9 @@ function validateManualUrl(value: unknown, label: string, host?: RegExp) {
 }
 
 function validateManualContactInput(body: Record<string, unknown>) {
-  const phone = String(body.phone || "").trim();
-  const whatsapp = String(body.whatsapp || "").trim();
+  body.phone = normalizeManualPhone(body.phone, "联系电话");
+  body.whatsapp = normalizeManualPhone(body.whatsapp, "WhatsApp号码");
   const email = String(body.email || "").trim();
-  if (phone && !/^\+?[\d\s().-]{6,25}$/.test(phone)) throw new Error("联系电话格式不正确");
-  if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
   validateManualUrl(body.website, "官网网址");
   assertOfficialWebsiteUrl(body.website);

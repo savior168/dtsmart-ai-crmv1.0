@@ -28,25 +28,6 @@ const RESTRICTED_POOL_EMAILS = new Set(["laura@dt-smart.com", "xavia@dt-smart.co
 const RESTRICTED_POOL_BATCHES = ["255 WT谷歌数据 波兰 (2).xlsx", "500 WT谷歌数据 波兰 (1).xlsx"] as const;
 const poolOptionsCache = new Map<string, { expiresAt: number; payload: Record<string, unknown> }>();
 
-function maskPhone(value: unknown) {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  return text.length <= 5 ? "****" : `${text.slice(0, 3)} **** ${text.slice(-2)}`;
-}
-
-function maskEmail(value: unknown) {
-  const text = String(value || "").trim();
-  const [local, domain] = text.split("@");
-  if (!local || !domain) return text ? "****" : null;
-  return `${local.slice(0, 1)}***@${domain}`;
-}
-
-function maskAddress(value: unknown) {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  return text.length <= 8 ? "****" : `${text.slice(0, 8)}…`;
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("customers.view");
@@ -73,23 +54,17 @@ export async function GET(request: NextRequest) {
     const customerId = params.get("customer_id")?.trim() || "";
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
-    // Claimed customers have left the public pool. They are visible only to
-    // their owner, that owner's direct supervisor, or the system administrator.
+    // Everyone can audit who claimed a customer; only the owner, their direct
+    // supervisor, and admins may see private customer/workflow details.
     const directReports = account.role === "SUPERVISOR"
       ? await admin.from("users").select("id").eq("manager_id", account.id).eq("status", "ACTIVE")
       : { data: [], error: null };
     if (directReports.error) throw directReports.error;
-    const claimScopeOwnerIds = account.role === "ADMIN"
-      ? null
-      : account.role === "SUPERVISOR"
-        ? [account.id, ...(directReports.data || []).map((item) => item.id)]
-        : [account.id];
     if (params.get("counts") === "1") {
       const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
       const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
       if (restrictedBatchView) availableQuery.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
-      let claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
-      if (claimScopeOwnerIds) claimedQuery = claimedQuery.in("owner_id", claimScopeOwnerIds);
+      const claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
       const pendingQuery = baseCount().eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
       const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner:users!customer_protection_renewal_requests_owner_id_fkey(manager_id)").eq("status", "PENDING");
       const historyQuery = account.role === "ADMIN"
@@ -115,13 +90,13 @@ export async function GET(request: NextRequest) {
     const allowed = new Set(["available", "claimed", "pending"]);
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
-    const elevated = account.role === "ADMIN" || account.role === "SUPERVISOR";
     const exportMode = params.get("export") === "1";
     if (exportMode && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以导出客户公海数据" }, { status: 403 });
-    if (ownerId && (!elevated || (claimScopeOwnerIds && !claimScopeOwnerIds.includes(ownerId)))) return NextResponse.json({ error: "当前角色不能按该认领人筛选" }, { status: 403 });
+    if (ownerId && (tab !== "claimed" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerId))) return NextResponse.json({ error: "无效的认领人筛选" }, { status: 400 });
+    if (tab === "claimed" && customerStatus && account.role !== "ADMIN") return NextResponse.json({ error: "当前角色不能按其他客户的阶段筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionCacheKey = [account.id, account.role, tab, restrictedBatchView ? "restricted" : "all", countries.join(","), aiLevel, aiStatus, target, sourceType, sourceBatches.join(","), ...(claimScopeOwnerIds || [])].join("|");
+      const optionCacheKey = [account.id, account.role, tab, restrictedBatchView ? "restricted" : "all", countries.join(","), aiLevel, aiStatus, target, sourceType, sourceBatches.join(",")].join("|");
       const cachedOptions = poolOptionsCache.get(optionCacheKey);
       if (cachedOptions && cachedOptions.expiresAt > Date.now()) {
         return NextResponse.json(cachedOptions.payload, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=90" } });
@@ -133,7 +108,6 @@ export async function GET(request: NextRequest) {
         if (restrictedBatchView) optionQuery = optionQuery.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
         if (tab === "claimed") {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
-          if (claimScopeOwnerIds) optionQuery = optionQuery.in("owner_id", claimScopeOwnerIds);
         }
         if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
         if (countries.length) optionQuery = optionQuery.in("country", countries);
@@ -156,7 +130,7 @@ export async function GET(request: NextRequest) {
         if (pageRows.length < 1000) break;
       }
       const ownerIds = [...new Set(optionRows.map((item) => item.owner_id).filter(Boolean))] as string[];
-      const owners = elevated && ownerIds.length
+      const owners = tab === "claimed" && ownerIds.length
         ? await admin.from("users").select("id,name,email").in("id", ownerIds).order("name")
         : { data: [], error: null };
       if (owners.error) throw owners.error;
@@ -225,7 +199,7 @@ export async function GET(request: NextRequest) {
           { value: "IMPORT", label: "批量导入" },
           { value: "AI_ACQUISITION", label: "AI获客" },
           { value: "MANUAL", label: "手动新增" },
-        ].filter((option) => optionRows.some((item) => sourceGroup(item.source) === option.value)),
+        ],
         batches,
         screening_tasks: (screeningTasks.data || []).map((task) => ({ value: task.id, label: `${task.task_number || "未编号"} · ${task.name || "未命名任务"}`, customer_count: Number(task.total_count || 0) })),
       };
@@ -239,14 +213,13 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
     if (restrictedBatchView) query = query.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
     if (tab === "claimed") {
       query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
-      if (claimScopeOwnerIds) query = query.in("owner_id", claimScopeOwnerIds);
     }
     if (tab === "pending") query = query.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
     if (search) {
@@ -260,8 +233,9 @@ export async function GET(request: NextRequest) {
       }
       query = query.or(searchable.map((field) => `${field}.ilike.${pattern}`).join(","));
     }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(createdFrom)) query = query.gte("created_at", `${createdFrom}T00:00:00.000+08:00`);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) query = query.lte("created_at", `${createdTo}T23:59:59.999+08:00`);
+    const dateField = tab === "claimed" ? "claimed_at" : "created_at";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(createdFrom)) query = query.gte(dateField, `${createdFrom}T00:00:00.000+08:00`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) query = query.lte(dateField, `${createdTo}T23:59:59.999+08:00`);
     if (countries.length) query = query.in("country", countries);
     const verifiedIndustries = industries.filter((value) => value.startsWith("ai:")).map((value) => value.slice(3));
     const rawCategories = industries.filter((value) => value.startsWith("raw:")).map((value) => value.slice(4));
@@ -321,9 +295,10 @@ export async function GET(request: NextRequest) {
       query = query.in("id", ids);
     }
     if (customerId) query = query.eq("id", customerId);
-    const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website", "google_url", "ai_score", "status", "last_contact_time", "owner_id", "source", "source_batch", "created_at", "updated_at"]);
+    const allowedSort = new Set(["company_name", "contact_name", "country", "industry", "phone", "email", "website", "google_url", "ai_score", "status", "last_contact_time", "owner_id", "source", "source_batch", "created_at", "claimed_at", "updated_at"]);
     if (hasOptionalFields) ["website_email", "website_phone", "followup_status"].forEach((field) => allowedSort.add(field));
-    const sortField = allowedSort.has(sort) ? sort : "updated_at";
+    const privateSort = new Set(["contact_name", "phone", "email", "website", "google_url", "status", "last_contact_time", "followup_status", "website_email", "website_phone", "updated_at"]);
+    const sortField = tab === "claimed" && account.role !== "ADMIN" && privateSort.has(sort) ? "claimed_at" : allowedSort.has(sort) ? sort : tab === "claimed" ? "claimed_at" : "updated_at";
     const from = (page - 1) * pageSize;
     const result = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, from + pageSize - 1);
     if (result.error) throw result.error;
@@ -365,14 +340,18 @@ export async function GET(request: NextRequest) {
       const historicalChannel = publicChannelForUrl(rawWebsite);
       return {
         ...row,
-        followup_status: "followup_status" in row ? row.followup_status : "WAITING_CONTACT",
-        contact_name: full ? row.contact_name : row.contact_name ? "****" : null,
-        phone: full ? row.phone : maskPhone(row.phone),
-        whatsapp: full ? row.whatsapp : maskPhone(row.whatsapp),
-        email: full ? row.email : maskEmail(row.email),
-        website_phone: full ? websitePhone : maskPhone(websitePhone),
-        website_email: full ? websiteEmail : maskEmail(websiteEmail),
-        address: full ? row.address : maskAddress(row.address),
+        status: full ? row.status : "CLAIMED",
+        followup_status: full ? "followup_status" in row ? row.followup_status : "WAITING_CONTACT" : null,
+        last_contact_time: full ? row.last_contact_time : null,
+        business_scope: full ? row.business_scope : null,
+        updated_at: full ? row.updated_at : row.claimed_at,
+        contact_name: full ? row.contact_name : null,
+        phone: full ? row.phone : null,
+        whatsapp: full ? row.whatsapp : null,
+        email: full ? row.email : null,
+        website_phone: full ? websitePhone : null,
+        website_email: full ? websiteEmail : null,
+        address: full ? row.address : null,
         website: full ? website : null,
         google_url: full ? row.google_url : null,
         facebook_url: full ? row.facebook_url || (historicalChannel === "facebook" ? rawWebsite : null) : null,
@@ -383,7 +362,7 @@ export async function GET(request: NextRequest) {
         contact_masked: !full,
         owner: row.owner_id ? ownerById.get(row.owner_id) || null : null,
         creator: row.created_by ? ownerById.get(String(row.created_by)) || null : null,
-        protection: protectionByCustomer.get(row.id) || null,
+        protection: full ? protectionByCustomer.get(row.id) || null : null,
         my_supplements: supplementsByCustomer.get(row.id) || [],
         verified_contacts: full ? verifiedContactsByCustomer.get(row.id) || [] : [],
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),

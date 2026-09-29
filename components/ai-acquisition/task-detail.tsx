@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CalendarClock, ChevronDown, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
-import { CustomerScoreBadge } from "@/components/customer-score-badge";
+import { CandidateScoreDisplay } from "./candidate-score-display";
 import { CountryLabel } from "@/components/country-label";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerPublicChannels } from "@/components/customer-public-channels";
@@ -512,7 +512,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                 {[
                   "客户名称",
                   "国家/地区",
-                  "AI评分",
+                  "当前评分",
                   "联系号码",
                   "邮箱",
                   "官网",
@@ -537,7 +537,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
                     <span className="block min-w-0"><span className="block truncate font-medium text-blue-700" title={r.company_name}>{r.company_name}</span><CandidateIndustryLabel candidate={r}/></span>
                   </td>
                   <td className="px-3 py-4"><CountryLabel value={r.country}/></td>
-                  <td className="px-3 py-4"><CustomerScoreBadge score={r.ai_score} level={r.ai_level}/></td>
+                  <td className="px-3 py-4"><CandidateScoreDisplay candidate={r}/></td>
                   <td className="max-w-64 px-4 py-4">
                     <CustomerContactSummary customer={{...r.customer_profile,country:r.country,verified_contacts:r.verified_contacts}} source="ai" display="phone"/>
                   </td>
@@ -653,7 +653,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         onClose={() => setAction(null)}
         onConfirm={() => void runAction()}
       />
-      <CandidateEvidenceDialog evidence={evidence} canControl={canControl} onClose={() => setEvidence(null)} onReview={(review, candidateId) => { setReviewAction({ action: review, candidateId }); setEvidence(null); }}/>
+      <CandidateEvidenceDialog evidence={evidence} canControl={canControl} onClose={() => setEvidence(null)} onReview={(review, candidateId) => { setReviewAction({ action: review, candidateId }); setEvidence(null); }} onSaveAssessment={async(candidateId,assessment)=>{const response=await fetch(`/api/ai-acquisition/candidates/${candidateId}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"SAVE_ASSESSMENT",assessment})});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||"保存人工复核失败");toast("人工评分与判断已保存");await showEvidence(candidateId);await load()}}/>
       <ConfirmDialog open={Boolean(reviewAction)} title={reviewAction?.action==="DISCARD"?"确认舍弃该客户？":"按现有证据校验该客户？"} description={reviewAction?.action==="DISCARD"?"舍弃后该客户不会进入客户公海，处理依据与审计记录仍会保留。":"系统只按现有分析结果与证据核对准入条件，不会重新采集；只有证据和有效联系方式均达标且无重复时才会进入客户公海。"} confirmLabel={reviewAction?.action==="DISCARD"?"确认舍弃":"校验入池"} busy={busy} onClose={()=>setReviewAction(null)} onConfirm={()=>void runReviewAction()}/>
     </div></main>
   );

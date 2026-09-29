@@ -6,6 +6,7 @@ import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision
 import { officialWebsiteUrl } from "@/lib/public-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
+import { manualScoreLevel, parseManualReview } from "@/lib/ai-acquisition/manual-review";
 
 async function refreshTaskCounts(taskId:string) {
   const admin = createAdminClient();
@@ -18,9 +19,9 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
   try {
     const { account } = await requirePermission("ai.acquisition.control");
     const { id } = await params;
-    const body = await request.json() as { action?:string };
+    const body = await request.json() as { action?:string; assessment?:unknown };
     const action = String(body.action||"");
-    if (!["DISCARD","RECHECK_AND_ACCEPT"].includes(action)) return NextResponse.json({error:"不支持的复核操作"},{status:400});
+    if (!["SAVE_ASSESSMENT","DISCARD","RECHECK_AND_ACCEPT"].includes(action)) return NextResponse.json({error:"不支持的复核操作"},{status:400});
     const admin = createAdminClient();
     const candidate = await admin.from("ai_acquisition_candidates").select("*,task:ai_acquisition_tasks!inner(id,user_id,task_number,industry,industries)").eq("id",id).maybeSingle();
     if (candidate.error) throw candidate.error;
@@ -29,7 +30,34 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     if (task.user_id!==account.id && account.role!=="ADMIN") throw new Error("FORBIDDEN");
     if (candidate.data.decision!=="REVIEW") return NextResponse.json({error:"该客户已处理，请刷新后查看"},{status:409});
     const customerId=String(candidate.data.staging_customer_id||"");
+    if (action==="SAVE_ASSESSMENT") {
+      let assessment;
+      try { assessment=parseManualReview(body.assessment); }
+      catch (error) { return NextResponse.json({error:error instanceof Error?error.message:"人工复核内容无效"},{status:400}); }
+      const itemId=String(candidate.data.screening_task_item_id||"");
+      if (!itemId) return NextResponse.json({error:"该候选缺少可核验的分析记录，不能人工改分"},{status:409});
+      const selected=assessment.evidenceIds.length
+        ? await admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,translated_fact,original_excerpt").eq("task_item_id",itemId).in("id",assessment.evidenceIds)
+        : {data:[],error:null};
+      if (selected.error) throw selected.error;
+      if ((selected.data||[]).length!==assessment.evidenceIds.length || (selected.data||[]).some((row)=>!/^https?:\/\//i.test(String(row.source_url||"")) || row.evidence_strength==="WEAK_HINT")) return NextResponse.json({error:"只能引用本客户有公开来源且非弱提示的经营证据"},{status:400});
+      if (assessment.targetDecision==="VALID") {
+        const targetIndustries=task.industries?.length?task.industries:[task.industry];
+        const facts=(selected.data||[]).flatMap((row)=>[row.translated_fact,row.original_excerpt]);
+        if (!acquisitionIndustryMatchesVerifiedResult(targetIndustries,assessment.industry,facts)) return NextResponse.json({error:"人工核实行业与任务目标不匹配，请核对所选经营证据"},{status:400});
+      }
+      const now=new Date().toISOString();
+      const updated=await admin.from("ai_acquisition_candidates").update({
+        manual_score:assessment.score,manual_level:manualScoreLevel(assessment.score),manual_target_decision:assessment.targetDecision,
+        manual_industry:assessment.industry,manual_reason:assessment.reason,manual_evidence_ids:assessment.evidenceIds,
+        manual_reviewed_by:account.id,manual_reviewed_at:now,updated_at:now,
+      }).eq("id",id).eq("decision","REVIEW").eq("updated_at",candidate.data.updated_at).select("id");
+      if (updated.error) throw updated.error;
+      if (!updated.data?.length) return NextResponse.json({error:"该客户复核内容已被更新，请刷新后重试"},{status:409});
+      return NextResponse.json({ok:true});
+    }
     if (action==="DISCARD") {
+      if (candidate.data.manual_target_decision==="VALID") return NextResponse.json({error:"已人工确认为目标客户；如需舍弃，请先修正人工复核结论"},{status:409});
       const updated=await admin.from("ai_acquisition_candidates").update({decision:"REJECTED",decision_reason:"人工复核确认舍弃，未进入客户公海",processed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id).eq("decision","REVIEW").select("id");
       if (updated.error) throw updated.error;
       if (!updated.data?.length) return NextResponse.json({error:"该客户已被其他人处理"},{status:409});
@@ -38,11 +66,12 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         if (hidden.error) throw hidden.error;
       }
     } else {
+      if (candidate.data.manual_target_decision==="INVALID") return NextResponse.json({error:"人工已判定为非目标客户，不能入池"},{status:409});
       const itemId=String(candidate.data.screening_task_item_id||"");
       const [result,contacts,evidence]=await Promise.all([
         admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status,industry_type").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
         admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId),
-        admin.from("ai_screening_evidence").select("source_url,evidence_strength,translated_fact,original_excerpt").eq("task_item_id",itemId),
+        admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,translated_fact,original_excerpt").eq("task_item_id",itemId),
       ]);
       if (result.error||contacts.error||evidence.error) throw result.error||contacts.error||evidence.error;
       const identityStatus=String(result.data?.identity_status||"");
@@ -63,16 +92,19 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         ? await admin.from("customer_contacts").select("type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId)
         : contacts;
       if(refreshedContacts.error)throw refreshedContacts.error;
-      const gate=evaluateAcquisitionGate({automationStatus:result.data?.automation_status,targetDecision:result.data?.target_decision,score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:evidence.data||[],contacts:refreshedContacts.data||[]});
+      const manuallyConfirmed=candidate.data.manual_target_decision==="VALID" && candidate.data.manual_score!=null;
+      const reviewEvidence=manuallyConfirmed?(evidence.data||[]).filter((row)=>candidate.data.manual_evidence_ids?.includes(row.id)):evidence.data||[];
+      const gate=evaluateAcquisitionGate({automationStatus:manuallyConfirmed?"AUTO_DEVELOP":result.data?.automation_status,targetDecision:manuallyConfirmed?"VALID":result.data?.target_decision,score:manuallyConfirmed?candidate.data.manual_score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:reviewEvidence,contacts:refreshedContacts.data||[]});
       const targetIndustries=task.industries?.length?task.industries:[task.industry];
-      const industryEvidence=(evidence.data||[])
+      const industryEvidence=reviewEvidence
         .filter((row)=>/^https?:\/\//i.test(String(row.source_url||""))&&row.evidence_strength!=="WEAK_HINT")
         .flatMap((row)=>[row.translated_fact,row.original_excerpt]);
-      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:acquisitionIndustryMismatchReason(targetIndustries,result.data?.industry_type)},{status:409});
+      const reviewedIndustry=manuallyConfirmed?candidate.data.manual_industry:result.data?.industry_type;
+      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,reviewedIndustry,industryEvidence)) return NextResponse.json({error:acquisitionIndustryMismatchReason(targetIndustries,reviewedIndustry)},{status:409});
       if (!gate.accepted) {
         const missing = [
-          result.data?.automation_status !== "AUTO_DEVELOP" || result.data?.target_decision !== "VALID" ? "AI最终目标结论尚未通过，当前按钮不会替代人工证据复核" : null,
-          Number(result.data?.score || 0) < 60 ? "评分未达到60分" : null,
+          !manuallyConfirmed&&(result.data?.automation_status !== "AUTO_DEVELOP" || result.data?.target_decision !== "VALID") ? "AI最终目标结论尚未通过，请先提交带经营证据的人工复核结论" : null,
+          Number(manuallyConfirmed?candidate.data.manual_score:result.data?.score || 0) < 60 ? "当前评分未达到60分" : null,
           !["MATCHED","LIKELY_MATCHED"].includes(identityStatus) ? "客户主体与证据来源尚未确认一致" : null,
           !gate.hasTraceableBusinessEvidence ? "缺少可追溯的非弱经营证据" : null,
           !gate.actionableContacts.length ? "缺少可追溯且已核验的电话、邮箱或WhatsApp" : null,
@@ -87,10 +119,10 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         .limit(1):{data:[],error:null};
       if (duplicate.error) throw duplicate.error;
       if (duplicate.data?.length) return NextResponse.json({error:"核验联系方式已存在于系统其他客户，不能重复入池"},{status:409});
-      const updated=await admin.from("ai_acquisition_candidates").update({decision:"ACCEPTED",decision_reason:"人工发起重新校验，全部自动准入门槛通过",imported_customer_id:customerId,has_actionable_contact:true,evidence_complete:true,processed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id).eq("decision","REVIEW").select("id");
+      const updated=await admin.from("ai_acquisition_candidates").update({decision:"ACCEPTED",decision_reason:manuallyConfirmed?"人工目标行业和评分已复核，来源证据、主体、联系方式和重复校验通过":"人工发起重新校验，全部自动准入门槛通过",imported_customer_id:customerId,has_actionable_contact:true,evidence_complete:true,processed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",id).eq("decision","REVIEW").select("id");
       if (updated.error) throw updated.error;
       if (!updated.data?.length) return NextResponse.json({error:"该客户已被其他人处理"},{status:409});
-      const promoted=await admin.from("customers").update({source:"AI_ACQUISITION",acquisition_scope:"PUBLIC_POOL",pool_status:"AVAILABLE",status:"UNCLAIMED",owner_id:null,owner_user_id:null,assigned_via:null,deleted_at:null,updated_at:new Date().toISOString()}).eq("id",customerId).select("id").maybeSingle();
+      const promoted=await admin.from("customers").update({source:"AI_ACQUISITION",acquisition_scope:"PUBLIC_POOL",pool_status:"AVAILABLE",status:"UNCLAIMED",owner_id:null,owner_user_id:null,assigned_via:null,deleted_at:null,...(manuallyConfirmed?{ai_score:candidate.data.manual_score,ai_level:candidate.data.manual_level,ai_score_source:"MANUAL_REVIEW",is_target_customer:true,industry:reviewedIndustry}:{}),updated_at:new Date().toISOString()}).eq("id",customerId).select("id").maybeSingle();
       let promotionConfirmed=Boolean(promoted.data);
       if (!promoted.error&&!promotionConfirmed) {
         const current=await admin.from("customers").select("source,acquisition_scope,pool_status,deleted_at").eq("id",customerId).maybeSingle();

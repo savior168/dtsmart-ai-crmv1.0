@@ -72,7 +72,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       const matchingCustomerIds=[...new Set([...(industryMatches.data||[]),...(categoryMatches.data||[])].map((row)=>String(row.id)))];
       query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
     }
-    if (["A","B","C","D"].includes(level)) query = query.eq("ai_level", level);
+    if (["A","B","C","D"].includes(level)) query = query.eq("effective_level", level);
     if (readiness === "ACTIONABLE") query = query.eq("has_actionable_contact", true);
     if (readiness === "NO_CONTACT") query = query.eq("has_actionable_contact", false);
     if (evidenceStatus === "COMPLETE") query = query.eq("evidence_complete", true);
@@ -82,8 +82,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       : await (sort === "RECENT"
           ? query.order("updated_at", { ascending: false })
           : sort === "SCORE"
-            ? query.order("ai_score", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false })
-            : query.order("has_actionable_contact", { ascending: false }).order("evidence_complete", { ascending: false }).order("ai_score", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false }))
+            ? query.order("effective_score", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false })
+            : query.order("has_actionable_contact", { ascending: false }).order("evidence_complete", { ascending: false }).order("effective_score", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false }))
         .range((page - 1) * pageSize, page * pageSize - 1);
     if (candidates.error) throw candidates.error;
     const candidateRows = candidates.data || [];
@@ -220,7 +220,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     for(const row of metricCostRows){const metadata=row.metadata&&typeof row.metadata==="object"?row.metadata as Record<string,unknown>:{};const query=row.provider==="GOOGLE_PLACES"?String(metadata.query||""):queryByCustomer.get(String(row.customer_id||""))||"";if(query&&isActuallyIncurredCost(row))metric(query).cost_usd+=Number(row.amount_usd||0);}
     const searchStats=[...stats.values()].sort((left,right)=>right.accepted-left.accepted||right.candidates-left.candidates||left.query.localeCompare(right.query));
     const totalTokens=metricCostRows.reduce((sum,row)=>sum+Number(row.input_tokens||0)+Number(row.output_tokens||0),0);
-    const reportCandidates=report?await createAdminClient().from("ai_acquisition_candidates").select("id,imported_customer_id,company_name,decision,ai_score,ai_level,country,matched_keywords").eq("task_id",id).eq("decision","ACCEPTED").order("ai_score",{ascending:false,nullsFirst:false}).limit(10):{data:[],error:null};
+    const reportCandidates=report?await createAdminClient().from("ai_acquisition_candidates").select("id,imported_customer_id,company_name,decision,ai_score,ai_level,manual_score,manual_level,effective_score,effective_level,country,matched_keywords").eq("task_id",id).eq("decision","ACCEPTED").order("effective_score",{ascending:false,nullsFirst:false}).limit(10):{data:[],error:null};
     if(reportCandidates.error) console.error("[ai-acquisition-task] optional report candidates unavailable", { task_id:id, code:reportCandidates.error.code });
     const actualCost=actualCostUsd(metricCostRows);
     const confirmedGoogleCost=actualCostUsd(metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES"));

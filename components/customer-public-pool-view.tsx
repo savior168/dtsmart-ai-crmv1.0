@@ -93,6 +93,7 @@ type PoolRow = {
   other_public_urls?: string[] | null;
   ai_level: string | null;
   ai_score: number | null;
+  ai_score_source?: string | null;
   ai_screening_done?: boolean | null;
   business_scope: string | null;
   owner_id: string | null;
@@ -101,6 +102,7 @@ type PoolRow = {
   creator?: Owner | null;
   pool_status: string | null;
   status: string;
+  claimed_at?: string | null;
   followup_status: string | null;
   last_contact_time: string | null;
   source: string | null;
@@ -179,7 +181,7 @@ const tabLabels: Record<Tab, string> = {
 };
 const tabDescriptions: Record<Tab, string> = {
   available: "无归属，可提交真实联系凭证认领",
-  claimed: "查询历史归属，不属于可再次认领列表",
+  claimed: "查看全系统当前认领人；其他人的联系方式和跟进详情仅归属人及授权管理者可见",
   pending: "到期且有业务记录或账号停用的数据",
   renewals: "审核销售员第三次及后续续期申请",
   handover: "转移停用或离职账号的全部业务数据",
@@ -298,10 +300,10 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
   if (key === "country") return row.country || "—";
   if (key === "industry") return customerIndustryDisplay(row).text;
   if (key === "ai_score") return row.ai_score == null ? "未筛选" : `${row.ai_level || "—"} · ${row.ai_score}`;
-  if (key === "status") return poolStageLabels[row.status] || row.status || "—";
-  if (key === "followup_status") return followupLabels[row.followup_status || "WAITING_CONTACT"] || "待联系";
-  if (key === "protection") return row.protection?.expire_date ? `至 ${new Date(row.protection.expire_date).toLocaleDateString("zh-CN")}` : "—";
-  if (key === "last_contact_time") return formatDate(row.last_contact_time);
+  if (key === "status") return row.contact_masked ? "已认领" : poolStageLabels[row.status] || row.status || "—";
+  if (key === "followup_status") return row.contact_masked ? "归属人可见" : followupLabels[row.followup_status || "WAITING_CONTACT"] || "待联系";
+  if (key === "protection") return row.contact_masked ? "归属人可见" : row.protection?.expire_date ? `至 ${new Date(row.protection.expire_date).toLocaleDateString("zh-CN")}` : "—";
+  if (key === "last_contact_time") return row.contact_masked ? "归属人可见" : formatDate(row.last_contact_time);
   if (key === "owner") return displayUser(row.owner);
   if (key === "phone") return row.phone || "—";
   if (key === "email") return row.email || "—";
@@ -322,7 +324,7 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
     return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
-  if (field === "ai_score") return <CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>;
+  if (field === "ai_score") return <span className="inline-flex items-center gap-1"><CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>{row.ai_score_source==="MANUAL_REVIEW"?<small className="text-blue-700">人工复核</small>:null}</span>;
   if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="phone"/>;
   if (field === "email" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="email"/>;
   if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
@@ -570,6 +572,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setTab(value);
     setError("");
     setSelected(new Set());
+    setCreatedFrom("");
+    setCreatedTo("");
     setCountries([]);
     setIndustries([]);
     setOwnerId("");
@@ -580,7 +584,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setSourceBatchQuery("");
     setScreeningTaskIds([]);
     setScreeningTaskOpen(false);
-    setSort("updated_at");
+    setSort(value === "claimed" ? "claimed_at" : "updated_at");
     setDirection("desc");
     if (value === "available" || value === "claimed" || value === "pending") {
       let next = POOL_DEFAULT_FIELDS[value];
@@ -610,11 +614,12 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     setSourceBatchQuery("");
     setScreeningTaskIds([]);
     setScreeningTaskOpen(false);
-    setSort("updated_at");
+    setSort(tab === "claimed" ? "claimed_at" : "updated_at");
     setDirection("desc");
     setPage(1);
   }
   function changeSort(key: CustomerListColumn) {
+    if (tab === "claimed" && role !== "ADMIN" && ["contact_name", "phone", "whatsapp", "email", "website_email", "website_phone", "verified_contacts", "website", "google_url", "status", "followup_status", "last_contact_time", "protection", "updated_at"].includes(key)) return;
     const next = customerListSortField(key);
     if (sort === next) setDirection((current) => current === "asc" ? "desc" : "asc");
     else { setSort(next); setDirection("asc"); }
@@ -708,8 +713,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
               待认领客户没有归属人；销售员提交真实联系凭证后完成认领，并进入“我的客户”。
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              “认领记录”仅用于查询历史公海客户的当前归属，非归属销售员只能查看脱敏信息；它不是可再次认领的客户列表。
+              “认领记录”显示全系统当前归属；其他销售员的联系与跟进信息仅归属人及授权管理者可见，不可再次认领。
             </p>
+            <p className="mt-1 text-xs text-slate-500">评分达到 60 分是目标客户的必要条件，不代表自动有效；仍须核实行业、经营证据、联系方式及重复情况。以最终目标判断为准。</p>
           </div>
         </header>
         <div className="mt-5">
@@ -743,11 +749,11 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     data-1p-ignore="true"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索名称、联系人、国家/地区、电话、邮箱或链接"
+                    placeholder={tab === "claimed" && role !== "ADMIN" ? "搜索客户名称、国家/地区或行业" : "搜索名称、联系人、国家/地区、电话、邮箱或链接"}
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
-                <CompactDateRange label="录入日期" fromLabel="录入开始日期" toLabel="录入结束日期" from={createdFrom} to={createdTo} onFromChange={(value)=>{setCreatedFrom(value);setPage(1)}} onToChange={(value)=>{setCreatedTo(value);setPage(1)}}/>
+                <CompactDateRange label={tab === "claimed" ? "认领日期" : "录入日期"} fromLabel={tab === "claimed" ? "认领开始日期" : "录入开始日期"} toLabel={tab === "claimed" ? "认领结束日期" : "录入结束日期"} from={createdFrom} to={createdTo} onFromChange={(value)=>{setCreatedFrom(value);setPage(1)}} onToChange={(value)=>{setCreatedTo(value);setPage(1)}}/>
                 <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
                 <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
                 <select
@@ -816,7 +822,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="pending">未分析</option>
                   <option value="failed">分析失败</option>
                 </select>
-                {tab === "claimed" ? <select
+                {tab === "claimed" && role === "ADMIN" ? <select
                   value={customerStatus}
                   onChange={(event) => setCustomerStatus(event.target.value)}
                   className={appFieldClass}
@@ -829,7 +835,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="DEAL">已成交</option>
                   <option value="RELEASED">无效客户</option>
                 </select> : null}
-                {tab === "claimed" && ["ADMIN", "SUPERVISOR"].includes(role) ? (
+                {tab === "claimed" ? (
                   <select
                     value={ownerId}
                     onChange={(event) => setOwnerId(event.target.value)}
@@ -885,6 +891,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
             <PoolTable
               rows={rows}
               tab={tab as "available" | "claimed" | "pending"}
+              role={role}
               loading={loading}
               hasActiveFilters={Boolean(query.trim() || createdFrom || createdTo || countries.length || industries.length || aiLevel || aiStatus !== "all" || target || customerStatus || ownerId || sourceType || sourceBatches.length || screeningTaskIds.length)}
               resetFilters={resetFilters}
@@ -967,6 +974,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
 function PoolTable({
   rows,
   tab,
+  role,
   loading,
   hasActiveFilters,
   resetFilters,
@@ -983,6 +991,7 @@ function PoolTable({
 }: {
   rows: PoolRow[];
   tab: "available" | "claimed" | "pending";
+  role: Role;
   loading: boolean;
   hasActiveFilters: boolean;
   resetFilters: () => void;
@@ -1024,7 +1033,7 @@ function PoolTable({
                 />
               </th>
             ) : null}
-            {fields.map((field) => <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 bg-slate-50` : ""} ${poolColumnWidth[field] || "w-32"} px-3 py-3`}><button type="button" onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium hover:text-blue-700" title="点击切换升序/降序">{fieldLabel(field, tab)}<span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span></button></th>)}
+            {fields.map((field) => { const sortable = !(tab === "claimed" && role !== "ADMIN" && ["contact_name", "phone", "whatsapp", "email", "website_email", "website_phone", "verified_contacts", "website", "google_url", "status", "followup_status", "last_contact_time", "protection", "updated_at"].includes(field)); return <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 bg-slate-50` : ""} ${poolColumnWidth[field] || "w-32"} px-3 py-3`}><button type="button" disabled={!sortable} onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium enabled:hover:text-blue-700 disabled:cursor-default" title={sortable ? "点击切换升序/降序" : "其他人的该字段不可用于排序"}>{fieldLabel(field, tab)}{sortable ? <span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "▲" : "▼") : "↕"}</span> : null}</button></th>; })}
             <th className="sticky right-0 z-30 w-36 bg-slate-50 px-3 py-3 text-center shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
           </tr>
         </thead>

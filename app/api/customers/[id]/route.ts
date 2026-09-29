@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
+import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -51,12 +52,10 @@ function validateExternalUrl(value: unknown, label: string, host?: RegExp) {
 }
 
 function validateCustomerContactPayload(payload: Record<string, unknown>) {
-  const phone = String(payload.phone || "").trim();
-  if (phone && !/^\+?[\d\s().-]{6,25}$/.test(phone)) throw new Error("联系电话格式不正确");
+  if ("phone" in payload) payload.phone = normalizeManualPhone(payload.phone, "联系电话") || null;
   const email = String(payload.email || "").trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
-  const whatsapp = String(payload.whatsapp || "").trim();
-  if (whatsapp && !/^\+?[\d\s().-]{6,25}$/.test(whatsapp)) throw new Error("whatsapp号码格式不正确");
+  if ("whatsapp" in payload) payload.whatsapp = normalizeManualPhone(payload.whatsapp, "WhatsApp号码") || null;
   validateExternalUrl(payload.website, "官网网址");
   assertOfficialWebsiteUrl(payload.website);
   validateExternalUrl(payload.google_url, "Google 地图网址", /(^|\.)google\.[a-z.]+$|(^|\.)googleusercontent\.com$|(^|\.)goo\.gl$/);

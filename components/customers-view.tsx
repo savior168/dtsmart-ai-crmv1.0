@@ -556,7 +556,7 @@ export function CustomersView() {
             value={workspace}
             items={[
               { value: "list", label: "我的客户", description: "当前归属并由我维护的客户", count: totalCustomerCount ?? undefined, countTone: "success" },
-              { value: "protection", label: "保护到期与续期", description: "查看即将到期、已到期及续期记录", count: protectionCount ?? undefined, countTone: "warning" },
+              { value: "protection", label: "保护到期与续期", description: "到期提醒、续期及主动释放历史", count: protectionCount ?? undefined, countTone: "warning" },
               { value: "conflicts", label: "冲突客户", description: "核对重复提交与客户归属冲突", count: conflictCount ?? undefined, countTone: "danger" },
             ]}
             onChange={switchWorkspace}
@@ -675,7 +675,7 @@ export function CustomersView() {
               重置
             </button>
           </div>
-          <p className="mt-3 text-xs text-slate-500">有效/无效目标以AI最终业务判断为准；待复核表示已有初步评分但证据不足或主体待确认。评分仅表示销售优先级，未分析和分析失败可通过“AI分析状态”单独查看。</p>
+          <p className="mt-3 text-xs text-slate-500">评分达到 60 分是有效目标的必要条件，不等于已确认有效；仍须核实行业、经营证据、联系方式及重复情况。以 AI 或人工复核的最终目标判断为准；未分析与分析失败可单独筛选。</p>
           {activeFilters.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               <span className="text-xs text-slate-500">已应用筛选：</span>
