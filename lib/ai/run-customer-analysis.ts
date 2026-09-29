@@ -508,7 +508,7 @@ export function prioritizeGoogleReviews(reviews: string[]) {
     .map((item) => item.review);
 }
 
-const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品|药房|药店|药剂师|疫苗接种|电子烟|烟草|水烟|拍卖|破产清算|资产处置|摄影、胶片或相机业务/;
+const NON_TARGET_FACT_LABEL = /IT系统|软件开发|云服务|网络托管|运营商|通信合约|通信套餐|固定电话|互联网|宽带|MagentaTV|电视服务|电信合作伙伴|铁路|电气|食品|药房|药店|药剂师|疫苗接种|电子烟|烟草|水烟|拍卖|破产清算|资产处置|摄影、胶片或相机业务|五金工具或电动工具供应/;
 
 function recordBusinessText(record?: ChannelRecord) {
   if (!record?.evidence) return "";
@@ -1498,7 +1498,8 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "键盘或触控板维修", pattern: /(?:keyboard|trackpad|touchpad|klawiatur|teclado|clavier|tastiera|键盘|触控板).{0,20}(?:replacement|repair|wymian|napraw|repar|r[eé]paration|sostituzione|更换|维修)/i },
   { label: "专业维修车间", pattern: /(?:repair workshop|speciali[sz]ed workshop|eigene\w* (?:und )?(?:speziell\w* )?(?:eingerichtet\w* )?werkstatt|fachwerkstatt|reparaturwerkstatt|专业维修车间|专用维修车间)/i },
   { label: "使用手机或电脑维修备件", pattern: /(?:(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|notebook|macbook|pc|手机|平板|电脑|笔记本|苹果设备)[\s\S]{0,80}(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)|(?:repair parts?|spare parts?|replacement parts?|ersatzteil\w*|cz[eę][sś]ci zamienne|repuestos|pi[eè]ces d[eé]tach[eé]es|ricambi|pe[cç]as de reposi[cç][aã]o|维修配件|优质备件|内配件)[\s\S]{0,80}(?:phone|mobile|smartphone|iphone|ipad|tablet|computer|laptop|notebook|macbook|pc|手机|平板|电脑|笔记本|苹果设备))/i },
-  { label: "手机、平板配件销售", pattern: /(?:accessor(?:y|ies).{0,60}(?:phone|ipad|tablet)|(?:phone|ipad|tablet).{0,60}accessor(?:y|ies)|phone covers?|screen protectors?|protective films?|privacy films?|power ?banks?|phone car holders?|phone adapters?|phone chargers?|earbuds?|earphones?|headphones?|手机壳|保护膜|移动电源|车载手机支架|手机充电器|手机耳机|手机配件|平板配件)/i },
+  { label: "手机、平板配件销售", pattern: /(?:\b(?:mobile |cell |smart)?phones?\b|\b(?:iphone|ipad|tablet|smartphone)s?\b)[^.;。；\n]{0,32}\b(?:accessor(?:y|ies)|covers?|cases?|screen protectors?|chargers?)\b|\b(?:accessor(?:y|ies)|covers?|cases?|screen protectors?|chargers?)\b[^.;。；\n]{0,32}(?:\b(?:mobile |cell |smart)?phones?\b|\b(?:iphone|ipad|tablet|smartphone)s?\b)|手机壳|手机保护膜|手机充电器|手机耳机|手机配件|平板配件/i },
+  { label: "五金工具或电动工具供应", pattern: /(?:hardware store|building materials? store|screw supplier|tool store|tool wholesaler|power tools?|power tool accessories|fasteners?|nails,? screws? (?:and|&) fixings|五金店|建材商店|螺丝供应商|工具商店|工具批发商|电动工具|紧固件供应)/i },
   { label: "多门店或连锁经营", pattern: /(?:(?:at least|over|more than|拥有|设有|共有)\s*\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|门店|分店|直营网点|维修中心)|\d{1,3}\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)|multiple locations|chain of (?:repair )?(?:stores?|shops?)|多家门店|多门店|连锁门店|旗下分店)/i },
   { label: "IT系统、网络或服务器技术支持", pattern: /(?:IT support|technical support|managed IT|managed services|network (?:setup|configuration|maintenance|management|support)|NAS (?:setup|configuration|maintenance|support)|server (?:setup|configuration|maintenance|support)|IT系统|网络(?:设置|配置|维护|管理|支持)|NAS(?:设置|配置|维护|支持)|服务器(?:设置|配置|维护|支持))/i },
   { label: "软件开发、云服务或网络托管", pattern: /(?:software development|software company|cloud services|web hosting|cyber ?security|软件开发|软件公司|云服务|网络托管|信息安全)/i },
@@ -1516,7 +1517,24 @@ const VERIFIED_FACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
 
 function verifiedFactLabels(text: string) {
   const positiveText = positiveTargetEvidenceText(text);
-  const labels = VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(positiveText)).map((item) => item.label);
+  const dominantNonTarget = dominantNonTargetIndustryForText(positiveText);
+  const directDeviceRepair = hasCoreDeviceRepairEvidence(positiveText)
+    || /\b(?:mobile |cell |smart)?phone\s+(?:(?:and|&)\s+(?:laptop|tablet|computer)\s+)?(?:repair|fix|service)\b|\b(?:iphone|ipad|tablet|laptop|computer|macbook)\s+(?:repair|fix|service)\b|\b(?:repair|fix|service)(?:s|ing)?\s+(?:of\s+)?(?:mobile |cell |smart)?phones?\b|\b(?:repair|fix|service)(?:s|ing)?\s+(?:of\s+)?(?:iphone|ipad|tablet|laptop|computer|macbook)\b|手机维修|电脑维修|笔记本维修/i.test(positiveText);
+  const explicitTargetTrade = hasPhoneComputerRepairPartsTradeEvidence([positiveText])
+    || VERIFIED_FACT_PATTERNS.find((item) => item.label === "手机、平板配件销售")?.pattern.test(positiveText);
+  const labels = VERIFIED_FACT_PATTERNS.filter((item) => item.pattern.test(positiveText))
+    .map((item) => item.label)
+    .filter((label) => !dominantNonTarget || directDeviceRepair || explicitTargetTrade || NON_TARGET_FACT_LABEL.test(label));
+  if (directDeviceRepair && !labels.includes("手机、平板配件销售")
+    && /\b(?:accessor(?:y|ies)|screen protectors?|phone covers?|chargers?|earbuds?|earphones?)\b|配件|保护膜|充电器|耳机/i.test(positiveText)) {
+    labels.push("手机、平板配件销售");
+  }
+  // A workshop servicing power tools is not a phone/computer repair workshop.
+  // Keep that fact only when the same source explicitly names device repair.
+  if (!directDeviceRepair) {
+    const index = labels.indexOf("专业维修车间");
+    if (index >= 0) labels.splice(index, 1);
+  }
   if (hasPhoneComputerRepairPartsTradeEvidence([positiveText])) labels.push("手机或电脑维修配件批发、分销或进口");
   return labels;
 }

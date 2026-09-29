@@ -352,12 +352,25 @@ test("246 Ace Fixings 电动工具维修不得归为手机维修或入池",()=>{
   ];
   const deterministic=runner.deterministicAnalysis(customer,records);
   assert.ok(!deterministic || !deterministic.is_target_customer);
+  const normalized=runner.normalizeAnalysisEvidence({industry_type:"其他",is_target_customer:false,ai_score:7,ai_level:"D",ai_reason:"",business_relevance:"不相关",customer_value:"",followup_suggestion:"",confidence_score:90,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{},evidence_summaries:[{channel:"website",title_zh:"官网",fact_zh:"官网内容",source_url:customer.website,evidence_type:"中性",confidence:90}]},records);
+  const factText=normalized.evidence_summaries.map((item)=>item.fact_zh).join("；");
+  assert.match(factText,/五金工具或电动工具供应/);
+  assert.doesNotMatch(factText,/专业维修车间|手机、平板配件销售|手机维修/);
   const wrongModel={industry_type:"手机维修店",is_target_customer:true,ai_score:85,ai_level:"A",ai_reason:"专业维修车间",business_relevance:"相关",customer_value:"待评估",followup_suggestion:"联系",confidence_score:96,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{},suggested_contact_order:[],evidence_summaries:[{channel:"google_maps",title_zh:"Google商家页",fact_zh:"Google商家分类为五金店、建材商店、工具批发商。",source_url:customer.google_url,evidence_type:"矛盾",confidence:96},{channel:"website",title_zh:"企业官网",fact_zh:"官网有专业维修车间，维修电动工具。",source_url:customer.website,evidence_type:"支持",confidence:96}]};
   const grounded=customerAnalysis.groundCustomerAnalysis({customer_name:customer.company_name,country:"GB",website:customer.website,google_url:customer.google_url,evidence:{website:records[1].evidence,google_place:records[0].evidence}},wrongModel);
   assert.equal(grounded.industry_type,"其他");
   assert.equal(grounded.is_target_customer,false);
   assert.ok(grounded.ai_score<60);
   assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("官网有专业维修车间，维修电动工具。"),false);
+});
+
+test("246a 官网明确手机维修及手机配件销售不因普通工具字样漏判",()=>{
+  const customer={id:"phone-tools",company_name:"Phone Tools",country:"GB",website:"https://phone-tools.example/"};
+  const records=[{channel:"website",status:"COLLECTED",source_url:customer.website,evidence:{url:customer.website,reachable:true,title:"Phone Tools",description:"We repair iPhone screens and sell mobile phone accessories, cases and chargers. Repair tools are also available.",headings:["Phone repair workshop"],text_excerpt:"We replace smartphone batteries and sell phone cases.",image_alts:[],image_urls:[],emails:[],phones:[]}}];
+  const normalized=runner.normalizeAnalysisEvidence({industry_type:"手机维修店",is_target_customer:true,ai_score:75,ai_level:"B",ai_reason:"",business_relevance:"相关",customer_value:"",followup_suggestion:"",confidence_score:90,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{},evidence_summaries:[{channel:"website",title_zh:"官网",fact_zh:"官网内容",source_url:customer.website,evidence_type:"中性",confidence:90}]},records);
+  const factText=normalized.evidence_summaries.map((item)=>item.fact_zh).join("；");
+  assert.match(factText,/手机维修|屏幕或玻璃更换/);
+  assert.match(factText,/手机、平板配件销售/);
 });
 
 test("247 电话尾号后接 Store Location 不得伪造门店数",()=>{
