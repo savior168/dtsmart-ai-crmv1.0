@@ -10,6 +10,7 @@ import { requeueAcquisitionEvidenceGaps, requeueAcquisitionReviews, requeueCorre
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/industry-match";
 import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
+import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -227,13 +228,17 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     for(const row of metricCostRows){const provider=String(row.provider||"未标记");const model=String(row.model_or_sku||"未标记");const operation=String(row.operation||"未标记");const key=`${provider}\u0000${model}\u0000${operation}`;const current=skuTotals.get(key)||{provider,model_or_sku:model,operation,calls:0,free_calls:0,quantity:0,amount_usd:0};current.calls+=1;current.free_calls+=row.amount_type==="FREE"?1:0;current.quantity+=Number(row.quantity||0);current.amount_usd+=isActuallyIncurredCost(row)?Number(row.amount_usd||0):0;skuTotals.set(key,current);}
     const localUsageSummary={total_calls:metricCostRows.length,free_calls:metricCostRows.filter((row)=>row.amount_type==="FREE").length,google_calls:metricCostRows.filter((row)=>row.provider==="GOOGLE_PLACES").length,openai_calls:metricCostRows.filter((row)=>row.provider==="OPENAI").length,sku_breakdown:[...skuTotals.values()].sort((left,right)=>right.amount_usd-left.amount_usd||right.calls-left.calls)};
     const recentCosts = [...metricCostRows].sort((left,right)=>right.occurred_at.localeCompare(left.occurred_at)).slice(0,200).map((row)=>({provider:row.provider,model_or_sku:row.model_or_sku,operation:row.operation,amount_usd:row.amount_usd,amount_type:row.amount_type,quantity:row.quantity,input_tokens:row.input_tokens,output_tokens:row.output_tokens,occurred_at:row.occurred_at,metadata:row.metadata}));
-    // Workers persist these counters together with candidate decisions. Do not
-    // rescan the same growing candidate table five times on every detail load
-    // and every 15-second poll; that was starving ordinary foreground reads.
-    const liveDiscovered=Math.max(0,Number(task.discovered_count||0));
+    // A terminal task can retain stale snapshots after historical rechecks or
+    // manual review. Reconcile its first full view with four indexed counts;
+    // active-task polls continue to use worker-maintained counters.
+    const liveCounts = !lightweight && !["QUEUED", "RUNNING", "PAUSING"].includes(task.status)
+      ? await countAcquisitionCandidateDecisions(createAdminClient(), id)
+      : null;
+    const countedTask = liveCounts ? { ...task, ...liveCounts } : task;
     const liveTerminal=["accepted_count","review_count","rejected_count","duplicate_count"]
-      .reduce((sum,key)=>sum+Math.max(0,Number(task[key]||0)),0);
-    const liveTask={...task,processed_count:Math.min(liveDiscovered,Math.max(Number(task.processed_count||0),liveTerminal))};
+      .reduce((sum,key)=>sum+Math.max(0,Number(countedTask[key as keyof typeof countedTask]||0)),0);
+    const liveDiscovered=Math.max(0,Number(task.discovered_count||0),liveTerminal);
+    const liveTask={...countedTask,discovered_count:liveDiscovered,processed_count:liveCounts?liveTerminal:Math.min(liveDiscovered,Math.max(Number(task.processed_count||0),liveTerminal))};
     const reusedCount = lightweight ? { count: 0, error: null } : await createAdminClient().from("ai_acquisition_candidates").select("id", { count: "exact", head: true }).eq("task_id", id).like("decision_reason", "复用近14天历史核验结论%");
     if (reusedCount.error) console.error("[ai-acquisition-task] optional reused candidate count unavailable", { task_id: id, code: reusedCount.error.code });
     const reusedCandidates = reusedCount.count || 0;

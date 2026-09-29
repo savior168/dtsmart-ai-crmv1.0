@@ -56,17 +56,18 @@ export async function GET(request: NextRequest) {
       industries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.industries)&&row.industries.length?row.industries:[row.industry||""])),
     };
     if (mode === "filters") return NextResponse.json({ filter_options: filterOptions });
-    let acceptedMetricTaskIds: string[] = [];
-    if (["accepted", "today_accepted"].includes(metric)) {
+    let resultMetricTaskIds: string[] = [];
+    if (["accepted", "today_accepted", "review"].includes(metric)) {
       for (let offset = 0; ; offset += 1000) {
-        let acceptedRows = admin.from("ai_acquisition_candidates").select("task_id").eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
-        if (metric === "today_accepted") acceptedRows = acceptedRows.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
-        const chunk = await acceptedRows.range(offset, offset + 999);
+        let candidateRows = admin.from("ai_acquisition_candidates").select("task_id").eq("decision", metric === "review" ? "REVIEW" : "ACCEPTED");
+        if (metric !== "review") candidateRows = candidateRows.not("imported_customer_id", "is", null);
+        if (metric === "today_accepted") candidateRows = candidateRows.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
+        const chunk = await candidateRows.order("id", { ascending:true }).range(offset, offset + 999);
         if (chunk.error) throw chunk.error;
-        acceptedMetricTaskIds.push(...(chunk.data || []).map((row) => row.task_id));
+        resultMetricTaskIds.push(...(chunk.data || []).map((row) => row.task_id));
         if ((chunk.data || []).length < 1000) break;
       }
-      acceptedMetricTaskIds = [...new Set(acceptedMetricTaskIds)];
+      resultMetricTaskIds = [...new Set(resultMetricTaskIds)];
     }
     let query = admin.from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
     if (ownerId) query = query.eq("user_id", ownerId);
@@ -74,9 +75,7 @@ export async function GET(request: NextRequest) {
     else if (metric === "active") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING", "PAUSED"]);
     else if (metric === "completed") query = query.eq("status", "COMPLETED");
     else if (metric === "failed") query = query.eq("status", "FAILED");
-    if (metric === "accepted") query = acceptedMetricTaskIds.length ? query.in("id", acceptedMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
-    if (metric === "today_accepted") query = acceptedMetricTaskIds.length ? query.in("id", acceptedMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
-    if (metric === "review") query = query.gt("review_count", 0);
+    if (["accepted", "today_accepted", "review"].includes(metric)) query = resultMetricTaskIds.length ? query.in("id", resultMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
     if (countries.length) query = query.overlaps("countries", countries);
     if (industries.length) query = query.overlaps("industries", industries);

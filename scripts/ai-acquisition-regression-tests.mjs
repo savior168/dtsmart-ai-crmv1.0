@@ -314,7 +314,7 @@ const taskSummarySource=fs.readFileSync(new URL("../lib/ai-acquisition/task-cent
 assert.match(taskSummarySource,/summaryRows[\s\S]*active_tasks[\s\S]*completed_tasks[\s\S]*today_accepted[\s\S]*historical_accepted[\s\S]*removed_results[\s\S]*repeated_results[\s\S]*out_of_pool_customers[\s\S]*current_customers[\s\S]*available_customers[\s\S]*claimed_customers[\s\S]*review[\s\S]*failed_tasks/,"任务中心概览必须按完整筛选范围汇总历史结果、有效结果、唯一客户及公海流转口径");
 assert.match(taskSummarySource,/acceptedCustomerIds\.filter\(\(id\) => !currentCustomerIds\.has\(id\)\)/,"不在公海的差额必须按已关联的唯一客户ID计算");
 assert.match(taskSummarySource,/out_of_pool_details: outOfPoolDetails/,"差额明细必须复用受权限和任务筛选范围约束的统计口径，且不重复触发汇总查询");
-assert.match(listRoute,/ai_acquisition_candidates[\s\S]*eq\("decision", "ACCEPTED"\)[\s\S]*not\("imported_customer_id", "is", null\)/,"今日及历史获客只能统计已核验通过且成功写入系统的客户");
+assert.match(listRoute,/ai_acquisition_candidates[\s\S]*eq\("decision", metric === "review" \? "REVIEW" : "ACCEPTED"\)[\s\S]*metric !== "review"\) candidateRows = candidateRows\.not\("imported_customer_id", "is", null\)/,"今日及历史获客只能统计已核验通过且成功写入系统的客户，复核任务按实时决策筛选");
 const usageRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/usage/route.ts",import.meta.url),"utf8");
 const detailRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/tasks/[id]/route.ts",import.meta.url),"utf8");
 const screeningListRoute=fs.readFileSync(new URL("../app/api/ai/tasks/route.ts",import.meta.url),"utf8");
@@ -335,7 +335,7 @@ assert.match(detailRoute,/localUsageSummary[\s\S]*sku_breakdown[\s\S]*lightweigh
 assert.doesNotMatch(detailRoute,/get_ai_acquisition_usage_summary/,"任务详情不得在费用流水重算前再执行同一任务的冗余用量RPC");
 assert.match(detailRoute,/usageError=true;searchStatsError=true[\s\S]*usageError\?\{usage_error:true\}:\{usage_summary:/,"费用查询失败时不得把不完整台账伪装为零费用");
 assert.match(detailRoute,/const liveTerminal=/,"任务详情必须使用工作流持久化的完整终态计数");
-assert.match(detailRoute,/processed_count:Math\.min\(liveDiscovered,Math\.max/,"任务详情已核验数不得超过候选总数");
+assert.match(detailRoute,/processed_count:liveCounts\?liveTerminal:Math\.min\(liveDiscovered,Math\.max/,"任务详情已核验数不得超过候选总数，终态任务应以实时决策计数纠正旧快照");
 assert.match(detailRoute,/action === "RESUME"[\s\S]*requeueCorrectedEarlyRejections\(task, String\(child\.data\.id\)\)[\s\S]*liveChildExecutor[\s\S]*WAITING_FOR_MANUAL_RESUME[\s\S]*status: "QUEUED"[\s\S]*select\("id"\)\.maybeSingle\(\)[\s\S]*start\(aiAcquisitionWorkflow, \[id, null, executionToken\]\)[\s\S]*继续执行启动失败/ ,"人工继续必须安全接管失效执行器、避免重复执行，并在启动失败时回退为暂停");
 assert.match(detailRoute,/analysis_status,writeback_status,result_id[\s\S]*durableItemIds[\s\S]*const itemIds[\s\S]*status: "COMPLETED"[\s\S]*lease_owner: null[\s\S]*is_latest_valid: false/,"失败任务重试必须保留已经持久化完成的客户，只重置真正未完成的项目并清理旧租约");
 assert.match(relevanceRequeue,/eq\("decision", "REJECTED"\)[\s\S]*discoveryCandidateLooksRelevant[\s\S]*decision: "ANALYZING"[\s\S]*refresh_ai_screening_task_totals/,"旧误拒候选只能进入当前任务的全新证据核验，不能直接判定为目标客户");
@@ -453,13 +453,13 @@ assert.match(taskCenter,/aria-label="获客模式"[\s\S]*全部获客模式[\s\S
 assert.doesNotMatch(taskCenter,/\{t\.error_message\}/,"任务中心不得直接暴露数据库或工作流原始错误");
 assert.match(taskCenter,/"去重后候选"[\s\S]*#customer-results[\s\S]*formatNumber\(t\.discovered_count\)[\s\S]*条/,"任务中心只展示去重后的候选客户数，并可进入本次客户列表");
 assert.match(taskCenter,/候选核验进度[\s\S]*href=\{`\/ai-acquisition\/tasks\/\$\{t\.id\}#customer-results`\}/,"候选核验进度必须可直接进入本任务候选详情");
-assert.match(taskCenter,/href=\{`\/ai-acquisition\/customers\?scope=accepted&task_id=\$\{t\.id\}`\}[\s\S]*查看本任务所有成功入池客户/,"成功入池数量必须直接进入当前任务的入池客户结果");
+assert.match(taskCenter,/href=\{`\/ai-acquisition\/customers\?scope=accepted&task_id=\$\{t\.id\}`\}[\s\S]*查看本任务仍关联客户的入池结果/,"仍关联入池数量必须直接进入当前任务的入池客户结果");
 assert.doesNotMatch(taskCenter,/原始命中 \{formatNumber\(t\.search_raw_hits|已检索 \{formatNumber\(t\.search_completed_count/,"原始命中和检索组合数不得挤占任务列表");
 assert.match(taskCenter,/RowActionMenu[\s\S]*暂停任务[\s\S]*恢复任务[\s\S]*从检查点重试[\s\S]*取消任务/,"任务中心必须按状态提供暂停、恢复、重试和取消入口");
 assert.match(taskCenter,/document\.visibilityState!=="visible"[\s\S]*p\.set\("core","1"\)[\s\S]*setInterval\(\(\)=>void refresh\(\),15000\)/,"任务中心只在页面可见时轻量轮询核心状态，不得频繁刷新完整统计");
 assert.match(taskCenter,/UserScopeSelect[^>]*initializeDefault=\{false\}/,"AI获客任务中心首次进入不得因归属人默认值回写而重复刷新");
 assert.doesNotMatch(taskCenter,/scopeUserId \|\| "all"/,"AI获客任务中心显示本人范围时不得在接口请求中暗自扩大为全员数据");
-assert.match(taskCenter,/ownerQuery[\s\S]*customers\?scope=\$\{customerScope\}\$\{ownerQuery\}/,"任务中心进入客户结果时必须保持当前归属人范围");
+assert.match(taskCenter,/resultScopeQuery[\s\S]*ownerQuery[\s\S]*customers\?scope=\$\{customerScope\}\$\{resultScopeQuery/ ,"任务中心进入客户结果时必须保持归属人及任务筛选范围");
 assert.match(taskCenter,/"Google调用"[\s\S]*"Token \/ 实际费用"/,"任务中心必须直接展示Google调用，并合理合并Token与实际费用");
 assert.match(taskCenter,/"任务名称 \/ 编号"[\s\S]*"状态"[\s\S]*"候选核验进度"[\s\S]*"成功入池"[\s\S]*"待复核"[\s\S]*"去重后候选"[\s\S]*"目标国家\/地区"[\s\S]*"目标行业"[\s\S]*"获客模式"[\s\S]*"Google调用"[\s\S]*"Token \/ 实际费用"[\s\S]*"任务耗时"[\s\S]*"归属人"[\s\S]*"创建时间"/,"获客列表必须先展示状态进度和产出，再展示范围、模式、费用与管理字段");
 assert.match(listRoute,/terminalCount[\s\S]*accepted_count[\s\S]*review_count[\s\S]*rejected_count[\s\S]*duplicate_count[\s\S]*processed_count: processedCount/,"任务中心必须用全部终态候选校准历史核验进度");
@@ -588,7 +588,7 @@ assert.match(customerResults,/"客户名称","国家\/地区","AI评分","联系
 assert.doesNotMatch(customerResults,/"目标行业"|"联系与证据"|"处理时间","操作"/,"客户结果不得继续使用含义错误或混合字段");
 assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*processed_at[\s\S]*decision/,"跨任务客户清单必须保持归属权限、北京时间今日口径与结果状态口径一致");
 assert.match(customerResultsRoute,/params\.get\("task_id"\)[\s\S]*query\.eq\("task_id", taskId\)[\s\S]*filter_task/,"来源任务筛选必须在服务端真实生效且返回有权限查看的任务标识");
-assert.match(customerResultsRoute,/params\.get\("task_search"\)[\s\S]*ai_acquisition_tasks[\s\S]*task_number\.ilike[\s\S]*matchedTaskIds[\s\S]*\.in\("task_id", matchedTaskIds\)/,"按获客任务名称或编号的筛选必须由服务端解析真实任务后生效");
+assert.match(customerResultsRoute,/params\.get\("task_search"\)[\s\S]*task:ai_acquisition_tasks!inner[\s\S]*task_number\.ilike[\s\S]*referencedTable:"task"/ ,"按获客任务名称或编号的筛选必须在服务端关联真实任务后生效");
 assert.match(customerResultsRoute,/can_control:[\s\S]*task\?\.user_id[\s\S]*account\.role==="ADMIN"[\s\S]*show_owner/ ,"客户结果接口必须分别返回跨用户可见性与逐任务可操作权限");
 assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*industry\.in\.\([\s\S]*category\.in\.\([\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
 assert.match(customerResultsRoute,/industry_customer:staging_customer_id!inner[\s\S]*industry_customer:imported_customer_id!inner[\s\S]*referencedTable: "industry_customer"/,"所属行业须按候选实际关联客户在数据库内筛选，不得把数千个客户UUID拼成超长请求");

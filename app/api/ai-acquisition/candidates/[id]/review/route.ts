@@ -5,15 +5,12 @@ import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/i
 import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
 import { officialWebsiteUrl } from "@/lib/public-url";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
 
 async function refreshTaskCounts(taskId:string) {
   const admin = createAdminClient();
-  const rows = await admin.from("ai_acquisition_candidates").select("decision").eq("task_id",taskId);
-  if (rows.error) throw rows.error;
-  const count = (decision:string)=>(rows.data||[]).filter((row)=>row.decision===decision).length;
-  const saved = await admin.from("ai_acquisition_tasks").update({
-    accepted_count:count("ACCEPTED"), review_count:count("REVIEW"), rejected_count:count("REJECTED"), duplicate_count:count("DUPLICATE"), updated_at:new Date().toISOString(),
-  }).eq("id",taskId);
+  const counts = await countAcquisitionCandidateDecisions(admin, taskId);
+  const saved = await admin.from("ai_acquisition_tasks").update({ ...counts, updated_at:new Date().toISOString() }).eq("id",taskId);
   if (saved.error) throw saved.error;
 }
 

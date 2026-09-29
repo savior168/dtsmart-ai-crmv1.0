@@ -28,6 +28,11 @@ export async function GET(request: NextRequest) {
     const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = params.get("level") || "";
     const taskSearch = (params.get("task_search")?.trim() || "").replace(/[%_,()]/g, " ");
+    const taskCostMode = params.get("task_cost_mode") || "";
+    const taskCountries = [...new Set(params.getAll("task_country").map((value) => value.trim()).filter(Boolean))];
+    const taskIndustries = [...new Set(params.getAll("task_industry").map((value) => value.trim()).filter(Boolean))];
+    const taskFrom = /^\d{4}-\d{2}-\d{2}$/.test(params.get("task_from") || "") ? String(params.get("task_from")) : "";
+    const taskTo = /^\d{4}-\d{2}-\d{2}$/.test(params.get("task_to") || "") ? String(params.get("task_to")) : "";
     const taskId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.get("task_id") || "") ? String(params.get("task_id")) : "";
     const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? String(params.get("from")) : "";
     const to = /^\d{4}-\d{2}-\d{2}$/.test(params.get("to") || "") ? String(params.get("to")) : "";
@@ -38,33 +43,26 @@ export async function GET(request: NextRequest) {
     const weekStartDate = weekStart.toISOString().slice(0, 10);
     const admin = createAdminClient();
 
-    // A salesperson normally remembers a task's business name or number, not
-    // its UUID. Resolve that text once, then apply the resulting task IDs to
-    // every result, summary and option query below.
-    let matchedTaskIds: string[] | null = null;
-    if (taskSearch) {
-      let taskQuery = admin.from("ai_acquisition_tasks").select("id").or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`).limit(500);
-      if (ownerId) taskQuery = taskQuery.eq("user_id", ownerId);
-      const taskMatches = await taskQuery;
-      if (taskMatches.error) throw taskMatches.error;
-      matchedTaskIds = (taskMatches.data || []).map((task) => String(task.id));
-    }
-
     const base = (filterIndustry = false) => {
       // REVIEW rows reference their staging customer; accepted rows reference
       // the promoted customer. Filter on that FK in PostgREST instead of
       // expanding every matching customer into a potentially enormous URL.
       const selectColumns: string = filterIndustry
         ? scope === "review"
-          ? "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id),industry_customer:staging_customer_id!inner(id,industry,category)"
-          : "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id),industry_customer:imported_customer_id!inner(id,industry,category)"
-        : "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id)";
+          ? "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id,cost_mode,countries,industries,created_at),industry_customer:staging_customer_id!inner(id,industry,category)"
+          : "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id,cost_mode,countries,industries,created_at),industry_customer:imported_customer_id!inner(id,industry,category)"
+        : "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id,cost_mode,countries,industries,created_at)";
       let query = admin
         .from("ai_acquisition_candidates")
         .select(selectColumns, { count: "exact" });
       if (ownerId) query = query.eq("task.user_id", ownerId);
       if (taskId) query = query.eq("task_id", taskId);
-      if (matchedTaskIds) query = matchedTaskIds.length ? query.in("task_id", matchedTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
+      if (taskSearch) query = query.or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`, { referencedTable:"task" });
+      if (["FREE_ONLY", "ADAPTIVE"].includes(taskCostMode)) query = query.eq("task.cost_mode", taskCostMode);
+      if (taskCountries.length) query = query.overlaps("task.countries", taskCountries);
+      if (taskIndustries.length) query = query.overlaps("task.industries", taskIndustries);
+      if (taskFrom) query = query.gte("task.created_at", `${taskFrom}T00:00:00.000+08:00`);
+      if (taskTo) query = query.lte("task.created_at", `${taskTo}T23:59:59.999+08:00`);
       return query;
     };
 
@@ -135,7 +133,7 @@ export async function GET(request: NextRequest) {
     // table page or Supabase's default row cap.
     let filterOptions: FilterOptions = { countries: [], industries: [] };
     if (mode === "filters") {
-      const optionsCacheKey = [ownerId || "all", taskId || "all", scope, today].join(":");
+      const optionsCacheKey = JSON.stringify([ownerId || "all", taskId || "all", taskSearch, taskCostMode, taskCountries, taskIndustries, taskFrom, taskTo, scope, today]);
       const cachedFilterOptions = filterOptionsCache.get(optionsCacheKey);
       const cachedValue = cachedFilterOptions?.expiresAt && cachedFilterOptions.expiresAt > Date.now()
         ? cachedFilterOptions.value
@@ -146,9 +144,15 @@ export async function GET(request: NextRequest) {
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin
           .from("ai_acquisition_candidates")
-          .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id)");
+          .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id,name,task_number,cost_mode,countries,industries,created_at)");
         if (ownerId) optionQuery = optionQuery.eq("task.user_id", ownerId);
         if (taskId) optionQuery = optionQuery.eq("task_id", taskId);
+        if (taskSearch) optionQuery = optionQuery.or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`, { referencedTable:"task" });
+        if (["FREE_ONLY", "ADAPTIVE"].includes(taskCostMode)) optionQuery = optionQuery.eq("task.cost_mode", taskCostMode);
+        if (taskCountries.length) optionQuery = optionQuery.overlaps("task.countries", taskCountries);
+        if (taskIndustries.length) optionQuery = optionQuery.overlaps("task.industries", taskIndustries);
+        if (taskFrom) optionQuery = optionQuery.gte("task.created_at", `${taskFrom}T00:00:00.000+08:00`);
+        if (taskTo) optionQuery = optionQuery.lte("task.created_at", `${taskTo}T23:59:59.999+08:00`);
         if (scope === "review") optionQuery = optionQuery.eq("decision", "REVIEW");
         else optionQuery = optionQuery.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
         if (scope === "today") optionQuery = optionQuery.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);

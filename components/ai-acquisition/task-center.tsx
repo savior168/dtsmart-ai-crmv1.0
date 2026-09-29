@@ -35,7 +35,7 @@ import { countryInfo } from "@/lib/countries";
 
 const COUNTRY_NAMES = { of: (value: string) => countryInfo(value).name };
 type OutOfPoolCustomer = { id:string; company_name:string; reason:string; acquisition_scope:string|null; pool_status:string|null };
-type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; historical_accepted:number; removed_results:number; repeated_results:number; unique_linked_customers:number; out_of_pool_customers:number; out_of_pool_details:OutOfPoolCustomer[]; current_customers:number; available_customers:number; claimed_customers:number; review:number; failed_tasks:number };
+type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; accepted_by_task:Record<string,number>; historical_accepted:number; removed_results:number; repeated_results:number; unique_linked_customers:number; out_of_pool_customers:number; out_of_pool_details:OutOfPoolCustomer[]; current_customers:number; available_customers:number; claimed_customers:number; review:number; review_by_task:Record<string,number>; failed_tasks:number };
 const poolStatusLabels:Record<string,string> = { AVAILABLE:"可认领", CLAIMED:"已认领", PENDING_ALLOCATION:"待管理员分配", INVALID:"无效" };
 type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted" | "review" | "failed";
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; processed:number; openaiCost:number; googleActualCost:number; googleCalls:number; freeCalls:number };
@@ -300,6 +300,15 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       toast(actionError instanceof Error?actionError.message:"任务操作失败","error");
     }finally{setActionBusy(false)}
   }
+  const resultScopeParams = new URLSearchParams();
+  if (scopeUserId) resultScopeParams.set("user_id", scopeUserId);
+  if (costMode) resultScopeParams.set("task_cost_mode", costMode);
+  if (search) resultScopeParams.set("task_search", search);
+  if (from) resultScopeParams.set("task_from", from);
+  if (to) resultScopeParams.set("task_to", to);
+  for (const country of countries) resultScopeParams.append("task_country", country);
+  for (const industry of industries) resultScopeParams.append("task_industry", industry);
+  const resultScopeQuery = resultScopeParams.toString();
   const ownerQuery = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
   const outOfPoolDetails = summary?.out_of_pool_details || [];
   const visibleOutOfPoolDetails = outOfPoolDetails.slice((outOfPoolPage - 1) * outOfPoolPageSize, outOfPoolPage * outOfPoolPageSize);
@@ -333,7 +342,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           const customerScope=item.key==="today_accepted"?"today":item.key==="accepted"?"accepted":item.key==="review"?"review":null;
           const className=`${panel} relative flex min-w-0 items-center gap-3 p-[15px] text-left transition hover:-translate-y-0.5 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 ${!customerScope&&metric===item.key?"border-blue-400 ring-1 ring-blue-100":""}`;
           const content=<><span className={`grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[10px] ${item.tone}`}><item.icon size={20}/></span><span className="min-w-0"><span className="block truncate text-sm text-[#6f7b8f]">{item.label}</span><b className="mt-[3px] block text-2xl font-semibold" aria-busy={summaryLoading}>{summary?Number(item.value||0).toLocaleString("zh-CN"):summaryLoading?<span className="block h-7 w-16 animate-pulse rounded bg-slate-100" aria-label="正在加载"/>:"—"}</b><small className="block truncate text-[#8b96a7]" title={`${item.note}；点击查看对应${customerScope?"客户":"任务"}`}>{item.note}</small></span><span aria-hidden="true" className="absolute right-4 text-xl text-slate-400">›</span></>;
-          return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${ownerQuery}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
+          return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${resultScopeQuery?`&${resultScopeQuery}`:""}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
         })}
       </section>
       {summaryError?<div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>获客统计暂不可用：{summaryError}。下方任务列表仍可查看。</span><button type="button" className="font-medium underline" onClick={()=>void load()}>重试统计</button></div>:null}
@@ -492,8 +501,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
                       ) : null}
                     </td>
                     <td className="w-44 px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#customer-results`} className="group/progress block rounded-md hover:bg-blue-50" title="查看本任务全部候选及核验详情"><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{width:`${Math.min(100,t.discovered_count?Number(t.processed_count||0)/Number(t.discovered_count)*100:t.status==="COMPLETED"?100:0)}%`}}/></div><span className="mt-1 block text-xs text-slate-400 group-hover/progress:text-blue-700">{formatNumber(t.processed_count)} / {formatNumber(t.discovered_count)} 条</span></Link></td>
-                    <td className="px-4 py-3"><Link href={`/ai-acquisition/customers?scope=accepted&task_id=${t.id}`} className="font-medium text-emerald-700 hover:underline" title="查看本任务所有成功入池客户">{formatNumber(t.accepted_count)} 条</Link></td>
-                    <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}?decision=REVIEW`} className="font-medium text-amber-700 hover:underline">{formatNumber(t.review_count)} 条</Link></td>
+                    <td className="px-4 py-3"><Link href={`/ai-acquisition/customers?scope=accepted&task_id=${t.id}`} className="font-medium text-emerald-700 hover:underline" title="查看本任务仍关联客户的入池结果">{summary?formatNumber(summary.accepted_by_task[t.id]||0):"—"} 条</Link></td>
+                    <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}?decision=REVIEW`} className="font-medium text-amber-700 hover:underline">{summary?formatNumber(summary.review_by_task[t.id]||0):"—"} 条</Link></td>
                     <td className="px-4 py-3"><Link href={`/ai-acquisition/tasks/${t.id}#customer-results`} className="font-medium text-slate-800 hover:text-blue-700 hover:underline">{formatNumber(t.discovered_count)} 条</Link></td>
                     <td className="px-4 py-3"><span className="block max-w-44 truncate" title={t.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}>{t.countries.slice(0,2).map((code)=>COUNTRY_NAMES.of(code)||code).join("、")}{t.countries.length>2?` +${t.countries.length-2}`:""}</span></td>
                     <td className="px-4 py-3"><span className="block max-w-52 truncate" title={(t.industries?.length?t.industries:[t.industry]).join("、")}>{(t.industries?.length?t.industries:[t.industry]).slice(0,2).join("、")}{(t.industries?.length||1)>2?` +${(t.industries?.length||1)-2}`:""}</span></td>

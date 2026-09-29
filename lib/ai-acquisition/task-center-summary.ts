@@ -13,9 +13,9 @@ type SummaryFilters = {
 
 export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof createAdminClient>, filters: SummaryFilters) {
   const { ownerId, costMode, countries, industries, from, to, search, today } = filters;
-  const summaryRows: Array<{ id:string; status:string; accepted_count:number|null; review_count:number|null }> = [];
+  const summaryRows: Array<{ id:string; status:string }> = [];
   for (let offset = 0; ; offset += 1000) {
-    let query = admin.from("ai_acquisition_tasks").select("id,status,accepted_count,review_count");
+    let query = admin.from("ai_acquisition_tasks").select("id,status");
     if (ownerId) query = query.eq("user_id", ownerId);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
     if (countries.length) query = query.overlaps("countries", countries);
@@ -28,24 +28,30 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     summaryRows.push(...(chunk.data || []));
     if ((chunk.data || []).length < 1000) break;
   }
-  const sum = (key: "accepted_count" | "review_count") => summaryRows.reduce((total, row) => total + Number(row[key] || 0), 0);
-  const historicalAccepted = sum("accepted_count");
-  const acceptedCandidates: Array<{ imported_customer_id:string|null; processed_at:string|null }> = [];
+  const decisionCandidates: Array<{ task_id:string; decision:string; imported_customer_id:string|null; processed_at:string|null }> = [];
   const summaryTaskIds = summaryRows.map((row) => row.id);
   for (let offset = 0; offset < summaryTaskIds.length; offset += 150) {
     for (let rowOffset = 0; ; rowOffset += 1000) {
       const result = await admin.from("ai_acquisition_candidates")
-        .select("imported_customer_id,processed_at")
+        .select("task_id,decision,imported_customer_id,processed_at")
         .in("task_id", summaryTaskIds.slice(offset, offset + 150))
-        .eq("decision", "ACCEPTED")
+        .in("decision", ["ACCEPTED", "REVIEW"])
         .order("processed_at", { ascending:false, nullsFirst:false })
+        .order("id", { ascending:true })
         .range(rowOffset, rowOffset + 999);
       if (result.error) throw result.error;
-      acceptedCandidates.push(...(result.data || []));
+      decisionCandidates.push(...(result.data || []));
       if ((result.data || []).length < 1000) break;
     }
   }
+  const acceptedCandidates = decisionCandidates.filter((row) => row.decision === "ACCEPTED");
+  const reviewCandidates = decisionCandidates.filter((row) => row.decision === "REVIEW");
+  const reviewByTask: Record<string, number> = {};
+  for (const candidate of reviewCandidates) reviewByTask[candidate.task_id] = (reviewByTask[candidate.task_id] || 0) + 1;
+  const historicalAccepted = acceptedCandidates.length;
   const linkedAccepted = acceptedCandidates.filter((row) => Boolean(row.imported_customer_id));
+  const acceptedByTask: Record<string, number> = {};
+  for (const candidate of linkedAccepted) acceptedByTask[candidate.task_id] = (acceptedByTask[candidate.task_id] || 0) + 1;
   const acceptedCustomerIds = [...new Set(linkedAccepted.map((row) => String(row.imported_customer_id)))];
   const customerProfiles: Array<{id:string;company_name:string|null;deleted_at:string|null;acquisition_scope:string|null;pool_status:string|null;status:string|null;owner_id:string|null}> = [];
   for (let offset = 0; offset < acceptedCustomerIds.length; offset += 200) {
@@ -75,6 +81,7 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     completed_tasks: summaryRows.filter((row) => row.status === "COMPLETED").length,
     today_accepted: todayAccepted,
     accepted: linkedAccepted.length,
+    accepted_by_task: acceptedByTask,
     historical_accepted: historicalAccepted,
     removed_results: Math.max(0, historicalAccepted - linkedAccepted.length),
     repeated_results: Math.max(0, linkedAccepted.length - acceptedCustomerIds.length),
@@ -84,7 +91,8 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     current_customers: currentCustomers.length,
     available_customers: availableCustomers.length,
     claimed_customers: claimedCustomers.length,
-    review: sum("review_count"),
+    review: reviewCandidates.length,
+    review_by_task: reviewByTask,
     failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
   };
 }
