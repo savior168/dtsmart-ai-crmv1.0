@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { AppSelect } from "@/components/ui/app-select";
 import { GroupedEvidenceSection, VerifiedContactsSection, type EvidenceDisplayItem, type VerifiedContactDisplayItem } from "@/components/ai-screening/evidence-sections";
 import { button, primaryButton } from "@/components/ai-screening/ui";
 import type { Candidate } from "./types";
 import { MANUAL_REVIEW_INDUSTRIES, type ManualReviewInput } from "@/lib/ai-acquisition/manual-review";
+import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/industry-match";
+import { officialWebsiteUrl } from "@/lib/public-url";
 
 export type CandidateEvidenceData = {
   evidence_available?: boolean;
+  target_industries?: string[];
+  website_url?: string | null;
   candidate: Candidate;
   analysis: {
     score?: number;
@@ -69,12 +74,14 @@ const displayEvidence = (evidence: CandidateEvidenceData) => evidence.evidence.m
 export function CandidateEvidenceDialog({
   evidence,
   canControl,
+  reviewBusy = false,
   onClose,
   onReview,
   onSaveAssessment,
 }: {
   evidence: CandidateEvidenceData | null;
   canControl: boolean;
+  reviewBusy?: boolean;
   onClose: () => void;
   onReview: (action: "DISCARD" | "RECHECK_AND_ACCEPT", candidateId: string) => void;
   onSaveAssessment: (candidateId: string, assessment: ManualReviewInput) => Promise<void>;
@@ -92,21 +99,38 @@ export function CandidateEvidenceDialog({
     setTargetDecision(candidate?.manual_target_decision==="INVALID"?"INVALID":"VALID");
     setIndustry(candidate?.manual_industry||evidence?.analysis?.industry_type||"");
     setReason(candidate?.manual_reason||"");
-    setSelectedEvidence(candidate?.manual_evidence_ids||[]);
+    const selectableIds = new Set(evidence?.evidence.filter((item)=>/^https?:\/\//i.test(item.source_url)&&item.evidence_strength!=="WEAK_HINT"&&item.evidence_type==="支持").map((item)=>item.id));
+    setSelectedEvidence((candidate?.manual_evidence_ids||[]).filter((id)=>selectableIds.has(id)));
     setFormError("");
   },[evidence]);
-  async function saveAssessment(){
+  async function saveAssessment(acceptAfterSave = false){
     if(!evidence)return;
     const value=Number(score);
     if(!score.trim()||!Number.isInteger(value)||value<0||value>100){setFormError("请输入 0–100 的整数评分");return}
     if(reason.trim().length<10){setFormError("请填写至少 10 字的具体改分理由");return}
     if(targetDecision==="VALID"&&!selectedEvidence.length){setFormError("请勾选至少一条直接证明目标业务的经营证据");return}
     setSaving(true);setFormError("");
-    try{await onSaveAssessment(evidence.candidate.id,{score:value,targetDecision,industry,reason:reason.trim(),evidenceIds:selectedEvidence})}
+    try{await onSaveAssessment(evidence.candidate.id,{score:value,targetDecision,industry,reason:reason.trim(),evidenceIds:selectedEvidence});if(acceptAfterSave)onReview("RECHECK_AND_ACCEPT",evidence.candidate.id)}
     catch(error){setFormError(error instanceof Error?error.message:"保存人工复核失败")}
     finally{setSaving(false)}
   }
   const items = evidence ? displayEvidence(evidence) : [];
+  const businessEvidence = evidence?.evidence.filter((item)=>/^https?:\/\//i.test(item.source_url)&&item.evidence_strength!=="WEAK_HINT"&&item.evidence_type==="支持") || [];
+  const businessSources = [...businessEvidence.reduce((groups,item)=>{
+    const key = `${item.channel||item.source_type}|${item.source_url}`;
+    const current = groups.get(key) || {key,channel:item.channel||item.source_type,url:item.source_url,ids:[] as string[],facts:[] as string[]};
+    current.ids.push(item.id);
+    const fact = String(item.translated_fact||item.original_excerpt||item.title||"").trim();
+    if(fact&&!current.facts.includes(fact))current.facts.push(fact);
+    groups.set(key,current);
+    return groups;
+  },new Map<string,{key:string;channel:string;url:string;ids:string[];facts:string[]}>()).values()]
+    .sort((left,right)=>Number(right.channel==="website"||right.channel==="OFFICIAL_WEBSITE")-Number(left.channel==="website"||left.channel==="OFFICIAL_WEBSITE"));
+  const websiteUrl = officialWebsiteUrl(evidence?.website_url);
+  const websiteEvidence = businessEvidence.some((item)=>item.channel==="website"||item.source_type==="OFFICIAL_WEBSITE");
+  const targetIndustries = evidence?.target_industries || [];
+  const selectedFacts = evidence?.evidence.filter((item)=>selectedEvidence.includes(item.id)).flatMap((item)=>[item.translated_fact,item.original_excerpt]) || [];
+  const industryMatches = targetDecision !== "VALID" || !industry || !selectedEvidence.length || acquisitionIndustryMatchesVerifiedResult(targetIndustries,industry,selectedFacts);
   return <AppDialog
     open={Boolean(evidence)}
     title={evidence?.candidate.company_name || "客户核验依据"}
@@ -144,19 +168,20 @@ export function CandidateEvidenceDialog({
         如已有新证据，需先补充来源或重新分析；下方按钮只按现有结果核对入池，不会重新采集证据。
       </section> : null}
       <GroupedEvidenceSection evidence={items}/>
-      {canControl && evidence.candidate.decision === "REVIEW" ? <section className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/40 p-4 text-sm">
-        <div><h3 className="font-semibold text-slate-900">人工复核评分与目标判断</h3><p className="mt-1 text-xs text-slate-600">原 AI 评分不会被覆盖；人工结论仅用于这条待复核候选。确认目标客户后仍须通过主体、联系方式与重复校验才能入池。</p></div>
+      {canControl && evidence.candidate.decision === "REVIEW" ? <section className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4 text-sm">
+        <div><h3 className="font-semibold text-slate-900">第一步 · 核对并保存人工结论</h3><p className="mt-1 text-xs leading-5 text-slate-600">请结合上方来源证据填写评分、经营行业和理由。原 AI 评分保留，不会被覆盖。任务目标行业：<b className="text-slate-800">{targetIndustries.join("、") || "未指定"}</b>。</p></div>
         <div className="grid gap-3 md:grid-cols-3">
-          <label className="space-y-1"><span>人工评分（0–100）</span><input type="number" min={0} max={100} step={1} value={score} onChange={(event)=>setScore(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2"/></label>
-          <label className="space-y-1"><span>人工目标判断</span><select value={targetDecision} onChange={(event)=>setTargetDecision(event.target.value as "VALID"|"INVALID")} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2"><option value="VALID">确认目标客户（评分须 ≥60）</option><option value="INVALID">确认非目标客户（评分须 &lt;60）</option></select></label>
-          <label className="space-y-1"><span>核实后的经营行业</span><select value={industry} onChange={(event)=>setIndustry(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2"><option value="">请选择</option>{MANUAL_REVIEW_INDUSTRIES.map((item)=><option key={item} value={item}>{item}</option>)}</select></label>
+          <label className="space-y-1"><span>人工评分（0–100）</span><input type="number" min={0} max={100} step={1} value={score} onChange={(event)=>setScore(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2" placeholder={evidence.analysis?.score == null ? "按证据评分" : `AI 原评 ${evidence.analysis.score}，请独立评分`}/></label>
+          <label className="space-y-1"><span>是否符合本任务目标</span><AppSelect value={targetDecision} onChange={(event)=>setTargetDecision(event.target.value as "VALID"|"INVALID")} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2"><option value="VALID">符合目标（评分 ≥60）</option><option value="INVALID">不符合目标（评分 &lt;60）</option></AppSelect></label>
+          <label className="space-y-1"><span>核实后的经营行业</span><AppSelect value={industry} onChange={(event)=>setIndustry(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2"><option value="">请选择</option>{MANUAL_REVIEW_INDUSTRIES.map((item)=><option key={item} value={item}>{item}</option>)}</AppSelect></label>
         </div>
         <label className="block space-y-1"><span>改分理由与经营事实</span><textarea value={reason} onChange={(event)=>setReason(event.target.value)} maxLength={1000} rows={3} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="说明原 AI 判断错在哪里、公开页面具体证明了什么"/></label>
-        <fieldset className="space-y-2"><legend className="font-medium">选择本客户的可追溯经营证据（确认目标客户必选）</legend>{evidence.evidence.filter((item)=>/^https?:\/\//i.test(item.source_url)&&item.evidence_strength!=="WEAK_HINT").map((item)=><label key={item.id} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2"><input type="checkbox" checked={selectedEvidence.includes(item.id)} onChange={(event)=>setSelectedEvidence((current)=>event.target.checked?[...current,item.id]:current.filter((id)=>id!==item.id))} className="mt-1"/><span className="min-w-0"><span className="block line-clamp-2">{item.translated_fact||item.original_excerpt||item.title||"公开经营证据"}</span><a href={item.source_url} target="_blank" rel="noopener noreferrer" className="block truncate text-xs text-blue-700 hover:underline" onClick={(event)=>event.stopPropagation()}>{item.source_url}</a></span></label>)}{!evidence.evidence.some((item)=>/^https?:\/\//i.test(item.source_url)&&item.evidence_strength!=="WEAK_HINT")?<p className="text-amber-700">暂无可用于确认目标业务的来源证据；不能只凭改分入池。</p>:null}</fieldset>
+        <fieldset className="space-y-2"><legend className="font-medium">勾选直接证明目标经营业务的来源</legend><p className="text-xs text-slate-500">同一渠道的同一页面只需勾选一次，系统仍保存该页面关联的每条原始事实。电话、邮箱和官网网址本身不能代替经营事实。</p>{businessSources.map((source)=><label key={source.key} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-3"><input type="checkbox" checked={source.ids.some((id)=>selectedEvidence.includes(id))} onChange={(event)=>setSelectedEvidence((current)=>event.target.checked?[...new Set([...current,...source.ids])]:current.filter((id)=>!source.ids.includes(id)))} className="mt-1"/><span className="min-w-0"><span className="mb-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">{source.channel==="website"||source.channel==="OFFICIAL_WEBSITE"?"企业官网":source.channel==="google_maps"?"Google 商家":source.channel||"其他公开来源"}</span><span className="block text-xs leading-5 text-slate-700">{source.facts.join("；")||"公开经营事实"}</span><a href={source.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-xs text-blue-700 hover:underline" onClick={(event)=>event.stopPropagation()}>{source.url}</a></span></label>)}{!businessSources.length?<p className="text-amber-700">暂无已保存的直接经营证据；不能只凭改分入池。</p>:null}{websiteUrl&&!websiteEvidence?<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">当前客户档案有<a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="mx-1 font-medium underline">官网网址</a>，但本次分析未保存该官网的经营事实，因此它暂不能被勾选为已核验证据。请先打开核实；如官网确有目标业务，需补充可追溯证据或重新分析后再入池。</p>:null}</fieldset>
+        {!industryMatches?<p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">所选“{industry}”与任务目标“{targetIndustries.join("、")}”及已勾选的经营证据暂不匹配。请核对经营分类或补选直接证据；仅有联系方式不能证明行业。</p>:null}
         {formError?<p role="alert" className="text-rose-700">{formError}</p>:null}
-        <div className="flex items-center justify-between gap-3"><p className="text-xs text-slate-500">保存后保留原 AI 评分与历史修改记录；入池仍需另行确认。</p><button type="button" disabled={saving} onClick={()=>void saveAssessment()} className={button}>{saving?"保存中…":"保存人工复核"}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">可以先保存，稍后继续核对；符合目标的结论可保存后直接校验入池。</p><div className="flex flex-wrap gap-2"><button type="button" disabled={saving||reviewBusy} onClick={()=>void saveAssessment()} className={button}>{saving?"保存中…":"仅保存复核"}</button>{targetDecision==="VALID"?<button type="button" disabled={saving||reviewBusy||!industryMatches} onClick={()=>void saveAssessment(true)} className={primaryButton}>{saving||reviewBusy?"处理中…":"保存并校验入池"}</button>:null}</div></div>
       </section> : null}
-      {canControl && evidence.candidate.decision === "REVIEW" ? <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="max-w-2xl text-sm leading-6 text-slate-500">人工操作不会绕过质量门槛。此操作仅按已保存的分析结果和证据检查准入条件，不会重新采集，也不会覆盖人工核实的证据。</p><div className="flex gap-2"><button type="button" className={`${button} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => onReview("DISCARD", evidence.candidate.id)}>确认舍弃</button><button type="button" className={primaryButton} onClick={() => onReview("RECHECK_AND_ACCEPT", evidence.candidate.id)}>按现有证据校验入池</button></div></section> : null}
+      {canControl && evidence.candidate.decision === "REVIEW" ? <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="max-w-2xl text-sm leading-6 text-slate-500">第二步 · 校验入池仍由系统检查主体、有效联系方式和重复客户；校验不重新采集。舍弃会停止处理这条候选。</p><div className="flex flex-wrap gap-2"><button type="button" disabled={saving||reviewBusy} className={`${button} text-rose-600 hover:border-rose-400 hover:text-rose-700`} onClick={() => onReview("DISCARD", evidence.candidate.id)}>舍弃候选</button>{evidence.candidate.manual_target_decision!=="INVALID"?<button type="button" disabled={saving||reviewBusy} className={button} onClick={() => onReview("RECHECK_AND_ACCEPT", evidence.candidate.id)}>{reviewBusy?"校验中…":"仅按已保存结论校验"}</button>:null}</div></section> : null}
     </div> : null}
   </AppDialog>;
 }

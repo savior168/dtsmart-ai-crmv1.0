@@ -417,7 +417,8 @@ assert.match(contactSummary,/EXCEL_IMPORT[\s\S]*BATCH_IMPORT[\s\S]*Excel导入[\
 assert.match(scoreBadge,/score>=80[\s\S]*score>=65[\s\S]*score>=50/,"相似客户页面必须共用统一评分分档样式");
 assert.match(detail,/CandidateScoreDisplay candidate=\{r\}/,"AI获客客户列表必须显示人工评分来源并保留原AI评分");
 assert.match(publicPool,/CustomerScoreBadge score=\{row\.ai_score\}/,"客户公海必须复用同一评分组件，避免同字段多套样式");
-assert.match(candidateEvidenceDialog,/确认舍弃[\s\S]*按现有证据校验入池/,"待复核客户必须提供安全的人工处理闭环并明确不会重新采集");
+assert.match(candidateEvidenceDialog,/保存并校验入池[\s\S]*校验不重新采集[\s\S]*舍弃候选/,"待复核客户须明确保存与入池的操作顺序，并保留舍弃入口");
+assert.match(candidateEvidenceDialog,/const key = `\$\{item\.channel\|\|item\.source_type\}\|\$\{item\.source_url\}`[\s\S]*source\.ids\.some[\s\S]*source\.ids\.includes/,"人工复核时同一渠道和页面应合并为一个勾选来源，同时保留关联证据ID");
 assert.match(detail,/task\.review_count > 0[\s\S]*\["COMPLETED", "FAILED"\][\s\S]*REASSESS_REVIEWS[\s\S]*重新核验待复核[\s\S]*清空待复核客户的旧评分、旧结论与旧渠道检查点/,"已完成或失败任务必须提供可审计的全量待复核重新核验入口，并明确不会沿用旧评分或旧采集检查点");
 assert.match(detail,/task\.status === "COMPLETED"[\s\S]*task\.processed_count[\s\S]*task\.discovered_count[\s\S]*恢复未核验项/,"已完成但仍有未核验候选的历史任务必须在页面提供明确恢复入口");
 assert.match(detail,/返回任务中心[\s\S]*查看任务报告[\s\S]*停止任务[\s\S]*继续执行[\s\S]*重试失败项[\s\S]*取消任务/,"AI获客任务详情必须与AI筛选统一任务控制文案与按钮层级，同时保留完整状态控制");

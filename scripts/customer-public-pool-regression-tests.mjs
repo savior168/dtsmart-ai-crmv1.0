@@ -47,6 +47,9 @@ const followupApi = read("app/api/customers/[id]/followups/route.ts");
 const followupEditApi = read("app/api/followups/[id]/route.ts");
 const assignmentApi = read("app/api/admin/customer-assignments/route.ts");
 const searchableMultiSelect = read("components/ui/searchable-multi-select-filter.tsx");
+const releaseHistoryApi = read("app/api/customers/protection/releases/route.ts");
+const protectionPanel = read("components/customer-workspace-panels-v2.tsx");
+const ownerScope = read("lib/auth/current-user.ts");
 
 assert.match(migration, /target\.owner_id is not null[\s\S]*已被认领或不属于管理员可分配范围/, "管理员批量分配必须拒绝已有归属客户");
 assert.match(migration, /source_user\.status not in \('DISABLED','DEPARTED'\)/, "离职交接仅允许停用或离职账号");
@@ -147,7 +150,6 @@ const protectionApi = read("app/api/customers/protection/route.ts");
 assert.match(protectionApi, /expiredQuery[\s\S]*not\("owner_id", "is", null\)/, "保护到期扫描不得把无归属公海客户当作我的到期客户");
 assert.match(protectionApi, /protectionsQuery[\s\S]*\.in\("status", \["ACTIVE", "EXPIRED"\]\)[\s\S]*\.not\("expire_date", "is", null\)/, "保护到期列表只能统计当前有效或已到期的保护关系");
 assert.doesNotMatch(protectionApi, /status\.eq\.RELEASED|\.eq\("action", "RELEASE"\)/, "主动释放和历史释放记录不得混入保护到期与续期");
-const releaseHistoryApi = read("app/api/customers/protection/releases/route.ts");
 assert.match(releaseHistoryApi, /requestedOwnerId[\s\S]*source_owner_id[\s\S]*\.eq\("action", "RELEASE"\)/, "主动释放历史必须按原归属人授权查询，且与续期队列分离");
 assert.doesNotMatch(releaseHistoryApi, /phone|whatsapp|email,website|contact_name/, "释放历史不得返回客户联系方式");
 assert.match(protectionApi, /select\(summaryOnly \? "id" : "\*"\)\.is\("deleted_at", null\)[\s\S]*if \(summaryOnly\)[\s\S]*customers\.length/, "保护数量必须在排除已删除或不存在客户后统计");
@@ -246,5 +248,10 @@ assert.match(poolView, /mode: "history", page: String\(page\), page_size: String
 assert.match(poolView, /refreshAssignmentHistory[\s\S]*loadTabCounts[\s\S]*historyRefreshKey/, "分配或交接完成后必须刷新分配记录页签计数和当前记录列表");
 assert.match(customersApi, /exportMode \? "\*" : customerListFields[\s\S]*creator: creatorById[\s\S]*owner: creatorById/, "我的客户导出必须加载完整字段，且跟进字段异常时仍保留归属信息");
 assert.match(poolApi, /exportMode \? "\*"/, "客户公海导出必须加载完整客户字段而非仅当前可见列");
+assert.match(releaseHistoryApi, /requestedOwnerId\(request, account, "customers\.data_all"\)/, "主动释放历史必须在服务端按用户权限限定原归属人范围");
+assert.match(ownerScope, /if \(!hasPermission\(account, dataPermission\)\) return account\.id[\s\S]*manager_id", account\.id/, "普通销售只能查看自己的释放记录，主管只能查看直属下级");
+assert.match(protectionPanel, /保护到期与续期[\s\S]*主动释放历史[\s\S]*view==="renewal"[\s\S]*ReleaseHistoryPanel/, "保护续期与主动释放历史必须分开显示");
+assert.match(poolApi, /tab === "available" && customerIds\.length[\s\S]*select\("customer_id,released_at,created_at"\)[\s\S]*last_released_at: tab === "available"/, "公海只需在待认领列表展示历史释放日期，不得查询释放原因或原归属人");
+assert.match(poolView, /row\.last_released_at[\s\S]*曾被释放/, "公海应以非敏感提示告知客户曾被释放");
 
 console.log("customer public-pool regression tests passed");

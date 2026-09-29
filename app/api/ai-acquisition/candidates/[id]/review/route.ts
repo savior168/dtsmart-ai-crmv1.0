@@ -7,6 +7,7 @@ import { officialWebsiteUrl } from "@/lib/public-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
 import { manualScoreLevel, parseManualReview } from "@/lib/ai-acquisition/manual-review";
+import { hasDirectTargetBusinessEvidence } from "@/lib/ai/customer-analysis";
 
 async function refreshTaskCounts(taskId:string) {
   const admin = createAdminClient();
@@ -37,14 +38,15 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const itemId=String(candidate.data.screening_task_item_id||"");
       if (!itemId) return NextResponse.json({error:"该候选缺少可核验的分析记录，不能人工改分"},{status:409});
       const selected=assessment.evidenceIds.length
-        ? await admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,translated_fact,original_excerpt").eq("task_item_id",itemId).in("id",assessment.evidenceIds)
+        ? await admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,evidence_type,translated_fact,original_excerpt").eq("task_item_id",itemId).in("id",assessment.evidenceIds)
         : {data:[],error:null};
       if (selected.error) throw selected.error;
       if ((selected.data||[]).length!==assessment.evidenceIds.length || (selected.data||[]).some((row)=>!/^https?:\/\//i.test(String(row.source_url||"")) || row.evidence_strength==="WEAK_HINT")) return NextResponse.json({error:"只能引用本客户有公开来源且非弱提示的经营证据"},{status:400});
       if (assessment.targetDecision==="VALID") {
+        if (!(selected.data||[]).some((row)=>row.evidence_type==="支持"&&hasDirectTargetBusinessEvidence(`${row.translated_fact||""} ${row.original_excerpt||""}`))) return NextResponse.json({error:"所选来源尚无直接证明目标业务的经营事实；电话、邮箱和网址不能单独作为行业证据"},{status:400});
         const targetIndustries=task.industries?.length?task.industries:[task.industry];
         const facts=(selected.data||[]).flatMap((row)=>[row.translated_fact,row.original_excerpt]);
-        if (!acquisitionIndustryMatchesVerifiedResult(targetIndustries,assessment.industry,facts)) return NextResponse.json({error:"人工核实行业与任务目标不匹配，请核对所选经营证据"},{status:400});
+        if (!acquisitionIndustryMatchesVerifiedResult(targetIndustries,assessment.industry,facts)) return NextResponse.json({error:`${acquisitionIndustryMismatchReason(targetIndustries,assessment.industry)}。任务目标：${targetIndustries.join("、")||"未设置"}；请核对所选行业及直接经营证据`},{status:400});
       }
       const now=new Date().toISOString();
       const updated=await admin.from("ai_acquisition_candidates").update({
@@ -71,7 +73,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const [result,contacts,evidence]=await Promise.all([
         admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status,industry_type").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
         admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId),
-        admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,translated_fact,original_excerpt").eq("task_item_id",itemId),
+        admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,evidence_type,translated_fact,original_excerpt").eq("task_item_id",itemId),
       ]);
       if (result.error||contacts.error||evidence.error) throw result.error||contacts.error||evidence.error;
       const identityStatus=String(result.data?.identity_status||"");
@@ -93,7 +95,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
         : contacts;
       if(refreshedContacts.error)throw refreshedContacts.error;
       const manuallyConfirmed=candidate.data.manual_target_decision==="VALID" && candidate.data.manual_score!=null;
-      const reviewEvidence=manuallyConfirmed?(evidence.data||[]).filter((row)=>candidate.data.manual_evidence_ids?.includes(row.id)):evidence.data||[];
+      const reviewEvidence=manuallyConfirmed?(evidence.data||[]).filter((row)=>candidate.data.manual_evidence_ids?.includes(row.id)&&row.evidence_type==="支持"&&hasDirectTargetBusinessEvidence(`${row.translated_fact||""} ${row.original_excerpt||""}`)):evidence.data||[];
       const gate=evaluateAcquisitionGate({automationStatus:manuallyConfirmed?"AUTO_DEVELOP":result.data?.automation_status,targetDecision:manuallyConfirmed?"VALID":result.data?.target_decision,score:manuallyConfirmed?candidate.data.manual_score:result.data?.score,identityStatus:result.data?.identity_status,evidenceUrls:reviewEvidence,contacts:refreshedContacts.data||[]});
       const targetIndustries=task.industries?.length?task.industries:[task.industry];
       const industryEvidence=reviewEvidence

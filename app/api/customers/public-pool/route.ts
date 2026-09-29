@@ -305,11 +305,12 @@ export async function GET(request: NextRequest) {
     const rows = (result.data || []) as unknown as PoolDbRow[];
     const ownerIds = [...new Set(rows.flatMap((item) => [item.owner_id, item.created_by]).filter(Boolean))] as string[];
     const customerIds = rows.map((item) => item.id);
-    const [owners, protections, supplements, verifiedContacts] = await Promise.all([
+    const [owners, protections, supplements, verifiedContacts, previousReleases] = await Promise.all([
       ownerIds.length ? admin.from("users").select("id,name,email").in("id", ownerIds) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_protection").select("customer_id,owner_id,expire_date,status,extension_count,start_date").in("customer_id", customerIds).order("start_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_private_supplements").select("id,customer_id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("submitted_by", account.id).in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      tab === "available" && customerIds.length ? admin.from("customer_claims").select("customer_id,released_at,created_at").eq("action", "RELEASE").in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ]);
     if (owners.error) throw owners.error;
     if (protections.error) throw protections.error;
@@ -318,6 +319,13 @@ export async function GET(request: NextRequest) {
     // rollout that temporarily cannot expose this optional table must never
     // make the entire customer public pool unavailable.
     const verifiedContactsData = verifiedContacts.error ? [] : verifiedContacts.data || [];
+    // Only a release flag and date are shared in the public pool. Never expose
+    // the former owner's free-text reason or private follow-up details here.
+    const releasedAtByCustomer = new Map<string, string>();
+    if (previousReleases.error) console.warn("[public-pool] release indicators unavailable", previousReleases.error.code);
+    for (const release of previousReleases.error ? [] : previousReleases.data || []) {
+      if (!releasedAtByCustomer.has(release.customer_id)) releasedAtByCustomer.set(release.customer_id, release.released_at || release.created_at);
+    }
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
     const protectionByCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) if (!protectionByCustomer.has(item.customer_id)) protectionByCustomer.set(item.customer_id, item);
@@ -366,6 +374,7 @@ export async function GET(request: NextRequest) {
         my_supplements: supplementsByCustomer.get(row.id) || [],
         verified_contacts: full ? verifiedContactsByCustomer.get(row.id) || [] : [],
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
+        last_released_at: tab === "available" ? releasedAtByCustomer.get(row.id) || null : null,
         // 未认领公海客户对所有具备客户查看权限的用户开放基础详情；
         // 已认领客户仍仅归属人和具备全量数据权限的角色可打开完整详情。
         can_open_customer: tab === "available" || own || teamRead,

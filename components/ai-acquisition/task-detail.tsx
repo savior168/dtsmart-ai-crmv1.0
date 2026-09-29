@@ -272,14 +272,14 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
       setEvidenceLoading(false);
     }
   }, [toast]);
-  async function runReviewAction() {
-    if (!reviewAction) return;
+  async function runReviewAction(requested:{action:"DISCARD"|"RECHECK_AND_ACCEPT";candidateId:string}) {
+    if (busy) return;
     setBusy(true);
     try {
-      const response=await fetch(`/api/ai-acquisition/candidates/${reviewAction.candidateId}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:reviewAction.action})});
+      const response=await fetch(`/api/ai-acquisition/candidates/${requested.candidateId}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:requested.action})});
       const body=await response.json().catch(()=>({}));
       if(!response.ok) throw new Error(body.error||"复核处理失败");
-      toast(reviewAction.action==="DISCARD"?"该客户已确认舍弃":"现有证据校验通过，客户已进入公海");
+      toast(requested.action==="DISCARD"?"该客户已确认舍弃":"现有证据校验通过，客户已进入公海");
       setReviewAction(null);setEvidence(null);await load();
     } catch(error) { toast(error instanceof Error?error.message:"复核处理失败","error"); }
     finally { setBusy(false); }
@@ -653,8 +653,8 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
         onClose={() => setAction(null)}
         onConfirm={() => void runAction()}
       />
-      <CandidateEvidenceDialog evidence={evidence} canControl={canControl} onClose={() => setEvidence(null)} onReview={(review, candidateId) => { setReviewAction({ action: review, candidateId }); setEvidence(null); }} onSaveAssessment={async(candidateId,assessment)=>{const response=await fetch(`/api/ai-acquisition/candidates/${candidateId}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"SAVE_ASSESSMENT",assessment})});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||"保存人工复核失败");toast("人工评分与判断已保存");await showEvidence(candidateId);await load()}}/>
-      <ConfirmDialog open={Boolean(reviewAction)} title={reviewAction?.action==="DISCARD"?"确认舍弃该客户？":"按现有证据校验该客户？"} description={reviewAction?.action==="DISCARD"?"舍弃后该客户不会进入客户公海，处理依据与审计记录仍会保留。":"系统只按现有分析结果与证据核对准入条件，不会重新采集；只有证据和有效联系方式均达标且无重复时才会进入客户公海。"} confirmLabel={reviewAction?.action==="DISCARD"?"确认舍弃":"校验入池"} busy={busy} onClose={()=>setReviewAction(null)} onConfirm={()=>void runReviewAction()}/>
+      <CandidateEvidenceDialog evidence={evidence} canControl={canControl} reviewBusy={busy} onClose={() => setEvidence(null)} onReview={(action, candidateId) => { const requested={action,candidateId};if(action==="DISCARD"){setReviewAction(requested);setEvidence(null)}else void runReviewAction(requested); }} onSaveAssessment={async(candidateId,assessment)=>{const response=await fetch(`/api/ai-acquisition/candidates/${candidateId}/review`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"SAVE_ASSESSMENT",assessment})});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||"保存人工复核失败");toast("人工评分与判断已保存");await showEvidence(candidateId);await load()}}/>
+      <ConfirmDialog open={Boolean(reviewAction)} title="确认舍弃该客户？" description="舍弃后该客户不会进入客户公海，处理依据与审计记录仍会保留。" confirmLabel="确认舍弃" busy={busy} onClose={()=>setReviewAction(null)} onConfirm={()=>{if(reviewAction)void runReviewAction(reviewAction)}}/>
     </div></main>
   );
 }
