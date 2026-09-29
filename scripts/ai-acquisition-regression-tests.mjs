@@ -36,6 +36,14 @@ assert.match(fs.readFileSync("workflows/ai-acquisition.ts","utf8"),/customer:cus
 assert.match(fs.readFileSync("app/api/ai-acquisition/candidates/[id]/review/route.ts","utf8"),/customer:customers!inner\(id\)[\s\S]*customer\.deleted_at[\s\S]*customer\.pool_status/,"人工复核入池也不得受已删除客户的历史联系方式阻挡");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机成品零售"),false,"成品手机零售不得混入维修店任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售"),false,"普通外配件零售不得混入维修配件批发任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机外配件零售",["官网显示该商家销售手机壳和贴膜"]),false,"仅销售外配件不能借人工复核进入维修店任务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机外配件零售",["官网服务页确认该商家提供iPhone屏幕更换维修"]),true,"外配件零售主分类下有同一主体手机换屏直接证据时不得误拒");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机外配件零售",["未发现该商家提供iPhone屏幕更换维修"]),false,"否定事实不得当作手机维修证据");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机维修店"],"手机外配件零售",["官网显示销售手机壳，同时提供笔记本电池更换维修"]),false,"电脑维修不能冒充手机维修业务");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"手机外配件零售",["官网向维修门店批发iPhone LCD屏幕总成和充电尾插"]),true,"有具体手机维修内配件批发证据的混合商家不能仅因主分类是外配件零售而误拒");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件零售商"],"维修内配件零售"),true,"配件零售任务必须识别已核验的维修内配件零售类别");
+assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件零售商"],"手机外配件零售",["官网销售手机壳和充电器"]),false,"手机配件零售目标不能被外配件标签单独满足");
+assert.match(acquisitionIndustryMismatchReason(["手机维修店"],"手机外配件零售"),/换屏／换电池/,"行业不匹配时应给出可核查的目标业务缺口");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["Google商家页将该企业分类为汽车配件批发商"]),false,"汽车配件批发商不得借粗行业标签进入手机维修配件任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["官网经营食品批发与餐饮供应"]),false,"食品批发商不得借wholesale泛词进入手机维修配件任务");
 assert.equal(acquisitionIndustryMatchesVerifiedResult(["手机配件批发商"],"进口商或分销商",["官网销售手机壳、耳机、充电器并提供批发账户"]),false,"只批发手机外配或成品不得冒充维修内配件分销商");
@@ -68,6 +76,8 @@ assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",compa
 assert.equal(discoveryCandidateLooksRelevant({businessStatus:"OPERATIONAL",companyName:"Fresh Produce Wholesale",types:["food_wholesaler"],matchedTerms:["wholesale"]},["食品饮料批发商"],["food wholesaler"]),true,"用户明确选择食品行业时必须允许食品批发候选");
 assert.equal(googleProfileHasTemporalBusinessConflict({name:"ابو عبدالله للحلاقة",description:"Mobile Phone/Gadget Repairs & Sales. Alamo's repairs phones.",reviews:[],types:["hair_care"]}),true,"Google当前理发店名称与历史手机维修描述冲突时必须阻止自动认定主体和行业");
 assert.equal(googleProfileHasTemporalBusinessConflict({name:"Alamo's Mobile Repairs",description:"Mobile Phone/Gadget Repairs & Sales",reviews:[],types:["mobile_phone_repair_shop"]}),false,"名称与经营内容一致的手机维修商家不得被误判为历史资料冲突");
+assert.equal(googleProfileHasTemporalBusinessConflict({name:"Toon Repair and Vape Hub - Phone & Laptop Repair Newcastle",description:"We specialize in mobile phone repair, iPhone screen replacement and battery replacement",reviews:[],types:["vaporizer_store","mobile_phone_repair_shop"]}),false,"当前商家名称同时明确经营电子烟与手机维修时不得误判为换主体");
+assert.equal(googleProfileHasTemporalBusinessConflict({name:"City Vape Hub",description:"Previous owner offered mobile phone repairs",reviews:[],types:["vaporizer_store"]}),true,"当前名称仅显示电子烟而历史描述显示手机维修时仍须隔离主体冲突");
 const purposeSummary=summarizeUsagePurposes([
   {provider:"GOOGLE_PLACES",operation:"目标商家搜索",quantity:2,amount_usd:0.064},
   {provider:"GOOGLE_PLACES",operation:"商家详情与联系方式",quantity:1,amount_usd:0.02},
@@ -580,7 +590,8 @@ assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*pr
 assert.match(customerResultsRoute,/params\.get\("task_id"\)[\s\S]*query\.eq\("task_id", taskId\)[\s\S]*filter_task/,"来源任务筛选必须在服务端真实生效且返回有权限查看的任务标识");
 assert.match(customerResultsRoute,/params\.get\("task_search"\)[\s\S]*ai_acquisition_tasks[\s\S]*task_number\.ilike[\s\S]*matchedTaskIds[\s\S]*\.in\("task_id", matchedTaskIds\)/,"按获客任务名称或编号的筛选必须由服务端解析真实任务后生效");
 assert.match(customerResultsRoute,/can_control:[\s\S]*task\?\.user_id[\s\S]*account\.role==="ADMIN"[\s\S]*show_owner/ ,"客户结果接口必须分别返回跨用户可见性与逐任务可操作权限");
-assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*\.in\("industry",industries\)[\s\S]*\.in\("category",industries\)[\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
+assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*industry\.in\.\([\s\S]*category\.in\.\([\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
+assert.match(customerResultsRoute,/industry_customer:staging_customer_id!inner[\s\S]*industry_customer:imported_customer_id!inner[\s\S]*referencedTable: "industry_customer"/,"所属行业须按候选实际关联客户在数据库内筛选，不得把数千个客户UUID拼成超长请求");
 assert.match(customerResultsRoute,/optionCandidates[\s\S]*range\(offset, offset \+ 999\)[\s\S]*countryCounts[\s\S]*industryCounts[\s\S]*filter_options/,"行业和国家选项必须按当前结果范围全部数据去重计数，不能只取当前分页");
 assert.match(customerResultsRoute,/const mode = params\.get\("mode"\)[\s\S]*mode === "core"[\s\S]*mode === "summary"[\s\S]*mode === "filters"/,"客户结果接口必须拆分首屏、汇总和筛选项查询，禁止一次请求争抢全部数据库资源");
 assert.match(customerResultsRoute,/const result = mode === "core"[\s\S]*data: \[\], count: 0, error: null[\s\S]*if \(mode === "filters"\)/,"汇总和筛选项辅助请求不得重复执行客户分页与精确总数查询");

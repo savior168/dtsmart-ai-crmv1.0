@@ -19,5 +19,11 @@ export function googleProfileHasTemporalBusinessConflict(profile?: GoogleProfile
   const currentName = String(profile.name || "").normalize("NFKC");
   const operatingText = [profile.description, ...(profile.reviews || []), ...(profile.types || []).map((value) => String(value).replace(/_/g, " "))]
     .filter(Boolean).join(" ").normalize("NFKC");
-  return CLEAR_NON_TARGET_CURRENT_NAME.test(currentName) && TARGET_DEVICE_ACTIVITY.test(operatingText);
+  // A mixed merchant can advertise both sectors in its *current* name (for
+  // example "Vape Hub - Phone & Laptop Repair"). That is not evidence of a
+  // renamed Google listing. Preserve the conflict only when device activity
+  // appears in the older description/reviews but not in the current name.
+  return CLEAR_NON_TARGET_CURRENT_NAME.test(currentName)
+    && !TARGET_DEVICE_ACTIVITY.test(currentName)
+    && TARGET_DEVICE_ACTIVITY.test(operatingText);
 }

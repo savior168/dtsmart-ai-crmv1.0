@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { evaluateAcquisitionGate } from "@/lib/ai-acquisition/quality-gate";
 import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/industry-match";
+import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
 import { officialWebsiteUrl } from "@/lib/public-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -70,8 +71,17 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const industryEvidence=(evidence.data||[])
         .filter((row)=>/^https?:\/\//i.test(String(row.source_url||""))&&row.evidence_strength!=="WEAK_HINT")
         .flatMap((row)=>[row.translated_fact,row.original_excerpt]);
-      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:`已核验行业“${String(result.data?.industry_type||"未知") }”缺少与本任务目标行业直接匹配的经营证据，不能入池`},{status:409});
-      if (!gate.accepted) return NextResponse.json({error:"当前证据仍未达到入池门槛，请先补齐目标行业、主体在营和可追溯有效联系方式依据"},{status:409});
+      if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,result.data?.industry_type,industryEvidence)) return NextResponse.json({error:acquisitionIndustryMismatchReason(targetIndustries,result.data?.industry_type)},{status:409});
+      if (!gate.accepted) {
+        const missing = [
+          result.data?.automation_status !== "AUTO_DEVELOP" || result.data?.target_decision !== "VALID" ? "AI最终目标结论尚未通过，当前按钮不会替代人工证据复核" : null,
+          Number(result.data?.score || 0) < 60 ? "评分未达到60分" : null,
+          !["MATCHED","LIKELY_MATCHED"].includes(identityStatus) ? "客户主体与证据来源尚未确认一致" : null,
+          !gate.hasTraceableBusinessEvidence ? "缺少可追溯的非弱经营证据" : null,
+          !gate.actionableContacts.length ? "缺少可追溯且已核验的电话、邮箱或WhatsApp" : null,
+        ].filter(Boolean);
+        return NextResponse.json({error:`当前不能入池：${missing.join("；") || "请核对已保存的证据"}`},{status:409});
+      }
       const normalized=gate.actionableContacts.map((row)=>String(row.value_normalized||"")).filter(Boolean);
       const duplicate=normalized.length?await admin.from("customer_contacts")
         .select("customer_id,customer:customers!inner(id)")

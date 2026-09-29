@@ -6,6 +6,12 @@ import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 const validScopes = new Set(["today", "week", "accepted", "review"]);
 type CountedFilterOption = { value: string; count: number };
 type FilterOptions = { countries: CountedFilterOption[]; industries: CountedFilterOption[] };
+type AcquisitionResultRow = {
+  imported_customer_id: string | null;
+  staging_customer_id: string | null;
+  task: { id: string; task_number: string; name: string; user_id: string } | Array<{ id: string; task_number: string; name: string; user_id: string }> | null;
+  [key: string]: unknown;
+};
 const filterOptionsCache = new Map<string, { expiresAt: number; value: FilterOptions }>();
 
 export async function GET(request: NextRequest) {
@@ -44,17 +50,25 @@ export async function GET(request: NextRequest) {
       matchedTaskIds = (taskMatches.data || []).map((task) => String(task.id));
     }
 
-    const base = () => {
+    const base = (filterIndustry = false) => {
+      // REVIEW rows reference their staging customer; accepted rows reference
+      // the promoted customer. Filter on that FK in PostgREST instead of
+      // expanding every matching customer into a potentially enormous URL.
+      const selectColumns: string = filterIndustry
+        ? scope === "review"
+          ? "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id),industry_customer:staging_customer_id!inner(id,industry,category)"
+          : "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id),industry_customer:imported_customer_id!inner(id,industry,category)"
+        : "*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id)";
       let query = admin
         .from("ai_acquisition_candidates")
-        .select("*,task:ai_acquisition_tasks!inner(id,task_number,name,user_id)", { count: "exact" });
+        .select(selectColumns, { count: "exact" });
       if (ownerId) query = query.eq("task.user_id", ownerId);
       if (taskId) query = query.eq("task_id", taskId);
       if (matchedTaskIds) query = matchedTaskIds.length ? query.in("task_id", matchedTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
       return query;
     };
 
-    let query = base();
+    let query = base(mode === "core" && industries.length > 0);
     if (scope === "review") query = query.eq("decision", "REVIEW");
     else query = query.eq("decision", "ACCEPTED").not("imported_customer_id", "is", null);
     if (scope === "today") query = query.gte("processed_at", `${today}T00:00:00.000+08:00`).lte("processed_at", `${today}T23:59:59.999+08:00`);
@@ -71,20 +85,15 @@ export async function GET(request: NextRequest) {
       query = query.or(searchConditions.join(","));
     }
     if (countries.length) query = query.in("country", countries);
-    if (industries.length) {
-      const [industryMatches,categoryMatches]=await Promise.all([
-        admin.from("customers").select("id").in("industry",industries).limit(5000),
-        admin.from("customers").select("id").in("category",industries).limit(5000),
-      ]);
-      if(industryMatches.error||categoryMatches.error)throw industryMatches.error||categoryMatches.error;
-      const matchingCustomerIds=[...new Set([...(industryMatches.data||[]),...(categoryMatches.data||[])].map((row)=>String(row.id)))];
-      query=matchingCustomerIds.length?query.or(`staging_customer_id.in.(${matchingCustomerIds.join(",")}),imported_customer_id.in.(${matchingCustomerIds.join(",")})`):query.eq("id","00000000-0000-0000-0000-000000000000");
+    if (industries.length && mode === "core") {
+      const quoted = industries.map((industry) => JSON.stringify(industry)).join(",");
+      query = query.or(`industry.in.(${quoted}),category.in.(${quoted})`, { referencedTable: "industry_customer" });
     }
     if (["A", "B", "C", "D"].includes(level)) query = query.eq("ai_level", level);
     if (from) query=query.gte("processed_at",`${from}T00:00:00.000+08:00`);
     if (to) query=query.lte("processed_at",`${to}T23:59:59.999+08:00`);
     const result = mode === "core"
-      ? await query.order("processed_at", { ascending: false, nullsFirst: false }).range((page - 1) * pageSize, page * pageSize - 1)
+      ? await query.order("processed_at", { ascending: false, nullsFirst: false }).range((page - 1) * pageSize, page * pageSize - 1).returns<AcquisitionResultRow[]>()
       : { data: [], count: 0, error: null };
     if (result.error) throw result.error;
     const rows = result.data || [];
