@@ -95,6 +95,21 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
   const loadControllerRef=useRef<AbortController|null>(null);
   const costLoadedScopeRef=useRef<string|null>(null);
   const summaryScopeRef=useRef<string|null>(null);
+  const tasksRef=useRef(tasks);
+  useEffect(()=>{tasksRef.current=tasks},[tasks]);
+  const taskParams=useCallback(()=>{
+    const p = new URLSearchParams({page:String(page),pageSize:String(pageSize)});
+    if (scopeUserId) p.set("user_id", scopeUserId);
+    if (status) p.set("status", status);
+    if (metric) p.set("metric", metric);
+    if (search) p.set("search", search);
+    for (const industry of industries) p.append("industry", industry);
+    for (const country of countries) p.append("country", country);
+    if (costMode) p.set("cost_mode", costMode);
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    return p;
+  },[page,pageSize,scopeUserId,status,metric,search,industries,countries,costMode,from,to]);
   const load = useCallback(async () => {
     loadControllerRef.current?.abort();
     const controller=new AbortController();
@@ -104,19 +119,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     setError("");
     setPageUsageError(false);
     try {
-      const p = new URLSearchParams({
-        page: String(page),
-        pageSize: String(pageSize),
-      });
-      if (scopeUserId) p.set("user_id", scopeUserId);
-      if (status) p.set("status", status);
-      if (metric) p.set("metric", metric);
-      if (search) p.set("search", search);
-      for (const industry of industries) p.append("industry", industry);
-      for (const country of countries) p.append("country", country);
-      if (costMode) p.set("cost_mode", costMode);
-      if (from) p.set("from", from);
-      if (to) p.set("to", to);
+      const p = taskParams();
       const summaryScope=JSON.stringify({scopeUserId,costMode,countries,industries,from,to,search});
       const refreshSummary=summaryScopeRef.current!==summaryScope;
       setSummaryLoading(true);
@@ -183,11 +186,50 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     } finally {
       if(requestId===loadRequestRef.current&&!controller.signal.aborted)setLoading(false);
     }
-  }, [page, pageSize, status, metric, search, industries, countries, costMode, from, to, scopeUserId]);
+  }, [taskParams, scopeUserId, costMode, countries, industries, from, to, search]);
   useEffect(() => {
     void load();
     return () => loadControllerRef.current?.abort();
   }, [load]);
+  useEffect(() => {
+    let active=true;
+    let inFlight=false;
+    let controller:AbortController|null=null;
+    const refresh=async()=>{
+      if(!active||inFlight||loading||document.visibilityState!=="visible")return;
+      inFlight=true;
+      controller=new AbortController();
+      const timeout=window.setTimeout(()=>controller?.abort(),12000);
+      const requestId=loadRequestRef.current;
+      const p=taskParams();
+      p.set("core","1");
+      try{
+        const response=await fetch(`/api/ai-acquisition/tasks?${p}`,{cache:"no-store",signal:controller.signal});
+        const body=await response.json().catch(()=>({}));
+        if(!active||requestId!==loadRequestRef.current||!response.ok||!Array.isArray(body.data))return;
+        const previous=new Map(tasksRef.current.map((task)=>[task.id,task.status]));
+        const changed=body.data.some((task:AcquisitionTask)=>previous.has(task.id)&&previous.get(task.id)!==task.status);
+        setTasks(body.data.map((task:AcquisitionTask)=>{
+          const prior=tasksRef.current.find((item)=>item.id===task.id);
+          return prior?{...task,usage:prior.usage,search_completed_count:prior.search_completed_count,search_raw_hits:prior.search_raw_hits}:task;
+        }));
+        setCount(Number(body.count||0));
+        setError("");
+        if(changed){
+          const summaryParams=taskParams();
+          summaryParams.set("mode","summary");
+          const summaryResponse=await fetch(`/api/ai-acquisition/tasks?${summaryParams}`,{cache:"no-store",signal:controller.signal});
+          const summaryBody=await summaryResponse.json().catch(()=>({}));
+          if(active&&requestId===loadRequestRef.current&&summaryResponse.ok&&summaryBody.summary)setSummary(summaryBody.summary);
+        }
+      }catch{/* Keep the last verified state; the next poll or manual refresh retries. */}
+      finally{window.clearTimeout(timeout);inFlight=false;controller=null}
+    };
+    const timer=window.setInterval(()=>void refresh(),15000);
+    const onVisible=()=>{if(document.visibilityState==="visible")void refresh()};
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{active=false;controller?.abort();window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisible)};
+  },[taskParams,loading]);
   useEffect(() => {
     // Fetch once per owner scope on entry, independently of the task summary
     // and the collapsed detail panel.

@@ -427,7 +427,7 @@ assert.match(taskCenter,/候选核验进度[\s\S]*href=\{`\/ai-acquisition\/task
 assert.match(taskCenter,/href=\{`\/ai-acquisition\/customers\?scope=accepted&task_id=\$\{t\.id\}`\}[\s\S]*查看本任务所有成功入池客户/,"成功入池数量必须直接进入当前任务的入池客户结果");
 assert.doesNotMatch(taskCenter,/原始命中 \{formatNumber\(t\.search_raw_hits|已检索 \{formatNumber\(t\.search_completed_count/,"原始命中和检索组合数不得挤占任务列表");
 assert.match(taskCenter,/RowActionMenu[\s\S]*暂停任务[\s\S]*恢复任务[\s\S]*从检查点重试[\s\S]*取消任务/,"任务中心必须按状态提供暂停、恢复、重试和取消入口");
-assert.doesNotMatch(taskCenter,/setInterval\(/,"任务中心不得频繁自动刷新整张任务列表");
+assert.match(taskCenter,/document\.visibilityState!=="visible"[\s\S]*p\.set\("core","1"\)[\s\S]*setInterval\(\(\)=>void refresh\(\),15000\)/,"任务中心只在页面可见时轻量轮询核心状态，不得频繁刷新完整统计");
 assert.match(taskCenter,/UserScopeSelect[^>]*initializeDefault=\{false\}/,"AI获客任务中心首次进入不得因归属人默认值回写而重复刷新");
 assert.doesNotMatch(taskCenter,/scopeUserId \|\| "all"/,"AI获客任务中心显示本人范围时不得在接口请求中暗自扩大为全员数据");
 assert.match(taskCenter,/ownerQuery[\s\S]*customers\?scope=\$\{customerScope\}\$\{ownerQuery\}/,"任务中心进入客户结果时必须保持当前归属人范围");

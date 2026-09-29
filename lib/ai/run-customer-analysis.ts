@@ -718,12 +718,12 @@ export function finalizeAnalysisAgainstEvidence(customer: CustomerRow, records: 
     address: customer.address,
     industry_keywords: null,
     evidence: evidenceForModel(records, "escalation"),
-  }, withoutUsage, records.flatMap((record) => {
+  }, withoutUsage, records.filter((record) => record.status === "COLLECTED").flatMap((record) => {
     const urls = [record.source_url];
     if (record.evidence && "url" in record.evidence) urls.push(record.evidence.url);
     if (record.evidence && "verified_google_maps_url" in record.evidence) urls.push(record.evidence.verified_google_maps_url);
     return urls.filter((value): value is string => Boolean(value && /^https?:\/\//i.test(value)));
-  }));
+  }), true);
   return { ...grounded, usage };
 }
 
@@ -1895,7 +1895,9 @@ export function verifiedCompanyScale(records: ChannelRecord[]) {
   type TradeFact = { product?: unknown; quantity?: unknown; amount?: unknown; currency?: unknown; date?: unknown; supplier?: unknown; source_url?: unknown };
   const verified: Array<{ text: string; sourceUrl: string }> = [];
   const branchFacts: Array<{ text: string; sourceUrl: string; count: number | null }> = [];
-  const countPattern = /(?:(?:at least|over|more than|拥有|设有|共有)\s*)?(\d{1,3})\s*(?:locations?|stores?|shops?|branches?|service centers?|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|punkty serwisowe|salon(?:y|ów)|plac[oó]w(?:ki|ek)|sklep(?:y|ów)|门店|分店|直营网点|维修中心)/i;
+  // Require a complete standalone number and an actual plural location unit.
+  // Otherwise "07492 244409 Store Location" is parsed as 409 stores.
+  const countPattern = /(?<!\d)(?:(?:at least|over|more than|拥有|设有|共有)\s*)?(\d{1,3})(?!\d)\s*(?:(?:UK|Irish|British|local)\s+)?(?:locations|stores|shops|branches|service centers|filialen|standorte|oddzia(?:ł|ły|łów)|punkt(?:y|ów)|punkty serwisowe|salon(?:y|ów)|plac[oó]w(?:ki|ek)|sklep(?:y|ów)|家?(?:门店|分店|直营网点|维修中心))(?![A-Za-z])/i;
   const chainPattern = /(?:multiple locations|chain of (?:repair )?(?:stores?|shops?)|sie[cć]\s+(?:serwis|salon|punkt)|nasze (?:salony|punkty|oddziały)|多家门店|多门店|连锁门店|旗下分店)/i;
   for (const record of records) {
     if (record.status !== "COLLECTED" || !record.evidence || typeof record.evidence !== "object") continue;

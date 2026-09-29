@@ -331,4 +331,48 @@ test("242c 手机电脑备件事实必须同时出现目标设备语义",()=>{co
 test("243 已保存客户结果不得因汇总超时改判失败",()=>{const s=source("lib/ai/run-customer-analysis.ts");assert.match(s,/optionalWrite\("TASK_TOTAL_REFRESH", writebackWarnings/);assert.doesNotMatch(s,/if \(totals\.error\) throw durableError\(totals\.error, "TASK_TOTAL_REFRESH"\)/);assert.match(source("workflows/ai-screening.ts"),/analyzeTaskItem\.maxRetries = 0/);});
 test("244 公海读取和AI恢复器不得执行客户过期批量写入且行业多选使用稳定短分组参数",()=>{const route=source("app/api/customers/public-pool/route.ts");const recovery=source("app/api/cron/ai-task-recovery/route.ts");const view=source("components/customer-public-pool-view.tsx");assert.doesNotMatch(route,/refresh_expired_public_customers/);assert.doesNotMatch(recovery,/refresh_expired_public_customers/);assert.match(route,/industry_group/);assert.match(route,/rawCategoryPatternsForIndustryLabel/);assert.match(view,/value\.startsWith\("industry:"\)[\s\S]*params\.append\("industry_group", label\)/);assert.doesNotMatch(view,/option\?\.values|filterValue\.startsWith\("group:"\)/);assert.match(view,/listAbortRef\.current\?\.abort/);});
 
+test("245 最终评分不接受未抓取的官网子路径作为证据",()=>{
+  const base={industry_type:"手机维修店",is_target_customer:true,ai_score:82,ai_level:"B",ai_reason:"维修业务",business_relevance:"相关",customer_value:"待确认",followup_suggestion:"联系",confidence_score:95,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{entity_consistency:95,company_authenticity:90,business_activity:80,mobile_parts_match:90,macbook_parts_match:0,wholesale_import_distribution:0,repair_business_match:90,bulk_purchase_potential:40,contactability:50,evidence_completeness:85,contradiction_risk:0},suggested_contact_order:[],evidence_summaries:[{channel:"website",title_zh:"企业官网服务",fact_zh:"官网明确提供手机维修和换屏服务。",source_url:"https://shop.example/repair",evidence_type:"支持",confidence:95}]};
+  const website={url:"https://shop.example",reachable:true,title:"Shop",headings:[],image_alts:[],image_urls:[],emails:[],phones:[]};
+  const input={customer_name:"Shop",country:"GB",website:website.url,evidence:{website}};
+  const rejected=customerAnalysis.groundCustomerAnalysis(input,base,[],true);
+  assert.equal(rejected.evidence_summaries.length,0);
+  assert.equal(rejected.is_target_customer,false);
+  const fetched=customerAnalysis.groundCustomerAnalysis({...input,evidence:{website:{...website,pages:[{url:"https://shop.example/repair",title:"Repair",description:"Phone repair",headings:[],image_alts:[],image_urls:[],emails:[],phones:[]}]}}},base,[],true);
+  assert.equal(fetched.evidence_summaries.length,1);
+  const wrongQuery=customerAnalysis.groundCustomerAnalysis({...input,website:"https://shop.example/?page=contact",evidence:{website:{...website,url:"https://shop.example/?page=contact"}}},{...base,evidence_summaries:[{...base.evidence_summaries[0],source_url:"https://shop.example/?page=repair"}]},[],true);
+  assert.equal(wrongQuery.evidence_summaries.length,0);
+});
+
+test("246 Ace Fixings 电动工具维修不得归为手机维修或入池",()=>{
+  const customer={id:"ace-fixings",company_name:"Ace Fixings",country:"GB",website:"https://acefixings.com/",google_url:"https://maps.google.com/?cid=1901073579326844452"};
+  const records=[
+    {channel:"google_maps",status:"COLLECTED",source_url:customer.google_url,evidence:{name:"Ace Fixings",description:"Supplier of power tools, accessories, nails, screws and fixings to the trade industry.",types:["hardware_store","building_materials_store","tool_store"],phone:"+44 28 9073 8900",reviews:[],identity_status:"MATCHED",identity_confidence:96,match_signals:["电话号码一致","地址信息一致"],mismatch_signals:[],verified_google_maps_url:customer.google_url}},
+    {channel:"website",status:"COLLECTED",source_url:customer.website,evidence:{url:customer.website,reachable:true,title:"Ace Fixings | Power tools & Accessories | Nails, Screws & more",description:"Leading supplier of power tools and accessories, including nails, screws, fixings, sealants and adhesives.",headings:["Power Tool Repair Shop","Repair workshop for Bosch and Paslode power tools"],text_excerpt:"We service and repair power tools. Genuine manufacturers' replacement parts are used.",image_alts:[],image_urls:[],emails:["repairs@acefixings.com"],phones:["028 2564 9323"]}},
+  ];
+  const deterministic=runner.deterministicAnalysis(customer,records);
+  assert.ok(!deterministic || !deterministic.is_target_customer);
+  const wrongModel={industry_type:"手机维修店",is_target_customer:true,ai_score:85,ai_level:"A",ai_reason:"专业维修车间",business_relevance:"相关",customer_value:"待评估",followup_suggestion:"联系",confidence_score:96,evidence_sufficiency:"充分",evidence_conflicts:[],score_breakdown:{},suggested_contact_order:[],evidence_summaries:[{channel:"google_maps",title_zh:"Google商家页",fact_zh:"Google商家分类为五金店、建材商店、工具批发商。",source_url:customer.google_url,evidence_type:"矛盾",confidence:96},{channel:"website",title_zh:"企业官网",fact_zh:"官网有专业维修车间，维修电动工具。",source_url:customer.website,evidence_type:"支持",confidence:96}]};
+  const grounded=customerAnalysis.groundCustomerAnalysis({customer_name:customer.company_name,country:"GB",website:customer.website,google_url:customer.google_url,evidence:{website:records[1].evidence,google_place:records[0].evidence}},wrongModel);
+  assert.equal(grounded.industry_type,"其他");
+  assert.equal(grounded.is_target_customer,false);
+  assert.ok(grounded.ai_score<60);
+  assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("官网有专业维修车间，维修电动工具。"),false);
+});
+
+test("247 电话尾号后接 Store Location 不得伪造门店数",()=>{
+  const website=(text)=>[{channel:"website",status:"COLLECTED",source_url:"https://repair.example/",evidence:{url:"https://repair.example/",reachable:true,description:text,headings:[],text_excerpt:""}}];
+  assert.equal(runner.verifiedCompanyScale(website("Call us on 07492 244409 Store Location No Store Near You")).locationCount,null);
+  assert.equal(runner.verifiedCompanyScale(website("Fast screen and battery fixes at 14 UK stores. Call us on 07492 244409 Store Location")).locationCount,14);
+  assert.equal(runner.verifiedCompanyScale(website("官网明确设有14家门店，提供手机维修服务")).locationCount,14);
+});
+
+test("248 非目标电动工具维修与明确手机屏幕维修须双向区分",()=>{
+  assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("Power equipment repair shop. We service electric drills and lawn mowers."),false);
+  assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("We repair iPhone screens and replace smartphone batteries, and also sell repair tools."),true);
+  assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("We repair iPhone screens."),true);
+  assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("维修手机屏幕。"),true);
+  assert.equal(customerAnalysis.hasCoreDeviceRepairEvidence("我们维修手机屏幕并更换电池，同时销售工具。"),true);
+});
+
 console.log(`AI证据、成本与写回规则测试通过：${passed}/${passed}`);

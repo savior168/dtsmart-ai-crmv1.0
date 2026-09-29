@@ -114,7 +114,11 @@ export function isItSupportWithoutHardwareRepair(text: string) {
  */
 export function hasCoreDeviceRepairEvidence(text: string) {
   const positive = positiveTargetEvidenceText(text);
-  return /(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)[\s\S]{0,56}(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)[\s\S]{0,56}(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换|换屏|换电池)|(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)[\s\S]{0,56}(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换|换屏|换电池)[\s\S]{0,56}(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)|(?:repair workshop|speciali[sz]ed workshop|reparaturwerkstatt|fachwerkstatt|维修工作台|专业维修车间|拆机维修|板级维修|元器件级维修)/i.test(positive);
+  // A generic repair workshop can service power tools, appliances or cars.
+  // It cannot overturn an independently identified non-target trade without
+  // an explicit phone/computer device and component-repair connection.
+  return /(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)[\s\S]{0,56}(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)[\s\S]{0,56}(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换|换屏|换电池)|(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)[\s\S]{0,56}(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换|换屏|换电池)[\s\S]{0,56}(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)/i.test(positive)
+    || /(?:repair|replace|replacement|fix|repar|napraw|serwis|wymian|维修|更换)[\s\S]{0,32}(?:phone|mobile|smartphone|iphone|handy|telefon|computer|laptop|notebook|macbook|pc|手机|电脑|笔记本|苹果设备)[\s\S]{0,32}(?:screen|display|glass|battery|charging port|charge port|keyboard|trackpad|motherboard|mainboard|logic board|lcd|oled|屏幕|玻璃|电池|充电口|尾插|键盘|主板|逻辑板|触摸屏)/i.test(positive);
 }
 
 export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis["industry_type"] | null {
@@ -127,7 +131,7 @@ export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis
   if (/(?:\bfoods?\b|fresh produce|fruit(?:s)?(?:\s*(?:and|&|,)\s*vegetables?)?|vegetable(?:s)?|food wholesal(?:e|er)|food distributor|food supplier|restaurant suppl(?:y|ier)|catering suppl(?:y|ier)|冷藏食品|生鲜(?:食品|果蔬)?|果蔬(?:批发|配送|供应)?|水果(?:批发|配送|供应)?|蔬菜(?:批发|配送|供应)?|食品(?:批发|配送|供应)|餐饮供应)/i.test(positive)) return "食品批发或餐饮供应";
   if (/(?:computer recycling|electronics? recycling|e-?waste|waste electrical|WEEE|IT asset disposal|computer removal|office clearance|废旧电脑回收|电子废弃物|电子垃圾|废品回收|电脑回收|设备回收|清运服务)/i.test(positive)) return "其他";
   if (/(?:\b(?:auto|automotive|motor|vehicle|truck|trailer|car)\s*(?:parts?|spares?|components?|accessories?)\b|car body parts?|motor factors?|tyres?|brakes?|suspension|clutch|汽车(?:配件|零件|维修)|机动车(?:配件|零件)|轮胎(?:店|批发|供应)?|卡车(?:配件|零件))/i.test(positive)) return "其他";
-  if (/(?:electrical equipment|electrical distributor|lighting wholesal|fasteners?|marine supplies|welding supplies|tool wholesal|家居用品批发|电气设备供应|照明产品批发|紧固件供应|焊接用品|船舶用品)/i.test(positive)) return "其他";
+  if (/(?:electrical equipment|electrical distributor|lighting wholesal|fasteners?|marine supplies|welding supplies|tool wholesal|power tools?|power tool accessories|nails,? screws? (?:and|&) fixings|hardware store|building materials? store|screw supplier|tool store|tool wholesaler|五金店|建材商店|螺丝供应商|工具商店|工具批发商|电动工具|家居用品批发|电气设备供应|照明产品批发|紧固件供应|焊接用品|船舶用品)/i.test(positive)) return "其他";
   if (/(?:\bvap(?:e|ing)\b|tobacco wholesal|digital marketing|marketing agency|call cent(?:er|re)|网站设计|数字营销|烟草批发|电子烟)/i.test(positive)) return "其他";
   if (/(?:home appliance|appliance repair|white goods|household appliances?|elektroger[aä]t|haushaltsger[aä]t|电器维修|家电维修)/i.test(positive)) return "电器或家电维修";
   if (/(?:mobile network operator|telecommunications service provider|telekom partner|telekommunikationspartner|mobilfunk(?:vertrag|tarif)|handyvertr[aä]g|sim card|mobile plan|mobile contract|phone contract|运营商营业厅|电信运营商|电信合作伙伴|通信合约|手机套餐|宽带套餐)/i.test(positive)) return "运营商营业厅";
@@ -138,7 +142,7 @@ export function dominantNonTargetIndustryForText(text: string): CustomerAnalysis
 
 export function isDirectNonTargetBusinessEvidence(text: string) {
   return (!hasDirectTargetBusinessEvidence(text) || (Boolean(dominantNonTargetIndustryForText(text)) && !hasCoreDeviceRepairEvidence(text)))
-    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|电器维修|家电维修|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|胶片|模拟相机|相机(?:商店|维修|修复|翻新)|摄影器材|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|home appliance|appliance repair|pharmacy|pharmacist|tobacco|vape|shisha|auction|film lab|film processing|analogue camera|analog camera|camera (?:store|shop|repair|restoration)|photograph(?:y|ic) (?:store|shop|lab))/i.test(text);
+    && /(?:软件开发|云服务|网络托管|IT系统|IT咨询|技术支持|网络(?:设置|配置|维护|管理|支持)|NAS|服务器|运营商(?:营业厅|套餐)?|通信合约|SIM卡|电器维修|家电维修|食品|药房|药店|药剂师|疫苗接种|铁路|电气安全|电子烟|烟草|水烟|拍卖|破产清算|资产处置|胶片|模拟相机|相机(?:商店|维修|修复|翻新)|摄影器材|五金店|建材商店|螺丝供应商|工具商店|工具批发商|电动工具|software development|cloud service|managed services|IT support|technical support|network setup|server maintenance|home appliance|appliance repair|pharmacy|pharmacist|tobacco|vape|shisha|auction|film lab|film processing|analogue camera|analog camera|camera (?:store|shop|repair|restoration)|photograph(?:y|ic) (?:store|shop|lab)|power tools?|fasteners?|hardware store|building materials? store|screw supplier|tool wholesaler)/i.test(text);
 }
 
 const DIRECT_TARGET_BUSINESS_EVIDENCE_PATTERN = /(?:手机维修|手机配件|手机、平板配件销售|手机壳|保护膜|移动电源|充电器|耳机|电脑(?:或笔记本)?维修|电脑硬件维修|macbook维修|apple设备维修|电子(?:设备|产品)维修|游戏机维修|electronics? repairs?|electronic device repairs?|game(?:s)? console repairs?|console repairs?|xbox[\s\S]{0,40}repair|playstation[\s\S]{0,40}repair|ps[345][\s\S]{0,40}repair|屏幕或玻璃更换|电池更换|充电口或接口维修|主板或逻辑板维修|板级或元器件级维修|维修内配件|配件批发|配件分销|配件进口|批量供货|mobil(?:telefon)?reparasjon|reparasjon av mobil|sprukne skjermer|skjermbytte|batteribytte|wholesale|distributor|importer|\bb2b\b|\bmoq\b|trade account)/i;
@@ -217,9 +221,19 @@ function normalizedUrl(value: unknown) {
   } catch { return ""; }
 }
 
-function allowedEvidenceUrls(input: CustomerAnalysisInput) {
+function fetchedUrlKey(value: unknown) {
+  if (typeof value !== "string" || !/^https?:\/\//i.test(value.trim())) return "";
+  try {
+    const url = new URL(value.trim());
+    url.hash = "";
+    url.searchParams.sort();
+    return url.toString().replace(/\/$/, "");
+  } catch { return ""; }
+}
+
+function allowedEvidenceUrls(input: CustomerAnalysisInput, requireFetchedUrl = false) {
   const urls = new Set<string>();
-  const add = (value: unknown) => { const normalized = normalizedUrl(value); if (normalized) urls.add(normalized); };
+  const add = (value: unknown) => { const normalized = requireFetchedUrl ? fetchedUrlKey(value) : normalizedUrl(value); if (normalized) urls.add(normalized); };
   const website = input.evidence?.website;
   if (website?.reachable) {
     add(website.url);
@@ -231,8 +245,10 @@ function allowedEvidenceUrls(input: CustomerAnalysisInput) {
     channel.pages?.forEach((page) => add(page.url));
   });
   if (input.evidence?.google_place?.name) {
-    add(input.google_url);
-    add(input.evidence.google_place.website);
+    if (!requireFetchedUrl) {
+      add(input.google_url);
+      add(input.evidence.google_place.website);
+    }
     add(input.evidence.google_place.verified_google_maps_url);
   }
   return urls;
@@ -335,9 +351,10 @@ function structuredGoogleEvidence(input: CustomerAnalysisInput): CustomerAnalysi
   return rows;
 }
 
-function sameOrChildUrl(candidate: string, allowed: Set<string>) {
-  const normalized = normalizedUrl(candidate);
+function sameOrChildUrl(candidate: string, allowed: Set<string>, requireFetchedUrl = false) {
+  const normalized = requireFetchedUrl ? fetchedUrlKey(candidate) : normalizedUrl(candidate);
   if (!normalized) return false;
+  if (requireFetchedUrl) return allowed.has(normalized);
   return [...allowed].some((source) => normalized === source || normalized.startsWith(`${source}/`) || source.startsWith(`${normalized}/`));
 }
 
@@ -458,12 +475,12 @@ function readableEvidenceLead(items: CustomerAnalysis["evidence_summaries"]) {
 }
 
 /** Enforces evidence-to-conclusion consistency after the model response. */
-export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: Omit<CustomerAnalysis, "usage">, additionalAllowedUrls: string[] = []): Omit<CustomerAnalysis, "usage"> {
-  const allowedUrls = allowedEvidenceUrls(input);
-  additionalAllowedUrls.forEach((url) => { const normalized = normalizedUrl(url); if (normalized) allowedUrls.add(normalized); });
+export function groundCustomerAnalysis(input: CustomerAnalysisInput, analysis: Omit<CustomerAnalysis, "usage">, additionalAllowedUrls: string[] = [], requireFetchedUrl = false): Omit<CustomerAnalysis, "usage"> {
+  const allowedUrls = allowedEvidenceUrls(input, requireFetchedUrl);
+  additionalAllowedUrls.forEach((url) => { const normalized = requireFetchedUrl ? fetchedUrlKey(url) : normalizedUrl(url); if (normalized) allowedUrls.add(normalized); });
   const seenEvidence = new Set<string>();
   const evidence = [...(Array.isArray(analysis.evidence_summaries) ? analysis.evidence_summaries : []), ...structuredGoogleEvidence(input)]
-    .filter((item) => item && hasChinese(item.fact_zh) && hasChinese(item.title_zh) && sameOrChildUrl(item.source_url, allowedUrls))
+    .filter((item) => item && hasChinese(item.fact_zh) && hasChinese(item.title_zh) && sameOrChildUrl(item.source_url, allowedUrls, requireFetchedUrl))
     .filter((item) => isDirectVisualBusinessFact(item, input))
     .map((item) => {
       const fact = cleanEvidenceText(item.fact_zh);

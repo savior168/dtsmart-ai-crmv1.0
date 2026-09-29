@@ -87,6 +87,7 @@ assert.equal(replacedLease.writes.length, 0);
 assert.match(taskUi, /now - heartbeat > 120_000[\s\S]+activeUntil - started/, "a stale workflow heartbeat must stop task duration from counting recovery wait");
 assert.match(dispatcher, /execution_mode: AI_CLOUD_EXECUTION_MODE[\s\S]+dispatch_policy: AI_CLOUD_DISPATCH_POLICY/, "all dispatches must persist cloud-only execution");
 assert.match(dispatcher, /rescueStalledCloudTasks[\s\S]+VERCEL_DISPATCHING/, "stalled cloud recovery must remain available without duplicate runs");
+assert.match(dispatcher, /reconcileTerminalScreeningTask[\s\S]*refresh_ai_screening_task_totals[\s\S]*success_count[\s\S]*failed_count[\s\S]*pending_count[\s\S]*current_stage[\s\S]*VERCEL_DISPATCHING/, "recovery must only finish an already terminal screening task after refreshing counts and checking its producer");
 assert.doesNotMatch(dispatcher, /has_healthy_ai_worker|LOCAL_NODE|LOCAL_FIRST|VERCEL_FIRST/, "dispatcher must not depend on a local worker");
 assert.match(runner, /allCollectedSourcesFailedTechnically[\s\S]*PUBLIC_SOURCE_NETWORK_UNAVAILABLE/, "transport failures must stop before business scoring");
 assert.match(runner, /publicSourceNetworkFailureDetails[\s\S]*record\.source_url[\s\S]*record\.error/, "public-source failures must retain the attempted endpoint and transport reason for audit");
