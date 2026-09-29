@@ -34,6 +34,8 @@ assert.match(workflow, /pause_started_at: null[\s\S]+paused_duration_ms: pausedD
 assert.match(workflow, /WAITING_FOR_RECOVERY[\s\S]+lease_expires_at\.lt\.\$\{now\}/, "a replacement workflow must requeue expired item leases before looking for pending work");
 assert.match(taskItemExecutor, /isTransientAnalysisError\(error\) && item\.attemptNumber < 3[\s\S]+status: "PENDING"[\s\S]+lease_owner: null[\s\S]+\.eq\("lease_owner", lease\.executorId\)\.eq\("lease_token", lease\.leaseToken\)/, "transient infrastructure failures must return the leased item to the durable queue with a bounded retry budget");
 assert.match(taskItemExecutor, /if \(!queued\.data\) return \{ status: "LEASE_LOST" as const \}/, "an expired or replaced lease must not requeue another executor's item");
+assert.match(workflow, /analyzeTaskItem\.maxRetries = 0/, "a transient database failure must not immediately consume another item attempt");
+assert.match(workflow, /Promise\.race\([\s\S]*promise\.then\(\(\) => index, \(\) => index\)[\s\S]*Promise\.allSettled\(active\)/, "a worker failure must await all already-started steps before workflow exit");
 const executable = ts.transpileModule(taskItemExecutor, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 async function executeWithError(analysisError, attemptNumber, currentLease = "lease-1") {
   const writes = [];
@@ -53,21 +55,28 @@ async function executeWithError(analysisError, attemptNumber, currentLease = "le
     },
     rpc() { return Promise.resolve({ error: null }); },
   };
-  const module = { exports: {} };
+  const mockModule = { exports: {} };
   const requireMock = (path) => {
     if (path === "../supabase/admin") return { createAdminClient: () => admin };
     if (path === "./error-normalization") return { normalizeError: () => ({ error_code: "TEST", error_message: "failure", retryable: true }) };
     if (path === "./run-customer-analysis") return { runCustomerAnalysis: async () => { throw analysisError; }, publicAiError: () => ({ code: "TEST", message: "failure" }) };
     throw new Error(`Unexpected module: ${path}`);
   };
-  new Function("require", "module", "exports", executable)(requireMock, module, module.exports);
-  const result = await module.exports.executeClaimedAiTaskItem({ taskId: "task-1", taskItemId: "item-1", customerId: "customer-1", strategy: "SMART", attemptNumber, leaseToken: "lease-1" }, { executorId: "executor-1", leaseToken: "lease-1" });
-  return { result, writes };
+  new Function("require", "module", "exports", executable)(requireMock, mockModule, mockModule.exports);
+  try {
+    const result = await mockModule.exports.executeClaimedAiTaskItem({ taskId: "task-1", taskItemId: "item-1", customerId: "customer-1", strategy: "SMART", attemptNumber, leaseToken: "lease-1" }, { executorId: "executor-1", leaseToken: "lease-1" });
+    return { result, writes };
+  } catch (error) {
+    return { error, writes };
+  }
 }
 const transientRetry = await executeWithError({ code: "57014", message: "canceling statement due to statement timeout" }, 1);
-assert.equal(transientRetry.result.status, "RETRY_PENDING", "a first statement timeout must be queued for another attempt");
+assert.equal(transientRetry.error?.code, "57014", "a first statement timeout must pause this workflow run for spaced recovery");
 assert.equal(transientRetry.writes[0]?.values.status, "PENDING");
 assert.equal(transientRetry.writes.some(({ table }) => table === "customers"), false, "transient failure must not mark the customer failed");
+const secondTransientRetry = await executeWithError({ code: "57014", message: "canceling statement due to statement timeout" }, 2);
+assert.equal(secondTransientRetry.error?.code, "57014", "the second transient failure must also pause instead of immediately retrying");
+assert.equal(secondTransientRetry.writes[0]?.values.status, "PENDING");
 const exhaustedRetry = await executeWithError({ code: "57014", message: "canceling statement due to statement timeout" }, 3);
 assert.equal(exhaustedRetry.result.status, "FAILED", "the retry budget must prevent endless work");
 const permanentFailure = await executeWithError(new Error("INVALID_BUSINESS_INPUT"), 1);

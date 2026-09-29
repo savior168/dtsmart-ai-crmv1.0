@@ -524,6 +524,8 @@ assert.match(acquisitionTaskRoute,/detail load failed[\s\S]*code:detail\.code[\s
 assert.match(acquisitionTaskDetail,/quiet = false[\s\S]*p\.set\("lightweight", "1"\)[\s\S]*load\(true\), 15000/,"执行中任务详情必须使用低频轻量静默轮询，不能反复加载完整分析");
 assert.match(acquisitionTaskDetail,/fetch\(`\/api\/ai-acquisition\/tasks\/\$\{taskId\}\?lightweight=1`[\s\S]*任务信息已显示，候选和费用明细正在加载/,"详情页必须先展示轻量任务信息，不能等待费用明细才结束全屏加载");
 assert.match(acquisitionWorkflow,/finalizeCandidateBatch[\s\S]*select\("id,screening_task_item_id,staging_customer_id,screening_item:ai_screening_task_items!inner\(id\)"\)/,"批次准入只读取必需候选字段，避免宽行扫描放大数据库压力");
+assert.match(acquisitionWorkflow,/RetryableError\(normalizedErrorMessage\(error, \{ stage: "ACQUISITION_FINALIZE_BATCH" \}\), \{ retryAfter: "20s" \}\)/,"数据库短暂超时时最终准入批次必须延迟重试，避免即时重试放大拥塞");
+assert.match(acquisitionWorkflow,/task execution interrupted[\s\S]*taskId,[\s\S]*recoverable,[\s\S]*ACQUISITION_WORKFLOW/,"获客工作流必须记录任务 ID 和可恢复错误原因，便于准确定位单个任务");
 assert.match(acquisitionTaskRoute,/lightweight[\s\S]*metricCostRows[\s\S]*!lightweight[\s\S]*search_stats/,"任务详情轻量轮询必须跳过完整费用流水和搜索策略汇总");
 assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact"/,"任务详情不得为实时计数重复扫描候选表");
 assert.match(acquisitionTaskCenter,/!canViewUsage \|\| costLoadedScopeRef\.current===scopeUserId[\s\S]*all_time:"1", overview:"1"[\s\S]*historyResponse/,"任务中心费用概览应在进入页面时独立读取，展开详情不应再次触发扫描");

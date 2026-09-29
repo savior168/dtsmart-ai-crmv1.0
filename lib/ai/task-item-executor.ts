@@ -82,8 +82,9 @@ export async function executeClaimedAiTaskItem(
       durationMs: Date.now() - startedAt,
     });
     // A temporary database/provider outage is not a customer verdict. Return
-    // this leased item to the durable queue, with a bounded retry budget, so
-    // the parent acquisition task does not fail after one transient error.
+    // the item to the durable queue, then stop this workflow run so the
+    // recovery watchdog spaces attempts apart instead of burning the entire
+    // item budget in a tight loop during the same outage.
     if (isTransientAnalysisError(error) && item.attemptNumber < 3) {
       const queued = await admin.from("ai_screening_task_items").update({
         status: "PENDING",
@@ -103,7 +104,7 @@ export async function executeClaimedAiTaskItem(
       }).eq("id", item.taskItemId).eq("lease_owner", lease.executorId).eq("lease_token", lease.leaseToken).select("id").maybeSingle();
       if (queued.error) throw queued.error;
       if (!queued.data) return { status: "LEASE_LOST" as const };
-      return { status: "RETRY_PENDING" as const };
+      throw error;
     }
     const failed = await admin.from("ai_screening_task_items").update({
       status: "FAILED",

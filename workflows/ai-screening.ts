@@ -14,8 +14,8 @@ function isTransientFetchFailure(error: unknown) {
   const candidate = error && typeof error === "object" ? error as { message?: unknown; code?: unknown; status?: unknown } : null;
   const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
   const code = String(candidate?.code || candidate?.status || "");
-  return ["40001", "40P01", "55P03", "57014", "502", "503", "504", "525", "529"].includes(code)
-    || /(?:canceling statement due to statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|error code 52[59]|cloudflare)/i.test(message);
+  return ["40001", "40P01", "55P03", "57014", "408", "429", "500", "502", "503", "504", "525", "529"].includes(code)
+    || /(?:canceling statement due to statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|temporarily unavailable|OPENAI_API_ERROR:\s*(?:429|5\d\d)\b|error code 52[59]|cloudflare)/i.test(message);
 }
 
 async function withTransientFetchRetry<T>(operation: () => PromiseLike<T>, attempts = 4): Promise<T> {
@@ -208,9 +208,10 @@ async function analyzeTaskItem(taskId: string, itemId: string, strategy: AiStrat
     });
   }
 }
-// Checkpointed customer analysis is idempotent. One infrastructure retry
-// prevents a transient database/network interruption from failing the task.
-analyzeTaskItem.maxRetries = 1;
+// Transient item failures return to the durable queue and pause the workflow.
+// An immediate step retry would consume another item attempt during the same
+// outage instead of allowing the recovery watchdog to retry later.
+analyzeTaskItem.maxRetries = 0;
 
 async function finishTask(taskId: string) {
   "use step";
@@ -303,15 +304,23 @@ export async function aiScreeningWorkflow(input: WorkflowInput) {
       // gaps even when four workers had already finished.
       const active = batch.map((itemId) => analyzeTaskItem(input.taskId, itemId, input.strategy));
       let stopRefill = false;
-      while (active.length) {
-        const completedIndex = await Promise.race(active.map((promise, index) => promise.then(() => index)));
-        active.splice(completedIndex, 1);
-        state = await taskState(input.taskId);
-        if (["PAUSING", "PAUSED", "CANCELLED"].includes(state.status) || state.cancelRequested) stopRefill = true;
-        if (!stopRefill) {
-          const replacement = await nextPendingItems(input.taskId, 1);
-          if (replacement[0]) active.push(analyzeTaskItem(input.taskId, replacement[0], input.strategy));
+      try {
+        while (active.length) {
+          const completedIndex = await Promise.race(active.map((promise, index) => promise.then(() => index, () => index)));
+          const [completed] = active.splice(completedIndex, 1);
+          await completed;
+          state = await taskState(input.taskId);
+          if (["PAUSING", "PAUSED", "CANCELLED"].includes(state.status) || state.cancelRequested) stopRefill = true;
+          if (!stopRefill) {
+            const replacement = await nextPendingItems(input.taskId, 1);
+            if (replacement[0]) active.push(analyzeTaskItem(input.taskId, replacement[0], input.strategy));
+          }
         }
+      } catch (error) {
+        // Every started step must settle before the workflow returns; otherwise
+        // the runtime reports uncommitted operations and leases can be stranded.
+        await Promise.allSettled(active);
+        throw error;
       }
       state = await taskState(input.taskId);
       if (state.status === "PAUSING") await settlePause(input.taskId);

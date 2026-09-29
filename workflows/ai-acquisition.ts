@@ -1,4 +1,4 @@
-import { sleep } from "workflow";
+import { RetryableError, sleep } from "workflow";
 import { start } from "workflow/api";
 import { createAdminClient } from "../lib/supabase/admin";
 import { aiScreeningWorkflow } from "./ai-screening";
@@ -285,6 +285,7 @@ async function acquisitionControlState(taskId: string, screeningTaskId: string) 
 
 async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: string) {
   "use step";
+  try {
   const admin = createAdminClient();
   // Keep the IN lists and joined evidence/contact reads below PostgREST and
   // database statement-timeout pressure when several acquisition tasks finish
@@ -388,6 +389,12 @@ async function finalizeCandidateBatch(task: AcquisitionTask, screeningTaskId: st
     }
   await updateAcquisitionTaskTotals(admin, task.id);
   return true;
+  } catch (error) {
+    if (isRecoverableInfrastructureError(error)) {
+      throw new RetryableError(normalizedErrorMessage(error, { stage: "ACQUISITION_FINALIZE_BATCH" }), { retryAfter: "20s" });
+    }
+    throw error;
+  }
 }
 
 async function finishTask(taskId: string, status: "COMPLETED" | "FAILED" | "CANCELLED", errorMessage?: string, executionToken?: string | null) {
@@ -521,7 +528,13 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
     } else await completeEmptyScreeningTask(screeningTaskId);
     await finishTask(taskId, "COMPLETED", undefined, executionToken);
   } catch (error) {
-    if (isRecoverableInfrastructureError(error)) {
+    const recoverable = isRecoverableInfrastructureError(error);
+    console.error("[ai-acquisition] task execution interrupted", {
+      taskId,
+      recoverable,
+      message: normalizedErrorMessage(error, { stage: "ACQUISITION_WORKFLOW" }),
+    });
+    if (recoverable) {
       try { await releaseTaskForRecovery(taskId, error, executionToken); }
       catch (recoveryError) { console.error("[ai-acquisition] failed to persist automatic recovery state", recoveryError); }
       return;
