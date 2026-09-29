@@ -34,7 +34,9 @@ import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { countryInfo } from "@/lib/countries";
 
 const COUNTRY_NAMES = { of: (value: string) => countryInfo(value).name };
-type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; historical_accepted:number; removed_results:number; repeated_results:number; unique_linked_customers:number; current_customers:number; available_customers:number; claimed_customers:number; review:number; failed_tasks:number };
+type OutOfPoolCustomer = { id:string; company_name:string; reason:string; acquisition_scope:string|null; pool_status:string|null };
+type TaskSummary = { tasks:number; active_tasks:number; completed_tasks:number; today_accepted:number; accepted:number; historical_accepted:number; removed_results:number; repeated_results:number; unique_linked_customers:number; out_of_pool_customers:number; out_of_pool_details:OutOfPoolCustomer[]; current_customers:number; available_customers:number; claimed_customers:number; review:number; failed_tasks:number };
+const poolStatusLabels:Record<string,string> = { AVAILABLE:"可认领", CLAIMED:"已认领", PENDING_ALLOCATION:"待管理员分配", INVALID:"无效" };
 type SummaryMetric = "" | "active" | "completed" | "today_accepted" | "accepted" | "review" | "failed";
 type CostOverview = { todayCalls:number; todayCost:number; totalCost:number; accepted:number; processed:number; openaiCost:number; googleActualCost:number; googleCalls:number; freeCalls:number };
 type GoogleSkuUsage = { key:string; label:string; usageCount:number; acquisitionSystemUsage:number; acquisitionSystemCostUsd:number; screeningSystemUsage:number; screeningSystemCostUsd:number; pendingSystemUsage:number; projectedUsage:number; freeLimit:number|null; projectedRemaining:number|null; projectedOverageCalls:number; projectedOverageCostUsd:number };
@@ -86,6 +88,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [googleDetailsOpen, setGoogleDetailsOpen] = useState(false),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
     [googleBillingLoading, setGoogleBillingLoading] = useState(false),
+    [outOfPoolOpen, setOutOfPoolOpen] = useState(false),
+    [outOfPoolPage, setOutOfPoolPage] = useState(1),
+    [outOfPoolPageSize, setOutOfPoolPageSize] = useState(20),
     [showOwner, setShowOwner] = useState(false),
     [scopeUserId, setScopeUserId] = useState(""),
     [pendingAction, setPendingAction] = useState<{task:AcquisitionTask;action:AcquisitionAction}|null>(null),
@@ -296,6 +301,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     }finally{setActionBusy(false)}
   }
   const ownerQuery = scopeUserId ? `&user_id=${encodeURIComponent(scopeUserId)}` : "";
+  const outOfPoolDetails = summary?.out_of_pool_details || [];
+  const visibleOutOfPoolDetails = outOfPoolDetails.slice((outOfPoolPage - 1) * outOfPoolPageSize, outOfPoolPage * outOfPoolPageSize);
   return (
     <main className="min-h-full bg-[#f5f7fb] px-6 pb-8 pt-5 text-[#142033]"><div className="mx-auto max-w-[1680px] space-y-4">
       <PageHeader
@@ -333,13 +340,17 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
       <section className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 text-xs text-slate-600`} aria-label="AI获客统计口径说明">
         <b className="text-slate-800">统计口径</b>
         <span>历史入池结果 <b>{summary?formatNumber(summary.historical_accepted):"—"}</b></span>
-        <span>已删除 <b>{summary?formatNumber(summary.removed_results):"—"}</b></span>
-        <span>当前有效结果 <b>{summary?formatNumber(summary.accepted):"—"}</b></span>
+        <span title="历史任务累计入池数减去当前仍关联客户的入池结果数；不能直接视为已删除客户。">历史结果差额 <b>{summary?formatNumber(summary.removed_results):"—"}</b></span>
+        <span>仍关联客户的结果 <b>{summary?formatNumber(summary.accepted):"—"}</b></span>
         <span>跨任务重复 <b>{summary?formatNumber(summary.repeated_results):"—"}</b></span>
-        <span>当前唯一客户 <b>{summary?formatNumber(summary.current_customers):"—"}</b></span>
+        <span>当前公海唯一客户 <b>{summary?formatNumber(summary.current_customers):"—"}</b></span>
+        <button type="button" disabled={!summary} onClick={()=>{setOutOfPoolPage(1);setOutOfPoolOpen(true)}} className="font-medium text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline">已关联但不在当前公海 {summary?formatNumber(summary.out_of_pool_customers):"—"} · 查看明细</button>
         <Link href="/customers/pool" className="font-medium text-blue-700 hover:underline">公海待认领 {summary?formatNumber(summary.available_customers):"—"}</Link>
         <span>已认领 <b>{summary?formatNumber(summary.claimed_customers):"—"}</b></span>
       </section>
+      {outOfPoolOpen?<AppDialog title="已关联但不在当前公海的客户" description="按当前任务筛选范围统计：这些客户有成功入池结果关联，但客户资料不存在，或当前状态不是可认领／已认领的公海客户；不会计入当前公海唯一客户。" onClose={()=>setOutOfPoolOpen(false)} width="max-w-4xl">
+        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{["客户名称","客户ID","不在当前公海的原因","当前公海状态"].map((label)=><th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{visibleOutOfPoolDetails.map((row)=><tr key={row.id} className="border-t"><td className="px-3 py-3 font-medium text-slate-800">{row.company_name}</td><td className="px-3 py-3 font-mono text-xs text-slate-500">{row.id}</td><td className="px-3 py-3 text-amber-700">{row.reason}</td><td className="px-3 py-3 text-slate-500">{row.pool_status?poolStatusLabels[row.pool_status]||"其他状态":"—"}</td></tr>)}</tbody></table>{!outOfPoolDetails.length?<p className="p-8 text-center text-sm text-slate-500">当前筛选范围没有此类客户</p>:null}</div><Pagination page={outOfPoolPage} pageSize={outOfPoolPageSize} total={outOfPoolDetails.length} onPage={setOutOfPoolPage} onPageSize={(size)=>{setOutOfPoolPageSize(size);setOutOfPoolPage(1)}} itemLabel="位客户"/>
+      </AppDialog>:null}
       {toastNode}
       <ConfirmDialog open={Boolean(pendingAction)} title={pendingAction?actionCopy[pendingAction.action].title:"任务操作确认"} description={pendingAction?actionCopy[pendingAction.action].description:""} confirmLabel={pendingAction?actionCopy[pendingAction.action].confirm:"确认"} busy={actionBusy} onClose={()=>!actionBusy&&setPendingAction(null)} onConfirm={()=>void runAction()}/>
       {canViewUsage ? <section className={`${panel} overflow-hidden`}>

@@ -250,7 +250,7 @@ function industryKeywordCore(searchTerm: string) {
 const SEARCH_SCOPE_STOPWORDS = new Set(["and", "the", "for", "b2b", "service", "services", "repair", "shop", "store", "company", "provider", "supplier", "distributor", "wholesale", "retailer", "centre", "center"]);
 
 function meaningfulSearchTokens(value: string) {
-  return value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length >= 3 && !SEARCH_SCOPE_STOPWORDS.has(token));
+  return value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => (token.length >= 3 || token === "pc") && !SEARCH_SCOPE_STOPWORDS.has(token));
 }
 
 function canonicalSearchScopeToken(token: string) {
@@ -283,7 +283,15 @@ export function acquisitionKeywordRecommendationGroups(industries: string[]) {
 
 const COMMON_LOCAL_TERMS: Partial<Record<AcquisitionCountry, Record<string, string>>> = {
   DE: { "mobile phone repair": "Handyreparatur", "computer repair": "Computerreparatur", "phone parts wholesale": "Handy Ersatzteile Großhandel" },
-  FR: { "mobile phone repair": "réparation téléphone mobile", "computer repair": "réparation ordinateur", "phone parts wholesale": "grossiste pièces téléphone" },
+  FR: {
+    "mobile phone repair": "réparation téléphone mobile", "computer repair": "réparation ordinateur", "phone parts wholesale": "grossiste pièces téléphone",
+    "computer repair shop": "atelier de réparation informatique", "pc hardware repair service": "réparation matériel informatique",
+    "desktop motherboard repair": "réparation carte mère ordinateur", "computer screen repair service": "réparation écran ordinateur",
+    "computer repair centre": "centre de réparation informatique",
+    "mobile phone repair shop": "atelier de réparation de téléphones", "cell phone repair service": "service de réparation de téléphones",
+    "phone screen repair shop": "réparation écran téléphone", "phone battery replacement service": "remplacement batterie téléphone",
+    "smartphone repair centre": "centre de réparation de smartphones",
+  },
   ES: { "mobile phone repair": "reparación de móviles", "computer repair": "reparación de ordenadores", "phone parts wholesale": "mayorista repuestos móviles" },
   PT: { "mobile phone repair": "reparação de telemóveis", "computer repair": "reparação de computadores", "phone parts wholesale": "grossista peças telemóveis" },
   IT: { "mobile phone repair": "riparazione cellulari", "computer repair": "riparazione computer", "phone parts wholesale": "ingrosso ricambi cellulari" },
@@ -298,7 +306,14 @@ export function normalizeAcquisitionCountries(values: unknown): AcquisitionCount
   return [...new Set(values.map((value) => countryInfo(String(value)).code).filter((code): code is AcquisitionCountry => ACQUISITION_COUNTRIES.includes(code as AcquisitionCountry)))];
 }
 
-export function localizedSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+const LOCAL_LANGUAGE_CODES: Partial<Record<AcquisitionCountry, string>> = { DE:"de", FR:"fr", ES:"es", PT:"pt", IT:"it", PL:"pl", NL:"nl", BR:"pt", TR:"tr" };
+
+export function acquisitionSearchLanguage(country: AcquisitionCountry, query: string) {
+  const localTerms = Object.values(COMMON_LOCAL_TERMS[country] || {});
+  return localTerms.some((term) => query.toLowerCase().startsWith(term.toLowerCase())) ? LOCAL_LANGUAGE_CODES[country] || "en" : "en";
+}
+
+export function planAcquisitionSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
   const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
   const translations = COMMON_LOCAL_TERMS[country] || {};
   const normalizedKeywords = [...new Set(keywords.map((value) => value.trim()).filter(Boolean))];
@@ -312,26 +327,44 @@ export function localizedSearchTerms(country: AcquisitionCountry, industries: st
   }
   const groups = industryTerms.map((term, index) => {
     const translated = translations[term.toLowerCase()];
-    const bases = translated && translated.toLowerCase() !== term.toLowerCase() ? [translated, term] : [term];
     const industry = industries[index];
     const applicableKeywords = normalizedKeywords.filter((keyword) => {
       const owners = knownKeywordOwners.get(keyword.toLowerCase());
       return !owners?.size || owners.has(industry);
     });
-    if (!applicableKeywords.length) return bases;
-    // Keywords may refine a selected industry, but must never become a
-    // standalone broad search that escapes the user's target industry. Known
-    // recommendation keywords are paired only with their owning industries;
-    // genuinely custom keywords remain available to every selected industry.
-    const refinements = bases.flatMap((base) => applicableKeywords.map((keyword) =>
-      keywordAlreadyScopesIndustry(term, keyword) ? keyword : `${base} ${keyword}`));
-    return [...new Set([...bases, ...refinements])];
+    const expressions: Array<{ text:string; keyword?:string }> = [{ text:term }];
+    if (translated && translated.toLowerCase() !== term.toLowerCase()) expressions.push({ text:translated });
+    // Never combine a local-language industry term with an untranslated
+    // English keyword. Keep the original query and add a local equivalent only
+    // when a curated translation is available for both parts.
+    for (const keyword of applicableKeywords) {
+      expressions.push({ text:keywordAlreadyScopesIndustry(term, keyword) ? keyword : `${term} ${keyword}`, keyword });
+      const localKeyword = translations[keyword.toLowerCase()];
+      if (translated && localKeyword) expressions.push({ text:keywordAlreadyScopesIndustry(translated, localKeyword) ? localKeyword : `${translated} ${localKeyword}`, keyword });
+    }
+    return expressions;
   });
   const requested: string[] = [];
+  const plannedKeywords = new Set<string>();
+  const seen = new Set<string>();
   for (let round = 0; requested.length < MAX_ACQUISITION_SEARCH_TERMS; round += 1) {
     let added = false;
-    for (const group of groups) if (group[round]) { requested.push(group[round]); added = true; }
+    for (const group of groups) if (group[round]) {
+      added = true;
+      const entry = group[round];
+      const key = entry.text.toLowerCase();
+      if (entry.keyword) plannedKeywords.add(entry.keyword);
+      if (!seen.has(key)) {
+        seen.add(key);
+        requested.push(entry.text);
+      }
+      if (requested.length >= MAX_ACQUISITION_SEARCH_TERMS) break;
+    }
     if (!added) break;
   }
-  return [...new Set(requested)].slice(0, MAX_ACQUISITION_SEARCH_TERMS);
+  return { terms:requested, unplannedKeywords:normalizedKeywords.filter((keyword) => !plannedKeywords.has(keyword)) };
+}
+
+export function localizedSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+  return planAcquisitionSearchTerms(country, industries, keywords).terms;
 }

@@ -2,7 +2,7 @@
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect } from "react";
-import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRY_GROUPS, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRY_GROUPS, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations, acquisitionSearchLanguage, normalizeAcquisitionCountries, planAcquisitionSearchTerms } from "@/lib/ai-acquisition/config";
 import {
   PageHeader,
   ConfirmDialog,
@@ -265,7 +265,7 @@ function ChipInput({
         {label}
         {required ? <b className="text-rose-500"> *</b> : null}
         </span>
-        {values.length ? <button type="button" onClick={()=>onChange([])} className="text-xs font-normal text-blue-700 hover:underline">清空关键词</button> : null}
+        <span className="flex items-center gap-3 text-xs font-normal"><span className={values.length>=MAX_ACQUISITION_KEYWORDS?"text-amber-700":"text-slate-500"}>已选 {values.length}/{MAX_ACQUISITION_KEYWORDS}</span>{values.length ? <button type="button" onClick={()=>onChange([])} className="text-blue-700 hover:underline">清空关键词</button> : null}</span>
       </span>
       <div className="h-11 overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200 bg-white p-1.5 transition focus-within:border-[#1763e8]">
         <div className="flex min-w-max flex-nowrap gap-1.5">
@@ -301,7 +301,7 @@ function ChipInput({
           />
         </div>
       </div>
-      <small className="mt-1 block text-slate-400">{placeholder}</small>
+      <small className="mt-1 block text-slate-400">{placeholder} 最多 {MAX_ACQUISITION_KEYWORDS} 个；{values.length>=MAX_ACQUISITION_KEYWORDS?"已达上限，请移除或拆分任务。":`还可添加 ${MAX_ACQUISITION_KEYWORDS-values.length} 个。`}</small>
     </div>
   );
 }
@@ -433,6 +433,7 @@ export function AcquisitionCreateView() {
   const keywordRecommendationGroups = acquisitionKeywordRecommendationGroups(form.industries);
   const keywordRecommendations = acquisitionKeywordRecommendations(form.industries);
   const visibleKeywordRecommendationGroups = showAllKeywordGroups ? keywordRecommendationGroups : keywordRecommendationGroups.slice(0, 4);
+  const searchPlans = normalizeAcquisitionCountries(form.countries).map((country) => ({ country, ...planAcquisitionSearchTerms(country, form.industries, form.keywords) }));
   const requestKeyRef = useRef(crypto.randomUUID());
   useEffect(() => {
     window.sessionStorage.removeItem(LEGACY_DRAFT_KEY);
@@ -548,8 +549,9 @@ export function AcquisitionCreateView() {
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>
           <div className="grid items-start gap-4 p-4 xl:grid-cols-2">
-          <div><span className="mb-1.5 block h-5 text-sm font-medium text-slate-700">目标行业 <b className="text-rose-500">*</b></span>
+          <div><span className="mb-1.5 flex h-5 items-center justify-between gap-3 text-sm font-medium text-slate-700"><span>目标行业 <b className="text-rose-500">*</b></span><span className={`text-xs font-normal ${form.industries.length>=MAX_ACQUISITION_INDUSTRIES?"text-amber-700":"text-slate-500"}`}>已选 {form.industries.length}/{MAX_ACQUISITION_INDUSTRIES}</span></span>
           <IndustryPicker value={form.industries} onChange={updateIndustries} onNotice={(message,tone)=>toast(message,tone)}/>
+          <p className="mt-1 text-xs text-slate-400">最多 {MAX_ACQUISITION_INDUSTRIES} 个行业；{form.industries.length>=MAX_ACQUISITION_INDUSTRIES?"已达上限，请移除或拆分任务。":`还可添加 ${MAX_ACQUISITION_INDUSTRIES-form.industries.length} 个。`}</p>
           </div>
           <div>
           <ChipInput
@@ -560,6 +562,13 @@ export function AcquisitionCreateView() {
             placeholder="必填，可直接批量粘贴；多项用逗号、分号或换行分隔，不会放宽目标行业范围。"
             onNotice={(message,tone)=>toast(message,tone)}
           />
+          {searchPlans.length && form.industries.length && form.keywords.length ? <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2 text-xs leading-5 text-slate-600">
+            <b className="text-slate-700">实际搜索词预览</b><span className="ml-2 text-slate-500">每国最多 32 条表达；此处不是 API 调用次数。</span>
+            <div className="mt-1 space-y-1">{searchPlans.map((plan)=>{
+              const localCount=plan.terms.filter((term)=>acquisitionSearchLanguage(plan.country,term)!=="en").length;
+              return <details key={plan.country} className="rounded-md bg-white/70 px-2 py-1"><summary className="cursor-pointer text-blue-700">{COUNTRY_NAMES.of(plan.country)||plan.country}：{plan.terms.length} 条（本地语种 {localCount}）；{plan.unplannedKeywords.length?<b className="text-amber-700">未纳入 {plan.unplannedKeywords.length} 个关键词，建议拆分任务</b>:"每个所填词至少纳入一条表达"}</summary><ol className="mt-1 list-inside list-decimal space-y-0.5 text-slate-600">{plan.terms.map((term)=><li key={term}>{term}<span className="ml-1 text-slate-400">{acquisitionSearchLanguage(plan.country,term)==="en"?"英语":"本地语种"}</span></li>)}</ol>{plan.unplannedKeywords.length?<p className="mt-1 text-amber-700">未纳入：{plan.unplannedKeywords.join("、")}</p>:null}</details>;
+            })}</div>
+          </div> : null}
           {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-medium text-slate-500">精准关键词推荐 <span className="font-normal text-slate-400">· 已随目标行业自动补入，可继续增删</span></span><span className="flex items-center gap-3"><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">补齐全部推荐</button>{keywordRecommendationGroups.length>4?<button type="button" aria-expanded={showAllKeywordGroups} onClick={()=>setShowAllKeywordGroups((current)=>!current)} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">{showAllKeywordGroups?"收起":"查看全部"}<ChevronDown size={13} className={`transition ${showAllKeywordGroups?"rotate-180":""}`}/></button>:null}</span></div><div className={`space-y-3 ${showAllKeywordGroups?"max-h-[360px] overflow-y-auto pr-1":""}`}>{visibleKeywordRecommendationGroups.map((group)=>{const originalIndex=keywordRecommendationGroups.findIndex((item)=>item.industry===group.industry);return <div key={group.industry} className="grid gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]"><div className="pt-1.5 text-xs font-medium text-slate-600"><span className="mr-1 text-slate-400">{originalIndex+1}.</span>{group.industry}</div><div className="flex flex-wrap items-center gap-2">{group.keywords.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={`${group.industry}:${keyword}`} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div></div>})}</div>{keywordRecommendationGroups.length>4&&!showAllKeywordGroups?<p className="mt-3 text-xs text-slate-400">默认展示前 4 个目标行业，可展开选择其余 {keywordRecommendationGroups.length-4} 个行业的推荐词。</p>:<p className="mt-3 text-xs text-slate-400">推荐词只细化对应行业，不会放宽本次目标行业范围；可手动增删。</p>}</div>:null}
           </div>
           </div>
@@ -632,7 +641,7 @@ export function AcquisitionCreateView() {
         <div className="space-y-4 text-sm text-slate-600">
           <ol className="grid gap-3 md:grid-cols-2">
             {[
-              ["1. 固定任务范围","根据国家/地区、目标行业和搜索关键词生成有限任务快照；关键词按目标国家常用语言扩展，但不能绕过行业门槛。"],
+              ["1. 固定任务范围","根据国家/地区、目标行业和搜索关键词生成有限搜索计划；部分标准行业和常用关键词有经核对的本地语种表达，同时保留英语原词。未覆盖的自定义关键词不会假装已翻译，创建前可查看未纳入计划的词。"],
               ["2. 低成本发现","优先使用公开来源和可核对免费额度，按本地化检索表达发现商家；连续分页无新候选即提前结束。"],
               ["3. 前置早停","Google 商家永久停业、基础类别明显不相关或系统已有相同 Place ID 的候选立即停止，不继续产生补证费用。"],
               ["4. 主体与在营核验","交叉核对名称、地址、电话、官网域名、Google 商家和公开页面，主体冲突或缺少当前在营依据不进入公海。"],
@@ -643,7 +652,7 @@ export function AcquisitionCreateView() {
             ].map(([title,text])=><li key={title} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><b className="text-slate-800">{title}</b><p className="mt-1.5 leading-6">{text}</p></li>)}
           </ol>
           <section className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-4"><h3 className="font-semibold text-cyan-900">云端执行与页面关闭</h3><p className="mt-1.5 leading-6 text-cyan-800">新建、继续和失败重试任务均由绑定账户的 Vercel 云端 Workflow 调度，本地页面不参与任务执行，创建成功后关闭页面不会中断任务。系统保存任务进度和检查点；发生可恢复异常时从最近检查点继续，不重新处理已完成客户。</p></section>
-          <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h3 className="font-semibold text-blue-900">暂停、恢复、重试与完成</h3><p className="mt-1.5 leading-6 text-blue-800">暂停在安全节点停止新调用，恢复应从最近成功检查点继续；失败重试只处理未完成步骤，不重复已入账调用和已处理客户。系统会尽量覆盖所选国家、行业、关键词的全部检索组合和Google可返回分页；分页耗尽、达到任务安全上限或触发费用保护后停止，所有原因均留痕。</p></section>
+          <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><h3 className="font-semibold text-blue-900">暂停、恢复、重试与完成</h3><p className="mt-1.5 leading-6 text-blue-800">暂停在安全节点停止新调用，恢复应从最近成功检查点继续；失败重试只处理未完成步骤，不重复已入账调用和已处理客户。系统按创建前预览的有限搜索词计划执行，并受每国搜索范围、分页及费用上限保护；不会保证遍历所有行业与关键词的笛卡尔组合，停止原因会留痕。</p></section>
           <section className="rounded-xl border border-amber-100 bg-amber-50/60 p-4"><h3 className="font-semibold text-amber-900">费用、耗时与质量边界</h3><p className="mt-1.5 leading-6 text-amber-800">智能获客任务同时受付费渠道开关、单任务费用上限、每日/每周/每月上限及单客户调用次数限制，任一限制先触发即停止付费调用；标准获客只允许系统记录金额为 0 的调用。创建前不展示无法保证准确的耗时或费用预估，任务详情会记录具体来源页、判断依据、API SKU、免费/计价状态、成本参考和有效执行耗时；服务商最终结算以其账单为准。系统通过多来源交叉验证降低误判，但公开数据可能变化，因此保留人工核对入口，不作绝对无误承诺。</p></section>
           <section className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"><h3 className="font-semibold text-violet-900">候选进入AI筛选后的底层核验</h3><p className="mt-1.5 leading-6 text-violet-800">候选先规范化名称、地址、电话、邮箱域名、官网和 Place ID，再按“官网与关键子页 → 免费公开来源 → 必要时 Google 主体候选 → 已核验社媒”的顺序采集。确定性规则先判断明确经营事实；仅在主体通过且证据确有歧义时，模型才综合已采集证据。最后执行证据门控、评分一致性校准、联系方式具体来源校验和原子写回；抓取失败、主体冲突或证据不足不会被伪造成有效或无效结论。</p></section>
         </div>

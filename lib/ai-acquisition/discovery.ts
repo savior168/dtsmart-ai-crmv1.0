@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { releaseApiCostBudget, reserveApiCostBudget } from "@/lib/api-cost-budget";
-import { ACQUISITION_COUNTRY_SEARCH_AREAS, ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, localizedSearchTerms, type AcquisitionCountry } from "./config";
+import { ACQUISITION_COUNTRY_SEARCH_AREAS, ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, acquisitionSearchLanguage, localizedSearchTerms, type AcquisitionCountry } from "./config";
 export { discoveryCandidateLooksRelevant } from "./relevance";
 
 export type DiscoveredBusiness = {
@@ -161,7 +161,7 @@ export async function discoverBusinesses(input: {
         const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.addressComponents,places.businessStatus,places.types,places.googleMapsUri,nextPageToken" },
-          body: JSON.stringify({ textQuery: query, pageSize: perTermLimit, languageCode: "en", regionCode: input.country, ...(pageToken ? { pageToken } : {}) }),
+          body: JSON.stringify({ textQuery: query, pageSize: perTermLimit, languageCode: acquisitionSearchLanguage(input.country, query), regionCode: input.country, ...(pageToken ? { pageToken } : {}) }),
           signal: AbortSignal.timeout(15_000),
         });
         const requestId = response.headers.get("x-request-id") || response.headers.get("x-goog-request-id") || randomUUID();

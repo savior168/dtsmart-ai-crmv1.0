@@ -47,15 +47,23 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
   }
   const linkedAccepted = acceptedCandidates.filter((row) => Boolean(row.imported_customer_id));
   const acceptedCustomerIds = [...new Set(linkedAccepted.map((row) => String(row.imported_customer_id)))];
-  const customerProfiles: Array<{id:string;deleted_at:string|null;acquisition_scope:string|null;pool_status:string|null;status:string|null;owner_id:string|null}> = [];
+  const customerProfiles: Array<{id:string;company_name:string|null;deleted_at:string|null;acquisition_scope:string|null;pool_status:string|null;status:string|null;owner_id:string|null}> = [];
   for (let offset = 0; offset < acceptedCustomerIds.length; offset += 200) {
     const profilePage = await admin.from("customers")
-      .select("id,deleted_at,acquisition_scope,pool_status,status,owner_id")
+      .select("id,company_name,deleted_at,acquisition_scope,pool_status,status,owner_id")
       .in("id", acceptedCustomerIds.slice(offset, offset + 200));
     if (profilePage.error) throw profilePage.error;
     customerProfiles.push(...(profilePage.data || []));
   }
   const currentCustomers = customerProfiles.filter((row) => !row.deleted_at && row.acquisition_scope === "PUBLIC_POOL" && ["AVAILABLE", "CLAIMED"].includes(String(row.pool_status || "")));
+  const currentCustomerIds = new Set(currentCustomers.map((row) => row.id));
+  const outOfPoolCustomerIds = acceptedCustomerIds.filter((id) => !currentCustomerIds.has(id));
+  const customerById = new Map(customerProfiles.map((row) => [row.id, row]));
+  const outOfPoolDetails = outOfPoolCustomerIds.map((id) => {
+    const profile = customerById.get(id);
+    const reason = !profile ? "客户资料不存在" : profile.deleted_at ? "客户已删除" : profile.acquisition_scope !== "PUBLIC_POOL" ? "已不属于客户公海" : profile.pool_status === "PENDING_ALLOCATION" ? "待管理员分配" : profile.pool_status === "INVALID" ? "已标记无效" : "公海状态待核对";
+    return { id, company_name: profile?.company_name || "未找到客户名称", reason, acquisition_scope: profile?.acquisition_scope || null, pool_status: profile?.pool_status || null };
+  });
   const availableCustomers = currentCustomers.filter((row) => row.pool_status === "AVAILABLE" && row.status === "UNCLAIMED" && !row.owner_id);
   const claimedCustomers = currentCustomers.filter((row) => row.pool_status === "CLAIMED" && row.status !== "UNCLAIMED" && Boolean(row.owner_id));
   const todayStart = new Date(`${today}T00:00:00.000+08:00`).getTime();
@@ -71,6 +79,8 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     removed_results: Math.max(0, historicalAccepted - linkedAccepted.length),
     repeated_results: Math.max(0, linkedAccepted.length - acceptedCustomerIds.length),
     unique_linked_customers: acceptedCustomerIds.length,
+    out_of_pool_customers: outOfPoolCustomerIds.length,
+    out_of_pool_details: outOfPoolDetails,
     current_customers: currentCustomers.length,
     available_customers: availableCustomers.length,
     claimed_customers: claimedCustomers.length,
