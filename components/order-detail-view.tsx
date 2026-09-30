@@ -5,6 +5,7 @@ import { ArrowLeft, FileDown, LoaderCircle, Save, XCircle } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppStatusBadge } from "@/components/ui/app-list";
+import { CountryLabel } from "@/components/country-label";
 type Payload = {
   order: {
     id: string;
@@ -152,7 +153,7 @@ export function OrderDetailView({ id }: { id: string }) {
             ].map(([k, v]) => (
               <div key={k} className="rounded-lg bg-slate-50 p-4">
                 <small className="text-slate-500">{k}</small>
-                <p className="mt-2 font-medium">{v}</p>
+                <p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p>
               </div>
             ))}
           </div>

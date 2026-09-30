@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { STOCK_STATUS_LABELS, type StockOrderStatus } from "@/lib/types";
 import { AppDateTimeField } from "@/components/ui/app-date-time-field";
+import { CountryLabel } from "@/components/country-label";
 import { localDateTimeInput } from "@/lib/date-time";
 import { summarizeProductSpecificationsSnapshot } from "@/lib/product-specifications";
 type Item = {
@@ -231,7 +232,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
               <div key={label} className="rounded-lg bg-slate-50 p-4">
                 <small className="text-slate-500">{label}</small>
                 <p className="mt-2 whitespace-pre-wrap text-sm font-medium">
-                  {value}
+                  {label === "目的国家" ? <CountryLabel value={o.destination_country}/> : value}
                 </p>
               </div>
             ))}

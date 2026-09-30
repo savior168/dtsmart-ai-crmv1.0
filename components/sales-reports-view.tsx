@@ -6,6 +6,7 @@ import { UserScopeSelect } from "@/components/user-scope-select";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { ReportCountRow, ReportTrendRow, SalesBreakdowns, SalesMetrics, SalesRankingRow } from "@/lib/reports/sales";
 import { countryInfo } from "@/lib/countries";
+import { CountryLabel } from "@/components/country-label";
 
 type Report = { profile: { role: string }; totals: SalesMetrics; ranking: SalesRankingRow[]; breakdowns: SalesBreakdowns };
 type Tone = "blue" | "violet" | "cyan" | "amber" | "emerald";
@@ -49,7 +50,7 @@ function StageFlowPanel({ rows }: { rows: ReportCountRow[] }) {
 }
 function CountryPanel({ rows }: { rows: ReportCountRow[] }) {
   const total = rows.reduce((sum, row) => sum + row.count, 0); const visible = rows.filter(row => row.count > 0).slice(0, 10);
-  return <article className="dashboard-reveal report-chart-panel overflow-hidden rounded-xl border bg-white shadow-sm"><PanelHeader title="国家/地区 TOP 10" total={total} icon={Globe2} />{visible.length ? <div className="grid min-h-[220px] grid-cols-2 gap-2 p-4">{visible.map((row, index) => <div key={row.label} className="report-country-tile group" style={{ animationDelay: `${index * 45}ms` }}><span className="report-country-rank">{String(index + 1).padStart(2, "0")}</span><b title={countryName(row.label)}>{countryName(row.label)}</b><strong>{row.count}</strong><small>{percentage(row.count, total)}%</small></div>)}</div> : <EmptyPanel />}</article>;
+  return <article className="dashboard-reveal report-chart-panel overflow-hidden rounded-xl border bg-white shadow-sm"><PanelHeader title="国家/地区 TOP 10" total={total} icon={Globe2} />{visible.length ? <div className="grid min-h-[220px] grid-cols-2 gap-2 p-4">{visible.map((row, index) => <div key={row.label} className="report-country-tile group" style={{ animationDelay: `${index * 45}ms` }}><span className="report-country-rank">{String(index + 1).padStart(2, "0")}</span><b title={countryName(row.label)}><CountryLabel value={row.label}/></b><strong>{row.count}</strong><small>{percentage(row.count, total)}%</small></div>)}</div> : <EmptyPanel />}</article>;
 }
 function StatusGridPanel({ title, rows, tone, showAmount = false }: { title: string; rows: ReportCountRow[]; tone: Tone; showAmount?: boolean }) {
   const total = rows.reduce((sum, row) => sum + row.count, 0); const visible = rows.filter(row => row.count > 0); const palette = tonePalette[tone];
