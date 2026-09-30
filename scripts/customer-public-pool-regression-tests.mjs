@@ -79,7 +79,7 @@ assert.match(poolApi, /tab === "claimed"[\s\S]*neq\("status", "UNCLAIMED"\)[\s\S
 assert.match(poolView, /available: "待认领客户"[\s\S]*claimed: "认领记录"/, "公海页签必须区分可认领数据与历史认领记录");
 assert.match(poolView, /function poolFieldsForTab[\s\S]*value !== "available"[\s\S]*"protection"/, "待认领客户不得因历史列偏好显示无意义的保护期字段");
 assert.match(poolView, /field === "phone"[\s\S]*CustomerContactSummary customer=\{row\} source="all"/, "待认领列表必须用同一联系方式列兼容录入数据与AI获客数据");
-assert.match(contactSummary, /const previewLimit=display==="email"\?1:2;[\s\S]*orderedContacts\.slice\(0,previewLimit\)\.map\(renderPreviewContact\)[\s\S]*展开/, "联系方式摘要必须在单行内显示适合列宽的预览项和展开入口");
+assert.match(contactSummary, /display === "phone" && contacts\.length > collapseThreshold[\s\S]*renderPreviewContact\(orderedContacts\[0\],0\)[\s\S]*另\$\{contacts\.length-1\}项/, "电话摘要只展示首个完整号码，并通过另N项入口展开其余联系方式");
 assert.match(contactSummary, /暂无已核验电话[\s\S]*暂无已核验邮箱[\s\S]*aria-label=\{emptyLabel\}>—</, "客户表格缺失联系方式必须以紧凑横线展示，并提供明确的辅助说明");
 assert.match(contactSummary, /sourceGroup\(item, customer\.source\)[\s\S]*展开后可打开核验页面/, "联系方式紧凑预览必须通过悬停保留公开来源说明");
 assert.match(contactSummary, /sourceTooltip[\s\S]*数据来源：\$\{originalSourceLabel\(customer\.source\)\}[\s\S]*AI核验来源：\$\{item\.verifiedBy\}[\s\S]*AI采集来源：\$\{item\.channelLabel/, "联系方式悬停说明必须保留原始来源、AI核验来源与AI采集渠道");
@@ -89,9 +89,11 @@ assert.doesNotMatch(contactSummary, /AI采集·\$\{item\.channelLabel/, "联系�
 assert.match(contactSummary, /source === "ai" \? uniqueCollected/, "AI获客任务必须显示全部AI采集联系方式，不能因客户主档存在相同值而误隐藏");
 assert.match(contactSummary, /verifiedChannel === "官网"[\s\S]*rank: 0[\s\S]*verifiedChannel === "Google Maps"[\s\S]*rank: 1[\s\S]*官方社媒[\s\S]*rank: 2[\s\S]*item\.source === "original"[\s\S]*rank: 3/, "联系方式必须按官网、Google Maps、官方社媒、导入或录入资料的可信度顺序分组");
 assert.match(contactSummary, /collapseThreshold = 1[\s\S]*contacts\.length <= collapseThreshold[\s\S]*orderedContacts\.map[\s\S]*expanded \? <div[\s\S]*renderGroups\(\)[\s\S]*: null/, "单个联系方式直接显示，多个联系方式默认只显示紧凑摘要并按需展开全部");
-assert.match(contactSummary, /flex h-5 min-w-0 items-center[\s\S]*overflow-hidden/, "多个联系方式预览必须锁定为单行且溢出不增加客户行高度");
+assert.match(contactSummary, /flex min-h-5 flex-wrap items-center[\s\S]*aria-expanded=\{expanded\}/, "号码完整显示时展开入口允许换行，不能为固定行高截断号码");
 assert.match(contactSummary, /display === "phone"[\s\S]*display === "email"/, "联系号码和邮箱必须可按列分别展示");
-assert.match(contactSummary, /min-w-0 flex-1 truncate[\s\S]*overflow-hidden[\s\S]*复制\$\{item\.label\}/, "联系方式预览必须为号码保留可收缩区域，复制按钮不得遮挡号码");
+assert.match(contactSummary, /valueClass = isNumber \? "whitespace-nowrap" : "min-w-0 flex-1 truncate"/, "电话号码预览不省略，邮箱继续使用紧凑省略行为");
+assert.match(contactSummary, /item\.type === "EMAIL" \|\| item === firstNumber/, "混合联系方式摘要最多显示一个电话号码");
+assert.match(poolView, /field === "phone" && row\.contact_masked === false[\s\S]*CustomerContactSummary/, "有权查看的已认领客户电话也必须使用完整号码摘要，脱敏记录不能展开");
 assert.match(contactSummary, /verified && item\.type === "WHATSAPP"[\s\S]*return 0[\s\S]*verified && item\.type === "PHONE"[\s\S]*return 1[\s\S]*!verified && item\.type === "PHONE"[\s\S]*return 2/, "外贸销售号码预览必须优先展示已核验WhatsApp，再展示已核验和原始电话");
 assert.match(contactSummary, /https:\/\/wa\.me\/\$\{whatsappDigits\}[\s\S]*复制\$\{item\.label\}/, "WhatsApp预览必须可直达对话并支持单条复制");
 assert.match(contactSummary, /splitStoredContactValues[\s\S]*split\(\/[\s\S]*normalizePhoneInternational[\s\S]*for \(const value of splitStoredContactValues/, "历史聚合字段中的多个电话或邮箱必须拆分、规范化和去重后展示");

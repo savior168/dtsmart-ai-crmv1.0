@@ -506,7 +506,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           </form>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[2360px] table-fixed text-left text-sm">
-            <colgroup><col className="w-[230px]"/><col className="w-[120px]"/><col className="w-[110px]"/><col className="w-[220px]"/><col className="w-[250px]"/><col className="w-[210px]"/><col className="w-[190px]"/><col className="w-[280px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/><col className="w-[145px]"/></colgroup>
+            <colgroup><col className="w-[230px]"/><col className="w-[120px]"/><col className="w-[110px]"/><col className="w-[260px]"/><col className="w-[250px]"/><col className="w-[210px]"/><col className="w-[190px]"/><col className="w-[280px]"/><col className="w-[230px]"/><col className="w-[230px]"/><col className="w-[250px]"/><col className="w-[145px]"/><col className="w-[145px]"/></colgroup>
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
                 {[

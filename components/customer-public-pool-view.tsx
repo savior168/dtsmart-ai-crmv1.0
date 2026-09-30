@@ -326,7 +326,7 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <span className="inline-flex items-center gap-1"><CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>{row.ai_score_source==="MANUAL_REVIEW"?<small className="text-blue-700">人工复核</small>:null}</span>;
-  if (field === "phone" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="phone"/>;
+  if (field === "phone" && row.contact_masked === false) return <CustomerContactSummary customer={row} source="all" display="phone"/>;
   if (field === "email" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="email"/>;
   if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
   if (field === "source") return <span className="block min-w-0 truncate" title={[row.source_batch ? `批次：${row.source_batch}` : "", `创建人：${displayUser(row.creator)}`].filter(Boolean).join("\n")}>{customerSourceLabel(row.source)}</span>;
