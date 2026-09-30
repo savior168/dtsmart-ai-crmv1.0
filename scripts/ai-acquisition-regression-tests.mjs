@@ -405,7 +405,7 @@ assert.match(detail,/本次获取的客户[\s\S]*成功入池[\s\S]*待复核[\s
 assert.match(detail,/全部联系状态[\s\S]*有已核验联系方式[\s\S]*全部证据状态[\s\S]*经营与行业证据充分[\s\S]*销售优先/,"任务客户筛选必须按销售使用顺序区分联系方式、证据和排序");
 assert.match(detailRoute,/evidence_status[\s\S]*sort[\s\S]*SALES_PRIORITY/,"任务客户接口必须读取独立证据筛选和销售优先排序");
 assert.match(detailRoute,/readiness === "ACTIONABLE"[\s\S]*has_actionable_contact[\s\S]*evidenceStatus === "COMPLETE"[\s\S]*evidence_complete/,"任务客户接口必须独立筛选联系方式与证据");
-assert.match(detail,/CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*iconOnly[\s\S]*CustomerPublicChannels/,"任务客户列表必须用统一平台图标展示已核验联系方式、官网与第三方公开渠道");
+assert.match(detail,/CustomerContactSummary[\s\S]*CustomerPublicLink value=\{r\.customer_profile\?\.website\|\|r\.source_website\} kind="website"\/[\s\S]*CustomerPublicChannels/,"任务客户列表官网必须显示可读域名，公开渠道仍复用统一入口");
 assert.match(detail,/r\.customer_profile\?\.website\|\|r\.source_website[\s\S]*Google 商家提供/,"Google商家绑定官网即使尚未写入主档也必须在公开来源中可访问并标明来源");
 assert.match(detail,/placeholder="搜索客户名称或地址"[\s\S]*label="国家\/地区"[\s\S]*label="核验行业"[\s\S]*全部AI等级[\s\S]*全部联系状态[\s\S]*全部证据状态[\s\S]*销售优先/,"客户筛选必须按业务上下文、质量、可联系性和销售优先级完整展示");
 assert.match(detail,/task\.countries\.length>1[\s\S]*task\.industries\?\.length\|\|1\)>1/,"单行业或单国家任务不得显示无意义的筛选项");
