@@ -7,6 +7,7 @@ import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
 import { loadAcquisitionTaskSummary } from "@/lib/ai-acquisition/task-center-summary";
+import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     }
     const countOptions=(values:string[])=>[...values.reduce((map,value)=>{const normalized=String(value||"").trim();if(normalized)map.set(normalized,(map.get(normalized)||0)+1);return map},new Map<string,number>())].map(([value,count])=>({value,count})).sort((left,right)=>right.count-left.count||left.value.localeCompare(right.value,"zh-CN"));
     const filterOptions={
-      countries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.countries)?row.countries:[])),
+      countries:countryFilterOptions(optionRows.flatMap((row)=>Array.isArray(row.countries)?row.countries:[])),
       industries:countOptions(optionRows.flatMap((row)=>Array.isArray(row.industries)&&row.industries.length?row.industries:[row.industry||""])),
     };
     if (mode === "filters") return NextResponse.json({ filter_options: filterOptions });
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
     else if (metric === "failed") query = query.eq("status", "FAILED");
     if (["accepted", "today_accepted", "review"].includes(metric)) query = resultMetricTaskIds.length ? query.in("id", resultMetricTaskIds) : query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
-    if (countries.length) query = query.overlaps("countries", countries);
+    if (countries.length) query = query.overlaps("countries", countryFilterRawValues(countries));
     if (industries.length) query = query.overlaps("industries", industries);
     if (/^\d{4}-\d{2}-\d{2}$/.test(from)) query = query.gte("created_at", `${from}T00:00:00.000+08:00`);
     if (/^\d{4}-\d{2}-\d{2}$/.test(to)) query = query.lte("created_at", `${to}T23:59:59.999+08:00`);

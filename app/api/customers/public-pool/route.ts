@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { publicReleaseReason } from "@/lib/customers/public-release-summary";
 import { postgrestContains } from "@/lib/postgrest-search";
+import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { customerIndustryLabels, rawCategoryPatternsForIndustryLabel } from "@/lib/customers/industry-display";
 
 type PoolDbRow = Record<string, unknown> & {
@@ -111,7 +112,7 @@ export async function GET(request: NextRequest) {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
         }
         if (tab === "pending") optionQuery = optionQuery.eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
-        if (countries.length) optionQuery = optionQuery.in("country", countries);
+        if (countries.length) optionQuery = optionQuery.in("country", countryFilterRawValues(countries));
         if (["A", "B", "C", "D"].includes(aiLevel)) optionQuery = optionQuery.eq("ai_level", aiLevel);
         if (aiStatus === "pending") optionQuery = optionQuery.eq("ai_status", "PENDING");
         else if (aiStatus === "done") optionQuery = optionQuery.eq("ai_status", "COMPLETED");
@@ -168,9 +169,7 @@ export async function GET(request: NextRequest) {
           : { value: `industry:${label}`, label, tone: "raw", count: industryCustomerIds.get(label)?.size || 0 });
       }
       const industries = [...industryOptionMap.values()];
-      const countryCount=new Map<string,number>();
-      for(const item of optionRows){const value=String(item.country||"").trim();if(value)countryCount.set(value,(countryCount.get(value)||0)+1)}
-      const countryOptions=[...countryCount].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
+      const countryOptions=countryFilterOptions(optionRows.map((item)=>item.country));
       const sourceGroup = (value?: string | null) => {
         const normalized = String(value || "").toUpperCase();
         if (["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"].includes(normalized)) return "IMPORT";
@@ -237,7 +236,7 @@ export async function GET(request: NextRequest) {
     const dateField = tab === "claimed" ? "claimed_at" : "created_at";
     if (/^\d{4}-\d{2}-\d{2}$/.test(createdFrom)) query = query.gte(dateField, `${createdFrom}T00:00:00.000+08:00`);
     if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) query = query.lte(dateField, `${createdTo}T23:59:59.999+08:00`);
-    if (countries.length) query = query.in("country", countries);
+    if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     const verifiedIndustries = industries.filter((value) => value.startsWith("ai:")).map((value) => value.slice(3));
     const rawCategories = industries.filter((value) => value.startsWith("raw:")).map((value) => value.slice(4));
     const quoted = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;

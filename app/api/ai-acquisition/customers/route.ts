@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       if (taskId) query = query.eq("task_id", taskId);
       if (taskSearch) query = query.or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`, { referencedTable:"task" });
       if (["FREE_ONLY", "ADAPTIVE"].includes(taskCostMode)) query = query.eq("task.cost_mode", taskCostMode);
-      if (taskCountries.length) query = query.overlaps("task.countries", taskCountries);
+      if (taskCountries.length) query = query.overlaps("task.countries", countryFilterRawValues(taskCountries));
       if (taskIndustries.length) query = query.overlaps("task.industries", taskIndustries);
       if (taskFrom) query = query.gte("task.created_at", `${taskFrom}T00:00:00.000+08:00`);
       if (taskTo) query = query.lte("task.created_at", `${taskTo}T23:59:59.999+08:00`);
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
       if (matchingCustomerIds.length) searchConditions.push(`staging_customer_id.in.(${matchingCustomerIds.join(",")})`,`imported_customer_id.in.(${matchingCustomerIds.join(",")})`);
       query = query.or(searchConditions.join(","));
     }
-    if (countries.length) query = query.in("country", countries);
+    if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     if (industries.length && mode === "core") {
       const quoted = industries.map((industry) => JSON.stringify(industry)).join(",");
       query = query.or(`industry.in.(${quoted}),category.in.(${quoted})`, { referencedTable: "industry_customer" });
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
         if (taskId) optionQuery = optionQuery.eq("task_id", taskId);
         if (taskSearch) optionQuery = optionQuery.or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`, { referencedTable:"task" });
         if (["FREE_ONLY", "ADAPTIVE"].includes(taskCostMode)) optionQuery = optionQuery.eq("task.cost_mode", taskCostMode);
-        if (taskCountries.length) optionQuery = optionQuery.overlaps("task.countries", taskCountries);
+        if (taskCountries.length) optionQuery = optionQuery.overlaps("task.countries", countryFilterRawValues(taskCountries));
         if (taskIndustries.length) optionQuery = optionQuery.overlaps("task.industries", taskIndustries);
         if (taskFrom) optionQuery = optionQuery.gte("task.created_at", `${taskFrom}T00:00:00.000+08:00`);
         if (taskTo) optionQuery = optionQuery.lte("task.created_at", `${taskTo}T23:59:59.999+08:00`);
@@ -175,11 +176,8 @@ export async function GET(request: NextRequest) {
         optionProfiles.push(...(profilePage.data || []));
       }
       const optionProfileById = new Map(optionProfiles.map((profile) => [String(profile.id), profile]));
-      const countryCounts = new Map<string,number>();
       const industryCounts = new Map<string,number>();
       for (const candidate of optionCandidates) {
-        const countryValue = String(candidate.country || "").trim();
-        if (countryValue) countryCounts.set(countryValue, (countryCounts.get(countryValue) || 0) + 1);
         const customerId = String(candidate.imported_customer_id || candidate.staging_customer_id || "");
         const profile = optionProfileById.get(customerId);
         const industryValue = String(profile?.industry || profile?.category || "").trim();
@@ -188,7 +186,7 @@ export async function GET(request: NextRequest) {
       const countedOptions = (counts:Map<string,number>) => [...counts.entries()]
         .map(([value,count]) => ({ value, count }))
         .sort((left,right) => right.count - left.count || left.value.localeCompare(right.value, "zh-CN"));
-        filterOptions = { countries: countedOptions(countryCounts), industries: countedOptions(industryCounts) };
+        filterOptions = { countries: countryFilterOptions(optionCandidates.map((candidate)=>candidate.country)), industries: countedOptions(industryCounts) };
         filterOptionsCache.set(optionsCacheKey, { expiresAt: Date.now() + 5 * 60_000, value: filterOptions });
       }
     }

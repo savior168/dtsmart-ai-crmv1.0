@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       const countryRows:Array<{customer:{country?:string | null} | Array<{country?:string | null}> | null}>=[];
       for(let offset=0;;offset+=1000){const countryPage=await admin.from("ai_screening_task_items").select("customer:customers!inner(country)").eq("task_id",id).range(offset,offset+999);if(countryPage.error)throw countryPage.error;countryRows.push(...(countryPage.data||[]));if((countryPage.data||[]).length<1000)break}
       const counted=(items:string[])=>[...items.reduce((map,value)=>{const normalized=value.trim();if(normalized)map.set(normalized,(map.get(normalized)||0)+1);return map},new Map<string,number>())].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
-      return NextResponse.json({industries:counted(values),countries:counted(countryRows.map((row)=>{const customer=Array.isArray(row.customer)?row.customer[0]:row.customer;return String(customer?.country||"")}))});
+      return NextResponse.json({industries:counted(values),countries:countryFilterOptions(countryRows.map((row)=>{const customer=Array.isArray(row.customer)?row.customer[0]:row.customer;return customer?.country}))});
     }
     const safeSearch = search.replace(/[,%()]/g," ").trim();
     let query = admin.from("ai_screening_task_items").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,industry,is_target_customer,ai_score,ai_level)", { count: "exact" }).eq("task_id", id);
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (retry === "retrying") query = query.gt("attempt_count", 0).lt("attempt_count", 3);
     if (retry === "exhausted") query = query.gte("attempt_count", 3);
     if (countries.length) {
-      const customerRows=await admin.from("customers").select("id").in("country",countries).limit(10000);
+      const customerRows=await admin.from("customers").select("id").in("country",countryFilterRawValues(countries)).limit(10000);
       if(customerRows.error)throw customerRows.error;
       const customerIds=(customerRows.data||[]).map((row)=>String(row.id));
       if(!customerIds.length)return NextResponse.json({data:[],count:0,page,pageSize});

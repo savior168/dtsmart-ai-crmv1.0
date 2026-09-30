@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
-import { countrySearchTokens } from "@/lib/countries";
+import { countryFilterOptions, countryFilterRawValues, countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
       const counted=(items:string[])=>[...items.reduce((map,value)=>{if(value)map.set(value,(map.get(value)||0)+1);return map},new Map<string,number>())].map(([value,count])=>({value,label:value,count})).sort((left,right)=>right.count-left.count||left.label.localeCompare(right.label,"zh-CN"));
       const industryOptions=counted(values.map((item)=>item.industry));
       if(options === "industries")return NextResponse.json({ data: industryOptions.map((item)=>item.value), count: industryOptions.length });
-      return NextResponse.json({countries:counted(values.map((item)=>item.country)),industries:industryOptions});
+      return NextResponse.json({countries:countryFilterOptions(values.map((item)=>item.country)),industries:industryOptions});
     }
     if (options === "batches") {
       const grouped = new Map<string, { id: string; filename: string; created_at: string | null; customer_count: number; success_count: number | null; legacy: boolean }>();
@@ -248,7 +248,7 @@ export async function GET(request: NextRequest) {
     else if (!followupSupported && followupStatus && followupStatus !== "WAITING_CONTACT") query = query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (aiLevel?.toUpperCase() === "UNSCREENED") query = query.or('ai_level.is.null,ai_level.eq.""');
     else if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
-    if (countries.length) query = query.in("country", countries);
+    if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
     else if (industries.length > 1) query = query.in("industry", Array.from(new Set(industries)));

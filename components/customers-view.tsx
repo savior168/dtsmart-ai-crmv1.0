@@ -196,7 +196,7 @@ export function CustomersView() {
     setFromDate(params.get("from") || "");
     setToDate(params.get("to") || "");
     setReportUtc(params.get("report_utc") === "1");
-    setCountries(params.getAll("country").map((value) => value.trim()).filter(Boolean));
+    setCountries([...new Set(params.getAll("country").map((value) => countryInfo(value.trim()).code || value.trim()).filter(Boolean))]);
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
     setSourceType(params.get("source_type") || "");

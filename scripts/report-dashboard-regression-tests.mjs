@@ -31,8 +31,9 @@ assert.match(reports, /期间新增在库/, "报表新增指标必须明确当�
 assert.match(reports, /end\.setUTCDate\(end\.getUTCDate\(\) \+ 1\)/, "报表查询日期上界必须覆盖所选结束日");
 assert.match(countryMigration, /country_rows as \([\s\S]*?group by 1\s*\)/, "国家分组必须先返回全部原始值，不能在标准化前截断 TOP10");
 assert.match(reportLoader, /normalizeReportCountries\(countRows\(raw\.countries\)\)/, "国家必须标准化合并后再选 TOP10");
-assert.match(reports, /row\.source_labels \|\| \[row\.label\]/, "国家明细必须继承参与合并的所有原始值");
+assert.match(reports, /customerDetailHref\(scope, \{ country: row\.label \}\)/, "国家明细应只传规范国家值，由客户接口匹配历史别名");
 assert.match(reports, /user_id: scope === "ALL" \? "all" : scope/, "报表全员明细必须使用客户列表的全员筛选值");
+assert.doesNotMatch(reports, /report\.scope === "ALL" \? undefined : customerDetailHref/, "切换全部归属人后客户指标仍需可进入同范围明细");
 assert.match(reports, /customerDetailHref\(scope, \{ status: row\.label \}\)/, "客户阶段需跳转同口径明细");
 assert.doesNotMatch(reports, /function BusinessMotion/, "报表不得重复展示相同业务指标");
 

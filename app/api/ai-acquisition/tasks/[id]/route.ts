@@ -11,6 +11,7 @@ import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/industry-match";
 import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
 import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
+import { countryFilterRawValues } from "@/lib/countries";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     let query = createAdminClient().from("ai_acquisition_candidates").select("*", { count: "exact" }).eq("task_id", id);
     if (decision) query = query.eq("decision", decision);
     if (search) query = query.or(`company_name.ilike.%${search}%,address.ilike.%${search}%`);
-    if (countries.length) query = query.in("country", countries);
+    if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     if (industries.length) {
       const [industryMatches,categoryMatches]=await Promise.all([
         createAdminClient().from("customers").select("id").in("industry",industries).limit(5000),

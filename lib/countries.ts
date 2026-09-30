@@ -37,3 +37,40 @@ export function countrySearchTokens(value?: string | null) {
   const info = countryInfo(raw);
   return Array.from(new Set([raw, info.code, info.name].filter(Boolean)));
 }
+
+/** Keep one option per country while preserving the raw values stored by older imports. */
+export function countryFilterOptions(values: Array<string | null | undefined>) {
+  const groups = new Map<string, { value: string; label: string; count: number }>();
+  for (const rawValue of values) {
+    const raw = String(rawValue || "").trim();
+    if (!raw) continue;
+    const info = countryInfo(raw);
+    const value = info.code || raw;
+    const current = groups.get(value);
+    if (current) current.count++;
+    else groups.set(value, { value, label: info.name, count: 1 });
+  }
+  return [...groups.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN"));
+}
+
+/** A canonical selection must match both ISO codes and legacy localized names. */
+export function countryFilterRawValues(selected: string[]) {
+  const values = new Set<string>();
+  for (const selection of selected) {
+    const raw = selection.trim();
+    if (!raw) continue;
+    const code = countryInfo(raw).code;
+    values.add(raw);
+    if (!code) continue;
+    values.add(code);
+    const english = englishDisplayNames.of(code);
+    if (english) values.add(english);
+    const localized = displayNames.of(code);
+    for (const name of [localized, english]) {
+      if (!name || name === code) continue;
+      for (const separator of [" ", "-", "/", ""]) values.add(`${code}${separator}${name}`);
+    }
+    for (const [name, aliasCode] of namesToCode) if (aliasCode === code) values.add(name);
+  }
+  return [...values];
+}

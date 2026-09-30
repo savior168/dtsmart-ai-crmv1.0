@@ -592,9 +592,9 @@ assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*pr
 assert.match(customerResultsRoute,/params\.get\("task_id"\)[\s\S]*query\.eq\("task_id", taskId\)[\s\S]*filter_task/,"来源任务筛选必须在服务端真实生效且返回有权限查看的任务标识");
 assert.match(customerResultsRoute,/params\.get\("task_search"\)[\s\S]*task:ai_acquisition_tasks!inner[\s\S]*task_number\.ilike[\s\S]*referencedTable:"task"/ ,"按获客任务名称或编号的筛选必须在服务端关联真实任务后生效");
 assert.match(customerResultsRoute,/can_control:[\s\S]*task\?\.user_id[\s\S]*account\.role==="ADMIN"[\s\S]*show_owner/ ,"客户结果接口必须分别返回跨用户可见性与逐任务可操作权限");
-assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countries\)[\s\S]*industry\.in\.\([\s\S]*category\.in\.\([\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效");
+assert.match(customerResultsRoute,/params\.getAll\("country"\)[\s\S]*params\.getAll\("industry"\)[\s\S]*\.in\("country", countryFilterRawValues\(countries\)\)[\s\S]*industry\.in\.\([\s\S]*category\.in\.\([\s\S]*processed_at/,"客户结果国家、行业多选与处理时间筛选必须在接口真实生效，且国家历史别名须合并查询");
 assert.match(customerResultsRoute,/industry_customer:staging_customer_id!inner[\s\S]*industry_customer:imported_customer_id!inner[\s\S]*referencedTable: "industry_customer"/,"所属行业须按候选实际关联客户在数据库内筛选，不得把数千个客户UUID拼成超长请求");
-assert.match(customerResultsRoute,/optionCandidates[\s\S]*range\(offset, offset \+ 999\)[\s\S]*countryCounts[\s\S]*industryCounts[\s\S]*filter_options/,"行业和国家选项必须按当前结果范围全部数据去重计数，不能只取当前分页");
+assert.match(customerResultsRoute,/optionCandidates[\s\S]*range\(offset, offset \+ 999\)[\s\S]*industryCounts[\s\S]*countryFilterOptions\(optionCandidates[\s\S]*filter_options/,"行业和国家选项必须按当前结果范围全部数据去重计数，不能只取当前分页");
 assert.match(customerResultsRoute,/const mode = params\.get\("mode"\)[\s\S]*mode === "core"[\s\S]*mode === "summary"[\s\S]*mode === "filters"/,"客户结果接口必须拆分首屏、汇总和筛选项查询，禁止一次请求争抢全部数据库资源");
 assert.match(customerResultsRoute,/const result = mode === "core"[\s\S]*data: \[\], count: 0, error: null[\s\S]*if \(mode === "filters"\)/,"汇总和筛选项辅助请求不得重复执行客户分页与精确总数查询");
 assert.match(customerResults,/setRows\(body\.data\|\|\[\]\)[\s\S]*setLoading\(false\)[\s\S]*mode=summary[\s\S]*mode=filters/,"客户结果必须先展示核心列表，再串行补充汇总和真实筛选项");

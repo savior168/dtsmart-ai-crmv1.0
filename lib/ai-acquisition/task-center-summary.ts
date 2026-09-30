@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { countryFilterRawValues } from "@/lib/countries";
 
 type SummaryFilters = {
   ownerId: string | null;
@@ -18,7 +19,7 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     let query = admin.from("ai_acquisition_tasks").select("id,status");
     if (ownerId) query = query.eq("user_id", ownerId);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
-    if (countries.length) query = query.overlaps("countries", countries);
+    if (countries.length) query = query.overlaps("countries", countryFilterRawValues(countries));
     if (industries.length) query = query.overlaps("industries", industries);
     if (/^\d{4}-\d{2}-\d{2}$/.test(from)) query = query.gte("created_at", `${from}T00:00:00.000+08:00`);
     if (/^\d{4}-\d{2}-\d{2}$/.test(to)) query = query.lte("created_at", `${to}T23:59:59.999+08:00`);
