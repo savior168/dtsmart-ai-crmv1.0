@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { quickLocalDateTime } from "@/lib/date-time";
@@ -8,6 +8,7 @@ import { AppSelect } from "@/components/ui/app-select";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
+const datePresets = [{ days: 1, label: "明天" }, { days: 3, label: "3 天后" }, { days: 7, label: "1 周后" }];
 
 /** Shared, timezone-explicit date/time input without the browser's combined picker. */
 export function AppDateTimeField({ value, onChange, label, help, presets = false }: {
@@ -21,6 +22,7 @@ export function AppDateTimeField({ value, onChange, label, help, presets = false
   const hour = selectedDate ? value.slice(11, 13) : "10";
   const minute = selectedDate ? value.slice(14, 16) : "00";
   const [open, setOpen] = useState(false);
+  const [presetNow, setPresetNow] = useState<Date | null>(null);
   const [month, setMonth] = useState(() => {
     const date = selectedDate ? new Date(`${selectedDate}T12:00:00`) : new Date();
     return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -32,6 +34,22 @@ export function AppDateTimeField({ value, onChange, label, help, presets = false
   const calendarId = useId();
 
   function closeCalendar() { setOpen(false); trigger.current?.focus({ preventScroll: true }); }
+
+  useEffect(() => {
+    if (!presets) return;
+    let midnightTimer: ReturnType<typeof setTimeout>;
+    function refreshPresets() {
+      const now = new Date();
+      setPresetNow(now);
+      clearTimeout(midnightTimer);
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      midnightTimer = setTimeout(refreshPresets, midnight.getTime() - now.getTime());
+    }
+    refreshPresets();
+    window.addEventListener("focus", refreshPresets);
+    return () => { clearTimeout(midnightTimer); window.removeEventListener("focus", refreshPresets); };
+  }, [presets]);
 
   useEffect(() => {
     if (!open || !pendingFocus.current) return;
@@ -82,7 +100,16 @@ export function AppDateTimeField({ value, onChange, label, help, presets = false
 
   return <fieldset className="mt-3 rounded-lg border border-slate-200 p-3">
     <legend className="px-1 text-sm font-medium text-slate-700">{label}</legend>
-    {presets ? <div className="mb-3 flex flex-wrap gap-2">{[{ days: 1, label: "明天" }, { days: 3, label: "3 天后" }, { days: 7, label: "1 周后" }].map((item) => <button key={item.days} type="button" onClick={() => onChange(quickLocalDateTime(item.days))} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">{item.label} 10:00</button>)}</div> : null}
+    {presets ? <div role="group" aria-label={`${label}快捷日期`} className="mb-3 flex flex-wrap gap-2">{datePresets.map((item) => {
+      const selected = presetNow !== null && value === quickLocalDateTime(item.days, presetNow);
+      return <button key={item.days} type="button" aria-pressed={selected} onClick={() => {
+        const now = new Date();
+        setPresetNow(now);
+        onChange(quickLocalDateTime(item.days, now));
+      }} className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${selected ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}>
+        {selected ? <Check size={13} aria-hidden="true"/> : null}{item.label} 10:00
+      </button>;
+    })}</div> : null}
     <div className="flex flex-wrap items-center gap-2">
       <button ref={trigger} type="button" aria-label={`${label}：${selectedDate || "选择日期"}`} aria-haspopup="dialog" aria-controls={open ? calendarId : undefined} aria-expanded={open} onClick={() => open ? setOpen(false) : showCalendar()} className="inline-flex h-10 min-w-40 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:border-blue-300"><CalendarDays size={16} className="text-blue-600"/>{selectedDate || "选择日期"}</button>
       <AppSelect value={hour} onChange={(event) => selectedDate && onChange(`${selectedDate}T${event.target.value}:${minute}`)} disabled={!selectedDate} aria-label={`${label}：小时`} className="h-10 w-[92px]">{Array.from({ length: 24 }, (_, index) => <option key={index} value={pad(index)}>{pad(index)} 时</option>)}</AppSelect>

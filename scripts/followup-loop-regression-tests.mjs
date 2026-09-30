@@ -27,4 +27,24 @@ const timestamp = "2026-09-30T02:00:00.000Z";
 assert.equal(new Date(localDateTimeInput(timestamp)).toISOString(), timestamp);
 assert.match(quickLocalDateTime(3, new Date(timestamp)), /T10:00$/);
 
+const presetDays = [1, 3, 7];
+for (const { now, expected } of [
+  { now: new Date(2026, 8, 15, 18, 42, 17), expected: ["2026-09-16T10:00", "2026-09-18T10:00", "2026-09-22T10:00"] },
+  { now: new Date(2026, 0, 31, 23, 59, 59), expected: ["2026-02-01T10:00", "2026-02-03T10:00", "2026-02-07T10:00"] },
+  { now: new Date(2026, 11, 31, 23, 59, 59), expected: ["2027-01-01T10:00", "2027-01-03T10:00", "2027-01-07T10:00"] },
+  { now: new Date(2028, 1, 28, 8, 15), expected: ["2028-02-29T10:00", "2028-03-02T10:00", "2028-03-06T10:00"] },
+]) {
+  const originalTime = now.getTime();
+  const values = presetDays.map((days) => quickLocalDateTime(days, now));
+  assert.deepEqual(values, expected, "快捷日期必须按当地日历准确增加 1、3、7 天，并固定为 10:00");
+  assert.equal(new Set(values).size, presetDays.length, "三个快捷日期不得重复");
+  assert.equal(now.getTime(), originalTime, "计算快捷日期不得修改调用方的当前时间");
+  for (const [index, value] of values.entries()) {
+    assert.deepEqual(values.map((candidate) => candidate === value), presetDays.map((_, candidateIndex) => candidateIndex === index), "实际值只能命中一个快捷选项");
+    assert.equal(values.includes(value.replace("T10:00", "T10:01")), false, "手动改分钟后不再命中原快捷选项");
+    assert.equal(values.includes(value.replace("T10:00", "T11:00")), false, "手动改小时后不再命中原快捷选项");
+  }
+  assert.equal(values.includes(""), false, "清空安排后不得命中快捷选项");
+}
+
 console.log("followup closed-loop regression tests passed");
