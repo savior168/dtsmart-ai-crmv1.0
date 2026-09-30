@@ -383,6 +383,7 @@ assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表
 assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"当前评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
 assert.match(candidateEvidenceDialog,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情与跨任务结果必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");
 assert.match(candidateEvidenceDialog,/identityLabel\[evidence\.analysis\?\.identity_status[\s\S]*核验结论/,"获客依据摘要必须使用中文业务标签并明确展示核验结论");
+assert.match(candidateEvidenceDialog,/主体需单独核对：[\s\S]*verified_business_name[\s\S]*verified_address[\s\S]*mismatch_signals/,"人工复核应展示主体名称、地址及冲突信号，不得让用户只靠改分猜测阻点");
 assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CandidateScoreDisplay[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");
 assert.doesNotMatch(detail,/"客户与地区"|"AI匹配"|"商机线索与销售建议"/,"本次客户列表不得继续使用混合字段标题");
 assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*平均入池成本参考/,"搜索策略效果必须默认折叠并保留从发现到转化的质量与成本闭环");

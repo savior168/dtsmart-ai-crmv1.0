@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
+import { publicReleaseReason } from "@/lib/customers/public-release-summary";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { customerIndustryLabels, rawCategoryPatternsForIndustryLabel } from "@/lib/customers/industry-display";
 
@@ -310,7 +311,7 @@ export async function GET(request: NextRequest) {
       customerIds.length ? admin.from("customer_protection").select("customer_id,owner_id,expire_date,status,extension_count,start_date").in("customer_id", customerIds).order("start_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_private_supplements").select("id,customer_id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("submitted_by", account.id).in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-      tab === "available" && customerIds.length ? admin.from("customer_claims").select("customer_id,released_at,created_at").eq("action", "RELEASE").in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      tab === "available" && customerIds.length ? admin.from("customer_claims").select("customer_id,owner_name,released_at,release_reason,created_at").eq("action", "RELEASE").in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ]);
     if (owners.error) throw owners.error;
     if (protections.error) throw protections.error;
@@ -319,12 +320,16 @@ export async function GET(request: NextRequest) {
     // rollout that temporarily cannot expose this optional table must never
     // make the entire customer public pool unavailable.
     const verifiedContactsData = verifiedContacts.error ? [] : verifiedContacts.data || [];
-    // Only a release flag and date are shared in the public pool. Never expose
-    // the former owner's free-text reason or private follow-up details here.
-    const releasedAtByCustomer = new Map<string, string>();
+    // Only the most recent release is relevant to a new claimant. Keep prior
+    // claim cycles and private follow-up details out of the pool list.
+    const latestReleaseByCustomer = new Map<string, { at: string; by: string; reason: string }>();
     if (previousReleases.error) console.warn("[public-pool] release indicators unavailable", previousReleases.error.code);
     for (const release of previousReleases.error ? [] : previousReleases.data || []) {
-      if (!releasedAtByCustomer.has(release.customer_id)) releasedAtByCustomer.set(release.customer_id, release.released_at || release.created_at);
+      if (!latestReleaseByCustomer.has(release.customer_id)) latestReleaseByCustomer.set(release.customer_id, {
+        at: release.released_at || release.created_at,
+        by: release.owner_name?.trim() || "未记录",
+        reason: publicReleaseReason(release.release_reason),
+      });
     }
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
     const protectionByCustomer = new Map<string, Record<string, unknown>>();
@@ -374,7 +379,7 @@ export async function GET(request: NextRequest) {
         my_supplements: supplementsByCustomer.get(row.id) || [],
         verified_contacts: full ? verifiedContactsByCustomer.get(row.id) || [] : [],
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
-        last_released_at: tab === "available" ? releasedAtByCustomer.get(row.id) || null : null,
+        last_release: tab === "available" ? latestReleaseByCustomer.get(row.id) || null : null,
         // 未认领公海客户对所有具备客户查看权限的用户开放基础详情；
         // 已认领客户仍仅归属人和具备全量数据权限的角色可打开完整详情。
         can_open_customer: tab === "available" || own || teamRead,

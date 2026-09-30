@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, writeAudit } from "@/lib/auth/current-user";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { FOLLOWUP_TYPES } from "@/lib/types";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { user, account, supabase } = await requirePermission("followups.create");
+    const { supabase } = await requirePermission("followups.create");
     const { id } = await context.params;
     const body = await request.json();
     if (!FOLLOWUP_TYPES.includes(body.type)) return NextResponse.json({ error: "无效跟进类型" }, { status: 400 });
@@ -17,28 +16,27 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (outcome === "INTEREST" && body.has_attachment !== true) {
       return NextResponse.json({ error: "客户明确有采购意向时必须上传真实沟通凭证" }, { status: 400 });
     }
-    const admin = createAdminClient();
-    const { data: customer, error: customerError } = await admin.from("customers").select("id,status,owner_id").eq("id", id).is("deleted_at", null).single();
-    if (customerError) throw customerError;
-    if (!customer.owner_id) return NextResponse.json({ error: "公海客户需先完成认领，才可以新增跟进" }, { status: 403 });
-    if (account.role !== "ADMIN" && customer.owner_id !== user.id) {
-      return NextResponse.json({ error: "其他用户的客户和跟进数据仅供查看，不能新增跟进" }, { status: 403 });
+    const nextFollowDate = body.next_follow_date ? String(body.next_follow_date) : null;
+    if (nextFollowDate && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(nextFollowDate) || Number.isNaN(Date.parse(nextFollowDate)))) {
+      return NextResponse.json({ error: "下次跟进时间无效，请重新选择日期和时间" }, { status: 400 });
     }
-    const { data, error } = await admin.from("followups").insert({
-      customer_id: id,
-      user_id: user.id,
-      type: body.type,
-      content: String(body.content).trim(),
-      attachment: body.attachment || null,
-      next_follow_date: body.next_follow_date || null,
-      outcome,
-    }).select("*,creator:users(name,email)").single();
-    if (error) throw error;
-    await admin.from("customers").update({ last_contact_time: new Date().toISOString() }).eq("id", id);
-    await writeAudit(supabase, user.id, "FOLLOWUP_CREATE", "customer", id, { type: body.type, outcome, next_follow_date: body.next_follow_date || null });
+    const clientRequestId = body.client_request_id ? String(body.client_request_id) : null;
+    if (clientRequestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientRequestId)) {
+      return NextResponse.json({ error: "提交编号无效，请刷新页面后重试" }, { status: 400 });
+    }
+    const { data, error } = await supabase.rpc("create_customer_followup", {
+      p_customer_id: id,
+      p_type: body.type,
+      p_content: String(body.content).trim(),
+      p_next_follow_date: nextFollowDate,
+      p_outcome: outcome,
+      p_followup_status: body.followup_status || null,
+      p_client_request_id: clientRequestId,
+    });
+    if (error) throw new Error(error.message);
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "跟进保存失败";
-    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
   }
 }

@@ -61,7 +61,7 @@ export type Customer = {
 
 export const CUSTOMER_STATUSES: CustomerStatus[] = ["UNCLAIMED", "CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"];
 export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
-  UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "无效客户",
+  UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "历史释放状态",
 };
 
 export type FollowupStage = "WAITING_CONTACT" | "FOLLOWUP_REQUIRED" | "WAITING_REPLY" | "PAUSED" | "NO_FOLLOWUP" | "CONTACTED" | "FOLLOWING" | "WAITING_CONFIRMATION" | "WAITING_PAYMENT" | "COMPLETED";

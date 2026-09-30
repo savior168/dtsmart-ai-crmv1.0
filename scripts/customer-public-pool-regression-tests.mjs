@@ -23,6 +23,7 @@ const lifecycleRules = read("supabase/migrations/202609020004_customer_document_
 const manualStatusRules = read("supabase/migrations/202609030002_restore_single_customer_stage_change.sql");
 const ownershipIntegrity = read("supabase/migrations/202609030003_customer_ownership_integrity.sql");
 const stageReleaseBoundary = read("supabase/migrations/202609030004_customer_stage_release_boundary.sql");
+const claimStageBoundary = read("supabase/migrations/202609300002_claim_stage_boundary.sql");
 const importApi = read("app/api/import/route.ts");
 const importSafety = read("lib/import-safety.ts");
 const importPage = read("app/import/page.tsx");
@@ -176,6 +177,12 @@ assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\
 assert.match(ownershipIntegrity, /customers_owner_columns_match[\s\S]*owner_id is not distinct from owner_user_id/, "两个客户归属字段必须保持一致");
 assert.match(ownershipIntegrity, /customer_protection_one_active_customer_idx[\s\S]*where status='ACTIVE'/, "每个客户最多只能有一条有效保护关系");
 assert.match(stageReleaseBoundary, /target_status not in \('CLAIMED','FOLLOWING','QUOTE','DEAL'\)[\s\S]*释放客户必须使用释放流程/, "释放不得作为客户阶段修改");
+assert.match(claimStageBoundary, /stage not in \('CLAIMED','FOLLOWING','QUOTE','DEAL'\)[\s\S]*raise exception[\s\S]*for update[\s\S]*insert into public\.followups/, "认领RPC必须在写入前拒绝RELEASED等非活动阶段，并原子锁定客户");
+assert.match(claimStageBoundary, /expires_at:=case stage when 'DEAL' then null when 'QUOTE' then now\(\)\+interval '180 days' else now\(\)\+interval '90 days' end/, "认领保护期必须遵守成交永久、报价180天、其他90天的现有阶段规则");
+assert.match(claimStageBoundary, /protection_type:=case stage when 'DEAL' then 'DEAL' when 'QUOTE' then 'QUOTE' else 'INTENT' end[\s\S]*values\(target\.id,actor\.id,protection_type,now\(\),expires_at,'ACTIVE',0\)/, "认领必须将所选阶段保护类型与截止时间共同保存");
+assert.match(claimStageBoundary, /revoke execute[\s\S]*from public,anon[\s\S]*grant execute[\s\S]*to authenticated/, "认领RPC只能由已登录用户调用");
+assert.doesNotMatch(poolView, /value="RELEASED"|value: "RELEASED"/, "认领表单和活动阶段筛选不得把历史释放状态作为可选阶段");
+assert.doesNotMatch(read("lib/types.ts"), /RELEASED: "无效客户"/, "历史释放状态不能标成无效客户");
 assert.doesNotMatch(customersApi, /activeCutoff/, "我的客户不得依赖客户创建时间决定当前归属可见性");
 assert.match(supplementsMigration, /unique\(customer_id,submitted_by,field_name,value_normalized\)/, "个人补充资料必须按客户、提交人、字段和值去重");
 assert.match(supplementsMigration, /submitted_by=auth\.uid\(\)/, "个人补充资料只能由提交人读取");
@@ -237,8 +244,11 @@ assert.match(customerDetailApi, /publicUnclaimed[\s\S]*directReport[\s\S]*mayRea
 assert.doesNotMatch(attachmentApi, /let allowed=data\.uploaded_by===account\.id/, "附件读取不得仅因上传人身份放行");
 assert.match(attachmentApi, /Content-Disposition[\s\S]*preview \? "inline"/, "附件预览必须沿用同一服务端授权下载入口");
 assert.match(sidebar, /useLayoutEffect[\s\S]*URLSearchParams\(window\.location\.search\)\.get\("from"\) === "pool"[\s\S]*客户中心 \/ 客户公海 \/ 客户详情/, "从客户公海进入详情时面包屑必须在浏览器绘制前稳定为客户公海来源");
-assert.match(followupApi, /公海客户需先完成认领[\s\S]*customer\.owner_id !== user\.id/, "公海客户不得写入跟进，且跟进必须由当前归属销售员创建");
-assert.match(followupEditApi, /customer\?\.owner_id !== user\.id/, "客户转移后历史跟进创建人不得继续编辑记录");
+const followupTransaction = read("supabase/migrations/202609300001_customer_followup_queue.sql");
+assert.match(followupApi, /rpc\("create_customer_followup"/, "跟进新增必须使用归属校验和写入同一事务");
+assert.match(followupTransaction, /公海客户需先完成认领[\s\S]*c\.owner_id <> actor\.id/, "公海客户不得写入跟进，且跟进必须由当前归属销售员创建");
+assert.match(followupEditApi, /rpc\("correct_customer_followup"/, "跟进更正必须使用归属校验和审计同一事务");
+assert.match(followupTransaction, /f\.user_id <> actor\.id or c\.owner_id is distinct from actor\.id/, "客户转移后历史跟进创建人不得继续编辑记录");
 assert.match(assignmentApi, /source_user_id[\s\S]*target_user_id[\s\S]*created_by[\s\S]*date_from[\s\S]*date_to/, "分配记录接口必须支持原归属人、接收人、操作人与日期筛选");
 assert.match(assignmentApi, /customer_assignment_items[\s\S]*customer_id[\s\S]*current_owner[\s\S]*company_name/, "分配历史必须按客户明细返回分配快照和当前归属，不得只显示批次汇总");
 assert.match(assignmentApi, /mode === "history_options"[\s\S]*source_user_id[\s\S]*target_user_id[\s\S]*created_by/, "分配记录筛选下拉选项必须来自真实历史关联用户");
@@ -251,7 +261,8 @@ assert.match(poolApi, /exportMode \? "\*"/, "客户公海导出必须加载完�
 assert.match(releaseHistoryApi, /requestedOwnerId\(request, account, "customers\.data_all"\)/, "主动释放历史必须在服务端按用户权限限定原归属人范围");
 assert.match(ownerScope, /if \(!hasPermission\(account, dataPermission\)\) return account\.id[\s\S]*manager_id", account\.id/, "普通销售只能查看自己的释放记录，主管只能查看直属下级");
 assert.match(protectionPanel, /保护到期与续期[\s\S]*主动释放历史[\s\S]*view==="renewal"[\s\S]*ReleaseHistoryPanel/, "保护续期与主动释放历史必须分开显示");
-assert.match(poolApi, /tab === "available" && customerIds\.length[\s\S]*select\("customer_id,released_at,created_at"\)[\s\S]*last_released_at: tab === "available"/, "公海只需在待认领列表展示历史释放日期，不得查询释放原因或原归属人");
-assert.match(poolView, /row\.last_released_at[\s\S]*曾被释放/, "公海应以非敏感提示告知客户曾被释放");
+assert.match(poolApi, /tab === "available" && customerIds\.length[\s\S]*select\("customer_id,owner_name,released_at,release_reason,created_at"\)[\s\S]*last_release: tab === "available"/, "仅待认领公海展示最近一次释放摘要");
+assert.match(poolApi, /latestReleaseByCustomer\.has\(release\.customer_id\)[\s\S]*publicReleaseReason\(release\.release_reason\)/, "公海不得展示完整历史归属链或未经脱敏的释放原因");
+assert.match(poolView, /row\.last_release[\s\S]*title=\{`最近一次释放[\s\S]*释放人：[\s\S]*释放原因：[\s\S]*曾被释放/, "悬停释放提示应显示最近一次释放人、时间与原因");
 
 console.log("customer public-pool regression tests passed");

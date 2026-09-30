@@ -54,7 +54,7 @@ const stageLabels: Record<CustomerStatus, string> = {
   FOLLOWING: "意向客户",
   QUOTE: "报价中",
   DEAL: "成交客户",
-  RELEASED: "无效客户",
+  RELEASED: "历史释放状态",
 };
 const stageClass: Record<CustomerStatus, string> = {
   UNCLAIMED: "bg-slate-100 text-slate-700",
@@ -639,7 +639,7 @@ export function CustomersView() {
               className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部客户阶段</option>
-              {(["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"] as CustomerStatus[]).map((key) => (
+              {(["CLAIMED", "FOLLOWING", "QUOTE", "DEAL"] as CustomerStatus[]).map((key) => (
                 <option key={key} value={key}>{stageLabels[key]}</option>
               ))}
             </select>

@@ -16,7 +16,7 @@ type ConflictUser = { id: string; name: string; submitted_at?: string };
 type Conflict = { id: string; customer_id?: string; created_at: string; details?: { submitted?: CustomerData }; owner?: ConflictUser | null; submitters?: ConflictUser[]; protection_days?: number };
 type Row = { id: string; customerId?: string; company: string; industryText?: string; industryVerified?: boolean; country?: string; aiLevel?: string; aiScore?: number | null; stage?: string; followup?: string; protection?: string; releaseType?: string; lastContact?: string; phone?: string; email?: string; website?: string; google?: string; source?: string; updated?: string; owner?: string; submitters?: ConflictUser[]; canRenew?: boolean; renewalBlockReason?: string; extensionCount?: number };
 
-const stages: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "无效客户" };
+const stages: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "历史释放状态" };
 const text = (value: unknown) => String(value || "-");
 const industryOf = (customer: CustomerData) => customerIndustryDisplay({
   industry: typeof customer.industry === "string" ? customer.industry : null,

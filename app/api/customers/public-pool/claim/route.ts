@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const customerId = String(form.get("customer_id") || "");
     if (!customerId) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
     const stage = String(form.get("stage") || "CLAIMED").toUpperCase();
-    if (!["CLAIMED", "FOLLOWING", "QUOTE", "DEAL", "RELEASED"].includes(stage)) return NextResponse.json({ error: "客户阶段无效" }, { status: 400 });
+    if (!["CLAIMED", "FOLLOWING", "QUOTE", "DEAL"].includes(stage)) return NextResponse.json({ error: "释放或判为无效客户不能通过认领阶段操作" }, { status: 400 });
     const fileValue = form.get("file");
     if (stage !== "CLAIMED" && !(fileValue instanceof File)) return NextResponse.json({ error: "潜在客户以外的阶段必须上传真实凭证附件" }, { status: 400 });
     if (!String(form.get("next_plan") || "").trim()) return NextResponse.json({ error: "请填写本次联系纪要及下一步安排" }, { status: 400 });
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       p_stage: stage,
     });
     if (result.error) throw result.error;
-    return NextResponse.json({ success: true, data: result.data, message: "客户认领成功，90天保护期已经开始" });
+    return NextResponse.json({ success: true, data: result.data, message: "客户认领成功，保护期已按所选阶段生效" });
   } catch (error) {
     if (uploaded) await uploaded.cleanup();
     const rawMessage = error instanceof Error ? error.message : "客户认领失败";

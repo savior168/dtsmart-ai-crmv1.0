@@ -71,7 +71,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       if (candidate.data.manual_target_decision==="INVALID") return NextResponse.json({error:"人工已判定为非目标客户，不能入池"},{status:409});
       const itemId=String(candidate.data.screening_task_item_id||"");
       const [result,contacts,evidence]=await Promise.all([
-        admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status,industry_type").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
+        admin.from("ai_screening_results").select("automation_status,target_decision,score,identity_status,mismatch_signals,industry_type").eq("task_item_id",itemId).eq("is_latest_valid",true).maybeSingle(),
         admin.from("customer_contacts").select("id,type,value_raw,value_normalized,verification_status,identity_match_status,contact_status,source_channel,exact_source_url").eq("customer_id",customerId),
         admin.from("ai_screening_evidence").select("id,source_url,evidence_strength,evidence_type,translated_fact,original_excerpt").eq("task_item_id",itemId),
       ]);
@@ -104,10 +104,18 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
       const reviewedIndustry=manuallyConfirmed?candidate.data.manual_industry:result.data?.industry_type;
       if(!acquisitionIndustryMatchesVerifiedResult(targetIndustries,reviewedIndustry,industryEvidence)) return NextResponse.json({error:acquisitionIndustryMismatchReason(targetIndustries,reviewedIndustry)},{status:409});
       if (!gate.accepted) {
+        const mismatchSignals=Array.isArray(result.data?.mismatch_signals)
+          ? result.data.mismatch_signals.filter((signal):signal is string=>typeof signal==="string"&&Boolean(signal.trim())).slice(0,2)
+          : [];
+        const identityReason=!(["MATCHED","LIKELY_MATCHED"].includes(identityStatus))
+          ? identityStatus==="CONFLICTED"||identityStatus==="CONFLICT"
+            ? `主体证据存在冲突${mismatchSignals.length?`（${mismatchSignals.join("；")}）`:""}，不能仅凭人工改分入池；请核对是否为同一门店或重新分析`
+            : `主体尚未确认是同一商家${mismatchSignals.length?`（${mismatchSignals.join("；")}）`:""}；人工行业和评分复核不会覆盖主体核验，请核对名称、地址和联系方式的具体来源`
+          : null;
         const missing = [
           !manuallyConfirmed&&(result.data?.automation_status !== "AUTO_DEVELOP" || result.data?.target_decision !== "VALID") ? "AI最终目标结论尚未通过，请先提交带经营证据的人工复核结论" : null,
           Number(manuallyConfirmed?candidate.data.manual_score:result.data?.score || 0) < 60 ? "当前评分未达到60分" : null,
-          !["MATCHED","LIKELY_MATCHED"].includes(identityStatus) ? "客户主体与证据来源尚未确认一致" : null,
+          identityReason,
           !gate.hasTraceableBusinessEvidence ? "缺少可追溯的非弱经营证据" : null,
           !gate.actionableContacts.length ? "缺少可追溯且已核验的电话、邮箱或WhatsApp" : null,
         ].filter(Boolean);

@@ -20,6 +20,10 @@ export type CandidateEvidenceData = {
     grade?: string;
     short_reason?: string;
     identity_status?: string;
+    verified_business_name?: string | null;
+    verified_address?: string | null;
+    match_signals?: string[] | null;
+    mismatch_signals?: string[] | null;
     industry_type?: string;
     target_decision?: string;
     evidence_sufficiency_score?: number;
@@ -145,6 +149,11 @@ export function CandidateEvidenceDialog({
         <div className="rounded-xl bg-slate-50 p-4"><small>主体状态</small><b className="mt-1 block">{identityLabel[evidence.analysis?.identity_status || ""] || "主体待核验"}</b></div>
         <div className="rounded-xl bg-slate-50 p-4"><small>证据充分度</small><b className="mt-1 block">{evidence.analysis?.evidence_sufficiency_score != null ? `${evidence.analysis.evidence_sufficiency_score} / 100` : "—"}</b></div>
       </section>
+      {evidence.candidate.decision === "REVIEW" && !["MATCHED","LIKELY_MATCHED"].includes(evidence.analysis?.identity_status || "") ? <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+        <b>主体需单独核对：</b>人工改分和经营行业判断不会改写原 AI 主体结论。请对照当前客户“{evidence.candidate.company_name}”与来源商家“{evidence.analysis?.verified_business_name || "尚未取得可核验名称"}”{evidence.analysis?.verified_address ? `、地址“${evidence.analysis.verified_address}”` : ""}。
+        {evidence.analysis?.mismatch_signals?.length ? <span className="block">系统记录的差异：{evidence.analysis.mismatch_signals.slice(0,3).join("；")}</span> : null}
+        <span className="block">若来源确属同一商家但旧分析未确认，应补齐可追溯的名称、地址或联系方式依据并重新分析；仅重复点击入池不会重新采集。</span>
+      </section> : null}
       {evidence.analysis?.short_reason ? <p className="rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-3 text-sm leading-6 text-slate-700"><b className="mr-2 text-blue-800">核验结论</b>{evidence.analysis.short_reason}</p> : null}
       <VerifiedContactsSection contacts={evidence.contacts as VerifiedContactDisplayItem[]} customer={{
         country: evidence.candidate.country,

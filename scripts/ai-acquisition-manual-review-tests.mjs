@@ -24,6 +24,8 @@ assert.match(route,/manual_evidence_ids:assessment\.evidenceIds/);
 assert.match(route,/manuallyConfirmed\?"AUTO_DEVELOP":result\.data\?\.automation_status/);
 assert.match(route,/manuallyConfirmed\?candidate\.data\.manual_score:result\.data\?\.score/);
 assert.match(route,/ai_score_source:"MANUAL_REVIEW"/);
+assert.match(route,/identityStatus==="CONFLICTED"[\s\S]*主体证据存在冲突[\s\S]*人工行业和评分复核不会覆盖主体核验/,"主体冲突和待确认必须分别说明；人工改分不能绕过主体门槛");
+assert.match(route,/identityStatus:result\.data\?\.identity_status/,"入池仍必须使用真实主体核验结论，不得由人工评分自动代替");
 assert.match(migration,/create table if not exists public\.ai_acquisition_manual_review_history/);
 assert.match(migration,/old\.decision <> 'REVIEW' or new\.decision <> 'REVIEW'/);
 assert.match(migration,/effective_score integer generated always as \(coalesce\(manual_score, ai_score\)\) stored/);

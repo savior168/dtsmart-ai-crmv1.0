@@ -4,5 +4,6 @@ export default async function CustomerCrmPage({ params, searchParams }: { params
   const { id } = await params;
   const query = await searchParams;
   const fromPool = query.from === "pool";
-  return <CustomerCrmDetailView customerId={id} returnTo={fromPool ? "/customers/pool" : "/customers"} returnLabel={fromPool ? "返回客户公海" : "返回客户列表"} />;
+  const fromFollowups = query.from === "followups";
+  return <CustomerCrmDetailView customerId={id} returnTo={fromPool ? "/customers/pool" : fromFollowups ? "/followups" : "/customers"} returnLabel={fromPool ? "返回客户公海" : fromFollowups ? "返回跟进管理" : "返回客户列表"} />;
 }

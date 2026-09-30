@@ -39,7 +39,7 @@ const STAGE_LABELS: Record<CustomerStatus, string> = {
   FOLLOWING: "意向客户",
   QUOTE: "报价中",
   DEAL: "已成交",
-  RELEASED: "无效客户",
+  RELEASED: "历史释放状态",
 };
 
 export function formatCustomerPhone(value?: string | null) {

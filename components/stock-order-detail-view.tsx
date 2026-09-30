@@ -10,6 +10,8 @@ import {
   Send,
 } from "lucide-react";
 import { STOCK_STATUS_LABELS, type StockOrderStatus } from "@/lib/types";
+import { AppDateTimeField } from "@/components/ui/app-date-time-field";
+import { localDateTimeInput } from "@/lib/date-time";
 import { summarizeProductSpecificationsSnapshot } from "@/lib/product-specifications";
 type Item = {
   id: string;
@@ -89,9 +91,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
     setProcurementDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, item.procurement_cost_confirmed ? String(item.procurement_cost) : ""])));
     setRequirements(body.order.stocking_requirements || "");
     setExpected(
-      body.order.expected_ready_at
-        ? String(body.order.expected_ready_at).slice(0, 16)
-        : "",
+      localDateTimeInput(body.order.expected_ready_at),
     );
     setStatus(body.allowed_statuses?.[0] || body.order.status);
     setNote("");
@@ -134,7 +134,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
   async function saveDraft() {
     return request(`/api/stock-orders/${id}/draft`, "PATCH", {
       stocking_requirements: requirements,
-      expected_ready_at: expected,
+      expected_ready_at: expected ? new Date(expected).toISOString() : null,
       items,
     });
   }
@@ -371,17 +371,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     className="w-full rounded-lg border p-3"
                   />
                 </label>
-                <label className="text-sm">
-                  <span className="mb-1 block text-slate-600">
-                    期望备齐时间
-                  </span>
-                  <input
-                    type="datetime-local"
-                    value={expected}
-                    onChange={(e) => setExpected(e.target.value)}
-                    className="h-10 w-full rounded-lg border px-3"
-                  />
-                </label>
+                <AppDateTimeField label="期望备齐时间" value={expected} onChange={setExpected} help="按您设备当地时间选择；如尚未确定可暂不安排。" />
               </div>
               <div className="mt-3 flex justify-end gap-2">
                 <button

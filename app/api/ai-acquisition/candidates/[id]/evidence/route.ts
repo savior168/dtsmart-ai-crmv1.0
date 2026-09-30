@@ -18,7 +18,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const itemId = String(candidate.data.screening_task_item_id || "");
     const customerId = String(candidate.data.staging_customer_id || candidate.data.imported_customer_id || "");
     const result = itemId
-      ? await admin.from("ai_screening_results").select("id,score,grade,target_decision,identity_status,industry_type,evidence_sufficiency_score,short_reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle()
+      ? await admin.from("ai_screening_results").select("id,score,grade,target_decision,identity_status,verified_business_name,verified_address,match_signals,mismatch_signals,industry_type,evidence_sufficiency_score,short_reason,business_scope,company_scale_evidence,customer_value,followup_suggestion").eq("task_item_id", itemId).eq("is_latest_valid", true).maybeSingle()
       : { data: null, error: null };
     if (result.error) throw result.error;
     const [evidence, contacts, customer] = await Promise.all([

@@ -2,14 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { CUSTOMER_STATUS_LABELS, FOLLOWUP_TYPE_LABELS } from "@/lib/types";
 import { workbookResponse } from "@/lib/xlsx-export";
+import { followupDayBounds } from "@/lib/customers/followup-day";
 
 type FollowupRow = {
-  type: string;
-  content: string;
+  type: string | null;
+  content: string | null;
   next_follow_date: string | null;
-  created_at: string;
-  user: { name?: string | null; email?: string | null } | Array<{ name?: string | null; email?: string | null }> | null;
-  customer: { company_name?: string; country?: string | null; ai_level?: string | null; ai_score?: number | null; status?: string } | Array<{ company_name?: string; country?: string | null; ai_level?: string | null; ai_score?: number | null; status?: string }> | null;
+  created_at: string | null;
+  company_name: string;
+  country: string | null;
+  ai_level: string | null;
+  ai_score: number | null;
+  status: string;
+  owner_name?: string | null;
+  owner_email?: string | null;
+  actor_name?: string | null;
+  actor_email?: string | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -17,41 +25,46 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("followups.export");
     const params = request.nextUrl.searchParams;
     const scope = params.get("scope") || "history";
-    const search = params.get("q")?.trim() || "";
+    if (!["today", "overdue", "upcoming", "unscheduled", "history"].includes(scope)) return NextResponse.json({ error: "无效的跟进范围" }, { status: 400 });
+    const search = params.get("q")?.trim().replace(/[%_,()]/g, "") || "";
     const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
-    const now = new Date();
-    const start = new Date(now); start.setHours(0, 0, 0, 0);
-    const end = new Date(start); end.setDate(end.getDate() + 1);
+    const { start, end } = followupDayBounds();
     const rows: FollowupRow[] = [];
 
     for (let offset = 0; offset < 100000; offset += 1000) {
-      let query = supabase.from("followups")
-        .select("type,content,next_follow_date,created_at,user:users!followups_user_id_fkey(name,email),customer:customers!inner(company_name,country,ai_level,ai_score,status)")
-        .order(scope === "history" ? "created_at" : "next_follow_date", { ascending: scope !== "history", nullsFirst: false })
-        .range(offset, offset + 999);
-      if (scopeUserId) query = query.eq("customer.owner_id", scopeUserId);
-      if (search) query = query.ilike("customer.company_name", `%${search.replace(/[%_]/g, "\\$&")}%`);
-      if (scope === "overdue") query = query.lt("next_follow_date", start.toISOString());
-      else if (scope === "upcoming") query = query.gte("next_follow_date", start.toISOString());
-      else if (scope === "today") query = query.gte("next_follow_date", start.toISOString()).lt("next_follow_date", end.toISOString());
-      const page = await query;
+      let page;
+      if (scope === "history") {
+        let query = supabase.from("customer_followup_history")
+          .select("type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,actor_name,actor_email");
+        if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+        if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+        page = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + 999);
+      } else {
+        let query = supabase.from("customer_followup_queue")
+          .select("type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,owner_name,owner_email");
+        if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+        if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+        if (scope === "today") query = query.gte("next_follow_date", start).lt("next_follow_date", end);
+        if (scope === "overdue") query = query.lt("next_follow_date", start);
+        if (scope === "upcoming") query = query.gte("next_follow_date", end);
+        if (scope === "unscheduled") query = query.is("next_follow_date", null);
+        page = await query.order(scope === "unscheduled" ? "company_name" : "next_follow_date", { ascending: true }).order("id", { ascending: true }).range(offset, offset + 999);
+      }
       if (page.error) throw page.error;
       rows.push(...((page.data || []) as FollowupRow[]));
       if ((page.data || []).length < 1000) break;
     }
 
-    const headings = ["客户名称", "国家/地区", "AI等级", "AI评分", "客户阶段", "跟进方式", "跟进内容", "计划跟进时间", "记录时间", "归属人"];
+    const headings = ["客户名称", "国家/地区", "AI等级", "AI评分", "客户阶段", "跟进方式", "跟进内容", "计划跟进时间", "记录时间", scope === "history" ? "记录人" : "当前归属"];
     const lines = rows.map((row) => {
-      const customer = Array.isArray(row.customer) ? row.customer[0] : row.customer;
-      const owner = Array.isArray(row.user) ? row.user[0] : row.user;
       return [
-        customer?.company_name, customer?.country, customer?.ai_level, customer?.ai_score,
-        CUSTOMER_STATUS_LABELS[customer?.status as keyof typeof CUSTOMER_STATUS_LABELS] || customer?.status,
-        FOLLOWUP_TYPE_LABELS[row.type as keyof typeof FOLLOWUP_TYPE_LABELS] || row.type,
-        row.content,
+        row.company_name, row.country, row.ai_level, row.ai_score,
+        CUSTOMER_STATUS_LABELS[row.status as keyof typeof CUSTOMER_STATUS_LABELS] || row.status,
+        row.type ? FOLLOWUP_TYPE_LABELS[row.type as keyof typeof FOLLOWUP_TYPE_LABELS] || row.type : "",
+        row.content || "",
         row.next_follow_date ? new Date(row.next_follow_date).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "",
-        new Date(row.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }),
-        owner?.name || owner?.email,
+        row.created_at ? new Date(row.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "",
+        scope === "history" ? row.actor_name || row.actor_email : row.owner_name || row.owner_email,
       ];
     });
     return workbookResponse(`跟进记录_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "跟进记录", rows: [headings, ...lines], widths: [26, 16, 10, 10, 16, 16, 52, 20, 20, 18], wrapColumns: [6] }]);

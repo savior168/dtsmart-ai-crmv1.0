@@ -112,7 +112,7 @@ type PoolRow = {
   updated_at: string;
   contact_masked: boolean;
   can_claim: boolean;
-  last_released_at?: string | null;
+  last_release?: { at: string; by: string; reason: string } | null;
   can_open_customer: boolean;
   protection?: { expire_date?: string; extension_count?: number } | null;
   my_supplements?: Array<{ id: string; field_name: string; value_raw: string; source_type: string; source_batch?: string | null; source_row?: number | null; created_at: string }>;
@@ -200,7 +200,7 @@ const displayUser = (user?: Owner | null) =>
 const formatDate = (value?: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
 
-const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "无效客户" };
+const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "历史释放状态" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
   // Sales action order: identify value first, then use the best contact and
@@ -322,7 +322,7 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
 function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.last_released_at ? <small className="mt-1 block text-xs font-normal text-amber-700" title="仅提示历史释放，不展示原销售的跟进详情或释放原因">曾被释放 · {new Date(row.last_released_at).toLocaleDateString("zh-CN")}</small> : null}{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
+    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.last_release ? <small className="mt-1 inline-flex max-w-full cursor-help items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-800 ring-1 ring-amber-100" title={`最近一次释放\n释放人：${row.last_release.by}\n释放时间：${formatDate(row.last_release.at)}\n释放原因：${row.last_release.reason}`}>曾被释放 · {new Date(row.last_release.at).toLocaleDateString("zh-CN")}</small> : null}{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <span className="inline-flex items-center gap-1"><CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>{row.ai_score_source==="MANUAL_REVIEW"?<small className="text-blue-700">人工复核</small>:null}</span>;
@@ -834,7 +834,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="FOLLOWING">意向客户</option>
                   <option value="QUOTE">报价中</option>
                   <option value="DEAL">已成交</option>
-                  <option value="RELEASED">无效客户</option>
                 </select> : null}
                 {tab === "claimed" ? (
                   <select
@@ -1140,12 +1139,12 @@ function ClaimDialog({
   return (
     <Modal
       title="认领客户"
-      subtitle={`${row.company_name} · 完成真实首次联系后开始90天保护期；潜在客户可仅填写联系纪要，其他阶段须附可核验凭证。`}
+      subtitle={`${row.company_name} · 潜在和意向客户保护90天，报价中180天，已成交永久保护；潜在客户可仅填写联系纪要，其他阶段须附可核验凭证。`}
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
         {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"联系人",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
-        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"QUOTE",label:"报价中",description:"已有询价或报价沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"},{value:"RELEASED",label:"无效客户",description:"确认不匹配或无法开发，需上传凭证"}]}/>
+        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"QUOTE",label:"报价中",description:"已有询价或报价沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"}]}/>
         <ClaimChoice label="实际联系渠道" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"邮箱"},{value:"PHONE",label:"电话"},{value:"LINKEDIN",label:"LinkedIn / 其他社媒"},{value:"OTHER",label:"官网表单 / 其他方式"}]}/>
         <ClaimChoice label="本次真实联系结果" placeholder="请选择联系结果" value={result} onChange={setResult} options={[{value:"已发送首条开发信息，待回复",label:"已发送首条开发信息，待回复"},{value:"已联系到对方，需求待确认",label:"已联系到对方，需求待确认"},{value:"对方要求后续跟进",label:"对方要求后续跟进"},{value:"确认存在采购或合作需求",label:"确认存在采购或合作需求"},{value:"暂不匹配或明确无需求",label:"暂不匹配或明确无需求"},{value:"联系方式无效或无法触达",label:"联系方式无效或无法触达"},{value:"其他真实联系结果",label:"其他真实联系结果"}]}/>
         <label className="block text-sm font-medium">

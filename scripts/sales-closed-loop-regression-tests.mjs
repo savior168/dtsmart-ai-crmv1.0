@@ -25,7 +25,8 @@ const customerDelete = read("lib/customers/soft-delete.ts");
 assert.match(customerBatch, /allowAll: account\.role === "ADMIN"/, "批量删除只有系统管理员可跨归属人操作");
 assert.match(customerDelete, /allowAll \|\| customer\.owner_id === userId/, "主管与销售员批量删除必须限定本人客户");
 const followupUpdate = read("app/api/followups/[id]/route.ts");
-assert.match(followupUpdate, /existing\.data\.user_id !== user\.id \|\| customer\?\.owner_id !== user\.id/, "跟进修改必须同时校验创建人和当前客户归属，主管跨用户只读");
+assert.match(followupUpdate, /rpc\("correct_customer_followup"/, "跟进修改必须使用原子更正事务");
+assert.match(read("supabase/migrations/202609300001_customer_followup_queue.sql"), /actor\.role <> 'ADMIN' and \(f\.user_id <> actor\.id or c\.owner_id is distinct from actor\.id\)/, "跟进修改必须同时校验创建人和当前客户归属，主管跨用户只读");
 const singleCustomerAnalysis = read("app/api/ai/analyze/route.ts");
 assert.match(singleCustomerAnalysis, /\.eq\("id", body\.customer_id\)\.eq\("owner_id", user\.id\)/, "单客户AI筛选必须限定当前归属人，主管不得替他人发起分析");
 const quoteDetail = read("app/api/quotes/[id]/route.ts");
@@ -194,7 +195,7 @@ assert.match(closedLoopMigration,/quotes q[\s\S]*\('SENT','CONFIRMED'\)[\s\S]*sa
 assert.match(customersView,/row\.owner_id === defaultScopeUserId[\s\S]*row\.status !== "DEAL"/,"释放入口只允许当前归属人操作，且已成交客户不得显示直接释放");
 assert.match(customersView,/releaseNeedsAcknowledgement[\s\S]*FOLLOWING[\s\S]*QUOTE/,"意向与报价客户释放必须要求风险确认");
 assert.match(customerBatchWorkflow,/客户阶段和跟进状态只支持单条手工修改，不能批量变更/,"批量操作不得修改客户阶段或跟进状态");
-assert.match(customerDetail,/FOLLOWUP_STATUS[\s\S]*跟进后状态：保持当前/,"新增跟进与跟进状态必须合并为一个简洁入口，且仅按用户明确选择更新");
+assert.match(customerDetail,/followup_status[\s\S]*跟进后状态：保持当前/,"新增跟进与跟进状态必须合并为一个简洁入口，且仅按用户明确选择更新");
 assert.doesNotMatch(customerDetail,/>跟进状态<\/button>|followupStatusOpen/,"客户详情不得重复提供独立跟进状态入口");
 const taskRoute = read("app/api/ai/tasks/[id]/route.ts");
 const taskListRoute = read("app/api/ai/tasks/route.ts");
