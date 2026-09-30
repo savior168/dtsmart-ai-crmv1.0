@@ -39,11 +39,12 @@ export async function loadSalesReport(supabase: Client, authUserId: string, from
     conversion_rate: Number(row.conversion_rate || 0), ai_valid: Number(row.ai_valid || 0), customer_count: Number(row.customer_count || 0),
   })).filter((row) => canViewAll ? (!requestedUserId || row.user_id === requestedUserId) : row.user_id === authUserId) as SalesRankingRow[];
   const totals = ranking.reduce<SalesMetrics>((sum, row) => ({ new_customers: sum.new_customers + row.new_customers, claimed: sum.claimed + row.claimed, released: sum.released + row.released, followups: sum.followups + row.followups, quotes: sum.quotes + row.quotes, deals: sum.deals + row.deals, conversion_rate: 0, ai_valid: sum.ai_valid + row.ai_valid }), { new_customers: 0, claimed: 0, released: 0, followups: 0, quotes: 0, deals: 0, conversion_rate: 0, ai_valid: 0 });
-  const totalCustomers = ranking.reduce((sum, row) => sum + row.customer_count, 0);
-  totals.conversion_rate = totalCustomers ? Number(((totals.deals / totalCustomers) * 100).toFixed(1)) : 0;
   const raw = (detail.data || {}) as Partial<SalesBreakdowns>;
   const countRows = (rows: unknown): ReportCountRow[] => Array.isArray(rows) ? rows.map((row) => ({ label: String((row as Record<string, unknown>).label || "未知"), count: Number((row as Record<string, unknown>).count || 0), ...((row as Record<string, unknown>).amount === undefined ? {} : { amount: Number((row as Record<string, unknown>).amount || 0) }) })) : [];
   const trend = Array.isArray(raw.trend) ? raw.trend.map((row) => ({ date: String(row.date), customers: Number(row.customers || 0), followups: Number(row.followups || 0), quotes: Number(row.quotes || 0) })) : [];
   const breakdowns: SalesBreakdowns = { ai_levels: countRows(raw.ai_levels), countries: countRows(raw.countries), customer_stages: countRows(raw.customer_stages), followup_types: countRows(raw.followup_types), quote_statuses: countRows(raw.quote_statuses), stock_statuses: countRows(raw.stock_statuses), trend };
+  const currentCustomerCount = breakdowns.customer_stages.reduce((sum, row) => sum + row.count, 0);
+  const currentDealCount = breakdowns.customer_stages.find((row) => row.label === "DEAL")?.count || 0;
+  totals.conversion_rate = currentCustomerCount ? Number(((currentDealCount / currentCustomerCount) * 100).toFixed(1)) : 0;
   return { profile, scope: canViewAll ? requestedUserId || "ALL" : authUserId, range: { from, to }, totals, ranking, breakdowns };
 }

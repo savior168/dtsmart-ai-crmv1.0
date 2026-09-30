@@ -2,7 +2,7 @@
 
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
   BellRing,
   Bot,
@@ -18,6 +18,7 @@ import {
   MessageSquareText,
   Phone,
   RefreshCw,
+  Search,
   ShieldCheck,
   Sparkles,
   UploadCloud,
@@ -42,7 +43,7 @@ type ActivityRow = { id: string; action: string; text: string; created_at: strin
 type DashboardData = {
   range: { from: string; to: string };
   filters: { countries: string[] };
-  totals: { my_customers: number; pending_ai: number; valid_customers: number; intentions: number; today_followups: number; expiring_protection: number; quotes: number; deals: number };
+  totals: { my_customers: number; system_customers: number | null; pending_ai: number; valid_customers: number; intentions: number; today_followups: number; expiring_protection: number; quotes: number; deals: number };
   distribution: GradeRow[];
   funnel: FunnelRow[];
   country_top: CountryRow[];
@@ -95,7 +96,6 @@ function DonutChart({ rows, total, scopeUserId, range }: { rows: GradeRow[]; tot
 }
 
 function funnelHref(label: string, scopeUserId: string, range: { from: string; to: string }) {
-  if (label === "新客户") return scopedHref("/customers?status=UNCLAIMED", scopeUserId, range);
   if (label === "潜在客户") return scopedHref("/customers?status=CLAIMED", scopeUserId, range);
   if (label === "意向客户") return scopedHref("/customers?status=FOLLOWING", scopeUserId, range);
   if (label === "报价中") return scopedHref("/customers?status=QUOTE", scopeUserId, range);
@@ -104,7 +104,7 @@ function funnelHref(label: string, scopeUserId: string, range: { from: string; t
 }
 
 function FunnelChart({ rows, scopeUserId, range }: { rows: FunnelRow[]; scopeUserId: string; range: { from: string; to: string } }) {
-  const colors = ["#2563eb", "#2498e9", "#21b8c5", "#45c994", "#f4b51f"];
+  const colors = ["#2563eb", "#21b8c5", "#45c994", "#f4b51f"];
   return <div className="grid grid-cols-[minmax(180px,1fr)_88px] items-center gap-3 px-5 pb-5 pt-1">
     <div className="flex min-h-[210px] flex-col items-center justify-center" aria-label="销售漏斗图">
       {rows.map((item, index) => <Link key={item.label} href={funnelHref(item.label, scopeUserId, range)} aria-label={`查看${item.label}客户，共${item.value}条`} title={`点击查看${item.label}：${number(item.value)} 条`} className="dashboard-funnel-layer dashboard-funnel-enter grid h-[42px] place-items-center text-center text-xs font-medium text-white outline-none" style={{ width: `${100 - index * 14}%`, backgroundColor: colors[index], clipPath: "polygon(0 0,100% 0,90% 100%,10% 100%)", animationDelay: `${index * 65}ms` }}>{item.label}</Link>)}
@@ -117,7 +117,7 @@ function DashboardHeader({ title, href }: { title: string; href: string }) {
   return <div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold text-slate-900">{title}<Info size={14} className="text-slate-400" /></h3><Link href={href} className="text-xs font-medium text-blue-600 hover:text-blue-700">查看详情</Link></div>;
 }
 
-export function CrmDashboard() {
+export function CrmDashboard({ canCreateAcquisition = false }: { canCreateAcquisition?: boolean }) {
   const now = useMemo(() => new Date(), []);
   const [from, setFrom] = useState(() => localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
   const [to, setTo] = useState(() => localDate(now));
@@ -126,23 +126,26 @@ export function CrmDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const loadSequence = useRef(0);
   const [protectionPage, setProtectionPage] = useState(1);
   const protectionPageSize = 4;
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true); setError("");
     const params = new URLSearchParams({ from, to, country });
     if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       const response = await fetch(`/api/dashboard/stats?${params}`);
       const body = await response.json().catch(() => ({}));
+      if (sequence !== loadSequence.current) return;
       if (!response.ok) throw new Error(body.error || "工作台数据加载失败");
       setData(body);
       setProtectionPage(1);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
+      if (sequence === loadSequence.current) setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [country, from, scopeUserId, to]);
 
@@ -154,7 +157,7 @@ export function CrmDashboard() {
   }
 
   const cards = data ? [
-    { label: "我的客户", value: data.totals.my_customers, href: scopedHref("/customers", scopeUserId, data.range), icon: UsersRound, color: "text-blue-600", background: "bg-blue-50", trend: "当前归属人范围", trendColor: "text-blue-600" },
+    { label: "期间在库客户", value: data.totals.my_customers, href: scopedHref("/customers", scopeUserId, data.range), icon: UsersRound, color: "text-blue-600", background: "bg-blue-50", trend: "本期录入且当前在库", trendColor: "text-blue-600" },
     { label: "待AI筛选", value: data.totals.pending_ai, href: scopedHref("/customers?ai_status=pending", scopeUserId, data.range), icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "尚未AI评分", trendColor: "text-violet-600" },
     { label: "AI核验有效", value: data.totals.valid_customers, href: scopedHref("/customers?target=valid&ai_status=done", scopeUserId, data.range), icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI判定为目标客户", trendColor: "text-emerald-600" },
     { label: "潜在客户", value: data.totals.intentions, href: scopedHref("/customers?status=CLAIMED", scopeUserId, data.range), icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已进入销售跟进", trendColor: "text-indigo-600" },
@@ -180,13 +183,14 @@ export function CrmDashboard() {
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
           <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
+          {data?.totals.system_customers != null ? <span className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 shadow-sm" title="全系统当前未删除客户；不受本页日期、国家和归属人筛选影响">全系统当前在库客户 <b className="ml-2 tabular-nums text-slate-900">{number(data.totals.system_customers)}</b></span> : null}
           <span className="mx-1 hidden h-6 w-px bg-slate-200 xl:block" />
-          <Link href="/import?destination=private" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UploadCloud size={16}/>导入我的客户</Link>
+          {canCreateAcquisition ? <Link href="/ai-acquisition/new" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><Search size={16}/>创建AI获客</Link> : <Link href="/import?destination=private" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UploadCloud size={16}/>导入我的客户</Link>}
           <Link href="/ai-screening/new" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><Sparkles size={16}/>创建AI筛选</Link>
           <Link href="/quotes/new" className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700"><FileText size={16}/>创建报价</Link>
         </section>
 
-        {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
+        {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
             {cards.map((card,index) => { const Icon = card.icon; return <Link key={card.label} href={card.href} style={{ animationDelay: `${index * 45}ms` }} className={`${panelClass} dashboard-reveal group relative min-h-[110px] overflow-hidden p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}><ChevronRight size={16} className="absolute right-3 top-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /><div className="flex items-center gap-3"><span className={`dashboard-icon-pulse grid h-12 w-12 shrink-0 place-items-center rounded-xl ${card.background} ${card.color}`}><Icon size={28} strokeWidth={1.9} /></span><div className="min-w-0"><p className="truncate text-[13px] text-slate-600">{card.label}</p><strong className="mt-0.5 block text-[25px] leading-8 tracking-tight text-slate-950">{number(card.value)}</strong></div></div><p className={`mt-2 text-center text-xs font-medium ${card.trendColor}`}>{card.trend}</p></Link>; })}
           </section>

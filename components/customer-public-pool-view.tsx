@@ -182,7 +182,7 @@ const tabLabels: Record<Tab, string> = {
 };
 const tabDescriptions: Record<Tab, string> = {
   available: "无归属，可提交真实联系凭证认领",
-  claimed: "查看全系统当前认领人；其他人的联系方式和跟进详情仅归属人及授权管理者可见",
+  claimed: "查询客户当前归属",
   pending: "到期且有业务记录或账号停用的数据",
   renewals: "审核销售员第三次及后续续期申请",
   handover: "转移停用或离职账号的全部业务数据",
@@ -710,16 +710,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         <header>
           <div>
             <h2 className="text-2xl font-bold">客户公海</h2>
-            <p className="mt-2 text-sm text-slate-500">
-              待认领客户没有归属人；销售员提交真实联系凭证后完成认领，并进入“我的客户”。
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              “认领记录”显示全系统当前归属；其他销售员的联系与跟进信息仅归属人及授权管理者可见，不可再次认领。
-            </p>
-            <p className="mt-1 text-xs text-slate-500">评分达到 60 分是目标客户的必要条件，不代表自动有效；仍须核实行业、经营证据、联系方式及重复情况。以最终目标判断为准。</p>
           </div>
         </header>
-        <div className="mt-5">
+        <div className="mt-4">
           <AppTabs
             value={tab}
             items={visibleTabs.map((value) => ({
@@ -733,6 +726,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
             label="客户公海分类"
           />
         </div>
+        {tab === "available" ? <p className="mt-3 text-xs text-slate-500">AI 评分达到 60 分仍须核实行业、经营证据与联系方式。</p> : null}
+        {tab === "claimed" ? <p className="mt-3 text-xs text-slate-500">显示全系统当前归属；他人客户的联系方式和跟进详情仅归属人及授权管理者可见。</p> : null}
         {["available", "claimed", "pending"].includes(tab) ? (
           <>
             <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
