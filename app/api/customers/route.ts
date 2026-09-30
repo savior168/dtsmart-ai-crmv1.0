@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
     const countries = [...new Set(request.nextUrl.searchParams.getAll("country").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean))];
     const fromDate = request.nextUrl.searchParams.get("from")?.trim() || "";
     const toDate = request.nextUrl.searchParams.get("to")?.trim() || "";
+    const reportUtc = request.nextUrl.searchParams.get("report_utc") === "1";
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const industries = request.nextUrl.searchParams.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean);
     const sourceBatches = request.nextUrl.searchParams.getAll("source_batch").map((value) => value.trim()).filter(Boolean);
@@ -211,8 +212,17 @@ export async function GET(request: NextRequest) {
     // “我的客户”无论按本人、指定归属人还是全部归属人查看，都只包含
     // 当前已经归属的客户。无归属客户只能在客户公海查看与处理。
     query = query.not("owner_id", "is", null);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) query = query.gte("created_at", `${fromDate}T00:00:00.000+08:00`);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(toDate)) query = query.lte("created_at", `${toDate}T23:59:59.999+08:00`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
+      if (reportUtc) query = query.gte("created_at", `${fromDate}T00:00:00.000Z`);
+      else query = query.gte("created_at", `${fromDate}T00:00:00.000+08:00`);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+      if (reportUtc) {
+        const nextDay = new Date(`${toDate}T00:00:00.000Z`);
+        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+        query = query.lt("created_at", nextDay.toISOString());
+      } else query = query.lte("created_at", `${toDate}T23:59:59.999+08:00`);
+    }
     // Website contact fields are optional extensions. Keep the list usable on
     // the original production schema while migration catches up.
     if (search) {
@@ -236,7 +246,8 @@ export async function GET(request: NextRequest) {
     if (followupSupported && followupStatus === "WAITING_CONTACT") query = query.or("followup_status.eq.WAITING_CONTACT,followup_status.is.null");
     else if (followupSupported && followupStatus) query = query.eq("followup_status", followupStatus);
     else if (!followupSupported && followupStatus && followupStatus !== "WAITING_CONTACT") query = query.eq("id", "00000000-0000-0000-0000-000000000000");
-    if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
+    if (aiLevel?.toUpperCase() === "UNSCREENED") query = query.or('ai_level.is.null,ai_level.eq.""');
+    else if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
     if (countries.length) query = query.in("country", countries);
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);

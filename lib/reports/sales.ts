@@ -1,9 +1,10 @@
 import type { createClient } from "@/lib/supabase/server";
+import { countryInfo } from "@/lib/countries";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 export type SalesMetrics = { new_customers: number; claimed: number; released: number; followups: number; quotes: number; deals: number; conversion_rate: number; ai_valid: number };
 export type SalesRankingRow = SalesMetrics & { user_id: string; name: string; email: string; customer_count: number };
-export type ReportCountRow = { label: string; count: number; amount?: number };
+export type ReportCountRow = { label: string; count: number; amount?: number; source_labels?: string[] };
 export type ReportTrendRow = { date: string; customers: number; followups: number; quotes: number };
 export type SalesBreakdowns = {
   ai_levels: ReportCountRow[];
@@ -18,6 +19,22 @@ export type SalesBreakdowns = {
 export function defaultMonthRange() {
   const now = new Date();
   return { from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(), to: now.toISOString() };
+}
+
+export function normalizeReportCountries(rows: ReportCountRow[]): ReportCountRow[] {
+  const grouped = new Map<string, ReportCountRow>();
+  for (const row of rows) {
+    const info = countryInfo(row.label);
+    const key = info.code || info.name.toLocaleLowerCase();
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.count += row.count;
+      existing.source_labels?.push(row.label);
+    } else {
+      grouped.set(key, { label: info.code || info.name, count: row.count, source_labels: [row.label] });
+    }
+  }
+  return [...grouped.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN")).slice(0, 10);
 }
 
 export async function loadSalesReport(supabase: Client, authUserId: string, from: string, to: string, requestedUserId?: string | null) {
@@ -42,7 +59,7 @@ export async function loadSalesReport(supabase: Client, authUserId: string, from
   const raw = (detail.data || {}) as Partial<SalesBreakdowns>;
   const countRows = (rows: unknown): ReportCountRow[] => Array.isArray(rows) ? rows.map((row) => ({ label: String((row as Record<string, unknown>).label || "未知"), count: Number((row as Record<string, unknown>).count || 0), ...((row as Record<string, unknown>).amount === undefined ? {} : { amount: Number((row as Record<string, unknown>).amount || 0) }) })) : [];
   const trend = Array.isArray(raw.trend) ? raw.trend.map((row) => ({ date: String(row.date), customers: Number(row.customers || 0), followups: Number(row.followups || 0), quotes: Number(row.quotes || 0) })) : [];
-  const breakdowns: SalesBreakdowns = { ai_levels: countRows(raw.ai_levels), countries: countRows(raw.countries), customer_stages: countRows(raw.customer_stages), followup_types: countRows(raw.followup_types), quote_statuses: countRows(raw.quote_statuses), stock_statuses: countRows(raw.stock_statuses), trend };
+  const breakdowns: SalesBreakdowns = { ai_levels: countRows(raw.ai_levels), countries: normalizeReportCountries(countRows(raw.countries)), customer_stages: countRows(raw.customer_stages), followup_types: countRows(raw.followup_types), quote_statuses: countRows(raw.quote_statuses), stock_statuses: countRows(raw.stock_statuses), trend };
   const currentCustomerCount = breakdowns.customer_stages.reduce((sum, row) => sum + row.count, 0);
   const currentDealCount = breakdowns.customer_stages.find((row) => row.label === "DEAL")?.count || 0;
   totals.conversion_rate = currentCustomerCount ? Number(((currentDealCount / currentCustomerCount) * 100).toFixed(1)) : 0;

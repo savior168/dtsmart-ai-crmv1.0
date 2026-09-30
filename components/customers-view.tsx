@@ -117,6 +117,7 @@ export function CustomersView() {
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [reportUtc, setReportUtc] = useState(false);
   const [countries, setCountries] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [filterOptions, setFilterOptions] = useState<{countries:SearchableFilterOption[];industries:SearchableFilterOption[]}>({countries:[],industries:[]});
@@ -194,6 +195,7 @@ export function CustomersView() {
     setSearch(params.get("search") || "");
     setFromDate(params.get("from") || "");
     setToDate(params.get("to") || "");
+    setReportUtc(params.get("report_utc") === "1");
     setCountries(params.getAll("country").map((value) => value.trim()).filter(Boolean));
     setIndustries(params.getAll("industry").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean));
     setSourceBatches(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean));
@@ -241,6 +243,7 @@ export function CustomersView() {
     });
     if (fromDate) params.set("from", fromDate);
     if (toDate) params.set("to", toDate);
+    if (reportUtc) params.set("report_utc", "1");
     if (scopeUserId) params.set("user_id", scopeUserId);
     countries.forEach((country) => params.append("country", country));
     industries.forEach((industry) => params.append("industry", industry));
@@ -266,6 +269,7 @@ export function CustomersView() {
     search,
     fromDate,
     toDate,
+    reportUtc,
     countries,
     industries,
     sourceBatches,
@@ -344,12 +348,12 @@ export function CustomersView() {
     () =>
       [
         search ? { key: "search", label: `关键词：${search}` } : null,
-        fromDate || toDate ? { key: "date", label: `创建日期：${fromDate || "不限"} 至 ${toDate || "不限"}` } : null,
+        fromDate || toDate ? { key: "date", label: `${reportUtc ? "报表创建日期" : "创建日期"}：${fromDate || "不限"} 至 ${toDate || "不限"}` } : null,
         countries.length ? { key: "country", label: `国家/地区：已选 ${countries.length} 项` } : null,
         industries.length ? { key: "industry", label: `所属行业：${industries.join("、")}` } : null,
         sourceType ? { key: "sourceType", label: `数据来源：${sourceType === "AI_ACQUISITION" ? "AI获客" : sourceType === "IMPORT" ? "批量导入" : "手动新增"}` } : null,
         sourceBatches.length ? { key: "sourceBatches", label: `来源批次：已选 ${sourceBatches.length} 个` } : null,
-        level ? { key: "level", label: `AI等级：${level}` } : null,
+        level ? { key: "level", label: `AI等级：${level === "UNSCREENED" ? "未筛选" : level}` } : null,
         status
           ? {
               key: "status",
@@ -366,11 +370,11 @@ export function CustomersView() {
         aiFilter !== "done" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "全部"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, fromDate, toDate, countries, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
+    [search, fromDate, toDate, reportUtc, countries, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
-    if (key === "date") { setFromDate(""); setToDate(""); }
+    if (key === "date") { setFromDate(""); setToDate(""); setReportUtc(false); }
     if (key === "country") setCountries([]);
     if (key === "industry") setIndustries([]);
     if (key === "sourceBatches") setSourceBatches([]);
@@ -387,6 +391,7 @@ export function CustomersView() {
     setSearch("");
     setFromDate("");
     setToDate("");
+    setReportUtc(false);
     setCountries([]);
     setIndustries([]);
     setSourceBatches([]);
@@ -450,6 +455,7 @@ export function CustomersView() {
     });
     if (fromDate) params.set("from", fromDate);
     if (toDate) params.set("to", toDate);
+    if (reportUtc) params.set("report_utc", "1");
     countries.forEach((country) => params.append("country", country));
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
@@ -503,6 +509,7 @@ export function CustomersView() {
     });
     if (fromDate) params.set("from", fromDate);
     if (toDate) params.set("to", toDate);
+    if (reportUtc) params.set("report_utc", "1");
     countries.forEach((country) => params.append("country", country));
     industries.forEach((industry) => params.append("industry", industry));
     sourceBatches.forEach((batch) => params.append("source_batch", batch));
@@ -613,6 +620,7 @@ export function CustomersView() {
               className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部AI等级</option>
+              <option value="UNSCREENED">未筛选</option>
               {["A", "B", "C", "D"].map((item) => (
                 <option key={item}>{item}</option>
               ))}

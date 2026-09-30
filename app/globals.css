@@ -273,11 +273,11 @@ table th { font-weight:600; }
   to { opacity: 1; transform: scaleY(1); }
 }
 
-.report-chart-panel { min-height: 280px; }
+.report-chart-panel { min-width: 0; }
 .report-donut {
   display: grid;
-  width: 136px;
-  height: 136px;
+  width: 112px;
+  height: 112px;
   place-items: center;
   border-radius: 9999px;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.55), 0 16px 30px rgba(37,99,235,.12);
@@ -285,15 +285,15 @@ table th { font-weight:600; }
 }
 .report-donut-center {
   display: grid;
-  width: 94px;
-  height: 94px;
+  width: 78px;
+  height: 78px;
   place-items: center;
   align-content: center;
   border-radius: 9999px;
   background: #fff;
   box-shadow: 0 0 0 8px rgba(255,255,255,.15);
 }
-.report-donut-center b { font-size: 27px; line-height: 1; color: #0f172a; }
+.report-donut-center b { font-size: 23px; line-height: 1; color: #0f172a; }
 .report-donut-center span { margin-top: 5px; font-size: 11px; color: #64748b; }
 .report-legend-item { display: grid; grid-template-columns: 8px minmax(0,1fr) auto auto; align-items: center; gap: 8px; border-radius: 8px; padding: 5px 6px; font-size: 12px; animation: report-item-enter .42s ease both; transition: background .18s ease, transform .18s ease; }
 .report-legend-item:hover { background: #f8fafc; transform: translateX(3px); }
@@ -326,13 +326,17 @@ table th { font-weight:600; }
 .report-trend-column { display: block; transform-origin: bottom; animation: report-column-rise .48s cubic-bezier(.16,.8,.3,1) both; transition: filter .18s ease; }
 .group:hover .report-trend-column { filter: brightness(1.18); }
 @keyframes report-line-draw { to { stroke-dashoffset: 0; } }
-.report-trend-line { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: report-line-draw .8s cubic-bezier(.2,.75,.25,1) forwards; }
+.report-trend-line { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: report-line-draw .9s cubic-bezier(.2,.75,.25,1) forwards; transition: stroke-width .18s ease, filter .18s ease; }
+.report-trend-line:hover { stroke-width: 4; filter: drop-shadow(0 2px 3px rgba(37,99,235,.22)); }
+.report-trend-line ~ .group circle { transition: r .18s ease, filter .18s ease; }
+.report-trend-line ~ .group:hover circle { r: 6; filter: drop-shadow(0 1px 3px rgba(15,23,42,.25)); }
 
 @media (prefers-reduced-motion: reduce) {
   .dashboard-donut-segment:hover,
   .dashboard-donut-segment:focus-visible { animation: none; }
   .dashboard-funnel-layer { transition: none; }
   .dashboard-reveal, .dashboard-icon-pulse, .dashboard-bar-grow, .report-donut, .report-legend-item, .report-stage-node, .report-country-tile, .report-status-tile, .report-motion-step, .report-trend-column, .report-trend-line { animation: none; }
+  .report-trend-line, .report-trend-line ~ .group circle { transition: none; }
   .report-legend-item, .report-country-tile, .report-status-tile, .report-motion-step { transition: none; }
 }
 /* AI任务创建页暂不开放来源渠道、批次、估算费用与完成通知。保留底层字段以便后续启用。 */
