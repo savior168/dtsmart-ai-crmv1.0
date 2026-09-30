@@ -26,7 +26,7 @@ function label(value: string) { return statusLabels[value] || value || "未知";
 function countryName(value: string) { return countryInfo(value).name || value || "未知"; }
 function percentage(value: number, total: number) { return total ? Math.round(value / total * 100) : 0; }
 function customerDetailHref(scope: string, filters: Record<string, string | string[]>) {
-  const params = new URLSearchParams({ user_id: scope, ai_status: "all" });
+  const params = new URLSearchParams({ user_id: scope === "ALL" ? "all" : scope, ai_status: "all" });
   for (const [key, value] of Object.entries(filters)) for (const item of Array.isArray(value) ? value : [value]) params.append(key, item);
   return `/customers?${params.toString()}`;
 }
