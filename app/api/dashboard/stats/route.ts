@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
-import { countryInfo } from "@/lib/countries";
+import { normalizeReportCountries } from "@/lib/reports/sales";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 
 type CountRow = { grade?: string; name?: string; count: number };
@@ -73,10 +73,9 @@ export async function GET(request: NextRequest) {
     const totals = (overview.totals && typeof overview.totals === "object" ? overview.totals : {}) as Record<string, number>;
     const totalCustomers = Number(totals.my_customers || 0);
     const distribution = ((overview.distribution || []) as CountRow[]).map((item) => ({ grade: item.grade || "未筛选", count: Number(item.count || 0), percentage: percentage(Number(item.count || 0), totalCustomers) }));
-    const countryTop = ((overview.country_top || []) as CountRow[]).map((item) => {
-      const normalized = countryInfo(item.name || "");
-      return { name: normalized.code || normalized.name, count: Number(item.count || 0), percentage: percentage(Number(item.count || 0), totalCustomers) };
-    });
+    const countryTop = normalizeReportCountries(((overview.country_top || []) as CountRow[]).map((item) => ({
+      label: item.name || "未知", count: Number(item.count || 0),
+    }))).map((item) => ({ name: item.label, count: item.count, percentage: percentage(item.count, totalCustomers) }));
     // Funnel statuses are intentionally counted directly: they are mutually
     // meaningful business states, not the remainder after later-stage totals.
     // These indexed count queries preserve the selected scope and filters.
@@ -102,7 +101,7 @@ export async function GET(request: NextRequest) {
     if (scopeUserId) todayFollowupsQuery = todayFollowupsQuery.eq("owner_id", scopeUserId);
     const [potentialCustomersResult, followingCustomersResult, validCustomersResult, todayFollowupsResult, systemCustomersResult] = await Promise.all([
       statusCount("CLAIMED"), statusCount("FOLLOWING"), validCustomersQuery, todayFollowupsQuery,
-      account.role === "ADMIN" ? supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null) : Promise.resolve(null),
+      account.role === "ADMIN" ? supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).or("pool_status.is.null,pool_status.neq.AI_STAGING") : Promise.resolve(null),
     ]);
     if (potentialCustomersResult.error) throw new Error(potentialCustomersResult.error.message);
     if (followingCustomersResult.error) throw new Error(followingCustomersResult.error.message);

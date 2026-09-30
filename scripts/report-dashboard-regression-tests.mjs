@@ -8,6 +8,7 @@ import { countryInfo } from "../lib/countries.ts";
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 const migration = read("supabase/migrations/202609300003_sales_report_current_owner_metrics.sql");
 const countryMigration = read("supabase/migrations/202609300004_sales_report_all_country_groups.sql");
+const dashboardCountryMigration = read("supabase/migrations/202609300005_dashboard_country_groups_before_top10.sql");
 const dashboardApi = read("app/api/dashboard/stats/route.ts");
 const dashboard = read("components/crm-dashboard.tsx");
 const reports = read("components/sales-reports-view.tsx");
@@ -21,6 +22,9 @@ assert.match(migration, /count\(distinct a\.target_id\).*status'='DEAL'/, "同�
 assert.match(migration, /a\.role='SUPERVISOR' and \(u\.id=a\.id or u\.manager_id=a\.id\)/, "主管业绩报表必须覆盖本人和直属销售员");
 assert.match(migration, /u\.id=p_user_id and u\.manager_id=actor\.id and u\.status='ACTIVE'/, "主管直接调用报表RPC不得跨组查看数据");
 assert.match(dashboardApi, /account\.role === "ADMIN" \? supabase\.from\("customers"\).*\.is\("deleted_at", null\)/, "全系统在库总数必须仅供管理员且排除删除客户");
+assert.match(dashboardApi, /\.or\("pool_status\.is\.null,pool_status\.neq\.AI_STAGING"\)/, "全系统在库总数不能包含未入池的 AI 暂存记录");
+assert.match(dashboardApi, /normalizeReportCountries\(\(\(overview\.country_top \|\| \[\]\) as CountRow\[\]\)/, "工作台国家必须先合并别名再取 TOP10");
+assert.match(dashboardCountryMigration, /previous_grouping text := 'from filtered_customers group by 1 order by count desc,name limit 10'/, "工作台数据库函数不得提前截断原始国家分组");
 assert.doesNotMatch(dashboardApi, /statusCount\("UNCLAIMED"\)/, "销售漏斗不得展示不属于销售阶段的新客户");
 assert.match(dashboard, /canCreateAcquisition \? <Link href="\/ai-acquisition\/new"/, "AI获客快捷入口必须按创建权限显示");
 assert.match(reports, /期间新增在库/, "报表新增指标必须明确当前在库口径");
