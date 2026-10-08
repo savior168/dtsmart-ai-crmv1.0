@@ -107,6 +107,12 @@ begin
   exception when others then rejected := true; end;
   if not rejected then raise exception 'Former owner created a follow-up'; end if;
 
+  execute 'set local role authenticated';
+  if exists(select 1 from public.followups where customer_id=test_customer_id) then
+    raise exception 'Former owner can still read customer follow-ups directly';
+  end if;
+  execute 'reset role';
+
   perform set_config('request.jwt.claim.sub',admin_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',admin_id,'role','authenticated')::text,true);
   update public.customers set followup_status='NO_FOLLOWUP' where id=test_customer_id;
