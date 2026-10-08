@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { followupDayBounds } from "@/lib/customers/followup-day";
+import { countryFilterRawValues } from "@/lib/countries";
+import { CUSTOMER_STATUSES } from "@/lib/types";
 
 const scopes = new Set(["today", "overdue", "upcoming", "unscheduled", "history"]);
 
@@ -13,6 +15,9 @@ export async function GET(request: Request) {
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim().replace(/[%_,()]/g, "") || "";
+    const stage = params.get("stage")?.trim() || "";
+    if (stage && !new Set<string>(CUSTOMER_STATUSES).has(stage)) return NextResponse.json({ error: "无效的客户阶段" }, { status: 400 });
+    const countries = [...new Set(params.getAll("country").map((item) => item.trim()).filter(Boolean))];
     const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
     const { start, end } = followupDayBounds();
 
@@ -20,6 +25,8 @@ export async function GET(request: Request) {
       let query = supabase.from("customer_followup_history")
         .select("id,customer_id,user_id,type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,actor_name,actor_email", { count: "exact" });
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+      if (stage) query = query.eq("status", stage);
+      if (countries.length) query = query.in("country", countryFilterRawValues(countries));
       if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
       const { data, error, count } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
       if (error) throw error;
@@ -32,6 +39,8 @@ export async function GET(request: Request) {
     let query = supabase.from("customer_followup_queue")
       .select("id,customer_id,owner_id,type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,owner_name,owner_email", { count: "exact" });
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+    if (stage) query = query.eq("status", stage);
+    if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
     if (scope === "today") query = query.gte("next_follow_date", start).lt("next_follow_date", end);
     if (scope === "overdue") query = query.lt("next_follow_date", start);
