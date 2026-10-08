@@ -3,6 +3,33 @@ export type ProductFamily = (typeof PRODUCT_FAMILIES)[number];
 
 export type SpecificationField = { key: string; label: string; hint?: string };
 
+export type FamilyLimitedField = "manufacturer_brand" | "display_technology" | "color";
+
+export function isProductFieldApplicable(field: FamilyLimitedField, family: ProductFamily) {
+  if (field === "color") return family === "SCREEN" || family === "COVER";
+  if (field === "manufacturer_brand") return family === "SCREEN" || family === "BATTERY";
+  return family === "SCREEN";
+}
+
+export function validateProductFamilyFields(
+  body: Partial<Record<FamilyLimitedField, unknown>>,
+  family: ProductFamily,
+  existing?: Partial<Record<FamilyLimitedField, unknown>>,
+) {
+  const labels: Record<FamilyLimitedField, string> = {
+    manufacturer_brand: "生产厂牌",
+    display_technology: "显示技术",
+    color: "颜色",
+  };
+  for (const field of ["manufacturer_brand", "display_technology", "color"] as const) {
+    const value = String(body[field] ?? "").trim();
+    if (value && !isProductFieldApplicable(field, family) && value !== String(existing?.[field] ?? "").trim()) {
+      return `当前商品分类不适用“${labels[field]}”，请核对分类与商品资料`;
+    }
+  }
+  return "";
+}
+
 export const PRODUCT_SPECIFICATION_FIELDS: Record<ProductFamily, readonly SpecificationField[]> = {
   SCREEN: [
     { key: "assembly", label: "交付形态", hint: "单片屏、带框屏等；不同售价须分开建档" },
@@ -69,3 +96,4 @@ export function summarizeProductSpecificationsSnapshot(value: Record<string, str
     .map(([key, entry]) => `${labels.get(key) || key}：${entry}`)
     .join(" · ");
 }
+

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import * as XLSX from "xlsx";
 import { parseProductWorkbook, validateNormalizedProduct } from "../lib/product-import.ts";
 import { activeTier, completeCostCny, initialQuoteUnitPrice, suggestedUsdPrice } from "../lib/product-pricing.ts";
-import { normalizeProductSpecifications } from "../lib/product-specifications.ts";
+import { isProductFieldApplicable, normalizeProductSpecifications, validateProductFamilyFields } from "../lib/product-specifications.ts";
 import { parseProductPriceImport, PRICE_IMPORT_HEADERS } from "../lib/product-price-import.ts";
 
 const root = process.cwd();
@@ -342,6 +342,21 @@ assert.deepEqual(valid.issues, [], "完整商品候选应通过校验");
 assert.deepEqual(normalizeProductSpecifications({ assembly_scope: "中框+后盖", color_source: "供应商报价单" }, "COVER").specifications, { assembly_scope: "中框+后盖", color_source: "供应商报价单" }, "后盖装配范围和颜色来源要分别保存");
 assert.match(normalizeProductSpecifications({ capacity_mah: "3000" }, "COVER").error, /不支持/, "电池专用规格不能混入后盖商品");
 assert.match(normalizeProductSpecifications({ assembly_scope: 123 }, "COVER").error, /必须为文字/, "规格类型错误不得直接保存");
+assert.equal(isProductFieldApplicable("display_technology", "COVER"), false, "后盖不能展示屏幕显示技术");
+assert.equal(isProductFieldApplicable("manufacturer_brand", "SMALL_PART"), false, "维修小配件不能展示屏幕厂牌");
+assert.equal(isProductFieldApplicable("manufacturer_brand", "BATTERY"), true, "品牌电池可依据来源记录实际生产厂牌");
+assert.equal(isProductFieldApplicable("color", "SMALL_PART"), false, "维修小配件默认不展示颜色字段");
+assert.equal(isProductFieldApplicable("color", "COVER"), true, "后盖可根据供应商证据记录颜色");
+assert.match(validateProductFamilyFields({ display_technology: "OLED" }, "COVER"), /不适用/, "新增后盖不得存入屏幕技术");
+assert.match(validateProductFamilyFields({ color: "黑色" }, "SMALL_PART"), /不适用/, "新增小配件不得存入无依据的颜色");
+assert.equal(validateProductFamilyFields({ display_technology: "OLED" }, "COVER", { display_technology: "OLED" }), "", "修订历史商品不能静默丢弃旧字段");
+assert.equal(validateProductFamilyFields({ display_technology: "OLED" }, "SCREEN"), "", "屏幕品类可保存显示技术");
+const catalogForm = read("components/product-catalog-view.tsx");
+assert.match(catalogForm, /isProductFieldApplicable\(key as FamilyLimitedField,family\)/, "商品表单必须按品类显示通用字段");
+assert.match(catalogForm, /manufacturer_brand:isProductFieldApplicable[\s\S]*display_technology:isProductFieldApplicable[\s\S]*color:isProductFieldApplicable/, "切换品类时必须清除不适用的未保存字段");
+const pricebookForm = read("components/product-pricebook-view.tsx");
+assert.match(pricebookForm, /<option value="">请选择已核对的商品<\/option>/, "维护价格不能预选第一件商品");
+assert.match(pricebookForm, /disabled=\{!form\.product_id\|\|form\.amount===""\}/, "明确填写的零元费用不能被误判为空值");
 
 const permissions = read("lib/auth/permissions.ts");
 for (const code of ["products.view","products.manage","pricebooks.view","pricebooks.sales.view","pricebooks.cost.total.view","pricebooks.cost.view","pricebooks.manage","pricebooks.import","pricebooks.publish"]) {
@@ -450,3 +465,4 @@ assert.match(importBatch, /refresh_product_import_batch_counts/, "导入批次�
 assert.match(reviewBatchMigration, /count\(\*\)[\s\S]*filter \(where status='PUBLISHED'\)/, "导入批次数量须包含已发布来源行");
 
 console.log("商品资料、产品价格表、安全导入和权限回归测试通过。");
+

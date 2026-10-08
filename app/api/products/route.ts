@@ -3,7 +3,7 @@ import { authErrorStatus, hasPermission, requirePermission, writeAudit } from "@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateNormalizedProduct } from "@/lib/product-import";
 import { activeTier, completeCostCny, type PriceTier } from "@/lib/product-pricing";
-import { isProductFamily, normalizeProductSpecifications, type ProductFamily } from "@/lib/product-specifications";
+import { isProductFamily, normalizeProductSpecifications, validateProductFamilyFields, type ProductFamily } from "@/lib/product-specifications";
 
 export async function GET(request: Request) {
   try {
@@ -69,6 +69,8 @@ export async function POST(request: Request) {
     }
     const checkedSpecs = normalizeProductSpecifications(body.specifications, family);
     if (checkedSpecs.error) return NextResponse.json({ error: checkedSpecs.error }, { status: 400 });
+    const fieldError = validateProductFamilyFields(body, family);
+    if (fieldError) return NextResponse.json({ error: fieldError }, { status: 400 });
     const payload = {
       name_zh: normalized.name_zh, name_en: normalized.name_en,
       brand: normalized.brand, model: normalized.model, part_type: normalized.part_type,
@@ -94,3 +96,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: message.includes("duplicate") ? 409 : authErrorStatus(message) || 500 });
   }
 }
+
