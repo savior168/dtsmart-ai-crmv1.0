@@ -5,7 +5,7 @@ import { localDateTimeInput, quickLocalDateTime } from "../lib/date-time.ts";
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const migration = read("supabase/migrations/202609300001_customer_followup_queue.sql");
 const api = read("app/api/followups/route.ts");
-const ownerReadMigration = read("supabase/migrations/202610080002_followups_author_and_current_owner_read.sql");
+const ownerReadMigration = read("supabase/migrations/202610080003_followups_owner_read_policy.sql");
 const exportApi = read("app/api/followups/export/route.ts");
 const dashboard = read("app/api/dashboard/stats/route.ts");
 const view = read("components/followups-view.tsx");
@@ -16,7 +16,8 @@ assert.match(migration, /customer_followup_queue[\s\S]*security_invoker = true[\
 assert.match(migration, /customer_followup_history[\s\S]*security_invoker = true/, "历史视图不得绕过行权限");
 assert.match(api, /scope === "unscheduled"[\s\S]*\.is\("next_follow_date", null\)/, "无计划日期的已归属客户必须进入待安排");
 assert.match(api, /scope === "upcoming"[\s\S]*\.gte\("next_follow_date", end\)/, "后续计划不得混入今日待办");
-assert.match(ownerReadMigration, /or user_id = auth\.uid\(\)[\s\S]*c\.deleted_at is null[\s\S]*c\.owner_id = auth\.uid\(\)/, "跟进读取必须同时保留原记录人和当前归属人的权限");
+assert.match(ownerReadMigration, /c\.deleted_at is null[\s\S]*c\.owner_id = auth\.uid\(\)/, "跟进读取必须允许当前归属人查看有效客户记录");
+assert.doesNotMatch(ownerReadMigration, /user_id\s*=\s*auth\.uid\(\)/, "转移后原记录人不得继续直接读取客户跟进");
 assert.match(api, /scope === "today"[\s\S]*\.gte\("next_follow_date", start\)\.lt\("next_follow_date", end\)/, "今日口径必须采用同一业务日边界");
 assert.match(exportApi, /customer_followup_queue[\s\S]*scope === "unscheduled"/, "导出与列表必须使用同一有效计划口径");
 for (const source of [api, exportApi]) {
