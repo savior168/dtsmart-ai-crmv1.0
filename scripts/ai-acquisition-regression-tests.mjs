@@ -446,7 +446,7 @@ assert.match(todayUsageLink,/href=\{`\/ai-usage\?business_type=\$\{module\}`\}[\
 assert.doesNotMatch(todayUsageLink,/useEffect|fetch\(|今日 \{formatNumber|fetchedToday/,"统一用量入口不得重复请求或重复展示今日费用");
 assert.doesNotMatch(taskCenter,/更多筛选|advancedOpen/,"任务中心不得使用额外的更多筛选弹层");
 assert.match(taskCenter,/今日获客[\s\S]*有效入池结果[\s\S]*待人工复核[\s\S]*进行中[\s\S]*已完成任务[\s\S]*异常任务/,"任务中心必须优先展示用户关心且可行动的业务结果，且有效入池结果必须与点击后的客户结果一致");
-assert.match(taskCenter,/统计口径[\s\S]*历史入池结果[\s\S]*历史结果差额[\s\S]*仍关联客户的结果[\s\S]*跨任务重复[\s\S]*当前公海唯一客户[\s\S]*已关联但不在当前公海[\s\S]*公海待认领[\s\S]*已认领/,"任务中心必须解释历史差额、跨任务重复与不在公海的唯一客户，不能把差额误标为已删除");
+assert.match(taskCenter,/统计口径[\s\S]*不代表全系统公海库存[\s\S]*历史入池结果[\s\S]*历史结果差额[\s\S]*仍关联客户的结果[\s\S]*重复关联记录[\s\S]*获客关联的当前公海客户[\s\S]*已关联但不在当前公海[\s\S]*获客关联待认领[\s\S]*获客关联已认领/,"任务中心必须说明公海指标是当前获客筛选范围的关联客户子集，不得误导为全系统公海总量；重复关联口径不得误称为已验证的跨任务重复");
 assert.doesNotMatch(taskCenter,/已记录候选/,"内部发现过程量不得占用任务中心核心概览");
 assert.match(acquisitionWorkflow,/decision:"DUPLICATE"[\s\S]*has_actionable_contact:false[\s\S]*evidence_complete:false/,"去重候选必须写入非空布尔状态，不能让数据库默认值或空值中断整批任务");
 assert.match(acquisitionWorkflow,/decision: "ANALYZING", is_target_customer:false, has_actionable_contact:false, evidence_complete:false/,"待核验候选必须显式写入布尔默认状态");
