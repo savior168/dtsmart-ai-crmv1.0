@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
-import { CUSTOMER_STATUS_LABELS, FOLLOWUP_TYPE_LABELS } from "@/lib/types";
+import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS, FOLLOWUP_TYPE_LABELS } from "@/lib/types";
 import { workbookResponse } from "@/lib/xlsx-export";
 import { followupDayBounds } from "@/lib/customers/followup-day";
+import { countryFilterRawValues } from "@/lib/countries";
 
 type FollowupRow = {
   type: string | null;
@@ -27,22 +28,29 @@ export async function GET(request: NextRequest) {
     const scope = params.get("scope") || "history";
     if (!["today", "overdue", "upcoming", "unscheduled", "history"].includes(scope)) return NextResponse.json({ error: "无效的跟进范围" }, { status: 400 });
     const search = params.get("q")?.trim().replace(/[%_,()]/g, "") || "";
+    const stage = params.get("stage")?.trim() || "";
+    if (stage && !new Set<string>(CUSTOMER_STATUSES).has(stage)) return NextResponse.json({ error: "无效的客户阶段" }, { status: 400 });
+    const countries = [...new Set(params.getAll("country").map((item) => item.trim()).filter(Boolean))];
     const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
     const { start, end } = followupDayBounds();
     const rows: FollowupRow[] = [];
 
-    for (let offset = 0; offset < 100000; offset += 1000) {
+    for (let offset = 0; offset <= 100000; offset += 1000) {
       let page;
       if (scope === "history") {
         let query = supabase.from("customer_followup_history")
           .select("type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,actor_name,actor_email");
         if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+        if (stage) query = query.eq("status", stage);
+        if (countries.length) query = query.in("country", countryFilterRawValues(countries));
         if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
         page = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + 999);
       } else {
         let query = supabase.from("customer_followup_queue")
           .select("type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,owner_name,owner_email");
         if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+        if (stage) query = query.eq("status", stage);
+        if (countries.length) query = query.in("country", countryFilterRawValues(countries));
         if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
         if (scope === "today") query = query.gte("next_follow_date", start).lt("next_follow_date", end);
         if (scope === "overdue") query = query.lt("next_follow_date", start);
@@ -52,6 +60,7 @@ export async function GET(request: NextRequest) {
       }
       if (page.error) throw page.error;
       rows.push(...((page.data || []) as FollowupRow[]));
+      if (rows.length > 100000) throw new Error("导出超过 10 万条，请缩小筛选范围后重试");
       if ((page.data || []).length < 1000) break;
     }
 

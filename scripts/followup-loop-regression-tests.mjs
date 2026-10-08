@@ -17,6 +17,16 @@ assert.match(api, /scope === "unscheduled"[\s\S]*\.is\("next_follow_date", null\
 assert.match(api, /scope === "upcoming"[\s\S]*\.gte\("next_follow_date", end\)/, "后续计划不得混入今日待办");
 assert.match(api, /scope === "today"[\s\S]*\.gte\("next_follow_date", start\)\.lt\("next_follow_date", end\)/, "今日口径必须采用同一业务日边界");
 assert.match(exportApi, /customer_followup_queue[\s\S]*scope === "unscheduled"/, "导出与列表必须使用同一有效计划口径");
+for (const source of [api, exportApi]) {
+  assert.match(source, /params\.get\("stage"\)/, "列表和导出必须读取同一客户阶段筛选");
+  assert.match(source, /params\.getAll\("country"\)/, "列表和导出必须读取同一国家筛选");
+  assert.match(source, /query = query\.eq\("status", stage\)/, "列表和导出必须应用客户阶段筛选");
+  assert.match(source, /query = query\.in\("country", countryFilterRawValues\(countries\)\)/, "列表和导出必须匹配历史国家写法");
+}
+assert.match(view, /countries\.forEach\(country=>exportParams\.append\("country",country\)\)/, "导出必须保留列表国家筛选");
+assert.match(view, /if\(stage\)exportParams\.set\("stage",stage\)/, "导出必须保留列表客户阶段筛选");
+
+assert.match(view, /scope==="history"\?"当时约定":"计划时间"[\s\S]*scope==="history"\?"未约定":"待安排"/, "历史记录未约定日期不得误显示成当前待安排");
 assert.match(dashboard, /followupDayBounds\(now\)[\s\S]*customer_followup_queue/, "工作台今日待办必须与跟进管理一致");
 assert.match(view, /待安排[\s\S]*action=followup&from=followups/, "未安排客户应可直接进入跟进录入");
 assert.match(detail, /new Date\(draft\.next_follow_date\)\.toISOString\(\)/, "浏览器本地时间保存前必须转换为带时区时间");
