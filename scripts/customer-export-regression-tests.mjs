@@ -7,6 +7,7 @@ import { createWorkbookFile } from "../lib/xlsx-export.ts";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { buildCustomerWorkbookSheets } = await jiti.import("../lib/customer-export.ts");
+const { exportOfficialWebsiteText, exportPublicChannelForUrl, legacyWebsiteExportPatch } = await jiti.import("../lib/customers/export-public-channels.ts");
 const customerExport = await readFile(new URL("../lib/customer-export.ts", import.meta.url), "utf8");
 assert.match(customerExport, /name: "AI分析依据"/, "导出必须保留AI依据页");
 assert.match(customerExport, /"company_name", "ai_score", "industry", "country"/, "默认导出必须在AI评分后显示所属行业");
@@ -48,8 +49,13 @@ const customer = {
   instagram_url: "https://instagram.com/example",
   linkedin_url: "https://linkedin.com/company/example",
   tiktok_url: "https://tiktok.com/@example",
-  other_public_urls: ["https://youtube.com/@example", "https://x.com/example"],
+  other_public_urls: ["https://youtube.com/@example", "https://x.com/example", "https://wa.me/447700900456", "https://example.net/company"],
   website_phone: "+44 20 1234 5678",
+  verified_contacts: [
+    { type: "PHONE", value_raw: "+44 30 1234 5678", verification_status: "NEW_VERIFIED", exact_source_url: "https://example.com/contact" },
+    { type: "EMAIL", value_raw: "sales@example.com", verification_status: "NEW_VERIFIED", exact_source_url: "https://example.com/contact" },
+    { type: "WHATSAPP", value_raw: "+44 7700 900999", verification_status: "NEW_VERIFIED", exact_source_url: "https://example.com/contact" },
+  ],
 };
 const exportedSheets = buildCustomerWorkbookSheets([customer], {
   columns: ["company_name", "email", "website_phone"],
@@ -68,17 +74,23 @@ assert.equal(cell("电话号码").v, customer.phone, "电话号码必须保留�
 assert.equal(cell("WhatsApp号码").v, customer.whatsapp, "WhatsApp必须从独立字段导出");
 assert.equal(cell("邮箱").v, customer.email, "邮箱必须独立导出");
 assert.equal(cell("官网电话").v, customer.website_phone, "明确选择的官网电话不得被静默丢弃");
+assert.match(cell("AI采集电话").v, /\+44 30 1234 5678/, "AI核验电话必须在隐去列表字段时仍导出");
+assert.equal(cell("AI采集邮箱号").v, "sales@example.com", "AI核验邮箱必须在隐去列表字段时仍导出");
+assert.equal(cell("AI采集WhatsApp").v, "+44 7700 900999", "AI核验WhatsApp必须在隐去列表字段时仍导出");
+assert.equal(cell("AI采集邮箱号").l?.Target, "https://example.com/contact", "AI核验邮箱的精确来源链接必须保留");
 for (const [label, target] of [
   ["官网", customer.website], ["Google Maps", customer.google_url],
   ["Facebook", customer.facebook_url], ["Instagram", customer.instagram_url],
   ["LinkedIn", customer.linkedin_url], ["TikTok", customer.tiktok_url],
-  ["其他公开链接 1", customer.other_public_urls[0]], ["其他公开链接 2", customer.other_public_urls[1]],
+  ["YouTube", customer.other_public_urls[0]], ["X（Twitter）", customer.other_public_urls[1]],
+  ["WhatsApp公开链接", customer.other_public_urls[2]], ["其他公开链接 1", customer.other_public_urls[3]],
 ]) {
   assert.equal(cell(label).v, target, `${label}必须保留完整网址`);
   assert.equal(cell(label).l?.Target, target, `${label}必须准确跳转到该渠道`);
 }
+assert.equal(exportedHeaders.filter((header) => header.startsWith("其他公开链接")).length, 1, "已识别的平台链接不得重复堆进其他公开链接列");
 const domainOnlySheets = buildCustomerWorkbookSheets([
-  { id: "domain-only", company_name: "仅域名客户", website: "example.org/contact", facebook_url: "javascript:alert(1)" },
+  { id: "domain-only", company_name: "仅域名客户", website: "example.org/contact", facebook_url: "javascript:alert(1)", other_public_urls: ["https://youtube.com/@main", "https://youtube.com/@support"] },
 ], { columns: ["company_name"], includeAllContactChannels: true });
 const domainOnlyWorkbook = XLSX.read(createWorkbookFile(domainOnlySheets), { type: "buffer", cellStyles: true });
 const domainHeaders = domainOnlySheets[0].rows[0];
@@ -87,9 +99,36 @@ const domainCell = (label) => domainSheet[XLSX.utils.encode_cell({ r: 1, c: doma
 assert.equal(domainCell("官网").v, "example.org/contact", "不得改写客户保存的原始官网文字");
 assert.equal(domainCell("官网").l?.Target, "https://example.org/contact", "仅域名官网也应可点击");
 assert.equal(domainCell("Facebook").l, undefined, "非HTTP(S)渠道不得生成可执行链接");
+assert.equal(domainCell("YouTube").v, "https://youtube.com/@main\nhttps://youtube.com/@support", "同平台多个主页须在其平台列完整保留");
+assert.equal(domainCell("YouTube").l, undefined, "单元格存在多个网址时不得误链到拼接后的地址");
+
+for (const [raw, label] of [
+  ["https://youtube.com/@legacy", "YouTube"],
+  ["x.com/legacy", "X（Twitter）"],
+  ["https://wa.me/447700900456", "WhatsApp公开链接"],
+  ["https://maps.google.com/?cid=123", "Google Maps"],
+  ["facebook.com/legacy", "Facebook"],
+]) {
+  const original = { id: raw, company_name: "历史渠道客户", website: raw };
+  const normalized = { ...original, website: exportOfficialWebsiteText(raw), ...legacyWebsiteExportPatch(original, raw) };
+  const legacySheet = buildCustomerWorkbookSheets([normalized], { columns: ["company_name"], includeAllContactChannels: true })[0];
+  assert.equal(normalized.website, null, `${label}不得伪装为企业官网`);
+  assert.equal(legacySheet.rows[1][legacySheet.rows[0].indexOf(label)], raw, `历史官网字段中的${label}必须归入平台列`);
+}
+assert.equal(exportPublicChannelForUrl("https://maps.google.com/?cid=123"), "google_maps", "旧版 CID 地图链接必须识别为 Google Maps");
+assert.equal(exportOfficialWebsiteText("example.org/contact"), "example.org/contact", "旧版不带协议的真实官网文字必须保留");
+assert.equal(exportOfficialWebsiteText("javascript:alert(1)"), null, "不安全协议不得导出为官网");
+assert.equal(exportPublicChannelForUrl("https://maps.google.com.evil.example/?cid=123"), null, "伪造 Google Maps 域名不得归类为地图");
+const preservedLegacy = legacyWebsiteExportPatch({
+  facebook_url: "https://facebook.com/new",
+  other_public_urls: ["https://youtube.com/@previous"],
+}, "https://facebook.com/old");
+assert.deepEqual(preservedLegacy.other_public_urls, ["https://youtube.com/@previous", "https://facebook.com/old"], "已有平台主页时历史链接仍需保留，不得覆盖新链接");
 
 const customersApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 assert.match(customersApi, /requirePermission\(exportMode \? "customers.export" : "customers.view"\)/, "下载完整客户资料须校验导出权限");
+assert.match(customersApi, /exportMode \? exportOfficialWebsiteText\(rawWebsite\) : officialWebsiteUrl\(rawWebsite\)/, "仅导出时兼容裸域名官网，不改普通列表语义");
+assert.match(customersApi, /exportMode \? legacyWebsiteExportPatch\(normalized, rawWebsite\) : \{\}/, "历史公开平台网址仅在导出路径补齐");
 const customersView = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
 assert.match(customersView, /includeAllContactChannels: true/, "我的客户导出必须固定包含全部联系方式与公开渠道");
 console.log("客户导出回归测试通过。");

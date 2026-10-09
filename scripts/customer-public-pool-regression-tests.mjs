@@ -139,7 +139,7 @@ assert.match(poolView, /created_from[\s\S]*created_to[\s\S]*CompactDateRange lab
 assert.match(poolApi, /verifiedWebsite[\s\S]*type === "WEBSITE"[\s\S]*row\.website \|\| verifiedWebsite/, "公海客户主档官网为空时必须回退展示已核验官网");
 assert.match(customersApi, /contact\.type === "WEBSITE" && contact\.verification_status === "NEW_VERIFIED"/, "我的客户列表只能用已核验官网作为主档官网回退");
 assert.match(customersApi, /const rawWebsite = item\.website \|\|[\s\S]*\?\.value_raw \|\| null/, "我的客户主档官网为空时必须回退展示已核验官网");
-assert.match(customersApi, /website: officialWebsiteUrl\(rawWebsite\)/, "我的客户回退官网必须排除社媒及非官网链接");
+assert.match(customersApi, /website: exportMode \? exportOfficialWebsiteText\(rawWebsite\) : officialWebsiteUrl\(rawWebsite\)/, "我的客户普通列表回退官网仍须排除社媒及非官网链接，历史裸域名仅在导出时兼容");
 assert.match(poolApi, /dateField = tab === "claimed" \? "claimed_at" : "created_at"[\s\S]*T00:00:00\.000\+08:00[\s\S]*T23:59:59\.999\+08:00/, "认领记录必须按认领时间、公海客户按录入时间的北京时间自然日过滤");
 assert.match(poolApi, /tab === "claimed" && customerStatus && account\.role !== "ADMIN"[\s\S]*当前角色不能按其他客户的阶段筛选/, "非管理员不得通过客户阶段过滤旁路推断其他人的业务进度");
 assert.match(poolApi, /status: full \? row\.status : "CLAIMED"[\s\S]*followup_status: full[\s\S]*last_contact_time: full[\s\S]*contact_name: full \? row\.contact_name : null/, "认领记录必须在服务端隐藏其他归属人的客户阶段、跟进状态和联系人");

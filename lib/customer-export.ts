@@ -1,5 +1,7 @@
 import { countryInfo } from "@/lib/countries";
 import { displayCustomerName } from "@/lib/customer-display";
+import { exportPublicChannelForUrl } from "@/lib/customers/export-public-channels";
+import type { PublicChannel } from "@/lib/public-url";
 import { customerSourceLabel } from "@/lib/customers/source-display";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
 import { downloadWorkbook, type WorkbookSheet } from "@/lib/xlsx-export";
@@ -122,7 +124,7 @@ const DEFAULT_EXPORT_COLUMNS: CustomerExportColumn[] = [
 
 type ContactKind = "PHONE" | "WHATSAPP" | "EMAIL";
 type VerifiedContact = { type?: unknown; value_raw?: unknown; verification_status?: unknown; exact_source_url?: unknown };
-type ExportDisplayColumn = CustomerExportColumn | "original_phone" | "original_email" | "ai_phone" | "ai_email" | "ai_whatsapp" | "facebook" | "instagram" | "linkedin" | "tiktok" | `other_social_${number}`;
+type ExportDisplayColumn = CustomerExportColumn | "original_phone" | "original_email" | "ai_phone" | "ai_email" | "ai_whatsapp" | "facebook" | "instagram" | "linkedin" | "tiktok" | "youtube" | "x" | "public_whatsapp" | `other_social_${number}`;
 
 const EXPORT_DISPLAY_LABELS: Record<Exclude<ExportDisplayColumn, `other_social_${number}`>, string> = {
   ...CUSTOMER_EXPORT_LABELS,
@@ -135,6 +137,9 @@ const EXPORT_DISPLAY_LABELS: Record<Exclude<ExportDisplayColumn, `other_social_$
   instagram: "Instagram",
   linkedin: "LinkedIn",
   tiktok: "TikTok",
+  youtube: "YouTube",
+  x: "X（Twitter）",
+  public_whatsapp: "WhatsApp公开链接",
 };
 
 function exportDisplayLabel(key: ExportDisplayColumn) {
@@ -146,6 +151,28 @@ function otherPublicUrls(customer: Record<string, unknown>) {
   return Array.isArray(customer.other_public_urls)
     ? customer.other_public_urls.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean)
     : [];
+}
+
+function publicChannelUrls(customer: Record<string, unknown>, channel: PublicChannel) {
+  const primary: Partial<Record<PublicChannel, unknown>> = {
+    google_maps: customer.google_url,
+    facebook: customer.facebook_url,
+    instagram: customer.instagram_url,
+    linkedin: customer.linkedin_url,
+    tiktok: customer.tiktok_url,
+  };
+  return [...new Set([
+    primary[channel],
+    ...otherPublicUrls(customer).filter((url) => exportPublicChannelForUrl(url) === channel),
+  ].map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function otherUnclassifiedUrls(customer: Record<string, unknown>) {
+  return otherPublicUrls(customer).filter((url) => !exportPublicChannelForUrl(url));
+}
+
+function publicChannelText(customer: Record<string, unknown>, channel: PublicChannel) {
+  return publicChannelUrls(customer, channel).join("\n") || "-";
 }
 
 function publicExportLink(value: unknown) {
@@ -204,7 +231,7 @@ function expandExportColumns(columns: CustomerExportColumn[], otherLinkCount: nu
     if (key === "phone") return ["original_phone"];
     if (key === "email") return ["original_email"];
     if (key === "verified_contacts") return ["ai_phone", "ai_email", "ai_whatsapp"];
-    if (key === "social") return ["facebook", "instagram", "linkedin", "tiktok", ...Array.from({ length: otherLinkCount }, (_, index): `other_social_${number}` => `other_social_${index + 1}`)];
+    if (key === "social") return ["facebook", "instagram", "linkedin", "tiktok", "youtube", "x", "public_whatsapp", ...Array.from({ length: otherLinkCount }, (_, index): `other_social_${number}` => `other_social_${index + 1}`)];
     return [key];
   }).filter((key, index, all) => all.indexOf(key) === index);
 }
@@ -241,12 +268,11 @@ function exportDisplayText(customer: Record<string, unknown>, key: ExportDisplay
   if (key === "ai_phone") return verifiedContactText(customer, "PHONE");
   if (key === "ai_email") return verifiedContactText(customer, "EMAIL");
   if (key === "ai_whatsapp") return verifiedContactText(customer, "WHATSAPP");
-  if (key === "facebook") return exportText(customer.facebook_url);
-  if (key === "instagram") return exportText(customer.instagram_url);
-  if (key === "linkedin") return exportText(customer.linkedin_url);
-  if (key === "tiktok") return exportText(customer.tiktok_url);
+  if (key === "google_url") return publicChannelText(customer, "google_maps");
+  if (key === "facebook" || key === "instagram" || key === "linkedin" || key === "tiktok" || key === "youtube" || key === "x") return publicChannelText(customer, key);
+  if (key === "public_whatsapp") return publicChannelText(customer, "whatsapp");
   const otherLink = /^other_social_(\d+)$/.exec(key);
-  if (otherLink) return exportText(otherPublicUrls(customer)[Number(otherLink[1]) - 1]);
+  if (otherLink) return exportText(otherUnclassifiedUrls(customer)[Number(otherLink[1]) - 1]);
   return exportColumnText(customer, key as CustomerExportColumn);
 }
 
@@ -259,14 +285,14 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
   if (!rows.length) return [];
   const configured = options.columns?.length ? options.columns : DEFAULT_EXPORT_COLUMNS;
   const selectedColumns = configured.filter((key, index, all) => key !== "last_contact_time" && (options.includeOwner !== false || key !== "owner") && all.indexOf(key) === index);
-  const contactColumns: CustomerExportColumn[] = ["phone", "whatsapp", "email", "website", "google_url", "social"];
+  const contactColumns: CustomerExportColumn[] = ["phone", "whatsapp", "email", "verified_contacts", "website", "google_url", "social"];
   const firstContactIndex = selectedColumns.findIndex((key) => contactColumns.includes(key));
   const withoutContacts = selectedColumns.filter((key) => !contactColumns.includes(key));
   const insertAt = firstContactIndex < 0 ? withoutContacts.length : selectedColumns.slice(0, firstContactIndex).filter((key) => !contactColumns.includes(key)).length;
   const visibleColumns = options.includeAllContactChannels
     ? [...withoutContacts.slice(0, insertAt), ...contactColumns, ...withoutContacts.slice(insertAt)]
     : selectedColumns;
-  const otherLinkCount = visibleColumns.includes("social") ? rows.reduce((max, customer) => Math.max(max, otherPublicUrls(customer).length), 0) : 0;
+  const otherLinkCount = visibleColumns.includes("social") ? rows.reduce((max, customer) => Math.max(max, otherUnclassifiedUrls(customer).length), 0) : 0;
   const exportColumns = expandExportColumns(visibleColumns, otherLinkCount);
   const scoreIndex = exportColumns.indexOf("ai_score");
   const headers = [
@@ -282,7 +308,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
   }));
   const publicLinkColumns = exportColumns.flatMap((key, index) => {
     const offset = exportColumns.slice(0, index).filter((item) => item === "ai_score").length;
-    return ["website", "google_url", "facebook", "instagram", "linkedin", "tiktok"].includes(key) || key.startsWith("other_social_") ? [{ key, column: index + offset }] : [];
+    return ["website", "google_url", "facebook", "instagram", "linkedin", "tiktok", "youtube", "x", "public_whatsapp"].includes(key) || key.startsWith("other_social_") ? [{ key, column: index + offset }] : [];
   });
   const aiContactSourceColumns = exportColumns.flatMap((key, index) => {
     if (!["ai_phone", "ai_email", "ai_whatsapp"].includes(key)) return [];
@@ -292,8 +318,8 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
   return [
     {
       name: "客户清单",
-      widths: headers.map((header) => header === "客户名称" ? 28 : ["官网", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok"].includes(header) || header.startsWith("其他公开链接") ? 42 : ["AI采集电话", "AI采集邮箱号", "AI采集WhatsApp"].includes(header) ? 30 : header === "AI依据" ? 14 : 20),
-      wrapColumns: headers.map((header, index) => ["AI采集电话", "AI采集邮箱号", "AI采集WhatsApp"].includes(header) ? index : -1).filter((index) => index >= 0),
+      widths: headers.map((header) => header === "客户名称" ? 28 : ["官网", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) || header.startsWith("其他公开链接") ? 42 : ["AI采集电话", "AI采集邮箱号", "AI采集WhatsApp"].includes(header) ? 30 : header === "AI依据" ? 14 : 20),
+      wrapColumns: headers.map((header, index) => ["AI采集电话", "AI采集邮箱号", "AI采集WhatsApp", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) ? index : -1).filter((index) => index >= 0),
       externalHyperlinks: rows.flatMap((customer, row) => [
         ...publicLinkColumns.flatMap(({ key, column }) => {
           const target = publicExportLink(exportDisplayText(customer, key));

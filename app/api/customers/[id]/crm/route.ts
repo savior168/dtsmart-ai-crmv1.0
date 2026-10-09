@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows, normalizeEmailStrict, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
+import { canReadCustomerAiEvidence } from "@/lib/ai/customer-evidence-access";
 
 function cleanStoredDiscoveredValues(value: unknown, type: "EMAIL" | "PHONE", country: unknown, originals: unknown[]) {
   const normalize = (item: unknown) => type === "EMAIL" ? normalizeEmailStrict(String(item || "")) : normalizePhoneInternational(String(item || ""), String(country || ""));
@@ -55,13 +56,12 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       return /[\u3400-\u9fff]/.test(fact) && !/读取失败|未能取得|未保存|请重新执行|GOOGLE_MAPS_API_KEY|fetch failed/i.test(fact) && /^https?:\/\//i.test(String(item.source_url || ""));
     });
     const aiCompleted = Boolean(customer.ai_screening_done && latestAi.data);
-    const canViewAiEvidence = aiCompleted && (
-      (isOwner && hasPermission(account, "customers.ai_evidence_view"))
-      || (hasPermission(account, "ai.results.view") && (
-        isOwner || account.role === "ADMIN"
-        || (hasPermission(account, "ai.data_all") && Boolean(directReport.data))
-      ))
-    );
+    const canViewAiEvidence = aiCompleted && canReadCustomerAiEvidence({
+      viewerId: user.id, viewerRole: account.role, customerOwnerId: customer.owner_id,
+      isDirectReport: Boolean(directReport.data),
+      canViewCustomerEvidence: hasPermission(account, "customers.ai_evidence_view"),
+      canViewAiResults: hasPermission(account, "ai.results.view"),
+    });
     const aiResultForDisplay = aiCompleted && latestAi.data ? {
       target_decision: latestAi.data.target_decision,
       ai_reason: latestAi.data.ai_reason,

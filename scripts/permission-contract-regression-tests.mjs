@@ -28,11 +28,12 @@ assert.ok(existsSync(resolve(process.cwd(), evidencePage)), "客户AI分析依�
 assert.ok(!existsSync(resolve(process.cwd(), "app/ai-screening/customers/[customerId]/evidence/page.tsx")), "客户依据页不能再继承AI任务布局");
 assert.match(read(evidencePage), /protectAnyPage\(\["customers\.ai_evidence_view", "ai\.results\.view"\]\)/, "页面应允许客户依据或AI结果任一权限");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
-assert.match(evidenceApi, /customer\.data\.owner_id === user\.id && hasPermission\(account, "customers\.ai_evidence_view"\)/, "客户依据授权必须以当前归属人为准");
-assert.match(evidenceApi, /if \(!canReadOwnedCustomer && !canReadAiResults\) throw new Error\("FORBIDDEN"\)/, "无任一权限者必须被拒绝");
+assert.match(evidenceApi, /canReadCustomerAiEvidence\(\{[\s\S]*customerOwnerId: customer\.data\.owner_id[\s\S]*isDirectReport/, "客户依据授权必须以当前归属人和直属下属为准");
+assert.match(evidenceApi, /\}\)\) throw new Error\("FORBIDDEN"\)/, "无客户归属或依据权限者必须被拒绝");
 assert.match(evidenceApi, /if \(canViewTask\) resultQuery = resultQuery\.eq\("task_id", requestedTaskId\)/, "仅已授权任务可读取指定任务结果");
-assert.match(evidenceApi, /can_view_task: canViewTask/, "接口必须给页面返回真实任务访问状态");
-assert.match(evidenceApi, /customerOnlyResult[\s\S]*Object\.fromEntries/, "客户归属授权不能返回任务费用等原始结果字段");
+assert.match(evidenceApi, /can_view_task: canViewTask && account\.role === "ADMIN"/, "客户依据页面不能将共享任务入口暴露给普通角色");
+assert.match(evidenceApi, /presentCustomerAiEvidenceResult\(result\.data, account\.role === "ADMIN"\)/, "非管理员不能返回任务费用等原始结果字段");
+assert.match(read("app/api/customers/[id]/crm/route.ts"), /canReadCustomerAiEvidence\(\{[\s\S]*isDirectReport: Boolean\(directReport\.data\)/, "客户详情应支持主管查看直属下属客户依据");
 const evidenceView = read("components/ai-screening/evidence-view.tsx");
 assert.match(evidenceView, /data\?\.can_view_task&&taskId/, "客户归属访问不能显示任务详情和报告入口");
 assert.match(evidenceView, /data\?\.can_view_task\?<p>总令牌/, "客户归属访问不能展示任务实际费用");

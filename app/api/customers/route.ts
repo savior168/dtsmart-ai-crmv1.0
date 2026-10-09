@@ -5,6 +5,7 @@ import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
+import { exportOfficialWebsiteText, legacyWebsiteExportPatch } from "@/lib/customers/export-public-channels";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 
@@ -318,13 +319,17 @@ export async function GET(request: NextRequest) {
           contact.type === "WEBSITE" && contact.verification_status === "NEW_VERIFIED"
         )?.value_raw || null;
         const historicalChannel = publicChannelForUrl(rawWebsite);
-        return {
+        const normalized = {
           ...item,
-          website: officialWebsiteUrl(rawWebsite),
+          website: exportMode ? exportOfficialWebsiteText(rawWebsite) : officialWebsiteUrl(rawWebsite),
           facebook_url: item.facebook_url || (historicalChannel === "facebook" ? rawWebsite : null),
           instagram_url: item.instagram_url || (historicalChannel === "instagram" ? rawWebsite : null),
           linkedin_url: item.linkedin_url || (historicalChannel === "linkedin" ? rawWebsite : null),
           tiktok_url: item.tiktok_url || (historicalChannel === "tiktok" ? rawWebsite : null),
+        };
+        return {
+          ...normalized,
+          ...(exportMode ? legacyWebsiteExportPatch(normalized, rawWebsite) : {}),
           creator: creatorById.get(String(item.created_by || "")) || null,
           owner: creatorById.get(String(item.owner_id || "")) || null,
           verified_contacts: contactsByCustomer.get(item.id) || [],
