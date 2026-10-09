@@ -18,7 +18,7 @@ const requiredRoutes = [
   "app/ai-screening/results/page.tsx",
   "app/ai-screening/failures/page.tsx",
   "app/ai-screening/usage/page.tsx",
-  "app/ai-screening/customers/[customerId]/evidence/page.tsx",
+  "app/(customer-evidence)/ai-screening/customers/[customerId]/evidence/page.tsx",
   "app/followups/page.tsx",
   "app/reports/page.tsx",
   "app/settings/page.tsx",

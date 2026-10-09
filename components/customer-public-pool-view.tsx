@@ -1083,14 +1083,82 @@ function SupplementDialog({ row, close }: { row: PoolRow; close: () => void }) {
   </Modal>;
 }
 
-function PoolDeleteDialog({customerIds,close,saved}:{customerIds:string[];close:()=>void;saved:(message:string)=>void}){
-  const [reason,setReason]=useState("");
-  const [busy,setBusy]=useState(false);
-  const [error,setError]=useState("");
-  async function submit(event:FormEvent){event.preventDefault();if(!reason.trim())return setError("请填写永久删除原因");setBusy(true);setError("");try{const body=await api("/api/customers/public-pool/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids:customerIds,reason:reason.trim()})});const success=Number(body.success_count||0);const failed=Number(body.failed_count||0);if(!success)throw new Error(body.results?.find?.((item:{error?:string})=>item.error)?.error||"所选客户均未删除");saved(failed?`已永久删除 ${success} 家，${failed} 家因存在业务单据未删除`:`已永久删除 ${success} 家客户`)}catch(caught){setError(caught instanceof Error?caught.message:"删除失败")}finally{setBusy(false)}}
-  return <AppDialog title="永久删除公海客户" description={`将永久删除所选 ${customerIds.length} 家客户。已有报价或订单的客户会被系统阻止删除。`} onClose={()=>!busy&&close()} width="max-w-md"><form onSubmit={submit}><div className="rounded-xl bg-rose-50 p-4 text-sm leading-6 text-rose-800">此操作不可恢复。系统不会根据AI低分自动删除，只有您明确选择并确认的客户才会被处理。</div><label className="mt-4 block"><span className="mb-1.5 block text-sm font-medium text-slate-700">删除原因</span><textarea required rows={4} maxLength={500} value={reason} onChange={event=>setReason(event.target.value)} placeholder="例如：重复测试数据、确认无效且无需保留" className="w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"/></label>{error?<p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}<SharedDialogActions busy={busy} onCancel={close} confirmLabel="确认永久删除" tone="danger"/></form></AppDialog>
-}
+function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]; close: () => void; saved: (message: string) => void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [processed, setProcessed] = useState(0);
+  const [error, setError] = useState("");
+  const batchSize = 10;
 
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!reason.trim()) return setError("请填写永久删除原因");
+    setBusy(true);
+    setProcessed(0);
+    setError("");
+    let success = 0;
+    let failed = 0;
+    let firstFailure = "";
+    let processedCount = 0;
+    try {
+      const deleteBatch = async (batch: string[]): Promise<void> => {
+        let body: Awaited<ReturnType<typeof api>>;
+        try {
+          body = await api("/api/customers/public-pool/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: batch, reason: reason.trim() }),
+          });
+        } catch (caught) {
+          const message = caught instanceof Error ? caught.message : "";
+          if (batch.length > 1 && message.includes("本批删除超时")) {
+            const midpoint = Math.floor(batch.length / 2);
+            await deleteBatch(batch.slice(0, midpoint));
+            await deleteBatch(batch.slice(midpoint));
+            return;
+          }
+          throw caught;
+        }
+        const results = body.results as Array<{ id: string; ok: boolean; error?: string }> | undefined;
+        if (!Array.isArray(results) || results.length !== batch.length || results.some((item, index) => item.id !== batch[index] || typeof item.ok !== "boolean")) throw new Error("删除结果与提交客户不一致");
+        success += results.filter((item) => item.ok).length;
+        failed += results.filter((item) => !item.ok).length;
+        firstFailure ||= results.find((item) => !item.ok)?.error || "";
+        processedCount += batch.length;
+        setProcessed(processedCount);
+      };
+      for (let offset = 0; offset < customerIds.length; offset += batchSize) {
+        await deleteBatch(customerIds.slice(offset, offset + batchSize));
+      }
+      if (!success) return setError(firstFailure || "所选客户均未删除");
+      saved(failed
+        ? "已永久删除 " + success + " 家；" + failed + " 家未删除。" + (firstFailure || "请刷新后核对")
+        : "已永久删除 " + success + " 家客户");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "删除失败";
+      if (success) {
+        saved("已删除 " + success + " 家，操作中断。请刷新列表核对其余客户后再重试：" + message);
+      } else {
+        setError(message + "；请刷新列表核对后重试");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <AppDialog title="永久删除公海客户" description={"将永久删除所选 " + customerIds.length + " 家客户。已有报价或订单的客户会被系统阻止删除。"} onClose={() => { if (!busy) close(); }} width="max-w-md">
+    <form onSubmit={submit}>
+      <div className="rounded-xl bg-rose-50 p-4 text-sm leading-6 text-rose-800">此操作不可恢复。系统不会根据AI低分自动删除，只有您明确选择并确认的客户才会被处理。</div>
+      <label className="mt-4 block">
+        <span className="mb-1.5 block text-sm font-medium text-slate-700">删除原因</span>
+        <textarea required rows={4} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：重复测试数据、确认无效且无需保留" className="w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"/>
+      </label>
+      {busy ? <p role="status" className="mt-3 text-sm text-slate-600">已处理 {processed} / {customerIds.length} 家，每批最多 10 家</p> : null}
+      {error ? <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
+      <SharedDialogActions busy={busy} onCancel={() => { if (!busy) close(); }} confirmLabel="确认永久删除" tone="danger"/>
+    </form>
+  </AppDialog>;
+}
 function ClaimDialog({
   row,
   close,

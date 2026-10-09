@@ -89,10 +89,10 @@ function validateManualContactInput(body: Record<string, unknown>) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("customers.view");
+    const exportMode = request.nextUrl.searchParams.get("export") === "1";
+    const { supabase, account } = await requirePermission(exportMode ? "customers.export" : "customers.view");
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
-    const exportMode = request.nextUrl.searchParams.get("export") === "1";
     const pageSize = Math.min(idsOnly ? 1000 : 500, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
@@ -286,7 +286,9 @@ export async function GET(request: NextRequest) {
     const sortField = allowedSort.has(sort) ? sort : "updated_at";
     const from = (page - 1) * pageSize;
     const rangeEnd = from + pageSize - 1;
-    const { data: allData, count, error } = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, rangeEnd);
+    const orderedQuery = query.order(sortField, { ascending: direction === "asc", nullsFirst: false });
+    if (exportMode) orderedQuery.order("id", { ascending: true });
+    const { data: allData, count, error } = await orderedQuery.range(from, rangeEnd);
     if (error) throw error;
     // Supabase cannot infer a row type from the deliberately dynamic select
     // list above, so validate the transport shape before narrowing it here.
@@ -335,7 +337,8 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({ data: responseData, count: count || responseData.length || 0, page, pageSize });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "查询失败" }, { status: error instanceof Error && error.message === "UNAUTHORIZED" ? 401 : 400 });
+    const message = error instanceof Error ? error.message : "查询失败";
+    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
   }
 }
 

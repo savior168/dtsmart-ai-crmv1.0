@@ -55,8 +55,25 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       return /[\u3400-\u9fff]/.test(fact) && !/读取失败|未能取得|未保存|请重新执行|GOOGLE_MAPS_API_KEY|fetch failed/i.test(fact) && /^https?:\/\//i.test(String(item.source_url || ""));
     });
     const aiCompleted = Boolean(customer.ai_screening_done && latestAi.data);
+    const canViewAiEvidence = aiCompleted && (
+      (isOwner && hasPermission(account, "customers.ai_evidence_view"))
+      || (hasPermission(account, "ai.results.view") && (
+        isOwner || account.role === "ADMIN"
+        || (hasPermission(account, "ai.data_all") && Boolean(directReport.data))
+      ))
+    );
+    const aiResultForDisplay = aiCompleted && latestAi.data ? {
+      target_decision: latestAi.data.target_decision,
+      ai_reason: latestAi.data.ai_reason,
+      summary: latestAi.data.summary,
+      business_relevance: latestAi.data.business_relevance,
+      business_scope: latestAi.data.business_scope,
+      company_scale_evidence: latestAi.data.company_scale_evidence,
+      customer_value: latestAi.data.customer_value,
+      followup_suggestion: latestAi.data.followup_suggestion,
+    } : null;
     const customerForDisplay = { ...customer, website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]), website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]), ...(!aiCompleted ? { industry: null, ai_score: null, ai_level: null, is_target_customer: null, ai_reason: null, business_scope: null, business_relevance: null, customer_value: null, followup_suggestion: null, company_scale_evidence: null } : {}) };
-    const base = { customer: customerForDisplay, profile: profileResult.data, can_edit: hasPermission(account, "customers.edit") && (account.role === "ADMIN" || isOwner), can_change_stage: hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || isOwner), can_sales_operate: hasPermission(account, "followups.create") && (account.role === "ADMIN" || isOwner), access_scope: publicReadOnly ? "PUBLIC_POOL" : "BUSINESS", ai_result: aiCompleted ? latestAi.data : null, ai_facts: aiCompleted ? aiFacts : [], verified_contacts: aiCompleted ? dedupeVerifiedContactRows(verifiedContacts.data || []) : [], decision_makers:aiCompleted?(decisionMakers.data||[]):[] };
+    const base = { customer: customerForDisplay, profile: profileResult.data, can_edit: hasPermission(account, "customers.edit") && (account.role === "ADMIN" || isOwner), can_change_stage: hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || isOwner), can_sales_operate: hasPermission(account, "followups.create") && (account.role === "ADMIN" || isOwner), can_view_ai_evidence: canViewAiEvidence, access_scope: publicReadOnly ? "PUBLIC_POOL" : "BUSINESS", ai_result: aiResultForDisplay, ai_facts: aiCompleted ? aiFacts : [], verified_contacts: aiCompleted ? dedupeVerifiedContactRows(verifiedContacts.data || []) : [], decision_makers:aiCompleted?(decisionMakers.data||[]):[] };
     if (publicReadOnly) return NextResponse.json({ ...base, current_owner: null, effective_protection: { source: "NONE", start_date: null, expire_date: null, status: "EXPIRED", remaining_days: 0, permanent: false }, followups: [], attachments: [], quotes: [], claims: [], audit_logs: [], protections: [], private_supplements: [], users: [] });
 
     const [followupsResult, claimsResult, protectionResult, auditLogsResult, attachmentsResult, quotesResult, privateSupplementsResult] = await Promise.all([

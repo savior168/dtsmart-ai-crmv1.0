@@ -112,6 +112,12 @@ assert.match(poolApi, /verifiedContacts\.error \? \[\] : verifiedContacts\.data 
 assert.doesNotMatch(poolView, /潜在客户（未认领）|潜在客户（已归属）|提交凭证并认领<\/button>/, "客户公海不得出现阶段和归属状态混用的歧义文案");
 assert.match(poolView, /border-blue-200 bg-blue-50[\s\S]*认领/, "认领按钮必须采用克制的浅色操作样式");
 assert.match(poolDeleteApi, /requireAdmin\(\)[\s\S]*请填写永久删除原因[\s\S]*permanentlyDeleteCustomers/, "公海永久删除必须仅限系统管理员并要求原因");
+assert.match(poolDeleteApi, /ids\.length > 10[\s\S]*status: 413/, "公海永久删除服务端必须拒绝超大单次请求");
+assert.match(poolDeleteApi, /statement timeout[\s\S]*status: timedOut \? 503/, "数据库超时不能被错误归类为普通参数错误");
+assert.match(poolView, /const batchSize = 10[\s\S]*offset < customerIds\.length; offset \+= batchSize/, "公海选中大量客户时必须按小批次提交");
+assert.match(poolView, /results\.length !== batch\.length[\s\S]*processedCount \+= batch\.length;[\s\S]*setProcessed\(processedCount\)/, "每批结果必须逐项核对并显示进度");
+assert.match(poolView, /message\.includes\("本批删除超时"\)[\s\S]*await deleteBatch\(batch\.slice\(0, midpoint\)\)/, "仅明确的数据库超时才逐级缩小删除批次");
+assert.match(poolView, /if \(success\)[\s\S]*操作中断。请刷新列表核对/, "部分删除成功后不能误报全部失败或全部成功");
 assert.match(permanentDelete, /quotes[\s\S]*sales_orders[\s\S]*客户已有报价或订单记录/, "存在报价或订单的客户不得物理删除");
 assert.match(customersView, /const crossUserReadOnly = currentRole !== "ADMIN" && canViewAll && scopeUserId !== defaultScopeUserId/, "系统管理员切换归属人后仍须保留客户管理与删除权限");
 assert.match(poolApi, /params\.get\("options"\) === "1"[\s\S]*industries[\s\S]*owners/, "客户公海必须提供完整筛选选项");

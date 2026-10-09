@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -22,5 +22,25 @@ assert.match(importView, /disabled=\{!canCreate\}/, "未授权导入时模板下
 assert.match(importView, /disabled=\{!canCreate \|\| busy \|\| !rows\.length\}/, "未授权导入时提交按钮必须禁用");
 const templateApi = read("app/api/import/template/route.ts");
 assert.match(templateApi, /requirePermission\("imports\.create"\)/, "导入模板接口必须服务端校验执行权限");
+
+const evidencePage = "app/(customer-evidence)/ai-screening/customers/[customerId]/evidence/page.tsx";
+assert.ok(existsSync(resolve(process.cwd(), evidencePage)), "客户AI分析依据必须位于独立权限布局");
+assert.ok(!existsSync(resolve(process.cwd(), "app/ai-screening/customers/[customerId]/evidence/page.tsx")), "客户依据页不能再继承AI任务布局");
+assert.match(read(evidencePage), /protectAnyPage\(\["customers\.ai_evidence_view", "ai\.results\.view"\]\)/, "页面应允许客户依据或AI结果任一权限");
+const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
+assert.match(evidenceApi, /customer\.data\.owner_id === user\.id && hasPermission\(account, "customers\.ai_evidence_view"\)/, "客户依据授权必须以当前归属人为准");
+assert.match(evidenceApi, /if \(!canReadOwnedCustomer && !canReadAiResults\) throw new Error\("FORBIDDEN"\)/, "无任一权限者必须被拒绝");
+assert.match(evidenceApi, /if \(canViewTask\) resultQuery = resultQuery\.eq\("task_id", requestedTaskId\)/, "仅已授权任务可读取指定任务结果");
+assert.match(evidenceApi, /can_view_task: canViewTask/, "接口必须给页面返回真实任务访问状态");
+assert.match(evidenceApi, /customerOnlyResult[\s\S]*Object\.fromEntries/, "客户归属授权不能返回任务费用等原始结果字段");
+const evidenceView = read("components/ai-screening/evidence-view.tsx");
+assert.match(evidenceView, /data\?\.can_view_task&&taskId/, "客户归属访问不能显示任务详情和报告入口");
+assert.match(evidenceView, /data\?\.can_view_task\?<p>总令牌/, "客户归属访问不能展示任务实际费用");
+const customerCrm = read("components/customer-crm-detail-view.tsx");
+assert.match(customerCrm, /data\.can_view_ai_evidence&&customer\.ai_screening_done/, "客户详情入口必须遵循服务端依据权限");
+assert.doesNotMatch(customerCrm, /data\.ai_result\.task_id/, "客户详情进入依据时不能附带无权查看的任务编号");
+const roleDefaults = read("supabase/migrations/202608310003_granular_user_permissions.sql");
+assert.match(roleDefaults, /'SUPERVISOR','customers\.ai_evidence_view'/, "主管默认允许查看授权客户依据");
+assert.match(roleDefaults, /'SALES','customers\.ai_evidence_view'/, "销售默认允许查看本人客户依据");
 
 console.log("Permission contract regression tests passed.");

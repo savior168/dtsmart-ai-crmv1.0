@@ -134,6 +134,7 @@ export function CustomersView() {
   const [currentRole, setCurrentRole] = useState("");
   const [userOptions, setUserOptions] = useState<Array<{id:string;name:string;email:string}>>([]);
   const [canViewAll, setCanViewAll] = useState(false);
+  const [canExport, setCanExport] = useState(false);
   // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
   // 个明确筛选项切换，避免过去用 boolean=false 表示“全部”造成歧义。
   const [aiFilter, setAiFilter] = useState<"done" | "pending" | "failed" | "all">("done");
@@ -299,6 +300,7 @@ export function CustomersView() {
       setDefaultScopeUserId(fallback);
       setScopeUserId(requested);
       setCanViewAll(elevated);
+      setCanExport(role === "ADMIN" || (Array.isArray(body?.profile?.permissions) && body.profile.permissions.includes("customers.export")));
       setUserOptions(elevated && Array.isArray(body.users) ? body.users : []);
       if (elevated) {
         setFields((current) => current.includes("owner") ? current : [...current, "owner"]);
@@ -500,9 +502,11 @@ export function CustomersView() {
     await load();
   }
   async function exportData() {
+    if (!canExport) return notify("当前账号没有客户导出权限", "error");
     setExporting(true);
     setError("");
     const exportRows: Customer[] = [];
+    const seenIds = new Set<string>();
     const params = new URLSearchParams({
       pageSize: "500", search, status, ai_level: level, target, export: "1",
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
@@ -517,19 +521,26 @@ export function CustomersView() {
     if (scopeUserId) params.set("user_id", scopeUserId);
     try {
       let currentPage = 1;
-      let total = 0;
+      let total = -1;
       do {
         params.set("page", String(currentPage));
         const response = await fetch(`/api/customers?${params}`);
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "导出数据读取失败");
         const items = Array.isArray(body.data) ? body.data as Customer[] : [];
-        exportRows.push(...items);
-        total = Number(body.count || 0);
+        const currentTotal = Number(body.count ?? 0);
+        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (total >= 0 && currentTotal !== total)) throw new Error("导出期间客户数量发生变化，请重试");
+        total = currentTotal;
+        for (const item of items) {
+          if (!item.id || seenIds.has(item.id)) throw new Error("导出期间客户列表发生变化，请重试");
+          seenIds.add(item.id);
+          exportRows.push(item);
+        }
         currentPage += 1;
         if (!items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
       } while (exportRows.length < total);
-    downloadCustomerWorkbook(exportRows as unknown as Array<Record<string, unknown>>, "客户列表", { columns: fields, includeOwner: canViewAll });
+      if (!exportRows.length) return notify("当前筛选条件下没有可导出的客户");
+      downloadCustomerWorkbook(exportRows as unknown as Array<Record<string, unknown>>, "客户列表", { columns: fields, includeOwner: canViewAll, includeAllContactChannels: true });
       notify(`已导出当前筛选结果 ${exportRows.length} 条`);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "导出数据失败";
@@ -753,14 +764,14 @@ export function CustomersView() {
                 </div>
               )}
             </div>
-            <button
+            {canExport && <button
               onClick={() => void exportData()}
               disabled={exporting}
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"
             >
               <Download size={16} />
               {exporting ? "正在导出…" : "导出数据"}
-            </button>
+            </button>}
             <div ref={fieldRef} className="relative">
               <button
                 onClick={() => {

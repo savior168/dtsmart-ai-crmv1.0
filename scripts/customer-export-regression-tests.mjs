@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { createJiti } from "jiti";
 import XLSX from "xlsx";
 import { createWorkbookFile } from "../lib/xlsx-export.ts";
 
+const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
+const { buildCustomerWorkbookSheets } = await jiti.import("../lib/customer-export.ts");
 const customerExport = await readFile(new URL("../lib/customer-export.ts", import.meta.url), "utf8");
 assert.match(customerExport, /name: "AI分析依据"/, "导出必须保留AI依据页");
 assert.match(customerExport, /"company_name", "ai_score", "industry", "country"/, "默认导出必须在AI评分后显示所属行业");
 assert.match(customerExport, /source_batch: "来源批次"/, "导出必须包含可追溯的来源批次");
 assert.doesNotMatch(customerExport, /name: "链接与社媒"/, "导出不得再生成链接与社媒子页");
-assert.match(customerExport, /original_phone: "原始电话"/, "导出必须将原始电话单列显示");
-assert.match(customerExport, /original_email: "原始邮箱号"/, "导出必须将原始邮箱单列显示");
+assert.match(customerExport, /original_phone: "电话号码"/, "导出必须将电话号码单列显示");
+assert.match(customerExport, /original_email: "邮箱"/, "导出必须将邮箱单列显示");
 assert.match(customerExport, /ai_phone: "AI采集电话"/, "导出必须将AI采集电话单列显示");
 assert.match(customerExport, /ai_email: "AI采集邮箱号"/, "导出必须将AI采集邮箱单列显示");
 assert.match(customerExport, /ai_whatsapp: "AI采集WhatsApp"/, "导出必须将AI采集WhatsApp单列显示");
@@ -34,4 +38,58 @@ assert.deepEqual(workbook.SheetNames, ["客户清单", "AI分析依据"], "工�
 assert.equal(workbook.Sheets["客户清单"].C2.l?.Target, "#'AI分析依据'!A2", "Excel内部跳转必须写入指定依据行");
 assert.equal(workbook.Sheets["AI分析依据"].A2.v, "示例客户 A", "依据页客户行必须与跳转目标对应");
 assert.equal(workbook.Sheets["客户清单"].F2.l?.Target, "https://example.com/contact", "AI采集联系方式必须能直达具体来源页");
+
+const customer = {
+  id: "customer-1", company_name: "示例客户", country: "GB",
+  phone: "+44 44 7700 900123", whatsapp: "+44 7700 900456",
+  email: "hello@example.com", website: "https://example.com",
+  google_url: "https://maps.google.com/?cid=123",
+  facebook_url: "https://facebook.com/example",
+  instagram_url: "https://instagram.com/example",
+  linkedin_url: "https://linkedin.com/company/example",
+  tiktok_url: "https://tiktok.com/@example",
+  other_public_urls: ["https://youtube.com/@example", "https://x.com/example"],
+  website_phone: "+44 20 1234 5678",
+};
+const exportedSheets = buildCustomerWorkbookSheets([customer], {
+  columns: ["company_name", "email", "website_phone"],
+  includeAllContactChannels: true,
+});
+const exportedHeaders = exportedSheets[0].rows[0];
+const exportedWorkbook = XLSX.read(createWorkbookFile(exportedSheets), { type: "buffer", cellStyles: true });
+const exportedSheet = exportedWorkbook.Sheets["客户清单"];
+const cell = (label) => {
+  const column = exportedHeaders.indexOf(label);
+  assert.notEqual(column, -1, `缺少导出列：${label}`);
+  return exportedSheet[XLSX.utils.encode_cell({ r: 1, c: column })];
+};
+assert.equal(exportedHeaders.filter((header) => header === "邮箱").length, 1, "邮箱不得重复或被电话列替代");
+assert.equal(cell("电话号码").v, customer.phone, "电话号码必须保留原始完整号码");
+assert.equal(cell("WhatsApp号码").v, customer.whatsapp, "WhatsApp必须从独立字段导出");
+assert.equal(cell("邮箱").v, customer.email, "邮箱必须独立导出");
+assert.equal(cell("官网电话").v, customer.website_phone, "明确选择的官网电话不得被静默丢弃");
+for (const [label, target] of [
+  ["官网", customer.website], ["Google Maps", customer.google_url],
+  ["Facebook", customer.facebook_url], ["Instagram", customer.instagram_url],
+  ["LinkedIn", customer.linkedin_url], ["TikTok", customer.tiktok_url],
+  ["其他公开链接 1", customer.other_public_urls[0]], ["其他公开链接 2", customer.other_public_urls[1]],
+]) {
+  assert.equal(cell(label).v, target, `${label}必须保留完整网址`);
+  assert.equal(cell(label).l?.Target, target, `${label}必须准确跳转到该渠道`);
+}
+const domainOnlySheets = buildCustomerWorkbookSheets([
+  { id: "domain-only", company_name: "仅域名客户", website: "example.org/contact", facebook_url: "javascript:alert(1)" },
+], { columns: ["company_name"], includeAllContactChannels: true });
+const domainOnlyWorkbook = XLSX.read(createWorkbookFile(domainOnlySheets), { type: "buffer", cellStyles: true });
+const domainHeaders = domainOnlySheets[0].rows[0];
+const domainSheet = domainOnlyWorkbook.Sheets["客户清单"];
+const domainCell = (label) => domainSheet[XLSX.utils.encode_cell({ r: 1, c: domainHeaders.indexOf(label) })];
+assert.equal(domainCell("官网").v, "example.org/contact", "不得改写客户保存的原始官网文字");
+assert.equal(domainCell("官网").l?.Target, "https://example.org/contact", "仅域名官网也应可点击");
+assert.equal(domainCell("Facebook").l, undefined, "非HTTP(S)渠道不得生成可执行链接");
+
+const customersApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
+assert.match(customersApi, /requirePermission\(exportMode \? "customers.export" : "customers.view"\)/, "下载完整客户资料须校验导出权限");
+const customersView = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
+assert.match(customersView, /includeAllContactChannels: true/, "我的客户导出必须固定包含全部联系方式与公开渠道");
 console.log("客户导出回归测试通过。");

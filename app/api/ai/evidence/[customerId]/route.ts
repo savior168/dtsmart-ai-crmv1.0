@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows } from "@/lib/ai/contact-intelligence";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
@@ -72,31 +72,44 @@ function normalizeEvidence(row: Record<string, unknown>) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ customerId: string }> }) {
   try {
-    const { user, account } = await requirePermission("ai.results.view");
+    const { user, account } = await requireUser();
     const { customerId } = await context.params;
     const admin = createAdminClient();
     const requestedTaskId = request.nextUrl.searchParams.get("task")?.trim() || "";
-    const customer = await admin.from("customers").select("id,owner_id,created_by,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId).maybeSingle();
+    const customer = await admin.from("customers").select("id,owner_id,created_by,company_name,contact_name,country,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,website_email,website_phone,ai_score,ai_level,ai_reason,ai_screening_done,business_relevance,business_scope,company_scale,company_scale_evidence,customer_value,followup_suggestion").eq("id", customerId).is("deleted_at", null).maybeSingle();
     if (customer.error) throw customer.error;
     if (!customer.data) throw new Error("CUSTOMER_NOT_FOUND");
-    if (requestedTaskId) {
+    const canReadOwnedCustomer = customer.data.owner_id === user.id && hasPermission(account, "customers.ai_evidence_view");
+    const canReadAiResults = hasPermission(account, "ai.results.view");
+    if (!canReadOwnedCustomer && !canReadAiResults) throw new Error("FORBIDDEN");
+    let canViewTask = false;
+    if (requestedTaskId && canReadAiResults) {
       const task = await admin.from("ai_screening_tasks").select("id,user_id").eq("id", requestedTaskId).maybeSingle();
       if (task.error) throw task.error;
-      if (!task.data) throw new Error("TASK_NOT_FOUND");
-      if (!await canReadAiOwner(account, task.data.user_id)) throw new Error("FORBIDDEN");
-      const item = await admin.from("ai_screening_task_items").select("id").eq("task_id", requestedTaskId).eq("customer_id", customerId).maybeSingle();
-      if (item.error) throw item.error;
-      if (!item.data) throw new Error("TASK_CUSTOMER_MISMATCH");
-    } else {
-      const ownRecord = customer.data.owner_id === user.id || customer.data.created_by === user.id;
+      if (!task.data) {
+        if (!canReadOwnedCustomer) throw new Error("TASK_NOT_FOUND");
+      } else if (!await canReadAiOwner(account, task.data.user_id)) {
+        if (!canReadOwnedCustomer) throw new Error("FORBIDDEN");
+      } else {
+        const item = await admin.from("ai_screening_task_items").select("id").eq("task_id", requestedTaskId).eq("customer_id", customerId).maybeSingle();
+        if (item.error) throw item.error;
+        if (!item.data) {
+          if (!canReadOwnedCustomer) throw new Error("TASK_CUSTOMER_MISMATCH");
+        } else {
+          canViewTask = true;
+        }
+      }
+    }
+    if (!canViewTask && !canReadOwnedCustomer) {
+      if (requestedTaskId || !canReadAiResults) throw new Error("FORBIDDEN");
       const canReadOwner = hasPermission(account, "ai.data_all") && (
         await canReadAiOwner(account, customer.data.owner_id)
         || await canReadAiOwner(account, customer.data.created_by)
       );
-      if (!ownRecord && !canReadOwner) throw new Error("FORBIDDEN");
+      if (customer.data.owner_id !== user.id && customer.data.created_by !== user.id && !canReadOwner) throw new Error("FORBIDDEN");
     }
     let resultQuery = admin.from("ai_screening_results").select("*,task:ai_screening_tasks(id,name,task_number,user_id)").eq("customer_id", customerId).eq("writeback_status", "COMPLETED");
-    if (requestedTaskId) resultQuery = resultQuery.eq("task_id", requestedTaskId);
+    if (canViewTask) resultQuery = resultQuery.eq("task_id", requestedTaskId);
     else resultQuery = resultQuery.eq("is_latest_valid", true);
     const result = await resultQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (result.error) throw result.error;
@@ -108,9 +121,20 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
       .in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"])
       .order("captured_at", { ascending: false });
     if (contacts.error) throw contacts.error;
+    const customerOnlyResult = result.data && !canViewTask && canReadOwnedCustomer
+      ? Object.fromEntries([
+        "id", "customer_id", "strategy", "strategy_version", "score", "grade", "target_decision",
+        "industry_type", "summary", "ai_reason", "decision_status", "business_scope", "company_scale",
+        "company_scale_evidence", "business_relevance", "customer_value", "followup_suggestion",
+        "confidence_score", "evidence_sufficiency", "analyzed_channels", "evidence_conflicts",
+        "early_stop_reason", "completed_at", "score_breakdown", "suggested_contact_order",
+        "preferred_contact_value", "model_version", "rule_version", "field_mapping_version",
+      ].map((key) => [key, (result.data as Record<string, unknown>)[key]]))
+      : result.data;
     return NextResponse.json({
       customer: customer.data,
-      result: result.data || null,
+      result: customerOnlyResult || null,
+      can_view_task: canViewTask,
       evidence: (evidence.data || [])
         .map((row) => normalizeEvidence(row as Record<string, unknown>))
         .filter(isUsableEvidence),
