@@ -90,6 +90,12 @@ const aiOnlyWorkbook = XLSX.read(createWorkbookFile([aiOnlySheet]), { type: "buf
 const aiOnlyEmailColumn = aiOnlySheet.rows[0].indexOf("邮箱");
 assert.notEqual(aiOnlyEmailColumn, -1, "仅有AI核验邮箱时仍须导出邮箱列");
 assert.equal(aiOnlyWorkbook.Sheets["客户清单"][XLSX.utils.encode_cell({ r: 1, c: aiOnlyEmailColumn })].l?.Target, "https://example.com/contact", "仅有同一精确来源的邮箱应保留核验链接");
+const matchedPhone = { ...customer, phone: "+44 30 1234 5678", whatsapp: null, email: null, website_phone: null, website_email: null };
+const matchedSheet = buildCustomerWorkbookSheets([matchedPhone], { columns: ["company_name"], includeAllContactChannels: true })[0];
+const matchedWorkbook = XLSX.read(createWorkbookFile([matchedSheet]), { type: "buffer", cellStyles: true });
+const matchedPhoneCell = matchedWorkbook.Sheets["客户清单"][XLSX.utils.encode_cell({ r: 1, c: matchedSheet.rows[0].indexOf("电话号码") })];
+assert.equal(matchedPhoneCell.v, "+44 30 1234 5678", "相同的原始与核验号码只应导出一次");
+assert.equal(matchedPhoneCell.l?.Target, "https://example.com/contact", "原始号码与核验号码相同时仍保留精确来源链接");
 for (const [label, target] of [
   ["官网", customer.website], ["Google Maps", customer.google_url],
   ["Facebook", customer.facebook_url], ["Instagram", customer.instagram_url],
