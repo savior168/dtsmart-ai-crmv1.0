@@ -29,7 +29,7 @@ import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { CountryLabel } from "@/components/country-label";
 import { countryInfo } from "@/lib/countries";
-import { dashboardDatePresetRange, type DashboardDatePreset } from "@/lib/dashboard-date-range";
+import { dashboardDatePresetRange, dashboardDefaultDateRange, type DashboardDatePreset } from "@/lib/dashboard-date-range";
 
 function Link(props: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={false} {...props} />;
@@ -72,9 +72,8 @@ function relativeTime(value: string) {
 function scopedHref(path: string, scopeUserId: string, range?: { from: string; to: string }) {
   const [pathname, query = ""] = path.split("?");
   const params = new URLSearchParams(query);
-  // 全部归属人必须显式传给目标页；省略参数会回退成当前登录人的客户，
-  // 造成卡片数字和列表结果不一致。
-  params.set("user_id", scopeUserId || "all");
+  // 未指定归属人表示本人；仅管理员主动选中全部用户时才传 all。
+  if (scopeUserId) params.set("user_id", scopeUserId);
   if (range) { params.set("from", range.from); params.set("to", range.to); }
   return `${pathname}?${params.toString()}`;
 }
@@ -113,10 +112,10 @@ function DashboardHeader({ title, href }: { title: string; href: string }) {
 }
 
 export function CrmDashboard({ canCreateAcquisition = false }: { canCreateAcquisition?: boolean }) {
-  const [initialRange] = useState(() => dashboardDatePresetRange("HISTORY"));
+  const [initialRange] = useState(() => dashboardDefaultDateRange());
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
-  const [datePreset, setDatePreset] = useState<DashboardDatePreset | "CUSTOM">("HISTORY");
+  const [datePreset, setDatePreset] = useState<DashboardDatePreset | "CUSTOM">("CUSTOM");
   const [country, setCountry] = useState("");
   const [scopeUserId, setScopeUserId] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
@@ -148,7 +147,8 @@ export function CrmDashboard({ canCreateAcquisition = false }: { canCreateAcquis
   useEffect(() => { void load(); }, [load]);
 
   function reset() {
-    applyDatePreset("HISTORY"); setCountry(""); setScopeUserId("");
+    const range = dashboardDefaultDateRange();
+    setFrom(range.from); setTo(range.to); setDatePreset("CUSTOM"); setCountry(""); setScopeUserId("");
   }
 
   function applyDatePreset(preset: DashboardDatePreset) {
@@ -179,7 +179,7 @@ export function CrmDashboard({ canCreateAcquisition = false }: { canCreateAcquis
       <div className="mx-auto max-w-[1660px]">
         <section className="mb-4 flex flex-wrap items-center gap-3">
           <CompactDateRange label="统计日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setDatePreset("CUSTOM"); }} onToChange={(value) => { setTo(value); setDatePreset("CUSTOM"); }} className="shadow-sm"/>
-          <div role="group" aria-label="统计日期快捷范围" className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">{([ ["HISTORY", "历史至今"], ["WEEK", "本周"], ["MONTH", "本月"], ["QUARTER", "本季度"] ] as const).map(([preset, label]) => <button key={preset} type="button" onClick={() => applyDatePreset(preset)} aria-pressed={datePreset === preset} className={`h-8 rounded-md px-2.5 text-xs font-medium transition ${datePreset === preset ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50 hover:text-blue-700"}`}>{label}</button>)}</div>
+          <div role="group" aria-label="统计日期快捷范围" className="inline-flex h-10 items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">{([ ["WEEK", "本周"], ["MONTH", "本月"], ["QUARTER", "本季度"], ["YEAR", "本年度"] ] as const).map(([preset, label]) => <button key={preset} type="button" onClick={() => applyDatePreset(preset)} aria-pressed={datePreset === preset} title={`${label}：${dashboardDatePresetRange(preset).from} 至今（北京时间）`} className={`h-8 rounded-md px-2.5 text-xs font-medium transition ${datePreset === preset ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50 hover:text-blue-700"}`}>{label}</button>)}</div>
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
           <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>

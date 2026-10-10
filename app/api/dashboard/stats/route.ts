@@ -3,18 +3,14 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { normalizeReportCountries } from "@/lib/reports/sales";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { DASHBOARD_BASE_DATE } from "@/lib/dashboard-date-range";
+import { DASHBOARD_BASE_DATE, dashboardBusinessDateKey, dashboardDefaultDateRange } from "@/lib/dashboard-date-range";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
 function validDate(value: string | null, fallback: Date) {
-  if (!value) return fallback;
-  const date = new Date(`${value}T00:00:00`);
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return fallback;
+  const date = new Date(`${value}T00:00:00+08:00`);
   return Number.isNaN(date.getTime()) ? fallback : date;
-}
-
-function dateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
 }
 
 function percentage(value: number, total: number) {
@@ -60,11 +56,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ totals: { today_followups: followups.count || 0, expiring_protection: protections.count || 0 } }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
-    const defaultFrom = new Date(`${DASHBOARD_BASE_DATE}T00:00:00`);
+    const defaultFrom = new Date(`${DASHBOARD_BASE_DATE}T00:00:00+08:00`);
+    const defaultTo = new Date(`${dashboardDefaultDateRange(now).to}T00:00:00+08:00`);
     const fromDate = validDate(request.nextUrl.searchParams.get("from"), defaultFrom);
-    const toDate = validDate(request.nextUrl.searchParams.get("to"), now);
-    const exclusiveTo = new Date(toDate);
-    exclusiveTo.setDate(exclusiveTo.getDate() + 1);
+    const toDate = validDate(request.nextUrl.searchParams.get("to"), defaultTo);
+    const exclusiveTo = new Date(toDate.getTime() + 24 * 60 * 60 * 1000);
     const country = request.nextUrl.searchParams.get("country")?.trim() || "";
     const aiLevel = request.nextUrl.searchParams.get("ai_level")?.trim() || "";
 
@@ -126,7 +122,7 @@ export async function GET(request: NextRequest) {
     const activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || "") }));
 
     return NextResponse.json({
-      scope: scopeUserId || "ALL", range: { from: dateKey(fromDate), to: dateKey(toDate) }, filters: overview.filters || { countries: [] },
+      scope: scopeUserId || "ALL", range: { from: dashboardBusinessDateKey(fromDate), to: dashboardBusinessDateKey(toDate) }, filters: overview.filters || { countries: [] },
       totals: { my_customers: totalCustomers, system_customers: account.role === "ADMIN" ? systemCustomersResult?.count ?? 0 : null, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(validCustomersResult.count || 0), intentions: Number(potentialCustomersResult.count || 0), today_followups: Number(todayFollowupsResult.count || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0) },
       distribution, funnel: funnelRows.map((item) => ({ ...item, percentage: percentage(item.value, totalCustomers) })), country_top: countryTop,
       protections: overview.protections || [], followups: todayFollowups, activities,

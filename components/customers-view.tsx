@@ -295,9 +295,10 @@ export function CustomersView() {
       const elevated = Boolean(body?.can_select_owner);
       const fallback = String(body?.profile?.id || "");
       const requested = new URLSearchParams(window.location.search).get("user_id") || fallback;
+      const initialScope = role === "ADMIN" ? requested : elevated && requested !== "all" ? requested : fallback;
       setCurrentRole(role);
       setDefaultScopeUserId(fallback);
-      setScopeUserId(requested);
+      setScopeUserId(initialScope);
       setCanViewAll(elevated);
       setCanExport(role === "ADMIN" || (Array.isArray(body?.profile?.permissions) && body.profile.permissions.includes("customers.export")));
       setUserOptions(elevated && Array.isArray(body.users) ? body.users : []);
@@ -606,7 +607,7 @@ export function CustomersView() {
             <CompactDateRange label="录入日期" fromLabel="录入开始日期" toLabel="录入结束日期" from={fromDate} to={toDate} onFromChange={(value)=>{setFromDate(value);setPage(1)}} onToChange={(value)=>{setToDate(value);setPage(1)}}/>
             <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
             <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
-            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人"><option value="all">归属人：全部用户</option>{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
+            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人">{currentRole === "ADMIN" ? <option value="all">归属人：全部用户</option> : null}{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
             <select value={sourceType} onChange={(event)=>{setSourceType(event.target.value);setSourceBatches([]);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="数据来源"><option value="">全部数据来源</option><option value="AI_ACQUISITION">AI获客</option><option value="IMPORT">批量导入</option><option value="MANUAL">手动新增</option></select>
             <ImportBatchMultiSelect
               className="w-44 shrink-0"

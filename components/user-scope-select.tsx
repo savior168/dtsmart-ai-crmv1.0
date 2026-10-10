@@ -24,6 +24,7 @@ export function UserScopeSelect({
   const [loaded, setLoaded] = useState(false);
   const [elevated, setElevated] = useState(false);
   const [defaultValue, setDefaultValue] = useState("");
+  const [canSelectAll, setCanSelectAll] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
@@ -42,6 +43,7 @@ export function UserScopeSelect({
         setLoaded(true);
         setUsers(Array.isArray(body.users) ? body.users : []);
         setDefaultValue(body.profile.id || "");
+        setCanSelectAll(body.profile.role === "ADMIN");
         if (initializeDefault && elevated && !valueRef.current) {
           // 主管和系统管理员也默认查看自己的数据；只有主动选择时才扩大范围。
           onChangeRef.current(body.profile.id);
@@ -54,13 +56,16 @@ export function UserScopeSelect({
   useEffect(() => {
     if (initializeDefault && loaded && elevated && !value && defaultValue) onChangeRef.current(defaultValue);
   }, [defaultValue, elevated, initializeDefault, loaded, value]);
+  useEffect(() => {
+    if (loaded && elevated && !canSelectAll && value === "all" && defaultValue) onChangeRef.current(defaultValue);
+  }, [canSelectAll, defaultValue, elevated, loaded, value]);
 
   // 普通销售员没有跨用户数据权限，不渲染归属人筛选控件，也避免
   // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
   if (!loaded || !elevated) return null;
   return (
-    <select aria-label="按归属人筛选" value={value || (!initializeDefault ? defaultValue : "")} onChange={(event) => onChange(event.target.value)} className={className}>
-      <option value="all">{filterLabel}：{allLabel}</option>
+    <select aria-label="按归属人筛选" value={(value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? defaultValue : "")} onChange={(event) => onChange(event.target.value)} className={className}>
+      {canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
       {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}
     </select>
   );
