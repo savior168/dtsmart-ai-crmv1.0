@@ -15,6 +15,7 @@ const acquisitionCustomersApi = read("app/api/ai-acquisition/customers/route.ts"
 const poolPage = read("app/customers/pool/page.tsx");
 const poolDeleteApi = read("app/api/customers/public-pool/delete/route.ts");
 const permanentDelete = read("lib/customers/soft-delete.ts");
+const deleteIndexes = read("supabase/migrations/202610100002_customer_delete_lookup_indexes.sql");
 const userApi = read("app/api/admin/users/route.ts");
 const orderApi = read("app/api/orders/route.ts");
 const sidebar = read("components/app-shell.tsx");
@@ -116,7 +117,7 @@ assert.match(poolDeleteApi, /ids\.length > 10[\s\S]*status: 413/, "公海永久�
 assert.match(poolDeleteApi, /statement timeout[\s\S]*status: timedOut \? 503/, "数据库超时不能被错误归类为普通参数错误");
 assert.match(poolView, /const batchSize = 10[\s\S]*offset < customerIds\.length; offset \+= batchSize/, "公海选中大量客户时必须按小批次提交");
 assert.match(poolView, /results\.length !== batch\.length[\s\S]*processedCount \+= batch\.length;[\s\S]*setProcessed\(processedCount\)/, "每批结果必须逐项核对并显示进度");
-assert.match(poolView, /message\.includes\("本批删除超时"\)[\s\S]*await deleteBatch\(batch\.slice\(0, midpoint\)\)/, "仅明确的数据库超时才逐级缩小删除批次");
+assert.doesNotMatch(poolView, /message\.includes\("本批删除超时"\)[\s\S]*await deleteBatch\(batch\.slice\(0, midpoint\)\)/, "数据库超时后结果不明，不得拆批重复提交删除请求");
 assert.match(poolView, /if \(success\)[\s\S]*操作中断。请刷新列表核对/, "部分删除成功后不能误报全部失败或全部成功");
 assert.match(permanentDelete, /quotes[\s\S]*sales_orders[\s\S]*客户已有报价或订单记录/, "存在报价或订单的客户不得物理删除");
 assert.match(customersView, /const crossUserReadOnly = currentRole !== "ADMIN" && canViewAll && scopeUserId !== defaultScopeUserId/, "系统管理员切换归属人后仍须保留客户管理与删除权限");
@@ -282,5 +283,11 @@ assert.match(customerForm, /stage === "FOLLOWING" && !stageFile[\s\S]*stage === 
 assert.match(customerForm, /stage === "DEAL" && result\.status !== "DEAL"[\s\S]*已有客户改为成交/, "重复客户接管不得冒用手动新增免成交凭证例外");
 assert.match(stageWorkflowApi, /\["FOLLOWING", "DEAL"\]\.includes\(status\)[\s\S]*needsEvidence = \["FOLLOWING", "DEAL"\]/, "已有客户无论来源，改意向或成交必须具备联系方式并提交凭证");
 assert.match(customersView, /useState<"done" \| "pending" \| "failed" \| "all">\("all"\)/, "我的客户默认展示全部AI分析状态");
+assert.match(poolView, /const activeRequest = useRef<AbortController \| null>\(null\)[\s\S]*setTimeout\(\(\) => controller\.abort\(\), 30_000\)/, "公海批量删除请求必须有等待上限，不能永久卡在处理中");
+assert.match(poolView, /function stopOrClose\(\)[\s\S]*activeRequest\.current\?\.abort\(\)[\s\S]*onClose=\{stopOrClose\}/, "公海删除进行中必须能手动停止发送后续批次并关闭弹窗");
+assert.doesNotMatch(poolView, /message\.includes\("本批删除超时"\)[\s\S]*deleteBatch\(batch\.slice/, "数据库超时后结果未确认，不得自动拆批重试");
+for (const index of ["ai_acquisition_candidates_staging_customer_idx", "ai_acquisition_candidates_imported_customer_idx", "ai_acquisition_candidates_screening_item_idx", "ai_screening_evidence_customer_idx", "ai_screening_stage_events_customer_idx", "import_rows_customer_idx"]) {
+  assert.ok(deleteIndexes.includes(index), `公海物理删除缺少关联索引：${index}`);
+}
 
 console.log("customer public-pool regression tests passed");

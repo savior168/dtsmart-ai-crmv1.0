@@ -1087,7 +1087,16 @@ function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]
   const [busy, setBusy] = useState(false);
   const [processed, setProcessed] = useState(0);
   const [error, setError] = useState("");
+  const activeRequest = useRef<AbortController | null>(null);
+  const stopped = useRef(false);
   const batchSize = 10;
+
+  function stopOrClose() {
+    if (!busy) return close();
+    stopped.current = true;
+    activeRequest.current?.abort();
+    saved("已停止发送后续删除请求；当前批结果未确认，列表已刷新，请核对后再重试");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1101,22 +1110,23 @@ function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]
     let processedCount = 0;
     try {
       const deleteBatch = async (batch: string[]): Promise<void> => {
+        const controller = new AbortController();
+        activeRequest.current = controller;
+        const timeout = setTimeout(() => controller.abort(), 30_000);
         let body: Awaited<ReturnType<typeof api>>;
         try {
           body = await api("/api/customers/public-pool/delete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ids: batch, reason: reason.trim() }),
+            signal: controller.signal,
           });
         } catch (caught) {
-          const message = caught instanceof Error ? caught.message : "";
-          if (batch.length > 1 && message.includes("本批删除超时")) {
-            const midpoint = Math.floor(batch.length / 2);
-            await deleteBatch(batch.slice(0, midpoint));
-            await deleteBatch(batch.slice(midpoint));
-            return;
-          }
+          if (controller.signal.aborted) throw new Error("请求等待超时，当前批结果未确认；请刷新客户列表核对后重试");
           throw caught;
+        } finally {
+          clearTimeout(timeout);
+          if (activeRequest.current === controller) activeRequest.current = null;
         }
         const results = body.results as Array<{ id: string; ok: boolean; error?: string }> | undefined;
         if (!Array.isArray(results) || results.length !== batch.length || results.some((item, index) => item.id !== batch[index] || typeof item.ok !== "boolean")) throw new Error("删除结果与提交客户不一致");
@@ -1127,6 +1137,7 @@ function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]
         setProcessed(processedCount);
       };
       for (let offset = 0; offset < customerIds.length; offset += batchSize) {
+        if (stopped.current) return;
         await deleteBatch(customerIds.slice(offset, offset + batchSize));
       }
       if (!success) return setError(firstFailure || "所选客户均未删除");
@@ -1134,6 +1145,7 @@ function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]
         ? "已永久删除 " + success + " 家；" + failed + " 家未删除。" + (firstFailure || "请刷新后核对")
         : "已永久删除 " + success + " 家客户");
     } catch (caught) {
+      if (stopped.current) return;
       const message = caught instanceof Error ? caught.message : "删除失败";
       if (success) {
         saved("已删除 " + success + " 家，操作中断。请刷新列表核对其余客户后再重试：" + message);
@@ -1141,11 +1153,11 @@ function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]
         setError(message + "；请刷新列表核对后重试");
       }
     } finally {
-      setBusy(false);
+      if (!stopped.current) setBusy(false);
     }
   }
 
-  return <AppDialog title="永久删除公海客户" description={"将永久删除所选 " + customerIds.length + " 家客户。已有报价或订单的客户会被系统阻止删除。"} onClose={() => { if (!busy) close(); }} width="max-w-md">
+  return <AppDialog title="永久删除公海客户" description={"将永久删除所选 " + customerIds.length + " 家客户。已有报价或订单的客户会被系统阻止删除。"} onClose={stopOrClose} width="max-w-md">
     <form onSubmit={submit}>
       <div className="rounded-xl bg-rose-50 p-4 text-sm leading-6 text-rose-800">此操作不可恢复。系统不会根据AI低分自动删除，只有您明确选择并确认的客户才会被处理。</div>
       <label className="mt-4 block">
@@ -1154,7 +1166,7 @@ function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]
       </label>
       {busy ? <p role="status" className="mt-3 text-sm text-slate-600">已处理 {processed} / {customerIds.length} 家，每批最多 10 家</p> : null}
       {error ? <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
-      <SharedDialogActions busy={busy} onCancel={() => { if (!busy) close(); }} confirmLabel="确认永久删除" tone="danger"/>
+      <SharedDialogActions busy={busy} onCancel={stopOrClose} confirmLabel="确认永久删除" tone="danger"/>
     </form>
   </AppDialog>;
 }
