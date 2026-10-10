@@ -41,4 +41,10 @@ assert.match(api, /todayFollowupsQuery = todayFollowupsQuery\.in\("country", cou
 assert.match(ui, /params\.set\("country", country\)/, "明细跳转须保留所选国家");
 const followups = await readFile(new URL("../components/followups-view.tsx", import.meta.url), "utf8");
 assert.match(followups, /searchParams\.getAll\("country"\)/, "跟进明细须回显工作台传入的国家");
+const protection = await readFile(new URL("../app/api/customers/protection/route.ts", import.meta.url), "utf8");
+const protectionPanel = await readFile(new URL("../components/customer-workspace-panels-v2.tsx", import.meta.url), "utf8");
+assert.match(ui, /tab=protection&dashboard=1/, "保护到期卡片须跳转同口径明细");
+assert.match(protectionPanel, /params\.set\("dashboard", "1"\)/, "保护明细须向接口传递工作台筛选模式");
+assert.match(protection, /item\.status === "ACTIVE" && expires >= dayStart\.getTime\(\) && expires < dayEnd\.getTime\(\)/, "工作台保护明细须仅含未来 7 天有效记录");
+assert.match(protection, /countryValues\.has\(String\(customer\?\.country \|\| ""\)\)/, "工作台保护明细须保留所选国家");
 console.log("工作台快捷范围、北京时间边界及主管客户范围测试通过。");

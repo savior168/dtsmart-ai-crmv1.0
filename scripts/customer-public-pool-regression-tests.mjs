@@ -164,7 +164,7 @@ assert.match(protectionApi, /protectionsQuery[\s\S]*\.in\("status", \["ACTIVE", 
 assert.doesNotMatch(protectionApi, /status\.eq\.RELEASED|\.eq\("action", "RELEASE"\)/, "主动释放和历史释放记录不得混入保护到期与续期");
 assert.match(releaseHistoryApi, /requestedOwnerId[\s\S]*source_owner_id[\s\S]*\.eq\("action", "RELEASE"\)/, "主动释放历史必须按原归属人授权查询，且与续期队列分离");
 assert.doesNotMatch(releaseHistoryApi, /phone|whatsapp|email,website|contact_name/, "释放历史不得返回客户联系方式");
-assert.match(protectionApi, /select\(summaryOnly \? "id" : "\*"\)\.is\("deleted_at", null\)[\s\S]*if \(summaryOnly\)[\s\S]*customers\.length/, "保护数量必须在排除已删除或不存在客户后统计");
+assert.match(protectionApi, /select\(summaryOnly && !dashboardMode \? "id" : "\*"\)\.is\("deleted_at", null\)[\s\S]*if \(summaryOnly && !dashboardMode\)[\s\S]*customers\.length/, "常规保护数量必须在排除已删除或不存在客户后统计");
 const releaseIntegrity = read("supabase/migrations/202609070001_customer_release_integrity.sql");
 assert.match(releaseIntegrity, /customers_claimed_pool_requires_owner[\s\S]*pool_status is distinct from 'CLAIMED' or owner_id is not null/, "数据库必须阻止无归属客户处于已认领公海状态");
 assert.match(releaseIntegrity, /release_customer[\s\S]*owner_id=null,owner_user_id=null,status='UNCLAIMED'[\s\S]*pool_status='AVAILABLE'/, "主动释放必须原子清空归属并恢复为公海待认领状态");

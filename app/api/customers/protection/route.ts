@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uploadWorkflowEvidence, validateWorkflowEvidence } from "@/lib/customer-workflow-evidence";
+import { countryFilterRawValues } from "@/lib/countries";
 
 type CustomerRow = Record<string, unknown> & { id: string; created_at?: string };
 
@@ -10,8 +11,18 @@ export async function GET(request: NextRequest) {
     const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
+    const dashboardMode = request.nextUrl.searchParams.get("dashboard") === "1";
+    const dashboardFrom = request.nextUrl.searchParams.get("from") || "";
+    const dashboardTo = request.nextUrl.searchParams.get("to") || "";
+    const dashboardCountry = request.nextUrl.searchParams.get("country") || "";
+    const dashboardStart = Date.parse(`${dashboardFrom}T00:00:00+08:00`);
+    const dashboardEnd = Date.parse(`${dashboardTo}T00:00:00+08:00`) + 86400000;
+    if (dashboardMode && (!/^\d{4}-\d{2}-\d{2}$/.test(dashboardFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dashboardTo)
+      || !Number.isFinite(dashboardStart) || !Number.isFinite(dashboardEnd) || dashboardEnd <= dashboardStart)) {
+      return NextResponse.json({ error: "工作台日期范围无效" }, { status: 400 });
+    }
     const now = new Date();
-    await admin.rpc("refresh_expired_public_customers");
+    if (!dashboardMode) await admin.rpc("refresh_expired_public_customers");
     const renewalWindowEnd = new Date(now.getTime() + 15 * 86400000).toISOString();
     const cutoff = new Date(now.getTime() - 90 * 86400000).toISOString();
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
@@ -22,11 +33,11 @@ export async function GET(request: NextRequest) {
       .lte("expire_date", renewalWindowEnd)
       .order("start_date", { ascending: false });
     let expiredQuery = admin.from("customers").select("id,created_at,owner_id,status").is("deleted_at", null).not("owner_id", "is", null).lt("created_at", cutoff).neq("status", "DEAL");
-    if (scopeUserId) {
+    if (scopeUserId && !dashboardMode) {
       protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
       expiredQuery = expiredQuery.eq("owner_id", scopeUserId);
     }
-    const [protections, expired] = await Promise.all([protectionsQuery, expiredQuery]);
+    const [protections, expired] = await Promise.all([protectionsQuery, dashboardMode ? Promise.resolve({ data: [], error: null }) : expiredQuery]);
     if (protections.error) throw protections.error;
     if (expired.error) throw expired.error;
     // Legacy QUOTE-stage customers are now intention customers, but their
@@ -45,11 +56,11 @@ export async function GET(request: NextRequest) {
     const customerIds = Array.from(new Set([...(protections.data || []).map((item) => item.customer_id), ...unprotectedExpired.map((item) => item.id)]));
     const customers: CustomerRow[] = [];
     for (let offset = 0; offset < customerIds.length; offset += 200) {
-      const page = await admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).in("id", customerIds.slice(offset, offset + 200));
+      const page = await admin.from("customers").select(summaryOnly && !dashboardMode ? "id" : "*").is("deleted_at", null).in("id", customerIds.slice(offset, offset + 200));
       if (page.error) throw page.error;
       customers.push(...((page.data || []) as CustomerRow[]));
     }
-    if (summaryOnly) return NextResponse.json({ count: customers.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
+    if (summaryOnly && !dashboardMode) return NextResponse.json({ count: customers.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     const ownerIds = Array.from(new Set([
       ...customers.map((customer) => String(customer.owner_id || "")),
       ...(protections.data || []).map((item) => String(item.owner_id || "")),
@@ -61,7 +72,7 @@ export async function GET(request: NextRequest) {
     const byCustomer = new Map<string, Record<string, unknown>>();
     for (const item of protections.data || []) {
       const customer = customerById.get(item.customer_id); if (!customer) continue;
-      if (byCustomer.has(item.customer_id)) continue;
+      if (!dashboardMode && byCustomer.has(item.customer_id)) continue;
       const currentOwnerId = String(customer.owner_id || "");
       const expiry = item.expire_date ? new Date(item.expire_date).getTime() : 0;
       const isOwnCurrentCustomer = currentOwnerId === account.id && item.owner_id === account.id;
@@ -72,9 +83,9 @@ export async function GET(request: NextRequest) {
         : account.id !== item.owner_id
           ? "跨用户数据仅供查看"
           : !inRenewalWindow ? (now.getTime() < expiry - 15 * 86400000 ? "到期前15天开放续期" : "3天续期宽限期已结束") : null;
-      byCustomer.set(item.customer_id, { ...item, release_type: "AUTO", can_renew: canRenew, renewal_block_reason: renewalBlockReason, customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
+      byCustomer.set(dashboardMode ? item.id : item.customer_id, { ...item, release_type: "AUTO", can_renew: canRenew, renewal_block_reason: renewalBlockReason, customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
     }
-    for (const customer of unprotectedExpired) {
+    for (const customer of dashboardMode ? [] : unprotectedExpired) {
       if (byCustomer.has(customer.id)) continue;
       const fullCustomer = customerById.get(customer.id) || customer;
       const expireDate = new Date(new Date(customer.created_at).getTime() + 90 * 86400000);
@@ -82,7 +93,22 @@ export async function GET(request: NextRequest) {
       const inGrace = now.getTime() <= expireDate.getTime() + 3 * 86400000;
       byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, owner_id: currentOwnerId, expire_date: expireDate.toISOString(), status: "EXPIRED", release_type: "AUTO", extension_count: 0, can_renew: currentOwnerId === account.id && inGrace, renewal_block_reason: currentOwnerId !== account.id ? "跨用户数据仅供查看" : inGrace ? null : "3天续期宽限期已结束", customer: { ...fullCustomer, owner: ownerById.get(currentOwnerId) || null } });
     }
-    const data = Array.from(byCustomer.values()).sort((a, b) => String(b.expire_date || "").localeCompare(String(a.expire_date || "")));
+    let data = Array.from(byCustomer.values()).sort((a, b) => String(b.expire_date || "").localeCompare(String(a.expire_date || "")));
+    if (dashboardMode) {
+      const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart.getTime() + 8 * 86400000);
+      const countryValues = dashboardCountry ? new Set(countryFilterRawValues([dashboardCountry])) : null;
+      data = data.filter((item) => {
+        const customer = item.customer as Record<string, unknown> | undefined;
+        const expires = new Date(String(item.expire_date || "")).getTime();
+        const created = new Date(String(customer?.created_at || "")).getTime();
+        return item.status === "ACTIVE" && expires >= dayStart.getTime() && expires < dayEnd.getTime()
+          && created >= dashboardStart && created < dashboardEnd && customer?.status != null && customer.status !== "RELEASED"
+          && (!scopeUserId || customer?.owner_id === scopeUserId)
+          && (!countryValues || countryValues.has(String(customer?.country || "")));
+      });
+    }
+    if (summaryOnly) return NextResponse.json({ count: data.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     return NextResponse.json({ data, count: data.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "保护到期数据加载失败";
