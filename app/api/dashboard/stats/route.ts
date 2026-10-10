@@ -3,6 +3,7 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { normalizeReportCountries } from "@/lib/reports/sales";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DASHBOARD_BASE_DATE } from "@/lib/dashboard-date-range";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ totals: { today_followups: followups.count || 0, expiring_protection: protections.count || 0 } }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
-    const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+    const defaultFrom = new Date(`${DASHBOARD_BASE_DATE}T00:00:00`);
     const fromDate = validDate(request.nextUrl.searchParams.get("from"), defaultFrom);
     const toDate = validDate(request.nextUrl.searchParams.get("to"), now);
     const exclusiveTo = new Date(toDate);

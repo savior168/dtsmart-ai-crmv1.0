@@ -6,11 +6,15 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
 const { CustomerContactSummary } = await jiti.import(resolve("components/customer-contact-summary.tsx"));
-const { formatPhoneInternational } = await jiti.import(resolve("lib/contacts/phone-normalization.ts"));
+const { formatPhoneInternational, normalizePhoneInternational } = await jiti.import(resolve("lib/contacts/phone-normalization.ts"));
 const render = (customer, display = "phone", source = "all") => renderToStaticMarkup(createElement(CustomerContactSummary, { customer: { country: "GB", ...customer }, source, display }));
 const visibleText = (html) => html.replace(/<[^>]*>/g, "");
 const phone = (value, type = "PHONE", status = "NEW_VERIFIED", channel = "website") => ({ type, value_raw: value, verification_status: status, source_channel: channel, exact_source_url: "https://example.com/contact" });
 const first = "+447428236591", second = "+441142768352", third = "+441915634827";
+assert.equal(normalizePhoneInternational("+44 (0)1173 250 336", "GB"), "+441173250336", "页面应将国际写法中的 (0) 视为可选国内冠码");
+const legacyDuplicates = render({ website_phone: "+44 (0)1173 250 336, +441173250336" });
+assert.ok(visibleText(legacyDuplicates).includes(formatPhoneInternational("+441173250336", "GB")), "页面需展示拆分后的官网电话");
+assert.doesNotMatch(legacyDuplicates, /另1项/, "同一官网电话的不同国际写法不应重复展示");
 
 const several = render({ verified_contacts: [phone(second), phone(first, "WHATSAPP"), phone(third)] });
 assert.ok(visibleText(several).includes(formatPhoneInternational(first, "GB")), "首个号码必须完整呈现，并保留已核验WhatsApp优先排序");

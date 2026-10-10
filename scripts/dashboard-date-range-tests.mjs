@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
+const { DASHBOARD_BASE_DATE, dashboardDatePresetRange } = await jiti.import("../lib/dashboard-date-range.ts");
+const day = new Date(2026, 9, 10);
+assert.equal(DASHBOARD_BASE_DATE, "2026-08-01");
+assert.deepEqual(dashboardDatePresetRange("HISTORY", day), { from: "2026-08-01", to: "2026-10-10" });
+assert.deepEqual(dashboardDatePresetRange("WEEK", day), { from: "2026-10-05", to: "2026-10-10" });
+assert.deepEqual(dashboardDatePresetRange("MONTH", day), { from: "2026-10-01", to: "2026-10-10" });
+assert.deepEqual(dashboardDatePresetRange("QUARTER", new Date(2026, 8, 30)), { from: "2026-07-01", to: "2026-09-30" });
+assert.deepEqual(dashboardDatePresetRange("WEEK", new Date(2026, 9, 11)), { from: "2026-10-05", to: "2026-10-11" }, "周日仍应属于当周");
+const api = await readFile(new URL("../app/api/dashboard/stats/route.ts", import.meta.url), "utf8");
+const ui = await readFile(new URL("../components/crm-dashboard.tsx", import.meta.url), "utf8");
+assert.match(api, /new Date\(`\$\{DASHBOARD_BASE_DATE\}T00:00:00`\)/, "接口省略日期时须与页面默认口径一致");
+assert.match(ui, /dashboardDatePresetRange\("HISTORY"\)/, "工作台初始与重置须使用历史至今范围");
+for (const label of ["历史至今", "本周", "本月", "本季度"]) assert.ok(ui.includes(label), `缺少快捷范围：${label}`);
+console.log("工作台默认日期及本周、本月、本季度快捷范围测试通过。");

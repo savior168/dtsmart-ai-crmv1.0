@@ -1,6 +1,8 @@
 import { countryInfo } from "@/lib/countries";
 import { displayCustomerName } from "@/lib/customer-display";
 import { exportPublicChannelForUrl } from "@/lib/customers/export-public-channels";
+import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
+import { splitStoredContactValues } from "@/lib/contacts/stored-values";
 import type { PublicChannel } from "@/lib/public-url";
 import { customerSourceLabel } from "@/lib/customers/source-display";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
@@ -184,37 +186,39 @@ function publicExportLink(value: unknown) {
   }
 }
 
-function contactKey(kind: ContactKind, value: string) {
-  return kind === "EMAIL" ? value.toLowerCase() : value.replace(/\D/g, "") || value.toLowerCase();
+function contactKey(kind: ContactKind, value: string, country?: string | null) {
+  return kind === "EMAIL" ? value.toLowerCase() : normalizePhoneInternational(value, country).replace(/\D/g, "") || value.replace(/\D/g, "") || value.toLowerCase();
 }
 
 function verifiedContactEntries(customer: Record<string, unknown>, kind: ContactKind) {
   const entries: Array<{ value: string; sourceUrl: string | null }> = [];
+  const country = typeof customer.country === "string" ? customer.country : null;
   const seen = new Set<string>();
   const add = (value: unknown, sourceUrl?: unknown) => {
     const raw = String(value || "").trim();
     if (!raw) return;
-    const key = contactKey(kind, raw);
+    const key = contactKey(kind, raw, country);
     const exact = String(sourceUrl || "").trim();
     const validSource = /^https?:\/\//i.test(exact) ? exact : null;
     if (seen.has(key)) {
-      const existing = entries.find((entry) => contactKey(kind, entry.value) === key);
+      const existing = entries.find((entry) => contactKey(kind, entry.value, country) === key);
       if (existing && !existing.sourceUrl) existing.sourceUrl = validSource;
       return;
     }
     seen.add(key);
-    entries.push({ value: raw, sourceUrl: validSource });
+    entries.push({ value: kind === "EMAIL" ? raw : formatPhoneInternational(raw, country), sourceUrl: validSource });
   };
   add(customer[kind === "PHONE" ? "phone" : kind === "EMAIL" ? "email" : "whatsapp"]);
   const contacts = Array.isArray(customer.verified_contacts) ? customer.verified_contacts as VerifiedContact[] : [];
   for (const item of contacts) {
-    if (String(item.type || "").toUpperCase() !== kind || !["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || ""))) continue;
+    if (String(item.type || "").toUpperCase() !== kind || !["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL"].includes(String(item.verification_status || ""))) continue;
     add(item.value_raw, item.exact_source_url);
   }
   // Compatibility fields are legacy collected values. They remain visible,
   // but are deliberately not linked because no exact evidence page was saved.
-  if (kind === "PHONE") add(customer.website_phone);
-  if (kind === "EMAIL") add(customer.website_email);
+  if (kind === "PHONE" || kind === "EMAIL") {
+    for (const value of splitStoredContactValues(customer[kind === "PHONE" ? "website_phone" : "website_email"] as string | null | undefined, kind, country)) add(value);
+  }
   return entries;
 }
 

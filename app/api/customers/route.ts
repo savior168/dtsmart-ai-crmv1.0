@@ -57,6 +57,31 @@ const customerListFields = [
 ].join(",");
 const customerExportFields = [customerListFields, "ai_reason", "business_scope", "business_relevance", "customer_value", "followup_suggestion", "company_scale"].join(",");
 
+async function loadCustomerContacts(customerIds: string[]) {
+  // An export page can contain 500 customers and more than PostgREST's
+  // default 1,000 contact rows. Fetch every page instead of silently losing
+  // phone/WhatsApp values beyond that limit.
+  const batches = Array.from({ length: Math.ceil(customerIds.length / 100) }, (_, index) => customerIds.slice(index * 100, (index + 1) * 100));
+  const admin = createAdminClient();
+  const pages = await Promise.all(batches.map(async (ids) => {
+    const contacts: Array<{ customer_id: string; type: string; value_raw: string; source_channel: string | null; exact_source_url: string | null; verification_status: string }> = [];
+    for (let offset = 0;; offset += 1000) {
+      const { data, error } = await admin.from("customer_contacts")
+        .select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status")
+        .in("customer_id", ids)
+        .in("verification_status", ["NEW_VERIFIED", "MATCHED_ORIGINAL", "SOURCE_CONFIRMED", "CONFLICTING_VERIFIED"])
+        .order("captured_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + 999);
+      if (error) throw error;
+      contacts.push(...(data || []));
+      if ((data || []).length < 1000) break;
+    }
+    return contacts;
+  }));
+  return pages.flat();
+}
+
 function postgrestInValue(value: string) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
@@ -303,7 +328,7 @@ export async function GET(request: NextRequest) {
       const [followupRows, creators, verifiedContacts, scaleEvidence] = await Promise.all([
         supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id)),
         userIds.length ? createAdminClient().from("users").select("id,name,email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
-        createAdminClient().from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status").in("customer_id", responseData.map((item) => item.id)).in("verification_status", ["NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }),
+        loadCustomerContacts(responseData.map((item) => item.id)),
         exportMode && account.role === "ADMIN"
           ? createAdminClient().from("customers").select("id,company_scale_evidence").in("id", responseData.map((item) => item.id))
           : Promise.resolve({ data: [], error: null }),
@@ -312,7 +337,7 @@ export async function GET(request: NextRequest) {
       const creatorById = new Map((creators.data || []).map((item) => [item.id, item]));
       const scaleEvidenceById = new Map((scaleEvidence.data || []).map((item) => [item.id, item.company_scale_evidence]));
       const contactsByCustomer = new Map<string, unknown[]>();
-      if (!verifiedContacts.error) for (const contact of verifiedContacts.data || []) {
+      for (const contact of verifiedContacts) {
         const current = contactsByCustomer.get(contact.customer_id) || [];
         current.push(contact);
         contactsByCustomer.set(contact.customer_id, current);

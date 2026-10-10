@@ -3,6 +3,7 @@
 import { Check, ChevronDown, Copy, Mail, Phone, TriangleAlert } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
+import { splitStoredContactValues } from "@/lib/contacts/stored-values";
 
 type VerifiedContact = { type?: string | null; value_raw?: string | null; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null; captured_at?: string | null };
 type ContactCustomer = { source?: string | null; country?: string | null; phone?: string | null; whatsapp?: string | null; email?: string | null; website?: string | null; google_url?: string | null; website_phone?: string | null; website_email?: string | null; verified_contacts?: VerifiedContact[] | null };
@@ -30,21 +31,6 @@ function originalSourceLabel(source?: string | null) {
 function ConflictMarker() {
   const label = "来源存在冲突，待人工核对";
   return <span role="img" aria-label={label} title={label} tabIndex={0} className="inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-200"><TriangleAlert size={11}/></span>;
-}
-function splitStoredContactValues(value: string | null | undefined, type: "PHONE" | "EMAIL", country?: string | null) {
-  const raw = String(value || "").trim();
-  if (!raw) return [];
-  const chunks = raw
-    .split(/[,;|\r\n]+|(?=\s+\d+\s*[:：]\s*)/)
-    .map((item) => item.replace(/^\s*\d+\s*[:：]\s*/, "").trim())
-    .filter(Boolean);
-  const unique = new Map<string,string>();
-  for (const chunk of chunks) {
-    const normalized = type === "EMAIL" ? chunk.toLowerCase() : normalizePhoneInternational(chunk, country);
-    if (!normalized || (type === "EMAIL" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized))) continue;
-    if (!unique.has(normalized)) unique.set(normalized, type === "PHONE" ? normalized : chunk);
-  }
-  return [...unique.values()];
 }
 function sourceGroup(item: DisplayContact, customerSource?: string | null) {
   const verifiedChannel = item.verifiedBy || item.channelLabel || "";

@@ -7,8 +7,15 @@ import { createWorkbookFile } from "../lib/xlsx-export.ts";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { buildCustomerWorkbookSheets } = await jiti.import("../lib/customer-export.ts");
+const { formatPhoneInternational, normalizePhoneInternational } = await jiti.import("../lib/contacts/phone-normalization.ts");
 const { exportOfficialWebsiteText, exportPublicChannelForUrl, legacyWebsiteExportPatch } = await jiti.import("../lib/customers/export-public-channels.ts");
 const customerExport = await readFile(new URL("../lib/customer-export.ts", import.meta.url), "utf8");
+const customerApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
+const customerDetail = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
+assert.match(customerDetail, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*canChangeStage=\{data\.can_change_stage\}[\s\S]*canSalesOperate=\{data\.can_sales_operate\}/, "编辑客户应回显当前阶段和跟进状态，并只为有权限的用户提供对应流程入口");
+assert.match(customerDetail, /阶段变更需填写原因及必要凭证；跟进状态通过真实跟进记录更新/, "编辑表单不能绕过阶段凭证和跟进留痕");
+assert.match(customerApi, /async function loadCustomerContacts[\s\S]*\.range\(offset, offset \+ 999\)[\s\S]*if \(error\) throw error/, "导出联系号码必须分页读取完整且读取失败时不能静默漏导");
+assert.match(customerApi, /loadCustomerContacts\(responseData\.map\(\(item\) => item\.id\)\)/, "客户列表和导出必须使用完整的已核验联系号码");
 assert.match(customerExport, /name: "AI分析依据"/, "导出必须保留AI依据页");
 assert.match(customerExport, /"company_name", "ai_score", "industry", "country"/, "默认导出必须在AI评分后显示所属行业");
 assert.match(customerExport, /source_batch: "来源批次"/, "导出必须包含可追溯的来源批次");
@@ -78,8 +85,8 @@ assert.equal(exportedHeaders.filter((header) => header === "邮箱").length, 1, 
 assert.equal(exportedHeaders.filter((header) => header === "电话号码").length, 1, "电话原始值与AI采集值应合并为一列");
 assert.equal(exportedHeaders.filter((header) => header === "WhatsApp").length, 1, "WhatsApp原始值与AI采集值应合并为一列");
 assert.equal(exportedHeaders.some((header) => header.startsWith("AI采集")), false, "不得再出现重复的AI采集联系方式列");
-assert.match(cell("电话号码").v, /\+44 44 7700 900123[\s\S]*\+44 30 1234 5678/, "电话号码必须保留原始及AI核验号码");
-assert.match(cell("WhatsApp").v, /\+44 7700 900456[\s\S]*\+44 7700 900999/, "WhatsApp必须保留原始及AI核验号码");
+assert.deepEqual(cell("电话号码").v.split("\n").slice(0, 2), [formatPhoneInternational(customer.phone, "GB"), formatPhoneInternational("+44 30 1234 5678", "GB")], "电话号码必须保留原始及AI核验号码，并按页面格式显示");
+assert.equal(cell("WhatsApp").v, [customer.whatsapp, "+44 7700 900999"].map((value) => formatPhoneInternational(value, "GB")).join("\n"), "WhatsApp必须保留原始及AI核验号码，并按页面格式显示");
 assert.match(cell("邮箱").v, /hello@example.com[\s\S]*sales@example.com/, "邮箱必须保留原始及AI核验地址");
 assert.equal(cell("官网电话").v, customer.website_phone, "明确选择的官网电话不得被静默丢弃");
 assert.equal(cell("邮箱").l, undefined, "混合原始及AI邮箱不得错误链接到单一核验来源");
@@ -94,8 +101,29 @@ const matchedPhone = { ...customer, phone: "+44 30 1234 5678", whatsapp: null, e
 const matchedSheet = buildCustomerWorkbookSheets([matchedPhone], { columns: ["company_name"], includeAllContactChannels: true })[0];
 const matchedWorkbook = XLSX.read(createWorkbookFile([matchedSheet]), { type: "buffer", cellStyles: true });
 const matchedPhoneCell = matchedWorkbook.Sheets["客户清单"][XLSX.utils.encode_cell({ r: 1, c: matchedSheet.rows[0].indexOf("电话号码") })];
-assert.equal(matchedPhoneCell.v, "+44 30 1234 5678", "相同的原始与核验号码只应导出一次");
+assert.equal(matchedPhoneCell.v, formatPhoneInternational("+44 30 1234 5678", "GB"), "相同的原始与核验号码只应导出一次");
 assert.equal(matchedPhoneCell.l?.Target, "https://example.com/contact", "原始号码与核验号码相同时仍保留精确来源链接");
+assert.equal(normalizePhoneInternational("+44 (0)1173 250 336", "GB"), "+441173250336", "国际写法中的可选本地前缀 (0) 不是号码的一部分");
+const legacyNumbers = buildCustomerWorkbookSheets([{
+  id: "legacy-numbers", company_name: "旧式官网号码", country: "GB",
+  website_phone: "+44 (0)1173 250 336, +441173250336",
+  verified_contacts: [
+    { type: "PHONE", value_raw: "+44 (0)1173 250 336", verification_status: "NEW_VERIFIED" },
+    { type: "PHONE", value_raw: "+441173250336", verification_status: "NEW_VERIFIED" },
+    { type: "WHATSAPP", value_raw: "+44 7700 900123", verification_status: "NEW_VERIFIED" },
+    { type: "WHATSAPP", value_raw: "+44 7700 900999", verification_status: "CONFLICTING_VERIFIED" },
+  ],
+}], { columns: ["company_name"], includeAllContactChannels: true })[0];
+const legacyRow = Object.fromEntries(legacyNumbers.rows[0].map((header, index) => [header, legacyNumbers.rows[1][index]]));
+assert.equal(legacyRow["电话号码"], formatPhoneInternational("+441173250336", "GB"), "拆分多个官网号码并按国际号码去重，不得把整段文字当作一个电话号码");
+assert.equal(legacyRow["WhatsApp"], formatPhoneInternational("+44 7700 900123", "GB"), "有冲突的号码不能静默当作已核验 WhatsApp 导出");
+const sameNumberTwoChannels = buildCustomerWorkbookSheets([{
+  id: "two-channels", company_name: "同号双渠道", country: "GB", phone: "+447700900123", whatsapp: "+44 7700 900123",
+  verified_contacts: [{ type: "PHONE", value_raw: "+44 7700 900123", verification_status: "NEW_VERIFIED" }],
+}], { columns: ["company_name"], includeAllContactChannels: true })[0];
+const sameChannelRow = Object.fromEntries(sameNumberTwoChannels.rows[0].map((header, index) => [header, sameNumberTwoChannels.rows[1][index]]));
+assert.equal(sameChannelRow["电话号码"], formatPhoneInternational("+447700900123", "GB"), "同一电话的原始与核验记录只导出一次");
+assert.equal(sameChannelRow["WhatsApp"], formatPhoneInternational("+447700900123", "GB"), "同号若也是 WhatsApp 仍须保留独立渠道列");
 for (const [label, target] of [
   ["官网", customer.website], ["Google Maps", customer.google_url],
   ["Facebook", customer.facebook_url], ["Instagram", customer.instagram_url],

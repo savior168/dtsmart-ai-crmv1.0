@@ -12,12 +12,18 @@ export function isDateLikeContactValue(value?: string | null) {
 export function normalizePhoneInternational(value?: string | null, country?: string | null) {
   const raw = String(value || "").replace(/(?:ext\.?|extension|分机)\s*\d+$/i, "").trim();
   if (!raw || /[A-Za-z@]/.test(raw) || isDateLikeContactValue(raw)) return "";
-  let digits = raw.replace(/\D/g, "");
-  if (digits.length < 7 || digits.length > 15 || /^(\d)\1{6,}$/.test(digits) || /0123456789|1234567890|9876543210/.test(digits)) return "";
-  if (raw.startsWith("+")) return `+${digits}`;
-  if (digits.startsWith("00")) return `+${digits.slice(2)}`;
   const isoCode = countryInfo(country).code || String(country || "").trim().toUpperCase();
   const code = dialCodes[isoCode];
+  // In international notation the bracketed (0) is a domestic trunk prefix,
+  // not a dialable digit: +44 (0)117 and +44117 are the same number.
+  const suffix = code && raw.startsWith(code) ? raw.slice(code.length) : "";
+  const cleanRaw = code && /^\s*\(0\)/.test(suffix)
+    ? `${code}${suffix.replace(/^\s*\(0\)\s*/, "")}`
+    : raw;
+  let digits = cleanRaw.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15 || /^(\d)\1{6,}$/.test(digits) || /0123456789|1234567890|9876543210/.test(digits)) return "";
+  if (cleanRaw.startsWith("+")) return `+${digits}`;
+  if (digits.startsWith("00")) return `+${digits.slice(2)}`;
   if (!code) return digits;
   if (digits.startsWith(code.slice(1))) return `+${digits}`;
   digits = digits.replace(/^0+/, "");
