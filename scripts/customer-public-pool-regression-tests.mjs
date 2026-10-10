@@ -279,6 +279,7 @@ assert.match(poolView, /row\.last_release[\s\S]*title=\{`最近一次释放[\s\S
 const stageMigration = read("supabase/migrations/202610100001_remove_quote_customer_stage.sql");
 const stageWorkflowApi = read("app/api/customers/[id]/workflow/route.ts");
 assert.match(stageMigration, /update public\.customers set status = 'FOLLOWING' where status = 'QUOTE'/, "旧报价中客户阶段应迁移为意向客户，保留其业务单据");
+assert.match(stageMigration, /disable trigger customers_set_updated_at;[\s\S]*update public\.customers set status = 'FOLLOWING' where status = 'QUOTE';[\s\S]*enable trigger customers_set_updated_at;/, "阶段数据迁移应保留原更新时间，避免污染最近动态与排序");
 assert.match(stageMigration, /customers_no_quote_stage_check check \(status <> 'QUOTE'\)/, "数据库应禁止重新写入报价中客户阶段");
 assert.match(customersApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)[\s\S]*source: "MANUAL", status: requestedStage/, "手动新增只允许直接选择潜在或成交；意向必须走凭证变更");
 assert.match(customerForm, /stage === "FOLLOWING" && !stageFile[\s\S]*stage === "DEAL" \? "DEAL" : "CLAIMED"/, "手动新增意向需上传凭证，手动新增成交可直接保存");

@@ -1,9 +1,17 @@
 begin;
 
+-- A short lock timeout makes this migration fail safely instead of waiting
+-- indefinitely behind a busy customer table. Run in a reviewed window.
+set local lock_timeout = '5s';
+
 -- QUOTE remains a quotation-document concept, not a customer stage. Preserve
 -- existing quotation records, protection expiry, status history and audit
--- trails; only the live customer stage is folded into FOLLOWING.
+-- trails; only the live customer stage is folded into FOLLOWING. Preserve each
+-- customer's original updated_at so this administrative migration does not
+-- appear as new sales activity or change recency-based ordering.
+alter table public.customers disable trigger customers_set_updated_at;
 update public.customers set status = 'FOLLOWING' where status = 'QUOTE';
+alter table public.customers enable trigger customers_set_updated_at;
 
 alter table public.customers
   add constraint customers_no_quote_stage_check check (status <> 'QUOTE');
