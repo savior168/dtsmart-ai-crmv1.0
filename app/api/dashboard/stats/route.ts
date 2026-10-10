@@ -3,6 +3,7 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { normalizeReportCountries } from "@/lib/reports/sales";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { DASHBOARD_BASE_DATE, dashboardBusinessDateKey, dashboardDefaultDateRange } from "@/lib/dashboard-date-range";
 
 type CountRow = { grade?: string; name?: string; count: number };
@@ -62,13 +63,14 @@ export async function GET(request: NextRequest) {
     const toDate = validDate(request.nextUrl.searchParams.get("to"), defaultTo);
     const exclusiveTo = new Date(toDate.getTime() + 24 * 60 * 60 * 1000);
     const country = request.nextUrl.searchParams.get("country")?.trim() || "";
+    const countryValues = country ? countryFilterRawValues([country]) : [];
     const aiLevel = request.nextUrl.searchParams.get("ai_level")?.trim() || "";
 
     // Keep aggregation in Postgres. The former route copied every matching
     // customer into the application process and could hit statement_timeout.
     const { data, error } = await supabase.rpc("dashboard_overview", {
       p_from: fromDate.toISOString(), p_to: exclusiveTo.toISOString(),
-      p_scope_user_id: scopeUserId, p_country: country || null, p_ai_level: aiLevel || null,
+      p_scope_user_id: scopeUserId, p_country: countryValues.length ? countryValues.join("\u001f") : null, p_ai_level: aiLevel || null,
     });
     if (error) throw new Error(error.message);
     const overview = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
@@ -85,15 +87,15 @@ export async function GET(request: NextRequest) {
       let query = supabase.from("customers").select("id", { count: "exact", head: true })
         .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
-      if (country) query = query.ilike("country", `%${country.replace(/[\\%_]/g, "\\\\$&")}%`);
+      if (countryValues.length) query = query.in("country", countryValues);
       if (aiLevel) query = query.eq("ai_level", aiLevel);
       return query;
     };
     let validCustomersQuery = supabase.from("customers").select("id", { count: "exact", head: true })
-      .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString())
-      .eq("ai_screening_done", true).eq("is_target_customer", true);
+      .is("deleted_at", null).not("owner_id", "is", null).neq("status", "RELEASED").gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString())
+      .eq("ai_status", "COMPLETED").eq("ai_screening_done", true).eq("is_target_customer", true);
     if (scopeUserId) validCustomersQuery = validCustomersQuery.eq("owner_id", scopeUserId);
-    if (country) validCustomersQuery = validCustomersQuery.ilike("country", `%${country.replace(/[\\%_]/g, "\\\\$&")}%`);
+    if (countryValues.length) validCustomersQuery = validCustomersQuery.in("country", countryValues);
     if (aiLevel) validCustomersQuery = validCustomersQuery.eq("ai_level", aiLevel);
     const followupDay = followupDayBounds(now);
     let todayFollowupsQuery = followupReader.from("customer_followup_queue")
@@ -101,6 +103,7 @@ export async function GET(request: NextRequest) {
       .gte("next_follow_date", followupDay.start).lt("next_follow_date", followupDay.end)
       .order("next_follow_date", { ascending: true }).order("customer_id", { ascending: true }).limit(5);
     if (scopeUserId) todayFollowupsQuery = todayFollowupsQuery.eq("owner_id", scopeUserId);
+    if (countryValues.length) todayFollowupsQuery = todayFollowupsQuery.in("country", countryValues);
     const [potentialCustomersResult, followingCustomersResult, validCustomersResult, todayFollowupsResult, systemCustomersResult] = await Promise.all([
       statusCount("CLAIMED"), statusCount("FOLLOWING"), validCustomersQuery, todayFollowupsQuery,
       account.role === "ADMIN" ? supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).or("pool_status.is.null,pool_status.neq.AI_STAGING") : Promise.resolve(null),
@@ -122,7 +125,7 @@ export async function GET(request: NextRequest) {
     const activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || "") }));
 
     return NextResponse.json({
-      scope: scopeUserId || "ALL", range: { from: dashboardBusinessDateKey(fromDate), to: dashboardBusinessDateKey(toDate) }, filters: overview.filters || { countries: [] },
+      scope: scopeUserId || "ALL", range: { from: dashboardBusinessDateKey(fromDate), to: dashboardBusinessDateKey(toDate) }, filters: { countries: countryFilterOptions(Array.isArray((overview.filters as { countries?: unknown } | undefined)?.countries) ? (overview.filters as { countries: Array<string | null> }).countries : []) },
       totals: { my_customers: totalCustomers, system_customers: account.role === "ADMIN" ? systemCustomersResult?.count ?? 0 : null, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(validCustomersResult.count || 0), intentions: Number(potentialCustomersResult.count || 0), today_followups: Number(todayFollowupsResult.count || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0) },
       distribution, funnel: funnelRows.map((item) => ({ ...item, percentage: percentage(item.value, totalCustomers) })), country_top: countryTop,
       protections: overview.protections || [], followups: todayFollowups, activities,

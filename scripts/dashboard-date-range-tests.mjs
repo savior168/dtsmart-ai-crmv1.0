@@ -5,6 +5,7 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { DASHBOARD_BASE_DATE, dashboardBusinessDateKey, dashboardDefaultDateRange, dashboardDatePresetRange } = await jiti.import("../lib/dashboard-date-range.ts");
+const { countryFilterRawValues } = await jiti.import("../lib/countries.ts");
 const day = new Date("2026-10-10T04:00:00.000Z");
 assert.equal(DASHBOARD_BASE_DATE, "2026-08-01");
 assert.deepEqual(dashboardDefaultDateRange(day), { from: "2026-08-01", to: "2026-10-10" });
@@ -30,4 +31,14 @@ const ownerSelect = await readFile(new URL("../components/user-scope-select.tsx"
 assert.match(customers, /requested !== "all" \? requested : fallback/, "主管收到旧的 all 参数时应回退本人");
 assert.match(customers, /currentRole === "ADMIN" \? <option value="all">/, "我的客户仅系统管理员显示全部用户选项");
 assert.match(ownerSelect, /canSelectAll \? <option value="all">/, "共用归属人筛选仅系统管理员显示全部用户选项");
+const countryValues = countryFilterRawValues(["IE"]);
+assert.ok(countryValues.includes("IE") && countryValues.includes("爱尔兰"), "国家选项须兼容历史中文名与 ISO 代码");
+const migration = await readFile(new URL("../supabase/migrations/202610100005_dashboard_customer_filter_alignment.sql", import.meta.url), "utf8");
+assert.match(migration, /c\.country = any \(string_to_array\(p_country, chr\(31\)\)\)/, "工作台聚合须按客户列表相同的原始国家值精确匹配");
+assert.match(migration, /c\.status <> ''RELEASED''/, "工作台聚合须排除我的客户不显示的历史释放记录");
+assert.match(api, /countryFilterRawValues\(\[country\]\)/, "工作台聚合与明细须使用同一国家别名集合");
+assert.match(api, /todayFollowupsQuery = todayFollowupsQuery\.in\("country", countryValues\)/, "今日待跟进须遵从国家筛选");
+assert.match(ui, /params\.set\("country", country\)/, "明细跳转须保留所选国家");
+const followups = await readFile(new URL("../components/followups-view.tsx", import.meta.url), "utf8");
+assert.match(followups, /searchParams\.getAll\("country"\)/, "跟进明细须回显工作台传入的国家");
 console.log("工作台快捷范围、北京时间边界及主管客户范围测试通过。");
