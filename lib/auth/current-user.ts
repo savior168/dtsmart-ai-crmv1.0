@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
@@ -86,6 +86,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
       const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
       permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
     }
+    permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code)));
   }
   const account: CurrentAccount = {
     id: data.id,
@@ -122,8 +123,10 @@ export async function requirePermission(permission: string) {
 
 export function hasPermission(account: CurrentAccount, permission: string) {
   if (account.role === "ADMIN") return true;
-  if (!account.permissions.includes(permission)) return false;
+  // Legacy grants and per-user overrides cannot revive an admin-only page or action.
   const pagePermission = permissionPageCode(permission);
+  if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
+  if (!account.permissions.includes(permission)) return false;
   return pagePermission === permission || account.permissions.includes(pagePermission);
 }
 

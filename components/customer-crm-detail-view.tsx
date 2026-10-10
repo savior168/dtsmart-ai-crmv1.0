@@ -103,6 +103,7 @@ function OwnershipHistory({ data }: { data: Data }) {
 function CustomerAiAnalysis({data}:{data:Data}){
   if (!data.customer.ai_screening_done) return <div className="p-5"><Empty text="该客户尚未完成AI筛选，暂无AI分析结论或依据"/></div>;
   const result=data.ai_result;
+  if (!data.can_view_ai_evidence) return <div className="grid gap-4 p-5 md:grid-cols-2"><Info title="分析摘要" content={result?.ai_reason||result?.summary||data.customer.ai_reason}/><Info title="经营范围" content={result?.business_scope||data.customer.business_scope}/><Info title="业务相关性" content={result?.business_relevance||data.customer.business_relevance}/><Info title="客户价值" content={result?.customer_value||data.customer.customer_value}/><Info title="跟进建议" content={result?.followup_suggestion||data.customer.followup_suggestion}/></div>;
   const facts=(data.ai_facts||[]).filter(item=>{const text=item.normalized_fact||item.content||"";return /[\u3400-\u9fff]/.test(text)&&!/未保存|未提炼|请重新执行|读取失败|未能取得|GOOGLE_MAPS_API_KEY|fetch failed/i.test(text)&&/^https?:\/\//i.test(item.source_url||"")});
   const roleLabel={PROCUREMENT:"采购/供应链",OWNER:"老板/创始人",EXECUTIVE:"管理决策人",OPERATIONS:"运营负责人",OTHER:"其他人员"};
   return <div className="space-y-4 p-5">

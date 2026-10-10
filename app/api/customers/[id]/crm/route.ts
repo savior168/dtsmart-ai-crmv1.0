@@ -49,14 +49,15 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (verifiedContacts.error) throw verifiedContacts.error;
     const decisionMakers = await admin.from("customer_decision_makers").select("id,full_name,job_title,role_type,contact_type,contact_value,exact_source_url,source_excerpt,verification_status,confidence,verified_at").eq("customer_id",id).eq("verification_status","SOURCE_VERIFIED").order("confidence",{ascending:false}).order("verified_at",{ascending:false});
     if(decisionMakers.error)console.warn("[customer-crm] verified decision makers unavailable",{customer_id:id,code:decisionMakers.error.code,message:decisionMakers.error.message});
-    const evidence = latestAi.data ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,original_excerpt,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
+    const fullAiEvidenceAccess = account.role === "ADMIN" && hasPermission(account, "customers.ai_evidence_view");
+    const evidence = fullAiEvidenceAccess && latestAi.data ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,original_excerpt,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     const aiFacts = (evidence.data || []).filter((item) => {
       const fact = String(item.normalized_fact || item.content || "").trim();
       return /[\u3400-\u9fff]/.test(fact) && !/读取失败|未能取得|未保存|请重新执行|GOOGLE_MAPS_API_KEY|fetch failed/i.test(fact) && /^https?:\/\//i.test(String(item.source_url || ""));
     });
     const aiCompleted = Boolean(customer.ai_screening_done && latestAi.data);
-    const canViewAiEvidence = aiCompleted && canReadCustomerAiEvidence({
+    const canViewAiEvidence = aiCompleted && fullAiEvidenceAccess && canReadCustomerAiEvidence({
       viewerId: user.id, viewerRole: account.role, customerOwnerId: customer.owner_id,
       isDirectReport: Boolean(directReport.data),
       canViewCustomerEvidence: hasPermission(account, "customers.ai_evidence_view"),
@@ -68,12 +69,12 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       summary: latestAi.data.summary,
       business_relevance: latestAi.data.business_relevance,
       business_scope: latestAi.data.business_scope,
-      company_scale_evidence: latestAi.data.company_scale_evidence,
+      company_scale_evidence: canViewAiEvidence ? latestAi.data.company_scale_evidence : null,
       customer_value: latestAi.data.customer_value,
       followup_suggestion: latestAi.data.followup_suggestion,
     } : null;
-    const customerForDisplay = { ...customer, website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]), website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]), ...(!aiCompleted ? { industry: null, ai_score: null, ai_level: null, is_target_customer: null, ai_reason: null, business_scope: null, business_relevance: null, customer_value: null, followup_suggestion: null, company_scale_evidence: null } : {}) };
-    const base = { customer: customerForDisplay, profile: profileResult.data, can_edit: hasPermission(account, "customers.edit") && (account.role === "ADMIN" || isOwner), can_change_stage: hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || isOwner), can_sales_operate: hasPermission(account, "followups.create") && (account.role === "ADMIN" || isOwner), can_view_ai_evidence: canViewAiEvidence, access_scope: publicReadOnly ? "PUBLIC_POOL" : "BUSINESS", ai_result: aiResultForDisplay, ai_facts: aiCompleted ? aiFacts : [], verified_contacts: aiCompleted ? dedupeVerifiedContactRows(verifiedContacts.data || []) : [], decision_makers:aiCompleted?(decisionMakers.data||[]):[] };
+    const customerForDisplay = { ...customer, company_scale_evidence: canViewAiEvidence ? customer.company_scale_evidence : null, website_email: cleanStoredDiscoveredValues(customer.website_email, "EMAIL", customer.country, [customer.email]), website_phone: cleanStoredDiscoveredValues(customer.website_phone, "PHONE", customer.country, [customer.phone, customer.whatsapp]), ...(!aiCompleted ? { industry: null, ai_score: null, ai_level: null, is_target_customer: null, ai_reason: null, business_scope: null, business_relevance: null, customer_value: null, followup_suggestion: null, company_scale_evidence: null } : {}) };
+    const base = { customer: customerForDisplay, profile: profileResult.data, can_edit: hasPermission(account, "customers.edit") && (account.role === "ADMIN" || isOwner), can_change_stage: hasPermission(account, "customers.edit") && Boolean(customer.owner_id) && (account.role === "ADMIN" || isOwner), can_sales_operate: hasPermission(account, "followups.create") && (account.role === "ADMIN" || isOwner), can_view_ai_evidence: canViewAiEvidence, access_scope: publicReadOnly ? "PUBLIC_POOL" : "BUSINESS", ai_result: aiResultForDisplay, ai_facts: canViewAiEvidence ? aiFacts : [], verified_contacts: aiCompleted ? dedupeVerifiedContactRows(verifiedContacts.data || []) : [], decision_makers:canViewAiEvidence?(decisionMakers.data||[]):[] };
     if (publicReadOnly) return NextResponse.json({ ...base, current_owner: null, effective_protection: { source: "NONE", start_date: null, expire_date: null, status: "EXPIRED", remaining_days: 0, permanent: false }, followups: [], attachments: [], quotes: [], claims: [], audit_logs: [], protections: [], private_supplements: [], users: [] });
 
     const [followupsResult, claimsResult, protectionResult, auditLogsResult, attachmentsResult, quotesResult, privateSupplementsResult] = await Promise.all([

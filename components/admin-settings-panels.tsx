@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Check, CheckCircle2, Clipboard, LoaderCircle, LockKeyhole, RefreshCw, Search, Settings2, UserPlus, UserX, X } from "lucide-react";
-import { PERMISSION_CATALOG, ROLE_LABELS, STATUS_LABELS, permissionPageCode, type AccountStatus, type PermissionDefinition, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, ROLE_LABELS, STATUS_LABELS, permissionPageCode, type AccountStatus, type PermissionDefinition, type UserRole } from "@/lib/auth/permissions";
 import { AUDIT_CATEGORIES, AUDIT_CATEGORY_LABELS, auditActionLabel, type AuditCategory } from "@/lib/audit-log";
 import { AppPagination } from "@/components/ui/app-pagination";
 
@@ -113,7 +113,7 @@ function UserPermissionDialog({user,close,saved}:{user:UserRow;close:()=>void;sa
     finally{setSaving("");}
   }
   const groups=["全部",...new Set((payload?.catalog||[]).map(item=>item.group))];
-  const catalog=(payload?.catalog||[]).filter(item=>group==="全部"||item.group===group);
+  const catalog=(payload?.catalog||[]).filter(item=>(user.role==="ADMIN"||(!CORE_PERMISSION_CODES.has(item.code)&&!CORE_PERMISSION_CODES.has(permissionPageCode(item.code))))&&(group==="全部"||item.group===group));
   const overrideByCode=new Map((payload?.overrides||[]).map(item=>[item.permission_code,item.effect]));
   return <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={event=>event.target===event.currentTarget&&close()}>
     <section role="dialog" aria-modal="true" aria-label="配置用户权限" className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">

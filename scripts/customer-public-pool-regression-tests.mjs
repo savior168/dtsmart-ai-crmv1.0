@@ -228,6 +228,8 @@ assert.match(poolView, /来源批次多选[\s\S]*搜索来源批次[\s\S]*type="
 assert.match(poolView, /AI筛选批次多选[\s\S]*搜索任务编号或任务名称[\s\S]*type="checkbox"/, "AI筛选批次必须支持搜索与多选");
 assert.match(poolView, /appendSourceBatchFilters\(params\)/, "列表、导出与全选必须复用同一导入批次多选条件");
 assert.match(poolApi, /params\.getAll\("source_batch"\)[\s\S]*query\.in\("source_batch", sourceBatches\)/, "公海接口必须按多个导入批次返回并集结果");
+assert.doesNotMatch(poolApi, /RESTRICTED_POOL_EMAILS|RESTRICTED_POOL_BATCHES|restrictedBatchView/, "Laura 和 Xavia 必须与其他销售共享相同的可认领公海范围");
+assert.doesNotMatch(poolView, /restrictedBatches|restricted_batches/, "公海前端不得再锁定这两个销售的来源批次筛选");
 assert.match(poolView, /appendIndustryFilters\(params\)/, "公海列表、导出与全选必须复用同一行业筛选条件");
 assert.match(poolApi, /source_type[\s\S]*source_batch[\s\S]*const batches = \[\.\.\.new Map[\s\S]*sources:/, "客户公海必须返回真实去重的数据来源与批次筛选项");
 assert.match(poolView, /全部数据来源[\s\S]*全部来源批次/, "客户公海各数据页签必须提供数据来源和来源批次筛选");

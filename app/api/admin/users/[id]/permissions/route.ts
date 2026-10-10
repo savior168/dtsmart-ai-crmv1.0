@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, normalizeRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, normalizeRole, permissionPageCode } from "@/lib/auth/permissions";
 
 type OverrideEffect = "ALLOW" | "DENY" | "INHERIT";
 
@@ -23,8 +23,8 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     return NextResponse.json({
       user: target,
       catalog: PERMISSION_CATALOG,
-      role_permissions: (roleRows || []).filter((item) => item.enabled).map((item) => item.permission_code),
-      overrides: overrides || [],
+      role_permissions: (roleRows || []).filter((item) => item.enabled && !CORE_PERMISSION_CODES.has(item.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(item.permission_code))).map((item) => item.permission_code),
+      overrides: (overrides || []).filter((item) => !CORE_PERMISSION_CODES.has(item.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(item.permission_code))),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户权限加载失败";
@@ -43,7 +43,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!isKnownPermission(permission) || !["ALLOW", "DENY", "INHERIT"].includes(effect)) {
       return NextResponse.json({ error: "权限参数无效" }, { status: 400 });
     }
-    if (CORE_PERMISSION_CODES.has(permission)) {
+    if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(permissionPageCode(permission))) {
       return NextResponse.json({ error: "系统核心权限不能通过用户个性权限下放或关闭" }, { status: 400 });
     }
     const admin = createAdminClient();

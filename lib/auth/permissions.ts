@@ -36,7 +36,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "customers.renew.review", label: "审核下属续期", group: "客户中心", description: "审核直属销售员第三次及之后的保护续期", kind: "ACTION" },
   { code: "customers.assign", label: "分配公海客户", group: "客户中心", description: "仅分配尚未认领或离职待分配客户", kind: "ACTION", core: true },
   { code: "customers.handover", label: "离职客户交接", group: "客户中心", description: "将停用或离职账号的客户整批释放或交接", kind: "ACTION", core: true },
-  { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户中心", description: "查看客户AI结论与可核验证据", kind: "ACTION" },
+  { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户中心", description: "查看客户AI完整分析依据；普通角色仅查看客户详情中的结论摘要", kind: "ACTION", core: true },
 
   { code: "imports.view", label: "客户导入", group: "客户中心", description: "进入客户导入并查看导入批次", kind: "PAGE" },
   { code: "imports.create", label: "执行数据导入", group: "客户中心", description: "预览并提交客户文件导入", kind: "ACTION" },
@@ -44,14 +44,14 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
   // AI 获客与 AI 筛选是两个独立的业务闭环。每一项获客权限都归属此页面，
   // 因此前端可见性、接口鉴权和用户权限中心使用同一套权限代码。
-  { code: "ai.acquisition.view", label: "AI获客", group: "AI获客与筛选", description: "进入AI获客任务、结果与核验明细", kind: "PAGE" },
+  { code: "ai.acquisition.view", label: "AI获客", group: "AI获客与筛选", description: "进入AI获客任务、结果与核验明细", kind: "PAGE", core: true },
   { code: "ai.acquisition.data_all", label: "查看全部AI获客数据", group: "AI获客与筛选", description: "查看本部门授权范围内其他创建人的获客任务、候选结果与费用明细", kind: "DATA" },
   { code: "ai.acquisition.create", label: "创建AI获客任务", group: "AI获客与筛选", description: "按目标国家、行业和关键词创建获客任务", kind: "ACTION" },
   { code: "ai.acquisition.control", label: "控制AI获客任务", group: "AI获客与筛选", description: "暂停、继续、取消或重试本人有权管理的获客任务", kind: "ACTION" },
   { code: "ai.acquisition.evidence.view", label: "查看AI获客依据", group: "AI获客与筛选", description: "查看目标匹配、在营状态、联系信息与来源页面的核验依据", kind: "ACTION" },
   { code: "ai.acquisition.usage.view", label: "查看AI获客用量与费用", group: "AI获客与筛选", description: "查看获客调用量、免费额度使用和可核对的费用明细", kind: "ACTION" },
   { code: "ai.acquisition.settings.manage", label: "管理AI获客规则与费用控制", group: "AI获客与筛选", description: "配置支持国家、质量准入门槛、标准模式免费渠道和智能模式费用上限", kind: "ACTION", core: true },
-  { code: "ai.tasks.view", label: "AI筛选", group: "AI获客与筛选", description: "进入AI筛选并查看任务详情", kind: "PAGE" },
+  { code: "ai.tasks.view", label: "AI筛选", group: "AI获客与筛选", description: "进入AI筛选并查看任务详情", kind: "PAGE", core: true },
   { code: "ai.data_all", label: "查看全部AI筛选数据", group: "AI获客与筛选", description: "可按归属人查看任务、结果与用量", kind: "DATA" },
   { code: "ai.tasks.create", label: "创建AI筛选任务", group: "AI获客与筛选", description: "选择客户并创建筛选任务", kind: "ACTION" },
   { code: "ai.tasks.control", label: "控制AI筛选任务", group: "AI获客与筛选", description: "停止、继续、取消或重试任务", kind: "ACTION" },

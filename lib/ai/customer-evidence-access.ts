@@ -6,12 +6,8 @@ export function canReadCustomerAiEvidence(input: {
   canViewCustomerEvidence: boolean;
   canViewAiResults: boolean;
 }) {
-  if (!input.canViewCustomerEvidence && !input.canViewAiResults) return false;
-  return input.viewerRole === "ADMIN"
-    || Boolean(input.customerOwnerId && (
-      input.customerOwnerId === input.viewerId
-      || (input.viewerRole === "SUPERVISOR" && input.isDirectReport)
-    ));
+  // Full source evidence is reserved for administrators; ownership alone is insufficient.
+  return input.viewerRole === "ADMIN" && (input.canViewCustomerEvidence || input.canViewAiResults);
 }
 
 const CUSTOMER_RESULT_KEYS = [

@@ -8,7 +8,11 @@ export async function GET() {
     await requireAdmin();
     const { data, error } = await createAdminClient().from("role_permission_settings").select("role_code,permission_code,enabled,updated_at").order("role_code").order("permission_code");
     if (error) throw error;
-    return NextResponse.json({ data: data || [], catalog: PERMISSION_CATALOG });
+    const effectiveRows = (data || []).map((row) => ({
+      ...row,
+      enabled: row.role_code === "ADMIN" ? row.enabled : row.enabled && !CORE_PERMISSION_CODES.has(row.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(row.permission_code)),
+    }));
+    return NextResponse.json({ data: effectiveRows, catalog: PERMISSION_CATALOG });
   } catch (error) {
     const message = error instanceof Error ? error.message : "角色权限加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
@@ -24,7 +28,7 @@ export async function PATCH(request: NextRequest) {
     const enabled = Boolean(body.enabled);
     if (!USER_ROLES.includes(role as never) || !isKnownPermission(permission)) return NextResponse.json({ error: "权限参数无效" }, { status: 400 });
     if (role === "ADMIN") return NextResponse.json({ error: "系统管理员核心权限不可关闭" }, { status: 400 });
-    if (CORE_PERMISSION_CODES.has(permission)) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
+    if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(permissionPageCode(permission))) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
     if (["SALES","WAREHOUSE"].includes(role) && enabled && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") return NextResponse.json({ error: "销售员或仓库员不能获得跨用户数据权限" }, { status: 400 });
     const admin = createAdminClient();
     const pagePermission = permissionPageCode(permission);

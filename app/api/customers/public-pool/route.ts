@@ -26,8 +26,6 @@ type PoolDbRow = Record<string, unknown> & {
   other_public_urls?: unknown;
 };
 
-const RESTRICTED_POOL_EMAILS = new Set(["laura@dt-smart.com", "xavia@dt-smart.com"]);
-const RESTRICTED_POOL_BATCHES = ["255 WT谷歌数据 波兰 (2).xlsx", "500 WT谷歌数据 波兰 (1).xlsx"] as const;
 const poolOptionsCache = new Map<string, { expiresAt: number; payload: Record<string, unknown> }>();
 
 export async function GET(request: NextRequest) {
@@ -36,7 +34,6 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const params = request.nextUrl.searchParams;
     const tab = params.get("tab") || "available";
-    const restrictedBatchView = tab === "available" && RESTRICTED_POOL_EMAILS.has(account.email.trim().toLowerCase());
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
@@ -65,7 +62,6 @@ export async function GET(request: NextRequest) {
     if (params.get("counts") === "1") {
       const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
       const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
-      if (restrictedBatchView) availableQuery.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
       const claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
       const pendingQuery = baseCount().eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
       const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner:users!customer_protection_renewal_requests_owner_id_fkey(manager_id)").eq("status", "PENDING");
@@ -98,7 +94,7 @@ export async function GET(request: NextRequest) {
     if (tab === "claimed" && customerStatus && account.role !== "ADMIN") return NextResponse.json({ error: "当前角色不能按其他客户的阶段筛选" }, { status: 403 });
 
     if (params.get("options") === "1") {
-      const optionCacheKey = [account.id, account.role, tab, restrictedBatchView ? "restricted" : "all", countries.join(","), aiLevel, aiStatus, target, sourceType, sourceBatches.join(",")].join("|");
+      const optionCacheKey = [account.id, account.role, tab, countries.join(","), aiLevel, aiStatus, target, sourceType, sourceBatches.join(",")].join("|");
       const cachedOptions = poolOptionsCache.get(optionCacheKey);
       if (cachedOptions && cachedOptions.expiresAt > Date.now()) {
         return NextResponse.json(cachedOptions.payload, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=90" } });
@@ -107,7 +103,6 @@ export async function GET(request: NextRequest) {
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin.from("customers").select("id,country,industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
         if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
-        if (restrictedBatchView) optionQuery = optionQuery.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
         if (tab === "claimed") {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
         }
@@ -123,8 +118,8 @@ export async function GET(request: NextRequest) {
         if (sourceType === "IMPORT") optionQuery = optionQuery.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);
         if (sourceType === "AI_ACQUISITION") optionQuery = optionQuery.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
         if (sourceType === "MANUAL") optionQuery = optionQuery.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
-        if (!restrictedBatchView && sourceBatches.length === 1) optionQuery = optionQuery.eq("source_batch", sourceBatches[0]);
-        else if (!restrictedBatchView && sourceBatches.length > 1) optionQuery = optionQuery.in("source_batch", sourceBatches);
+        if (sourceBatches.length === 1) optionQuery = optionQuery.eq("source_batch", sourceBatches[0]);
+        else if (sourceBatches.length > 1) optionQuery = optionQuery.in("source_batch", sourceBatches);
         const optionPage = await optionQuery.order("updated_at", { ascending: false }).range(offset, offset + 999);
         if (optionPage.error) throw optionPage.error;
         const pageRows = optionPage.data || [];
@@ -217,7 +212,6 @@ export async function GET(request: NextRequest) {
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
-    if (restrictedBatchView) query = query.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
     if (tab === "claimed") {
       query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
     }
@@ -278,8 +272,7 @@ export async function GET(request: NextRequest) {
     if (sourceType === "IMPORT") query = query.in("source", ["EXCEL_IMPORT", "BATCH_IMPORT", "CSV", "IMPORT"]);
     if (sourceType === "AI_ACQUISITION") query = query.in("source", ["AI_ACQUISITION", "GOOGLE_MAPS", "FACEBOOK", "INSTAGRAM", "LINKEDIN"]);
     if (sourceType === "MANUAL") query = query.in("source", ["MANUAL", "MANUAL_CREATE", "ADMIN_MANUAL"]);
-    if (restrictedBatchView) query = query.in("source_batch", [...RESTRICTED_POOL_BATCHES]);
-    else if (sourceBatches.length === 1) query = query.eq("source_batch", sourceBatches[0]);
+    if (sourceBatches.length === 1) query = query.eq("source_batch", sourceBatches[0]);
     else if (sourceBatches.length > 1) query = query.in("source_batch", sourceBatches);
     if (aiTaskIds.length) {
       if (account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可按AI筛选批次查询" }, { status: 403 });
@@ -390,8 +383,6 @@ export async function GET(request: NextRequest) {
       page,
       page_size: pageSize,
       role: account.role,
-      restricted_batch_view: restrictedBatchView,
-      restricted_batches: restrictedBatchView ? RESTRICTED_POOL_BATCHES : [],
       can_assign: account.role === "ADMIN",
       can_handover: account.role === "ADMIN",
     });
