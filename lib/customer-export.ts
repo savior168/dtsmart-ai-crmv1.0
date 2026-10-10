@@ -42,7 +42,7 @@ const STAGE_LABELS: Record<CustomerStatus, string> = {
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "意向客户",
-  DEAL: "已成交",
+  DEAL: "成交客户",
   RELEASED: "历史释放状态",
 };
 
@@ -115,7 +115,7 @@ function ownerName(customer: Record<string, unknown>) {
 const CUSTOMER_EXPORT_LABELS: Record<CustomerExportColumn, string> = {
   company_name: "客户名称", contact_name: "联系人", country: "国家/地区", industry: "所属行业", ai_score: "AI评分",
   status: "客户阶段", followup_status: "跟进状态", protection: "保护期剩余", last_contact_time: "最近跟进", owner: "归属人",
-  phone: "电话号码", whatsapp: "WhatsApp号码", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
+  phone: "电话号码", whatsapp: "WhatsApp", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
   verified_contacts: "已核验联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", source_batch: "来源批次", updated_at: "更新时间",
 };
 
@@ -125,15 +125,10 @@ const DEFAULT_EXPORT_COLUMNS: CustomerExportColumn[] = [
 
 type ContactKind = "PHONE" | "WHATSAPP" | "EMAIL";
 type VerifiedContact = { type?: unknown; value_raw?: unknown; verification_status?: unknown; exact_source_url?: unknown };
-type ExportDisplayColumn = CustomerExportColumn | "original_phone" | "original_email" | "ai_phone" | "ai_email" | "ai_whatsapp" | "facebook" | "instagram" | "linkedin" | "tiktok" | "youtube" | "x" | "public_whatsapp" | `other_social_${number}`;
+type ExportDisplayColumn = CustomerExportColumn | "facebook" | "instagram" | "linkedin" | "tiktok" | "youtube" | "x" | "public_whatsapp" | `other_social_${number}`;
 
 const EXPORT_DISPLAY_LABELS: Record<Exclude<ExportDisplayColumn, `other_social_${number}`>, string> = {
   ...CUSTOMER_EXPORT_LABELS,
-  original_phone: "电话号码",
-  original_email: "邮箱",
-  ai_phone: "AI采集电话",
-  ai_email: "AI采集邮箱号",
-  ai_whatsapp: "AI采集WhatsApp",
   facebook: "Facebook",
   instagram: "Instagram",
   linkedin: "LinkedIn",
@@ -198,14 +193,22 @@ function verifiedContactEntries(customer: Record<string, unknown>, kind: Contact
   const seen = new Set<string>();
   const add = (value: unknown, sourceUrl?: unknown) => {
     const raw = String(value || "").trim();
-    if (!raw || seen.has(contactKey(kind, raw))) return;
-    seen.add(contactKey(kind, raw));
+    if (!raw) return;
+    const key = contactKey(kind, raw);
     const exact = String(sourceUrl || "").trim();
-    entries.push({ value: raw, sourceUrl: /^https?:\/\//i.test(exact) ? exact : null });
+    const validSource = /^https?:\/\//i.test(exact) ? exact : null;
+    if (seen.has(key)) {
+      const existing = entries.find((entry) => contactKey(kind, entry.value) === key);
+      if (existing && !existing.sourceUrl) existing.sourceUrl = validSource;
+      return;
+    }
+    seen.add(key);
+    entries.push({ value: raw, sourceUrl: validSource });
   };
+  add(customer[kind === "PHONE" ? "phone" : kind === "EMAIL" ? "email" : "whatsapp"]);
   const contacts = Array.isArray(customer.verified_contacts) ? customer.verified_contacts as VerifiedContact[] : [];
   for (const item of contacts) {
-    if (String(item.type || "").toUpperCase() !== kind || !["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || ""))) continue;
+    if (String(item.type || "").toUpperCase() !== kind || !["NEW_VERIFIED", "SOURCE_CONFIRMED", "MATCHED_ORIGINAL", "CONFLICTING_VERIFIED"].includes(String(item.verification_status || ""))) continue;
     add(item.value_raw, item.exact_source_url);
   }
   // Compatibility fields are legacy collected values. They remain visible,
@@ -229,9 +232,7 @@ function verifiedContactSource(customer: Record<string, unknown>, kind: ContactK
 
 function expandExportColumns(columns: CustomerExportColumn[], otherLinkCount: number) {
   return columns.flatMap((key): ExportDisplayColumn[] => {
-    if (key === "phone") return ["original_phone"];
-    if (key === "email") return ["original_email"];
-    if (key === "verified_contacts") return ["ai_phone", "ai_email", "ai_whatsapp"];
+    if (key === "verified_contacts") return ["phone", "whatsapp", "email"];
     if (key === "social") return ["facebook", "instagram", "linkedin", "tiktok", "youtube", "x", "public_whatsapp", ...Array.from({ length: otherLinkCount }, (_, index): `other_social_${number}` => `other_social_${index + 1}`)];
     return [key];
   }).filter((key, index, all) => all.indexOf(key) === index);
@@ -264,11 +265,9 @@ function exportColumnText(customer: Record<string, unknown>, key: CustomerExport
 }
 
 function exportDisplayText(customer: Record<string, unknown>, key: ExportDisplayColumn) {
-  if (key === "original_phone") return exportText(customer.phone);
-  if (key === "original_email") return exportText(customer.email);
-  if (key === "ai_phone") return verifiedContactText(customer, "PHONE");
-  if (key === "ai_email") return verifiedContactText(customer, "EMAIL");
-  if (key === "ai_whatsapp") return verifiedContactText(customer, "WHATSAPP");
+  if (key === "phone") return verifiedContactText(customer, "PHONE");
+  if (key === "email") return verifiedContactText(customer, "EMAIL");
+  if (key === "whatsapp") return verifiedContactText(customer, "WHATSAPP");
   if (key === "google_url") return publicChannelText(customer, "google_maps");
   if (key === "facebook" || key === "instagram" || key === "linkedin" || key === "tiktok" || key === "youtube" || key === "x") return publicChannelText(customer, key);
   if (key === "public_whatsapp") return publicChannelText(customer, "whatsapp");
@@ -294,7 +293,8 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
     ? [...withoutContacts.slice(0, insertAt), ...contactColumns, ...withoutContacts.slice(insertAt)]
     : selectedColumns;
   const otherLinkCount = visibleColumns.includes("social") ? rows.reduce((max, customer) => Math.max(max, otherUnclassifiedUrls(customer).length), 0) : 0;
-  const exportColumns = expandExportColumns(visibleColumns, otherLinkCount);
+  const exportColumns = expandExportColumns(visibleColumns, otherLinkCount)
+    .filter((key) => key === "company_name" || rows.some((customer) => exportDisplayText(customer, key) !== "-"));
   const scoreIndex = exportColumns.indexOf("ai_score");
   const includeAiEvidence = options.includeAiEvidence === true;
   const headers = [
@@ -313,22 +313,22 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
     return ["website", "google_url", "facebook", "instagram", "linkedin", "tiktok", "youtube", "x", "public_whatsapp"].includes(key) || key.startsWith("other_social_") ? [{ key, column: index + offset }] : [];
   });
   const aiContactSourceColumns = exportColumns.flatMap((key, index) => {
-    if (!["ai_phone", "ai_email", "ai_whatsapp"].includes(key)) return [];
+    if (!["phone", "email", "whatsapp"].includes(key)) return [];
     const offset = includeAiEvidence ? exportColumns.slice(0, index).filter((item) => item === "ai_score").length : 0;
     return [{ key, column: index + offset }];
   });
   return [
     {
       name: "客户清单",
-      widths: headers.map((header) => header === "客户名称" ? 28 : ["官网", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) || header.startsWith("其他公开链接") ? 42 : ["AI采集电话", "AI采集邮箱号", "AI采集WhatsApp"].includes(header) ? 30 : header === "AI依据" ? 14 : 20),
-      wrapColumns: headers.map((header, index) => ["AI采集电话", "AI采集邮箱号", "AI采集WhatsApp", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) ? index : -1).filter((index) => index >= 0),
+      widths: headers.map((header) => header === "客户名称" ? 28 : ["官网", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) || header.startsWith("其他公开链接") ? 42 : ["电话号码", "邮箱", "WhatsApp"].includes(header) ? 30 : header === "AI依据" ? 14 : 20),
+      wrapColumns: headers.map((header, index) => ["电话号码", "邮箱", "WhatsApp", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) ? index : -1).filter((index) => index >= 0),
       externalHyperlinks: rows.flatMap((customer, row) => [
         ...publicLinkColumns.flatMap(({ key, column }) => {
           const target = publicExportLink(exportDisplayText(customer, key));
           return target ? [{ row: row + 1, column, target, tooltip: "打开该公开渠道" }] : [];
         }),
         ...aiContactSourceColumns.flatMap(({ key, column }) => {
-        const kind = key === "ai_phone" ? "PHONE" : key === "ai_email" ? "EMAIL" : "WHATSAPP";
+        const kind = key === "phone" ? "PHONE" : key === "email" ? "EMAIL" : "WHATSAPP";
         const target = verifiedContactSource(customer, kind);
         return target ? [{ row: row + 1, column, target, tooltip: "打开该联系方式的来源核验页" }] : [];
         }),

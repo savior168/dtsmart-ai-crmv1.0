@@ -13,14 +13,11 @@ assert.match(customerExport, /name: "AI分析依据"/, "导出必须保留AI依�
 assert.match(customerExport, /"company_name", "ai_score", "industry", "country"/, "默认导出必须在AI评分后显示所属行业");
 assert.match(customerExport, /source_batch: "来源批次"/, "导出必须包含可追溯的来源批次");
 assert.doesNotMatch(customerExport, /name: "链接与社媒"/, "导出不得再生成链接与社媒子页");
-assert.match(customerExport, /original_phone: "电话号码"/, "导出必须将电话号码单列显示");
-assert.match(customerExport, /original_email: "邮箱"/, "导出必须将邮箱单列显示");
-assert.match(customerExport, /ai_phone: "AI采集电话"/, "导出必须将AI采集电话单列显示");
-assert.match(customerExport, /ai_email: "AI采集邮箱号"/, "导出必须将AI采集邮箱单列显示");
-assert.match(customerExport, /ai_whatsapp: "AI采集WhatsApp"/, "导出必须将AI采集WhatsApp单列显示");
+assert.match(customerExport, /phone: "电话号码", whatsapp: "WhatsApp", email: "邮箱"/, "联系方式导出列头须与客户页一致");
+assert.doesNotMatch(customerExport, /original_phone:|ai_phone:|ai_email:|ai_whatsapp:/, "原始与AI联系方式不得重复出列");
 assert.match(customerExport, /facebook: "Facebook"[\s\S]*instagram: "Instagram"[\s\S]*linkedin: "LinkedIn"[\s\S]*tiktok: "TikTok"/, "社媒渠道必须拆分为独立列");
 assert.match(customerExport, /customer\.ai_score == null \? "未筛选" : `\$\{exportText\(customer\.ai_level \|\| "-"\)\} · \$\{exportText\(customer\.ai_score\)\}`/, "AI评分必须与前端一样显示等级和评分");
-assert.match(customerExport, /externalHyperlinks:[\s\S]*verifiedContactSource[\s\S]*打开该联系方式的来源核验页/, "可定位的AI采集联系方式必须直达来源核验页");
+assert.match(customerExport, /externalHyperlinks:[\s\S]*verifiedContactSource[\s\S]*打开该联系方式的来源核验页/, "只有单一精确来源的联系方式才可直达核验页");
 assert.match(customerExport, /key !== "last_contact_time" && \(options\.includeOwner !== false \|\| key !== "owner"\)/, "导出必须排除最近联系时间，并让客户公海排除归属人");
 assert.match(customerExport, /target: `#'AI分析依据'!A\$\{evidenceRow\}`/, "AI依据必须跳转到对应客户的依据行");
 
@@ -78,14 +75,21 @@ const cell = (label) => {
   return exportedSheet[XLSX.utils.encode_cell({ r: 1, c: column })];
 };
 assert.equal(exportedHeaders.filter((header) => header === "邮箱").length, 1, "邮箱不得重复或被电话列替代");
-assert.equal(cell("电话号码").v, customer.phone, "电话号码必须保留原始完整号码");
-assert.equal(cell("WhatsApp号码").v, customer.whatsapp, "WhatsApp必须从独立字段导出");
-assert.equal(cell("邮箱").v, customer.email, "邮箱必须独立导出");
+assert.equal(exportedHeaders.filter((header) => header === "电话号码").length, 1, "电话原始值与AI采集值应合并为一列");
+assert.equal(exportedHeaders.filter((header) => header === "WhatsApp").length, 1, "WhatsApp原始值与AI采集值应合并为一列");
+assert.equal(exportedHeaders.some((header) => header.startsWith("AI采集")), false, "不得再出现重复的AI采集联系方式列");
+assert.match(cell("电话号码").v, /\+44 44 7700 900123[\s\S]*\+44 30 1234 5678/, "电话号码必须保留原始及AI核验号码");
+assert.match(cell("WhatsApp").v, /\+44 7700 900456[\s\S]*\+44 7700 900999/, "WhatsApp必须保留原始及AI核验号码");
+assert.match(cell("邮箱").v, /hello@example.com[\s\S]*sales@example.com/, "邮箱必须保留原始及AI核验地址");
 assert.equal(cell("官网电话").v, customer.website_phone, "明确选择的官网电话不得被静默丢弃");
-assert.match(cell("AI采集电话").v, /\+44 30 1234 5678/, "AI核验电话必须在隐去列表字段时仍导出");
-assert.equal(cell("AI采集邮箱号").v, "sales@example.com", "AI核验邮箱必须在隐去列表字段时仍导出");
-assert.equal(cell("AI采集WhatsApp").v, "+44 7700 900999", "AI核验WhatsApp必须在隐去列表字段时仍导出");
-assert.equal(cell("AI采集邮箱号").l?.Target, "https://example.com/contact", "AI核验邮箱的精确来源链接必须保留");
+assert.equal(cell("邮箱").l, undefined, "混合原始及AI邮箱不得错误链接到单一核验来源");
+const aiOnlySheet = buildCustomerWorkbookSheets([{ ...customer, phone: null, whatsapp: null, email: null, website_phone: null }], {
+  columns: ["company_name"], includeAllContactChannels: true,
+})[0];
+const aiOnlyWorkbook = XLSX.read(createWorkbookFile([aiOnlySheet]), { type: "buffer", cellStyles: true });
+const aiOnlyEmailColumn = aiOnlySheet.rows[0].indexOf("邮箱");
+assert.notEqual(aiOnlyEmailColumn, -1, "仅有AI核验邮箱时仍须导出邮箱列");
+assert.equal(aiOnlyWorkbook.Sheets["客户清单"][XLSX.utils.encode_cell({ r: 1, c: aiOnlyEmailColumn })].l?.Target, "https://example.com/contact", "仅有同一精确来源的邮箱应保留核验链接");
 for (const [label, target] of [
   ["官网", customer.website], ["Google Maps", customer.google_url],
   ["Facebook", customer.facebook_url], ["Instagram", customer.instagram_url],
@@ -97,6 +101,11 @@ for (const [label, target] of [
   assert.equal(cell(label).l?.Target, target, `${label}必须准确跳转到该渠道`);
 }
 assert.equal(exportedHeaders.filter((header) => header.startsWith("其他公开链接")).length, 1, "已识别的平台链接不得重复堆进其他公开链接列");
+const sparseSheet = buildCustomerWorkbookSheets([{ id: "sparse", company_name: "无联系方式客户", status: "DEAL" }], {
+  columns: ["company_name", "status"], includeAllContactChannels: true,
+})[0];
+assert.deepEqual(sparseSheet.rows[0], ["客户名称", "客户阶段"], "整批无数据的联系方式与渠道列不应导出");
+assert.equal(sparseSheet.rows[1][1], "成交客户", "客户阶段名称须与我的客户页面一致");
 const domainOnlySheets = buildCustomerWorkbookSheets([
   { id: "domain-only", company_name: "仅域名客户", website: "example.org/contact", facebook_url: "javascript:alert(1)", other_public_urls: ["https://youtube.com/@main", "https://youtube.com/@support"] },
 ], { columns: ["company_name"], includeAllContactChannels: true });
