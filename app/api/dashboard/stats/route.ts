@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
     }));
     const funnelRows = [
       { label: "潜在客户", value: Number(potentialCustomersResult.count || 0) }, { label: "意向客户", value: Number(followingCustomersResult.count || 0) },
-      { label: "报价中", value: Number(totals.quotes || 0) }, { label: "成交客户", value: Number(totals.deals || 0) },
+      { label: "成交客户", value: Number(totals.deals || 0) },
     ];
     const activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || "") }));
 

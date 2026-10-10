@@ -200,7 +200,7 @@ const displayUser = (user?: Owner | null) =>
 const formatDate = (value?: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
 
-const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "历史释放状态" };
+const poolStageLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "意向客户", DEAL: "成交客户", RELEASED: "历史释放状态" };
 const followupLabels: Record<string, string> = { WAITING_CONTACT: "待联系", CONTACTED: "已联系", REPLIED: "已回复", NEEDS_FOLLOWUP: "需跟进", PAUSED: "暂缓", CLOSED: "已结束" };
 const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
   // Sales action order: identify value first, then use the best contact and
@@ -827,7 +827,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                   <option value="">全部已认领客户阶段</option>
                   <option value="CLAIMED">潜在客户</option>
                   <option value="FOLLOWING">意向客户</option>
-                  <option value="QUOTE">报价中</option>
                   <option value="DEAL">已成交</option>
                 </select> : null}
                 {tab === "claimed" ? (
@@ -1177,6 +1176,7 @@ function ClaimDialog({
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (["FOLLOWING", "DEAL"].includes(stage) && (!row.phone?.trim() || !row.email?.trim())) return setError("意向客户和成交客户必须同时具备联系电话和邮箱，请先补全公海主档");
     if (stage !== "CLAIMED" && !file) return setError("潜在客户以外的阶段必须上传真实凭证附件");
     setBusy(true);
     setError("");
@@ -1202,12 +1202,13 @@ function ClaimDialog({
   return (
     <Modal
       title="认领客户"
-      subtitle={`${row.company_name} · 潜在和意向客户保护90天，报价中180天，已成交永久保护；潜在客户可仅填写联系纪要，其他阶段须附可核验凭证。`}
+      subtitle={`${row.company_name} · 潜在和意向客户保护90天，成交客户永久保护；潜在客户无需凭证，认领为意向或成交客户须上传可核验凭证。`}
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
         {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"联系人",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
-        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"QUOTE",label:"报价中",description:"已有询价或报价沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"}]}/>
+        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"}]}/>
+        {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">联系电话 <b className="text-rose-600">*</b> · 邮箱 <b className="text-rose-600">*</b>；两项须已在客户主档中填写。</p> : null}
         <ClaimChoice label="实际联系渠道" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"邮箱"},{value:"PHONE",label:"电话"},{value:"LINKEDIN",label:"LinkedIn / 其他社媒"},{value:"OTHER",label:"官网表单 / 其他方式"}]}/>
         <ClaimChoice label="本次真实联系结果" placeholder="请选择联系结果" value={result} onChange={setResult} options={[{value:"已发送首条开发信息，待回复",label:"已发送首条开发信息，待回复"},{value:"已联系到对方，需求待确认",label:"已联系到对方，需求待确认"},{value:"对方要求后续跟进",label:"对方要求后续跟进"},{value:"确认存在采购或合作需求",label:"确认存在采购或合作需求"},{value:"暂不匹配或明确无需求",label:"暂不匹配或明确无需求"},{value:"联系方式无效或无法触达",label:"联系方式无效或无法触达"},{value:"其他真实联系结果",label:"其他真实联系结果"}]}/>
         <label className="block text-sm font-medium">

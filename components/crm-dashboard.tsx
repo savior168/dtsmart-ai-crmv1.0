@@ -54,7 +54,7 @@ type DashboardData = {
 
 const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]";
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
-const statusLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "历史释放状态" };
+const statusLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "意向客户", DEAL: "已成交", RELEASED: "历史释放状态" };
 const typeLabels: Record<string, string> = { EMAIL: "邮件", WHATSAPP: "whatsapp", PHONE: "电话", LINKEDIN: "LinkedIn", OTHER: "其他" };
 
 function localDate(value: Date) {
@@ -98,7 +98,6 @@ function DonutChart({ rows, total, scopeUserId, range }: { rows: GradeRow[]; tot
 function funnelHref(label: string, scopeUserId: string, range: { from: string; to: string }) {
   if (label === "潜在客户") return scopedHref("/customers?status=CLAIMED", scopeUserId, range);
   if (label === "意向客户") return scopedHref("/customers?status=FOLLOWING", scopeUserId, range);
-  if (label === "报价中") return scopedHref("/customers?status=QUOTE", scopeUserId, range);
   if (label === "成交客户") return scopedHref("/customers?status=DEAL", scopeUserId, range);
   return scopedHref("/customers", scopeUserId, range);
 }
@@ -161,7 +160,6 @@ export function CrmDashboard({ canCreateAcquisition = false }: { canCreateAcquis
     { label: "待AI筛选", value: data.totals.pending_ai, href: scopedHref("/customers?ai_status=pending", scopeUserId, data.range), icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "尚未AI评分", trendColor: "text-violet-600" },
     { label: "AI核验有效", value: data.totals.valid_customers, href: scopedHref("/customers?target=valid&ai_status=done", scopeUserId, data.range), icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI判定为目标客户", trendColor: "text-emerald-600" },
     { label: "潜在客户", value: data.totals.intentions, href: scopedHref("/customers?status=CLAIMED", scopeUserId, data.range), icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已进入销售跟进", trendColor: "text-indigo-600" },
-    { label: "报价中", value: data.totals.quotes, href: scopedHref("/customers?status=QUOTE", scopeUserId, data.range), icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "已提供报价", trendColor: "text-sky-600" },
     { label: "已成交", value: data.totals.deals, href: scopedHref("/customers?status=DEAL", scopeUserId, data.range), icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
     { label: "今日待跟进", value: data.totals.today_followups, href: scopedHref("/followups?scope=today", scopeUserId), icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
     { label: "即将保护到期", value: data.totals.expiring_protection, href: scopedHref("/customers?tab=protection", scopeUserId), icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },

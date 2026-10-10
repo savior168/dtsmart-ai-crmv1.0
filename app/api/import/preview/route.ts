@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
         .select("id,company_name,country,phone,whatsapp,email,website,google_url,owner_id,acquisition_scope,pool_status,status")
+        .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
       customerIndexIdentityKeys(row as Row).forEach((key) => { if (!existing.has(key)) existing.set(key, row); }),
     );
 
-    const conflictIds = new Set<string>();
+    let conflictCount = 0;
     let existingDuplicates = 0;
     const suspectedRowIndexes: number[] = [];
     const suspectedMatches: Record<number, Array<Record<string, unknown>>> = {};
@@ -76,16 +77,19 @@ export async function POST(request: NextRequest) {
         website: match.website,
         google_url: match.google_url,
         match_reasons: matchedKeys.map((key) => key.startsWith("phone:") ? "电话或 whatsapp 一致" : key.startsWith("email:") ? "邮箱一致" : key.startsWith("website:") ? "官网一致" : "Google 地图主体一致"),
-        ownership_status: disposition === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : disposition === "OWN_CUSTOMER" ? "我的客户" : "已有归属或待管理员处理",
+        ownership_status: payload.destination === "PUBLIC_POOL" && match.owner_id
+          ? "已有归属，不能重复加入公海"
+          : disposition === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : disposition === "OWN_CUSTOMER" ? "我的客户" : "已有归属或待管理员处理",
         action_url: disposition === "PUBLIC_POOL_AVAILABLE" ? `/customers/pool?tab=available&customer=${encodeURIComponent(String(match.id))}` : disposition === "OWN_CUSTOMER" ? `/customers/${encodeURIComponent(String(match.id))}` : null,
       }];
-      if (disposition === "OTHER_OWNED_CUSTOMER" || disposition === "UNOWNED_REVIEW_REQUIRED") conflictIds.add(String(match.id));
+      if ((payload.destination === "PUBLIC_POOL" && Boolean(match.owner_id))
+        || (payload.destination !== "PUBLIC_POOL" && (disposition === "OTHER_OWNED_CUSTOMER" || disposition === "UNOWNED_REVIEW_REQUIRED"))) conflictCount += 1;
       else existingDuplicates += 1;
     });
 
     return NextResponse.json({
-      success_count: Math.max(0, rows.length - conflictIds.size - existingDuplicates),
-      conflict_count: conflictIds.size,
+      success_count: Math.max(0, rows.length - conflictCount - existingDuplicates),
+      conflict_count: conflictCount,
       existing_duplicate_count: existingDuplicates,
       suspected_count: suspectedRowIndexes.length,
       suspected_row_indexes: suspectedRowIndexes,

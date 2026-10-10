@@ -273,4 +273,14 @@ assert.match(poolApi, /tab === "available" && customerIds\.length[\s\S]*select\(
 assert.match(poolApi, /latestReleaseByCustomer\.has\(release\.customer_id\)[\s\S]*publicReleaseReason\(release\.release_reason\)/, "公海不得展示完整历史归属链或未经脱敏的释放原因");
 assert.match(poolView, /row\.last_release[\s\S]*title=\{`最近一次释放[\s\S]*释放人：[\s\S]*释放原因：[\s\S]*曾被释放/, "悬停释放提示应显示最近一次释放人、时间与原因");
 
+const stageMigration = read("supabase/migrations/202610100001_remove_quote_customer_stage.sql");
+const stageWorkflowApi = read("app/api/customers/[id]/workflow/route.ts");
+assert.match(stageMigration, /update public\.customers set status = 'FOLLOWING' where status = 'QUOTE'/, "旧报价中客户阶段应迁移为意向客户，保留其业务单据");
+assert.match(stageMigration, /customers_no_quote_stage_check check \(status <> 'QUOTE'\)/, "数据库应禁止重新写入报价中客户阶段");
+assert.match(customersApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)[\s\S]*source: "MANUAL", status: requestedStage/, "手动新增只允许直接选择潜在或成交；意向必须走凭证变更");
+assert.match(customerForm, /stage === "FOLLOWING" && !stageFile[\s\S]*stage === "DEAL" \? "DEAL" : "CLAIMED"/, "手动新增意向需上传凭证，手动新增成交可直接保存");
+assert.match(customerForm, /stage === "DEAL" && result\.status !== "DEAL"[\s\S]*已有客户改为成交/, "重复客户接管不得冒用手动新增免成交凭证例外");
+assert.match(stageWorkflowApi, /\["FOLLOWING", "DEAL"\]\.includes\(status\)[\s\S]*needsEvidence = \["FOLLOWING", "DEAL"\]/, "已有客户无论来源，改意向或成交必须具备联系方式并提交凭证");
+assert.match(customersView, /useState<"done" \| "pending" \| "failed" \| "all">\("all"\)/, "我的客户默认展示全部AI分析状态");
+
 console.log("customer public-pool regression tests passed");

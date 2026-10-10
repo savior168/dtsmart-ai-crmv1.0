@@ -30,7 +30,7 @@ type UnifiedRow = {
 type ProtectionItem = { id: string; customer_id: string; expire_date: string; type: string; customer?: Record<string, unknown> };
 type Conflict = { id: string; customer_id?: string | null; status: string; created_at: string; details?: { submitted?: Record<string, unknown> }; owner?: { id: string; name: string } | null };
 
-const stageLabels: Record<string, string> = { UNCLAIMED: "新客户", CLAIMED: "意向客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "成交客户", RELEASED: "历史释放状态" };
+const stageLabels: Record<string, string> = { UNCLAIMED: "新客户", CLAIMED: "意向客户", FOLLOWING: "意向客户", QUOTE: "意向客户", DEAL: "成交客户", RELEASED: "历史释放状态" };
 const tableHeads = ["客户名称", "国家/地区", "AI评分", "客户阶段", "跟进状态", "保护期剩余", "最近跟进", "联系电话", "邮箱", "官网", "Google Maps", "数据来源", "更新时间"];
 const text = (value: unknown) => String(value || "-");
 function date(value: unknown) { return value ? new Date(String(value)).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-") : "-"; }

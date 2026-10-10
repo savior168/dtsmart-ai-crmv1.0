@@ -33,7 +33,18 @@ assert.match(customerRoute, /postgrestContains\(search\)/, "客户搜索必须�
 assert.doesNotMatch(customerRoute, /const deleted =/, "客户查询不得再暴露历史软删除记录");
 
 const importRoute = readFileSync(resolve("app/api/import/route.ts"), "utf8");
-assert.doesNotMatch(importRoute, /from\("customers"\)[\s\S]{0,300}\.is\("deleted_at", null\)/, "导入身份检查不能忽略历史客户身份");
+const previewRoute = readFileSync(resolve("app/api/import/preview/route.ts"), "utf8");
+const currentIdentityGuard = readFileSync(resolve("supabase/migrations/202609040001_global_customer_contact_identity_guard.sql"), "utf8");
+assert.match(currentIdentityGuard, /existing\.deleted_at is null/, "当前数据库身份约束应只比较在库客户");
+assert.match(importRoute, /from\("customers"\)[\s\S]{0,300}\.is\("deleted_at", null\)/, "正式导入去重应与当前数据库约束一致，排除已软删除客户");
+assert.match(previewRoute, /from\("customers"\)[\s\S]{0,300}\.is\("deleted_at", null\)/, "导入预检也应排除已软删除客户");
+assert.match(importRoute, /if \(!text\(item\.country\)\)/, "服务端必须再次校验国家地区，不依赖页面校验");
+assert.match(previewRoute, /success_count: Math\.max\(0, rows\.length - conflictCount - existingDuplicates\)/, "预检必须逐行统计冲突，不能按不同客户ID虚增预计成功数");
+const importView = readFileSync(resolve("components/import-view.tsx"), "utf8");
+assert.match(importView, /const previewReady = rows\.length > 0 && rows\.every/, "预检失败后不能继续确认导入");
+assert.match(importView, /return file\.webkitRelativePath\.trim\(\)\.toLowerCase\(\) \|\| fileKey\(file\)/, "不同文件夹中同名文件不得被静默合并");
+assert.match(importView, /const fileLabel = file\.webkitRelativePath[\s\S]*file_name: fileLabel/, "导入结果必须保留可区分同名文件的来源标签");
+assert.match(importView, /href=\{destination === "PUBLIC_POOL" \? "\/customers\/pool" : "\/customers"\}[\s\S]*返回\{destination === "PUBLIC_POOL" \? "客户公海" : "我的客户"\}/, "两个导入入口必须分别返回公海或我的客户");
 
 const appShell = readFileSync(resolve("components/app-shell.tsx"), "utf8");
 assert.doesNotMatch(appShell, /setProfile\(\{ name: "当前用户"[\s\S]{0,120}loadProfile\(\)/, "菜单切换不得重置并闪烁用户资料");

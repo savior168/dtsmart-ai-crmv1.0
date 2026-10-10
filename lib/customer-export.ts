@@ -40,7 +40,7 @@ const STAGE_LABELS: Record<CustomerStatus, string> = {
   UNCLAIMED: "待认领",
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
-  QUOTE: "报价中",
+  QUOTE: "意向客户",
   DEAL: "已成交",
   RELEASED: "历史释放状态",
 };

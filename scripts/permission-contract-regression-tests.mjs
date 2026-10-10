@@ -19,7 +19,7 @@ const importView = read("components/import-view.tsx");
 assert.match(importView, /canCreate: boolean/, "导入组件必须显式接收执行权限");
 assert.match(importView, /当前角色仅可查看导入页面/, "未授权导入时必须明确展示只读状态");
 assert.match(importView, /disabled=\{!canCreate\}/, "未授权导入时模板下载必须禁用");
-assert.match(importView, /disabled=\{!canCreate \|\| busy \|\| !rows\.length\}/, "未授权导入时提交按钮必须禁用");
+assert.match(importView, /disabled=\{!canCreate \|\| busy \|\| !previewReady\}/, "未授权或预检未成功时提交按钮必须禁用");
 const templateApi = read("app/api/import/template/route.ts");
 assert.match(templateApi, /requirePermission\("imports\.create"\)/, "导入模板接口必须服务端校验执行权限");
 

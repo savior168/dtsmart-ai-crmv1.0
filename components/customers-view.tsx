@@ -52,7 +52,7 @@ const stageLabels: Record<CustomerStatus, string> = {
   UNCLAIMED: "待认领",
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
-  QUOTE: "报价中",
+  QUOTE: "意向客户",
   DEAL: "成交客户",
   RELEASED: "历史释放状态",
 };
@@ -99,7 +99,7 @@ function value(customer: Customer, key: ColumnKey) {
 }
 function releaseNotice(status: CustomerStatus) {
   if (status === "FOLLOWING") return "该客户已有意向与跟进投入。请确认已记录最终处理结果；释放后客户会回到公海，其他销售员可认领。";
-  if (status === "QUOTE") return "报价中客户可能关联业务单据。若存在已发送/确认报价或未取消订单，系统将拒绝释放；请先按业务单据流程完成处理。";
+  if (status === "QUOTE") return "该客户可能关联业务单据。若存在已发送/确认报价或未取消订单，系统将拒绝释放；请先按业务单据流程完成处理。";
   return "释放后客户进入公海待认领，保护期立即结束；其他销售员可凭真实联系凭证认领。";
 }
 function releaseNeedsAcknowledgement(status: CustomerStatus) { return status === "FOLLOWING" || status === "QUOTE"; }
@@ -135,9 +135,8 @@ export function CustomersView() {
   const [userOptions, setUserOptions] = useState<Array<{id:string;name:string;email:string}>>([]);
   const [canViewAll, setCanViewAll] = useState(false);
   const [canExport, setCanExport] = useState(false);
-  // 客户工作区默认展示已经完成 AI 筛选的数据；待筛选和全部通过同一
-  // 个明确筛选项切换，避免过去用 boolean=false 表示“全部”造成歧义。
-  const [aiFilter, setAiFilter] = useState<"done" | "pending" | "failed" | "all">("done");
+  // 默认展示全部在库客户；用户可按 AI 分析状态主动缩小范围。
+  const [aiFilter, setAiFilter] = useState<"done" | "pending" | "failed" | "all">("all");
   const [sort, setSort] = useState("updated_at");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [loading, setLoading] = useState(true);
@@ -206,7 +205,7 @@ export function CustomersView() {
     setLevel(params.get("ai_level") || "");
     setTarget(params.get("target") || "");
     setScopeUserId(params.get("user_id") || "");
-    setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "failed" ? "failed" : params.get("ai_status") === "all" ? "all" : "done");
+    setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "failed" ? "failed" : params.get("ai_status") === "done" ? "done" : "all");
     setSort(params.get("sort") || "updated_at");
     setDirection(params.get("direction") === "asc" ? "asc" : "desc");
   }, []);
@@ -369,7 +368,7 @@ export function CustomersView() {
             }
           : null,
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
-        aiFilter !== "done" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "全部"}` } : null,
+        aiFilter !== "all" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "已分析"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
     [search, fromDate, toDate, reportUtc, countries, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
@@ -385,7 +384,7 @@ export function CustomersView() {
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
     if (key === "followupStatus") setFollowupStatus("");
-    if (key === "aiFilter") setAiFilter("done");
+    if (key === "aiFilter") setAiFilter("all");
     if (key === "scopeUserId") setScopeUserId(defaultScopeUserId);
     setPage(1);
   }
@@ -402,7 +401,7 @@ export function CustomersView() {
     setLevel("");
     setTarget("");
     setFollowupStatus("");
-    setAiFilter("done");
+    setAiFilter("all");
     setScopeUserId(defaultScopeUserId);
     setSort("updated_at");
     setDirection("desc");
@@ -658,7 +657,7 @@ export function CustomersView() {
               className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">全部客户阶段</option>
-              {(["CLAIMED", "FOLLOWING", "QUOTE", "DEAL"] as CustomerStatus[]).map((key) => (
+              {(["CLAIMED", "FOLLOWING", "DEAL"] as CustomerStatus[]).map((key) => (
                 <option key={key} value={key}>{stageLabels[key]}</option>
               ))}
             </select>
@@ -682,10 +681,10 @@ export function CustomersView() {
               className="h-10 w-40 shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm text-blue-700"
               aria-label="AI筛选状态"
             >
+              <option value="all">全部AI分析状态</option>
               <option value="done">已分析</option>
               <option value="pending">未分析</option>
               <option value="failed">分析失败</option>
-              <option value="all">全部AI分析状态</option>
             </select>
             <button
               onClick={reset}
@@ -1085,7 +1084,7 @@ export function CustomersView() {
                 <button type="button" onClick={() => setPermissionOpen(false)} aria-label="关闭" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X size={19}/></button>
               </div>
               <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
-                <p className="rounded-lg bg-blue-50 p-3"><b className="text-slate-900">我的客户：</b>当前归属自己的客户可查看、编辑、跟进、释放；报价中和成交客户不可删除。</p>
+                <p className="rounded-lg bg-blue-50 p-3"><b className="text-slate-900">我的客户：</b>当前归属自己的客户可查看、编辑、跟进、释放；有关联有效报价、订单或已成交的客户不可删除。</p>
                 <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">冲突客户：</b>非归属人仅可查看自己新增或导入的基础字段和当前归属人，不能查看 AI 证据、跟进记录或修改客户。</p>
                 <p className="rounded-lg bg-slate-50 p-3"><b className="text-slate-900">主管：</b>可按归属人查看授权范围的数据，跨用户数据只读。<b className="text-slate-900">系统管理员：</b>拥有全系统客户数据的读取和维护权限，所有跨用户维护操作均保留审计记录。</p>
                 <p className="text-xs text-slate-400">最终可见范围由 Supabase RLS 与服务端权限共同校验，前端隐藏不代替服务端权限控制。</p>

@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
         .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,industry,category,source,tags,owner_id,acquisition_scope,pool_status,status,created_at,deleted_at")
+        .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .range(from, from + 999);
       if (page.error) throw page.error;
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
       const current = identity(item);
       try {
         if (!text(item.company_name)) throw new Error("客户名称为空");
+        if (!text(item.country)) throw new Error("国家/地区为空");
         if (![item.phone, item.email, item.website, item.google_url].some((value) => text(value))) throw new Error("缺少电话、邮箱、官网或 Google 地图联系方式");
         const duplicateOf = current.lookupKeys.map((key) => seen.get(key)).find(Boolean);
         if (duplicateOf) {
@@ -154,7 +156,10 @@ export async function POST(request: NextRequest) {
     for (let offset = 0; offset < uniqueCandidates.length; offset += 20) {
       await Promise.all(uniqueCandidates.slice(offset, offset + 20).map(async ([customerId]) => {
         const outcome = await supabase.rpc("take_over_expired_customer", { p_customer_id: customerId, p_source: "BATCH_IMPORT" });
-        if (outcome.error) throw new Error(`客户归属校验失败：${outcome.error.message}`);
+        if (outcome.error) {
+          transferOutcome.set(customerId, { transferred: false, reason: `CHECK_FAILED: ${outcome.error.message}` });
+          return;
+        }
         const value = outcome.data && typeof outcome.data === "object" ? outcome.data as { transferred?: boolean; reason?: string } : {};
         transferOutcome.set(customerId, { transferred: Boolean(value.transferred), reason: value.reason });
       }));
@@ -163,6 +168,13 @@ export async function POST(request: NextRequest) {
     for (const candidate of transferCandidates) {
       const customerId = String(candidate.customer.id || "");
       const outcome = transferOutcome.get(customerId);
+      if (outcome?.reason?.startsWith("CHECK_FAILED:")) {
+        failed += 1;
+        const reason = `客户归属校验失败，本行未导入：${outcome.reason.slice("CHECK_FAILED:".length).trim()}`;
+        errors.push(`${candidate.fileName} 第 ${candidate.rowNumber} 行：${reason}`);
+        results.push({ file_name: candidate.fileName, row_number: candidate.rowNumber, status: "failed", reason, existing_customer_id: customerId });
+        continue;
+      }
       if (outcome?.transferred && !successfulTransferIds.has(customerId)) {
         successfulTransferIds.add(customerId);
         transferredCount += 1;
@@ -268,7 +280,7 @@ export async function POST(request: NextRequest) {
     }
     const stats = { total_count: rows.length, success_count: success, duplicate_count: duplicate, conflict_count: conflicts.length + ownershipConflictCount, error_count: invalid, failed_count: failed };
     if (taskId) await supabase.from("import_tasks").update({ total_count: stats.total_count, success_count: success, duplicate_count: duplicate, failed_count: failed + invalid }).eq("id", taskId);
-    await supabase.from("audit_logs").insert({
+    const audit = await supabase.from("audit_logs").insert({
       user_id: user.id,
       action: "IMPORT_COMPLETE",
       target_type: "import_task",
@@ -277,7 +289,8 @@ export async function POST(request: NextRequest) {
       result: failed + invalid > 0 ? "部分成功" : "成功",
       created_at: new Date().toISOString(),
     });
-    return NextResponse.json({ ...stats, errors, results, task_id: taskId });
+    const warning = audit.error ? "客户已按逐行结果处理，但导入审计写入失败；请联系管理员核对操作日志" : null;
+    return NextResponse.json({ ...stats, errors, results, task_id: taskId, warning });
   } catch (error) { return NextResponse.json({ error: importErrorMessage(error) }, { status: 400 }); }
 }
 

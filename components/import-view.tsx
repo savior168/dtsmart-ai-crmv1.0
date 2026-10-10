@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   Download,
   ExternalLink,
@@ -112,14 +113,13 @@ function readImportTask(): PersistedImportTask | null {
 }
 
 function fileKey(file: File) {
-  return `${file.name.toLowerCase()}|${file.size}|${file.lastModified}`;
+  return `${(file.webkitRelativePath || file.name).toLowerCase()}|${file.size}|${file.lastModified}`;
 }
 
 function fileSelectionKey(file: File) {
-  // File/folder selection may expose the same file through two browser entries
-  // with different virtual paths. The selected-file list is intentionally
-  // unique by filename, matching what the user sees in the UI.
-  return file.name.trim().toLowerCase();
+  // The same basename in two folders is two files. Collapse only duplicate
+  // entries for the same relative path (or the same standalone file).
+  return file.webkitRelativePath.trim().toLowerCase() || fileKey(file);
 }
 
 function dedupeSelectedFiles(selected: File[]) {
@@ -416,16 +416,23 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
     const next: MappedRow[] = [];
     const bad: FailedRow[] = [];
     const seen = new Set<string>();
+    const standaloneNameCounts = new Map<string, number>();
+    selected.filter((file) => !file.webkitRelativePath).forEach((file) => {
+      const key = file.name.toLowerCase();
+      standaloneNameCounts.set(key, (standaloneNameCounts.get(key) || 0) + 1);
+    });
     let id = 1;
     let badId = 1;
-    for (const file of selected) {
+    for (const [fileIndex, file] of selected.entries()) {
+      const fileLabel = file.webkitRelativePath
+        || ((standaloneNameCounts.get(file.name.toLowerCase()) || 0) > 1 ? `${file.name}（文件${fileIndex + 1}）` : file.name);
       try {
         const parsed: ImportRow[] = await parseImportFile(file);
         parsed.forEach((raw, index) => {
           const item = {
             ...mapImportRow(raw),
             preview_id: id,
-            file_name: file.name,
+            file_name: fileLabel,
             row_number: index + 2,
           } as MappedRow;
           const hasContact = [
@@ -437,7 +444,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
           if (!item.company_name || !item.country || !hasContact) {
             bad.push({
               id: badId++,
-              file_name: file.name,
+              file_name: fileLabel,
               row_number: index + 2,
               reason: "缺少客户名称、国家或有效联系方式，已跳过",
               kind: "error",
@@ -449,7 +456,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
           if (keys.some((key) => seen.has(key))) {
             bad.push({
               id: badId++,
-              file_name: file.name,
+              file_name: fileLabel,
               row_number: index + 2,
               reason: "客户身份重复，仅保留文件中最先出现的数据",
               kind: "duplicate",
@@ -464,7 +471,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
       } catch (reason) {
         bad.push({
           id: badId++,
-          file_name: file.name,
+          file_name: fileLabel,
           row_number: 0,
           reason: reason instanceof Error ? reason.message : "文件解析失败",
           kind: "error",
@@ -529,9 +536,14 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
     if (folderInputRef.current) folderInputRef.current.value = "";
   }
 
+  const previewReady = rows.length > 0 && rows.every((row) => Array.isArray(row.preflight_candidates));
+
   async function confirmImport() {
     if (!canCreate) return;
-    if (!rows.length) return;
+    if (!previewReady) {
+      setError("全库预检尚未成功，请重新选择文件完成预检后再导入");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -618,6 +630,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
       setRows(completedRows);
       setFailed(completedFailures);
       setStats(completedStats);
+      if (typeof body.warning === "string" && body.warning) setError(body.warning);
       const completedSnapshot = {
         destination,
         files,
@@ -727,6 +740,9 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
   return (
     <main className="min-h-screen bg-[#f5f8fc] px-4 py-5 lg:px-8 lg:py-7">
       <div className="mx-auto max-w-[1600px]">
+        <Link href={destination === "PUBLIC_POOL" ? "/customers/pool" : "/customers"} className="mb-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:border-blue-300 hover:text-blue-700">
+          <ArrowLeft size={16} />返回{destination === "PUBLIC_POOL" ? "客户公海" : "我的客户"}
+        </Link>
         <div className="mb-5 flex items-center justify-between">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
             {destination === "PUBLIC_POOL" ? "导入到客户公海" : "导入到我的客户"}
@@ -954,7 +970,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               <p className="mt-1 text-sm text-slate-500">
                 {stats
                   ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
-                  : `共 ${rows.length} 条可导入数据；已完成全库预检，确认导入后才会写入系统`}
+                  : previewReady ? `共 ${rows.length} 条可导入数据；已完成全库预检，确认导入后才会写入系统` : `共 ${rows.length} 条待预检数据；预检成功后才能确认导入`}
               </p>
             </div>
             <div className="flex gap-2">
@@ -969,7 +985,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               ) : null}
               {!stats ? (
                 <button
-                  disabled={!canCreate || busy || !rows.length}
+                  disabled={!canCreate || busy || !previewReady}
                   onClick={() => void confirmImport()}
                   className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >

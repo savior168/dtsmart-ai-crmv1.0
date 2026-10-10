@@ -354,6 +354,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     validateManualContactInput(body);
     const publicPool = body.destination === "PUBLIC_POOL";
+    const requestedStage = publicPool ? "UNCLAIMED" : String(body.status || "CLAIMED").toUpperCase();
+    if (!publicPool && !["CLAIMED", "DEAL"].includes(requestedStage)) {
+      return NextResponse.json({ error: requestedStage === "FOLLOWING"
+        ? "意向客户必须先创建潜在客户，再提交真实佐证凭证完成阶段变更"
+        : "无效客户阶段" }, { status: 400 });
+    }
+    if (requestedStage === "DEAL" && (!String(body.phone || "").trim() || !String(body.email || "").trim())) {
+      return NextResponse.json({ error: "成交客户必须同时填写联系电话和邮箱" }, { status: 400 });
+    }
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
@@ -455,7 +464,7 @@ export async function POST(request: NextRequest) {
     }
     const payload: Record<string, unknown> = publicPool
       ? { ...clean(body), source: "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
-      : { ...clean(body), source: "MANUAL", status: "CLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
+      : { ...clean(body), source: "MANUAL", status: requestedStage, followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
     delete payload.destination;
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;
@@ -468,7 +477,7 @@ export async function POST(request: NextRequest) {
       ({ data, error } = await admin.from("customers").insert(legacyPayload).select().single());
     }
     if (error) throw error;
-    await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name, destination: publicPool ? "PUBLIC_POOL" : "PRIVATE" });
+    await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name, destination: publicPool ? "PUBLIC_POOL" : "PRIVATE", stage: requestedStage });
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "新增失败" }, { status: 400 });

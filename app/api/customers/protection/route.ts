@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       .not("expire_date", "is", null)
       .lte("expire_date", renewalWindowEnd)
       .order("start_date", { ascending: false });
-    let expiredQuery = admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).not("owner_id", "is", null).lt("created_at", cutoff).not("status", "in", "(QUOTE,DEAL)");
+    let expiredQuery = admin.from("customers").select("id,created_at,owner_id,status").is("deleted_at", null).not("owner_id", "is", null).lt("created_at", cutoff).neq("status", "DEAL");
     if (scopeUserId) {
       protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
       expiredQuery = expiredQuery.eq("owner_id", scopeUserId);
@@ -29,7 +29,20 @@ export async function GET(request: NextRequest) {
     const [protections, expired] = await Promise.all([protectionsQuery, expiredQuery]);
     if (protections.error) throw protections.error;
     if (expired.error) throw expired.error;
-    const customerIds = Array.from(new Set([...(protections.data || []).map((item) => item.customer_id), ...(expired.data || []).map((item) => item.id)]));
+    // Legacy QUOTE-stage customers are now intention customers, but their
+    // existing 180-day protection remains valid. Do not fabricate a 90-day
+    // expiry while an active protection record still covers the customer.
+    const activeProtectionIds = new Set<string>();
+    const expiredCandidates = expired.data || [];
+    for (let offset = 0; offset < expiredCandidates.length; offset += 200) {
+      const active = await admin.from("customer_protection").select("customer_id")
+        .in("customer_id", expiredCandidates.slice(offset, offset + 200).map((item) => item.id))
+        .eq("status", "ACTIVE");
+      if (active.error) throw active.error;
+      for (const item of active.data || []) activeProtectionIds.add(item.customer_id);
+    }
+    const unprotectedExpired = expiredCandidates.filter((item) => !activeProtectionIds.has(item.id));
+    const customerIds = Array.from(new Set([...(protections.data || []).map((item) => item.customer_id), ...unprotectedExpired.map((item) => item.id)]));
     const customers: CustomerRow[] = [];
     for (let offset = 0; offset < customerIds.length; offset += 200) {
       const page = await admin.from("customers").select(summaryOnly ? "id" : "*").is("deleted_at", null).in("id", customerIds.slice(offset, offset + 200));
@@ -61,12 +74,13 @@ export async function GET(request: NextRequest) {
           : !inRenewalWindow ? (now.getTime() < expiry - 15 * 86400000 ? "到期前15天开放续期" : "3天续期宽限期已结束") : null;
       byCustomer.set(item.customer_id, { ...item, release_type: "AUTO", can_renew: canRenew, renewal_block_reason: renewalBlockReason, customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
     }
-    for (const customer of expired.data || []) {
+    for (const customer of unprotectedExpired) {
       if (byCustomer.has(customer.id)) continue;
+      const fullCustomer = customerById.get(customer.id) || customer;
       const expireDate = new Date(new Date(customer.created_at).getTime() + 90 * 86400000);
       const currentOwnerId = String(customer.owner_id || "");
       const inGrace = now.getTime() <= expireDate.getTime() + 3 * 86400000;
-      byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, owner_id: currentOwnerId, expire_date: expireDate.toISOString(), status: "EXPIRED", release_type: "AUTO", extension_count: 0, can_renew: currentOwnerId === account.id && inGrace, renewal_block_reason: currentOwnerId !== account.id ? "跨用户数据仅供查看" : inGrace ? null : "3天续期宽限期已结束", customer: { ...customer, owner: ownerById.get(currentOwnerId) || null } });
+      byCustomer.set(customer.id, { id: `expired-${customer.id}`, customer_id: customer.id, owner_id: currentOwnerId, expire_date: expireDate.toISOString(), status: "EXPIRED", release_type: "AUTO", extension_count: 0, can_renew: currentOwnerId === account.id && inGrace, renewal_block_reason: currentOwnerId !== account.id ? "跨用户数据仅供查看" : inGrace ? null : "3天续期宽限期已结束", customer: { ...fullCustomer, owner: ownerById.get(currentOwnerId) || null } });
     }
     const data = Array.from(byCustomer.values()).sort((a, b) => String(b.expire_date || "").localeCompare(String(a.expire_date || "")));
     return NextResponse.json({ data, count: data.length });

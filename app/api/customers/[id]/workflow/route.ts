@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       if (String(form.get("action") || "") !== "STAGE") return NextResponse.json({ error: "无效操作" }, { status: 400 });
       const { supabase, account } = await requirePermission("customers.edit");
       const admin = createAdminClient();
-      const customer = await admin.from("customers").select("owner_id").eq("id", id).is("deleted_at", null).maybeSingle();
+      const customer = await admin.from("customers").select("owner_id,phone,email").eq("id", id).is("deleted_at", null).maybeSingle();
       if (customer.error) throw customer.error;
       if (!customer.data || !customer.data.owner_id || !canWriteOwnedRecord(account, customer.data.owner_id)) {
         return NextResponse.json({ error: "只能单独修改归属自己的客户阶段；系统管理员可进行有审计记录的数据纠正" }, { status: 403 });
@@ -24,9 +24,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       const status = String(form.get("status") || "").toUpperCase();
       const reason = String(form.get("reason") || "").trim();
       const file = form.get("file");
-      const needsEvidence = ["FOLLOWING", "QUOTE", "DEAL"].includes(status);
+      if (!["CLAIMED", "FOLLOWING", "DEAL"].includes(status)) return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
+      if (["FOLLOWING", "DEAL"].includes(status)
+        && (!String(customer.data.phone || "").trim() || !String(customer.data.email || "").trim())) {
+        return NextResponse.json({ error: "意向客户和成交客户必须同时填写联系电话和邮箱，请先编辑客户资料" }, { status: 400 });
+      }
+      const needsEvidence = ["FOLLOWING", "DEAL"].includes(status);
       if (!reason) return NextResponse.json({ error: "请填写真实、可追溯的阶段变更原因" }, { status: 400 });
-      if (needsEvidence && !(file instanceof File)) return NextResponse.json({ error: "变更为意向客户、报价中或已成交时必须上传真实凭证" }, { status: 400 });
+      if (needsEvidence && !(file instanceof File)) return NextResponse.json({ error: "变更为意向客户或成交客户时必须上传真实凭证" }, { status: 400 });
       if (file instanceof File && (file.size <= 0 || file.size > 15 * 1024 * 1024)) return NextResponse.json({ error: "凭证文件必须小于15MB" }, { status: 400 });
       if (file instanceof File && !stageEvidenceTypes.has(file.type)) return NextResponse.json({ error: "阶段凭证仅支持 JPG、PNG、WebP 图片或 PDF 文件" }, { status: 400 });
 
