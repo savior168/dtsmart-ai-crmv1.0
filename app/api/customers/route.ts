@@ -55,6 +55,7 @@ const customerListFields = [
   "website_email",
   "website_phone",
 ].join(",");
+const customerExportFields = [customerListFields, "ai_reason", "business_scope", "business_relevance", "customer_value", "followup_suggestion", "company_scale"].join(",");
 
 function postgrestInValue(value: string) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -192,7 +193,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data, count: data.length });
     }
 
-    let query = supabase.from("customers").select(idsOnly ? "id,status" : exportMode ? "*" : customerListFields, { count: "exact" });
+    let query = supabase.from("customers").select(idsOnly ? "id,status" : exportMode ? customerExportFields : customerListFields, { count: "exact" });
     // Older production databases may not have the additive followup_status
     // column yet. Probe once so filtering never turns into a generic reload
     // error; until migration is applied, legacy rows are treated as 待联系.
@@ -299,12 +300,17 @@ export async function GET(request: NextRequest) {
       : [];
     if (!idsOnly && responseData.length) {
       const userIds = [...new Set(responseData.flatMap((item) => [String(item.created_by || ""), String(item.owner_id || "")]).filter(Boolean))];
-      const [followupRows, creators, verifiedContacts] = await Promise.all([
+      const [followupRows, creators, verifiedContacts, scaleEvidence] = await Promise.all([
         supabase.from("customers").select("id,followup_status").in("id", responseData.map((item) => item.id)),
         userIds.length ? createAdminClient().from("users").select("id,name,email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
         createAdminClient().from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status").in("customer_id", responseData.map((item) => item.id)).in("verification_status", ["NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }),
+        exportMode && account.role === "ADMIN"
+          ? createAdminClient().from("customers").select("id,company_scale_evidence").in("id", responseData.map((item) => item.id))
+          : Promise.resolve({ data: [], error: null }),
       ]);
+      if (scaleEvidence.error) throw scaleEvidence.error;
       const creatorById = new Map((creators.data || []).map((item) => [item.id, item]));
+      const scaleEvidenceById = new Map((scaleEvidence.data || []).map((item) => [item.id, item.company_scale_evidence]));
       const contactsByCustomer = new Map<string, unknown[]>();
       if (!verifiedContacts.error) for (const contact of verifiedContacts.data || []) {
         const current = contactsByCustomer.get(contact.customer_id) || [];
@@ -329,6 +335,7 @@ export async function GET(request: NextRequest) {
         };
         return {
           ...normalized,
+          company_scale_evidence: scaleEvidenceById.get(item.id) || null,
           ...(exportMode ? legacyWebsiteExportPatch(normalized, rawWebsite) : {}),
           creator: creatorById.get(String(item.created_by || "")) || null,
           owner: creatorById.get(String(item.owner_id || "")) || null,
@@ -339,6 +346,9 @@ export async function GET(request: NextRequest) {
         const byId = new Map((followupRows.data || []).map((item) => [item.id, item.followup_status || "WAITING_CONTACT"]));
         responseData = responseData.map((item) => ({ ...item, followup_status: byId.get(item.id) || "WAITING_CONTACT" }));
       }
+    }
+    if (account.role !== "ADMIN") {
+      responseData = responseData.map((item) => ({ ...item, company_scale_evidence: null }));
     }
     return NextResponse.json({ data: responseData, count: count || responseData.length || 0, page, pageSize });
   } catch (error) {

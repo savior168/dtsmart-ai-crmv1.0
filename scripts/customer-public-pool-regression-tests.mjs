@@ -267,7 +267,7 @@ assert.match(poolView, /全部记录类型[\s\S]*全部接收人[\s\S]*全部原
 assert.match(poolView, /客户分配明细与交接记录[\s\S]*每条记录对应一位实际被分配客户[\s\S]*查看客户/, "分配记录页面必须可逐条核对实际客户");
 assert.match(poolView, /mode: "history", page: String\(page\), page_size: String\(pageSize\)/, "分配记录筛选必须服务端分页，避免仅前端筛选导致统计不准");
 assert.match(poolView, /refreshAssignmentHistory[\s\S]*loadTabCounts[\s\S]*historyRefreshKey/, "分配或交接完成后必须刷新分配记录页签计数和当前记录列表");
-assert.match(customersApi, /exportMode \? "\*" : customerListFields[\s\S]*creator: creatorById[\s\S]*owner: creatorById/, "我的客户导出必须加载完整字段，且跟进字段异常时仍保留归属信息");
+assert.match(customersApi, /exportMode \? customerExportFields : customerListFields[\s\S]*creator: creatorById[\s\S]*owner: creatorById/, "我的客户导出必须加载安全字段，且跟进字段异常时仍保留归属信息");
 assert.match(poolApi, /exportMode \? "\*"/, "客户公海导出必须加载完整客户字段而非仅当前可见列");
 assert.match(releaseHistoryApi, /requestedOwnerId\(request, account, "customers\.data_all"\)/, "主动释放历史必须在服务端按用户权限限定原归属人范围");
 assert.match(ownerScope, /if \(!hasPermission\(account, dataPermission\)\) return account\.id[\s\S]*manager_id", account\.id/, "普通销售只能查看自己的释放记录，主管只能查看直属下级");

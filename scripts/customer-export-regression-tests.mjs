@@ -57,6 +57,14 @@ const customer = {
     { type: "WHATSAPP", value_raw: "+44 7700 900999", verification_status: "NEW_VERIFIED", exact_source_url: "https://example.com/contact" },
   ],
 };
+const evidenceCustomer = { ...customer, ai_reason: "内部分析依据", company_scale_evidence: "内部规模来源" };
+const salesSheets = buildCustomerWorkbookSheets([evidenceCustomer], { columns: ["company_name", "ai_score"] });
+assert.deepEqual(salesSheets.map((sheet) => sheet.name), ["客户清单"], "普通角色导出不得附带完整AI依据页");
+assert.equal(salesSheets[0].rows[0].includes("AI依据"), false, "普通角色导出不得显示AI依据入口");
+assert.equal(salesSheets[0].internalHyperlinks?.length, 0, "普通角色导出不得生成AI依据跳转");
+const adminSheets = buildCustomerWorkbookSheets([evidenceCustomer], { columns: ["company_name", "ai_score"], includeAiEvidence: true });
+assert.deepEqual(adminSheets.map((sheet) => sheet.name), ["客户清单", "AI分析依据"], "管理员导出仍应包含完整AI依据页");
+assert.equal(adminSheets[1].rows[1][8], "内部规模来源", "管理员依据页应保留规模来源");
 const exportedSheets = buildCustomerWorkbookSheets([customer], {
   columns: ["company_name", "email", "website_phone"],
   includeAllContactChannels: true,
@@ -129,6 +137,8 @@ const customersApi = await readFile(new URL("../app/api/customers/route.ts", imp
 assert.match(customersApi, /requirePermission\(exportMode \? "customers.export" : "customers.view"\)/, "下载完整客户资料须校验导出权限");
 assert.match(customersApi, /exportMode \? exportOfficialWebsiteText\(rawWebsite\) : officialWebsiteUrl\(rawWebsite\)/, "仅导出时兼容裸域名官网，不改普通列表语义");
 assert.match(customersApi, /exportMode \? legacyWebsiteExportPatch\(normalized, rawWebsite\) : \{\}/, "历史公开平台网址仅在导出路径补齐");
+assert.match(customersApi, /account\.role !== "ADMIN"[\s\S]*company_scale_evidence: null/, "普通角色的客户接口不得返回原始规模依据");
 const customersView = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
 assert.match(customersView, /includeAllContactChannels: true/, "我的客户导出必须固定包含全部联系方式与公开渠道");
+assert.match(customersView, /includeAiEvidence: currentRole === "ADMIN"/, "完整AI依据导出仅限管理员");
 console.log("客户导出回归测试通过。");

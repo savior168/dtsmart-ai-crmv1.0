@@ -82,6 +82,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const historicalChannel = publicChannelForUrl(data.website);
     return NextResponse.json({
       ...data,
+      company_scale_evidence: account.role === "ADMIN" ? data.company_scale_evidence : null,
       website: officialWebsiteUrl(data.website),
       facebook_url: data.facebook_url || (historicalChannel === "facebook" ? data.website : null),
       instagram_url: data.instagram_url || (historicalChannel === "instagram" ? data.website : null),
@@ -108,7 +109,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
     if (!(payload.country ?? customer.country)?.toString().trim()) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     await assertNoDuplicateIdentity(id, payload);
-    const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select().single();
+    const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select(["id", "status", ...writable].join(",")).single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_UPDATE", "customer", id, { fields: Object.keys(payload) });
     return NextResponse.json(data);

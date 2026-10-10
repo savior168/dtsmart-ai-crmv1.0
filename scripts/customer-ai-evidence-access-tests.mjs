@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { canReadCustomerAiEvidence, presentCustomerAiEvidenceResult } from "../lib/ai/customer-evidence-access.ts";
 
 const base = {
@@ -30,5 +31,17 @@ for (const key of ["task_id", "task", "total_tokens", "cost_usd", "pricing_snaps
   assert.equal(Object.hasOwn(limited, key), false, `普通角色不得获得 ${key}`);
 }
 assert.equal(presentCustomerAiEvidenceResult(raw, true), raw, "仅管理员保留原始分析结果");
+
+const customerRoute = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
+const customerListRoute = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
+const migration = await readFile(new URL("../supabase/migrations/202610100004_customer_ai_evidence_column_privileges.sql", import.meta.url), "utf8");
+assert.match(customerRoute, /company_scale_evidence: account\.role === "ADMIN" \? data\.company_scale_evidence : null/, "单客户接口不得向普通角色返回原始规模依据");
+assert.match(customerRoute, /\.update\(payload\)[\s\S]*?\.select\(\["id", "status", \.\.\.writable\]\.join\(","\)\)/, "客户编辑返回不得使用暴露敏感列的通配选择");
+assert.match(customerListRoute, /exportMode \? customerExportFields : customerListFields/, "客户导出不得使用通配选择");
+assert.match(customerListRoute, /account\.role === "ADMIN"[\s\S]*?select\("id,company_scale_evidence"\)/, "管理员导出仍可通过服务端读取规模依据");
+assert.match(migration, /revoke select, insert, update on table public\.customers from anon, authenticated/i, "迁移必须先移除客户端整表权限");
+assert.match(migration, /a\.attname <> 'company_scale_evidence'/, "客户端字段授权必须排除原始规模依据");
+assert.match(migration, /has_column_privilege\('authenticated', 'public\.customers', 'company_scale_evidence', 'SELECT'\)/, "迁移必须自检敏感列不可直读");
+assert.doesNotMatch(migration, /\bupdate\s+public\.customers\b/i, "权限迁移不得修改现有客户数据");
 
 console.log("Customer AI evidence access tests passed.");

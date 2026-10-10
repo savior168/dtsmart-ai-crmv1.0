@@ -34,6 +34,7 @@ export type CustomerWorkbookOptions = {
   columns?: CustomerExportColumn[];
   includeOwner?: boolean;
   includeAllContactChannels?: boolean;
+  includeAiEvidence?: boolean;
 };
 
 const STAGE_LABELS: Record<CustomerStatus, string> = {
@@ -295,24 +296,25 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
   const otherLinkCount = visibleColumns.includes("social") ? rows.reduce((max, customer) => Math.max(max, otherUnclassifiedUrls(customer).length), 0) : 0;
   const exportColumns = expandExportColumns(visibleColumns, otherLinkCount);
   const scoreIndex = exportColumns.indexOf("ai_score");
+  const includeAiEvidence = options.includeAiEvidence === true;
   const headers = [
     ...exportColumns.flatMap((key) => key === "ai_score" ? [exportDisplayLabel(key), "AI依据"] : [exportDisplayLabel(key)]),
-  ];
-  const evidenceColumn = scoreIndex < 0 ? -1 : scoreIndex + 1;
-  const evidenceRows = rows.filter(hasAiEvidence);
+  ].filter((label) => includeAiEvidence || label !== "AI依据");
+  const evidenceColumn = !includeAiEvidence || scoreIndex < 0 ? -1 : scoreIndex + 1;
+  const evidenceRows = includeAiEvidence ? rows.filter(hasAiEvidence) : [];
   const evidenceRowById = new Map(evidenceRows.map((customer, index) => [String(customer.id || customer.company_name), index + 2]));
   const mainRows = rows.map((customer) => exportColumns.flatMap((key) => {
     if (key !== "ai_score") return [exportDisplayText(customer, key)];
     const evidenceRow = evidenceRowById.get(String(customer.id || customer.company_name));
-    return [exportDisplayText(customer, key), evidenceRow ? "查看依据" : "-"];
+    return includeAiEvidence ? [exportDisplayText(customer, key), evidenceRow ? "查看依据" : "-"] : [exportDisplayText(customer, key)];
   }));
   const publicLinkColumns = exportColumns.flatMap((key, index) => {
-    const offset = exportColumns.slice(0, index).filter((item) => item === "ai_score").length;
+    const offset = includeAiEvidence ? exportColumns.slice(0, index).filter((item) => item === "ai_score").length : 0;
     return ["website", "google_url", "facebook", "instagram", "linkedin", "tiktok", "youtube", "x", "public_whatsapp"].includes(key) || key.startsWith("other_social_") ? [{ key, column: index + offset }] : [];
   });
   const aiContactSourceColumns = exportColumns.flatMap((key, index) => {
     if (!["ai_phone", "ai_email", "ai_whatsapp"].includes(key)) return [];
-    const offset = exportColumns.slice(0, index).filter((item) => item === "ai_score").length;
+    const offset = includeAiEvidence ? exportColumns.slice(0, index).filter((item) => item === "ai_score").length : 0;
     return [{ key, column: index + offset }];
   });
   return [
@@ -340,7 +342,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
         ...mainRows,
       ],
     },
-    {
+    ...(includeAiEvidence ? [{
       name: "AI分析依据",
       widths: [26, 18, 52, 52, 52, 52, 52, 18, 52, 18],
       wrapColumns: [2, 3, 4, 5, 6, 8],
@@ -351,7 +353,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
           exportText(customer.customer_value), exportText(customer.followup_suggestion), exportText(customer.company_scale), exportText(customer.company_scale_evidence), exportText(customer.category),
         ]),
       ],
-    },
+    }] : []),
   ];
 }
 
