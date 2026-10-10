@@ -678,7 +678,7 @@ export function CustomersView() {
             <select
               value={aiFilter}
               onChange={(event) => { setAiFilter(event.target.value as "done" | "pending" | "failed" | "all"); setPage(1); setSelected(new Set()); setProtectedSelected(new Set()); }}
-              className="h-10 w-40 shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm text-blue-700"
+              className="h-10 w-40 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
               aria-label="AI筛选状态"
             >
               <option value="all">全部AI分析状态</option>

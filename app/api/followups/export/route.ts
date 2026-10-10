@@ -4,6 +4,7 @@ import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS, FOLLOWUP_TYPE_LABELS } from 
 import { workbookResponse } from "@/lib/xlsx-export";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { countryFilterRawValues } from "@/lib/countries";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type FollowupRow = {
   type: string | null;
@@ -23,7 +24,7 @@ type FollowupRow = {
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("followups.export");
+    const { account } = await requirePermission("followups.export");
     const params = request.nextUrl.searchParams;
     const scope = params.get("scope") || "history";
     if (!["today", "overdue", "upcoming", "unscheduled", "history"].includes(scope)) return NextResponse.json({ error: "无效的跟进范围" }, { status: 400 });
@@ -32,13 +33,14 @@ export async function GET(request: NextRequest) {
     if (stage && !new Set<string>(CUSTOMER_STATUSES).has(stage)) return NextResponse.json({ error: "无效的客户阶段" }, { status: 400 });
     const countries = [...new Set(params.getAll("country").map((item) => item.trim()).filter(Boolean))];
     const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
+    const followupReader = createAdminClient();
     const { start, end } = followupDayBounds();
     const rows: FollowupRow[] = [];
 
     for (let offset = 0; offset <= 100000; offset += 1000) {
       let page;
       if (scope === "history") {
-        let query = supabase.from("customer_followup_history")
+        let query = followupReader.from("customer_followup_history")
           .select("type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,actor_name,actor_email");
         if (scopeUserId) query = query.eq("owner_id", scopeUserId);
         if (stage) query = query.eq("status", stage);
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
         if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
         page = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + 999);
       } else {
-        let query = supabase.from("customer_followup_queue")
+        let query = followupReader.from("customer_followup_queue")
           .select("type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,owner_name,owner_email");
         if (scopeUserId) query = query.eq("owner_id", scopeUserId);
         if (stage) query = query.eq("status", stage);

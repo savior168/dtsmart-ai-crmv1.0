@@ -3,12 +3,13 @@ import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { countryFilterRawValues } from "@/lib/countries";
 import { CUSTOMER_STATUSES } from "@/lib/types";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const scopes = new Set(["today", "overdue", "upcoming", "unscheduled", "history"]);
 
 export async function GET(request: Request) {
   try {
-    const { supabase, account } = await requirePermission("followups.view");
+    const { account } = await requirePermission("followups.view");
     const params = new URL(request.url).searchParams;
     const scope = params.get("scope") || "today";
     if (!scopes.has(scope)) return NextResponse.json({ error: "无效的跟进范围" }, { status: 400 });
@@ -19,10 +20,11 @@ export async function GET(request: Request) {
     if (stage && !new Set<string>(CUSTOMER_STATUSES).has(stage)) return NextResponse.json({ error: "无效的客户阶段" }, { status: 400 });
     const countries = [...new Set(params.getAll("country").map((item) => item.trim()).filter(Boolean))];
     const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
+    const followupReader = createAdminClient();
     const { start, end } = followupDayBounds();
 
     if (scope === "history") {
-      let query = supabase.from("customer_followup_history")
+      let query = followupReader.from("customer_followup_history")
         .select("id,customer_id,user_id,type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,actor_name,actor_email", { count: "exact" });
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
       if (stage) query = query.eq("status", stage);
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
       });
     }
 
-    let query = supabase.from("customer_followup_queue")
+    let query = followupReader.from("customer_followup_queue")
       .select("id,customer_id,owner_id,type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,owner_name,owner_email", { count: "exact" });
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (stage) query = query.eq("status", stage);

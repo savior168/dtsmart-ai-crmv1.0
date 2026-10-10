@@ -14,6 +14,11 @@ const correction = read("app/api/followups/[id]/route.ts");
 
 assert.match(migration, /customer_followup_queue[\s\S]*security_invoker = true[\s\S]*left join lateral[\s\S]*order by f\.created_at desc, f\.id desc[\s\S]*limit 1/, "待办必须基于每个客户最新一条跟进，且遵循 RLS");
 assert.match(migration, /customer_followup_history[\s\S]*security_invoker = true/, "历史视图不得绕过行权限");
+for (const source of [api, exportApi, dashboard]) {
+  assert.match(source, /createAdminClient\(\)/, "列级保护后，服务端必须使用受控客户端读取跟进视图");
+  assert.doesNotMatch(source, /supabase\.from\("customer_followup_(?:queue|history)"\)/, "普通用户的 invoker 视图查询会因客户表级权限被撤销而失败");
+  assert.match(source, /if \(scopeUserId\)[\s\S]*?\.eq\("owner_id", scopeUserId\)/, "服务端视图查询必须保留归属范围限制");
+}
 assert.match(api, /scope === "unscheduled"[\s\S]*\.is\("next_follow_date", null\)/, "无计划日期的已归属客户必须进入待安排");
 assert.match(api, /scope === "upcoming"[\s\S]*\.gte\("next_follow_date", end\)/, "后续计划不得混入今日待办");
 assert.match(ownerReadMigration, /c\.deleted_at is null[\s\S]*c\.owner_id = auth\.uid\(\)/, "跟进读取必须允许当前归属人查看有效客户记录");

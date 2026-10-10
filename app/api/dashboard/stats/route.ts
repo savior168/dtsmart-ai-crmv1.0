@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { normalizeReportCountries } from "@/lib/reports/sales";
 import { followupDayBounds } from "@/lib/customers/followup-day";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
@@ -33,6 +34,10 @@ export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("dashboard.view");
     const scopeUserId = await requestedOwnerId(request, account, "dashboard.data_all");
+    // The invoker follow-up view requires table-level customers SELECT, while
+    // authenticated callers intentionally have only safe column grants.
+    // Read it server-side after the requested owner scope has been validated.
+    const followupReader = createAdminClient();
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(todayStart);
@@ -42,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     if (request.nextUrl.searchParams.get("summary") === "1") {
       const followupDay = followupDayBounds(now);
-      let followupsQuery = supabase.from("customer_followup_queue").select("id", { count: "exact", head: true }).gte("next_follow_date", followupDay.start).lt("next_follow_date", followupDay.end);
+      let followupsQuery = followupReader.from("customer_followup_queue").select("id", { count: "exact", head: true }).gte("next_follow_date", followupDay.start).lt("next_follow_date", followupDay.end);
       let protectionsQuery = supabase.from("customer_protection").select("id", { count: "exact", head: true }).eq("status", "ACTIVE").not("expire_date", "is", null).gte("expire_date", todayStart.toISOString()).lt("expire_date", protectionEnd.toISOString());
       if (scopeUserId) {
         followupsQuery = followupsQuery.eq("owner_id", scopeUserId);
@@ -94,7 +99,7 @@ export async function GET(request: NextRequest) {
     if (country) validCustomersQuery = validCustomersQuery.ilike("country", `%${country.replace(/[\\%_]/g, "\\\\$&")}%`);
     if (aiLevel) validCustomersQuery = validCustomersQuery.eq("ai_level", aiLevel);
     const followupDay = followupDayBounds(now);
-    let todayFollowupsQuery = supabase.from("customer_followup_queue")
+    let todayFollowupsQuery = followupReader.from("customer_followup_queue")
       .select("id,customer_id,company_name,phone,email,country,ai_level,created_at,next_follow_date,type,status", { count: "exact" })
       .gte("next_follow_date", followupDay.start).lt("next_follow_date", followupDay.end)
       .order("next_follow_date", { ascending: true }).order("customer_id", { ascending: true }).limit(5);
