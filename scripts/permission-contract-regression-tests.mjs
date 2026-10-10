@@ -42,6 +42,10 @@ assert.match(customerCrm, /data\.can_view_ai_evidence&&customer\.ai_screening_do
 assert.doesNotMatch(customerCrm, /data\.ai_result\.task_id/, "客户详情进入依据时不能附带无权查看的任务编号");
 assert.match(read("lib/auth/permissions.ts"), /code: "customers\.ai_evidence_view"[^\n]*core: true/, "完整客户依据必须为管理员级权限");
 assert.match(read("lib/auth/permissions.ts"), /code: "ai\.acquisition\.view"[^\n]*core: true[\s\S]*code: "ai\.tasks\.view"[^\n]*core: true/, "非管理员不得因旧授权进入AI菜单");
+const rawAiReadBoundary = read("supabase/migrations/202610100003_ai_raw_admin_read_boundary.sql");
+for (const table of ["tasks", "task_items", "results", "evidence"]) {
+  assert.match(rawAiReadBoundary, new RegExp(`on public\\.ai_screening_${table} as restrictive[\\s\\S]*?for select to authenticated[\\s\\S]*?using \\(public\\.current_user_is_admin\\(\\)\\)`), `AI ${table} 原始数据必须在数据库 RLS 中仅允许管理员读取`);
+}
 assert.match(read("lib/auth/current-user.ts"), /CORE_PERMISSION_CODES\.has\(permission\) \|\| CORE_PERMISSION_CODES\.has\(pagePermission\)/, "旧权限授权不得绕过核心页面及子功能");
 assert.match(customerCrm, /if \(!data\.can_view_ai_evidence\) return/, "普通角色AI分析页签只展示业务摘要");
 
