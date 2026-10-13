@@ -89,9 +89,10 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "quotes.export", label: "导出报价单", group: "销售管理", description: "按标准PI模板导出报价Excel", kind: "ACTION" },
   { code: "quotes.cancel", label: "取消本人报价", group: "销售管理", description: "取消本人未确认的报价单", kind: "ACTION" },
 
-  { code: "orders.view", label: "销售订单", group: "销售管理", description: "查看报价确认后形成的销售订单快照", kind: "PAGE" },
+  { code: "orders.view", label: "PI订单", group: "销售管理", description: "查看PI订单和历史销售订单", kind: "PAGE" },
+  { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "为本人客户创建PI草稿并确认提交仓库", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "主管只读查看全部销售订单", kind: "DATA" },
-  { code: "orders.edit", label: "修改本人订单说明", group: "销售管理", description: "修改本人未结束订单的交付日期和确认说明", kind: "ACTION" },
+  { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
   { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 

@@ -2,13 +2,15 @@ import type { QuoteItem, QuoteStatus, StockOrderStatus } from "@/lib/types";
 import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
 
 export const QUOTE_EDITABLE_STATUSES: QuoteStatus[] = ["DRAFT", "GENERATED"];
-export const STOCK_TERMINAL_STATUSES: StockOrderStatus[] = ["READY", "CANCELLED"];
+export const STOCK_TERMINAL_STATUSES: StockOrderStatus[] = ["READY", "SHIPPED", "CANCELLED"];
 export const STOCK_TRANSITIONS: Record<StockOrderStatus, StockOrderStatus[]> = {
   DRAFT: ["WAITING", "CANCELLED"],
   WAITING: ["PREPARING", "SHORTAGE", "CANCELLED"],
-  PREPARING: ["READY", "SHORTAGE", "CANCELLED"],
+  PREPARING: ["RECEIVED", "SHORTAGE", "CANCELLED"],
+  RECEIVED: ["SORTING", "SHORTAGE", "CANCELLED"],
+  SORTING: ["READY_TO_SHIP", "SHORTAGE", "CANCELLED"],
   SHORTAGE: ["PREPARING", "CANCELLED"],
-  READY: [], CANCELLED: [],
+  READY_TO_SHIP: ["SHIPPED", "CANCELLED"], SHIPPED: [], READY: [], CANCELLED: [],
 };
 
 function text(value: unknown, max = 1000) {

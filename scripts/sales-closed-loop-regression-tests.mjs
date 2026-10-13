@@ -81,7 +81,8 @@ assert.doesNotMatch(closedLoopMigration,/stock_orders[\s\S]*desired:='DEAL'/,"�
 const menu = read("components/app-shell.tsx");
 assert.match(menu, /label: "客户中心"[\s\S]*客户公海[\s\S]*我的客户[\s\S]*跟进管理/, "客户中心必须按公海、我的客户和跟进顺序归类");
 assert.doesNotMatch(menu, /label: "客户导入"/, "客户导入只能从目标客户列表进入，不能保留歧义二级菜单");
-assert.match(menu, /label: "销售管理"[\s\S]*报价单[\s\S]*销售订单/, "报价单与销售订单必须归入销售管理");
+assert.match(menu, /label: "销售管理"[\s\S]*label: "PI订单"/, "销售管理应只展示PI订单入口");
+assert.doesNotMatch(menu, /label: "报价单"/, "销售管理不得再展示旧报价入口");
 assert.match(menu, /label: "采购管理"[\s\S]*label: "备货单"[\s\S]*stock\.view/, "备货单必须归入采购管理");
 assert.doesNotMatch(menu, /仓库管理/, "导航和面包屑不得再显示仓库管理旧名称");
 assert.match(read("components/stock-orders-view.tsx"), /采购管理[\s\S]*不记录库存/, "备货单列表应按无库存的采购备货流程说明");

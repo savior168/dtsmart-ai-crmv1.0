@@ -45,6 +45,11 @@ const stockBuffer = await buildStockWorkbook({
   destination_country: "DE",
   stocking_requirements: "Pack",
   status_note: "",
+  shipped_at: "2026-10-13T09:00:00Z",
+  delivery_recipient: "Tom",
+  delivery_phone: "+49 123",
+  delivery_email: "tom@example.com",
+  delivery_address: "Berlin",
   created_at: new Date().toISOString(),
   salesperson: { name: "Eva", email: "eva@example.com" },
 }, items);
@@ -74,6 +79,8 @@ assert.ok(containsMedia(quoteBuffer), "报价单必须保留企业 Logo");
 
 const stock = firstSheet(stockBuffer);
 assert.equal(stock.G3.v, "ORDER-TEST-001");
+assert.equal(stock.N3.v, "2026-10-13", "实际发货日须来自已发货事件");
+assert.match(stock.B9.v, /Tom.*\+49 123.*tom@example.com.*Berlin/, "收货信息须写入下单表模板");
 assert.equal(stock.C13.v, "屏幕");
 assert.match(stock.L13.v, /交付形态：单片屏.*显示技术细分：软 OLED/, "备货模板应带出保存时的品类规格快照");
 assert.match(stock.L13.v, /颜色：深蓝色/, "备货模板应带出保存时的颜色快照");

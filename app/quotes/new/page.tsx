@@ -1,4 +1,4 @@
-import { QuoteForm } from "@/components/quote-form";
+import { redirect } from "next/navigation";
 import { protectPage } from "@/lib/auth/page-access";
 
-export default async function NewQuotePage({searchParams}:{searchParams:Promise<{customer_id?:string}>}){await protectPage("quotes.create");const params=await searchParams;return <QuoteForm initialCustomerId={params.customer_id||""}/>}
+export default async function NewQuotePage({searchParams}:{searchParams:Promise<{customer_id?:string}>}){await protectPage("orders.create");const params=await searchParams;redirect(`/orders/new${params.customer_id ? `?customer_id=${encodeURIComponent(params.customer_id)}` : ""}`)}
