@@ -24,6 +24,7 @@ assert.match(formSource, /stage === "FOLLOWING" && !stageFile/, "新增意向客
 assert.match(createApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)/, "新增意向客户必须先以潜在客户建立主档，再走凭证阶段流程");
 assert.match(createApi, /requestedStage === "DEAL" && \(!String\(body\.phone \|\| ""\)\.trim\(\) \|\| !String\(body\.email \|\| ""\)\.trim\(\)\)/, "服务端必须校验手动新增成交客户的电话与邮箱");
 assert.match(createApi, /ownership_disposition: ownership/, "疑似重复候选必须返回服务端核定的归属类型");
+assert.match(createApi, /const possibleMatches: Record<string, unknown>\[\] = \[\];[\s\S]*?\.select\("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at"\)\s*\.is\("deleted_at", null\)/, "重复客户精确与疑似匹配均不得包含已软删除客户");
 const candidate = { id: "11111111-1111-4111-8111-111111111111", company_name: "重复候选", ownership_status: "客户公海待认领" };
 const poolCandidate = renderToStaticMarkup(createElement(PotentialDuplicateCandidate, { item: { ...candidate, ownership_disposition: "PUBLIC_POOL_AVAILABLE" } }));
 assert.match(poolCandidate, /customers\/pool\?tab=available&amp;customer=11111111-1111-4111-8111-111111111111/, "可认领候选必须定向定位客户公海");
