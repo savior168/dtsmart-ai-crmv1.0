@@ -12,7 +12,6 @@ type StockLink = { id: string; stock_number: string; status: string };
 type Row = {
   id: string;
   order_number: string;
-  warehouse_reference_number: string | null;
   quote_number: string;
   customer_short_name: string;
   currency: string;
@@ -77,7 +76,7 @@ export function OrdersView() {
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="搜索订单号、报价号或客户简称"
+              placeholder="搜索PI号或客户简称"
               className={`${appFieldClass} w-full pl-9`}
             />
           </label>
@@ -127,11 +126,10 @@ export function OrdersView() {
                 <thead className="bg-slate-50 text-xs">
                   <tr>
                     {[
-                      "订单编号",
+                      "PI号",
                       "客户简称",
-                      "仓库约定订单编号",
-                      "订单状态",
-                      "订单金额",
+                      "PI状态",
+                      "PI金额",
                       "备货单",
                       ...(canViewAll ? ["归属人"] : []),
                       "更新时间",
@@ -153,7 +151,6 @@ export function OrdersView() {
                           {row.order_number}
                         </td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
-                        <td className="px-4 py-3">{row.warehouse_reference_number || "—"}</td>
                         <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3 font-semibold text-blue-700">
                           {row.currency} {Number(row.total_amount).toFixed(2)}

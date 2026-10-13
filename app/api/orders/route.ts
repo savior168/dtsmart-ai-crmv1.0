@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("sales_orders")
       .select(
-        "id,order_number,warehouse_reference_number,quote_id,quote_number,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,updated_at",
+        "id,order_number,quote_id,quote_number,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,updated_at",
         { count: "exact" },
       )
       .order("updated_at", { ascending: false })
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       page,
       page_size: pageSize,
       can_view_all: hasPermission(account, "orders.data_all"),
-      can_create: (account.role === "SALES" || account.role === "SUPERVISOR") && hasPermission(account, "orders.create"),
+      can_create: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN") && hasPermission(account, "orders.create"),
     });
   } catch (error) {
     console.error("[sales-orders:list]", error);
