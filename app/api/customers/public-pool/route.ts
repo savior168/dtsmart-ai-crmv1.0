@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
     const sourceBatches = [...new Set(params.getAll("source_batch").map((value) => value.trim()).filter(Boolean))];
     const aiTaskIds = [...new Set(params.getAll("ai_task_id").flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)))];
     const customerId = params.get("customer_id")?.trim() || "";
+    const selectedIds = [...new Set(params.getAll("selected_id"))];
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
     // Everyone can audit who claimed a customer; only the owner, their direct
@@ -90,6 +91,8 @@ export async function GET(request: NextRequest) {
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
     if (exportMode && !hasPermission(account, "customers.pool.export")) return NextResponse.json({ error: "当前账号没有客户公海导出权限" }, { status: 403 });
+    if (selectedIds.length && (!exportMode || selectedIds.length > 100 || selectedIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))) return NextResponse.json({ error: "无效的导出客户范围" }, { status: 400 });
+    if (params.get("permissions") === "1") return NextResponse.json({ can_export: hasPermission(account, "customers.pool.export") }, { headers: { "Cache-Control": "no-store" } });
     if (ownerId && (tab !== "claimed" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerId))) return NextResponse.json({ error: "无效的认领人筛选" }, { status: 400 });
     if (tab === "claimed" && customerStatus && account.role !== "ADMIN") return NextResponse.json({ error: "当前角色不能按其他客户的阶段筛选" }, { status: 403 });
 
@@ -211,6 +214,7 @@ export async function GET(request: NextRequest) {
       exportMode && account.role === "ADMIN" ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
+    if (selectedIds.length) query = query.in("id", selectedIds);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
     if (tab === "claimed") {
       query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);

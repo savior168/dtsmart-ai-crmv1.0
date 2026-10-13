@@ -25,6 +25,8 @@ assert.match(ownerReadMigration, /c\.deleted_at is null[\s\S]*c\.owner_id = auth
 assert.doesNotMatch(ownerReadMigration, /user_id\s*=\s*auth\.uid\(\)/, "转移后原记录人不得继续直接读取客户跟进");
 assert.match(api, /scope === "today"[\s\S]*\.gte\("next_follow_date", start\)\.lt\("next_follow_date", end\)/, "今日口径必须采用同一业务日边界");
 assert.match(exportApi, /customer_followup_queue[\s\S]*scope === "unscheduled"/, "导出与列表必须使用同一有效计划口径");
+assert.match(api, /can_export: hasPermission\(account, "followups\.export"\)/, "跟进列表必须返回当前账号的导出生效权限");
+assert.match(view, /payload\?\.can_export \? <a href=\{`\/api\/followups\/export/, "跟进导出入口不得对未授权用户显示");
 for (const source of [api, exportApi]) {
   assert.match(source, /params\.get\("stage"\)/, "列表和导出必须读取同一客户阶段筛选");
   assert.match(source, /params\.getAll\("country"\)/, "列表和导出必须读取同一国家筛选");

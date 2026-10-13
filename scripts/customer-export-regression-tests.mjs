@@ -184,4 +184,8 @@ assert.match(customersApi, /account\.role !== "ADMIN"[\s\S]*company_scale_eviden
 const customersView = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
 assert.match(customersView, /includeAllContactChannels: true/, "我的客户导出必须固定包含全部联系方式与公开渠道");
 assert.match(customersView, /includeAiEvidence: currentRole === "ADMIN"/, "完整AI依据导出仅限管理员");
+assert.match(customersApi, /selectedIds\.length[\s\S]*!exportMode[\s\S]*selectedIds\.length > 100[\s\S]*query = query\.in\("id", selectedIds\)/, "我的客户勾选导出必须在服务端校验并限制客户 ID 范围");
+assert.match(customersView, /selectedBatches[\s\S]*params\.append\("selected_id", id\)[\s\S]*已导出\$\{selectedIds\.length/, "我的客户勾选导出应仅请求已选客户，未勾选才导出筛选结果");
+const customerWorkspacePanels = await readFile(new URL("../components/customer-workspace-panels-v2.tsx", import.meta.url), "utf8");
+assert.equal([...customerWorkspacePanels.matchAll(/canExport \? <button[^\n]*导出当前筛选/g)].length, 2, "客户保护和冲突工作区的导出入口也必须受客户导出权限控制");
 console.log("客户导出回归测试通过。");

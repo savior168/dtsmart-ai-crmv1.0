@@ -505,10 +505,13 @@ export function CustomersView() {
   }
   async function exportData() {
     if (!canExport) return notify("当前账号没有客户导出权限", "error");
+    if (exporting) return;
     setExporting(true);
     setError("");
     const exportRows: Customer[] = [];
     const seenIds = new Set<string>();
+    const selectedIds = [...selected];
+    const selectedBatches = Array.from({ length: Math.ceil(selectedIds.length / 100) }, (_, index) => selectedIds.slice(index * 100, (index + 1) * 100));
     const params = new URLSearchParams({
       pageSize: "500", search, status, ai_level: level, target, export: "1",
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
@@ -525,25 +528,30 @@ export function CustomersView() {
       let currentPage = 1;
       let total = -1;
       do {
-        params.set("page", String(currentPage));
+        const selectedBatch = selectedIds.length ? selectedBatches[currentPage - 1] : null;
+        if (selectedIds.length && !selectedBatch) break;
+        params.set("page", String(selectedBatch ? 1 : currentPage));
+        params.set("pageSize", selectedBatch ? "100" : "500");
+        params.delete("selected_id");
+        for (const id of selectedBatch || []) params.append("selected_id", id);
         const response = await fetch(`/api/customers?${params}`);
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "导出数据读取失败");
         const items = Array.isArray(body.data) ? body.data as Customer[] : [];
         const currentTotal = Number(body.count ?? 0);
-        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (total >= 0 && currentTotal !== total)) throw new Error("导出期间客户数量发生变化，请重试");
-        total = currentTotal;
+        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (selectedBatch ? currentTotal !== selectedBatch.length : total >= 0 && currentTotal !== total)) throw new Error("导出期间客户范围发生变化，请重新选择后重试");
+        total = selectedBatch ? selectedIds.length : currentTotal;
         for (const item of items) {
           if (!item.id || seenIds.has(item.id)) throw new Error("导出期间客户列表发生变化，请重试");
           seenIds.add(item.id);
           exportRows.push(item);
         }
         currentPage += 1;
-        if (!items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
+        if (selectedBatch && items.length !== selectedBatch.length || !items.length && exportRows.length < total) throw new Error(`导出中断：已读取 ${exportRows.length}/${total} 条`);
       } while (exportRows.length < total);
       if (!exportRows.length) return notify("当前筛选条件下没有可导出的客户");
       downloadCustomerWorkbook(exportRows as unknown as Array<Record<string, unknown>>, "客户列表", { columns: fields, includeOwner: canViewAll, includeAllContactChannels: true, includeAiEvidence: currentRole === "ADMIN" });
-      notify(`已导出当前筛选结果 ${exportRows.length} 条`);
+      notify(`已导出${selectedIds.length ? "已选" : "当前筛选结果"} ${exportRows.length} 条`);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "导出数据失败";
       setError(message);
@@ -772,7 +780,7 @@ export function CustomersView() {
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"
             >
               <Download size={16} />
-              {exporting ? "正在导出…" : "导出数据"}
+              {exporting ? "正在导出…" : selected.size ? `导出已选 ${selected.size} 条` : "导出筛选结果"}
             </button>}
             <div ref={fieldRef} className="relative">
               <button
@@ -1156,8 +1164,8 @@ export function CustomersView() {
           </aside>
         )}
         </> : workspace === "protection"
-          ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} dashboardFilter={dashboardProtection ? { from: fromDate, to: toDate, country: countries[0] || "" } : undefined} onClearDashboardFilter={() => { setDashboardProtection(false); const url = new URL(window.location.href); url.searchParams.delete("dashboard"); window.history.replaceState(null, "", url); }} />
-          : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} />}
+          ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} canExport={canExport} dashboardFilter={dashboardProtection ? { from: fromDate, to: toDate, country: countries[0] || "" } : undefined} onClearDashboardFilter={() => { setDashboardProtection(false); const url = new URL(window.location.href); url.searchParams.delete("dashboard"); window.history.replaceState(null, "", url); }} />
+          : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} canExport={canExport} />}
         {releaseTarget ? <AppDialog title="释放客户到公海" description={`${releaseTarget.company_name} · ${stageLabels[releaseTarget.status]}`} onClose={()=>{setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false)}} width="max-w-md"><form onSubmit={event=>{event.preventDefault();if(releaseReason.trim() && (!releaseNeedsAcknowledgement(releaseTarget.status) || releaseAcknowledged))void releaseCustomer(releaseTarget,releaseReason.trim())}}><p className={`rounded-lg p-3 text-xs leading-5 ${releaseNeedsAcknowledgement(releaseTarget.status)?"bg-amber-50 text-amber-800":"bg-slate-50 text-slate-700"}`}>{releaseNotice(releaseTarget.status)}</p><label className="mt-4 block text-sm font-medium text-slate-700">释放原因（必填）<textarea autoFocus required minLength={5} maxLength={300} value={releaseReason} onChange={event=>setReleaseReason(event.target.value)} rows={4} placeholder="请客观说明释放原因，系统将保留审计记录" className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label>{releaseNeedsAcknowledgement(releaseTarget.status)?<label className="mt-3 flex cursor-pointer items-start gap-2 text-xs leading-5 text-slate-600"><input required type="checkbox" checked={releaseAcknowledged} onChange={event=>setReleaseAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"/><span>我已确认上述业务影响，并已完成必要的客户沟通或业务单据处理。</span></label>:null}<DialogActions onCancel={()=>{setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false)}} confirmLabel="确认释放" tone="danger"/></form></AppDialog> : null}
       </div>
     </main>

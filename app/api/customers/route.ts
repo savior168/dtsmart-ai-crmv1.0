@@ -120,6 +120,8 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission(exportMode ? "customers.export" : "customers.view");
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
+    const selectedIds = [...new Set(request.nextUrl.searchParams.getAll("selected_id"))];
+    if (selectedIds.length && (!exportMode || selectedIds.length > 100 || selectedIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))) return NextResponse.json({ error: "无效的导出客户范围" }, { status: 400 });
     const pageSize = Math.min(idsOnly ? 1000 : 500, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const search = request.nextUrl.searchParams.get("search")?.trim();
     const status = request.nextUrl.searchParams.get("status");
@@ -219,6 +221,7 @@ export async function GET(request: NextRequest) {
     }
 
     let query = supabase.from("customers").select(idsOnly ? "id,status" : exportMode ? customerExportFields : customerListFields, { count: "exact" });
+    if (selectedIds.length) query = query.in("id", selectedIds);
     // Older production databases may not have the additive followup_status
     // column yet. Probe once so filtering never turns into a generic reload
     // error; until migration is applied, legacy rows are treated as 待联系.
