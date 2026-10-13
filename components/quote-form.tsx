@@ -326,8 +326,8 @@ export function QuoteForm({
     }));
   }
   function clearItems() {
-    setForm((current) => ({ ...current, items: [emptyItem()] }));
-    setMessage("产品明细已清空，已保留一条空白行。保存前可继续录入或导入。");
+    setForm((current) => ({ ...current, items: [] }));
+    setMessage("产品明细已清空。保存前请添加至少一条产品明细。");
     setPendingConfirm(null);
   }
   async function pasteRows() {
@@ -426,6 +426,10 @@ export function QuoteForm({
     }
   }
   async function save(status: QuoteStatus) {
+    if (!form.items.length) {
+      setMessage("请至少添加一条产品明细");
+      return;
+    }
     setBusy(true);
     setMessage("");
     const response = await fetch(
@@ -819,6 +823,7 @@ export function QuoteForm({
                   </tr>
                 </thead>
                 <tbody>
+                  {!form.items.length ? <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-500">暂无产品明细，请点击上方“添加产品”或从商品库添加。</td></tr> : null}
                   {form.items.map((item, index) => (
                     <tr key={index} className="border-t">
                       <td className="px-2 py-2 text-center">{index + 1}</td>
@@ -849,7 +854,8 @@ export function QuoteForm({
                             type="number"
                             min={key === "quantity" ? "1" : "0"}
                             step={key === "quantity" ? "1" : "0.01"}
-                            value={Number(item[key] || 0)}
+                            value={item[key] === 0 ? "" : item[key]}
+                            placeholder={key === "unit_price" ? "0.00" : undefined}
                             onChange={(e) =>
                               updateItem(index,key,key==="quantity"?Math.max(1,Math.round(Number(e.target.value)||1)):Number(e.target.value))
                             }
@@ -885,11 +891,10 @@ export function QuoteForm({
                               <Copy size={15} />
                             </button>
                             <button
-                              disabled={form.items.length === 1}
                               title="删除当前行"
                               aria-label="删除产品行"
                               onClick={() => removeItem(index)}
-                              className="rounded p-1.5 text-rose-500 hover:bg-rose-50 disabled:opacity-30"
+                              className="rounded p-1.5 text-rose-500 hover:bg-rose-50"
                             >
                               <Minus size={16} />
                             </button>

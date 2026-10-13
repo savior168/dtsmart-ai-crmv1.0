@@ -485,15 +485,19 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           error: "发现疑似重复客户，请核对后确认是否仍要新增。系统不会自动合并或覆盖已有客户资料。",
           status: "POTENTIAL_DUPLICATE",
-          potential_customers: potentialCustomers.map(({ item, match_reasons }) => ({
-            id: item.id,
-            company_name: item.company_name,
-            country: item.country,
-            website: item.website,
-            google_url: item.google_url,
-            match_reasons,
-            ownership_status: classifyExistingCustomer(item, user.id) === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : "已有归属或待管理员处理",
-          })),
+          potential_customers: potentialCustomers.map(({ item, match_reasons }) => {
+            const ownership = classifyExistingCustomer(item, user.id);
+            return {
+              id: item.id,
+              company_name: item.company_name,
+              country: item.country,
+              website: item.website,
+              google_url: item.google_url,
+              match_reasons,
+              ownership_disposition: ownership,
+              ownership_status: ownership === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : ownership === "OWN_CUSTOMER" ? "我的客户" : ownership === "OTHER_OWNED_CUSTOMER" ? "已有归属人" : "待管理员核对",
+            };
+          }),
         }, { status: 409 });
       }
     }

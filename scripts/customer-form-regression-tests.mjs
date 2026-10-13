@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
-const { CustomerForm } = await jiti.import(resolve("components/customer-form.tsx"));
+const { CustomerForm, PotentialDuplicateCandidate } = await jiti.import(resolve("components/customer-form.tsx"));
 const formSource = await readFile(new URL("../components/customer-form.tsx", import.meta.url), "utf8");
 const editApi = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
 const createApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
@@ -23,6 +23,16 @@ assert.match(formSource, /const needsBothContacts = !customer && destination ===
 assert.match(formSource, /stage === "FOLLOWING" && !stageFile/, "新增意向客户必须提交凭证");
 assert.match(createApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)/, "新增意向客户必须先以潜在客户建立主档，再走凭证阶段流程");
 assert.match(createApi, /requestedStage === "DEAL" && \(!String\(body\.phone \|\| ""\)\.trim\(\) \|\| !String\(body\.email \|\| ""\)\.trim\(\)\)/, "服务端必须校验手动新增成交客户的电话与邮箱");
+assert.match(createApi, /ownership_disposition: ownership/, "疑似重复候选必须返回服务端核定的归属类型");
+const candidate = { id: "11111111-1111-4111-8111-111111111111", company_name: "重复候选", ownership_status: "客户公海待认领" };
+const poolCandidate = renderToStaticMarkup(createElement(PotentialDuplicateCandidate, { item: { ...candidate, ownership_disposition: "PUBLIC_POOL_AVAILABLE" } }));
+assert.match(poolCandidate, /customers\/pool\?tab=available&amp;customer=11111111-1111-4111-8111-111111111111/, "可认领候选必须定向定位客户公海");
+assert.match(poolCandidate, /去客户公海核对并认领/, "可认领候选必须展示明确入口");
+const ownCandidate = renderToStaticMarkup(createElement(PotentialDuplicateCandidate, { item: { ...candidate, ownership_disposition: "OWN_CUSTOMER" } }));
+assert.match(ownCandidate, /href="\/customers\/11111111-1111-4111-8111-111111111111"/, "自己的候选客户应打开已有客户详情");
+const occupiedCandidate = renderToStaticMarkup(createElement(PotentialDuplicateCandidate, { item: { ...candidate, ownership_disposition: "OTHER_OWNED_CUSTOMER" } }));
+assert.doesNotMatch(occupiedCandidate, /href="\/customers\/pool/, "他人已归属客户不得错误引导至公海认领");
+assert.match(occupiedCandidate, /不在可认领公海/, "他人已归属客户须解释处理路径");
 
 const existing = {
   id: "existing-customer", company_name: "回显测试客户", country: "GB", status: "FOLLOWING", followup_status: "WAITING_REPLY",
