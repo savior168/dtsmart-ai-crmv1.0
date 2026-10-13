@@ -76,17 +76,17 @@ export const FOLLOWUP_TYPES: FollowupType[] = ["EMAIL", "WHATSAPP", "PHONE", "LI
 export const FOLLOWUP_TYPE_LABELS: Record<FollowupType, string> = { EMAIL: "邮件", WHATSAPP: "WhatsApp", PHONE: "电话", LINKEDIN: "LinkedIn", OTHER: "其他" };
 
 export type QuoteStatus = "DRAFT" | "GENERATED" | "SENT" | "CONFIRMED" | "SUPERSEDED" | "EXPIRED" | "CANCELLED";
-export type SalesOrderStatus = "CONFIRMED" | "STOCK_DRAFT" | "WAITING_STOCK" | "PREPARING" | "READY" | "SHORTAGE" | "CANCELLED";
-export type StockOrderStatus = "DRAFT" | "WAITING" | "PREPARING" | "READY" | "SHORTAGE" | "CANCELLED";
+export type SalesOrderStatus = "DRAFT" | "CONFIRMED" | "STOCK_DRAFT" | "WAITING_STOCK" | "PREPARING" | "RECEIVED" | "SORTING" | "READY_TO_SHIP" | "SHIPPED" | "READY" | "SHORTAGE" | "CANCELLED";
+export type StockOrderStatus = "DRAFT" | "WAITING" | "PREPARING" | "RECEIVED" | "SORTING" | "READY_TO_SHIP" | "SHIPPED" | "READY" | "SHORTAGE" | "CANCELLED";
 
 export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   DRAFT: "草稿", GENERATED: "待发送", SENT: "已发送", CONFIRMED: "客户已确认", SUPERSEDED: "已被新版本替代", EXPIRED: "已过期", CANCELLED: "已取消",
 };
 export const SALES_ORDER_STATUS_LABELS: Record<SalesOrderStatus, string> = {
-  CONFIRMED: "订单已确认", STOCK_DRAFT: "待完善备货信息", WAITING_STOCK: "待仓库接单", PREPARING: "备货中", READY: "已备齐", SHORTAGE: "缺货异常", CANCELLED: "已取消",
+  DRAFT: "PI草稿", CONFIRMED: "订单已确认", STOCK_DRAFT: "待完善备货信息", WAITING_STOCK: "待仓库接单", PREPARING: "备货中", RECEIVED: "已回货", SORTING: "理货中", READY_TO_SHIP: "待出货", SHIPPED: "已发货", READY: "已备齐（历史）", SHORTAGE: "缺货异常", CANCELLED: "已取消",
 };
 export const STOCK_STATUS_LABELS: Record<StockOrderStatus, string> = {
-  DRAFT: "待完善", WAITING: "待备货", PREPARING: "备货中", READY: "已备齐", SHORTAGE: "缺货异常", CANCELLED: "已取消",
+  DRAFT: "待完善", WAITING: "待备货", PREPARING: "备货中", RECEIVED: "已回货", SORTING: "理货中", READY_TO_SHIP: "待出货", SHIPPED: "已发货", READY: "已备齐（历史）", SHORTAGE: "缺货异常", CANCELLED: "已取消",
 };
 
 export type QuoteItem = {

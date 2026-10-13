@@ -27,9 +27,13 @@ type Item = {
   description: string | null;
   description_zh: string | null;
   procurement_cost: number;
+  estimated_unit_cost_cny: number | null;
   procurement_cost_confirmed: boolean;
   quantity: number;
+  received_quantity: number;
+  warehouse_supplier_code: string | null;
   preparation_requirement: string | null;
+  internal_note: string | null;
 };
 type Event = {
   id: string;
@@ -46,6 +50,7 @@ type Payload = {
     sales_order_id: string;
     quote_number: string;
     order_number: string;
+    warehouse_reference_number: string | null;
     stock_number: string;
     customer_short_name: string;
     destination_country: string | null;
@@ -59,21 +64,30 @@ type Payload = {
   };
   items: Item[];
   events: Event[];
+  expenses?: { packaging_cost_cny: number; procurement_expenses_cny: number; shipping_expenses_cny: number; updated_at: string } | null;
   can_prepare: boolean;
+  can_view_pi: boolean;
   can_submit: boolean;
   can_update: boolean;
   can_edit_procurement: boolean;
+  can_edit_receiving: boolean;
   allowed_statuses: StockOrderStatus[];
 };
 export function StockOrderDetailView({ id }: { id: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [procurementDraft, setProcurementDraft] = useState<Record<string, string>>({});
+  const [receivingDraft, setReceivingDraft] = useState<Record<string, { received: string; supplierCode: string }>>({});
+  const [receivingSearch, setReceivingSearch] = useState("");
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<StockOrderStatus>("PREPARING");
   const [note, setNote] = useState("");
+  const [packagingExpense, setPackagingExpense] = useState("");
+  const [procurementExpense, setProcurementExpense] = useState("");
+  const [shippingExpense, setShippingExpense] = useState("");
   const [requirements, setRequirements] = useState("");
   const [expected, setExpected] = useState("");
   const load = useCallback(async () => {
@@ -90,12 +104,16 @@ export function StockOrderDetailView({ id }: { id: string }) {
     setData(body);
     setItems(body.items || []);
     setProcurementDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, item.procurement_cost_confirmed ? String(item.procurement_cost) : ""])));
+    setReceivingDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, { received: String(item.received_quantity ?? 0), supplierCode: item.warehouse_supplier_code || "" }])));
     setRequirements(body.order.stocking_requirements || "");
     setExpected(
       localDateTimeInput(body.order.expected_ready_at),
     );
     setStatus(body.allowed_statuses?.[0] || body.order.status);
     setNote("");
+    setPackagingExpense(body.expenses ? String(body.expenses.packaging_cost_cny) : "");
+    setProcurementExpense(body.expenses ? String(body.expenses.procurement_expenses_cny) : "");
+    setShippingExpense(body.expenses ? String(body.expenses.shipping_expenses_cny) : "");
     setError("");
   }, [id]);
   useEffect(() => {
@@ -104,6 +122,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
   const totalCost = useMemo(() => items.every((item) => item.procurement_cost_confirmed)
     ? items.reduce((sum, item) => sum + Number(item.procurement_cost) * Number(item.quantity), 0)
     : null, [items]);
+  const visibleItems = items.map((item, index) => ({ item, index })).filter(({ item }) => {
+    if (pendingOnly && Number(receivingDraft[item.id]?.received ?? item.received_quantity) >= Number(item.quantity)) return false;
+    const query = receivingSearch.trim().toLowerCase();
+    return !query || [item.item_name, item.brand, item.model, receivingDraft[item.id]?.supplierCode].some((value) => String(value || "").toLowerCase().includes(query));
+  });
   function updateItem(
     index: number,
     key: "description_zh" | "preparation_requirement",
@@ -147,6 +170,18 @@ export function StockOrderDetailView({ id }: { id: string }) {
     });
     await request(`/api/stock-orders/${id}/procurement`, "PATCH", { items: costs });
   }
+  async function saveReceivingDetails() {
+    const details = items.map((item) => {
+      const draft = receivingDraft[item.id];
+      const received = draft?.received?.trim() ?? "0";
+      if (!/^\d+$/.test(received) || !Number.isSafeInteger(Number(received)) || Number(received) > Number(item.quantity)) {
+        throw new Error(`第 ${item.line_number} 行回货数量须为0至订购数量之间的整数`);
+      }
+      if ((draft?.supplierCode || "").trim().length > 100) throw new Error(`第 ${item.line_number} 行供应商编码不能超过100字`);
+      return { line_number: item.line_number, received_quantity: Number(received), warehouse_supplier_code: draft?.supplierCode?.trim() || "" };
+    });
+    return request(`/api/stock-orders/${id}/receiving`, "PATCH", { items: details, expected_updated_at: data?.order.updated_at });
+  }
   async function submit() {
     if (!requirements.trim()) {
       setError("请填写整单备货要求");
@@ -160,11 +195,29 @@ export function StockOrderDetailView({ id }: { id: string }) {
     if (saved) await request(`/api/stock-orders/${id}/submit`, "POST");
   }
   async function updateStatus() {
-    if (["SHORTAGE", "CANCELLED"].includes(status) && !note.trim()) {
-      setError("缺货异常或取消时必须填写原因说明");
+    if (["SHORTAGE", "CANCELLED", "READY_TO_SHIP", "SHIPPED"].includes(status) && !note.trim()) {
+      setError("请填写缺货/取消原因，或测试打包/物流交接说明");
       return;
     }
-    await request(`/api/stock-orders/${id}/status`, "PATCH", { status, note });
+    if (status === "SHIPPED" && [packagingExpense, procurementExpense, shippingExpense]
+      .some((value) => !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(value.trim()))) {
+      setError("确认已发货前，请填写三项整单费用；没有发生的费用请明确填0，最多两位小数");
+      return;
+    }
+    const nextStatus = status;
+    const nextNote = note;
+    if (data?.can_edit_receiving) {
+      const saved = await saveReceivingDetails();
+      if (!saved) return;
+    }
+    await request(`/api/stock-orders/${id}/status`, "PATCH", {
+      status: nextStatus, note: nextNote,
+      ...(nextStatus === "SHIPPED" ? {
+        packaging_cost_cny: packagingExpense.trim(),
+        procurement_expenses_cny: procurementExpense.trim(),
+        shipping_expenses_cny: shippingExpense.trim(),
+      } : {}),
+    });
   }
   if (loading && !data)
     return (
@@ -187,12 +240,12 @@ export function StockOrderDetailView({ id }: { id: string }) {
             返回备货列表
           </Link>
           <div className="flex gap-2">
-            <Link
+            {data.can_view_pi ? <Link
               href={`/orders/${o.sales_order_id}`}
               className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700"
             >
               查看订单 {o.order_number}
-            </Link>
+            </Link> : null}
             {o.status !== "DRAFT" ? (
               <a
                 href={`/api/stock-orders/${id}/export`}
@@ -209,7 +262,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <div>
               <h1 className="text-xl font-bold">备货单 {o.stock_number}</h1>
               <p className="mt-1 text-sm text-slate-500">
-                订单编号：{o.order_number} · 报价编号：{o.quote_number} ·
+                PI编号：{o.order_number} · 仓库约定订单编号：{o.warehouse_reference_number || "—"} ·
                 销售员：{o.sales?.name || o.sales?.email || "-"}
               </p>
             </div>
@@ -240,8 +293,13 @@ export function StockOrderDetailView({ id }: { id: string }) {
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>
             <p className="mb-3 text-xs text-slate-500">
-              产品、品牌、型号、质量和数量来自已确认销售订单，不可改写；销售员填写理货要求，采购人员另行确认实际采购单价。
+              仅展示仓库所需规格、数量、理货要求及成本；销售价、客户付款价和利润率不会在备货单展示。预估成本由销售录入，采购人员另行确认实际采购单价。
             </p>
+            <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+              <input value={receivingSearch} onChange={(e) => setReceivingSearch(e.target.value)} placeholder="搜索产品、型号、供应商编码" className="h-9 min-w-64 rounded border px-3" />
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} />仅看未回齐</label>
+              <span className="text-slate-500">显示 {visibleItems.length}/{items.length} 项</span>
+            </div>
             <div className="overflow-x-auto rounded-xl border">
               <table className="w-full min-w-[1200px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
@@ -253,9 +311,13 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "型号",
                       "客户质量/描述",
                       "中文质量/描述（仓库）",
+                      "预估成本价（CNY）",
                       "实际采购单价（CNY）",
                       "数量",
+                      "已回货数量",
+                      "供应商编码",
                       "理货要求",
+                      "仓库备注",
                     ].map((x) => (
                       <th key={x} className="px-3 py-3 font-medium">
                         {x}
@@ -264,7 +326,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item, index) => (
+                  {visibleItems.map(({ item, index }) => (
                     <tr key={item.id} className="border-t">
                       <td className="px-3 py-3">{item.line_number}</td>
                       <td className="px-3 py-3 font-medium">
@@ -297,6 +359,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                           item.description_zh || "-"
                         )}
                       </td>
+                      <td className="px-3 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
                       <td className="px-3 py-2">
                         {data.can_edit_procurement ? (
                           <input
@@ -312,6 +375,16 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-3 py-3">{item.quantity}</td>
+                      <td className="px-3 py-2">
+                        {data.can_edit_receiving ? <input inputMode="numeric" value={receivingDraft[item.id]?.received ?? "0"}
+                          onChange={(e) => setReceivingDraft((current) => ({ ...current, [item.id]: { received: e.target.value, supplierCode: current[item.id]?.supplierCode || "" } }))}
+                          aria-label={`第 ${item.line_number} 行已回货数量`} className="h-9 w-24 rounded border px-2 text-right" /> : item.received_quantity}
+                      </td>
+                      <td className="px-3 py-2">
+                        {data.can_edit_receiving ? <input value={receivingDraft[item.id]?.supplierCode ?? ""}
+                          onChange={(e) => setReceivingDraft((current) => ({ ...current, [item.id]: { received: current[item.id]?.received ?? "0", supplierCode: e.target.value } }))}
+                          aria-label={`第 ${item.line_number} 行供应商编码`} maxLength={100} className="h-9 w-36 rounded border px-2" /> : item.warehouse_supplier_code || "—"}
+                      </td>
                       <td className="px-3 py-2">
                         {data.can_prepare ? (
                           <input
@@ -330,13 +403,14 @@ export function StockOrderDetailView({ id }: { id: string }) {
                           item.preparation_requirement || "-"
                         )}
                       </td>
+                      <td className="px-3 py-3">{item.internal_note || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="border-t bg-amber-50">
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-3 py-3 text-right font-medium"
                     >
                       已确认采购金额合计
@@ -344,7 +418,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     <td className="px-3 py-3 font-bold text-amber-800">
                       {totalCost === null ? "待全部核价" : totalCost.toFixed(2)}
                     </td>
-                    <td colSpan={2} />
+                    <td colSpan={5} />
                   </tr>
                 </tfoot>
               </table>
@@ -356,6 +430,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
               <button disabled={busy} onClick={() => void saveProcurementCosts().catch((cause) => setError(cause instanceof Error ? cause.message : "采购价格式不正确"))} className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 text-sm text-amber-900"><Save size={16} />保存采购核价</button>
             </section>
           ) : null}
+          {data.can_edit_receiving ? <section className="mx-5 mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+            <p className="text-sm text-blue-900">按产品填写累计已回货数量和供应商编码；部分回货可多次保存，不能超过订购数量。</p>
+            <button disabled={busy} onClick={() => void saveReceivingDetails().catch((cause) => setError(cause instanceof Error ? cause.message : "回货数量格式不正确"))}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-300 bg-white px-4 text-sm text-blue-900"><Save size={16} />保存回货信息</button>
+          </section> : null}
           {data.can_prepare ? (
             <section className="mx-5 mb-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
               <h2 className="font-semibold">完善并提交备货信息</h2>
@@ -417,7 +496,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   placeholder={
-                    status === "SHORTAGE" || status === "CANCELLED"
+                    status === "READY_TO_SHIP"
+                      ? "必填：确认已完成测试、理货和打包"
+                      : status === "SHIPPED"
+                      ? "必填：承运商、运单号或物流交接说明"
+                      : status === "SHORTAGE" || status === "CANCELLED"
                       ? "必须填写具体原因"
                       : "填写本次实际备货进度"
                   }
@@ -425,12 +508,37 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 />
                 <button
                   disabled={busy}
-                  onClick={() => void updateStatus()}
+                  onClick={() => void updateStatus().catch((cause) => setError(cause instanceof Error ? cause.message : "回货数量格式不正确"))}
                   className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm text-white"
                 >
                   <PackageCheck size={17} />
                   确认状态
                 </button>
+              </div>
+              {status === "SHIPPED" ? (
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  {([
+                    ["包装费用（人民币）", packagingExpense, setPackagingExpense],
+                    ["采购发生费用（人民币）", procurementExpense, setProcurementExpense],
+                    ["出货发生费用（人民币）", shippingExpense, setShippingExpense],
+                  ] as const).map(([label, value, setValue]) => (
+                    <label key={label} className="text-sm font-medium">{label} *
+                      <input type="number" min="0" step="0.01" inputMode="decimal" required value={value}
+                        onChange={(event) => setValue(event.target.value)} placeholder="无费用填 0"
+                        className="mt-1 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+          {data.expenses ? (
+            <section className="mx-5 mb-5 rounded-xl border bg-slate-50 p-4 text-sm">
+              <h2 className="font-semibold">已发货整单费用（内部）</h2>
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-slate-700">
+                <span>包装：¥{Number(data.expenses.packaging_cost_cny).toFixed(2)}</span>
+                <span>采购发生：¥{Number(data.expenses.procurement_expenses_cny).toFixed(2)}</span>
+                <span>出货发生：¥{Number(data.expenses.shipping_expenses_cny).toFixed(2)}</span>
               </div>
             </section>
           ) : null}

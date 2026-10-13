@@ -12,6 +12,7 @@ type StockLink = { id: string; stock_number: string; status: string };
 type Row = {
   id: string;
   order_number: string;
+  warehouse_reference_number: string | null;
   quote_number: string;
   customer_short_name: string;
   currency: string;
@@ -31,6 +32,7 @@ export function OrdersView() {
   const [status, setStatus] = useState("");
   const [userId, setUserId] = useState("");
   const [canViewAll, setCanViewAll] = useState(false);
+  const [canCreate, setCanCreate] = useState(false);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -50,6 +52,7 @@ export function OrdersView() {
     setData(b.data || []);
     setCount(Number(b.count || 0));
     setCanViewAll(Boolean(b.can_view_all));
+    setCanCreate(Boolean(b.can_create));
     setError("");
   }, [page, pageSize, q, status, userId]);
   useEffect(() => {
@@ -60,9 +63,9 @@ export function OrdersView() {
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1660px]">
         <header>
-          <h1 className="text-2xl font-bold">销售订单</h1>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">PI订单</h1>{canCreate ? <Link href="/orders/new" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">创建PI订单</Link> : null}</div>
           <p className="mt-1 text-sm text-slate-500">
-            客户确认报价后形成的不可变订单快照，并关联唯一备货单。
+            先保存PI草稿，确认后才生成仓库可见的备货单；历史销售订单继续保留查询。
           </p>
         </header>
         <AppFilterBar>
@@ -126,7 +129,7 @@ export function OrdersView() {
                     {[
                       "订单编号",
                       "客户简称",
-                      "报价编号",
+                      "仓库约定订单编号",
                       "订单状态",
                       "订单金额",
                       "备货单",
@@ -150,7 +153,7 @@ export function OrdersView() {
                           {row.order_number}
                         </td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
-                        <td className="px-4 py-3">{row.quote_number}</td>
+                        <td className="px-4 py-3">{row.warehouse_reference_number || "—"}</td>
                         <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3 font-semibold text-blue-700">
                           {row.currency} {Number(row.total_amount).toFixed(2)}

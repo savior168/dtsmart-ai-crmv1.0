@@ -54,9 +54,8 @@ const menu = [
     ],
   },
   {
-    label: "销售管理", icon: ClipboardList, defaultHref: "/quotes", children: [
-      { label: "报价单", href: "/quotes", permission: "quotes.view" },
-      { label: "销售订单", href: "/orders", permission: "orders.view" },
+    label: "销售管理", icon: ClipboardList, defaultHref: "/orders", children: [
+      { label: "PI订单", href: "/orders", permission: "orders.view" },
     ],
   },
   { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
@@ -66,6 +65,7 @@ const menu = [
   {
     label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
       { label: "用户与权限", href: "/settings/users", permission: "system.users.view" },
+      { label: "PI收款账户", href: "/settings/pi-payment-accounts", permission: "system.users.manage" },
       { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
       { label: "操作日志", href: "/settings/audit", permission: "system.audit.view" },
       { label: "安全设置", href: "/settings/security", permission: "system.security.view" },
@@ -112,12 +112,14 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/quotes\/[^/]+\/print$/, "销售管理 / 报价单 / 打印预览"],
   [/^\/quotes\/[^/]+$/, "销售管理 / 报价单 / 报价详情"],
   [/^\/quotes$/, "销售管理 / 报价单"],
-  [/^\/orders\/[^/]+$/, "销售管理 / 销售订单 / 订单详情"],
-  [/^\/orders$/, "销售管理 / 销售订单"],
+  [/^\/orders\/new$/, "销售管理 / PI订单 / 创建PI"],
+  [/^\/orders\/[^/]+$/, "销售管理 / PI订单 / 订单详情"],
+  [/^\/orders$/, "销售管理 / PI订单"],
   [/^\/stock-orders\/[^/]+$/, "采购管理 / 备货单详情"],
   [/^\/stock-orders$/, "采购管理 / 备货单"],
   [/^\/reports$/, "报表中心"],
   [/^\/settings\/costs$/, "系统管理 / 费用中心"],
+  [/^\/settings\/pi-payment-accounts$/, "系统管理 / PI收款账户"],
   [/^\/notifications$/, "站内通知"],
   [/^\/profile$/, "个人中心 / 账号资料"],
   [/^\/settings\/users$/, "系统管理 / 用户管理"],
