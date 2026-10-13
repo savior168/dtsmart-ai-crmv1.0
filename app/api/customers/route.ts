@@ -408,6 +408,7 @@ export async function POST(request: NextRequest) {
       for (let from = 0; ; from += 1000) {
         const page = await admin.from("customers")
           .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at")
+          .is("deleted_at", null)
           .order("created_at", { ascending: true })
           .range(from, from + 999);
         if (page.error) throw page.error;
