@@ -37,7 +37,7 @@ const occupiedCandidate = renderToStaticMarkup(createElement(PotentialDuplicateC
 assert.doesNotMatch(occupiedCandidate, /href="\/customers\/pool/, "他人已归属客户不得错误引导至公海认领");
 assert.match(occupiedCandidate, /不在可认领公海/, "他人已归属客户须解释处理路径");
 const namedCandidate = renderToStaticMarkup(createElement(PotentialDuplicateCandidate, { item: { ...candidate, ownership_disposition: "OTHER_OWNED_CUSTOMER", owner_name: "同事甲" } }));
-assert.match(namedCandidate, /当前归属人：同事甲/, "已有归属客户须展示内部归属人姓名");
+assert.match(namedCandidate, /<span[^>]*>当前归属人：同事甲<\/span>/, "已有归属客户须在状态标签直接展示内部归属人姓名");
 assert.doesNotMatch(poolCandidate, /当前归属人/, "公海客户不得显示旧归属人");
 
 const existing = {

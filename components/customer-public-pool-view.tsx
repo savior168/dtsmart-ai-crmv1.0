@@ -369,6 +369,8 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [createOpen, setCreateOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState("");
+  const [canExport, setCanExport] = useState(initialRole === "ADMIN");
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
   const sourceBatchRef = useRef<HTMLDivElement>(null);
@@ -451,6 +453,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
       setRows(body.data || []);
       setCount(nextCount);
       setRole(body.role || "SALES");
+      setCanExport(Boolean(body.can_export));
       setSelected(new Set());
     } catch (caught) {
       if (version === requestVersion.current && !(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
@@ -631,13 +634,16 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     });
   }
   async function exportData() {
-    if (role !== "ADMIN" || exporting || !["available", "claimed", "pending"].includes(tab)) return;
+    if (!canExport || exporting || !["available", "claimed", "pending"].includes(tab)) return;
     setExporting(true);
+    setExportProgress("正在读取客户数据…");
     setError("");
     try {
       const exported: PoolRow[] = [];
+      const seenIds = new Set<string>();
+      let total = -1;
       for (let exportPage = 1; ; exportPage += 1) {
-        const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "100", sort, direction, export: "1" });
+        const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "200", sort, direction, export: "1" });
         if (query.trim()) params.set("q", query.trim());
         if (createdFrom) params.set("created_from", createdFrom);
         if (createdTo) params.set("created_to", createdTo);
@@ -651,17 +657,29 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         if (sourceType) params.set("source_type", sourceType);
         appendSourceBatchFilters(params);
         for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
-        const body = await api(`/api/customers/public-pool?${params}`);
+        const body = await api(`/api/customers/public-pool?${params}`, { signal: AbortSignal.timeout(45_000) });
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
-        exported.push(...pageRows);
-        if (pageRows.length < 100 || exported.length >= Number(body.count || 0)) break;
+        const currentTotal = Number(body.count ?? 0);
+        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (total >= 0 && currentTotal !== total)) throw new Error("导出期间客户数量发生变化，请重试");
+        total = currentTotal;
+        for (const row of pageRows) {
+          if (!row.id || seenIds.has(row.id)) throw new Error("导出期间客户列表发生变化，请重试");
+          seenIds.add(row.id);
+          exported.push(row);
+        }
+        setExportProgress(`已读取 ${exported.length} / ${total} 条`);
+        if (!pageRows.length && exported.length < total) throw new Error(`导出中断：已读取 ${exported.length} / ${total} 条，请重试`);
+        if (exported.length >= total) break;
       }
-      downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `客户公海-${tabLabels[tab]}`, { columns: fields, includeOwner: false, includeAiEvidence: role === "ADMIN" });
+      if (!exported.length) { setToast("当前筛选条件下没有可导出的客户"); return; }
+      setExportProgress(`正在生成 ${exported.length} 条客户的工作簿…`);
+      downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `客户公海-${tabLabels[tab]}`, { columns: fields, includeOwner: role === "ADMIN", includeAllContactChannels: true, includeAiEvidence: role === "ADMIN" });
       setToast(`已导出当前筛选结果 ${exported.length} 条`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "导出失败");
+      setError(caught instanceof Error && ["TimeoutError", "AbortError"].includes(caught.name) ? "导出数据读取超时，请缩小筛选范围后重试" : caught instanceof Error ? caught.message : "导出失败");
     } finally {
       setExporting(false);
+      setExportProgress("");
     }
   }
   async function selectAllResults() {
@@ -861,7 +879,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     <div className="border-t px-3 py-2 text-xs text-slate-400">请使用系统最新模板，勿修改第一行字段名称</div>
                   </div> : null}
                 </div> : null}
-                {role === "ADMIN" ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? "正在导出…" : "导出数据"}</button> : null}
+                {canExport ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? exportProgress || "正在导出…" : "导出数据"}</button> : null}
                 <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />字段设置</button>
                 {role === "ADMIN" ? <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                   <button type="button" disabled={selectingAll || !(count ?? 0)} onClick={() => (count ?? 0) > 0 && selected.size >= (count ?? 0) ? setSelected(new Set()) : void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "正在全选…" : (count ?? 0) > 0 && selected.size >= (count ?? 0) ? "取消全选" : "全选筛选结果"}</button>
