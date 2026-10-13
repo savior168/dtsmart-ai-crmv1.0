@@ -67,6 +67,13 @@ assert.match(manualStatusRules, /drop trigger if exists attachments_promote_evid
 assert.match(migration, /lower\(trim\(coalesce\(name,''\)\)\)='eva'/i, "销售员默认上级应优先 Eva");
 assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入审计日志");
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
+assert.match(read("lib/auth/permissions.ts"), /code: "customers\.pool\.export"[^\n]*kind: "ACTION"/, "客户公海导出必须有独立可授权权限");
+assert.match(poolApi, /exportMode && !hasPermission\(account, "customers\.pool\.export"\)/, "公海导出服务端必须检查独立权限");
+assert.match(poolApi, /exportMode && account\.role === "ADMIN" \? "\*" :/, "被授权的普通用户导出不得读取完整客户主档");
+assert.match(poolApi, /can_export: hasPermission\(account, "customers\.pool\.export"\)/, "公海页面必须从服务端获取导出授权结果");
+assert.match(poolView, /if \(!canExport \|\| exporting/, "公海导出按钮行为必须受授权控制");
+assert.match(poolView, /page_size: "200"[\s\S]*AbortSignal\.timeout\(45_000\)[\s\S]*setExportProgress/, "大批量公海导出须分批、限时并显示进度");
+assert.match(poolView, /includeAllContactChannels: true/, "公海与我的客户须共用完整联系渠道工作簿格式");
 assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
 assert.match(poolApi, /optionalProbe[\s\S]*hasOptionalFields[\s\S]*optionalSelect/, "客户公海必须兼容尚未补齐可选联系字段的旧生产库");
 assert.match(poolApi, /tab === "available" \|\| own \|\| teamRead/, "未认领公海客户应可查看基础详情；已认领完整详情只限归属人、直属主管或系统管理员");
@@ -270,7 +277,7 @@ assert.match(poolView, /客户分配明细与交接记录[\s\S]*每条记录对�
 assert.match(poolView, /mode: "history", page: String\(page\), page_size: String\(pageSize\)/, "分配记录筛选必须服务端分页，避免仅前端筛选导致统计不准");
 assert.match(poolView, /refreshAssignmentHistory[\s\S]*loadTabCounts[\s\S]*historyRefreshKey/, "分配或交接完成后必须刷新分配记录页签计数和当前记录列表");
 assert.match(customersApi, /exportMode \? customerExportFields : customerListFields[\s\S]*creator: creatorById[\s\S]*owner: creatorById/, "我的客户导出必须加载安全字段，且跟进字段异常时仍保留归属信息");
-assert.match(poolApi, /exportMode \? "\*"/, "客户公海导出必须加载完整客户字段而非仅当前可见列");
+assert.match(poolApi, /exportMode && account\.role === "ADMIN" \? "\*" :/, "管理员可导出完整公海字段，获授权的普通角色只能读取脱敏范围");
 assert.match(releaseHistoryApi, /requestedOwnerId\(request, account, "customers\.data_all"\)/, "主动释放历史必须在服务端按用户权限限定原归属人范围");
 assert.match(ownerScope, /if \(!hasPermission\(account, dataPermission\)\) return account\.id[\s\S]*manager_id", account\.id/, "普通销售只能查看自己的释放记录，主管只能查看直属下级");
 assert.match(protectionPanel, /保护到期与续期[\s\S]*主动释放历史[\s\S]*view==="renewal"[\s\S]*ReleaseHistoryPanel/, "保护续期与主动释放历史必须分开显示");

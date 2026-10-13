@@ -34,8 +34,9 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const params = request.nextUrl.searchParams;
     const tab = params.get("tab") || "available";
+    const exportMode = params.get("export") === "1";
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
+    const pageSize = Math.min(exportMode ? 200 : 100, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
     const createdFrom = params.get("created_from")?.trim() || "";
     const createdTo = params.get("created_to")?.trim() || "";
@@ -88,8 +89,7 @@ export async function GET(request: NextRequest) {
     const allowed = new Set(["available", "claimed", "pending"]);
     if (!allowed.has(tab)) return NextResponse.json({ error: "无效的公海分类" }, { status: 400 });
     if (tab === "pending" && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以查看待分配客户" }, { status: 403 });
-    const exportMode = params.get("export") === "1";
-    if (exportMode && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以导出客户公海数据" }, { status: 403 });
+    if (exportMode && !hasPermission(account, "customers.pool.export")) return NextResponse.json({ error: "当前账号没有客户公海导出权限" }, { status: 403 });
     if (ownerId && (tab !== "claimed" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerId))) return NextResponse.json({ error: "无效的认领人筛选" }, { status: 400 });
     if (tab === "claimed" && customerStatus && account.role !== "ADMIN") return NextResponse.json({ error: "当前角色不能按其他客户的阶段筛选" }, { status: 403 });
 
@@ -208,7 +208,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      exportMode ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode && account.role === "ADMIN" ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
@@ -293,7 +293,7 @@ export async function GET(request: NextRequest) {
     const privateSort = new Set(["contact_name", "phone", "email", "website", "google_url", "status", "last_contact_time", "followup_status", "website_email", "website_phone", "updated_at"]);
     const sortField = tab === "claimed" && account.role !== "ADMIN" && privateSort.has(sort) ? "claimed_at" : allowedSort.has(sort) ? sort : tab === "claimed" ? "claimed_at" : "updated_at";
     const from = (page - 1) * pageSize;
-    const result = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).range(from, from + pageSize - 1);
+    const result = await query.order(sortField, { ascending: direction === "asc", nullsFirst: false }).order("id", { ascending: true }).range(from, from + pageSize - 1);
     if (result.error) throw result.error;
     const rows = (result.data || []) as unknown as PoolDbRow[];
     const ownerIds = [...new Set(rows.flatMap((item) => [item.owner_id, item.created_by]).filter(Boolean))] as string[];
@@ -383,6 +383,7 @@ export async function GET(request: NextRequest) {
       page,
       page_size: pageSize,
       role: account.role,
+      can_export: hasPermission(account, "customers.pool.export"),
       can_assign: account.role === "ADMIN",
       can_handover: account.role === "ADMIN",
     });
