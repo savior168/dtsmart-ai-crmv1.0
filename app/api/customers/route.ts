@@ -483,6 +483,20 @@ export async function POST(request: NextRequest) {
         .filter((item) => item.match_reasons.length)
         .slice(0, 5);
       if (potentialCustomers.length && body.confirm_potential_duplicate !== true) {
+        const ownerIds = [...new Set(potentialCustomers
+          .filter(({ item }) => classifyExistingCustomer(item, user.id) === "OTHER_OWNED_CUSTOMER")
+          .map(({ item }) => String(item.owner_id || "").trim())
+          .filter(Boolean))];
+        const ownerNames = new Map<string, string>();
+        if (ownerIds.length) {
+          const { data: owners, error: ownersError } = await admin.from("users").select("id,name").in("id", ownerIds);
+          if (!ownersError) {
+            for (const owner of owners || []) {
+              const name = String(owner.name || "").trim();
+              if (name) ownerNames.set(String(owner.id), name);
+            }
+          }
+        }
         return NextResponse.json({
           error: "发现疑似重复客户，请核对后确认是否仍要新增。系统不会自动合并或覆盖已有客户资料。",
           status: "POTENTIAL_DUPLICATE",
@@ -497,6 +511,7 @@ export async function POST(request: NextRequest) {
               match_reasons,
               ownership_disposition: ownership,
               ownership_status: ownership === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : ownership === "OWN_CUSTOMER" ? "我的客户" : ownership === "OTHER_OWNED_CUSTOMER" ? "已有归属人" : "待管理员核对",
+              owner_name: ownership === "OTHER_OWNED_CUSTOMER" ? ownerNames.get(String(item.owner_id)) || null : null,
             };
           }),
         }, { status: 409 });

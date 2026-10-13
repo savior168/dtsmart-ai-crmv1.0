@@ -16,6 +16,7 @@ type PotentialCustomer = {
   match_reasons?: string[];
   ownership_status?: string;
   ownership_disposition?: "OWN_CUSTOMER" | "PUBLIC_POOL_AVAILABLE" | "OTHER_OWNED_CUSTOMER" | "UNOWNED_REVIEW_REQUIRED";
+  owner_name?: string | null;
 };
 
 export function PotentialDuplicateCandidate({ item }: { item: PotentialCustomer }) {
@@ -27,6 +28,7 @@ export function PotentialDuplicateCandidate({ item }: { item: PotentialCustomer 
   return <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
     <div className="flex flex-wrap items-center justify-between gap-2"><b>{item.company_name || "未命名客户"}</b><span className="rounded-full bg-white px-2 py-1 text-xs text-slate-600">{item.ownership_status}</span></div>
     <p className="mt-2 text-sm text-slate-600">国家/地区：{item.country || "—"} · 匹配依据：{item.match_reasons?.join("、") || "资料相似"}</p>
+    {item.ownership_disposition === "OTHER_OWNED_CUSTOMER" && item.owner_name ? <p className="mt-1 text-sm text-slate-700">当前归属人：{item.owner_name}</p> : null}
     {item.website ? <p className="mt-1 truncate text-xs text-blue-700">官网：{item.website}</p> : null}
     {item.google_url ? <p className="mt-1 truncate text-xs text-blue-700">Google 地图：{item.google_url}</p> : null}
     {href ? <Link href={href} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">{item.ownership_disposition === "PUBLIC_POOL_AVAILABLE" ? "去客户公海核对并认领" : "查看我的客户"}（新窗口）</Link> : <p className="mt-3 text-xs text-amber-800">{item.ownership_disposition === "OTHER_OWNED_CUSTOMER" ? "该客户已有归属人，不在可认领公海；如确认是同一客户，请勿重复新增，联系主管或管理员核对。" : "该客户不在可认领公海，请联系管理员核对归属。"}</p>}
