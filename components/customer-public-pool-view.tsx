@@ -335,7 +335,7 @@ function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: Custo
   return <span className="line-clamp-2">{poolText(row, field)}</span>;
 }
 
-export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?: Role }) {
+export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport = false }: { initialRole?: Role; initialCanExport?: boolean }) {
   const [tab, setTab] = useState<Tab>("available");
   const [rows, setRows] = useState<PoolRow[]>([]);
   const [role, setRole] = useState<Role>(initialRole);
@@ -370,7 +370,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   const [newOpen, setNewOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState("");
-  const [canExport, setCanExport] = useState(initialRole === "ADMIN");
+  const [canExport, setCanExport] = useState(initialRole === "ADMIN" || initialCanExport);
   const [selectingAll, setSelectingAll] = useState(false);
   const newRef = useRef<HTMLDivElement>(null);
   const sourceBatchRef = useRef<HTMLDivElement>(null);
@@ -504,6 +504,14 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      void api("/api/customers/public-pool?permissions=1").then((body) => setCanExport(Boolean(body.can_export))).catch(() => undefined);
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
   const loadTabCounts = useCallback(() => {
     api("/api/customers/public-pool?counts=1")
       .then((body) => setTabCounts(body || {}))
@@ -641,9 +649,14 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
     try {
       const exported: PoolRow[] = [];
       const seenIds = new Set<string>();
+      const selectedIds = [...selected];
+      const selectedBatches = Array.from({ length: Math.ceil(selectedIds.length / 100) }, (_, index) => selectedIds.slice(index * 100, (index + 1) * 100));
       let total = -1;
       for (let exportPage = 1; ; exportPage += 1) {
-        const params = new URLSearchParams({ tab, page: String(exportPage), page_size: "200", sort, direction, export: "1" });
+        const selectedBatch = selectedIds.length ? selectedBatches[exportPage - 1] : null;
+        if (selectedIds.length && !selectedBatch) break;
+        const params = new URLSearchParams({ tab, page: String(selectedBatch ? 1 : exportPage), page_size: selectedBatch ? "100" : "200", sort, direction, export: "1" });
+        for (const id of selectedBatch || []) params.append("selected_id", id);
         if (query.trim()) params.set("q", query.trim());
         if (createdFrom) params.set("created_from", createdFrom);
         if (createdTo) params.set("created_to", createdTo);
@@ -660,21 +673,22 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
         const body = await api(`/api/customers/public-pool?${params}`, { signal: AbortSignal.timeout(45_000) });
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
         const currentTotal = Number(body.count ?? 0);
-        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (total >= 0 && currentTotal !== total)) throw new Error("导出期间客户数量发生变化，请重试");
-        total = currentTotal;
+        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (selectedBatch ? currentTotal !== selectedBatch.length : total >= 0 && currentTotal !== total)) throw new Error("导出期间客户范围发生变化，请重新选择后重试");
+        total = selectedBatch ? selectedIds.length : currentTotal;
         for (const row of pageRows) {
           if (!row.id || seenIds.has(row.id)) throw new Error("导出期间客户列表发生变化，请重试");
           seenIds.add(row.id);
           exported.push(row);
         }
         setExportProgress(`已读取 ${exported.length} / ${total} 条`);
-        if (!pageRows.length && exported.length < total) throw new Error(`导出中断：已读取 ${exported.length} / ${total} 条，请重试`);
+        if (selectedBatch && pageRows.length !== selectedBatch.length || !pageRows.length && exported.length < total) throw new Error(`导出中断：已读取 ${exported.length} / ${total} 条，请重试`);
+        if (selectedBatch) continue;
         if (exported.length >= total) break;
       }
       if (!exported.length) { setToast("当前筛选条件下没有可导出的客户"); return; }
       setExportProgress(`正在生成 ${exported.length} 条客户的工作簿…`);
       downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `客户公海-${tabLabels[tab]}`, { columns: fields, includeOwner: role === "ADMIN", includeAllContactChannels: true, includeAiEvidence: role === "ADMIN" });
-      setToast(`已导出当前筛选结果 ${exported.length} 条`);
+      setToast(`已导出${selectedIds.length ? "已选" : "当前筛选结果"} ${exported.length} 条`);
     } catch (caught) {
       setError(caught instanceof Error && ["TimeoutError", "AbortError"].includes(caught.name) ? "导出数据读取超时，请缩小筛选范围后重试" : caught instanceof Error ? caught.message : "导出失败");
     } finally {
@@ -879,7 +893,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
                     <div className="border-t px-3 py-2 text-xs text-slate-400">请使用系统最新模板，勿修改第一行字段名称</div>
                   </div> : null}
                 </div> : null}
-                {canExport ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? exportProgress || "正在导出…" : "导出数据"}</button> : null}
+                {canExport ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? exportProgress || "正在导出…" : selected.size ? `导出已选 ${selected.size} 家` : "导出筛选结果"}</button> : null}
                 <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />字段设置</button>
                 {role === "ADMIN" ? <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                   <button type="button" disabled={selectingAll || !(count ?? 0)} onClick={() => (count ?? 0) > 0 && selected.size >= (count ?? 0) ? setSelected(new Set()) : void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "正在全选…" : (count ?? 0) > 0 && selected.size >= (count ?? 0) ? "取消全选" : "全选筛选结果"}</button>
@@ -905,6 +919,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES" }: { initialRole?
               direction={direction}
               changeSort={changeSort}
               canDelete={role === "ADMIN"}
+              canExport={canExport}
               selected={selected}
               setSelected={setSelected}
               claim={setClaim}
@@ -988,6 +1003,7 @@ function PoolTable({
   direction,
   changeSort,
   canDelete,
+  canExport,
   selected,
   setSelected,
   claim,
@@ -1005,13 +1021,14 @@ function PoolTable({
   direction: "asc" | "desc";
   changeSort: (key: CustomerListColumn) => void;
   canDelete: boolean;
+  canExport: boolean;
   selected: Set<string>;
   setSelected: (value: Set<string>) => void;
   claim: (row: PoolRow) => void;
   showSupplements: (row: PoolRow) => void;
   remove: (row: PoolRow) => void;
 }) {
-  const selectable = canDelete;
+  const selectable = canDelete || canExport;
   const all = rows.length > 0 && rows.every((row) => selected.has(row.id));
   function toggle(id: string) {
     const next = new Set(selected);

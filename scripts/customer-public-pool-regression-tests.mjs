@@ -71,8 +71,13 @@ assert.match(read("lib/auth/permissions.ts"), /code: "customers\.pool\.export"[^
 assert.match(poolApi, /exportMode && !hasPermission\(account, "customers\.pool\.export"\)/, "公海导出服务端必须检查独立权限");
 assert.match(poolApi, /exportMode && account\.role === "ADMIN" \? "\*" :/, "被授权的普通用户导出不得读取完整客户主档");
 assert.match(poolApi, /can_export: hasPermission\(account, "customers\.pool\.export"\)/, "公海页面必须从服务端获取导出授权结果");
+assert.match(poolPage, /initialCanExport=\{hasPermission\(account, "customers\.pool\.export"\)\}/, "新打开的公海页面应立即显示服务端生效的导出权限");
+assert.match(poolView, /window\.addEventListener\("focus", refreshOnFocus\)/, "已打开的公海页面在用户切回时必须重新读取授权");
+assert.match(poolApi, /params\.get\("permissions"\) === "1"[\s\S]*can_export: hasPermission/, "权限刷新端点必须返回生效的服务端权限");
 assert.match(poolView, /if \(!canExport \|\| exporting/, "公海导出按钮行为必须受授权控制");
-assert.match(poolView, /page_size: "200"[\s\S]*AbortSignal\.timeout\(45_000\)[\s\S]*setExportProgress/, "大批量公海导出须分批、限时并显示进度");
+assert.match(poolView, /selectedBatches[\s\S]*page_size: selectedBatch \? "100" : "200"[\s\S]*AbortSignal\.timeout\(45_000\)[\s\S]*setExportProgress/, "大批量公海导出须分批、限时并显示进度");
+assert.match(poolApi, /selectedIds\.length[\s\S]*!exportMode[\s\S]*selectedIds\.length > 100[\s\S]*query = query\.in\("id", selectedIds\)/, "已选客户范围必须由服务端验证并限制到请求的客户 ID");
+assert.match(poolView, /const selectable = canDelete \|\| canExport/, "获得导出授权的普通角色必须能勾选公海客户");
 assert.match(poolView, /includeAllContactChannels: true/, "公海与我的客户须共用完整联系渠道工作簿格式");
 assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
 assert.match(poolApi, /optionalProbe[\s\S]*hasOptionalFields[\s\S]*optionalSelect/, "客户公海必须兼容尚未补齐可选联系字段的旧生产库");
@@ -158,10 +163,10 @@ assert.match(listFields, /CUSTOMER_LIST_COLUMN_STORAGE_KEY[\s\S]*CUSTOMER_LIST_D
 assert.match(listFields, /"company_name",[\s\S]*"country",[\s\S]*"ai_score"/, "客户列表默认顺序必须先展示国家地区，再展示AI评分");
 assert.match(listFields, /migrateCustomerIdentityColumnOrder[\s\S]*countryIndex === scoreIndex \+ 1/, "旧版浏览器保存的相邻旧顺序必须平滑迁移，且不得覆盖主动自定义顺序");
 assert.match(poolView, /available: \["company_name", "country", "ai_score"[\s\S]*claimed: \["company_name", "country", "ai_score"[\s\S]*pending: \["company_name", "country", "ai_score"/, "客户公海各列表必须统一为客户名称、国家地区、AI评分");
-assert.match(poolView, /role === "ADMIN"[\s\S]*新增客户[\s\S]*手动新增[\s\S]*destination=public[\s\S]*导出数据/, "公海管理员必须使用与我的客户一致的新增、导入和导出操作布局");
+assert.match(poolView, /role === "ADMIN"[\s\S]*新增客户[\s\S]*手动新增[\s\S]*destination=public[\s\S]*导出筛选结果/, "公海管理员必须使用与我的客户一致的新增、导入和导出操作布局");
 assert.match(poolPage, /protectPage\("customers\.view"\)[\s\S]*initialRole=\{account\.role\}/, "管理员操作入口不能依赖公海列表成功加载后才显示");
 assert.doesNotMatch(poolView, /RefreshCw|>刷新<\//, "公海顶部不得堆叠无必要的刷新按钮");
-assert.match(poolApi, /export["\)]* === "1"[\s\S]*account\.role !== "ADMIN"/, "公海导出请求必须在服务端限制为系统管理员");
+assert.match(poolApi, /exportMode && !hasPermission\(account, "customers\.pool\.export"\)/, "公海导出请求必须在服务端限制为拥有公海导出权限的用户");
 assert.match(customersApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*status: "UNCLAIMED"[\s\S]*owner_id: null[\s\S]*pool_status: "AVAILABLE"/, "管理员新增公海客户必须生成无归属待认领记录");
 assert.match(customersApi, /“我的客户”无论按本人、指定归属人还是全部归属人查看[\s\S]*not\("owner_id", "is", null\)/, "我的客户全部归属人范围不得混入无归属公海或待分配客户");
 assert.match(customersApi, /select\("industry,country"\)[\s\S]*not\("owner_id", "is", null\)[\s\S]*select\("source_batch_id,source_batch,created_at"\)[\s\S]*not\("owner_id", "is", null\)/, "我的客户国家、行业与导入批次筛选项也不得混入无归属客户");

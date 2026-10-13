@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { countryFilterRawValues } from "@/lib/countries";
 import { CUSTOMER_STATUSES } from "@/lib/types";
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       if (error) throw error;
       return NextResponse.json({
         data: (data || []).map((row) => ({ ...row, user: { name: row.actor_name, email: row.actor_email }, customer: { company_name: row.company_name, country: row.country, ai_level: row.ai_level, ai_score: row.ai_score, status: row.status } })),
-        count: count || 0, page, page_size: pageSize, scope, profile: { id: account.id, role: account.role },
+        count: count || 0, page, page_size: pageSize, scope, can_export: hasPermission(account, "followups.export"), profile: { id: account.id, role: account.role },
       });
     }
 
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     if (error) throw error;
     return NextResponse.json({
       data: (data || []).map((row) => ({ ...row, user_id: row.owner_id, user: { name: row.owner_name, email: row.owner_email }, customer: { company_name: row.company_name, country: row.country, ai_level: row.ai_level, ai_score: row.ai_score, status: row.status } })),
-      count: count || 0, page, page_size: pageSize, scope, profile: { id: account.id, role: account.role },
+      count: count || 0, page, page_size: pageSize, scope, can_export: hasPermission(account, "followups.export"), profile: { id: account.id, role: account.role },
     });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "跟进任务加载失败" }, { status: 400 }); }
 }
