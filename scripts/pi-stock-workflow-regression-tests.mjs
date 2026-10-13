@@ -15,6 +15,21 @@ const customerPiRoute = read("app/api/orders/[id]/export/route.ts");
 const piForm = read("components/pi-order-form.tsx");
 const statusRoute = read("app/api/stock-orders/[id]/status/route.ts");
 const stockView = read("components/stock-order-detail-view.tsx");
+const orderListApi = read("app/api/orders/route.ts");
+const createPiApi = read("app/api/orders/create-pi/route.ts");
+const paymentAccountsApi = read("app/api/pi-payment-accounts/route.ts");
+const orderListView = read("components/orders-view.tsx");
+
+assert.match(orderListApi, /can_create:[^\n]*account\.role === "ADMIN"[^\n]*hasPermission\(account, "orders\.create"\)/, "管理员有PI创建权限时列表必须显示创建入口");
+assert.match(createPiApi, /account\.role !== "SALES" && account\.role !== "SUPERVISOR" && account\.role !== "ADMIN"/, "列表允许管理员创建时API不能再拒绝管理员");
+assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
+assert.match(orderListView, /"PI号",\s*"客户简称",\s*"PI状态",\s*"PI金额",\s*"备货单"/, "PI列表按业务优先级展示关键字段");
+assert.doesNotMatch(orderListView, /仓库约定订单编号|warehouse_reference_number/, "PI列表不得展示内部仓库约定编号");
+assert.match(piForm, /AppSelect[\s\S]*搜索并选择客户付款币种/, "币种应使用系统可搜索选择组件");
+assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下拉");
+assert.match(piForm, /下载模板[\s\S]*导入Excel[\s\S]*粘贴表格[\s\S]*添加产品/, "PI产品明细应提供批量快捷操作");
+assert.match(piForm, /rounded-xl border bg-white shadow-sm[\s\S]*border-b px-5 py-4[\s\S]*xl:grid-cols-4[\s\S]*从商品库添加[\s\S]*min-w-\[1100px\]/, "PI录入应沿用报价单单卡片、四列基础字段、商品选品及紧凑明细布局");
+assert.match(piForm, /逐项理货要求[\s\S]*仓库备注/, "紧凑商品明细不得丢失仓库内部字段");
 
 for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /unit_price|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润");

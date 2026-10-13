@@ -158,7 +158,7 @@ end $$;
 
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
 do $$
-declare created public.sales_orders;
+declare created public.sales_orders; cross_owner public.sales_orders;
 begin
   created:=public.create_direct_pi_order(
     '00000000-0000-0000-0000-000000000202','WH-ADMIN-001','USD',0.14,0,
@@ -167,6 +167,17 @@ begin
     '[{"item_name":"Cable","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
   if created.status<>'DRAFT' or created.sales_user_id<>'00000000-0000-0000-0000-000000000001' then
     raise exception '管理员为自身归属客户创建PI失败';
+  end if;
+  cross_owner:=public.create_direct_pi_order(
+    '00000000-0000-0000-0000-000000000201','WH-ADMIN-CROSS-001','USD',0.14,0,
+    'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
+    'Other owner buyer',null,null,'Test address','Standard pack',
+    '[{"item_name":"Cable","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
+  perform public.submit_direct_pi_order(cross_owner.id,cross_owner.pi_revision);
+  if (select status from public.sales_orders where id=cross_owner.id)<>'WAITING_STOCK'
+    or (select owner_user_id from public.customers where id='00000000-0000-0000-0000-000000000201')
+      <>'00000000-0000-0000-0000-000000000101' then
+    raise exception '管理员跨归属客户创建提交PI不得更改客户归属';
   end if;
 end $$;
 rollback;
