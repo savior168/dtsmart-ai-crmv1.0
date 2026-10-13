@@ -6,7 +6,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 export async function POST(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("orders.create");
-    if (account.role !== "SALES" && account.role !== "SUPERVISOR") throw new Error("FORBIDDEN");
+    if (account.role !== "SALES" && account.role !== "SUPERVISOR" && account.role !== "ADMIN") throw new Error("FORBIDDEN");
     const body = await request.json() as Record<string, unknown>;
     const currency = String(body.currency || "").trim().toUpperCase();
     const rate = Number(body.fx_rate_cny_to_payment);
