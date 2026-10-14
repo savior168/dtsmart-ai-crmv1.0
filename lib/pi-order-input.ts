@@ -32,7 +32,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   const warehouseReferenceNumber = String(body.warehouse_reference_number || "").trim();
   const paymentAccountId = String(body.payment_account_id || "").trim();
   if (!customerId || !paymentAccountId) throw new Error("请选择客户和收款账户");
-  if (!warehouseReferenceNumber || warehouseReferenceNumber.length > 80) throw new Error("请填写80字以内的仓库约定订单编号");
+  if (!warehouseReferenceNumber || warehouseReferenceNumber.length > 80) throw new Error("请填写80字以内的订单编号");
   return {
     p_customer_id: customerId,
     p_warehouse_reference_number: warehouseReferenceNumber,

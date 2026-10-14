@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { AppSelect } from "@/components/ui/app-select";
 
 type Customer = { id: string; company_name: string; contact_name?: string | null; phone?: string | null; email?: string | null; address?: string | null };
 type Account = { id: string; label: string; currency: string; instructions: string; active?: boolean };
-type Product = { id: string; sku: string; name_en: string | null; name_zh: string; brand: string | null; model: string | null; quality: string | null; description_en: string | null };
 type Line = { item_name: string; brand: string; model: string; quality: string; description: string; description_zh: string; quantity: number; unit_price_cny: number; estimated_unit_cost_cny: number; preparation_requirement: string; internal_note: string };
 const newLine = (): Line => ({ item_name: "", brand: "", model: "", quality: "", description: "", description_zh: "", quantity: 1, unit_price_cny: 0, estimated_unit_cost_cny: -1, preparation_requirement: "", internal_note: "" });
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -21,8 +20,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [canManageAccounts, setCanManageAccounts] = useState(false);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productQuery, setProductQuery] = useState("");
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const [warehouseReferenceNumber, setWarehouseReferenceNumber] = useState("");
   const [currency, setCurrency] = useState("USD");
@@ -156,18 +153,11 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
     try { importRows((await navigator.clipboard.readText()).split(/\r?\n/).map((line) => line.split("\t"))); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "读取剪贴板失败"); }
   }
-  async function searchProducts() {
-    setError("");
-    const response = await fetch(`/api/quote-products?q=${encodeURIComponent(productQuery)}&quantity=1`, { cache: "no-store" });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "商品搜索失败"); return; }
-    setProducts(body.data || []);
-  }
   async function create() {
     if (busy) return;
     setError("");
     if (!customerId || !warehouseReferenceNumber.trim() || !currency || !accountId || !Number.isFinite(effectiveRate) || effectiveRate <= 0) {
-      setError("请选择客户、填写仓库约定订单编号、付款币种、收款账户及正数汇率"); return;
+      setError("请选择客户、填写订单编号、付款币种、收款账户及正数汇率"); return;
     }
     if (items.some((item) => !item.item_name.trim() || !item.description_zh.trim() || !Number.isInteger(item.quantity) || item.quantity <= 0 || item.unit_price_cny < 0 || item.estimated_unit_cost_cny < 0)) {
       setError("每行产品都须填写名称、仓库中文规格、整数数量、人民币销售价和预估成本"); return;
@@ -190,46 +180,47 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
 
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1500px] space-y-5">
     <div className="flex justify-end"><Link href={draftOrderId ? `/orders/${draftOrderId}` : "/orders"} className="inline-flex h-10 items-center rounded-lg border bg-white px-4 text-sm hover:bg-slate-50">返回PI订单列表</Link></div>
-    <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="border-b px-5 py-4"><h1 className="text-xl font-bold">{draftOrderId ? "编辑PI草稿" : "创建PI订单"}</h1><p className="mt-1 text-sm text-slate-500">客户与价格只录入一次；保存草稿后核对，确认后生成仓库备货单。</p></header>
     {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
-    <section className="border-b p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <label className="text-sm">客户 *<AppSelect className={field} aria-label="选择PI客户" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">请选择客户</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name}</option>)}</AppSelect></label>
-      <label className="text-sm">仓库约定订单编号 *<input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 JOE-42；不可与其他PI重复" /></label>
+      <label className="text-sm">订单编号 *<input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 JOE-42；不可与其他PI重复" /></label>
       <label className="text-sm">客户付款币种 *<AppSelect className={field} aria-label="搜索并选择客户付款币种" value={currency} onChange={(event) => { setCurrency(event.target.value); setRate(""); }}><option value="">请选择</option>{QUOTE_CURRENCIES.map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}</AppSelect></label>
       <label className="text-sm">汇率：1 CNY = 多少 {currency || "付款币种"} *<input className={field} type="number" min="0.000001" step="0.000001" value={rate} onChange={(event) => setRate(event.target.value)} placeholder="例如 209.000000" /></label>
       <label className="text-sm">收款账户 *<AppSelect className={field} aria-label="选择PI收款账户" value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">{availableAccounts.length ? "请选择管理员预设账户" : "尚无启用的收款账户"}</option>{availableAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}</AppSelect>{!availableAccounts.length ? <span className="mt-1 block text-xs text-amber-700">{canManageAccounts ? <><Link href="/settings/pi-payment-accounts" className="underline">先配置并启用真实收款账户</Link>，再返回创建PI。</> : "请联系系统管理员配置并启用收款账户后再创建PI。"}</span> : null}</label>
       <label className="text-sm">付款方式<input className={field} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} placeholder="例如 T/T Bank Transfer" /></label>
       <label className="text-sm">PI有效期 *<input className={field} type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} /></label>
       <label className="text-sm">预计交付日期<input className={field} type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} /></label>
+      <label className="text-sm">运费（RMB）<input className={field} type="number" min="0" step="0.01" value={shippingCny} onChange={(event) => setShippingCny(Number(event.target.value))} /></label>
       {selectedAccount ? <p className="md:col-span-2 xl:col-span-4 rounded-lg bg-slate-50 p-3 text-xs whitespace-pre-wrap">所选收款信息（订单提交时固定快照）：{selectedAccount.instructions}</p> : null}
     </div></section>
-    <section className="border-b p-5"><h2 className="mb-4 font-semibold">客户及收货信息</h2><div className="grid gap-4 md:grid-cols-4">
+    <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">客户及收货信息</h2><div className="grid gap-4 md:grid-cols-4">
       <label className="text-sm">收件人<input className={field} value={recipient} onChange={(event) => setRecipient(event.target.value)} /></label>
       <label className="text-sm">电话<input className={field} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
       <label className="text-sm">邮箱<input className={field} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
       <label className="text-sm md:col-span-4">收货地址<input className={field} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
     </div></section>
-    <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">从商品库添加或批量导入；只填人民币销售价与成本，客户币种价格自动换算。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => setItems((current) => current.length < 500 ? [...current, newLine()] : current)} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button></div></div>
-      <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4"><label className="mb-1.5 block text-sm font-medium text-slate-700">从商品库添加</label><div className="flex gap-2"><input className={field} value={productQuery} onChange={(event) => setProductQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchProducts(); } }} placeholder="搜索商品名称、SKU、品牌或型号" /><button type="button" onClick={() => void searchProducts()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-blue-600 px-4 text-sm text-white"><Search size={16} />搜索商品</button></div>
-      {products.length ? <div className="mb-4 grid gap-2 md:grid-cols-2">{products.map((product) => <button key={product.id} type="button" className="rounded-lg border p-2 text-left text-sm hover:bg-blue-50" onClick={() => { setItems((current) => [...current.filter((item) => item.item_name.trim()), { ...newLine(), item_name: product.name_en || product.name_zh, brand: product.brand || "", model: product.model || "", quality: product.quality || "", description: product.description_en || "", description_zh: product.name_zh }]); setProducts([]); }}>{product.sku} · {product.name_zh}</button>)}</div> : null}
-      </div><div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[1100px] text-left text-xs"><thead className="bg-slate-50"><tr>{["序号", "产品 / 品牌 / 型号", "质量 / 客户描述", "仓库中文规格 *", "数量", "人民币销售价 *", "人民币预估成本 *", "利润率 / 外币单价", "金额", "快捷操作"].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr></thead><tbody>{items.map((item, index) => <Fragment key={index}><tr className="border-t align-top">
-        <td className="p-2">{index + 1}</td>
-        <td className="min-w-40 p-2"><input aria-label={`第${index + 1}行产品名称`} placeholder="产品名称" className={field} value={item.item_name} onChange={(event) => editLine(index, "item_name", event.target.value)} /><div className="mt-2 grid grid-cols-2 gap-2"><input aria-label={`第${index + 1}行品牌`} placeholder="品牌" className={field} value={item.brand} onChange={(event) => editLine(index, "brand", event.target.value)} /><input aria-label={`第${index + 1}行型号`} placeholder="型号" className={field} value={item.model} onChange={(event) => editLine(index, "model", event.target.value)} /></div></td>
-        <td className="min-w-36 p-2"><input aria-label={`第${index + 1}行质量`} placeholder="质量" className={field} value={item.quality} onChange={(event) => editLine(index, "quality", event.target.value)} /><input aria-label={`第${index + 1}行客户描述`} placeholder="客户描述" className={`${field} mt-2`} value={item.description} onChange={(event) => editLine(index, "description", event.target.value)} /></td>
-        <td className="min-w-36 p-2"><input aria-label={`第${index + 1}行仓库中文规格`} className={field} value={item.description_zh} onChange={(event) => editLine(index, "description_zh", event.target.value)} /></td>
-        <td className="p-2"><input aria-label={`第${index + 1}行数量`} className={`${field} w-20`} type="number" min="1" step="1" value={item.quantity} onChange={(event) => editLine(index, "quantity", Number(event.target.value))} /></td>
-        <td className="p-2"><input aria-label={`第${index + 1}行人民币单价`} className={`${field} w-28`} type="number" min="0" step="0.01" value={item.unit_price_cny} onChange={(event) => editLine(index, "unit_price_cny", Number(event.target.value))} /></td>
-        <td className="p-2"><input aria-label={`第${index + 1}行预估成本`} className={`${field} w-28`} type="number" min="0" step="0.01" value={item.estimated_unit_cost_cny < 0 ? "" : item.estimated_unit_cost_cny} onChange={(event) => editLine(index, "estimated_unit_cost_cny", event.target.value === "" ? -1 : Number(event.target.value))} /></td>
-        <td className={`whitespace-nowrap p-2 font-medium ${item.unit_price_cny > 0 && item.estimated_unit_cost_cny > item.unit_price_cny ? "text-rose-600" : "text-emerald-700"}`}>{item.unit_price_cny > 0 && item.estimated_unit_cost_cny >= 0 ? `${((item.unit_price_cny - item.estimated_unit_cost_cny) / item.unit_price_cny * 100).toFixed(2)}%` : "—"}<small className="mt-2 block text-slate-500">{currency} {effectiveRate > 0 ? roundMoney(item.unit_price_cny * effectiveRate).toFixed(2) : "—"}</small></td>
-        <td className="whitespace-nowrap p-2">¥{roundMoney(item.quantity * item.unit_price_cny).toFixed(2)}<small className="mt-2 block text-slate-500">{currency} {effectiveRate > 0 ? roundMoney(item.quantity * roundMoney(item.unit_price_cny * effectiveRate)).toFixed(2) : "—"}</small></td>
-        <td className="p-2"><div className="flex gap-2"><button type="button" title="复制该产品行" aria-label={`复制第${index + 1}行`} disabled={items.length >= 500} onClick={() => setItems((current) => [...current.slice(0, index + 1), { ...current[index] }, ...current.slice(index + 1)])} className="text-blue-600 disabled:opacity-30"><Copy size={16} /></button><button type="button" title="删除该产品行" aria-label={`删除第${index + 1}行`} disabled={items.length === 1} onClick={() => setItems((current) => current.filter((_, position) => position !== index))} className="text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button></div></td>
-      </tr><tr className="bg-slate-50/60"><td /><td colSpan={9} className="px-2 pb-3"><div className="grid gap-2 md:grid-cols-2"><label className="text-xs text-slate-600">逐项理货要求<input aria-label={`第${index + 1}行理货要求`} className={field} value={item.preparation_requirement} onChange={(event) => editLine(index, "preparation_requirement", event.target.value)} /></label><label className="text-xs text-slate-600">仓库备注<input aria-label={`第${index + 1}行仓库备注`} className={field} value={item.internal_note} onChange={(event) => editLine(index, "internal_note", event.target.value)} /></label></div></td></tr></Fragment>)}</tbody></table></div>
+    <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">直接录入或批量导入；人民币销售价与成本分别填写，付款币种价格自动换算。表格可横向滚动。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => setItems((current) => current.length < 500 ? [...current, newLine()] : current)} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button></div></div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1900px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["No.", "Items *", "Brand", "Models", "Quality", "Description", "Warehouse Spec (CN) *", "Unit Price (RMB) *", "Cost (RMB) *", "Margin", `Unit Price (${currency})`, "Quantity *", "Amount (RMB)", `Amount (${currency})`, "Packing Requirement", "Warehouse Note", "Actions"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className="border-t border-slate-100 align-middle">
+        <td className="px-2 py-1.5">{index + 1}</td>
+        {(["item_name", "brand", "model", "quality", "description", "description_zh"] as const).map((key) => <td key={key} className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行${key}`} className={`${field} h-9 min-w-28`} value={item[key]} onChange={(event) => editLine(index, key, event.target.value)} /></td>)}
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行人民币单价`} className={`${field} h-9 w-28`} type="number" min="0" step="0.01" value={item.unit_price_cny} onChange={(event) => editLine(index, "unit_price_cny", Number(event.target.value))} /></td>
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行预估成本`} className={`${field} h-9 w-28`} type="number" min="0" step="0.01" value={item.estimated_unit_cost_cny < 0 ? "" : item.estimated_unit_cost_cny} onChange={(event) => editLine(index, "estimated_unit_cost_cny", event.target.value === "" ? -1 : Number(event.target.value))} /></td>
+        <td className={`whitespace-nowrap px-2 py-1.5 font-medium ${item.unit_price_cny > 0 && item.estimated_unit_cost_cny > item.unit_price_cny ? "text-rose-600" : "text-emerald-700"}`}>{item.unit_price_cny > 0 && item.estimated_unit_cost_cny >= 0 ? `${((item.unit_price_cny - item.estimated_unit_cost_cny) / item.unit_price_cny * 100).toFixed(2)}%` : "—"}</td>
+        <td className="whitespace-nowrap px-2 py-1.5">{effectiveRate > 0 ? roundMoney(item.unit_price_cny * effectiveRate).toFixed(2) : "—"}</td>
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行数量`} className={`${field} h-9 w-20`} type="number" min="1" step="1" value={item.quantity} onChange={(event) => editLine(index, "quantity", Number(event.target.value))} /></td>
+        <td className="whitespace-nowrap px-2 py-1.5">¥{roundMoney(item.quantity * item.unit_price_cny).toFixed(2)}</td>
+        <td className="whitespace-nowrap px-2 py-1.5">{effectiveRate > 0 ? roundMoney(item.quantity * roundMoney(item.unit_price_cny * effectiveRate)).toFixed(2) : "—"}</td>
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行理货要求`} className={`${field} h-9 min-w-32`} value={item.preparation_requirement} onChange={(event) => editLine(index, "preparation_requirement", event.target.value)} /></td>
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行仓库备注`} className={`${field} h-9 min-w-32`} value={item.internal_note} onChange={(event) => editLine(index, "internal_note", event.target.value)} /></td>
+        <td className="px-2 py-1.5"><div className="flex gap-2"><button type="button" title="复制该产品行" aria-label={`复制第${index + 1}行`} disabled={items.length >= 500} onClick={() => setItems((current) => [...current.slice(0, index + 1), { ...current[index] }, ...current.slice(index + 1)])} className="text-blue-600 disabled:opacity-30"><Copy size={16} /></button><button type="button" title="删除该产品行" aria-label={`删除第${index + 1}行`} disabled={items.length === 1} onClick={() => setItems((current) => current.filter((_, position) => position !== index))} className="text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button></div></td>
+      </tr>)}</tbody></table></div>
     </section>
-    <section className="grid gap-4 border-t p-5 md:grid-cols-2"><label className="text-sm">人民币运费<input className={field} type="number" min="0" step="0.01" value={shippingCny} onChange={(event) => setShippingCny(Number(event.target.value))} /></label><label className="text-sm">给仓库的特殊备货要求（选填）<input className={field} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="无特殊要求时按PI明细常规备货" /></label>
-      <div className="text-sm md:col-span-2">人民币：产品 ¥{totals.subtotalCny.toFixed(2)} + 运费 ¥{shippingCny.toFixed(2)} = <b>¥{roundMoney(totals.subtotalCny + shippingCny).toFixed(2)}</b><br />{currency}：产品 {totals.subtotalPayment.toFixed(2)} + 运费 {totals.shippingPayment.toFixed(2)} = <b>{roundMoney(totals.subtotalPayment + totals.shippingPayment).toFixed(2)}</b></div>
+    <section className="grid gap-4 border-t border-slate-100 p-5 md:grid-cols-2"><label className="text-sm">给仓库的特殊备货要求（选填）<input className={field} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="无特殊要求时按PI明细常规备货" /></label>
+      <div className="text-sm text-slate-600">人民币：产品 ¥{totals.subtotalCny.toFixed(2)} + 运费 ¥{shippingCny.toFixed(2)} = <b className="text-slate-900">¥{roundMoney(totals.subtotalCny + shippingCny).toFixed(2)}</b><br />{currency}：产品 {totals.subtotalPayment.toFixed(2)} + 运费 {totals.shippingPayment.toFixed(2)} = <b className="text-slate-900">{roundMoney(totals.subtotalPayment + totals.shippingPayment).toFixed(2)}</b></div>
     </section>
-    <div className="flex justify-end border-t bg-slate-50 px-5 py-4"><button type="button" disabled={busy || loadingDraft || !availableAccounts.length} onClick={() => void create()} className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50">{busy ? "保存中，请勿重复提交…" : "保存PI草稿"}</button></div>
+    <div className="flex justify-end border-t border-slate-100 px-5 py-4"><button type="button" disabled={busy || loadingDraft || !availableAccounts.length} onClick={() => void create()} className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "保存中，请勿重复提交…" : "保存PI草稿"}</button></div>
     </div>
   </div></main>;
 }
