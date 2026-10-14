@@ -12,11 +12,11 @@ type Customer = { id: string; company_name: string; contact_name?: string | null
 type Account = { id: string; label: string; currency: string; instructions: string; active?: boolean };
 type ExchangeRate = { currency: string; business_cny: number | null; source: string; reference_date: string | null };
 type Line = { item_name: string; brand: string; model: string; quality: string; description: string; description_zh: string; quantity: number; unit_price_cny: number; estimated_unit_cost_cny: number; preparation_requirement: string; internal_note: string };
-const newLine = (): Line => ({ item_name: "", brand: "", model: "", quality: "", description: "", description_zh: "", quantity: 1, unit_price_cny: 0, estimated_unit_cost_cny: -1, preparation_requirement: "", internal_note: "" });
+const newLine = (): Line => ({ item_name: "", brand: "", model: "", quality: "", description: "", description_zh: "", quantity: 1, unit_price_cny: -1, estimated_unit_cost_cny: -1, preparation_requirement: "", internal_note: "" });
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const defaultValidity = () => { const date = new Date(); date.setDate(date.getDate() + 5); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
-const importHeaders = ["产品名称", "品牌", "型号", "质量", "客户描述", "仓库中文规格", "数量", "人民币销售单价", "人民币预估成本", "逐项理货要求"];
+const importHeaders = ["产品", "品牌", "型号", "质量", "产品描述", "成本（RMB）", "售价（RMB）", "数量", "理货要求", "备注"];
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
 
 export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialCustomerId?: string; draftOrderId?: string }) {
@@ -50,9 +50,11 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
   const cnyPerPayment = Number(rate);
   const effectiveRate = paymentPerCny(cnyPerPayment);
   const totals = useMemo(() => {
-    const subtotalCny = roundMoney(items.reduce((sum, item) => sum + item.quantity * item.unit_price_cny, 0));
-    const subtotalPayment = roundMoney(items.reduce((sum, item) => sum + item.quantity * roundMoney(item.unit_price_cny * effectiveRate), 0));
-    return { subtotalCny, subtotalPayment, shippingPayment: roundMoney(shippingCny * effectiveRate) };
+    const subtotalCny = roundMoney(items.reduce((sum, item) => sum + item.quantity * Math.max(0, item.unit_price_cny), 0));
+    const subtotalPayment = roundMoney(items.reduce((sum, item) => sum + item.quantity * roundMoney(Math.max(0, item.unit_price_cny) * effectiveRate), 0));
+    const totalProfitCny = items.every((item) => item.unit_price_cny >= 0 && item.estimated_unit_cost_cny >= 0 && Number.isFinite(item.estimated_unit_cost_cny))
+      ? roundMoney(items.reduce((sum, item) => sum + item.quantity * (item.unit_price_cny - item.estimated_unit_cost_cny), 0)) : null;
+    return { subtotalCny, subtotalPayment, totalProfitCny, shippingPayment: roundMoney(shippingCny * effectiveRate) };
   }, [items, shippingCny, effectiveRate]);
 
   useEffect(() => {
@@ -126,20 +128,21 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
   }
   function importRows(rows: unknown[][]) {
     const cells = rows.map((row) => row.map((value) => String(value ?? "").trim())).filter((row) => row.some(Boolean));
-    if (cells[0]?.[0] === importHeaders[0]) cells.shift();
+    const legacy = cells[0]?.[0] === "产品名称";
+    if (cells[0]?.[0] === importHeaders[0] || legacy) cells.shift();
     if (!cells.length || cells.length > 500) throw new Error("请导入1至500条产品明细");
     const imported = cells.map((row, index) => {
-      const quantity = Number(row[6]);
-      const unitPrice = Number(row[7]);
-      const cost = Number(row[8]);
-      if (!row[0] || !row[5] || !Number.isSafeInteger(quantity) || quantity < 1 || !row[7] || !row[8]
+      const quantity = Number(row[legacy ? 6 : 7]);
+      const unitPrice = Number(row[legacy ? 7 : 6]);
+      const cost = Number(row[legacy ? 8 : 5]);
+      if (!row[0] || !row[1] || !row[2] || !row[3] || !Number.isSafeInteger(quantity) || quantity < 1 || !row[legacy ? 7 : 6] || !row[legacy ? 8 : 5]
         || !Number.isFinite(unitPrice) || unitPrice < 0 || !Number.isFinite(cost) || cost < 0
         || Math.round(unitPrice * 100) !== unitPrice * 100 || Math.round(cost * 100) !== cost * 100) {
-        throw new Error(`第${index + 1}行缺少产品名称、仓库中文规格、整数数量、人民币销售价或成本，或金额超过两位小数`);
+        throw new Error(`第${index + 1}行须填写产品、品牌、型号、质量、整数数量、人民币成本和售价（金额最多两位小数）`);
       }
       return { ...newLine(), item_name: row[0], brand: row[1] || "", model: row[2] || "", quality: row[3] || "",
-        description: row[4] || "", description_zh: row[5], quantity, unit_price_cny: unitPrice,
-        estimated_unit_cost_cny: cost, preparation_requirement: row[9] || "" };
+        description: row[4] || "", description_zh: legacy ? row[5] : "", quantity, unit_price_cny: unitPrice,
+        estimated_unit_cost_cny: cost, preparation_requirement: row[legacy ? 9 : 8] || "", internal_note: legacy ? "" : row[9] || "" };
     });
     if (items.filter((item) => item.item_name.trim()).length + imported.length > 500) throw new Error("每张PI最多500条产品，请分批处理");
     setItems((current) => [...current.filter((item) => item.item_name.trim()), ...imported]);
@@ -171,8 +174,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
     if (!customerId || !warehouseReferenceNumber.trim() || !currency || !accountId || !Number.isFinite(cnyPerPayment) || cnyPerPayment <= 0) {
       setError("请选择客户、填写订单编号、付款币种、收款账户及正数汇率"); return;
     }
-    if (items.some((item) => !item.item_name.trim() || !item.description_zh.trim() || !Number.isInteger(item.quantity) || item.quantity <= 0 || item.unit_price_cny < 0 || item.estimated_unit_cost_cny < 0)) {
-      setError("每行产品都须填写名称、仓库中文规格、整数数量、人民币销售价和预估成本"); return;
+    if (items.some((item) => !item.item_name.trim() || !item.brand.trim() || !item.model.trim() || !item.quality.trim() || !Number.isInteger(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unit_price_cny) || item.unit_price_cny < 0 || !Number.isFinite(item.estimated_unit_cost_cny) || item.estimated_unit_cost_cny < 0)) {
+      setError("每行产品都须填写产品、品牌、型号、质量、整数数量、人民币成本和售价"); return;
     }
     setBusy(true);
     try {
@@ -213,20 +216,20 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId }: { initialC
       <label className="text-sm md:col-span-4">收货地址<input className={field} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
     </div></section>
     <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">直接录入或批量导入；人民币销售价与成本分别填写，付款币种价格自动换算。表格可横向滚动。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => setItems((current) => current.length < 500 ? [...current, newLine()] : current)} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1900px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["No.", "Items *", "Brand", "Models", "Quality", "Description", "Warehouse Spec (CN) *", "Unit Price (RMB) *", "Cost (RMB) *", "Margin", `Unit Price (${currency})`, "Quantity *", "Amount (RMB)", `Amount (${currency})`, "Packing Requirement", "Warehouse Note", "Actions"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head.endsWith(" *") ? <>{head.slice(0, -2)}<Required /></> : head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className="border-t border-slate-100 align-middle">
+      <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[1600px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["No.", "Items *", "Brand *", "Models *", "Quality *", "Description", "Cost (RMB) *", "Unit Price (RMB) *", "Quantity *", "Amount (RMB)", "Total Profit (RMB)", "Margin", "Packing Requirement", "Warehouse Note", "Actions"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head.endsWith(" *") ? <>{head.slice(0, -2)}<Required /></> : head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className="border-t border-slate-100 align-middle">
         <td className="px-2 py-1.5">{index + 1}</td>
-        {(["item_name", "brand", "model", "quality", "description", "description_zh"] as const).map((key) => <td key={key} className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行${key}`} className={`${field} h-9 min-w-28`} value={item[key]} onChange={(event) => editLine(index, key, event.target.value)} /></td>)}
-        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行人民币单价`} className={`${field} h-9 w-28`} type="number" min="0" step="0.01" value={item.unit_price_cny} onChange={(event) => editLine(index, "unit_price_cny", Number(event.target.value))} /></td>
+        {(["item_name", "brand", "model", "quality", "description"] as const).map((key) => <td key={key} className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行${key}`} className={`${field} h-9 min-w-28`} value={item[key]} onChange={(event) => editLine(index, key, event.target.value)} /></td>)}
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行预估成本`} className={`${field} h-9 w-28`} type="number" min="0" step="0.01" value={item.estimated_unit_cost_cny < 0 ? "" : item.estimated_unit_cost_cny} onChange={(event) => editLine(index, "estimated_unit_cost_cny", event.target.value === "" ? -1 : Number(event.target.value))} /></td>
-        <td className={`whitespace-nowrap px-2 py-1.5 font-medium ${item.unit_price_cny > 0 && item.estimated_unit_cost_cny > item.unit_price_cny ? "text-rose-600" : "text-emerald-700"}`}>{item.unit_price_cny > 0 && item.estimated_unit_cost_cny >= 0 ? `${((item.unit_price_cny - item.estimated_unit_cost_cny) / item.unit_price_cny * 100).toFixed(2)}%` : "—"}</td>
-        <td className="whitespace-nowrap px-2 py-1.5">{effectiveRate > 0 ? roundMoney(item.unit_price_cny * effectiveRate).toFixed(2) : "—"}</td>
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行人民币单价`} className={`${field} h-9 w-28`} type="number" min="0" step="0.01" value={item.unit_price_cny < 0 ? "" : item.unit_price_cny} onChange={(event) => editLine(index, "unit_price_cny", event.target.value === "" ? -1 : Number(event.target.value))} /></td>
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行数量`} className={`${field} h-9 w-20`} type="number" min="1" step="1" value={item.quantity} onChange={(event) => editLine(index, "quantity", Number(event.target.value))} /></td>
-        <td className="whitespace-nowrap px-2 py-1.5">¥{roundMoney(item.quantity * item.unit_price_cny).toFixed(2)}</td>
-        <td className="whitespace-nowrap px-2 py-1.5">{effectiveRate > 0 ? roundMoney(item.quantity * roundMoney(item.unit_price_cny * effectiveRate)).toFixed(2) : "—"}</td>
+        <td className="whitespace-nowrap px-2 py-1.5">{item.unit_price_cny >= 0 ? `¥${roundMoney(item.quantity * item.unit_price_cny).toFixed(2)}` : "—"}</td>
+        <td className={`whitespace-nowrap px-2 py-1.5 ${item.estimated_unit_cost_cny > item.unit_price_cny ? "text-rose-600" : ""}`}>{item.unit_price_cny >= 0 && item.estimated_unit_cost_cny >= 0 ? `¥${roundMoney((item.unit_price_cny - item.estimated_unit_cost_cny) * item.quantity).toFixed(2)}` : "—"}</td>
+        <td className={`whitespace-nowrap px-2 py-1.5 font-medium ${item.unit_price_cny > 0 && item.estimated_unit_cost_cny > item.unit_price_cny ? "text-rose-600" : "text-emerald-700"}`}>{item.unit_price_cny > 0 && item.estimated_unit_cost_cny >= 0 ? `${((item.unit_price_cny - item.estimated_unit_cost_cny) / item.unit_price_cny * 100).toFixed(2)}%` : "—"}</td>
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行理货要求`} className={`${field} h-9 min-w-32`} value={item.preparation_requirement} onChange={(event) => editLine(index, "preparation_requirement", event.target.value)} /></td>
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行仓库备注`} className={`${field} h-9 min-w-32`} value={item.internal_note} onChange={(event) => editLine(index, "internal_note", event.target.value)} /></td>
         <td className="px-2 py-1.5"><div className="flex gap-2"><button type="button" title="复制该产品行" aria-label={`复制第${index + 1}行`} disabled={items.length >= 500} onClick={() => setItems((current) => [...current.slice(0, index + 1), { ...current[index] }, ...current.slice(index + 1)])} className="text-blue-600 disabled:opacity-30"><Copy size={16} /></button><button type="button" title="删除该产品行" aria-label={`删除第${index + 1}行`} disabled={items.length === 1} onClick={() => setItems((current) => current.filter((_, position) => position !== index))} className="text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button></div></td>
       </tr>)}</tbody></table></div>
+      <div className="mt-3 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm" aria-live="polite"><span>产品总金额（RMB）：<strong>¥{totals.subtotalCny.toFixed(2)}</strong></span><span>产品总利润（RMB）：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : `¥${totals.totalProfitCny.toFixed(2)}`}</strong></span></div>
     </section>
     <section className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-[1fr_auto]"><label className="text-sm">给仓库的特殊备货要求（选填）<input className={field} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="无特殊要求时按PI明细常规备货" /></label>
       <div className="min-w-72 rounded-lg bg-slate-50 p-3 text-sm"><h2 className="font-semibold text-slate-900">PI费用汇总</h2><div className="mt-2 grid grid-cols-[auto_auto_auto] gap-x-5 gap-y-1 text-right text-slate-600"><span></span><span>RMB</span><span>{currency}</span><span className="text-left">产品小计</span><span>¥{totals.subtotalCny.toFixed(2)}</span><span>{totals.subtotalPayment.toFixed(2)}</span><span className="text-left">运费</span><span>¥{shippingCny.toFixed(2)}</span><span>{totals.shippingPayment.toFixed(2)}</span><span className="border-t pt-2 text-left font-semibold text-slate-900">PI总额</span><span className="border-t pt-2 font-semibold text-slate-900">¥{roundMoney(totals.subtotalCny + shippingCny).toFixed(2)}</span><span className="border-t pt-2 font-semibold text-blue-700">{roundMoney(totals.subtotalPayment + totals.shippingPayment).toFixed(2)}</span></div></div>

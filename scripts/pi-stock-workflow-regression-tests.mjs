@@ -37,9 +37,13 @@ assert.doesNotMatch(orderListView, /仓库约定订单编号|warehouse_reference
 assert.match(piForm, /AppSelect[\s\S]*搜索并选择客户付款币种/, "币种应使用系统可搜索选择组件");
 assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下拉");
 assert.match(piForm, /下载模板[\s\S]*导入Excel[\s\S]*粘贴表格[\s\S]*添加产品/, "PI产品明细应提供批量快捷操作");
-assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-cols-4[\s\S]*min-w-\[1900px\]/, "PI录入应保留轻量单卡片和四列基础字段");
+assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-cols-4[\s\S]*min-w-\[1600px\]/, "PI录入应保留轻量单卡片和四列基础字段");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
-assert.match(piForm, /"No\.", "Items \*", "Brand", "Models", "Quality", "Description", "Warehouse Spec \(CN\) \*"[\s\S]*"Unit Price \(RMB\) \*", "Cost \(RMB\) \*"[\s\S]*"Packing Requirement", "Warehouse Note"/, "每项产品属性应使用独立英文列头并标明币种");
+assert.match(piForm, /"No\.", "Items \*", "Brand \*", "Models \*", "Quality \*", "Description", "Cost \(RMB\) \*", "Unit Price \(RMB\) \*", "Quantity \*", "Amount \(RMB\)", "Total Profit \(RMB\)", "Margin", "Packing Requirement", "Warehouse Note"/, "产品明细必须按业务顺序展示必填字段与自动计算的金额利润");
+assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
+assert.match(createPiApi, /row\.item_name, row\.brand, row\.model, row\.quality/, "创建PI接口必须校验产品、品牌、型号和质量");
+assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "编辑PI接口必须校验相同的必填字段");
+assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sql"), /x\.brand[\s\S]*x\.model[\s\S]*x\.quality/, "数据库RPC必须防止绕过必填字段校验");
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
 assert.match(piForm, /订单编号<Required \/>/, "创建PI应统一显示订单编号并以红星标出必填");
 assert.match(piForm, /PI有效期[\s\S]*运费（RMB）[\s\S]*客户及收货信息[\s\S]*PI产品明细/, "运费输入应位于上方PI基本信息区");
