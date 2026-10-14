@@ -61,11 +61,14 @@ const menu = [
   { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
     { label: "备货单", href: "/stock-orders", permission: "stock.view" },
   ] },
+  { label: "PI财务设置", icon: Settings, defaultHref: "/settings/pi-exchange-rates", children: [
+    { label: "汇率设置", href: "/settings/pi-exchange-rates", permission: "system.users.manage" },
+    { label: "收款账户", href: "/settings/pi-payment-accounts", permission: "system.users.manage" },
+  ] },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
   {
     label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
       { label: "用户与权限", href: "/settings/users", permission: "system.users.view" },
-      { label: "PI收款账户", href: "/settings/pi-payment-accounts", permission: "system.users.manage" },
       { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
       { label: "操作日志", href: "/settings/audit", permission: "system.audit.view" },
       { label: "安全设置", href: "/settings/security", permission: "system.security.view" },
@@ -119,7 +122,8 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/stock-orders$/, "采购管理 / 备货单"],
   [/^\/reports$/, "报表中心"],
   [/^\/settings\/costs$/, "系统管理 / 费用中心"],
-  [/^\/settings\/pi-payment-accounts$/, "系统管理 / PI收款账户"],
+  [/^\/settings\/pi-exchange-rates$/, "PI财务设置 / 汇率设置"],
+  [/^\/settings\/pi-payment-accounts$/, "PI财务设置 / 收款账户"],
   [/^\/notifications$/, "站内通知"],
   [/^\/profile$/, "个人中心 / 账号资料"],
   [/^\/settings\/users$/, "系统管理 / 用户管理"],
