@@ -30,9 +30,10 @@ assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下
 assert.match(piForm, /下载模板[\s\S]*导入Excel[\s\S]*粘贴表格[\s\S]*添加产品/, "PI产品明细应提供批量快捷操作");
 assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-cols-4[\s\S]*min-w-\[1900px\]/, "PI录入应保留轻量单卡片和四列基础字段");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
-assert.match(piForm, /"产品名称 \*", "品牌", "型号", "质量", "客户描述", "仓库中文规格 \*"[\s\S]*"理货要求", "仓库备注"/, "每项产品属性应各占一列");
+assert.match(piForm, /"No\.", "Items \*", "Brand", "Models", "Quality", "Description", "Warehouse Spec \(CN\) \*"[\s\S]*"Unit Price \(RMB\) \*", "Cost \(RMB\) \*"[\s\S]*"Packing Requirement", "Warehouse Note"/, "每项产品属性应使用独立英文列头并标明币种");
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
 assert.match(piForm, /订单编号 \*/, "创建PI应统一显示订单编号");
+assert.match(piForm, /PI有效期[\s\S]*运费（RMB）[\s\S]*客户及收货信息[\s\S]*PI产品明细/, "运费输入应位于上方PI基本信息区");
 
 for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /unit_price|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润");
