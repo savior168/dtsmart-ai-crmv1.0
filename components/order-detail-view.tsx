@@ -159,7 +159,7 @@ export function OrderDetailView({ id }: { id: string }) {
             <div>
               <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
               <p className="mt-1 text-sm text-slate-500">
-                系统ID：{o.id} · {directPi ? "仓库约定订单编号" : "报价编号"}：{directPi ? o.warehouse_reference_number : o.quote_number} · 归属人：
+                系统ID：{o.id} · {directPi ? "订单编号" : "报价编号"}：{directPi ? o.warehouse_reference_number : o.quote_number} · 归属人：
                 {o.owner?.name || o.owner?.email || "-"}
               </p>
             </div>

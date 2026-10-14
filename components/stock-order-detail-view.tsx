@@ -262,7 +262,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <div>
               <h1 className="text-xl font-bold">备货单 {o.stock_number}</h1>
               <p className="mt-1 text-sm text-slate-500">
-                PI编号：{o.order_number} · 仓库约定订单编号：{o.warehouse_reference_number || "—"} ·
+                PI编号：{o.order_number} · 订单编号：{o.warehouse_reference_number || "—"} ·
                 销售员：{o.sales?.name || o.sales?.email || "-"}
               </p>
             </div>
