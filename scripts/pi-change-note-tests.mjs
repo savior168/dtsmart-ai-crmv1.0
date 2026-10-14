@@ -6,7 +6,7 @@ assert.equal(numberedPiChangeNote("标签改蓝色\n\n2、保护膜保留\n3. �
   "1. 标签改蓝色\n2. 保护膜保留\n3. 印章位置调整");
 assert.equal(numberedPiChangeNote("  \n"), "");
 const form = readFileSync(new URL("../components/pi-order-form.tsx", import.meta.url), "utf8");
-const migration = readFileSync(new URL("../supabase/migrations/20261014190000_pi_order_change_note.sql", import.meta.url), "utf8");
+const migration = readFileSync(new URL("../supabase/migrations/20261014072155_pi_order_change_note.sql", import.meta.url), "utf8");
 assert.match(form, /确认并生成备货单/);
 assert.match(form, /\/api\/orders\/\$\{saved\.id\}\/submit/);
 assert.match(form, /PI草稿已保存，请进入详情核对后重试/);

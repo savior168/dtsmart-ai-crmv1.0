@@ -22,11 +22,11 @@ const paymentAccountsApi = read("app/api/pi-payment-accounts/route.ts");
 const orderListView = read("components/orders-view.tsx");
 const stockListApi = read("app/api/stock-orders/route.ts");
 const stockListView = read("components/stock-orders-view.tsx");
-const draftDeleteMigration = read("supabase/migrations/20261014210000_pi_never_submitted_draft_delete.sql");
+const draftDeleteMigration = read("supabase/migrations/20261014072238_pi_never_submitted_draft_delete.sql");
 const piCustomersApi = read("app/api/orders/pi-customers/route.ts");
 const strictOwnerMigration = read("supabase/migrations/20261014120000_pi_strict_customer_owner.sql");
 const sellerContactMigration = read("supabase/migrations/20261014025431_pi_business_contact_snapshot.sql");
-const positiveMarginMigration = read("supabase/migrations/20261014180000_pi_positive_margin_guard.sql");
+const positiveMarginMigration = read("supabase/migrations/20261014072119_pi_positive_margin_guard.sql");
 
 assert.match(orderListApi, /can_create:[^\n]*account\.role === "ADMIN"[^\n]*hasPermission\(account, "orders\.create"\)/, "管理员有PI创建权限时列表必须显示创建入口");
 assert.match(createPiApi, /account\.role !== "SALES" && account\.role !== "SUPERVISOR" && account\.role !== "ADMIN"/, "列表允许管理员创建时API不能再拒绝管理员");
@@ -36,7 +36,7 @@ assert.match(sellerContactMigration, /p\.business_phone[\s\S]*p\.business_email/
 assert.match(positiveMarginMigration, /create_direct_pi_order[\s\S]*update_direct_pi_draft[\s\S]*x\.unit_price_cny<=x\.estimated_unit_cost_cny/, "创建和编辑PI均需在数据库阻止售价不高于成本");
 assert.match(positiveMarginMigration, /guard_direct_pi_submit_margin[\s\S]*old\.status='DRAFT'[\s\S]*i\.unit_price_cny<=i\.estimated_unit_cost_cny/, "历史草稿在最终提交备货前也必须复核利润");
 assert.match(positiveMarginMigration, /update_direct_pi_draft[\s\S]*submit_direct_pi_order[\s\S]*pi_revision is distinct from p_expected_revision/, "草稿编辑与提交均不能用空版本号绕过并发校验");
-assert.match(read("supabase/migrations/20261014190000_pi_order_change_note.sql"), /pi_revision is distinct from p_expected_revision/, "草稿变更说明不能用空版本号绕过并发校验");
+assert.match(read("supabase/migrations/20261014072155_pi_order_change_note.sql"), /pi_revision is distinct from p_expected_revision/, "草稿变更说明不能用空版本号绕过并发校验");
 assert.match(read("scripts/pi-stock-local-db-test.sql"), /空版本号不得绕过PI草稿并发校验[\s\S]*空版本号不得绕过PI提交并发校验/, "本机数据库验收必须覆盖空版本号绕过用例");
 assert.match(createPiApi, /validPiSellingPrice/, "创建PI接口不能保存亏本产品");
 assert.match(read("lib/pi-order-input.ts"), /validPiSellingPrice/, "编辑PI接口不能保存亏本产品");
