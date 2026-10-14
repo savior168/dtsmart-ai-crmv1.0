@@ -1,11 +1,13 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileDown, LoaderCircle, RefreshCw, Save, XCircle } from "lucide-react";
+import { ArrowLeft, FileDown, LoaderCircle, RefreshCw, Save, Trash2, XCircle } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppStatusBadge } from "@/components/ui/app-list";
 import { CountryLabel } from "@/components/country-label";
+import { numberedPiChangeNote } from "@/lib/pi-change-note";
 type Payload = {
   order: {
     id: string;
@@ -56,6 +58,7 @@ type Payload = {
   stock_order: { id: string; stock_number: string; status: string } | null;
   receiving_progress: { total_items: number; received_items: number; ordered_units: number; received_units: number } | null;
   can_edit_draft: boolean;
+  can_delete_draft: boolean;
   can_submit: boolean;
   can_recall: boolean;
   can_edit: boolean;
@@ -63,6 +66,7 @@ type Payload = {
   can_export: boolean;
 };
 export function OrderDetailView({ id }: { id: string }) {
+  const router = useRouter();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -73,6 +77,7 @@ export function OrderDetailView({ id }: { id: string }) {
   const [cancelReason, setCancelReason] = useState("");
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallReason, setRecallReason] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
@@ -104,6 +109,24 @@ export function OrderDetailView({ id }: { id: string }) {
       return;
     }
     await load();
+  }
+  async function deleteDraft() {
+    if (!data) return;
+    setBusy(true);
+    const response = await fetch(`/api/orders/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: data.order.pi_revision }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setBusy(false);
+    setDeleteOpen(false);
+    if (!response.ok) {
+      setError(body.error || "删除PI草稿失败");
+      return;
+    }
+    router.push("/orders");
+    router.refresh();
   }
   if (loading && !data)
     return (
@@ -150,6 +173,7 @@ export function OrderDetailView({ id }: { id: string }) {
               查看/完善备货单
             </Link> : null}
             {data.can_edit_draft ? <Link href={`/orders/${id}/edit`} className="h-9 rounded-lg border px-3 py-2 text-sm text-blue-700">修改PI草稿及商品</Link> : null}
+            {data.can_delete_draft ? <button type="button" disabled={busy} onClick={() => setDeleteOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-200 px-3 text-sm text-rose-700 disabled:opacity-50"><Trash2 size={15}/>删除未提交草稿</button> : null}
             {data.can_submit ? <button type="button" disabled={busy} onClick={() => void patch(`/api/orders/${id}/submit`, { revision: o.pi_revision }, "POST")} className="h-9 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">确认PI并生成备货单</button> : null}
             {data.can_recall ? <button type="button" disabled={busy} onClick={() => setRecallOpen(true)} className="h-9 rounded-lg border border-amber-300 px-3 text-sm text-amber-800">撤回修改</button> : null}
           </div>
@@ -244,7 +268,7 @@ export function OrderDetailView({ id }: { id: string }) {
               </tfoot>
             </table>
           </div>
-          {directPi ? <div className="border-b p-5 text-sm"><b>逐项理货要求与仓库备注</b><div className="mt-2 space-y-1">{data.items.map((item) => <p key={item.id}>{item.line_number}. {item.item_name}：{item.preparation_requirement || "常规理货"}{item.internal_note ? `；备注：${item.internal_note}` : ""}</p>)}</div></div> : null}
+          {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p><b className="mt-4 block">逐项理货要求与仓库备注</b><div className="mt-2 space-y-1">{data.items.map((item) => <p key={item.id}>{item.line_number}. {item.item_name}：{item.preparation_requirement || "常规理货"}{item.internal_note ? `；备注：${item.internal_note}` : ""}</p>)}</div></div> : null}
           <section className="grid gap-4 p-5 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1.5 block text-slate-600">预计交付日期</span>
@@ -256,7 +280,7 @@ export function OrderDetailView({ id }: { id: string }) {
                 className="h-10 w-full rounded-lg border px-3"
               />
             </label>
-            <label className="text-sm">
+            {!directPi ? <label className="text-sm">
               <span className="mb-1.5 block text-slate-600">客户确认说明</span>
               <textarea
                 disabled={!data.can_edit}
@@ -265,7 +289,7 @@ export function OrderDetailView({ id }: { id: string }) {
                 rows={3}
                 className="w-full rounded-lg border p-3"
               />
-            </label>
+            </label> : null}
           </section>
           {data.can_edit || data.can_cancel ? (
             <footer className="flex justify-end gap-2 border-t p-4">
@@ -301,6 +325,10 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
+        <AppDialog open={deleteOpen} title="删除未提交的PI草稿" description="仅从未提交过、也未生成备货单的草稿可删除；删除后无法恢复。" onClose={() => setDeleteOpen(false)} width="max-w-md">
+          <p className="text-sm text-slate-700">确认删除 PI {o.order_number} 及其产品明细吗？</p>
+          <form onSubmit={(event) => { event.preventDefault(); void deleteDraft(); }}><DialogActions busy={busy} onCancel={() => setDeleteOpen(false)} confirmLabel="确认删除草稿" tone="danger"/></form>
+        </AppDialog>
         <AppDialog open={cancelOpen} title="取消销售订单" description="订单和关联备货单将同步取消；客户阶段会按剩余的有效报价或意向凭证自动回退。" onClose={()=>setCancelOpen(false)} width="max-w-md">
           <label className="text-sm font-medium text-slate-700">真实取消原因<textarea autoFocus required value={cancelReason} onChange={event=>setCancelReason(event.target.value)} rows={4} className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm" placeholder="请输入客户取消、内容变更或其他真实原因"/></label>
           <form onSubmit={event=>{event.preventDefault();if(cancelReason.trim()){void patch(`/api/orders/${id}/cancel`,{reason:cancelReason.trim()},"POST");setCancelOpen(false)}}}><DialogActions busy={busy} onCancel={()=>setCancelOpen(false)} confirmLabel="确认取消订单" tone="danger"/></form>

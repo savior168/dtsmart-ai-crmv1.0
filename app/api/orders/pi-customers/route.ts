@@ -6,10 +6,10 @@ import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 export async function GET() {
   try {
     const { supabase, account } = await requirePermission("orders.create");
-    const customers: Array<{ id: string; company_name: string; contact_name: string | null; phone: string | null; email: string | null; address: string | null }> = [];
+    const customers: Array<{ id: string; company_name: string; country: string | null; contact_name: string | null; phone: string | null; email: string | null; address: string | null }> = [];
     for (let offset = 0;; offset += 1000) {
       const { data, error } = await supabase.from("customers")
-        .select("id,company_name,contact_name,phone,email,address")
+        .select("id,company_name,country,contact_name,phone,email,address")
         .eq("owner_id", account.id)
         .is("deleted_at", null)
         .neq("status", "RELEASED")

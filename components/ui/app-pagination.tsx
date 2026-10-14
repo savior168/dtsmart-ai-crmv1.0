@@ -3,7 +3,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
-export const STANDARD_PAGE_SIZES = [10, 20, 30, 50, 100] as const;
+export const STANDARD_PAGE_SIZES = [10, 30, 50, 100, 300, 500] as const;
 
 export function AppPagination({ page, pageSize, total, onPage, onPageSize, itemLabel = "条", pageSizes = STANDARD_PAGE_SIZES }: {
   page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void; itemLabel?: string; pageSizes?: readonly number[];

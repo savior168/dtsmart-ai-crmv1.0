@@ -59,6 +59,9 @@ export async function GET(
       receiving_progress: receivingProgress,
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
+      can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") && writable &&
+        hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
+        order.data.status === "DRAFT" && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
       can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
       can_edit:
@@ -79,6 +82,30 @@ export async function GET(
       { error: message },
       { status: authErrorStatus(message) || 400 },
     );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { supabase } = await requirePermission("orders.delete_draft");
+    const { id } = await params;
+    const body = await request.json();
+    const revision = Number(body.revision);
+    if (!Number.isInteger(revision) || revision < 1 || body.revision === null) {
+      throw new Error("PI草稿版本号无效，请刷新后重试");
+    }
+    const { error } = await supabase.rpc("delete_never_submitted_pi_draft", {
+      p_order_id: id,
+      p_expected_revision: revision,
+    });
+    if (error) throw error;
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    const message = sqlErrorMessage(error, "删除PI草稿失败");
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
 

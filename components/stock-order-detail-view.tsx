@@ -290,6 +290,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
               </div>
             ))}
           </div>
+          <div className="mx-5 mb-5 rounded-lg border border-blue-100 bg-blue-50/50 p-4 text-sm">
+            <b>整单理货要求</b>
+            <p className="mt-1 whitespace-pre-wrap text-slate-700">{o.stocking_requirements || "常规理货"}</p>
+          </div>
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>
             <p className="mb-3 text-xs text-slate-500">

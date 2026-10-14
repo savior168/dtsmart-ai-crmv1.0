@@ -48,7 +48,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const { id } = await context.params;
     const task = await authorizedTask(id, account);
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const decision = request.nextUrl.searchParams.get("decision") || "";
     const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
     const countries = [...new Set(request.nextUrl.searchParams.getAll("country").map((value) => value.trim()).filter(Boolean))];

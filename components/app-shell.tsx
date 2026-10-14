@@ -27,6 +27,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
+import { notificationVoiceText } from "@/lib/notification-voice";
 
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
@@ -62,8 +63,8 @@ const menu = [
     { label: "备货单", href: "/stock-orders", permission: "stock.view" },
   ] },
   { label: "PI财务设置", icon: Settings, defaultHref: "/settings/pi-exchange-rates", children: [
-    { label: "汇率设置", href: "/settings/pi-exchange-rates", permission: "system.users.manage" },
-    { label: "收款账户", href: "/settings/pi-payment-accounts", permission: "system.users.manage" },
+    { label: "汇率设置", href: "/settings/pi-exchange-rates", permission: "pi.rates.view" },
+    { label: "收款账户", href: "/settings/pi-payment-accounts", permission: "pi.accounts.view" },
   ] },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
   {
@@ -76,7 +77,7 @@ const menu = [
   },
 ] as const;
 
-type ShellNotice = { id:string; type:string; title:string; content:string|null; href:string|null; read_at:string|null; action_status:"INFO"|"PENDING"|"RESOLVED"; created_at:string };
+type ShellNotice = { id:string; type:string; title:string; content:string|null; metadata?:Record<string,unknown>|null; href:string|null; read_at:string|null; action_status:"INFO"|"PENDING"|"RESOLVED"; created_at:string };
 
 const pageTitles: Array<[RegExp, string]> = [
   [/^\/$/, "工作台 / 数据总览"],
@@ -167,14 +168,16 @@ function ProfileModal({
 }: {
   type: "avatar" | "profile" | "password";
   close: () => void;
-  saved: (changes?: { name?: string; avatar_url?: string }) => void;
+  saved: (changes?: { name?: string; avatar_url?: string; business_phone?: string; business_email?: string }) => void;
   passwordRequired: boolean;
-  profile: { name: string; email: string; phone: string; avatar_url: string };
+  profile: { name: string; email: string; phone: string; business_phone: string; business_email: string; avatar_url: string };
 }) {
   const canClose = type !== "password" || !passwordRequired;
   const [value, setValue] = useState({
     avatar_url: "",
     name: "",
+    business_phone: "",
+    business_email: "",
     old_password: "",
     new_password: "",
     confirm_password: "",
@@ -186,9 +189,9 @@ function ProfileModal({
   const inputRef = useRef<HTMLInputElement>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
   useEffect(() => {
-    setValue((current) => ({ ...current, name: profile.name, avatar_url: profile.avatar_url }));
+    setValue((current) => ({ ...current, name: profile.name, business_phone: profile.business_phone, business_email: profile.business_email, avatar_url: profile.avatar_url }));
     if (!avatarFile) setAvatarPreview(profile.avatar_url);
-  }, [avatarFile, profile.avatar_url, profile.name]);
+  }, [avatarFile, profile.avatar_url, profile.name, profile.business_phone, profile.business_email]);
   useEffect(() => () => {
     if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
   }, []);
@@ -215,7 +218,7 @@ function ProfileModal({
         ? value
         : type === "avatar"
           ? avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : null
-          : { name: value.name.trim(), ...(avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : {}) };
+          : { name: value.name.trim(), business_phone: value.business_phone.trim(), business_email: value.business_email.trim(), ...(avatarFile ? { avatar_url: await uploadAvatar(avatarFile) } : {}) };
       if (!body) return setMessage("请选择头像图片");
       const response = await fetch(
         isPassword ? "/api/users/password" : "/api/users/profile",
@@ -229,6 +232,7 @@ function ProfileModal({
       if (!response.ok) throw new Error(result.error || "保存失败");
       const savedChanges = isPassword ? undefined : {
         ...(type === "profile" ? { name: value.name.trim() } : {}),
+        ...(type === "profile" ? { business_phone: value.business_phone.trim(), business_email: value.business_email.trim() } : {}),
         ...(typeof body === "object" && body && "avatar_url" in body
           ? { avatar_url: `/api/users/avatar?v=${encodeURIComponent(String(body.avatar_url))}` }
           : {}),
@@ -252,7 +256,7 @@ function ProfileModal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
       >
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
@@ -301,6 +305,9 @@ function ProfileModal({
               <label className="block text-sm font-medium text-slate-700">登录邮箱<input value={profile.email || "未绑定"} readOnly aria-readonly="true" className="mt-1.5 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-500"/></label>
               <label className="block text-sm font-medium text-slate-700">绑定手机号<input value={profile.phone || "未绑定"} readOnly aria-readonly="true" className="mt-1.5 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-500"/></label>
               <p className="text-xs leading-5 text-slate-500">邮箱与手机号用于登录和账号识别，当前不支持自行修改；如需变更请联系系统管理员。</p>
+              <label className="block text-sm font-medium text-slate-700">PI业务联系电话<input name="business-phone" autoComplete="tel" value={value.business_phone} onChange={(event) => setValue({ ...value, business_phone: event.target.value })} placeholder="用于客户PI，不改变登录手机号" className="mt-1.5 w-full rounded-xl border border-slate-200 p-2.5 text-sm" /></label>
+              <label className="block text-sm font-medium text-slate-700">PI业务邮箱<input name="business-email" autoComplete="email" type="email" value={value.business_email} onChange={(event) => setValue({ ...value, business_email: event.target.value })} placeholder="用于客户PI，不改变登录邮箱" className="mt-1.5 w-full rounded-xl border border-slate-200 p-2.5 text-sm" /></label>
+              <p className="text-xs leading-5 text-slate-500">创建新PI时自动带入并保存快照；留空则使用原有账号联系方式。请确保对外联系方式准确。</p>
             </div>
           ) : null}
           {type === "password" ? (
@@ -402,6 +409,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     name: string;
     email: string;
     phone: string;
+    business_phone: string;
+    business_email: string;
     avatar_url: string;
     role: "ADMIN" | "SUPERVISOR" | "SALES" | "WAREHOUSE";
     must_change_password: boolean;
@@ -411,6 +420,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [notices, setNotices] = useState<ShellNotice[]>([]);
   const [toastNotices, setToastNotices] = useState<ShellNotice[]>([]);
   const [noticeOpen, setNoticeOpen] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pageTitleOverride, setPageTitleOverride] = useState("");
   const [modal, setModal] = useState<"avatar" | "profile" | "password" | null>(
@@ -434,7 +445,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const email = String(body.email || "").trim();
       const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
-      setProfile({ name, email, phone: String(body.phone || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
+      setProfile({ name, email, phone: String(body.phone || "").trim(), business_phone: String(body.business_phone || "").trim(), business_email: String(body.business_email || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
     } catch {
       // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
     }
@@ -449,6 +460,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         const storageKey="dtsmart-notification-toasts";
         const shown=new Set<string>(JSON.parse(window.sessionStorage.getItem(storageKey)||"[]"));
         const incoming=next.filter(item=>!item.read_at&&!shown.has(item.id)).slice(0,3);
+        if (profile?.email) {
+          const voiceSeenKey=`dtsmart-notification-voice-seen:${profile.email}`;
+          const voiceSeen=new Set<string>(JSON.parse(window.localStorage.getItem(voiceSeenKey)||"[]"));
+          const unseen=next.filter(item=>!item.read_at&&!voiceSeen.has(item.id));
+          unseen.forEach(item=>voiceSeen.add(item.id));
+          window.localStorage.setItem(voiceSeenKey,JSON.stringify([...voiceSeen].slice(-300)));
+          if (window.localStorage.getItem(`dtsmart-notification-voice:${profile.email}`)==="1" && "speechSynthesis" in window) {
+            const spoken=unseen.map(item=>({item,words:notificationVoiceText(item)}))
+              .filter(({item,words})=>words && Date.now()-new Date(item.created_at).getTime()<=60*60*1000)
+              .slice(0,3);
+            for (const {words} of spoken) {
+              const utterance=new SpeechSynthesisUtterance(words!);
+              utterance.lang="zh-CN";
+              utterance.rate=1;
+              window.speechSynthesis.speak(utterance);
+            }
+          }
+        }
         if(incoming.length){
           incoming.forEach(item=>shown.add(item.id));
           window.sessionStorage.setItem(storageKey,JSON.stringify([...shown].slice(-200)));
@@ -456,7 +485,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         }
       }
     } catch { /* 保留已加载通知 */ }
-  },[]);
+  },[profile?.email]);
   const openNotice = useCallback(async (item:ShellNotice) => {
     if(!item.read_at)await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id,action:"READ"})});
     setToastNotices(current=>current.filter(notice=>notice.id!==item.id));setNoticeOpen(false);void loadNotices();if(item.href)router.push(item.href);
@@ -470,7 +499,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.removeEventListener("dtsmart-auth-changed", refresh);
     };
   }, [loadProfile]);
-  const canLoadNotices = Boolean(profile) && path !== "/login" && path !== "/reset-password";
+  const canLoadNotices = Boolean(profile && (profile.role === "ADMIN" || profile.permissions.includes("notifications.view"))) && path !== "/login" && path !== "/reset-password";
+  useEffect(() => {
+    setSpeechSupported("speechSynthesis" in window);
+    setVoiceEnabled(Boolean(profile?.email && window.localStorage.getItem(`dtsmart-notification-voice:${profile.email}`)==="1"));
+  }, [profile?.email]);
   useEffect(() => {
     if (!canLoadNotices) {
       setNotices([]); setNoticeCount(0); setToastNotices([]);
@@ -479,7 +512,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const refresh = () => void loadNotices();
     refresh();
     window.addEventListener("focus", refresh);
-    const timer = window.setInterval(refresh, 60000);
+    const timer = window.setInterval(refresh, 15000);
     return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [canLoadNotices, loadNotices]);
   useEffect(() => {
@@ -698,7 +731,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               title
             )}
           </h1>
-          <div ref={noticeRef} className="relative">
+          {canLoadNotices ? <div ref={noticeRef} className="relative">
           <button
             type="button"
             onClick={() => setNoticeOpen(value=>!value)}
@@ -713,8 +746,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               </span>
             ) : null}
           </button>
-          {noticeOpen?<div className="absolute right-0 mt-3 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><b className="text-sm">系统通知</b>{noticeCount?<button type="button" onClick={async()=>{await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"READ_ALL"})});void loadNotices();}} className="text-xs font-medium text-blue-600">全部已读</button>:null}</div><div className="max-h-96 overflow-y-auto">{notices.map(item=><button key={item.id} type="button" onClick={()=>void openNotice(item)} className={`block w-full border-b px-4 py-3 text-left hover:bg-slate-50 ${item.read_at?"bg-white":"bg-blue-50/60"}`}><span className="flex items-center justify-between gap-3"><b className="text-sm">{item.title}</b><span className="flex items-center gap-2">{item.action_status==="PENDING"?<small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small>:null}{!item.read_at?<i className="h-2 w-2 shrink-0 rounded-full bg-blue-600"/>:null}</span></span><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.content}</p><time className="mt-1 block text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("zh-CN")}</time></button>)}{!notices.length?<p className="py-10 text-center text-sm text-slate-400">暂无系统通知</p>:null}</div><Link href="/notifications" onClick={()=>setNoticeOpen(false)} className="block border-t px-4 py-3 text-center text-sm font-medium text-blue-600">查看全部通知</Link></div>:null}
-          </div>
+          {noticeOpen?<div className="absolute right-0 mt-3 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"><div className="flex items-center justify-between border-b px-4 py-3"><b className="text-sm">系统通知</b><div className="flex items-center gap-2"><button type="button" disabled={!speechSupported || !profile?.email} onClick={()=>{if(!profile?.email)return;const next=!voiceEnabled;window.localStorage.setItem(`dtsmart-notification-voice:${profile.email}`,next?"1":"0");setVoiceEnabled(next);if(!next)window.speechSynthesis.cancel();else{const sample=new SpeechSynthesisUtterance("重要工作交接语音提醒已开启");sample.lang="zh-CN";window.speechSynthesis.speak(sample);}}} aria-label="重要工作交接语音提醒" aria-pressed={voiceEnabled} title={speechSupported?"仅播报需跨用户处理的重要工作交接":"当前浏览器不支持语音播报"} className="rounded border px-2 py-1 text-xs text-slate-600 disabled:opacity-50">语音{voiceEnabled?"已开启":"已关闭"}</button>{noticeCount?<button type="button" onClick={async()=>{await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"READ_ALL"})});void loadNotices();}} className="text-xs font-medium text-blue-600">全部已读</button>:null}</div></div><div className="max-h-96 overflow-y-auto">{notices.map(item=><button key={item.id} type="button" onClick={()=>void openNotice(item)} className={`block w-full border-b px-4 py-3 text-left hover:bg-slate-50 ${item.read_at?"bg-white":"bg-blue-50/60"}`}><span className="flex items-center justify-between gap-3"><b className="text-sm">{item.title}</b><span className="flex items-center gap-2">{item.action_status==="PENDING"?<small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small>:null}{!item.read_at?<i className="h-2 w-2 shrink-0 rounded-full bg-blue-600"/>:null}</span></span><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.content}</p><time className="mt-1 block text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("zh-CN")}</time></button>)}{!notices.length?<p className="py-10 text-center text-sm text-slate-400">暂无系统通知</p>:null}</div><Link href="/notifications" onClick={()=>setNoticeOpen(false)} className="block border-t px-4 py-3 text-center text-sm font-medium text-blue-600">查看全部通知</Link></div>:null}
+          </div> : null}
           <ThemeSwitcher />
           <div ref={profileRef} className="relative">
             <button

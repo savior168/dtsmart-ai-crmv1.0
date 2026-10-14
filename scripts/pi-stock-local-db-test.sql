@@ -10,8 +10,9 @@ insert into auth.users(id,email,raw_user_meta_data) values
 update public.users set status='ACTIVE',role='SALES' where id in
   ('00000000-0000-0000-0000-000000000101','00000000-0000-0000-0000-000000000102');
 update public.users set status='ACTIVE',role='WAREHOUSE' where id='00000000-0000-0000-0000-000000000103';
-insert into public.profiles(id,name,email,phone) values
-  ('00000000-0000-0000-0000-000000000101','Sales A','pi-sales-a@example.invalid','+86 13800000000');
+insert into public.profiles(id,name,email,phone,business_phone,business_email) values
+  ('00000000-0000-0000-0000-000000000101','Sales A','pi-sales-a@example.invalid','+86 13800000000',
+   '+86 13900000000','sales-a-business@example.invalid');
 insert into public.customers(id,company_name,country,status,pool_status,created_by,owner_id,owner_user_id,assigned_via)
 values('00000000-0000-0000-0000-000000000201','Local PI Buyer','GB','CLAIMED','CLAIMED',
   '00000000-0000-0000-0000-000000000101','00000000-0000-0000-0000-000000000101',
@@ -26,6 +27,19 @@ values('00000000-0000-0000-0000-000000000301','Local account','USD','Test accoun
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
 do $$
+declare rejected boolean:=false;
+begin
+  begin
+    perform public.create_direct_pi_order(
+      '00000000-0000-0000-0000-000000000201','WH-LOSS-001','NGN',200,5,
+      'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
+      'Buyer receiver',null,null,'London delivery address','Standard pack',
+      '[{"item_name":"Loss item","brand":"DT","model":"L1","quality":"ORG","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":10}]'::jsonb);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '售价不高于成本的PI应被拒绝'; end if;
+end $$;
+
+do $$
 declare created public.sales_orders;
 begin
   created:=public.create_direct_pi_order(
@@ -34,12 +48,29 @@ begin
     'Buyer receiver','+44 123','buyer@example.invalid','London delivery address',
     'Pack each screen separately',
     '[{"item_name":"Screen","brand":"DT","model":"A1","quality":"ORG","description":"Black screen","description_zh":"黑色屏幕","quantity":2,"unit_price_cny":50,"estimated_unit_cost_cny":30,"preparation_requirement":"Protect glass","internal_note":"Warehouse only"}]'::jsonb);
-  if created.status<>'DRAFT' or created.currency<>'NGN' or created.seller_contact_phone<>'+86 13800000000'
+  if created.status<>'DRAFT' or created.currency<>'NGN' or created.seller_contact_phone<>'+86 13900000000'
+    or created.seller_contact_email<>'sales-a-business@example.invalid'
     or created.subtotal<>20000
     or created.total_amount<>21000 or created.subtotal_cny<>100 or created.shipping_cny<>5 then
     raise exception 'PI草稿金额、状态或币种不正确';
   end if;
   perform set_config('test.pi_id',created.id::text,true);
+end $$;
+
+do $$
+declare rejected boolean:=false;
+begin
+  begin
+    perform public.update_direct_pi_draft(current_setting('test.pi_id')::uuid,null,
+      'WH-LOCAL-001','NGN',200,5,'Bank transfer',
+      '00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
+      'Buyer receiver','+44 123','buyer@example.invalid','London delivery address',
+      'Pack each screen separately',
+      '[{"item_name":"Screen","brand":"DT","model":"A1","quality":"ORG","description_zh":"黑色屏幕","quantity":2,"unit_price_cny":50,"estimated_unit_cost_cny":30}]'::jsonb);
+  exception when others then
+    if SQLERRM like '%PI草稿已被其他操作修改%' then rejected:=true; else raise; end if;
+  end;
+  if not rejected then raise exception '空版本号不得绕过PI草稿并发校验'; end if;
 end $$;
 
 do $$
@@ -49,7 +80,7 @@ begin
     'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
     'Buyer receiver','+44 123','buyer@example.invalid','London delivery address',
     'Pack each screen separately',
-    '[{"item_name":"Screen","description_zh":"黑色屏幕","quantity":2,"unit_price_cny":50,"estimated_unit_cost_cny":30},{"item_name":"Cable","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
+    '[{"item_name":"Screen","brand":"DT","model":"A1","quality":"ORG","description_zh":"黑色屏幕","quantity":2,"unit_price_cny":50,"estimated_unit_cost_cny":30},{"item_name":"Cable","brand":"DT","model":"C1","quality":"ORG","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
   if edited.pi_revision<>2 or edited.subtotal_cny<>110
     or (select count(*) from public.sales_order_items where sales_order_id=edited.id)<>2 then
     raise exception 'PI草稿追加产品未正确保存';
@@ -77,6 +108,16 @@ end $$;
 
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
 do $$
+declare rejected boolean:=false;
+begin
+  begin
+    perform public.submit_direct_pi_order(current_setting('test.pi_id')::uuid,null);
+  exception when others then
+    if SQLERRM like '%PI草稿已更新%' then rejected:=true; else raise; end if;
+  end;
+  if not rejected then raise exception '空版本号不得绕过PI提交并发校验'; end if;
+end $$;
+do $$
 declare submitted public.sales_orders; stock public.stock_orders;
 begin
   submitted:=public.submit_direct_pi_order(current_setting('test.pi_id')::uuid,3);
@@ -90,13 +131,17 @@ begin
 end $$;
 
 do $$
-declare recalled public.sales_orders; resubmitted public.sales_orders;
+declare recalled public.sales_orders; resubmitted public.sales_orders; rejected boolean:=false;
 begin
   recalled:=public.recall_direct_pi_order(current_setting('test.pi_id')::uuid,'Correct warehouse handoff');
   if recalled.status<>'DRAFT' or (select status from public.stock_orders where id=current_setting('test.stock_id')::uuid)<>'DRAFT'
     or (select status from public.quotes where id=recalled.quote_id)<>'DRAFT' then
     raise exception '未开工备货单撤回后单据状态不同步';
   end if;
+  begin
+    perform public.delete_never_submitted_pi_draft(recalled.id,recalled.pi_revision);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '已提交又撤回的PI草稿不得物理删除'; end if;
   resubmitted:=public.submit_direct_pi_order(recalled.id,recalled.pi_revision);
   if resubmitted.status<>'WAITING_STOCK'
     or (select status from public.stock_orders where id=current_setting('test.stock_id')::uuid)<>'WAITING' then
@@ -146,6 +191,11 @@ begin
     perform public.recall_direct_pi_order(current_setting('test.pi_id')::uuid,'Too late');
   exception when others then rejected:=true; end;
   if not rejected then raise exception '仓库已开始备货时不允许销售员单方撤回'; end if;
+  rejected:=false;
+  begin
+    perform public.delete_never_submitted_pi_draft(current_setting('test.pi_id')::uuid,3);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '已发货PI不得物理删除'; end if;
 end $$;
 
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
@@ -164,17 +214,74 @@ begin
     '00000000-0000-0000-0000-000000000202','WH-ADMIN-001','USD',0.14,0,
     'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
     'Admin buyer',null,null,'Test address','Standard pack',
-    '[{"item_name":"Cable","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
+    '[{"item_name":"Cable","brand":"DT","model":"C1","quality":"ORG","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
   if created.status<>'DRAFT' or created.sales_user_id<>'00000000-0000-0000-0000-000000000001' then
     raise exception '管理员为自身归属客户创建PI失败';
   end if;
+  created:=public.set_direct_pi_change_note(created.id,created.pi_revision,'1. Customer added a cable');
+  if created.confirmation_note<>'1. Customer added a cable' then
+    raise exception 'PI草稿变更说明未保存';
+  end if;
+  begin
+    perform public.set_direct_pi_change_note(created.id,created.pi_revision-1,'Stale edit');
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '过期版本不得覆盖PI变更说明'; end if;
+  rejected:=false;
   begin
     perform public.create_direct_pi_order(
       '00000000-0000-0000-0000-000000000201','WH-ADMIN-CROSS-001','USD',0.14,0,
       'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
       'Other owner buyer',null,null,'Test address','Standard pack',
-      '[{"item_name":"Cable","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
+      '[{"item_name":"Cable","brand":"DT","model":"C1","quality":"ORG","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
   exception when others then rejected:=true; end;
   if not rejected then raise exception '管理员不应为他人归属客户创建PI'; end if;
+  perform public.delete_never_submitted_pi_draft(created.id,created.pi_revision);
+  if exists(select 1 from public.sales_orders where id=created.id)
+    or exists(select 1 from public.quotes where id=created.quote_id)
+    or not exists(select 1 from public.audit_logs where target_id=created.id and action='PI_DRAFT_DELETE') then
+    raise exception '管理员删除自身未提交草稿后应删除明细并留下审计';
+  end if;
+end $$;
+
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
+do $$
+declare created public.sales_orders; rejected boolean:=false;
+begin
+  created:=public.create_direct_pi_order(
+    '00000000-0000-0000-0000-000000000201','WH-DELETE-001','USD',0.14,0,
+    'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
+    'Buyer receiver',null,null,'Test address','Standard pack',
+    '[{"item_name":"Cable","brand":"DT","model":"C1","quality":"ORG","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
+  perform set_config('test.delete_id',created.id::text,true);
+  begin
+    perform public.delete_never_submitted_pi_draft(created.id,null);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '空版本号不得绕过草稿删除并发校验'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+do $$
+declare rejected boolean:=false;
+begin
+  begin
+    perform public.delete_never_submitted_pi_draft(current_setting('test.delete_id')::uuid,1);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '非归属销售员不得删除草稿'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
+do $$
+declare rejected boolean:=false;
+begin
+  begin
+    perform public.delete_never_submitted_pi_draft(current_setting('test.delete_id')::uuid,1);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '仓库员不得删除PI草稿'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+do $$
+begin
+  perform public.delete_never_submitted_pi_draft(current_setting('test.delete_id')::uuid,1);
+  if exists(select 1 from public.sales_orders where id=current_setting('test.delete_id')::uuid) then
+    raise exception '管理员应能删除销售员从未提交的PI草稿';
+  end if;
 end $$;
 rollback;

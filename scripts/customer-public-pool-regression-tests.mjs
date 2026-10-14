@@ -77,7 +77,10 @@ assert.match(poolApi, /params\.get\("permissions"\) === "1"[\s\S]*can_export: ha
 assert.match(poolView, /if \(!canExport \|\| exporting/, "公海导出按钮行为必须受授权控制");
 assert.match(poolView, /selectedBatches[\s\S]*page_size: selectedBatch \? "100" : "200"[\s\S]*AbortSignal\.timeout\(45_000\)[\s\S]*setExportProgress/, "大批量公海导出须分批、限时并显示进度");
 assert.match(poolApi, /selectedIds\.length[\s\S]*!exportMode[\s\S]*selectedIds\.length > 100[\s\S]*query = query\.in\("id", selectedIds\)/, "已选客户范围必须由服务端验证并限制到请求的客户 ID");
-assert.match(poolView, /const selectable = canDelete \|\| canExport/, "获得导出授权的普通角色必须能勾选公海客户");
+assert.match(poolView, /const selectable = true/, "所有可查看公海列表的角色均可勾选客户");
+assert.doesNotMatch(poolView, /if \(role !== "ADMIN" \|\| selectingAll/, "全选筛选结果不得限制为系统管理员");
+assert.match(poolView, /role === "ADMIN" && \["available", "pending"\]\.includes\(tab\)/, "批量分配仍限系统管理员");
+assert.match(poolView, /role === "ADMIN" \? <button disabled=\{!selected\.size\} type="button" onClick=\{\(\) => setDeleteIds/, "批量删除仍限系统管理员");
 assert.match(poolView, /includeAllContactChannels: true/, "公海与我的客户须共用完整联系渠道工作簿格式");
 assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
 assert.match(poolApi, /optionalProbe[\s\S]*hasOptionalFields[\s\S]*optionalSelect/, "客户公海必须兼容尚未补齐可选联系字段的旧生产库");

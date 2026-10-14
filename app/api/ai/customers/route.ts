@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const { account } = await requirePermission("ai.tasks.create");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(200, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const search = params.get("search")?.trim() || "";
     const sourceChannel = params.get("source_channel")?.trim() || "";
     const sourceBatches = params.getAll("source_batch").map((value) => value.trim()).filter(Boolean);

@@ -7,7 +7,7 @@ export async function GET(request: Request) {
     const { account } = await requirePermission("pricebooks.view");
     const url = new URL(request.url);
     const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
-    const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("page_size")) || 20));
+    const pageSize = Math.min(500, Math.max(10, Number(url.searchParams.get("page_size")) || 20));
     const rawQuery = (url.searchParams.get("q") || "").trim().slice(0, 100);
     const query = rawQuery.replace(/[%_,().]/g, "");
     const canViewCost = hasPermission(account, "pricebooks.cost.view");

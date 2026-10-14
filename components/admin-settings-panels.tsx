@@ -33,6 +33,7 @@ export function UserManagementPanel() {
   const [supervisors,setSupervisors] = useState<SupervisorOption[]>([]);
   const [count,setCount] = useState(0);
   const [page,setPage] = useState(1);
+  const [pageSize,setPageSize] = useState(30);
   const [search,setSearch] = useState("");
   const [status,setStatus] = useState("");
   const [role,setRole] = useState("");
@@ -45,12 +46,12 @@ export function UserManagementPanel() {
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const params = new URLSearchParams({ page:String(page), pageSize:"20" });
+      const params = new URLSearchParams({ page:String(page), pageSize:String(pageSize) });
       if(search) params.set("search",search); if(status) params.set("status",status); if(role) params.set("role",role);
       const body = await api(`/api/admin/users?${params}`); setRows(body.data || []); setCount(Number(body.count || 0)); setSupervisors(body.supervisors || []);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "加载失败"); }
     finally { setLoading(false); }
-  },[page,role,search,status]);
+  },[page,pageSize,role,search,status]);
   useEffect(() => { const pending = new URL(window.location.href).searchParams.get("status"); if(pending) setStatus(pending); },[]);
   useEffect(() => { void load(); },[load]);
   const tabs = [{v:"",l:"全部"},{v:"PENDING",l:"待审核"},{v:"ACTIVE",l:"已启用"},{v:"DISABLED",l:"已停用"},{v:"DEPARTED",l:"已离职"},{v:"LOCKED",l:"已锁定"},{v:"REJECTED",l:"已拒绝"}];
@@ -67,7 +68,7 @@ export function UserManagementPanel() {
       {loading?<tr><td colSpan={7} className="py-16 text-center text-slate-400"><LoaderCircle className="mx-auto mb-2 animate-spin"/>正在加载用户…</td></tr>:rows.map(user=><tr key={user.id} className="hover:bg-slate-50/70"><td className="px-5 py-4"><b className="block text-slate-900">{user.name || "未命名用户"}</b><span className="mt-1 block text-xs text-slate-500">{user.email}</span><small className={`mt-1 block text-xs ${user.manager_id?"text-blue-600":"text-slate-400"}`}>{user.role==="SALES"?"直属上级":"上级"}：{supervisors.find(item=>item.id===user.manager_id)?.name||supervisors.find(item=>item.id===user.manager_id)?.email||"无上级"}</small></td><td className="px-4 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusTone[user.status]}`}>{STATUS_LABELS[user.status]}</span>{user.must_change_password?<span className="ml-2 rounded-full bg-violet-50 px-2 py-1 text-xs text-violet-700">待改密码</span>:null}</td><td className="px-4 py-4">{ROLE_LABELS[user.role]}</td><td className="px-4 py-4 text-slate-600">{formatDate(user.created_at)}</td><td className="px-4 py-4 text-slate-600">{formatDate(user.last_login_at)}</td><td className="max-w-56 px-4 py-4 text-slate-600"><span className="line-clamp-2">{user.review_reason || (user.reviewed_at?`处理于 ${formatDate(user.reviewed_at)}`:"尚未审核")}</span></td><td className="px-5 py-4"><UserActions user={user} open={action=>setDialog({user,action})} openPermissions={()=>setPermissionUser(user)}/></td></tr>)}
       {!loading&&!rows.length?<tr><td colSpan={7} className="py-16 text-center text-slate-400">当前条件下暂无用户</td></tr>:null}
     </tbody></table></div>
-    <AppPagination page={page} pageSize={20} total={count} itemLabel="个用户" onPage={setPage} onPageSize={()=>{}} pageSizes={[20]}/>
+    <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="个用户" onPage={setPage} onPageSize={(size)=>{setPageSize(size);setPage(1)}}/>
     {dialog?<UserActionDialog {...dialog} supervisors={supervisors} close={()=>setDialog(null)} saved={message=>{setDialog(null);setToast(message);void load();}}/>:null}
     {createOpen?<CreateUserDialog supervisors={supervisors} close={()=>setCreateOpen(false)} saved={message=>{setCreateOpen(false);setToast(message);void load();}}/>:null}
     {permissionUser?<UserPermissionDialog user={permissionUser} close={()=>setPermissionUser(null)} saved={()=>setToast("用户权限已更新并立即生效")}/>:null}
@@ -214,7 +215,7 @@ export function AuditLogPanel(){
       {loading?<tr><td colSpan={5} className="py-12 text-center text-slate-400">正在加载…</td></tr>:rows.map(row=>{const summary=auditSummary(row);const details=auditDetailLines(row).join("；");return <tr key={row.id} className="h-[52px] hover:bg-slate-50/60"><td className="whitespace-nowrap px-5 py-1.5 text-slate-600">{formatDate(row.created_at)}</td><td className="px-4 py-1.5"><div className="flex min-w-0 items-center gap-2"><span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">{row.category?AUDIT_CATEGORY_LABELS[row.category]:"重要操作"}</span><span title={auditActionLabel(row.action)} className="min-w-0 truncate text-slate-500">{auditActionLabel(row.action)}</span></div></td><td className="px-4 py-1.5"><span className="block truncate font-normal text-slate-700">{auditUserName(row.user,row.user_id)}</span><small className="block truncate font-normal text-slate-400">{row.user?.email||row.user_id||"—"}</small></td><td className="px-4 py-1.5"><span title={summary} className="block truncate text-slate-700">{summary}</span></td><td className="px-5 py-1.5 text-slate-600"><span title={details} className="block truncate">{details}</span></td></tr>})}
       {!loading&&!rows.length?<tr><td colSpan={5} className="py-16 text-center text-slate-400">暂无日志</td></tr>:null}
     </tbody></table></div>
-    <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="条日志" pageSizes={[10,20,30,50,100,300]} onPage={setPage} onPageSize={(size)=>{setPageSize(size);setPage(1)}}/>
+    <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="条日志" onPage={setPage} onPageSize={(size)=>{setPageSize(size);setPage(1)}}/>
   </section>;
 }
 

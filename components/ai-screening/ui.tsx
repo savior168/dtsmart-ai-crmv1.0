@@ -42,7 +42,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
   return <header className="flex flex-wrap items-start justify-between gap-[14px]"><div><h1 className="m-0 text-2xl font-bold leading-tight tracking-[-.25px] text-[#111a2c]">{title}</h1><div className="mt-[5px] text-sm leading-[1.65] text-[#6d798d]">{description}</div></div>{actions && <div className="flex flex-wrap items-center gap-[9px]">{actions}</div>}</header>;
 }
 
-export function Pagination({ page, pageSize, total, onPage, onPageSize, itemLabel = "条", pageSizes = [10, 20, 50, 100] }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void; itemLabel?: string; pageSizes?: number[] }) {
+export function Pagination({ page, pageSize, total, onPage, onPageSize, itemLabel = "条", pageSizes = [10, 30, 50, 100, 300, 500] }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize: (size: number) => void; itemLabel?: string; pageSizes?: number[] }) {
   return <AppPagination page={page} pageSize={pageSize} total={total} onPage={onPage} onPageSize={onPageSize} itemLabel={itemLabel} pageSizes={pageSizes}/>;
 }
 

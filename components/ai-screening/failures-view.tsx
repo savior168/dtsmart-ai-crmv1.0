@@ -20,7 +20,7 @@ export function FailuresView() {
   const [tasks, setTasks] = useState<Array<{ id: string; name: string }>>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(30);
   const [taskId, setTaskId] = useState("");
   const [step, setStep] = useState("");
   const [retryState, setRetryState] = useState("");

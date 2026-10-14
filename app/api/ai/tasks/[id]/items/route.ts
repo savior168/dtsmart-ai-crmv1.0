@@ -10,7 +10,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const { id } = await context.params;
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const status = params.get("status") || "";
     const step = params.get("step") || "";
     const retry = params.get("retry") || "";

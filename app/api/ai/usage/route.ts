@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     const taskId = params.get("task_id")?.trim() || "";
     const scopeUserId = await requestedOwnerId(request, account, "ai.usage.view_all");
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";
     const admin = createAdminClient();
     // The product reports business dates in China Standard Time. Keep the API

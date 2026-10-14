@@ -21,6 +21,18 @@ const offenders = sourceFiles.filter((path) => nativeDialog.test(readFileSync(pa
 assert.deepEqual(offenders, [], `禁止使用浏览器原生弹框：${offenders.join(", ")}`);
 
 const read = (path) => readFileSync(resolve(root, path), "utf8");
+assert.match(read("components/ui/app-pagination.tsx"), /STANDARD_PAGE_SIZES = \[10, 30, 50, 100, 300, 500\]/, "通用列表分页必须统一为六档");
+assert.match(read("components/ai-screening/ui.tsx"), /pageSizes = \[10, 30, 50, 100, 300, 500\]/, "AI筛选分页必须使用相同六档");
+for (const path of [
+  "app/api/admin/users/route.ts", "app/api/admin/audit/route.ts", "app/api/ai/results/route.ts",
+  "app/api/customers/public-pool/route.ts", "app/api/followups/route.ts", "app/api/notifications/route.ts",
+  "app/api/orders/route.ts", "app/api/product-imports/route.ts", "app/api/products/route.ts",
+  "app/api/quotes/route.ts", "app/api/stock-orders/route.ts",
+]) {
+  assert.match(read(path), /(?:Math\.min\(\s*500,|exportMode \? 200 : 500)/, `${path} 必须允许普通列表每页读取500条`);
+}
+assert.match(read("components/admin-settings-panels.tsx"), /pageSize:String\(pageSize\)[\s\S]*pageSize=\{pageSize\} total=\{count\} itemLabel="个用户"/, "用户列表分页选项必须真实传给服务端");
+assert.match(read("components/customer-public-pool-view.tsx"), /const selectable = true[\s\S]*onChange=\{togglePage\}/, "有公海查看权限的用户均可跨页勾选客户");
 assert.match(read("app/layout.tsx"), /智客云｜AI精准获客，让销售更快成交/, "浏览器默认标题必须精炼表达精准获客和加速成交的销售价值");
 assert.match(read("app/login/page.tsx"), /AI智能获客 · 精准筛选/, "登录页品牌副标必须与系统核心定位一致");
 assert.doesNotMatch(read("app/login/page.tsx"), /AI 客户分析与销售转化平台/, "登录页不得继续显示旧品牌副标");

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const mode = params.get("mode") === "summary" ? "summary" : params.get("mode") === "filters" ? "filters" : "core";
     const scope = validScopes.has(params.get("scope") || "") ? String(params.get("scope")) : "accepted";
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const search = (params.get("search")?.trim() || "").replace(/[%_,()]/g, " ");
     const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];

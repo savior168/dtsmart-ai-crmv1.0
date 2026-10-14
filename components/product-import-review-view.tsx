@@ -56,7 +56,7 @@ export function ProductImportReviewView({ id }: { id: string }) {
   const [status, setStatus] = useState("");
   const [sheet, setSheet] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<Row | null>(null);

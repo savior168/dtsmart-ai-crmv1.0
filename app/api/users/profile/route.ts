@@ -55,6 +55,20 @@ export async function PATCH(request: NextRequest) {
     if ("email" in body) {
       return NextResponse.json({ error: "登录邮箱不能在个人资料中修改" }, { status: 400 });
     }
+    if ("business_phone" in body) {
+      const phone = String(body.business_phone || "").trim();
+      if (phone.length > 80 || (phone && !/^\+?[\d\s().-]{6,80}$/.test(phone))) {
+        return NextResponse.json({ error: "业务联系电话格式不正确" }, { status: 400 });
+      }
+      payload.business_phone = phone || null;
+    }
+    if ("business_email" in body) {
+      const email = String(body.business_email || "").trim();
+      if (email.length > 254 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+        return NextResponse.json({ error: "业务邮箱格式不正确" }, { status: 400 });
+      }
+      payload.business_email = email || null;
+    }
     if (!Object.keys(payload).length) {
       return NextResponse.json({ error: "没有需要保存的资料" }, { status: 400 });
     }
@@ -62,6 +76,8 @@ export async function PATCH(request: NextRequest) {
     const profilePayload: Record<string, string | null> = { id: user.id };
     if ("name" in payload) profilePayload.name = payload.name;
     if ("avatar_url" in payload) profilePayload.avatar_url = payload.avatar_url;
+    if ("business_phone" in payload) profilePayload.business_phone = payload.business_phone;
+    if ("business_email" in payload) profilePayload.business_email = payload.business_email;
     const { error: profileError } = await admin.from("profiles").upsert(profilePayload);
     if (profileError) throw profileError;
     return NextResponse.json({ ok: true, message: "资料已同步保存" });
