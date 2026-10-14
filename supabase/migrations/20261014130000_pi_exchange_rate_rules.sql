@@ -1,4 +1,6 @@
 begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 
 create table public.pi_exchange_rate_rules (
   currency text primary key check (currency ~ '^[A-Z]{3}$'),

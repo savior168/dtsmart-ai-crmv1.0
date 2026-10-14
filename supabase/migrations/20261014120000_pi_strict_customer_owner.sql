@@ -1,6 +1,8 @@
 -- The administrator may manage the system, but PI creation is deliberately
 -- limited to customers currently owned by the actor. No creator fallback.
 begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 
 -- Preserve reciprocal precision for currencies whose CNY exchange rate is
 -- large (for example, 1 payment currency = hundreds of CNY).
