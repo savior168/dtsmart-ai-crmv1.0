@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const mode = request.nextUrl.searchParams.get("mode") || "options";
     if (mode === "history") {
       const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-      const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("page_size") || 20)));
+      const pageSize = Math.min(500, Math.max(10, Number(request.nextUrl.searchParams.get("page_size") || 20)));
       const search = request.nextUrl.searchParams.get("q")?.trim() || "";
       const historyType = request.nextUrl.searchParams.get("history_type")?.trim().toUpperCase() || "";
       const sourceUserId = userFilter(request.nextUrl.searchParams.get("source_user_id")?.trim() || "");

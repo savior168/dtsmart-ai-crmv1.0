@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/ai-task-recovery",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/pi-exchange-rates",
+      "schedule": "30 2 * * *"
     }
   ]
 }

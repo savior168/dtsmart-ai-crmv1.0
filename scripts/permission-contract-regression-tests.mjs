@@ -4,6 +4,38 @@ import { resolve } from "node:path";
 
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 
+const permissionCatalog = read("lib/auth/permissions.ts");
+const sidebar = read("components/app-shell.tsx");
+const catalogCodes = new Set([...permissionCatalog.matchAll(/code: "([^"]+)"/g)].map((match) => match[1]));
+for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*permission: "([^"]+)"/g)) {
+  assert.ok(catalogCodes.has(permission), `${href} 的菜单权限 ${permission} 必须登记在角色权限目录`);
+  const page = href === "/" ? "app/page.tsx" : `app${href}/page.tsx`;
+  assert.ok(existsSync(resolve(process.cwd(), page)), `${href} 菜单必须对应真实页面`);
+  const guards = [read(page)];
+  const parts = href.split("/").filter(Boolean);
+  for (let i = parts.length; i > 0; i--) {
+    const layout = `app/${parts.slice(0, i).join("/")}/layout.tsx`;
+    if (existsSync(resolve(process.cwd(), layout))) guards.push(read(layout));
+  }
+  const guarded = guards.some((source) => source.includes(`protectPage("${permission}")`)
+    || source.includes(`requirePermission("${permission}")`)
+    || (permission === "system.users.view" && source.includes("requireAdmin()")));
+  assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
+}
+assert.match(read("app/api/pi-exchange-rates/route.ts"), /account\.role === "ADMIN"[\s\S]*rates\.map\(\(\{ currency, label, business_cny \}\)/, "销售读取业务汇率不能泄露管理员的参考来源、手工值和调整规则");
+for (const [code, page, api, method] of [
+  ["pi.rates.view", "app/settings/pi-exchange-rates/page.tsx", null, null],
+  ["pi.accounts.view", "app/settings/pi-payment-accounts/page.tsx", null, null],
+  ["pi.rates.manage", null, "app/api/pi-exchange-rates/route.ts", "PATCH"],
+  ["pi.accounts.manage", null, "app/api/pi-payment-accounts/route.ts", "POST"],
+]) {
+  assert.match(permissionCatalog, new RegExp(`code: "${code.replaceAll(".", "\\.")}"[^\\n]*core: true`), `${code} 必须是管理员专属权限`);
+  if (page) assert.match(read(page), new RegExp(`requirePermission\\("${code.replaceAll(".", "\\.")}\\"\\)`), `${page} 必须校验页面权限`);
+  if (api) assert.match(read(api), new RegExp(`export async function ${method}[\\s\\S]*requirePermission\\("${code.replaceAll(".", "\\.")}\\"\\)`), `${api} 必须校验操作权限`);
+}
+assert.match(sidebar, /href: "\/settings\/pi-exchange-rates", permission: "pi.rates.view"/, "汇率菜单必须使用独立页面权限");
+assert.match(sidebar, /href: "\/settings\/pi-payment-accounts", permission: "pi.accounts.view"/, "收款账户菜单必须使用独立页面权限");
+
 const roleApi = read("app/api/admin/roles/route.ts");
 assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");
 assert.match(roleApi, /请先开启所属页面权限，再开启数据范围或功能按钮/, "服务端必须拒绝父页面关闭时直接开启子权限");

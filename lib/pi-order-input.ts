@@ -1,4 +1,5 @@
 import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
+import { validPiMoney, validPiQuantity, validPiSellingPrice } from "@/lib/pi-line-values";
 
 export function parsePiOrderInput(body: Record<string, unknown>) {
   const currency = String(body.currency || "").trim().toUpperCase();
@@ -13,9 +14,10 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     const quantity = Number(row.quantity);
     const unitPriceCny = Number(row.unit_price_cny);
     const estimatedCostCny = Number(row.estimated_unit_cost_cny);
-    if (![row.item_name, row.brand, row.model, row.quality].every((value) => String(value || "").trim()) || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPriceCny) || unitPriceCny < 0 || Math.round(unitPriceCny * 100) !== unitPriceCny * 100 || !Number.isFinite(estimatedCostCny) || estimatedCostCny < 0 || Math.round(estimatedCostCny * 100) !== estimatedCostCny * 100) {
-      throw new Error("每条产品都需填写产品、品牌、型号、质量、整数数量、人民币成本及售价");
+    if (![row.item_name, row.brand, row.model, row.quality].every((value) => String(value || "").trim()) || !validPiQuantity(row.quantity) || !validPiMoney(row.unit_price_cny) || !validPiMoney(row.estimated_unit_cost_cny)) {
+      throw new Error("每条产品都需填写产品、品牌、型号、质量、正整数数量，以及最多两位小数的非负人民币成本和售价");
     }
+    if (!validPiSellingPrice(row.unit_price_cny, row.estimated_unit_cost_cny)) throw new Error("每条产品的人民币售价必须高于成本价，请核对后再保存");
     return {
       item_name: String(row.item_name).trim().slice(0, 160),
       brand: String(row.brand || "").trim().slice(0, 120),
@@ -47,7 +49,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     p_delivery_phone: String(body.delivery_phone || "").trim().slice(0, 100) || null,
     p_delivery_email: String(body.delivery_email || "").trim().slice(0, 200) || null,
     p_delivery_address: String(body.delivery_address || "").trim().slice(0, 1000) || null,
-    p_stocking_requirements: String(body.stocking_requirements || "").trim().slice(0, 2000) || "按PI产品明细和仓库中文规格常规备货",
+    p_stocking_requirements: String(body.stocking_requirements || "").trim().slice(0, 2000) || "常规理货",
     p_items: items,
   };
 }

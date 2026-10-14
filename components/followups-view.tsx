@@ -22,7 +22,7 @@ const countryOptions=COUNTRY_OPTIONS.map(({code,name})=>({value:code,label:name}
 export function FollowupsView(){
   const router=useRouter();
   const searchParams=useSearchParams();
-  const [scope,setScope]=useState(()=>tabs.some(tab=>tab.key===searchParams.get("scope"))?searchParams.get("scope")!:"today");const [scopeUserId,setScopeUserId]=useState(()=>searchParams.get("user_id")||"");const [query,setQuery]=useState("");const [countries,setCountries]=useState<string[]>(()=>searchParams.getAll("country"));const [stage,setStage]=useState("");const [page,setPage]=useState(1);const [pageSize,setPageSize]=useState(20);const [result,setResult]=useState<{key:string;payload:Payload}|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState("");
+  const [scope,setScope]=useState(()=>tabs.some(tab=>tab.key===searchParams.get("scope"))?searchParams.get("scope")!:"today");const [scopeUserId,setScopeUserId]=useState(()=>searchParams.get("user_id")||"");const [query,setQuery]=useState("");const [countries,setCountries]=useState<string[]>(()=>searchParams.getAll("country"));const [stage,setStage]=useState("");const [page,setPage]=useState(1);const [pageSize,setPageSize]=useState(30);const [result,setResult]=useState<{key:string;payload:Payload}|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState("");
   const request=useRef<AbortController|null>(null);
   const params=new URLSearchParams({scope,page:String(page),page_size:String(pageSize)});
   if(scopeUserId)params.set("user_id",scopeUserId);

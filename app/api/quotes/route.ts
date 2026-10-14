@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     const ownerId = await requestedOwnerId(request, account, "quotes.data_all");
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 20)));
     const from = (page - 1) * pageSize;
     let query = supabase.from("quotes")
       .select("id,customer_id,owner_id,quote_number,currency,status,valid_until,subtotal,shipping_cost,total_amount,customer_short_name,destination_country,customer_confirmed_at,created_at,updated_at,customer:customers(company_name),owner:users!quotes_owner_id_fkey(name,email)", { count: "exact" })

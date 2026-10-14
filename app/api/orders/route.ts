@@ -6,28 +6,43 @@ import {
   requirePermission,
 } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
+import { SALES_ORDER_STATUS_LABELS } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("orders.view");
     const params = request.nextUrl.searchParams;
-    const page = Math.max(1, Number(params.get("page") || 1));
+    const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
     const pageSize = Math.min(
-      100,
-      Math.max(10, Number(params.get("page_size") || 20)),
+      500,
+      Math.max(10, Math.floor(Number(params.get("page_size") || 20) || 20)),
     );
+    const status = params.get("status")?.trim() || "";
+    const currency = params.get("currency")?.trim().toUpperCase() || "";
+    const type = params.get("type")?.trim() || "";
+    const dateFrom = params.get("date_from")?.trim() || "";
+    const dateTo = params.get("date_to")?.trim() || "";
+    if (status && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
+    if (currency && !QUOTE_CURRENCY_CODES.has(currency)) throw new Error("付款币种无效");
+    if (type && type !== "PI") throw new Error("订单类型无效");
+    if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
+    if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const ownerId = await requestedOwnerId(request, account, "orders.data_all");
     let query = supabase
       .from("sales_orders")
       .select(
-        "id,order_number,quote_id,quote_number,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,updated_at",
+        "id,order_number,quote_id,quote_number,confirmation_method,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,created_at,updated_at",
         { count: "exact" },
       )
       .order("updated_at", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
     if (ownerId) query = query.eq("sales_user_id", ownerId);
-    const status = params.get("status")?.trim();
     if (status) query = query.eq("status", status);
+    if (currency) query = query.eq("currency", currency);
+    if (type === "PI") query = query.eq("confirmation_method", "DIRECT_PI");
+    if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
+    if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
     const q = params
       .get("q")
       ?.trim()

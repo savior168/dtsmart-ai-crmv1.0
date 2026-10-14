@@ -9,7 +9,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const { id } = await context.params;
     const url = new URL(request.url);
     const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
-    const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("page_size")) || 20));
+    const pageSize = Math.min(500, Math.max(10, Number(url.searchParams.get("page_size")) || 20));
     const status = url.searchParams.get("status") || "";
     const sheet = url.searchParams.get("sheet") || "";
     const admin = createAdminClient();

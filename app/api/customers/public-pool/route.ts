@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     const tab = params.get("tab") || "available";
     const exportMode = params.get("export") === "1";
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(exportMode ? 200 : 100, Math.max(10, Number(params.get("page_size") || 20)));
+    const pageSize = Math.min(exportMode ? 200 : 500, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim() || "";
     const createdFrom = params.get("created_from")?.trim() || "";
     const createdTo = params.get("created_to")?.trim() || "";

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const mode = request.nextUrl.searchParams.get("mode") || "";
     const coreOnly = request.nextUrl.searchParams.get("core") === "1";
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
     const status = request.nextUrl.searchParams.get("status") || "";
     const metric = request.nextUrl.searchParams.get("metric") || "";
     const search = (request.nextUrl.searchParams.get("search")?.trim() || "").replace(/[%_,()]/g, " ");

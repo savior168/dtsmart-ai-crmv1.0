@@ -7,18 +7,22 @@ import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { AppFilterBar, AppStatusBadge, appFieldClass } from "@/components/ui/app-list";
 import { AppPagination } from "@/components/ui/app-pagination";
+import { AppSelect } from "@/components/ui/app-select";
+import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
 type StockLink = { id: string; stock_number: string; status: string };
 type Row = {
   id: string;
   order_number: string;
   quote_number: string;
+  confirmation_method: string | null;
   customer_short_name: string;
   currency: string;
   total_amount: number;
   status: SalesOrderStatus;
   delivery_date: string | null;
   updated_at: string;
+  created_at: string;
   owner?: { name?: string | null; email?: string } | null;
   stock?: StockLink | StockLink[] | null;
 };
@@ -29,17 +33,25 @@ export function OrdersView() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [currency, setCurrency] = useState("");
+  const [type, setType] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [userId, setUserId] = useState("");
   const [canViewAll, setCanViewAll] = useState(false);
   const [canCreate, setCanCreate] = useState(false);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(30);
   const load = useCallback(async () => {
     setLoading(true);
     const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (q) p.set("q", q);
     if (status) p.set("status", status);
+    if (currency) p.set("currency", currency);
+    if (type) p.set("type", type);
+    if (dateFrom) p.set("date_from", dateFrom);
+    if (dateTo) p.set("date_to", dateTo);
     if (userId) p.set("user_id", userId);
     const r = await fetch(`/api/orders?${p}`, { cache: "no-store" });
     const b = await r.json().catch(() => ({}));
@@ -53,7 +65,7 @@ export function OrdersView() {
     setCanViewAll(Boolean(b.can_view_all));
     setCanCreate(Boolean(b.can_create));
     setError("");
-  }, [page, pageSize, q, status, userId]);
+  }, [page, pageSize, q, status, currency, type, dateFrom, dateTo, userId]);
   useEffect(() => {
     const t = setTimeout(() => void load(), 200);
     return () => clearTimeout(t);
@@ -76,14 +88,15 @@ export function OrdersView() {
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="搜索PI号或客户简称"
+              placeholder="搜索PI号、历史报价号或客户简称"
               className={`${appFieldClass} w-full pl-9`}
             />
           </label>
-          <select
+          <AppSelect
             value={status}
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
             className={appFieldClass}
+            aria-label="按PI状态筛选"
           >
             <option value="">全部订单状态</option>
             {Object.entries(SALES_ORDER_STATUS_LABELS).map(([k, v]) => (
@@ -91,7 +104,14 @@ export function OrdersView() {
                 {v}
               </option>
             ))}
-          </select>
+          </AppSelect>
+          <AppSelect value={type} onChange={(e) => { setType(e.target.value); setPage(1); }} className={appFieldClass} aria-label="按订单类型筛选">
+            <option value="">全部订单类型</option><option value="PI">仅PI订单</option>
+          </AppSelect>
+          <AppSelect value={currency} onChange={(e) => { setCurrency(e.target.value); setPage(1); }} className={appFieldClass} aria-label="按付款币种筛选" forceSearch>
+            <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
+          </AppSelect>
+          <label className="flex items-center gap-2 text-xs text-slate-500">创建日期<input aria-label="创建开始日期" type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={appFieldClass}/><span>至</span><input aria-label="创建结束日期" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={appFieldClass}/></label>
           <UserScopeSelect
             permission="orders.data_all"
             value={userId}
@@ -102,6 +122,10 @@ export function OrdersView() {
             onClick={() => {
               setQ("");
               setStatus("");
+              setCurrency("");
+              setType("");
+              setDateFrom("");
+              setDateTo("");
               setUserId("");
               setPage(1);
             }}
@@ -127,6 +151,7 @@ export function OrdersView() {
                   <tr>
                     {[
                       "PI号",
+                      "类型",
                       "客户简称",
                       "PI状态",
                       "PI金额",
@@ -150,6 +175,7 @@ export function OrdersView() {
                         <td className="px-4 py-3 font-semibold">
                           {row.order_number}
                         </td>
+                        <td className="px-4 py-3 text-slate-600">{row.confirmation_method === "DIRECT_PI" ? "PI订单" : "历史订单"}</td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
                         <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3 font-semibold text-blue-700">

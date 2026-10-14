@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorStatus, requireUser } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requireUser } from "@/lib/auth/current-user";
 
-const fields = "id,type,category,title,content,href,entity_type,entity_id,read_at,archived_at,action_status,deliver_at,created_at";
+const fields = "id,type,category,title,content,metadata,href,entity_type,entity_id,read_at,archived_at,action_status,deliver_at,created_at";
 
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser({ allowPasswordChange: true });
+    const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
+    if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 30)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 30)));
     const status = params.get("status") || (params.get("unread") === "true" ? "unread" : "active");
     const now = new Date().toISOString();
     let query = supabase.from("system_notifications").select(fields, { count: "exact" })
@@ -33,7 +34,8 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { supabase, user } = await requireUser({ allowPasswordChange: true });
+    const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
+    if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
     const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" };
     const action = body.action || (body.id ? "READ" : "READ_ALL");
     const now = new Date().toISOString();

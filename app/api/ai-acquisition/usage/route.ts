@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const allTime = params.get("all_time") === "1";
     const overview = params.get("overview") === "1";
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const admin = createAdminClient();
     let taskQuery = admin.from("ai_acquisition_tasks").select("id,user_id,task_number,name,status,cost_mode,discovered_count,processed_count,accepted_count,elapsed_ms,created_at,updated_at,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)");
     if (ownerId) taskQuery = taskQuery.eq("user_id", ownerId);

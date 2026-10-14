@@ -4,7 +4,7 @@ export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "D
 export type UserRole = (typeof USER_ROLES)[number];
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
-export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "商品中心" | "销售管理" | "采购管理" | "报表中心" | "站内通知" | "系统管理";
+export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "商品中心" | "销售管理" | "采购管理" | "PI财务设置" | "报表中心" | "站内通知" | "系统管理";
 
 export type PermissionDefinition = {
   code: string;
@@ -23,7 +23,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "dashboard.view", label: "查看工作台", group: "工作台", description: "进入工作台并查看业务概览", kind: "PAGE" },
   { code: "dashboard.data_all", label: "查看全部工作台数据", group: "工作台", description: "可切换归属人并查看全部销售数据", kind: "DATA" },
 
-  { code: "customers.view", label: "客户公海与我的客户", group: "客户中心", description: "进入客户公海、我的客户及客户详情", kind: "PAGE" },
+  { code: "customers.view", label: "客户公海与我的客户", group: "客户中心", description: "进入客户公海、我的客户及客户详情，并可勾选当前可见的筛选结果；导出、分配、删除另行授权", kind: "PAGE" },
   { code: "customers.data_all", label: "查看全部客户数据", group: "客户中心", description: "可按归属人查看全部客户", kind: "DATA" },
   { code: "customers.create", label: "新增客户", group: "客户中心", description: "手动创建客户资料", kind: "ACTION" },
   { code: "customers.edit", label: "编辑客户", group: "客户中心", description: "编辑有权访问的客户基本资料", kind: "ACTION" },
@@ -93,6 +93,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "为本人客户创建PI草稿并确认提交仓库", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "主管只读查看全部销售订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
+  { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅归属销售员或系统管理员可删除从未提交仓库的PI草稿；已提交历史不可删除", kind: "ACTION" },
   { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
@@ -103,6 +104,11 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "订单归属销售员填写采购备货中文描述和理货要求，不修改采购价格", kind: "ACTION" },
   { code: "stock.submit", label: "提交备货单", group: "采购管理", description: "订单归属销售员将已完善备货单提交采购备货人员", kind: "ACTION" },
   { code: "stock.export", label: "导出备货单", group: "采购管理", description: "按备货模板导出备货Excel", kind: "ACTION" },
+
+  { code: "pi.rates.view", label: "汇率设置", group: "PI财务设置", description: "查看PI参考汇率和业务汇率规则", kind: "PAGE", core: true },
+  { code: "pi.rates.manage", label: "维护汇率规则", group: "PI财务设置", description: "维护PI业务汇率规则和手工参考价", kind: "ACTION", core: true },
+  { code: "pi.accounts.view", label: "收款账户", group: "PI财务设置", description: "查看全部PI收款账户及启停状态", kind: "PAGE", core: true },
+  { code: "pi.accounts.manage", label: "维护收款账户", group: "PI财务设置", description: "新增、编辑及启停PI收款账户", kind: "ACTION", core: true },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },
@@ -147,6 +153,8 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("quotes.")) return "quotes.view";
   if (code.startsWith("orders.")) return "orders.view";
   if (code.startsWith("stock.")) return "stock.view";
+  if (code.startsWith("pi.rates.")) return "pi.rates.view";
+  if (code.startsWith("pi.accounts.")) return "pi.accounts.view";
   if (code.startsWith("reports.")) return "reports.view";
   if (code.startsWith("costs.")) return "costs.view";
   if (code.startsWith("notifications.")) return "notifications.view";

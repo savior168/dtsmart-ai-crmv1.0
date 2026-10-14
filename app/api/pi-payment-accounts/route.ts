@@ -18,7 +18,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("system.users.manage");
+    const { supabase, account } = await requirePermission("pi.accounts.manage");
     if (account.role !== "ADMIN") throw new Error("FORBIDDEN");
     const body = await request.json() as Record<string, unknown>;
     const label = String(body.label || "").trim();
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("system.users.manage");
+    const { supabase, account } = await requirePermission("pi.accounts.manage");
     if (account.role !== "ADMIN") throw new Error("FORBIDDEN");
     const body = await request.json() as Record<string, unknown>;
     const id = String(body.id || "").trim();

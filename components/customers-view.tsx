@@ -113,7 +113,7 @@ export function CustomersView() {
   const [count, setCount] = useState(0);
   const [totalCustomerCount, setTotalCustomerCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(30);
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -1071,7 +1071,7 @@ export function CustomersView() {
             )}
           </div>
           {selected.size ? <div className="border-t bg-blue-50/50 px-5 py-2 text-sm text-blue-700">已勾选 {selected.size} 条</div> : null}
-          <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="家客户" pageSizes={[10,20,30,50,100]} onPage={setPage} onPageSize={(size)=>{setPageSize(size);setPage(1)}}/>
+          <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="家客户" onPage={setPage} onPageSize={(size)=>{setPageSize(size);setPage(1)}}/>
         </section>
         {deleteIds && (
           <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/35 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="delete-customer-title" onMouseDown={(event) => event.target === event.currentTarget && !deleting && setDeleteIds(null)}>

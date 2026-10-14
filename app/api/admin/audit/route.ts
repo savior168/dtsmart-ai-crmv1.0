@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const { account } = await requirePermission("system.audit.view");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(300, Math.max(10, Number(params.get("pageSize") || 10)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 10)));
     const requestedCategory = params.get("category")?.trim().toUpperCase() || "";
     const category = AUDIT_CATEGORIES.includes(requestedCategory as AuditCategory) ? requestedCategory as AuditCategory : null;
     const requestedUserId = params.get("user_id")?.trim() || "";

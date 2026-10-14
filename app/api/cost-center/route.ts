@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 20)));
     const settings = await admin.from("cost_center_settings").select("updated_at,google_daily_limit_usd,google_weekly_limit_usd,google_monthly_limit_usd,openai_daily_limit_usd,openai_weekly_limit_usd,openai_monthly_limit_usd").eq("id", true).single();
     if (settings.error) throw settings.error;
     const range = costLedgerRange(params.get("from"), params.get("to"));

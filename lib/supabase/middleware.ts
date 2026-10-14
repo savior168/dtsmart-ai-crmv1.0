@@ -22,6 +22,7 @@ export function updateSession(request: NextRequest) {
     "/api/auth/reset-password",
     "/api/auth/captcha",
     "/api/cron/ai-task-recovery",
+    "/api/cron/pi-exchange-rates",
   ];
   const isPublic = publicPaths.some((path) => request.nextUrl.pathname.startsWith(path));
 

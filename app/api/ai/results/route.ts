@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const taskId = params.get("task_id") || "";
     const today = params.get("today") === "true";
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("pageSize") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const grade = params.get("grade") || "";
     const target = params.get("target") || "";
     const evidence = params.get("evidence") || "";

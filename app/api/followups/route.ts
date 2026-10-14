@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     const scope = params.get("scope") || "today";
     if (!scopes.has(scope)) return NextResponse.json({ error: "无效的跟进范围" }, { status: 400 });
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(100, Math.max(10, Number(params.get("page_size") || 20)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 20)));
     const search = params.get("q")?.trim().replace(/[%_,()]/g, "") || "";
     const stage = params.get("stage")?.trim() || "";
     if (stage && !new Set<string>(CUSTOMER_STATUSES).has(stage)) return NextResponse.json({ error: "无效的客户阶段" }, { status: 400 });

@@ -1,26 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { QUOTE_CURRENCIES, QUOTE_CURRENCY_CODES } from "@/lib/currencies";
-import { businessRate, loadEcbReferenceRates, type RateRule } from "@/lib/pi-exchange-rates";
+import { businessRate, loadReferenceRates, type RateRule } from "@/lib/pi-exchange-rates";
+import { mergeReferenceRates, type RateSnapshot } from "@/lib/pi-rate-snapshot";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+async function recentReferences() {
+  const admin = createAdminClient();
+  const [{ data, error }, live] = await Promise.all([
+    admin.from("pi_exchange_rate_snapshots").select("currency,cny_per_unit,source,reference_date"),
+    loadReferenceRates(),
+  ]);
+  if (error) throw error;
+  return mergeReferenceRates(live, (data || []) as RateSnapshot[]);
+}
 
 export async function GET() {
   try {
-    const { supabase } = await requirePermission("orders.view");
+    const { supabase, account } = await requirePermission("orders.view");
     const { data, error } = await supabase.from("pi_exchange_rate_rules")
       .select("currency,adjustment_mode,adjustment_value,manual_reference_cny,updated_at");
     if (error) throw error;
     const ruleMap = new Map((data || []).map((item) => [item.currency, item as RateRule]));
-    let official: Awaited<ReturnType<typeof loadEcbReferenceRates>> | null = null;
-    try { official = await loadEcbReferenceRates(); } catch { /* Explicitly mark unavailable; never fabricate a rate. */ }
+    const references = await recentReferences();
     const rates = QUOTE_CURRENCIES.map(([currency, label]) => {
       const rule = ruleMap.get(currency);
-      const officialReference = official?.rates[currency] ?? null;
-      const reference = officialReference ?? rule?.manual_reference_cny ?? (currency === "CNY" ? 1 : null);
+      const market = references[currency];
+      const reference = market?.cny ?? rule?.manual_reference_cny ?? (currency === "CNY" ? 1 : null);
       return {
         currency, label,
         reference_cny: reference,
-        source: officialReference != null ? "ECB" : rule?.manual_reference_cny != null ? "MANUAL" : currency === "CNY" ? "IDENTITY" : "UNAVAILABLE",
-        reference_date: officialReference != null ? official?.date : null,
+        source: market?.source ?? (rule?.manual_reference_cny != null ? "MANUAL" : currency === "CNY" ? "IDENTITY" : "UNAVAILABLE"),
+        reference_date: market?.date ?? null,
         business_cny: businessRate(reference, rule),
         adjustment_mode: rule?.adjustment_mode || "OFFSET",
         adjustment_value: rule?.adjustment_value || 0,
@@ -28,7 +39,11 @@ export async function GET() {
         updated_at: rule?.updated_at ?? null,
       };
     });
-    return NextResponse.json({ rates, source_url: "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html" });
+    // PI creators need the effective rate, not the administrator's reference
+    // source, manual override or adjustment rule.
+    return NextResponse.json({ rates: account.role === "ADMIN"
+      ? rates
+      : rates.map(({ currency, label, business_cny }) => ({ currency, label, business_cny })) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "汇率加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 500 });
@@ -37,7 +52,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { supabase, account } = await requirePermission("system.users.manage");
+    const { supabase, account } = await requirePermission("pi.rates.manage");
     if (account.role !== "ADMIN") throw new Error("FORBIDDEN");
     const body = await request.json() as Record<string, unknown>;
     const currency = String(body.currency || "").trim().toUpperCase();
@@ -56,10 +71,9 @@ export async function PATCH(request: NextRequest) {
     }
     if (currency === "CNY" && (mode !== "FIXED" || value !== 1)) throw new Error("人民币付款币种的业务汇率必须固定为1");
     if (mode !== "FIXED") {
-      let officialReference: number | null = null;
-      try { officialReference = (await loadEcbReferenceRates()).rates[currency] ?? null; } catch { /* Preserve manual setup when the official feed is unavailable. */ }
-      if (officialReference != null && businessRate(officialReference, { adjustment_mode: mode as RateRule["adjustment_mode"], adjustment_value: value }) == null) {
-        throw new Error("按当前官方参考价计算的业务汇率必须大于零");
+      const marketReference = (await recentReferences())[currency]?.cny ?? null;
+      if (marketReference != null && businessRate(marketReference, { adjustment_mode: mode as RateRule["adjustment_mode"], adjustment_value: value }) == null) {
+        throw new Error("按当前市场参考价计算的业务汇率必须大于零");
       }
     }
     const { data, error } = await supabase.from("pi_exchange_rate_rules").upsert({

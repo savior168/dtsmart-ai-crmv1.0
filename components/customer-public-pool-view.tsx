@@ -342,7 +342,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
   const [count, setCount] = useState<number | null>(null);
   const [tabCounts, setTabCounts] = useState<Partial<Record<Tab, number>>>({});
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(30);
   const [query, setQuery] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
@@ -392,6 +392,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
   const [claim, setClaim] = useState<PoolRow | null>(null);
   const [supplementRow, setSupplementRow] = useState<PoolRow | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const selectionScope = JSON.stringify([tab, query, createdFrom, createdTo, focusedCustomerId, countries, industries, aiLevel, aiStatus, target, customerStatus, ownerId, sourceType, sourceBatches, screeningTaskIds]);
+  const selectionScopeRef = useRef(selectionScope);
+  useEffect(() => { selectionScopeRef.current = selectionScope; }, [selectionScope]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -454,7 +457,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
       setCount(nextCount);
       setRole(body.role || "SALES");
       setCanExport(Boolean(body.can_export));
-      setSelected(new Set());
     } catch (caught) {
       if (version === requestVersion.current && !(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "客户公海加载失败");
     } finally {
@@ -567,6 +569,9 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
     () => setPage(1),
     [aiLevel, aiStatus, customerStatus, countries, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target],
   );
+  useEffect(() => {
+    setSelected(new Set());
+  }, [aiLevel, aiStatus, customerStatus, countries, createdFrom, createdTo, focusedCustomerId, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target]);
   const visibleTabs = useMemo(() => {
     const base: Tab[] = ["available", "claimed"];
     if (role === "ADMIN")
@@ -697,14 +702,17 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
     }
   }
   async function selectAllResults() {
-    if (role !== "ADMIN" || selectingAll || !["available", "claimed", "pending"].includes(tab)) return;
+    if (selectingAll || !["available", "claimed", "pending"].includes(tab)) return;
+    const requestedScope = selectionScope;
     setSelectingAll(true);
     setError("");
     try {
       const ids: string[] = [];
+      let expectedTotal: number | null = null;
       for (let resultPage = 1; ; resultPage += 1) {
         const params = new URLSearchParams({ tab, page: String(resultPage), page_size: "100", sort, direction });
         if (query.trim()) params.set("q", query.trim());
+        if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
         if (createdFrom) params.set("created_from", createdFrom);
         if (createdTo) params.set("created_to", createdTo);
         for(const country of countries)params.append("country",country);
@@ -718,9 +726,16 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
         appendSourceBatchFilters(params);
         for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
         const body = await api(`/api/customers/public-pool?${params}`);
+        if (selectionScopeRef.current !== requestedScope) throw new Error("筛选条件已改变，请重新全选");
         const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
+        const total = Number(body.count);
+        if (!Number.isSafeInteger(total) || total < 0) throw new Error("客户数量异常，请刷新后重试");
+        if (expectedTotal !== null && total !== expectedTotal) throw new Error("全选期间客户数量发生变化，请刷新后重试");
+        expectedTotal = total;
         ids.push(...pageRows.map((row) => row.id));
-        if (pageRows.length < 100 || ids.length >= Number(body.count || 0)) break;
+        if (new Set(ids).size !== ids.length || ids.length > total || (!pageRows.length && ids.length < total)) throw new Error("全选期间客户列表发生变化，请刷新后重试");
+        if (ids.length === total) break;
+        if (pageRows.length < 100) throw new Error(`全选中断：已读取 ${ids.length}/${total} 家，请重试`);
       }
       setSelected(new Set(ids));
       setToast(ids.length ? `已选择当前筛选结果 ${ids.length} 家客户` : "当前筛选条件下没有客户");
@@ -895,11 +910,11 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
                 </div> : null}
                 {canExport ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? exportProgress || "正在导出…" : selected.size ? `导出已选 ${selected.size} 家` : "导出筛选结果"}</button> : null}
                 <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />字段设置</button>
-                {role === "ADMIN" ? <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                   <button type="button" disabled={selectingAll || !(count ?? 0)} onClick={() => (count ?? 0) > 0 && selected.size >= (count ?? 0) ? setSelected(new Set()) : void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "正在全选…" : (count ?? 0) > 0 && selected.size >= (count ?? 0) ? "取消全选" : "全选筛选结果"}</button>
-                  {["available", "pending"].includes(tab) ? <button disabled={!selected.size} type="button" onClick={() => setAssignOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"><UserPlus size={16}/>分配已选 {selected.size} 家</button> : null}
-                  <button disabled={!selected.size} type="button" onClick={() => setDeleteIds([...selected])} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"><Trash2 size={16}/>删除已选 {selected.size} 家</button>
-                </div> : null}
+                  {role === "ADMIN" && ["available", "pending"].includes(tab) ? <button disabled={!selected.size} type="button" onClick={() => setAssignOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"><UserPlus size={16}/>分配已选 {selected.size} 家</button> : null}
+                  {role === "ADMIN" ? <button disabled={!selected.size} type="button" onClick={() => setDeleteIds([...selected])} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"><Trash2 size={16}/>删除已选 {selected.size} 家</button> : null}
+                </div>
               </div>
             </section>
             {error ? (
@@ -919,7 +934,6 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
               direction={direction}
               changeSort={changeSort}
               canDelete={role === "ADMIN"}
-              canExport={canExport}
               selected={selected}
               setSelected={setSelected}
               claim={setClaim}
@@ -1003,7 +1017,6 @@ function PoolTable({
   direction,
   changeSort,
   canDelete,
-  canExport,
   selected,
   setSelected,
   claim,
@@ -1021,19 +1034,26 @@ function PoolTable({
   direction: "asc" | "desc";
   changeSort: (key: CustomerListColumn) => void;
   canDelete: boolean;
-  canExport: boolean;
   selected: Set<string>;
   setSelected: (value: Set<string>) => void;
   claim: (row: PoolRow) => void;
   showSupplements: (row: PoolRow) => void;
   remove: (row: PoolRow) => void;
 }) {
-  const selectable = canDelete || canExport;
+  const selectable = true;
   const all = rows.length > 0 && rows.every((row) => selected.has(row.id));
   function toggle(id: string) {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
     else next.add(id);
+    setSelected(next);
+  }
+  function togglePage() {
+    const next = new Set(selected);
+    for (const row of rows) {
+      if (all) next.delete(row.id);
+      else next.add(row.id);
+    }
     setSelected(next);
   }
   return (
@@ -1047,11 +1067,7 @@ function PoolTable({
                   aria-label="全选本页"
                   type="checkbox"
                   checked={all}
-                  onChange={() =>
-                    setSelected(
-                      all ? new Set() : new Set(rows.map((row) => row.id)),
-                    )
-                  }
+                  onChange={togglePage}
                 />
               </th>
             ) : null}
