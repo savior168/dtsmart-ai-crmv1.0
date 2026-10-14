@@ -35,6 +35,7 @@ export function AppSelect({
   name,
   id,
   title,
+  forceSearch = false,
   "aria-label": ariaLabel,
 }: {
   value: string | number;
@@ -46,6 +47,7 @@ export function AppSelect({
   name?: string;
   id?: string;
   title?: string;
+  forceSearch?: boolean;
   "aria-label"?: string;
 }) {
   const options = useMemo(() => collectOptions(children), [children]);
@@ -61,7 +63,7 @@ export function AppSelect({
   const [activeIndex, setActiveIndex] = useState(0);
   const [invalid, setInvalid] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 240, maxHeight: 320 });
-  const searchable = options.length > 6;
+  const searchable = forceSearch || options.length > 6;
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return query ? options.filter((option) => option.label.toLocaleLowerCase().includes(query)) : options;

@@ -19,9 +19,18 @@ const orderListApi = read("app/api/orders/route.ts");
 const createPiApi = read("app/api/orders/create-pi/route.ts");
 const paymentAccountsApi = read("app/api/pi-payment-accounts/route.ts");
 const orderListView = read("components/orders-view.tsx");
+const piCustomersApi = read("app/api/orders/pi-customers/route.ts");
+const strictOwnerMigration = read("supabase/migrations/20261014120000_pi_strict_customer_owner.sql");
 
 assert.match(orderListApi, /can_create:[^\n]*account\.role === "ADMIN"[^\n]*hasPermission\(account, "orders\.create"\)/, "管理员有PI创建权限时列表必须显示创建入口");
 assert.match(createPiApi, /account\.role !== "SALES" && account\.role !== "SUPERVISOR" && account\.role !== "ADMIN"/, "列表允许管理员创建时API不能再拒绝管理员");
+assert.match(piCustomersApi, /\.eq\("owner_id", account\.id\)/, "PI客户选择必须只返回当前登录用户归属客户");
+assert.match(createPiApi, /\.eq\("owner_id", account\.id\)/, "PI创建API必须核对客户当前归属");
+assert.match(strictOwnerMigration, /customer\.owner_id is distinct from actor\.id/, "数据库创建函数必须对所有角色强制当前归属校验");
+assert.match(strictOwnerMigration, /c\.owner_id=target\.sales_user_id/, "PI提交前必须再次核对客户归属");
+assert.match(piForm, /forceSearch[\s\S]*请选择我的客户/, "PI客户下拉即使选项较少也必须可搜索");
+assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
+assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
 assert.match(orderListView, /"PI号",\s*"客户简称",\s*"PI状态",\s*"PI金额",\s*"备货单"/, "PI列表按业务优先级展示关键字段");
 assert.doesNotMatch(orderListView, /仓库约定订单编号|warehouse_reference_number/, "PI列表不得展示内部仓库约定编号");
@@ -32,7 +41,7 @@ assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
 assert.match(piForm, /"No\.", "Items \*", "Brand", "Models", "Quality", "Description", "Warehouse Spec \(CN\) \*"[\s\S]*"Unit Price \(RMB\) \*", "Cost \(RMB\) \*"[\s\S]*"Packing Requirement", "Warehouse Note"/, "每项产品属性应使用独立英文列头并标明币种");
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
-assert.match(piForm, /订单编号 \*/, "创建PI应统一显示订单编号");
+assert.match(piForm, /订单编号<Required \/>/, "创建PI应统一显示订单编号并以红星标出必填");
 assert.match(piForm, /PI有效期[\s\S]*运费（RMB）[\s\S]*客户及收货信息[\s\S]*PI产品明细/, "运费输入应位于上方PI基本信息区");
 
 for (const source of [detail, exportRoute]) {
@@ -56,7 +65,7 @@ assert.doesNotMatch(customerPi, /createWorkbookFile/, "客户PI必须使用专�
 assert.doesNotMatch(customerPiRoute.match(/\.from\("sales_order_items"\)[\s\S]*?\.order\("line_number"\)/)?.[0] || "", /unit_cost|estimated|procurement|profit|margin|supplier|received|internal_note|preparation/i, "客户PI导出查询不能读取内部成本或供应商字段");
 assert.match(customerPiRoute, /order\.data\.status === "DRAFT"[\s\S]*不能作为正式PI导出/, "未提交的PI草稿不能作为正式客户文件导出");
 assert.match(piForm, /useState\("USD"\)/, "创建PI默认客户付款币种应为美元");
-assert.match(piForm, /setCurrency\(event\.target\.value\); setRate\(""\);/, "变更报价币种时应清空旧汇率");
+assert.match(piForm, /setCurrency\(event\.target\.value\); setRate\(String\(exchangeRates\.find/, "变更报价币种时应带入该币种业务汇率，不得保留旧币种汇率");
 assert.doesNotMatch(piForm, /setCurrency\(event\.target\.value\); setAccountId\(""\)/, "变更报价币种不得清空已选收款账户");
 assert.doesNotMatch(piMigration, /account\.currency<>clean_currency|a\.currency=target\.currency/, "数据库不得把PI报价币种与收款账户币种绑定");
 assert.match(piMigration, /insert into public\.stock_orders\([\s\S]*?delivery_recipient,delivery_phone,delivery_email,delivery_address,updated_by\)/, "提交PI生成备货单时必须固化收货信息");

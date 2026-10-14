@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     const rate = Number(body.fx_rate_cny_to_payment);
     const shipping = Number(body.shipping_cny ?? 0);
     if (!QUOTE_CURRENCY_CODES.has(currency)) throw new Error("请选择有效的客户付款币种");
-    if (!Number.isFinite(rate) || rate <= 0 || rate > 100000000 || Math.round(rate * 1e6) !== rate * 1e6) throw new Error("请输入最多六位小数的有效汇率");
+    if (!Number.isFinite(rate) || rate <= 0 || rate > 100000000 || Math.abs(rate - Math.round(rate * 1e12) / 1e12) > 1e-12) throw new Error("请输入有效汇率");
     if (!Number.isFinite(shipping) || shipping < 0 || Math.round(shipping * 100) !== shipping * 100) throw new Error("人民币运费不正确");
     if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 500) throw new Error("请填写1至500条产品明细");
     const items = body.items.map((raw) => {
@@ -40,6 +40,15 @@ export async function POST(request: NextRequest) {
     const paymentAccountId = String(body.payment_account_id || "").trim();
     if (!customerId || !paymentAccountId) throw new Error("请选择客户和收款账户");
     if (!warehouseReferenceNumber || warehouseReferenceNumber.length > 80) throw new Error("请填写80字以内的订单编号");
+    const { data: ownedCustomer, error: customerError } = await supabase.from("customers")
+      .select("id")
+      .eq("id", customerId)
+      .eq("owner_id", account.id)
+      .is("deleted_at", null)
+      .neq("status", "RELEASED")
+      .maybeSingle();
+    if (customerError) throw customerError;
+    if (!ownedCustomer) throw new Error("只能为归属自己的有效客户创建PI订单");
     const { data, error } = await supabase.rpc("create_direct_pi_order", {
       p_customer_id: customerId,
       p_warehouse_reference_number: warehouseReferenceNumber,
