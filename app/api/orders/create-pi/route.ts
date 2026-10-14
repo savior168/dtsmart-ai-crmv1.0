@@ -20,8 +20,8 @@ export async function POST(request: NextRequest) {
       const quantity = Number(row.quantity);
       const unitPriceCny = Number(row.unit_price_cny);
       const estimatedCostCny = Number(row.estimated_unit_cost_cny);
-      if (!String(row.item_name || "").trim() || !String(row.description_zh || "").trim() || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPriceCny) || unitPriceCny < 0 || Math.round(unitPriceCny * 100) !== unitPriceCny * 100 || !Number.isFinite(estimatedCostCny) || estimatedCostCny < 0 || Math.round(estimatedCostCny * 100) !== estimatedCostCny * 100) {
-        throw new Error("每条产品都需填写名称、仓库中文规格、整数数量、人民币销售价及预估成本");
+      if (![row.item_name, row.brand, row.model, row.quality].every((value) => String(value || "").trim()) || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPriceCny) || unitPriceCny < 0 || Math.round(unitPriceCny * 100) !== unitPriceCny * 100 || !Number.isFinite(estimatedCostCny) || estimatedCostCny < 0 || Math.round(estimatedCostCny * 100) !== estimatedCostCny * 100) {
+        throw new Error("每条产品都需填写产品、品牌、型号、质量、整数数量、人民币成本及售价");
       }
       return {
         item_name: String(row.item_name).trim().slice(0, 160),
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
         model: String(row.model || "").trim().slice(0, 160),
         quality: String(row.quality || "").trim().slice(0, 160),
         description: String(row.description || "").trim().slice(0, 1000),
-        description_zh: String(row.description_zh).trim().slice(0, 1000),
+        description_zh: (String(row.description_zh || "").trim() || [row.item_name, row.brand, row.model, row.quality].map((value) => String(value).trim()).join(" / ")).slice(0, 1000),
         quantity, unit_price_cny: unitPriceCny, estimated_unit_cost_cny: estimatedCostCny,
         preparation_requirement: String(row.preparation_requirement || "").trim().slice(0, 1000),
         internal_note: String(row.internal_note || "").trim().slice(0, 1000),

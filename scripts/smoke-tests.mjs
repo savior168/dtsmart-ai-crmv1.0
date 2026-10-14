@@ -322,7 +322,8 @@ assert.match(defaultSystemViewMigration, /\('SUPERVISOR', 'system\.audit\.view',
 assert.match(securityApi, /requirePermission\("system\.security\.view"\)[\s\S]*can_manage: hasPermission\(account, "system\.security\.manage"\)/, "安全设置读取与修改能力必须分别授权");
 assert.match(adminPanels, /disabled=\{!canManage\}[\s\S]*只读查看/, "非系统管理员安全设置页面必须只读");
 assert.match(adminPanels, /忘记密码时联系系统管理员重置临时密码/, "安全设置必须说明忘记密码的处理方式");
-assert.match(settingsLayout, /canViewAudit[\s\S]*canViewSecurity[\s\S]*SystemManagementNav/, "非管理员必须能按查看权限进入系统管理页面");
+assert.match(settingsLayout, /canViewAudit[\s\S]*canViewSecurity[\s\S]*SettingsLayoutContent/, "非管理员必须能按查看权限进入系统管理页面");
+assert.match(read("components/settings-layout-content.tsx"), /pi-exchange-rates[\s\S]*pi-payment-accounts[\s\S]*SystemManagementNav/, "PI财务页面不应重复显示系统管理导航");
 assert.match(settingsNav, /visibleItems[\s\S]*canManageUsers[\s\S]*canViewAudit[\s\S]*canViewSecurity/, "系统管理子导航必须按页面权限显示");
 assert.doesNotMatch(importApi, /CUSTOMER_IMPORT/, "批量导入不得再按客户逐条写操作日志");
 assert.match(importApi, /action: "IMPORT_COMPLETE"[\s\S]*filename:[\s\S]*\.\.\.stats/, "每次导入只保留一条任务级汇总日志");
