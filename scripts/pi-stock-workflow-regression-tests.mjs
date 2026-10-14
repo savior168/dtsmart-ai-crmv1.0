@@ -69,13 +69,14 @@ assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下
 assert.match(piForm, /下载模板[\s\S]*导入Excel[\s\S]*粘贴表格[\s\S]*添加产品/, "PI产品明细应提供批量快捷操作");
 assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-cols-3[\s\S]*min-w-\[1600px\]/, "PI录入应保留轻量单卡片和按业务顺序排列的基础字段");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
-assert.match(piForm, /"No\.", "Items \*", "Brand \*", "Models \*", "Quality \*", "Description", "Cost \(RMB\) \*", "Unit Price \(RMB\) \*", "Quantity \*", "Amount \(RMB\)", "Total Profit \(RMB\)", "Margin", "Packing Requirement", "Warehouse Note"/, "产品明细必须按业务顺序展示必填字段与自动计算的金额利润");
+assert.match(piForm, /"序号", "产品类型 \*", "产品品牌 \*", "产品型号 \*", "产品质量 \*", "产品描述", "成本单价（人民币） \*", "销售单价（人民币） \*", "数量 \*", "销售金额（人民币）", "总利润（人民币）", "利润率", "理货要求", "仓库备注", "操作"/, "PI录入列头必须用准确中文并保留必填字段与金额利润列");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
 assert.match(piForm, /const defaultValidity = \(\) => \{ const date = new Date\(\); date\.setDate\(date\.getDate\(\) \+ 5\)/, "新建PI有效期默认当前日期后5天");
 assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*外币单价待换算/, "人民币录入时必须预览所选付款币种单价");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
 assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息按录单业务顺序排列");
 assert.match(piForm, /value=\{shippingInput\}[\s\S]*setShippingInput/, "运费应在费用汇总中由销售输入");
+assert.match(piForm, /<label htmlFor="pi-shipping"[\s\S]*aria-hidden="true"[^>]*>¥<\/span><input id="pi-shipping" aria-label="人民币运费"/, "人民币运费输入框应直观显示人民币符号");
 assert.match(createPiApi, /row\.item_name, row\.brand, row\.model, row\.quality/, "创建PI接口必须校验产品、品牌、型号和质量");
 assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "编辑PI接口必须校验相同的必填字段");
 assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sql"), /x\.brand[\s\S]*x\.model[\s\S]*x\.quality/, "数据库RPC必须防止绕过必填字段校验");
