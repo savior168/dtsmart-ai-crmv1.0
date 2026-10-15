@@ -23,6 +23,12 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("stock.view");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
+    const selectedIds = params.getAll("id");
+    if (selectedIds.length && (!exporting || selectedIds.length > 50 ||
+      new Set(selectedIds).size !== selectedIds.length ||
+      selectedIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) {
+      throw new Error("所选备货单无效；每次最多导出50张");
+    }
     if (exporting && !hasPermission(account, "stock.export")) throw new Error("FORBIDDEN");
     if (params.get("view") === "dashboard") {
       const dashboard = await supabase.rpc("stock_order_dashboard");
@@ -53,6 +59,7 @@ export async function GET(request: NextRequest) {
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
+      if (selectedIds.length) query = query.in("id", selectedIds);
       if (status) query = query.eq("status", status);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
@@ -64,7 +71,9 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await makeQuery(exporting ? 0 : from, exporting ? 499 : from + pageSize - 1);
     if (error) throw error;
     if (exporting) {
+      if (!selectedIds.length) throw new Error("请先勾选要导出的备货单");
       if (!count) throw new Error("当前筛选条件下没有可导出的备货单");
+      if (count !== selectedIds.length) throw new Error("部分所选备货单已不在当前筛选结果或无权查看，请刷新后重新勾选");
       if (count > 65535) throw new Error("筛选结果超过ZIP格式的单包文件上限，请缩小筛选范围");
       const rows = [...(data || [])];
       for (let offset = rows.length; offset < count; offset += 500) {

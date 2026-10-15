@@ -15,7 +15,7 @@ import { CountryLabel } from "@/components/country-label";
 import { localDateTimeInput } from "@/lib/date-time";
 import { summarizeProductSpecificationsSnapshot } from "@/lib/product-specifications";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { summarizeStockProgress } from "@/lib/stock-progress";
+import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 type Item = {
   id: string;
   line_number: number;
@@ -272,6 +272,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
       <Link href="/stock-orders" className="mt-4 inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">返回备货单列表</Link>
     </div></main>;
   const o = data.order;
+  const stockProgress = summarizeStockProgress(o.status, items);
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1660px]">
@@ -288,7 +289,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
               href={`/orders/${o.sales_order_id}`}
               className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700"
             >
-              查看订单 {o.order_number}
+              查看PI订单 {o.warehouse_reference_number || o.order_number}
             </Link> : null}
             {o.status !== "CANCELLED" ? <Link href={`/stock-orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
             {data.can_export ? (
@@ -307,12 +308,12 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <div>
               <h1 className="text-xl font-bold">备货单 {o.stock_number}</h1>
               <p className="mt-1 text-sm text-slate-500">
-                PI编号：{o.order_number} · 订单编号：{o.warehouse_reference_number || "—"} ·
+                订单编号：{o.warehouse_reference_number || "—"} · 内部PI号：{o.order_number} ·
                 销售员：{o.sales?.name || o.sales?.email || "-"}
               </p>
             </div>
             <span className="rounded bg-blue-50 px-3 py-1.5 text-sm text-blue-700">
-              {data.recalled_pi ? "已撤回（历史）" : STOCK_STATUS_LABELS[o.status]}
+              {data.recalled_pi ? "已撤回（历史）" : stockProgressLabel(stockProgress)}
             </span>
           </header>
           {data.recalled_pi ? <p className="border-b bg-amber-50 px-5 py-3 text-sm text-amber-800">这张备货单随 PI 撤回，当前不是仓库待办；原内容仅供追溯。请在 PI 草稿中修改并重新提交。</p> : null}
@@ -326,9 +327,9 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 </li>;
               })}
             </ol>
-            {o.status === "WAITING" ? <p className="mt-2 text-xs text-slate-500">当前待仓库接单，下一步可更新为“备货中”。</p> : null}
+            {o.status === "WAITING" ? <p className="mt-2 text-xs text-slate-500">{stockProgress.percent > 0 ? "部分产品仍待备货；已处理产品的阶段和回货数量在下方逐项显示。" : "仓库待处理，下一步可将产品更新为“备货中”。"}</p> : null}
             {["SHORTAGE", "CANCELLED"].includes(o.status) ? <p className="mt-2 text-xs text-amber-700">当前为{STOCK_STATUS_LABELS[o.status]}，不属于常规五步进度。</p> : null}
-            {!data.recalled_pi ? <div className="mt-3 max-w-sm"><StockProgressCell progress={summarizeStockProgress(o.status, items)}/></div> : null}
+            {!data.recalled_pi ? <div className="mt-3 max-w-sm"><StockProgressCell progress={stockProgress}/></div> : null}
           </div> : null}
           {error ? (
             <div className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
@@ -337,9 +338,9 @@ export function StockOrderDetailView({ id }: { id: string }) {
           ) : null}
           <div className="grid gap-4 p-5 md:grid-cols-4">
             {[
-              ["客户简称", o.customer_short_name],
+              ["客户名称", o.customer_short_name],
               ["目的国家", o.destination_country || "-"],
-              ["当前状态", data.recalled_pi ? "已撤回（历史）" : STOCK_STATUS_LABELS[o.status]],
+              ["当前状态", data.recalled_pi ? "已撤回（历史）" : stockProgressLabel(stockProgress)],
               ["状态备注", o.status_note || "-"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg bg-slate-50 p-4">

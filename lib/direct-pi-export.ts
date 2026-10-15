@@ -2,18 +2,26 @@ import XLSX, { type CellStyle } from "xlsx-js-style";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { customerEnglish } from "./pi-customer-text.ts";
 
 const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
 
-/** Preserve the supplied corporate logo and its original position in the PI template. */
+/** Preserve the supplied corporate logo, sized to the compact PI header. */
 function addPiLogo(workbook: Uint8Array): Buffer {
   const template = Zip.CFB.read(readFileSync(path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx")), { type: "buffer" });
   const output = Zip.CFB.read(Buffer.from(workbook), { type: "buffer" });
   for (const part of ["/xl/drawings/drawing1.xml", "/xl/drawings/_rels/drawing1.xml.rels", "/xl/media/image.png", "/xl/worksheets/_rels/sheet1.xml.rels"]) {
     const original = Zip.CFB.find(template, part);
     if (!original?.content) throw new Error(`PI模板缺少品牌图像部件 ${part}`);
-    Zip.CFB.utils.cfb_add(output, part, Buffer.from(original.content));
+    let bytes = Buffer.from(original.content);
+    if (part.endsWith("drawing1.xml")) {
+      const drawingXml = bytes.toString("utf8")
+        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>247650</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>95250</xdr:rowOff></xdr:from>")
+        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="1143000" cy="1143000" />');
+      bytes = Buffer.from(drawingXml, "utf8");
+    }
+    Zip.CFB.utils.cfb_add(output, part, bytes);
   }
   const worksheet = Zip.CFB.find(output, "/xl/worksheets/sheet1.xml");
   const contentTypes = Zip.CFB.find(output, "/[Content_Types].xml");
@@ -21,9 +29,9 @@ function addPiLogo(workbook: Uint8Array): Buffer {
   let xml = Buffer.from(worksheet.content).toString("utf8");
   if (/<(?:\w+:)?drawing\b/.test(xml)) throw new Error("PI工作簿已包含图像，不能重复插入");
   const originalSheet = Zip.CFB.find(template, "/xl/worksheets/sheet1.xml");
-  const drawing = originalSheet?.content ? Buffer.from(originalSheet.content).toString("utf8").match(/<x:drawing\b[^>]*\/>/)?.[0] : null;
-  if (!drawing) throw new Error("PI模板缺少品牌图像位置");
-  xml = xml.replace(/<\/worksheet>$/, `${drawing}</worksheet>`);
+  const drawingId = originalSheet?.content ? Buffer.from(originalSheet.content).toString("utf8").match(/<x:drawing\b[^>]*r:id="([^"]+)"/)?.[1] : null;
+  if (!drawingId) throw new Error("PI模板缺少品牌图像位置");
+  xml = xml.replace(/<\/worksheet>$/, `<drawing r:id="${drawingId}"/></worksheet>`);
   worksheet.content = Buffer.from(xml, "utf8");
   let types = Buffer.from(contentTypes.content).toString("utf8");
   if (!/Extension="png"/.test(types)) types = types.replace("</Types>", '<Default Extension="png" ContentType="image/png"/></Types>');
@@ -68,7 +76,9 @@ type DirectPiItem = {
   brand: string | null;
   model: string | null;
   quality: string | null;
+  quality_en?: string | null;
   description: string | null;
+  description_en?: string | null;
   quantity: number;
   unit_price_cny: number;
   unit_price: number;
@@ -92,7 +102,43 @@ function calculated(sheet: XLSX.WorkSheet, address: string, formula: string, val
 }
 
 function merge(sheet: XLSX.WorkSheet, reference: string) {
-  (sheet["!merges"] ||= []).push(XLSX.utils.decode_range(reference));
+  const range = XLSX.utils.decode_range(reference);
+  (sheet["!merges"] ||= []).push(range);
+  const anchor = sheet[XLSX.utils.encode_cell(range.s)];
+  const style = anchor?.s as CellStyle | undefined;
+  if (!style?.border && !style?.fill) return;
+  for (let row = range.s.r; row <= range.e.r; row += 1) {
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      const address = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = sheet[address] || (sheet[address] = { t: "s", v: "" });
+      const edgeBorder = style.border ? {
+        ...(row === range.s.r ? { top: style.border.top } : {}),
+        ...(row === range.e.r ? { bottom: style.border.bottom } : {}),
+        ...(col === range.s.c ? { left: style.border.left } : {}),
+        ...(col === range.e.c ? { right: style.border.right } : {}),
+      } : undefined;
+      cell.s = { ...style, ...(edgeBorder ? { border: edgeBorder } : {}) };
+    }
+  }
+}
+
+function outline(sheet: XLSX.WorkSheet, reference: string) {
+  const range = XLSX.utils.decode_range(reference);
+  for (let row = range.s.r; row <= range.e.r; row += 1) {
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      if (row !== range.s.r && row !== range.e.r && col !== range.s.c && col !== range.e.c) continue;
+      const address = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = sheet[address] || (sheet[address] = { t: "s", v: "" });
+      const existing = (cell.s || base) as CellStyle;
+      cell.s = { ...existing, border: {
+        ...existing.border,
+        ...(row === range.s.r ? { top: border } : {}),
+        ...(row === range.e.r ? { bottom: border } : {}),
+        ...(col === range.s.c ? { left: border } : {}),
+        ...(col === range.e.c ? { right: border } : {}),
+      } };
+    }
+  }
 }
 
 function validDays(issueDate: string, validUntil: string | null) {
@@ -142,9 +188,9 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const signatureDate = signatureName + 1;
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
   sheet["!ref"] = `A1:K${signatureDate}`;
-  sheet["!cols"] = [7, 18, 5, 17, 16, 18, 20, 5, 20, 12, 21].map((wch) => ({ wch }));
+  sheet["!cols"] = [6, 16, 4, 16, 15, 17, 18, 4, 17, 11, 19].map((wch) => ({ wch }));
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(85, order.payment_account_snapshot!.split(/\r?\n/).length * 19) : index === 17 ? 42 : index >= 18 && index < lastItemRow ? 28 : 22,
+    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : 18,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
@@ -157,8 +203,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, "G4", "QUOTATION VALID:", boxed); merge(sheet, "G4:I5");
   set(sheet, "J4", validDays(issueDate, order.pi_valid_until), boxed); merge(sheet, "J4:K5");
   set(sheet, "D6", `Web: ${order.seller_website || ""}`); merge(sheet, "D6:F6");
-  set(sheet, "G6", `PAYMENT / METHOD:\n(${currency})`, boxed); merge(sheet, "G6:I7");
-  set(sheet, "J6", order.payment_method || "", boxed); merge(sheet, "J6:K7");
+  set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
+  set(sheet, "J6", `${order.payment_method || ""} (${currency})`, boxed); merge(sheet, "J6:K7");
   set(sheet, "D7", `Sales Manager: ${order.seller_contact_name || ""}`); merge(sheet, "D7:F7");
   set(sheet, "D8", `Contact No: ${order.seller_contact_phone || ""}`); merge(sheet, "D8:F8");
   set(sheet, "G8", "DELIVERY DATE:", boxed); merge(sheet, "G8:I9");
@@ -188,7 +234,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     const item = items[index];
     const values: Array<[string, string | number]> = item ? [
       ["A", index + 1], ["B", item.item_name], ["D", item.brand || ""], ["E", item.model || ""],
-      ["F", item.quality || ""], ["G", item.description || ""], ["I", Number(item.unit_price)], ["J", Number(item.quantity)],
+      ["F", customerEnglish(item.quality, item.quality_en, `第${item.line_number}行产品质量`)], ["G", customerEnglish(item.description, item.description_en, `第${item.line_number}行产品描述`)], ["I", Number(item.unit_price)], ["J", Number(item.quantity)],
     ] : [["A", ""], ["B", ""], ["D", ""], ["E", ""], ["F", ""], ["G", ""], ["I", ""], ["J", ""]];
     for (const [column, value] of values) set(sheet, `${column}${row}`, value,
       column === "I" ? moneyStyle(currency) : boxed);
@@ -221,6 +267,11 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, `G${signatureName}`, order.customer_short_name, center); merge(sheet, `G${signatureName}:K${signatureName}`);
   set(sheet, `A${signatureDate}`, issueDate, center); merge(sheet, `A${signatureDate}:F${signatureDate}`);
   set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:K${signatureDate}`);
+  outline(sheet, "A2:C9");
+  outline(sheet, "D2:F9");
+  outline(sheet, "A12:K16");
+  outline(sheet, "A18:K18");
+  outline(sheet, `A19:K${totalRow}`);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "PI");
   return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);

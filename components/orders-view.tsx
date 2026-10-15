@@ -16,7 +16,7 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import type { StockProgress } from "@/lib/stock-progress";
+import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
 const CURRENT_PI_STATUSES: SalesOrderStatus[] = ["DRAFT", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"];
 const HISTORICAL_PI_STATUSES: SalesOrderStatus[] = ["CONFIRMED", "STOCK_DRAFT", "READY", "SHORTAGE", "CANCELLED"];
@@ -61,13 +61,14 @@ export function OrdersView() {
   const [canExport, setCanExport] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [singleExportId, setSingleExportId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  async function exportFiltered() {
-    if (exportBusy || !canExport || type !== "PI") return;
+  async function exportSelected() {
+    if (exportBusy || !canExport || type !== "PI" || !selectedIds.length) return;
     setExportBusy(true);
     setError("");
     try {
@@ -79,7 +80,8 @@ export function OrdersView() {
       if (dateFrom) params.set("date_from", dateFrom);
       if (dateTo) params.set("date_to", dateTo);
       if (userId) params.set("user_id", userId);
-      await downloadFilteredExport(`/api/orders?${params}`, "PI订单-筛选结果.zip");
+      selectedIds.forEach((id) => params.append("id", id));
+      await downloadFilteredExport(`/api/orders?${params}`, "PI订单-已选单据.zip");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PI订单导出失败");
     } finally {
@@ -93,7 +95,7 @@ export function OrdersView() {
     try {
       await downloadFilteredExport(`/api/orders/${row.id}/export`, `${row.warehouse_reference_number || row.order_number}.xlsx`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "PI订单下载失败，请稍后重试");
+      setError(cause instanceof Error ? cause.message : "PI订单导出失败，请稍后重试");
     } finally {
       setSingleExportId(null);
     }
@@ -148,6 +150,18 @@ export function OrdersView() {
     setCanExport(Boolean(b.can_export));
     setError("");
   }, [page, pageSize, q, status, currency, country, type, sortBy, sortDir, dateFrom, dateTo, userId]);
+  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, type, dateFrom, dateTo, userId]);
+  const selectableIds = data.filter((row) => row.confirmation_method === "DIRECT_PI" && !["DRAFT", "CANCELLED"].includes(row.status)).map((row) => row.id);
+  const pageSelection = selectableIds.slice(0, 50);
+  const allPageSelected = pageSelection.length > 0 && pageSelection.every((id) => selectedIds.includes(id));
+  function toggleSelection(id: string) {
+    setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 50 ? [...current, id] : current);
+  }
+  function togglePageSelection() {
+    setSelectedIds((current) => pageSelection.every((id) => current.includes(id))
+      ? current.filter((id) => !pageSelection.includes(id))
+      : [...current, ...pageSelection.filter((id) => !current.includes(id)).slice(0, 50 - current.length)]);
+  }
   function toggleSort(key: string) {
     setSortDir(sortBy === key && sortDir === "asc" ? "desc" : "asc");
     setSortBy(key);
@@ -199,7 +213,7 @@ export function OrdersView() {
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {SALES_ORDER_STATUS_LABELS[k]}
+                {k === "WAITING_STOCK" ? "待备货／部分备货中" : SALES_ORDER_STATUS_LABELS[k]}
               </option>
             ))}
           </AppSelect>
@@ -241,7 +255,7 @@ export function OrdersView() {
             重置
           </button>
         </AppFilterBar>
-        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">仅正式PI；每次最多50张，下载为Excel压缩包</span><button type="button" onClick={() => void exportFiltered()} disabled={exportBusy || type !== "PI" || count === 0 || count > 50} title={count > 50 ? "超过50张，请缩小筛选范围" : undefined} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy ? "正在导出…" : `批量下载Excel（${count}张）`}</button>{count > 50 ? <span className="text-xs text-amber-700">请缩小筛选范围至50张以内</span> : null}</div> : null}
+        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式PI；可跨页选择，最多50张，导出为Excel压缩包</span><button type="button" onClick={() => void exportSelected()} disabled={exportBusy || type !== "PI" || selectedIds.length === 0} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy ? "正在导出…" : `批量导出 Excel（${selectedIds.length}张）`}</button></div> : null}
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -257,6 +271,7 @@ export function OrdersView() {
               <table className="w-full min-w-[1250px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
                   <tr>
+                    {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || type !== "PI" || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
                     <SortHeader label="客户名称" column="customer_name"/>
                     <th className="px-4 py-3 font-medium">目的国家</th>
@@ -276,6 +291,7 @@ export function OrdersView() {
                       : row.stock;
                     return (
                       <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
+                        {canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}
                         <td className="px-4 py-3 font-semibold">
                           {row.confirmation_method === "DIRECT_PI" ? row.warehouse_reference_number || "—" : row.order_number}
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
@@ -285,7 +301,7 @@ export function OrdersView() {
                         <td className="px-4 py-3 font-semibold text-blue-700">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
+                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.confirmation_method === "DIRECT_PI" && row.status === "WAITING_STOCK" && stock?.progress && stock.progress.percent > 0 ? stockProgressLabel(stock.progress) : SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? stock ? <><span className="text-amber-700">已撤回（历史）</span>{canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block text-xs font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()}>查看原备货记录</Link> : null}</> : <span className="text-slate-500">未提交</span>
                           : stock ? <><StockProgressCell progress={stock.progress}/>{canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block text-xs font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()}>{stock.stock_number}</Link> : <small className="block text-slate-500">{stock.stock_number}</small>}</> : "—"}</td>
@@ -303,7 +319,7 @@ export function OrdersView() {
                             <Link href={`/orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">查看详情</Link>
                             <RowActionMenu ariaLabel={`订单 ${row.warehouse_reference_number || row.order_number} 的更多操作`} label="更多">
                               {row.confirmation_method === "DIRECT_PI" ? <RowActionItem onClick={() => router.push(`/orders/${row.id}/preview`)}>预览{row.status === "DRAFT" ? "草稿" : " / 打印"}</RowActionItem> : null}
-                              {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "下载中…" : "下载 Excel"}</RowActionItem> : null}
+                              {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "导出中…" : "导出 Excel"}</RowActionItem> : null}
                               {row.can_delete_draft ? <RowActionItem tone="danger" onClick={() => setDeleting(row)}>删除草稿</RowActionItem> : null}
                             </RowActionMenu>
                           </div>

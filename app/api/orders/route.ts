@@ -28,6 +28,12 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("orders.view");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
+    const selectedIds = params.getAll("id");
+    if (selectedIds.length && (!exporting || selectedIds.length > 50 ||
+      new Set(selectedIds).size !== selectedIds.length ||
+      selectedIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) {
+      throw new Error("所选PI订单无效；每次最多导出50张");
+    }
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
     const requestedPageSize = Number(params.get("page_size") || 30);
     const pageSize = [10, 30, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 30;
@@ -60,6 +66,7 @@ export async function GET(request: NextRequest) {
         .order("id", { ascending: true })
         .range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
+      if (selectedIds.length) query = query.in("id", selectedIds);
       if (status) query = query.eq("status", status);
       if (currency) query = query.eq("currency", currency);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
@@ -77,7 +84,9 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
     const rows = [...(data || [])];
     if (exporting) {
+      if (!selectedIds.length) throw new Error("请先勾选要导出的PI订单");
       if (!count) throw new Error("当前筛选条件下没有可导出的PI订单");
+      if (count !== selectedIds.length) throw new Error("部分所选PI已不在当前筛选结果或无权查看，请刷新后重新勾选");
       if (count > 65535) throw new Error("筛选结果超过ZIP格式的单包文件上限，请缩小筛选范围");
       for (let offset = rows.length; offset < count; offset += 500) {
         const next = await makeQuery(offset, Math.min(offset + 499, count - 1));
@@ -100,13 +109,13 @@ export async function GET(request: NextRequest) {
       })).flat();
       const itemRows = (await mapExportBatches(idBatches, 4, async (batchIds) => {
         const first = await supabase.from("sales_order_items").select(
-          "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
+          "sales_order_id,line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
         ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(0, 999);
         if (first.error) throw first.error;
         const items = [...(first.data || [])];
         for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
           const next = await supabase.from("sales_order_items").select(
-            "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
+            "sales_order_id,line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
           ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(offset, offset + 999);
           if (next.error) throw next.error;
           items.push(...(next.data || []));

@@ -5,6 +5,7 @@ import {
   requirePermission,
 } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { summarizeStockProgress } from "@/lib/stock-progress";
 
 export async function GET(
   _: NextRequest,
@@ -42,7 +43,7 @@ export async function GET(
     if (stock.error) throw stock.error;
     if (quote.error) throw quote.error;
     const stockItems = stock.data ? await supabase.from("stock_order_items")
-      .select("quantity,received_quantity").eq("stock_order_id", stock.data.id) : null;
+      .select("quantity,received_quantity,preparation_status").eq("stock_order_id", stock.data.id) : null;
     if (stockItems?.error) throw stockItems.error;
     const receivingProgress = stockItems ? {
       total_items: stockItems.data?.length || 0,
@@ -55,10 +56,11 @@ export async function GET(
     return NextResponse.json({
       order: order.data,
       items: items.data || [],
-      stock_order: stock.data,
+      stock_order: stock.data ? { ...stock.data, progress: summarizeStockProgress(stock.data.status, stockItems?.data || []) } : null,
       receiving_progress: receivingProgress,
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
+      can_edit_customer_text: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status !== "CANCELLED",
       can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") && writable &&
         hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
         order.data.status === "DRAFT" && !stock.data,

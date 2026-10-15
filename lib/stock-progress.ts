@@ -33,5 +33,6 @@ export function summarizeStockProgress(
 }
 
 export function stockProgressLabel(progress: StockProgress) {
+  if (progress.status === "WAITING" && progress.percent > 0) return "部分备货中";
   return STOCK_STATUS_LABELS[progress.status as keyof typeof STOCK_STATUS_LABELS] || progress.status;
 }

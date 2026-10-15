@@ -21,7 +21,7 @@ export async function GET(
       supabase
         .from("sales_order_items")
         .select(
-          "line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
+          "line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
         )
         .eq("sales_order_id", id)
         .order("line_number"),
