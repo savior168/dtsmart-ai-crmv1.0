@@ -90,6 +90,7 @@ assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
 assert.match(piForm, /"序号", "产品类型 \*", "产品品牌 \*", "产品型号 \*", "产品质量 \*", "产品描述", "成本单价（人民币） \*", "销售单价（人民币） \*", "数量 \*", "销售金额（人民币）", "总利润（人民币）", "利润率", "理货要求", "仓库备注", "操作"/, "PI录入列头必须用准确中文并保留必填字段与金额利润列");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
+assert.match(piForm, /产品总利润率：[\s\S]*totals\.totalProfitCny \/ totals\.subtotalCny \* 100/, "整单利润率必须按产品利润除以产品销售额计算");
 assert.match(piForm, /const defaultValidity = \(\) => \{ const date = new Date\(\); date\.setDate\(date\.getDate\(\) \+ 5\)/, "新建PI有效期默认当前日期后5天");
 assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*客户单价待换算/, "人民币录入时必须清晰预览所选付款币种单价");
 assert.match(piForm, /客户金额待换算/, "人民币销售金额应清晰预览客户付款币种金额");

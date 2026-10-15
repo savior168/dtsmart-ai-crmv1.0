@@ -4,7 +4,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 import { STOCK_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
 import { buildStockWorkbook } from "@/lib/template-xlsx";
-import { buildWorkbookZip } from "@/lib/batch-xlsx-zip";
+import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
 import { summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
     }
     const ownerId = account.role === "WAREHOUSE" ? null : await requestedOwnerId(request, account, "stock.data_all");
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
-    const pageSize = Math.min(500, Math.max(10, Math.floor(Number(params.get("page_size") || 20) || 20)));
+    const requestedPageSize = Number(params.get("page_size") || 30);
+    const pageSize = [10, 30, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 30;
     const status = params.get("status")?.trim() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
     const sortBy = params.get("sort_by") || "updated_at";
@@ -46,66 +47,99 @@ export async function GET(request: NextRequest) {
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const from = (page - 1) * pageSize;
-    let query = supabase.from("stock_orders")
-      .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)", { count: "exact" })
-      .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
-      .order("id", { ascending: true }).range(exporting ? 0 : from, exporting ? 49 : from + pageSize - 1);
-    if (ownerId) query = query.eq("sales_user_id", ownerId);
-    if (status) query = query.eq("status", status);
-    if (country) query = query.in("destination_country", countryFilterRawValues([country]));
-    if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
-    if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
-    const q = params.get("q")?.replace(/[%_,()]/g, "").trim();
-    if (q) query = query.or(`stock_number.ilike.%${q}%,warehouse_reference_number.ilike.%${q}%,order_number.ilike.%${q}%,customer_short_name.ilike.%${q}%`);
-    const { data, error, count } = await query;
+    const makeQuery = (rangeStart: number, rangeEnd: number) => {
+      let query = supabase.from("stock_orders")
+        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)", { count: "exact" })
+        .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
+        .order("id", { ascending: true }).range(rangeStart, rangeEnd);
+      if (ownerId) query = query.eq("sales_user_id", ownerId);
+      if (status) query = query.eq("status", status);
+      if (country) query = query.in("destination_country", countryFilterRawValues([country]));
+      if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
+      if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
+      const q = params.get("q")?.replace(/[%_,()]/g, "").trim();
+      if (q) query = query.or(`stock_number.ilike.%${q}%,warehouse_reference_number.ilike.%${q}%,order_number.ilike.%${q}%,customer_short_name.ilike.%${q}%`);
+      return query;
+    };
+    const { data, error, count } = await makeQuery(exporting ? 0 : from, exporting ? 499 : from + pageSize - 1);
     if (error) throw error;
     if (exporting) {
       if (!count) throw new Error("当前筛选条件下没有可导出的备货单");
-      if (count > 50) throw new Error("一次最多导出50张备货单，请缩小筛选范围后重试");
-      const rows = data || [];
+      if (count > 65535) throw new Error("筛选结果超过ZIP格式的单包文件上限，请缩小筛选范围");
+      const rows = [...(data || [])];
+      for (let offset = rows.length; offset < count; offset += 500) {
+        const next = await makeQuery(offset, Math.min(offset + 499, count - 1));
+        if (next.error) throw next.error;
+        rows.push(...(next.data || []));
+      }
       if (rows.length !== count) throw new Error("筛选结果读取不完整，请重试");
+      if (new Set(rows.map((row) => row.id)).size !== count) throw new Error("导出期间备货单列表发生变更，请刷新后重试");
       if (rows.some((row) => ["DRAFT", "CANCELLED"].includes(row.status))) {
         throw new Error("筛选结果包含待完善、已撤回或已取消备货单，请先筛选可导出的状态");
       }
       const ids = rows.map((row) => row.id);
-      const [details, itemResult, shippedResult] = await Promise.all([
-        supabase.from("stock_orders").select(
-          "id,sales_order_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
-        ).in("id", ids),
-        supabase.from("stock_order_items").select(
-          "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,warehouse_supplier_code,preparation_requirement,internal_note",
-        ).in("stock_order_id", ids).order("line_number"),
-        supabase.from("stock_order_events").select("stock_order_id,created_at").in("stock_order_id", ids).eq("to_status", "SHIPPED").order("created_at", { ascending: false }),
-      ]);
-      if (details.error) throw details.error;
-      if (itemResult.error) throw itemResult.error;
-      if (shippedResult.error) throw shippedResult.error;
-      if ((details.data || []).length !== ids.length) throw new Error("部分备货单已无权查看，请刷新筛选结果");
-      const piNotes = await createAdminClient().from("sales_orders")
-        .select("id,confirmation_note").in("id", (details.data || []).map((item) => item.sales_order_id));
-      if (piNotes.error) throw piNotes.error;
-      const piNoteById = new Map((piNotes.data || []).map((item) => [item.id, item.confirmation_note]));
-      const detailById = new Map((details.data || []).map((item) => [item.id, item]));
-      const itemsByStockId = new Map<string, NonNullable<typeof itemResult.data>>();
-      for (const item of itemResult.data || []) {
+      const idBatches = Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, (index + 1) * 50));
+      const batches = await mapExportBatches(idBatches, 4, async (batchIds) => {
+        const [details, firstItems, firstShipped] = await Promise.all([
+          supabase.from("stock_orders").select(
+            "id,sales_order_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
+          ).in("id", batchIds),
+          supabase.from("stock_order_items").select(
+            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,warehouse_supplier_code,preparation_requirement,internal_note",
+          ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(0, 999),
+          supabase.from("stock_order_events").select("stock_order_id,created_at").in("stock_order_id", batchIds).eq("to_status", "SHIPPED").order("created_at", { ascending: false }).order("id").range(0, 999),
+        ]);
+        if (details.error) throw details.error;
+        if (firstItems.error) throw firstItems.error;
+        if (firstShipped.error) throw firstShipped.error;
+        const items = [...(firstItems.data || [])];
+        for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
+          const next = await supabase.from("stock_order_items").select(
+            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,warehouse_supplier_code,preparation_requirement,internal_note",
+          ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(offset, offset + 999);
+          if (next.error) throw next.error;
+          items.push(...(next.data || []));
+          if ((next.data || []).length < 1000) break;
+        }
+        const shipped = [...(firstShipped.data || [])];
+        for (let offset = shipped.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
+          const next = await supabase.from("stock_order_events").select("stock_order_id,created_at")
+            .in("stock_order_id", batchIds).eq("to_status", "SHIPPED")
+            .order("created_at", { ascending: false }).order("id").range(offset, offset + 999);
+          if (next.error) throw next.error;
+          shipped.push(...(next.data || []));
+          if ((next.data || []).length < 1000) break;
+        }
+        const piNotes = await createAdminClient().from("sales_orders")
+          .select("id,confirmation_note").in("id", (details.data || []).map((item) => item.sales_order_id));
+        if (piNotes.error) throw piNotes.error;
+        return { details: details.data || [], items, shipped, piNotes: piNotes.data || [] };
+      });
+      const details = batches.flatMap((batch) => batch.details);
+      if (details.length !== ids.length) throw new Error("部分备货单已无权查看，请刷新筛选结果");
+      const piNoteById = new Map(batches.flatMap((batch) => batch.piNotes).map((item) => [item.id, item.confirmation_note]));
+      const detailById = new Map(details.map((item) => [item.id, item]));
+      const itemsByStockId = new Map<string, typeof batches[number]["items"]>();
+      for (const item of batches.flatMap((batch) => batch.items)) {
         const list = itemsByStockId.get(item.stock_order_id) || [];
         list.push(item);
         itemsByStockId.set(item.stock_order_id, list);
       }
       const shippedByStockId = new Map<string, string>();
-      for (const event of shippedResult.data || []) {
+      for (const event of batches.flatMap((batch) => batch.shipped)) {
         if (!shippedByStockId.has(event.stock_order_id)) shippedByStockId.set(event.stock_order_id, event.created_at);
       }
-      const files = await Promise.all(rows.map(async (row) => {
+      const files: Array<{ name: string; data: ArrayBuffer | Uint8Array }> = [];
+      for (const row of rows) {
         const detail = detailById.get(row.id);
         const items = itemsByStockId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("备货数据已更新，请刷新筛选结果");
-        return { name: `${row.warehouse_reference_number || row.order_number}-备货单.xlsx`,
+        files.push({ name: `${row.warehouse_reference_number || row.order_number}-备货单.xlsx`,
           data: await buildStockWorkbook({ ...detail, order_change_note: piNoteById.get(detail.sales_order_id) || null,
-            shipped_at: shippedByStockId.get(row.id) || null } as never, items as never) };
-      }));
+            shipped_at: shippedByStockId.get(row.id) || null } as never, items as never) });
+      }
       const zip = buildWorkbookZip(files);
-      return new NextResponse(new Uint8Array(zip), { headers: {
+      return new NextResponse(streamZipBytes(zip), { headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": "attachment; filename*=UTF-8''stock-orders.zip",
         "Cache-Control": "private, no-store",

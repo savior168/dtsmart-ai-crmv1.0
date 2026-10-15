@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import XLSX from "xlsx";
 import { buildQuoteWorkbook, buildStockWorkbook } from "../lib/template-xlsx.ts";
+import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "../lib/batch-xlsx-zip.ts";
 
 const items = Array.from({ length: 12 }, (_, index) => ({
   item_name: `Screen ${index + 1}`,
@@ -63,6 +65,31 @@ function firstSheet(buffer) {
 function containsMedia(buffer) {
   const archive = XLSX.CFB.read(buffer, { type: "buffer" });
   return archive.FullPaths.some((entry) => entry.includes("/xl/media/"));
+}
+
+const manyFiles = Array.from({ length: 60 }, (_, index) => ({ name: `D${index + 1}-备货单.xlsx`, data: stockBuffer }));
+const archiveBytes = buildWorkbookZip(manyFiles);
+const streamedChunks = [];
+for await (const chunk of streamZipBytes(archiveBytes)) streamedChunks.push(chunk);
+const streamedArchive = Buffer.concat(streamedChunks.map((chunk) => Buffer.from(chunk)));
+assert.deepEqual(streamedArchive, archiveBytes, "分块响应不得截断ZIP内容");
+const archivedNames = [];
+for (let offset = 0; offset < streamedArchive.length && streamedArchive.readUInt32LE(offset) === 0x04034b50;) {
+  assert.equal(streamedArchive.readUInt16LE(offset + 6) & 0x0800, 0x0800, "ZIP文件名必须标记UTF-8编码");
+  const nameLength = streamedArchive.readUInt16LE(offset + 26);
+  const extraLength = streamedArchive.readUInt16LE(offset + 28);
+  archivedNames.push(streamedArchive.subarray(offset + 30, offset + 30 + nameLength).toString("utf8"));
+  offset += 30 + nameLength + extraLength + streamedArchive.readUInt32LE(offset + 18);
+}
+assert.deepEqual(archivedNames, manyFiles.map((file) => file.name), "批量导出必须完整包含超过一页的筛选结果且中文文件名正确");
+const bounded = await mapExportBatches(Array.from({ length: 12 }, (_, index) => index), 4, async (index) => index * 2);
+assert.deepEqual(bounded, Array.from({ length: 12 }, (_, index) => index * 2));
+for (const routePath of ["app/api/orders/route.ts", "app/api/stock-orders/route.ts"]) {
+  const route = readFileSync(routePath, "utf8");
+  assert.match(route, /for \(let offset = rows\.length; offset < count; offset \+= 500\)/, "筛选导出必须读取全部分页结果");
+  assert.match(route, /streamZipBytes\(zip\)/, "批量ZIP响应必须分块传输");
+  assert.match(route, /\[10, 30, 50, 100, 300, 500\]\.includes\(requestedPageSize\)/, "PI与备货列表必须统一每页选项");
+  assert.doesNotMatch(route, /count > 50\)|exporting \? 49\b/, "不得把批量导出固定限制为50张");
 }
 
 const quote = firstSheet(quoteBuffer);
