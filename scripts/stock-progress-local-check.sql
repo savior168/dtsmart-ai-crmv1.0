@@ -47,6 +47,21 @@ begin
   if (select status from public.sales_orders where id=result.sales_order_id)<>'SHIPPED' then raise exception 'PI status not synchronized'; end if;
 end $$;
 select 'stock progress local SQL checks passed' as result;
+do $$
+declare version timestamptz;
+begin
+  select updated_at into version from public.stock_orders
+    where id='00000000-0000-0000-0000-000000000201';
+  perform set_config('app.test_uid','00000000-0000-0000-0000-000000000002',false);
+  begin
+    perform public.record_stock_progress('00000000-0000-0000-0000-000000000201',
+      'SHIP','[]'::jsonb,version,'unauthorized attempt');
+    raise exception 'sales user was allowed to update warehouse progress';
+  exception when others then
+    if sqlerrm <> '无仓库备货更新权限' then raise; end if;
+  end;
+  perform set_config('app.test_uid','00000000-0000-0000-0000-000000000001',false);
+end$$;
 do $$begin
   begin
     perform public.save_stock_receiving_details('00000000-0000-0000-0000-000000000201','[]'::jsonb,now());
