@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
 import { parsePiOrderInput, requireOwnedPiCustomer } from "@/lib/pi-order-input";
-import { sqlErrorMessage } from "@/lib/sales-flow";
+import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
 
 type Context = { params: Promise<{ id: string }> };
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -49,6 +49,6 @@ export async function POST(request: NextRequest, context: Context) {
     return NextResponse.json({ data }, { status: 201 });
   } catch (error) {
     const message = sqlErrorMessage(error, "PI导入草稿转换失败");
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || (isPiOrderNumberConflict(error) ? 409 : 400) });
   }
 }

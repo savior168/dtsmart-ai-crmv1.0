@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import XLSX from "xlsx";
 import { buildQuoteWorkbook, buildStockWorkbook } from "../lib/template-xlsx.ts";
+import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "../lib/batch-xlsx-zip.ts";
 
 const items = Array.from({ length: 12 }, (_, index) => ({
   item_name: `Screen ${index + 1}`,
@@ -65,6 +67,31 @@ function containsMedia(buffer) {
   return archive.FullPaths.some((entry) => entry.includes("/xl/media/"));
 }
 
+const manyFiles = Array.from({ length: 60 }, (_, index) => ({ name: `D${index + 1}-备货单.xlsx`, data: stockBuffer }));
+const archiveBytes = buildWorkbookZip(manyFiles);
+const streamedChunks = [];
+for await (const chunk of streamZipBytes(archiveBytes)) streamedChunks.push(chunk);
+const streamedArchive = Buffer.concat(streamedChunks.map((chunk) => Buffer.from(chunk)));
+assert.deepEqual(streamedArchive, archiveBytes, "分块响应不得截断ZIP内容");
+const archivedNames = [];
+for (let offset = 0; offset < streamedArchive.length && streamedArchive.readUInt32LE(offset) === 0x04034b50;) {
+  assert.equal(streamedArchive.readUInt16LE(offset + 6) & 0x0800, 0x0800, "ZIP文件名必须标记UTF-8编码");
+  const nameLength = streamedArchive.readUInt16LE(offset + 26);
+  const extraLength = streamedArchive.readUInt16LE(offset + 28);
+  archivedNames.push(streamedArchive.subarray(offset + 30, offset + 30 + nameLength).toString("utf8"));
+  offset += 30 + nameLength + extraLength + streamedArchive.readUInt32LE(offset + 18);
+}
+assert.deepEqual(archivedNames, manyFiles.map((file) => file.name), "批量导出必须完整包含超过一页的筛选结果且中文文件名正确");
+const bounded = await mapExportBatches(Array.from({ length: 12 }, (_, index) => index), 4, async (index) => index * 2);
+assert.deepEqual(bounded, Array.from({ length: 12 }, (_, index) => index * 2));
+for (const routePath of ["app/api/orders/route.ts", "app/api/stock-orders/route.ts"]) {
+  const route = readFileSync(routePath, "utf8");
+  assert.match(route, /for \(let offset = rows\.length; offset < count; offset \+= 500\)/, "筛选导出必须读取全部分页结果");
+  assert.match(route, /streamZipBytes\(zip\)/, "批量ZIP响应必须分块传输");
+  assert.match(route, /\[10, 30, 50, 100, 300, 500\]\.includes\(requestedPageSize\)/, "PI与备货列表必须统一每页选项");
+  assert.doesNotMatch(route, /count > 50\)|exporting \? 49\b/, "不得把批量导出固定限制为50张");
+}
+
 const quote = firstSheet(quoteBuffer);
 assert.equal(quote.J2.v, "PI-TEST-001");
 assert.equal(quote.B19.v, "Screen 1");
@@ -82,13 +109,15 @@ const stock = firstSheet(stockBuffer);
 assert.equal(stock.G3.v, "ORDER-TEST-001");
 assert.equal(stock.K3.v, "德国", "目的国家须显示中文名称而非代码");
 assert.equal(stock.N3.v, "2026-10-13", "实际发货日须来自已发货事件");
-assert.match(stock.D9.v, /Tom.*\+49 123.*tom@example.com.*\nBerlin/, "收货信息须按模板的收件人与地址两行写入");
+assert.match(stock.D9.v, /姓名：Tom.*电话：\+49 123\n邮箱：tom@example.com\n地址：Berlin/, "收货信息须按姓名、电话、邮箱和地址分项显示");
 assert.match(stock.B9.v, /收件人.*详细收件地址/s, "不得覆盖下单表模板的固定标签");
 assert.match(stock.B4.v, /订单变更说明/, "不得用仓库状态备注覆盖订单变更说明栏");
 assert.equal(stock.C5.v, "Add 2 items");
 assert.equal(stock.C6.v, "Update delivery date");
 assert.equal(stock.C7.v, "New label");
-assert.match(stock.H4.v, /【理货要求】.*Pack/s, "理货要求须保留模板标题和布局");
+assert.match(stock.H4.v, /【理货要求】/, "理货要求须保留模板固定说明");
+assert.equal(stock.K4.v, "Pack", "实际理货要求须写入模板右侧内容区");
+assert.match(stock.N13.v, /理货要求：Label/, "逐项理货要求须清晰标注");
 assert.equal(stock.B8.v, "外箱唛头：", "不得清空模板固定标签");
 assert.equal(stock.C13.v, "屏幕");
 assert.match(stock.L13.v, /交付形态：单片屏.*显示技术细分：软 OLED/, "备货模板应带出保存时的品类规格快照");
@@ -102,7 +131,8 @@ assert.ok(stock.C13.s, "备货产品行样式必须保留");
 const stockTemplate = XLSX.readFile("assets/templates/Warehouse_Stock_Template.xlsx", { cellStyles: true }).Sheets["工作表1"];
 assert.deepEqual(stock["!merges"], stockTemplate["!merges"], "备货单须保留模板合并单元格");
 assert.deepEqual(stock["!cols"], stockTemplate["!cols"], "备货单须保留模板列宽");
-assert.deepEqual(stock["!rows"], stockTemplate["!rows"], "备货单须保留模板行高");
+assert.ok(stock["!rows"][8].hpt > stockTemplate["!rows"][8].hpt, "收件资料分项显示时须加高行距");
+assert.ok(stock["!rows"][12].hpt > stockTemplate["!rows"][12].hpt, "有逐项理货要求时须加高行距避免截断");
 
 await mkdir(".tmp", { recursive: true });
 await writeFile(".tmp/quote-template-regression.xlsx", quoteBuffer);

@@ -29,7 +29,7 @@ for (const path of [
   "app/api/orders/route.ts", "app/api/product-imports/route.ts", "app/api/products/route.ts",
   "app/api/quotes/route.ts", "app/api/stock-orders/route.ts",
 ]) {
-  assert.match(read(path), /(?:Math\.min\(\s*500,|exportMode \? 200 : 500)/, `${path} 必须允许普通列表每页读取500条`);
+  assert.match(read(path), /(?:Math\.min\(\s*500,|exportMode \? 200 : 500|\[10, 30, 50, 100, 300, 500\]\.includes\(requestedPageSize\))/, `${path} 必须允许普通列表每页读取500条`);
 }
 assert.match(read("components/admin-settings-panels.tsx"), /pageSize:String\(pageSize\)[\s\S]*pageSize=\{pageSize\} total=\{count\} itemLabel="个用户"/, "用户列表分页选项必须真实传给服务端");
 assert.match(read("components/customer-public-pool-view.tsx"), /const selectable = true[\s\S]*onChange=\{togglePage\}/, "有公海查看权限的用户均可跨页勾选客户");

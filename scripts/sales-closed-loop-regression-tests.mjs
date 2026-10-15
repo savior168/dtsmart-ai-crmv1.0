@@ -178,13 +178,13 @@ assert.match(quoteForm, /countryDisplayName[\s\S]*countryOpen[\s\S]*filteredCoun
 assert.match(quoteForm, /currencyOpen[\s\S]*filteredCurrencies[\s\S]*搜索代码或中文名称/, "报价币种必须使用自有组件按代码或中文名称搜索");
 assert.match(quoteForm, /PAYMENT_METHOD_OPTIONS[\s\S]*paymentOpen[\s\S]*也可直接输入客户约定的付款条款/, "付款方式必须使用自有组件提供真实外贸常用选项并允许按客户约定输入");
 assert.doesNotMatch(quoteForm, /<datalist|list="quote-/, "报价长选项不得使用浏览器原生datalist");
-assert.match(quoteForm, /min=\{key === "quantity" \? "1"[\s\S]*step=\{key === "quantity" \? "1"/, "产品数量必须使用正整数步进");
-assert.match(read("lib/sales-flow.ts"), /Number\.isInteger\(normalized\.quantity\)/, "后端必须拒绝非整数产品数量");
+assert.match(quoteForm, /integer=\{key === "quantity"\}[\s\S]*onValueChange=\{\(value\) => updateItem\(index, key, value\)\}/, "产品数量必须只接受整数输入");
+assert.match(read("lib/sales-flow.ts"), /Number\.isSafeInteger\(normalized\.quantity\)/, "后端必须拒绝非整数或超出安全范围的产品数量");
 assert.match(quoteForm, /清空明细[\s\S]*清空全部产品明细[\s\S]*clearItems\(\)/, "报价产品明细必须提供带二次确认的一键清空入口");
 assert.match(quoteForm, /function clearItems\(\) \{[\s\S]*?items: \[\]/, "清空产品明细不得留下无法删除的默认行");
 assert.doesNotMatch(quoteForm, /disabled=\{form\.items\.length === 1\}/, "最后一条产品明细必须可以删除");
 assert.match(quoteForm, /if \(!form\.items\.length\) \{\s*setMessage\("请至少添加一条产品明细"\)/, "空明细不得提交保存");
-assert.match(quoteForm, /value=\{item\[key\] === 0 \? "" : item\[key\]\}/, "零价格输入框必须允许清空显示");
+assert.match(quoteForm, /blankZero=\{key === "unit_price"\}/, "零价格输入框必须允许清空显示");
 assert.match(quoteForm, /记录已发送[\s\S]*系统不会自动发送[\s\S]*确认已实际发送给客户/, "报价发送状态入口必须明确仅记录外部发送事实，不能误导为系统自动发送");
 assert.doesNotMatch(quoteForm,/\["序号","产品","品牌","型号","质量","描述（客户）","中文质量\/描述（仓库）"/,"报价产品表不得混入仓库专用列");
 assert.match(quoteForm,/订单编号（必填）[\s\S]*确认并创建订单/,"客户确认时必须由销售员填写订单编号");

@@ -155,6 +155,41 @@ function finishTemplate(cfb: ReturnType<typeof XLSX.CFB.read>, entry: { content:
   return Buffer.from(XLSX.CFB.write(cfb, { fileType: "zip", type: "buffer" }) as Uint8Array);
 }
 
+function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>) {
+  const entry = XLSX.CFB.find(cfb, "/xl/styles.xml");
+  if (!entry?.content) throw new Error("备货模板缺少样式定义");
+  let xml = Buffer.from(entry.content).toString("utf8");
+  const fonts = xml.match(/<fonts count="(\d+)"[^>]*>([\s\S]*?)<\/fonts>/);
+  const cellXfs = xml.match(/<cellXfs count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
+  if (!fonts || !cellXfs) throw new Error("备货模板样式结构不完整");
+  const attentionFont = Number(fonts[1]);
+  xml = xml.replace(fonts[0], `<fonts count="${attentionFont + 1}">${fonts[2]}<font><b/><sz val="10"/><color rgb="FF9A3412"/><name val="微软雅黑"/></font></fonts>`);
+  const existing = [...cellXfs[2].matchAll(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g)].map((match) => match[0]);
+  if (existing.length !== Number(cellXfs[1]) || !existing[24] || !existing[31] || !existing[56]) throw new Error("备货模板基础样式已变更，请核对模板");
+  const clone = (source: number, attention: boolean) => {
+    let style = existing[source];
+    if (attention) style = style.replace(/fontId="\d+"/, `fontId="${attentionFont}"`).replace("<xf ", '<xf applyFont="1" ');
+    if (/<alignment\b/.test(style)) style = style.replace(/<alignment\b[^>]*\/>/, (alignment) => alignment.includes("wrapText=") ? alignment.replace(/wrapText="\d+"/, 'wrapText="1"') : alignment.replace("/>", ' wrapText="1"/>'));
+    else style = style.replace(/\/>$/, '><alignment vertical="center" wrapText="1"/></xf>');
+    return style;
+  };
+  const kStyle = existing.length;
+  const nStyle = kStyle + 1;
+  const contactStyle = nStyle + 1;
+  const additions = clone(24, true) + clone(56, true) + clone(31, false);
+  xml = xml.replace(cellXfs[0], `<cellXfs count="${existing.length + 3}">${cellXfs[2]}${additions}</cellXfs>`);
+  entry.content = Buffer.from(xml, "utf8");
+  return { kStyle, nStyle, contactStyle };
+}
+
+function withCellStyle(xml: string, reference: string, style: number) {
+  return xml.replace(new RegExp(`(<c\\b[^>]*\\br="${reference}"[^>]*\\bs=")\\d+("[^>]*>)`), `$1${style}$2`);
+}
+
+function withRowHeight(xml: string, row: number, height: number) {
+  return xml.replace(new RegExp(`(<row\\b[^>]*\\br="${row}"[^>]*\\bht=")([^"]+)(")`), `$1${height}$3`);
+}
+
 export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteItem[]) {
   const opened = await openTemplate(PI_TEMPLATE);
   const extra = Math.max(0, items.length - 9);
@@ -203,17 +238,20 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
+  const styles = stockTextStyles(opened.cfb);
   const changes = String(stock.order_change_note || "").split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:\d+[.、)]|[⑴⑵⑶])\s*/, "").trim()).filter(Boolean);
   const values: Array<[string, unknown]> = [
     ["B3", stock.salesperson?.name || stock.salesperson?.email || ""], ["E3", stock.created_at.slice(0, 10)],
     ["G3", stock.warehouse_reference_number || stock.order_number], ["H3", stock.customer_short_name], ["K3", /^[A-Z]{2}$/.test(stock.destination_country || "") ? new Intl.DisplayNames(["zh-CN"], { type: "region" }).of(stock.destination_country || "") || stock.destination_country : stock.destination_country || ""],
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
-    ["H4", `＊＊＊\n【理货要求】\n${stock.stocking_requirements || "常规理货"}`],
+    ["K4", stock.stocking_requirements?.trim() || "常规理货"],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
-    ["D9", [`${stock.delivery_recipient || ""}${stock.delivery_phone ? ` / ${stock.delivery_phone}` : ""}${stock.delivery_email ? ` / ${stock.delivery_email}` : ""}`, stock.delivery_address || ""].join("\n").trim()],
+    ["D9", [`姓名：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`].join("\n")],
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
+  xml = withCellStyle(withRowHeight(xml, 9, 57), "D9", styles.contactStyle);
+  if (stock.stocking_requirements?.trim() && stock.stocking_requirements.trim() !== "常规理货") xml = withCellStyle(xml, "K4", styles.kStyle);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
   xml = setCell(xml, "J11", "", "IF(COUNT(J13:J999)<COUNT(K13:K999),\"\",SUMPRODUCT(J13:J999,K13:K999))");
   for (let index = 0; index < Math.max(items.length, 9); index += 1) {
@@ -222,9 +260,13 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     const valuesForRow: Array<[string, unknown]> = item ? [
       [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || item.item_name || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
       [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, item.procurement_cost_confirmed ? Number(item.procurement_cost) : ""],
-      [`K${row}`, Number(item.quantity || 0)], [`L${row}`, [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；")], [`N${row}`, [`已回货：${item.received_quantity ?? 0}/${item.quantity}`,item.warehouse_supplier_code ? `供应商编码：${item.warehouse_supplier_code}` : "",item.preparation_requirement,item.internal_note].filter(Boolean).join("；")],
+      [`K${row}`, Number(item.quantity || 0)], [`L${row}`, [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；")], [`N${row}`, [`已回货：${item.received_quantity ?? 0}/${item.quantity}`,item.warehouse_supplier_code ? `供应商编码：${item.warehouse_supplier_code}` : "",item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "",item.internal_note ? `仓库备注：${item.internal_note}` : ""].filter(Boolean).join("；")],
     ] : [[`B${row}`, ""], [`C${row}`, ""], [`E${row}`, ""], [`F${row}`, ""], [`G${row}`, ""], [`H${row}`, ""], [`J${row}`, ""], [`K${row}`, ""], [`L${row}`, ""], [`N${row}`, ""]];
     for (const [cell, value] of valuesForRow) xml = setCell(xml, cell, value);
+    if (item && (item.preparation_requirement?.trim() || item.internal_note?.trim())) {
+      xml = withCellStyle(xml, `N${row}`, styles.nStyle);
+      xml = withRowHeight(xml, row, Math.min(75, Math.max(34, 24 + Math.ceil(((item.preparation_requirement || "") + (item.internal_note || "")).length / 35) * 13)));
+    }
   }
   return finishTemplate(opened.cfb, opened.entry, xml);
 }

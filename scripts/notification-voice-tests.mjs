@@ -5,11 +5,12 @@ assert.equal(notificationVoiceText({ type: "FOLLOWUP_DUE", content: "Call buyer"
 assert.equal(notificationVoiceText({ type: "FOLLOWUP_REQUIRED", content: "客户待跟进" }), null);
 assert.equal(notificationVoiceText({ type: "CUSTOMER_FOLLOWUP_STATUS", content: "待跟进" }), null);
 assert.equal(notificationVoiceText({ type: "UNKNOWN", content: "待处理" }), null);
-assert.equal(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为备货中" }), null);
-assert.equal(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为已回货" }), null);
-assert.equal(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为理货中" }), null);
+assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为备货中" }), /新进度/);
+assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为已回货" }), /新进度/);
+assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为理货中" }), /新进度/);
 assert.equal(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "订单已取消，备注中提到已发货" }), null);
-assert.equal(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "订单 D-1 的备货状态已更新为备货中：请问何时已发货？" }), null);
+assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "订单 D-1 的备货状态已更新为备货中：请问何时已发货？" }), /新进度/);
+assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "Jamie 更新订单 D60058756：第5项回货0→10；" }), /D60058756/);
 assert.match(notificationVoiceText({ type: "REGISTRATION_REVIEW" }), /账户审核/);
 assert.match(notificationVoiceText({ type: "STOCK_ORDER_CREATED", content: "PI订单 WH-001 已提交仓库" }), /WH-001/);
 assert.doesNotMatch(notificationVoiceText({ type: "STOCK_ORDER_CREATED", metadata: { order_number: "X@secret" } }), /secret/);

@@ -10,7 +10,7 @@ import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
 import { SALES_ORDER_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
 import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
-import { buildWorkbookZip } from "@/lib/batch-xlsx-zip";
+import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
 import { summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 
@@ -28,11 +28,15 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("orders.view");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
+    const selectedIds = params.getAll("id");
+    if (selectedIds.length && (!exporting || selectedIds.length > 50 ||
+      new Set(selectedIds).size !== selectedIds.length ||
+      selectedIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) {
+      throw new Error("所选PI订单无效；每次最多导出50张");
+    }
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
-    const pageSize = Math.min(
-      500,
-      Math.max(10, Math.floor(Number(params.get("page_size") || 20) || 20)),
-    );
+    const requestedPageSize = Number(params.get("page_size") || 30);
+    const pageSize = [10, 30, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 30;
     const status = params.get("status")?.trim() || "";
     const currency = params.get("currency")?.trim().toUpperCase() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
@@ -41,7 +45,7 @@ export async function GET(request: NextRequest) {
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";
-    if (status && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
+    if (status && status !== "ACTIVE" && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
     if (currency && !QUOTE_CURRENCY_CODES.has(currency)) throw new Error("付款币种无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (type && type !== "PI") throw new Error("订单类型无效");
@@ -51,55 +55,79 @@ export async function GET(request: NextRequest) {
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const ownerId = await requestedOwnerId(request, account, "orders.data_all");
-    let query = supabase
-      .from("sales_orders")
-      .select(
-        "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
-        { count: "exact" },
-      )
-      .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
-      .order("id", { ascending: true })
-      .range(exporting ? 0 : (page - 1) * pageSize, exporting ? 49 : page * pageSize - 1);
-    if (ownerId) query = query.eq("sales_user_id", ownerId);
-    if (status) query = query.eq("status", status);
-    if (currency) query = query.eq("currency", currency);
-    if (country) query = query.in("destination_country", countryFilterRawValues([country]));
-    if (type === "PI") query = query.eq("confirmation_method", "DIRECT_PI");
-    if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
-    if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
-    const q = params
-      .get("q")
-      ?.trim()
-      .replace(/[%_,()]/g, "");
-    if (q)
-      query = query.or(
+    const makeQuery = (rangeStart: number, rangeEnd: number) => {
+      let query = supabase
+        .from("sales_orders")
+        .select(
+          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
+          { count: "exact" },
+        )
+        .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
+        .order("id", { ascending: true })
+        .range(rangeStart, rangeEnd);
+      if (ownerId) query = query.eq("sales_user_id", ownerId);
+      if (selectedIds.length) query = query.in("id", selectedIds);
+      if (status === "ACTIVE") query = query.in("status", ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"]);
+      else if (status) query = query.eq("status", status);
+      if (currency) query = query.eq("currency", currency);
+      if (country) query = query.in("destination_country", countryFilterRawValues([country]));
+      if (type === "PI") query = query.eq("confirmation_method", "DIRECT_PI");
+      if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
+      if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
+      const q = params.get("q")?.trim().replace(/[%_,()]/g, "");
+      if (q) query = query.or(
         `warehouse_reference_number.ilike.%${q}%,order_number.ilike.%${q}%,quote_number.ilike.%${q}%,customer_short_name.ilike.%${q}%`,
       );
-    const { data, error, count } = await query;
+      return query;
+    };
+    const { data, error, count } = await makeQuery(exporting ? 0 : (page - 1) * pageSize,
+      exporting ? 499 : page * pageSize - 1);
     if (error) throw error;
-    const rows = data || [];
+    const rows = [...(data || [])];
     if (exporting) {
+      if (!selectedIds.length) throw new Error("请先勾选要导出的PI订单");
       if (!count) throw new Error("当前筛选条件下没有可导出的PI订单");
-      if (count > 50) throw new Error("一次最多导出50张PI，请缩小筛选范围后重试");
+      if (count !== selectedIds.length) throw new Error("部分所选PI已不在当前筛选结果或无权查看，请刷新后重新勾选");
+      if (count > 65535) throw new Error("筛选结果超过ZIP格式的单包文件上限，请缩小筛选范围");
+      for (let offset = rows.length; offset < count; offset += 500) {
+        const next = await makeQuery(offset, Math.min(offset + 499, count - 1));
+        if (next.error) throw next.error;
+        rows.push(...(next.data || []));
+      }
       if (rows.length !== count) throw new Error("筛选结果读取不完整，请重试");
+      if (new Set(rows.map((row) => row.id)).size !== count) throw new Error("导出期间订单列表发生变更，请刷新后重试");
       if (rows.some((row) => ["DRAFT", "CANCELLED"].includes(row.status))) {
         throw new Error("筛选结果包含PI草稿或已取消订单，请先筛选可导出的正式PI状态");
       }
       const ids = rows.map((row) => row.id);
-      const [details, itemResult] = await Promise.all([
-        supabase.from("sales_orders").select(
+      const idBatches = Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, (index + 1) * 50));
+      const details = (await mapExportBatches(idBatches, 4, async (batchIds) => {
+        const result = await supabase.from("sales_orders").select(
           "id,order_number,warehouse_reference_number,status,confirmation_method,currency,delivery_date,payment_method,customer_short_name,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,payment_account_snapshot,customer:customers(company_name)",
-        ).in("id", ids),
-        supabase.from("sales_order_items").select(
-          "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
-        ).in("sales_order_id", ids).order("line_number"),
-      ]);
-      if (details.error) throw details.error;
-      if (itemResult.error) throw itemResult.error;
-      if ((details.data || []).length !== ids.length) throw new Error("部分PI已无权查看，请刷新筛选结果");
-      const orderById = new Map((details.data || []).map((item) => [item.id, item]));
-      const itemsByOrderId = new Map<string, NonNullable<typeof itemResult.data>>();
-      for (const item of itemResult.data || []) {
+        ).in("id", batchIds);
+        if (result.error) throw result.error;
+        return result.data || [];
+      })).flat();
+      const itemRows = (await mapExportBatches(idBatches, 4, async (batchIds) => {
+        const first = await supabase.from("sales_order_items").select(
+          "sales_order_id,line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
+        ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(0, 999);
+        if (first.error) throw first.error;
+        const items = [...(first.data || [])];
+        for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
+          const next = await supabase.from("sales_order_items").select(
+            "sales_order_id,line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
+          ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(offset, offset + 999);
+          if (next.error) throw next.error;
+          items.push(...(next.data || []));
+          if ((next.data || []).length < 1000) break;
+        }
+        return items;
+      })).flat();
+      if (details.length !== ids.length) throw new Error("部分PI已无权查看，请刷新筛选结果");
+      const orderById = new Map(details.map((item) => [item.id, item]));
+      const itemsByOrderId = new Map<string, typeof itemRows>();
+      for (const item of itemRows) {
         const list = itemsByOrderId.get(item.sales_order_id) || [];
         list.push(item);
         itemsByOrderId.set(item.sales_order_id, list);
@@ -112,7 +140,7 @@ export async function GET(request: NextRequest) {
           data: buildDirectPiWorkbook({ ...detail, order_number: row.warehouse_reference_number || row.order_number } as never, items as never) };
       });
       const zip = buildWorkbookZip(files);
-      return new NextResponse(new Uint8Array(zip), { headers: {
+      return new NextResponse(streamZipBytes(zip), { headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": "attachment; filename*=UTF-8''PI-orders.zip",
         "Cache-Control": "private, no-store",

@@ -516,6 +516,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [canLoadNotices, loadNotices]);
   useEffect(() => {
+    if (!toastNotices.length) return;
+    // Dismissing a pop-up must not mark its notification as read.
+    const timer = window.setTimeout(() => setToastNotices([]), 8000);
+    return () => window.clearTimeout(timer);
+  }, [toastNotices]);
+  useEffect(() => {
     if (profile?.must_change_password) setModal("password");
   }, [profile?.must_change_password]);
   useEffect(() => {

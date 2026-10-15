@@ -19,12 +19,14 @@ function text(value: unknown, max = 1000) {
 
 function nonNegative(value: unknown) {
   const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) / 100 : -1;
+  const cents = Math.round(number * 100);
+  return Number.isFinite(number) && number >= 0 && number <= 999999999999.99
+    && Number.isSafeInteger(cents) && Math.abs(number * 100 - cents) < 1e-7 ? number : -1;
 }
 
 function positive(value: unknown) {
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? Math.round(number * 100) / 100 : 0;
+  return Number.isFinite(number) && number > 0 && number <= 100000000 ? number : 0;
 }
 
 export function normalizeQuoteItems(value: unknown): QuoteItem[] {
@@ -45,15 +47,17 @@ export function normalizeQuoteItems(value: unknown): QuoteItem[] {
       quantity: positive(item.quantity),
       unit_price: nonNegative(item.unit_price),
       procurement_cost: 0,
-      unit_cost_cny: nonNegative(item.unit_cost_cny) < 0 ? null : nonNegative(item.unit_cost_cny),
-      suggested_unit_price: nonNegative(item.suggested_unit_price) < 0 ? null : nonNegative(item.suggested_unit_price),
+      unit_cost_cny: item.unit_cost_cny == null || item.unit_cost_cny === "" ? null : nonNegative(item.unit_cost_cny),
+      suggested_unit_price: item.suggested_unit_price == null || item.suggested_unit_price === "" ? null : nonNegative(item.suggested_unit_price),
       exchange_rate_snapshot: positive(item.exchange_rate_snapshot) || null,
       pricing_rule_snapshot: item.pricing_rule_snapshot && typeof item.pricing_rule_snapshot === "object" ? item.pricing_rule_snapshot as Record<string, unknown> : null,
       preparation_requirement: null,
     };
     if (!normalized.item_name) throw new Error(`第 ${index + 1} 行缺少产品名称`);
-    if (normalized.quantity <= 0 || !Number.isInteger(normalized.quantity)) throw new Error(`第 ${index + 1} 行数量必须为大于0的整数`);
+    if (normalized.quantity <= 0 || !Number.isSafeInteger(normalized.quantity)) throw new Error(`第 ${index + 1} 行数量必须为大于0的安全整数`);
     if (normalized.unit_price < 0) throw new Error(`第 ${index + 1} 行销售单价不正确`);
+    if (item.unit_cost_cny != null && nonNegative(item.unit_cost_cny) < 0) throw new Error(`第 ${index + 1} 行成本单价不正确`);
+    if (item.suggested_unit_price != null && nonNegative(item.suggested_unit_price) < 0) throw new Error(`第 ${index + 1} 行建议单价不正确`);
     return normalized;
   });
   if (!rows.length) throw new Error("请至少添加一条产品明细");
@@ -92,7 +96,17 @@ export function cleanQuotePayload(body: Record<string, unknown>) {
 export function sqlErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "message" in error) {
     const message = String((error as { message?: unknown }).message || "");
+    if (isPiOrderNumberConflict(error)) return "订单编号已被其他订单使用，请核对后更换编号";
     if (message) return message.replace(/^.*?:\s*/, "");
   }
   return fallback;
+}
+
+export function isPiOrderNumberConflict(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const details = error as { code?: unknown; message?: unknown; details?: unknown };
+  return details.code === "23505" &&
+    /(?:sales_orders_(?:customer_order_number_unique|direct_pi_warehouse_reference_unique)|stock_orders_customer_order_number_unique)/.test(
+      `${String(details.message || "")} ${String(details.details || "")}`,
+    );
 }
