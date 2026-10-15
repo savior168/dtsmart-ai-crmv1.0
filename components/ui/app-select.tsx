@@ -36,6 +36,7 @@ export function AppSelect({
   id,
   title,
   forceSearch = false,
+  placeholderValue,
   "aria-label": ariaLabel,
 }: {
   value: string | number;
@@ -48,10 +49,12 @@ export function AppSelect({
   id?: string;
   title?: string;
   forceSearch?: boolean;
+  placeholderValue?: string;
   "aria-label"?: string;
 }) {
   const options = useMemo(() => collectOptions(children), [children]);
   const selectedValue = String(value ?? "");
+  const isPlaceholder = placeholderValue !== undefined && selectedValue === placeholderValue;
   const selected = options.find((option) => option.value === selectedValue);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -197,7 +200,7 @@ export function AppSelect({
           else if (event.key === "ArrowUp") move(-1);
         } else if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); }
       }}
-      className={`inline-flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 outline-none transition hover:border-blue-300 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${invalid ? "border-rose-400" : ""} ${className}`}
+      className={`inline-flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm outline-none transition hover:border-blue-300 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${isPlaceholder ? "text-slate-400" : "text-slate-700"} ${invalid ? "border-rose-400" : ""} ${className}`}
     ><span className="min-w-0 truncate">{selected?.label || options[0]?.label || "请选择"}</span><ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/></button>
     {typeof document !== "undefined" ? createPortal(popup, document.body) : null}
   </span>;

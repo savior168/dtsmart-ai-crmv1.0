@@ -16,7 +16,7 @@ type Payload = { data:QuoteRow[]; count:number; page:number; page_size:number; c
 export function QuotesView(){
   const router=useRouter();
   const [data,setData]=useState<Payload|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
-  const [q,setQ]=useState(""); const [status,setStatus]=useState(""); const [userId,setUserId]=useState(""); const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(30);
+  const [q,setQ]=useState(""); const [status,setStatus]=useState(""); const [userId,setUserId]=useState(""); const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(20);
   const load=useCallback(async()=>{setLoading(true);setError("");const params=new URLSearchParams({page:String(page),page_size:String(pageSize)});if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);if(userId)params.set("user_id",userId);const response=await fetch(`/api/quotes?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));setLoading(false);if(!response.ok){setError(body.error||"报价列表加载失败");return}setData(body)},[page,pageSize,q,status,userId]);
   useEffect(()=>{void load()},[load]);
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1660px]">

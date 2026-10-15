@@ -15,7 +15,7 @@ const labels:Record<Price["price_kind"],string>={PROCUREMENT:"采购成本",PACK
 
 export function ProductPricebookView(){
   const loadVersion=useRef(0);
-  const [data,setData]=useState<Payload|null>(null),[q,setQ]=useState(""),[kind,setKind]=useState(""),[history,setHistory]=useState("false"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(30),[loading,setLoading]=useState(true),[error,setError]=useState("");
+  const [data,setData]=useState<Payload|null>(null),[q,setQ]=useState(""),[kind,setKind]=useState(""),[history,setHistory]=useState("false"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(20),[loading,setLoading]=useState(true),[error,setError]=useState("");
   const [formError,setFormError]=useState("");
   const [productQuery,setProductQuery]=useState("");
   const [productSearching,setProductSearching]=useState(false);

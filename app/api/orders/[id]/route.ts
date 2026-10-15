@@ -60,7 +60,6 @@ export async function GET(
       receiving_progress: receivingProgress,
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
-      can_edit_customer_text: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status !== "CANCELLED",
       can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") && writable &&
         hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
         order.data.status === "DRAFT" && !stock.data,

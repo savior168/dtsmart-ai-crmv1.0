@@ -2,7 +2,6 @@ import XLSX, { type CellStyle } from "xlsx-js-style";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { customerEnglish } from "./pi-customer-text.ts";
 
 const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
@@ -76,9 +75,7 @@ type DirectPiItem = {
   brand: string | null;
   model: string | null;
   quality: string | null;
-  quality_en?: string | null;
   description: string | null;
-  description_en?: string | null;
   quantity: number;
   unit_price_cny: number;
   unit_price: number;
@@ -153,6 +150,7 @@ function moneyStyle(currency: string, highlighted = false): CellStyle {
   return {
     ...boxed,
     numFmt: formatMoney(currency),
+    alignment: { horizontal: "right", vertical: "center" },
     font: { name: "Arial", sz: 10, bold: true, color: { rgb: highlighted ? "E00000" : blue } },
     ...(highlighted ? { fill: { fgColor: { rgb: "FFFF00" } } } : {}),
   };
@@ -202,7 +200,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, "D4", `Address: ${order.seller_company_address || ""}`, { ...base, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
   set(sheet, "G4", "QUOTATION VALID:", boxed); merge(sheet, "G4:I5");
   set(sheet, "J4", validDays(issueDate, order.pi_valid_until), boxed); merge(sheet, "J4:K5");
-  set(sheet, "D6", `Web: ${order.seller_website || ""}`); merge(sheet, "D6:F6");
+  set(sheet, "D6", `Official Website: ${order.seller_website || ""}`); merge(sheet, "D6:F6");
   set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
   set(sheet, "J6", `${order.payment_method || ""} (${currency})`, boxed); merge(sheet, "J6:K7");
   set(sheet, "D7", `Sales Manager: ${order.seller_contact_name || ""}`); merge(sheet, "D7:F7");
@@ -228,13 +226,16 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     ["G", "Description", "G18:H18"], ["I", `Unit Price\n(${currency})`],
     ["J", "Quantity"], ["K", `Amount\n(${currency})`],
   ];
-  for (const [column, label, range] of headings) { set(sheet, `${column}18`, label, heading); if (range) merge(sheet, range); }
+  for (const [column, label, range] of headings) {
+    set(sheet, `${column}18`, label, column === "I" || column === "K" ? { ...heading, alignment: { horizontal: "right", vertical: "center", wrapText: true } } : heading);
+    if (range) merge(sheet, range);
+  }
   for (let index = 0; index < Math.max(9, items.length); index += 1) {
     const row = 19 + index;
     const item = items[index];
     const values: Array<[string, string | number]> = item ? [
       ["A", index + 1], ["B", item.item_name], ["D", item.brand || ""], ["E", item.model || ""],
-      ["F", customerEnglish(item.quality, item.quality_en, `第${item.line_number}行产品质量`)], ["G", customerEnglish(item.description, item.description_en, `第${item.line_number}行产品描述`)], ["I", Number(item.unit_price)], ["J", Number(item.quantity)],
+      ["F", item.quality || ""], ["G", item.description || ""], ["I", Number(item.unit_price)], ["J", Number(item.quantity)],
     ] : [["A", ""], ["B", ""], ["D", ""], ["E", ""], ["F", ""], ["G", ""], ["I", ""], ["J", ""]];
     for (const [column, value] of values) set(sheet, `${column}${row}`, value,
       column === "I" ? moneyStyle(currency) : boxed);

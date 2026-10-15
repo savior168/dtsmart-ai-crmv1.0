@@ -3,14 +3,14 @@ import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { parseCustomerPiWorkbook } from "@/lib/pi-document-import";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 
-const allowedSizes = new Set([10, 30, 50, 100, 300, 500]);
+const allowedSizes = new Set([10, 20, 50, 100, 300, 500]);
 
 export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("orders.import");
     const page = Math.max(1, Math.floor(Number(request.nextUrl.searchParams.get("page") || 1) || 1));
-    const requestedSize = Number(request.nextUrl.searchParams.get("page_size") || 30);
-    const size = allowedSizes.has(requestedSize) ? requestedSize : 30;
+    const requestedSize = Number(request.nextUrl.searchParams.get("page_size") || 20);
+    const size = allowedSizes.has(requestedSize) ? requestedSize : 20;
     const query = supabase.from("pi_import_drafts")
       .select("id,owner_id,source_file_name,source_sheet_name,source_order_number,revision,status,converted_order_id,created_at,updated_at", { count: "exact" })
       .eq("owner_id", account.id).order("created_at", { ascending: false }).range((page - 1) * size, page * size - 1);

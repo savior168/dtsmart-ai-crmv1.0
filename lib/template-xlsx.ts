@@ -71,7 +71,7 @@ function escapeXml(value: unknown) {
 
 function cellMarkup(reference: string, style: string, value: unknown, formula: string | undefined, prefix: string) {
   const attrs = `${style ? ` s="${style}"` : ""}`;
-  if (formula) return `<${prefix}c r="${reference}"${attrs}><${prefix}f>${escapeXml(formula)}</${prefix}f></${prefix}c>`;
+  if (formula) return `<${prefix}c r="${reference}"${attrs}><${prefix}f>${escapeXml(formula)}</${prefix}f>${typeof value === "number" && Number.isFinite(value) ? `<${prefix}v>${value}</${prefix}v>` : ""}</${prefix}c>`;
   if (typeof value === "number" && Number.isFinite(value)) return `<${prefix}c r="${reference}"${attrs} t="n"><${prefix}v>${value}</${prefix}v></${prefix}c>`;
   const text = escapeXml(value);
   return `<${prefix}c r="${reference}"${attrs} t="inlineStr"><${prefix}is><${prefix}t xml:space="preserve">${text}</${prefix}t></${prefix}is></${prefix}c>`;
@@ -159,16 +159,18 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>) {
   const entry = XLSX.CFB.find(cfb, "/xl/styles.xml");
   if (!entry?.content) throw new Error("备货模板缺少样式定义");
   let xml = Buffer.from(entry.content).toString("utf8");
+  xml = xml.replace('&quot;采购成本 ∑= &quot;', '&quot;总成本价（人民币）∑= &quot;');
   const fonts = xml.match(/<fonts count="(\d+)"[^>]*>([\s\S]*?)<\/fonts>/);
   const cellXfs = xml.match(/<cellXfs count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
   if (!fonts || !cellXfs) throw new Error("备货模板样式结构不完整");
   const attentionFont = Number(fonts[1]);
-  xml = xml.replace(fonts[0], `<fonts count="${attentionFont + 1}">${fonts[2]}<font><b/><sz val="10"/><color rgb="FF9A3412"/><name val="微软雅黑"/></font></fonts>`);
+  const itemNoteFont = attentionFont + 1;
+  xml = xml.replace(fonts[0], `<fonts count="${attentionFont + 2}">${fonts[2]}<font><b/><sz val="10"/><color rgb="FF9A3412"/><name val="微软雅黑"/></font><font><sz val="9"/><color rgb="FF986C47"/><name val="微软雅黑"/></font></fonts>`);
   const existing = [...cellXfs[2].matchAll(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g)].map((match) => match[0]);
   if (existing.length !== Number(cellXfs[1]) || !existing[24] || !existing[31] || !existing[56]) throw new Error("备货模板基础样式已变更，请核对模板");
-  const clone = (source: number, attention: boolean) => {
+  const clone = (source: number, fontId: number | null) => {
     let style = existing[source];
-    if (attention) style = style.replace(/fontId="\d+"/, `fontId="${attentionFont}"`).replace("<xf ", '<xf applyFont="1" ');
+    if (fontId !== null) style = style.replace(/fontId="\d+"/, `fontId="${fontId}"`).replace("<xf ", '<xf applyFont="1" ');
     if (/<alignment\b/.test(style)) style = style.replace(/<alignment\b[^>]*\/>/, (alignment) => alignment.includes("wrapText=") ? alignment.replace(/wrapText="\d+"/, 'wrapText="1"') : alignment.replace("/>", ' wrapText="1"/>'));
     else style = style.replace(/\/>$/, '><alignment vertical="center" wrapText="1"/></xf>');
     return style;
@@ -176,10 +178,11 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>) {
   const kStyle = existing.length;
   const nStyle = kStyle + 1;
   const contactStyle = nStyle + 1;
-  const additions = clone(24, true) + clone(56, true) + clone(31, false);
-  xml = xml.replace(cellXfs[0], `<cellXfs count="${existing.length + 3}">${cellXfs[2]}${additions}</cellXfs>`);
+  const descriptionStyle = contactStyle + 1;
+  const additions = clone(24, attentionFont) + clone(56, itemNoteFont) + clone(31, null) + clone(55, null);
+  xml = xml.replace(cellXfs[0], `<cellXfs count="${existing.length + 4}">${cellXfs[2]}${additions}</cellXfs>`);
   entry.content = Buffer.from(xml, "utf8");
-  return { kStyle, nStyle, contactStyle };
+  return { kStyle, nStyle, contactStyle, descriptionStyle };
 }
 
 function withCellStyle(xml: string, reference: string, style: number) {
@@ -253,19 +256,30 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   xml = withCellStyle(withRowHeight(xml, 9, 57), "D9", styles.contactStyle);
   if (stock.stocking_requirements?.trim() && stock.stocking_requirements.trim() !== "常规理货") xml = withCellStyle(xml, "K4", styles.kStyle);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
-  xml = setCell(xml, "J11", "", "IF(COUNT(J13:J999)<COUNT(K13:K999),\"\",SUMPRODUCT(J13:J999,K13:K999))");
+  for (const [cell, label] of [
+    ["G12", "产品质量"], ["H12", "产品描述"], ["J12", "成本单价（人民币）"],
+    ["K12", "数量"], ["N12", "理货要求／仓库备注"],
+  ] as const) xml = setCell(xml, cell, label);
+  const totalEstimatedCost = items.every((item) => typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny))
+    ? Math.round(items.reduce((sum, item) => sum + Number(item.estimated_unit_cost_cny) * Number(item.quantity || 0), 0) * 100) / 100
+    : "";
+  xml = setCell(xml, "J11", totalEstimatedCost, "IF(COUNT(J13:J999)<COUNT(K13:K999),\"\",SUMPRODUCT(J13:J999,K13:K999))");
   for (let index = 0; index < Math.max(items.length, 9); index += 1) {
     const row = 13 + index;
     const item = items[index];
+    const warehouseDescription = item ? [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；") : "";
+    const warehouseAttention = item ? [item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "", item.internal_note ? `仓库备注：${item.internal_note}` : ""].filter(Boolean).join("；") : "";
     const valuesForRow: Array<[string, unknown]> = item ? [
       [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || item.item_name || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
-      [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, item.procurement_cost_confirmed ? Number(item.procurement_cost) : ""],
-      [`K${row}`, Number(item.quantity || 0)], [`L${row}`, [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；")], [`N${row}`, [`已回货：${item.received_quantity ?? 0}/${item.quantity}`,item.warehouse_supplier_code ? `供应商编码：${item.warehouse_supplier_code}` : "",item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "",item.internal_note ? `仓库备注：${item.internal_note}` : ""].filter(Boolean).join("；")],
+      [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny) ? Number(item.estimated_unit_cost_cny) : ""],
+      [`K${row}`, Number(item.quantity || 0)], [`L${row}`, warehouseDescription], [`N${row}`, warehouseAttention],
     ] : [[`B${row}`, ""], [`C${row}`, ""], [`E${row}`, ""], [`F${row}`, ""], [`G${row}`, ""], [`H${row}`, ""], [`J${row}`, ""], [`K${row}`, ""], [`L${row}`, ""], [`N${row}`, ""]];
     for (const [cell, value] of valuesForRow) xml = setCell(xml, cell, value);
-    if (item && (item.preparation_requirement?.trim() || item.internal_note?.trim())) {
-      xml = withCellStyle(xml, `N${row}`, styles.nStyle);
-      xml = withRowHeight(xml, row, Math.min(75, Math.max(34, 24 + Math.ceil(((item.preparation_requirement || "") + (item.internal_note || "")).length / 35) * 13)));
+    if (item) {
+      if (warehouseDescription) xml = withCellStyle(xml, `L${row}`, styles.descriptionStyle);
+      if (warehouseAttention) xml = withCellStyle(xml, `N${row}`, styles.nStyle);
+      const lines = Math.max(Math.ceil(warehouseDescription.length / 28), Math.ceil(warehouseAttention.length / 34));
+      if (lines > 0) xml = withRowHeight(xml, row, Math.max(28, 18 + lines * 11));
     }
   }
   return finishTemplate(opened.cfb, opened.entry, xml);

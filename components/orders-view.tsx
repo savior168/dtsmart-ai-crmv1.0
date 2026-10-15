@@ -16,6 +16,7 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
+import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { StockProgress } from "@/lib/stock-progress";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
 const CURRENT_PI_STATUSES = ["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE"] as const;
@@ -64,7 +65,7 @@ export function OrdersView() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
+  const [pageSize, setPageSize] = useState(20);
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   async function exportSelected() {
@@ -213,7 +214,7 @@ export function OrdersView() {
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {k === "ACTIVE" ? "已提交仓库／备货中" : SALES_ORDER_STATUS_LABELS[k]}
+                {k === "ACTIVE" ? "已提交仓库（未发货）" : SALES_ORDER_STATUS_LABELS[k]}
               </option>
             ))}
           </AppSelect>
@@ -223,7 +224,7 @@ export function OrdersView() {
           <AppSelect value={currency} onChange={(e) => { setCurrency(e.target.value); setPage(1); }} className={appFieldClass} aria-label="按付款币种筛选" forceSearch>
             <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
           </AppSelect>
-          <label className="flex items-center gap-2 text-xs text-slate-500">创建日期<input aria-label="创建开始日期" type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={appFieldClass}/><span>至</span><input aria-label="创建结束日期" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={appFieldClass}/></label>
+          <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }}/>
           <UserScopeSelect permission="orders.data_all" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} custom/>
           <details className="relative text-sm">
             <summary className="flex h-10 cursor-pointer items-center rounded-lg border bg-white px-3 text-slate-600">{HISTORICAL_PI_STATUSES.includes(status as SalesOrderStatus) ? `历史/异常：${SALES_ORDER_STATUS_LABELS[status as SalesOrderStatus]}` : "历史/异常筛选"}</summary>
@@ -250,7 +251,7 @@ export function OrdersView() {
               setUserId("");
               setPage(1);
             }}
-            className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="h-10 shrink-0 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 xl:ml-auto"
           >
             重置
           </button>
@@ -268,19 +269,20 @@ export function OrdersView() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1250px] text-left text-sm">
+              <table className="w-full min-w-[1450px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
                   <tr>
                     {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || type !== "PI" || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
                     <SortHeader label="客户名称" column="customer_name"/>
-                    <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status"/>
                     <th className="px-4 py-3 font-medium">备货进度</th>
+                    <th className="px-4 py-3 font-medium">备货单号</th>
+                    <th className="px-4 py-3 font-medium">目的国家</th>
                     {canViewAll ? <th className="px-4 py-3 font-medium">归属人</th> : null}
-                    <SortHeader label="创建时间" column="created_at"/>
                     <SortHeader label="更新时间" column="updated_at"/>
+                    <SortHeader label="创建时间" column="created_at"/>
                     <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
                   </tr>
                 </thead>
@@ -297,23 +299,24 @@ export function OrdersView() {
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
                         </td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
-                        <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
-                        <td className="px-4 py-3 font-semibold text-blue-700">
+                        <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
                         <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.confirmation_method === "DIRECT_PI" && ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"].includes(row.status) ? "已提交仓库" : SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
-                          ? stock ? <><span className="text-amber-700">已撤回（历史）</span>{canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block text-xs font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()}>查看原备货记录</Link> : null}</> : <span className="text-slate-500">未提交</span>
-                          : stock ? <><StockProgressCell progress={stock.progress}/>{canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block text-xs font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()}>{stock.stock_number}</Link> : <small className="block text-slate-500">{stock.stock_number}</small>}</> : "—"}</td>
+                          ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
+                          : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
+                        <td className="px-4 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}>{stock.stock_number}</Link> : <span className="whitespace-nowrap text-slate-500">{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
+                        <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
                         {canViewAll ? (
                           <td className="px-4 py-3">
                             {row.owner?.name || row.owner?.email || "-"}
                           </td>
                         ) : null}
+                        <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           {new Date(row.created_at).toLocaleString("zh-CN")}
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
                         <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                           <div className="flex items-center gap-2">
                             <Link href={`/orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">查看详情</Link>

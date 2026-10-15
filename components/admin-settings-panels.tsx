@@ -33,7 +33,7 @@ export function UserManagementPanel() {
   const [supervisors,setSupervisors] = useState<SupervisorOption[]>([]);
   const [count,setCount] = useState(0);
   const [page,setPage] = useState(1);
-  const [pageSize,setPageSize] = useState(30);
+  const [pageSize,setPageSize] = useState(20);
   const [search,setSearch] = useState("");
   const [status,setStatus] = useState("");
   const [role,setRole] = useState("");

@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
     }
     const ownerId = account.role === "WAREHOUSE" ? null : await requestedOwnerId(request, account, "stock.data_all");
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
-    const requestedPageSize = Number(params.get("page_size") || 30);
-    const pageSize = [10, 30, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 30;
+    const requestedPageSize = Number(params.get("page_size") || 20);
+    const pageSize = [10, 20, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 20;
     const status = params.get("status")?.trim() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
     const sortBy = params.get("sort_by") || "updated_at";
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
       const batches = await mapExportBatches(idBatches, 4, async (batchIds) => {
         const [details, firstItems, firstShipped] = await Promise.all([
           supabase.from("stock_orders").select(
-            "id,sales_order_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
+            "id,sales_order_id,sales_user_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
           ).in("id", batchIds),
           supabase.from("stock_order_items").select(
             "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,warehouse_supplier_code,preparation_requirement,internal_note",
@@ -123,11 +123,16 @@ export async function GET(request: NextRequest) {
         const piNotes = await createAdminClient().from("sales_orders")
           .select("id,confirmation_note").in("id", (details.data || []).map((item) => item.sales_order_id));
         if (piNotes.error) throw piNotes.error;
-        return { details: details.data || [], items, shipped, piNotes: piNotes.data || [] };
+        const ownerIds = [...new Set((details.data || []).map((item) => item.sales_user_id).filter(Boolean))];
+        const salesOwners = ownerIds.length ? await createAdminClient().from("users")
+          .select("id,name,email").in("id", ownerIds) : { data: [], error: null };
+        if (salesOwners.error) throw salesOwners.error;
+        return { details: details.data || [], items, shipped, piNotes: piNotes.data || [], salesOwners: salesOwners.data || [] };
       });
       const details = batches.flatMap((batch) => batch.details);
       if (details.length !== ids.length) throw new Error("部分备货单已无权查看，请刷新筛选结果");
       const piNoteById = new Map(batches.flatMap((batch) => batch.piNotes).map((item) => [item.id, item.confirmation_note]));
+      const salesOwnerById = new Map(batches.flatMap((batch) => batch.salesOwners).map((item) => [item.id, item]));
       const detailById = new Map(details.map((item) => [item.id, item]));
       const itemsByStockId = new Map<string, typeof batches[number]["items"]>();
       for (const item of batches.flatMap((batch) => batch.items)) {
@@ -145,7 +150,8 @@ export async function GET(request: NextRequest) {
         const items = itemsByStockId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("备货数据已更新，请刷新筛选结果");
         files.push({ name: `${row.warehouse_reference_number || row.order_number}-备货单.xlsx`,
-          data: await buildStockWorkbook({ ...detail, order_change_note: piNoteById.get(detail.sales_order_id) || null,
+          data: await buildStockWorkbook({ ...detail, salesperson: detail.salesperson || salesOwnerById.get(detail.sales_user_id) || null,
+            order_change_note: piNoteById.get(detail.sales_order_id) || null,
             shipped_at: shippedByStockId.get(row.id) || null } as never, items as never) });
       }
       const zip = buildWorkbookZip(files);

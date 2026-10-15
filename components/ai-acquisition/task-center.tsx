@@ -68,7 +68,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [summaryError, setSummaryError] = useState(""),
     [pageUsageError, setPageUsageError] = useState(false),
     [page, setPage] = useState(1),
-    [pageSize, setPageSize] = useState(30),
+    [pageSize, setPageSize] = useState(20),
     [status, setStatus] = useState(""),
     [metric, setMetric] = useState<SummaryMetric>(""),
     [industries, setIndustries] = useState<string[]>([]),

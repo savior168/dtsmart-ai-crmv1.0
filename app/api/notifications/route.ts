@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
-    const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 30)));
+    const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 20)));
     const status = params.get("status") || (params.get("unread") === "true" ? "unread" : "active");
     const now = new Date().toISOString();
     let query = supabase.from("system_notifications").select(fields, { count: "exact" })
