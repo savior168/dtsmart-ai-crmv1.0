@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";
-    if (status && !(status in STOCK_STATUS_LABELS)) throw new Error("备货状态无效");
+    if (status && status !== "ACTIVE" && !(status in STOCK_STATUS_LABELS)) throw new Error("备货状态无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (!(sortBy in SORT_COLUMNS) || !["asc", "desc"].includes(sortDir)) throw new Error("排序参数无效");
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
@@ -60,7 +60,8 @@ export async function GET(request: NextRequest) {
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (selectedIds.length) query = query.in("id", selectedIds);
-      if (status) query = query.eq("status", status);
+      if (status === "ACTIVE") query = query.in("status", ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"]);
+      else if (status) query = query.eq("status", status);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);

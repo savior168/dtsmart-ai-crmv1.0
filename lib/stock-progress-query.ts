@@ -3,7 +3,7 @@ import "server-only";
 import type { createClient } from "@/lib/supabase/server";
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>;
-type ProgressItem = { stock_order_id: string; quantity: number; received_quantity: number | null; preparation_status: string | null };
+type ProgressItem = { stock_order_id: string; quantity: number; received_quantity: number | null; prepared_quantity: number; shipped_quantity: number };
 
 /** Read every line of the visible orders; PostgREST caps a single response. */
 export async function loadStockProgressItems(supabase: ServerSupabase, stockOrderIds: string[]) {
@@ -13,7 +13,7 @@ export async function loadStockProgressItems(supabase: ServerSupabase, stockOrde
     const ids = uniqueIds.slice(start, start + 100);
     for (let offset = 0; ; offset += 1000) {
       const { data, error } = await supabase.from("stock_order_items")
-        .select("stock_order_id,quantity,received_quantity,preparation_status")
+        .select("stock_order_id,quantity,received_quantity,prepared_quantity,shipped_quantity")
         .in("stock_order_id", ids)
         .order("stock_order_id")
         .order("line_number")

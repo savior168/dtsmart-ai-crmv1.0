@@ -43,6 +43,11 @@ export function UserManagementPanel() {
   const [permissionUser,setPermissionUser] = useState<UserRow|null>(null);
   const [createOpen,setCreateOpen] = useState(false);
   const [toast,setToast] = useState("");
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {

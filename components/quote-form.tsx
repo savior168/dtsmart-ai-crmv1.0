@@ -112,6 +112,33 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function ValidatedNumberInput({ value, onValueChange, onBlur, integer = false, blankZero = false, disabled, className }: {
+  value: number; onValueChange: (value: number) => void; integer?: boolean; blankZero?: boolean;
+  disabled?: boolean; className: string; onBlur?: () => void;
+}) {
+  const [draft, setDraft] = useState(value === 0 && blankZero ? "" : String(value));
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setDraft(value === 0 && blankZero ? "" : String(value));
+  }, [value, blankZero]);
+  return <input
+    disabled={disabled}
+    type="text"
+    inputMode={integer ? "numeric" : "decimal"}
+    value={draft}
+    onFocus={() => { focused.current = true; }}
+    onChange={(event) => {
+      const raw = event.target.value;
+      if (integer ? /^\d{0,8}$/.test(raw) : /^\d{0,12}(?:\.\d{0,2})?$/.test(raw) && Number(raw) <= 999999999999.99) {
+        setDraft(raw);
+        onValueChange(Number(raw || 0));
+      }
+    }}
+    onBlur={() => { focused.current = false; setDraft(value === 0 && blankZero ? "" : String(value)); onBlur?.(); }}
+    className={className}
+  />;
+}
+
 export function QuoteForm({
   quoteId,
   initialCustomerId = "",
@@ -728,17 +755,9 @@ export function QuoteForm({
               <div ref={paymentPickerRef} className="relative"><div className="relative"><input disabled={readonly} value={form.payment_method} onFocus={()=>setPaymentOpen(true)} onChange={event=>{setForm(current=>({...current,payment_method:event.target.value}));setPaymentOpen(true)}} onKeyDown={event=>{if(event.key==="Escape")setPaymentOpen(false)}} placeholder="选择常用方式或输入约定" className="h-10 w-full rounded-lg border px-3 pr-9 text-sm"/><button type="button" disabled={readonly} aria-label="展开付款方式" onClick={()=>setPaymentOpen(value=>!value)} className="absolute right-0 top-0 grid h-10 w-9 place-items-center text-slate-400"><ChevronDown size={16} className={`transition ${paymentOpen?"rotate-180":""}`}/></button></div>{paymentOpen?<div className="absolute right-0 top-[44px] z-50 w-full min-w-[300px] overflow-hidden rounded-lg border bg-white p-1 shadow-xl">{PAYMENT_METHOD_OPTIONS.filter(([value,label])=>!form.payment_method.trim()||`${value} ${label}`.toLocaleLowerCase().includes(form.payment_method.toLocaleLowerCase())).map(([value,label])=><button key={value} type="button" onClick={()=>{setForm(current=>({...current,payment_method:value}));setPaymentOpen(false)}} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-slate-50"><span>{value}</span><span className="shrink-0 text-slate-400">{label}</span></button>)}<p className="px-3 py-2 text-xs text-slate-400">也可直接输入客户约定的付款条款</p></div>:null}</div>
             </Field>
             <Field label="运费">
-              <input
-                disabled={readonly}
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.shipping_cost}
-                onChange={(e) =>
-                  setForm({ ...form, shipping_cost: Number(e.target.value) })
-                }
-                className="h-10 w-full rounded-lg border px-3 text-sm"
-              />
+              <ValidatedNumberInput disabled={readonly} value={form.shipping_cost}
+                onValueChange={(value) => setForm((current) => ({ ...current, shipping_cost: value }))}
+                className="h-10 w-full rounded-lg border px-3 text-sm" />
             </Field>
           </div>
           <div className="px-5 pb-5">
@@ -849,19 +868,11 @@ export function QuoteForm({
                       ))}
                       {(["quantity", "unit_price"] as const).map((key) => (
                         <td key={key} className="px-2 py-2">
-                          <input
-                            disabled={readonly}
-                            type="number"
-                            min={key === "quantity" ? "1" : "0"}
-                            step={key === "quantity" ? "1" : "0.01"}
-                            value={item[key] === 0 ? "" : item[key]}
-                            placeholder={key === "unit_price" ? "0.00" : undefined}
-                            onChange={(e) =>
-                              updateItem(index,key,key==="quantity"?Math.max(1,Math.round(Number(e.target.value)||1)):Number(e.target.value))
-                            }
-                            onBlur={()=>key==="quantity"?void refreshItemPricing(index,item):undefined}
-                            className="h-9 w-24 rounded border px-2 text-right"
-                          />
+                          <ValidatedNumberInput disabled={readonly} value={item[key]}
+                            integer={key === "quantity"} blankZero={key === "unit_price"}
+                            onValueChange={(value) => updateItem(index, key, value)}
+                            onBlur={key === "quantity" ? () => { void refreshItemPricing(index, item); } : undefined}
+                            className="h-9 w-24 rounded border px-2 text-right" />
                         </td>
                       ))}
                       <td className="whitespace-nowrap px-2 py-2 font-medium">

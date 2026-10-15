@@ -9,7 +9,7 @@ import { AppStatusBadge } from "@/components/ui/app-list";
 import { CountryLabel } from "@/components/country-label";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
+import type { StockProgress } from "@/lib/stock-progress";
 import { containsChinese, needsCustomerEnglishReview, suggestCustomerEnglish } from "@/lib/pi-customer-text";
 type Payload = {
   order: {
@@ -209,7 +209,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
               <p className="mt-1 text-sm text-slate-500">{directPi ? "客户订单编号" : "报价编号"}：<span className="font-semibold text-slate-800">{directPi ? o.warehouse_reference_number : o.quote_number}</span> · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
             </div>
-            <AppStatusBadge status={o.status}>{directPi && o.status === "WAITING_STOCK" && data.stock_order?.progress.percent ? stockProgressLabel(data.stock_order.progress) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
+            <AppStatusBadge status={o.status}>{directPi && ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"].includes(o.status) ? "已提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>
           {error ? (
             <p className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">

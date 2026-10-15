@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
-import { sqlErrorMessage } from "@/lib/sales-flow";
+import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
 import { parsePiOrderInput, requireOwnedPiCustomer } from "@/lib/pi-order-input";
 
 export async function POST(request: NextRequest) {
@@ -15,6 +15,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data }, { status: 201 });
   } catch (error) {
     const message = sqlErrorMessage(error, "PI订单创建失败");
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || (isPiOrderNumberConflict(error) ? 409 : 400) });
   }
 }

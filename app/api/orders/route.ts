@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";
-    if (status && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
+    if (status && status !== "ACTIVE" && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
     if (currency && !QUOTE_CURRENCY_CODES.has(currency)) throw new Error("付款币种无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (type && type !== "PI") throw new Error("订单类型无效");
@@ -67,7 +67,8 @@ export async function GET(request: NextRequest) {
         .range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (selectedIds.length) query = query.in("id", selectedIds);
-      if (status) query = query.eq("status", status);
+      if (status === "ACTIVE") query = query.in("status", ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"]);
+      else if (status) query = query.eq("status", status);
       if (currency) query = query.eq("currency", currency);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
       if (type === "PI") query = query.eq("confirmation_method", "DIRECT_PI");

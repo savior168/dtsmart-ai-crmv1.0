@@ -8,6 +8,7 @@ import { customerEnglish, needsCustomerEnglishReview, suggestCustomerEnglish } f
 
 const read = (path) => readFileSync(path, "utf8");
 const migration = read("supabase/migrations/20261013090000_stock_receiving_workflow.sql");
+const quantityMigration = read("supabase/migrations/20261015180000_stock_quantity_progress.sql");
 const piMigration = read("supabase/migrations/20261013074814_pi_order_direct_creation.sql");
 const detail = read("app/api/stock-orders/[id]/route.ts");
 const exportRoute = read("app/api/stock-orders/[id]/export/route.ts");
@@ -21,6 +22,9 @@ const customerPiRoute = read("app/api/orders/[id]/export/route.ts");
 const piForm = read("components/pi-order-form.tsx");
 const statusRoute = read("app/api/stock-orders/[id]/status/route.ts");
 const stockView = read("components/stock-order-detail-view.tsx");
+assert.match(stockView, /function readableEventNote[\s\S]*READY_TO_SHIP[\s\S]*eventStageLabels\[status\]/, "历史状态流水必须把英文枚举显示为中文");
+assert.match(stockView, /操作人：[\s\S]*event\.creator\?\.name[\s\S]*历史系统记录/, "历史流水必须展示操作人且兼容旧系统记录");
+assert.match(quantityMigration, /累计回货%s→%s\/%s件[\s\S]*累计理货完成%s→%s\/%s件/, "新的流水必须记录逐项数量前后值和订购数");
 const orderListApi = read("app/api/orders/route.ts");
 const createPiApi = read("app/api/orders/create-pi/route.ts");
 const paymentAccountsApi = read("app/api/pi-payment-accounts/route.ts");
@@ -120,18 +124,14 @@ assert.match(piForm, /PI有效期[\s\S]*客户及收货信息[\s\S]*PI产品明�
 for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /unit_price|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润");
   assert.match(source, /estimated_unit_cost_cny,procurement_cost/, "仓库仅读取预估及实际成本");
-  assert.match(source, /received_quantity,warehouse_supplier_code/, "仓库回货和供应商编码应可查看");
+  assert.match(source, /received_quantity[,a-z_]*warehouse_supplier_code/, "仓库回货和供应商编码应可查看");
 }
-assert.match(receiving, /requirePermission\("stock\.update"\)/, "回货更新必须验证仓库权限");
-assert.match(receiving, /Number\.isSafeInteger\(received\)/, "回货数量必须为安全整数");
-assert.match(migration, /received_quantity >= 0 and received_quantity <= quantity/, "数据库必须限制回货不超订购数");
-assert.match(migration, /actor\.role not in \('WAREHOUSE','ADMIN'\)[\s\S]*current_user_has_business_permission\('stock\.update'\)/, "数据库必须限制回货和状态角色");
-assert.match(migration, /previous='PREPARING' and p_status in \('RECEIVED'/, "仅备货中可转已回货");
-assert.match(migration, /previous='RECEIVED' and p_status in \('SORTING'/, "已回货才可理货");
-assert.match(migration, /previous='SORTING' and p_status in \('READY_TO_SHIP'/, "理货完成才可待出货");
-assert.match(migration, /previous='READY_TO_SHIP' and p_status in \('SHIPPED'/, "交给承运商后方可标记发货");
-assert.match(migration, /received_quantity<>quantity[\s\S]*所有产品回货数量达到订购数量/, "未全数回货不得宣称已回货");
-assert.match(migration, /p_status in \('SHORTAGE','CANCELLED','READY_TO_SHIP','SHIPPED'\)[\s\S]*p_note/, "理货打包完成和发货须有交接记录");
+assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /requirePermission\("stock\.update"\)/, "实物进度更新必须验证仓库权限");
+assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /Number\.isSafeInteger\(change\.quantity\)/, "实物数量必须为安全整数");
+assert.match(quantityMigration, /shipped_quantity <= prepared_quantity[\s\S]*prepared_quantity <= received_quantity[\s\S]*received_quantity <= quantity/, "数据库必须保持发货、理货、回货和订购数的顺序");
+assert.match(quantityMigration, /actor\.role not in \('WAREHOUSE','ADMIN'\)[\s\S]*current_user_has_business_permission\('stock\.update'\)/, "数据库必须限制实物进度角色");
+assert.match(quantityMigration, /p_action = 'SHIP'[\s\S]*received_quantity <> i\.quantity or i\.prepared_quantity <> i\.quantity/, "未回齐并理货完成不得整单发货");
+assert.match(quantityMigration, /revoke all on function public\.update_stock_item_stages[\s\S]*authenticated/, "旧单项状态接口必须被撤销避免绕开数量口径");
 assert.match(order, /received_items[\s\S]*received_units/, "销售订单应展示累计回货进度");
 assert.doesNotMatch(order.match(/const receivingProgress =[\s\S]*?} : null;/)?.[0] || "", /warehouse_supplier_code|procurement_cost/, "销售进度摘要不得夹带供应商或成本数据");
 assert.doesNotMatch(customerPi, /createWorkbookFile/, "客户PI必须使用专用版式，不能退回通用表格导出");
@@ -146,10 +146,9 @@ assert.match(exportRoute, /stock_order_events[\s\S]*?to_status", "SHIPPED"/, "�
 assert.match(piMigration, /select p\.phone from public\.profiles p where p\.id=actor\.id/, "销售联系电话应从已有用户资料读取，不得假设users表有phone列");
 assert.doesNotMatch(customerPiRoute, /users!sales_orders_sales_user_id_fkey\(name,email,phone\)/, "PI导出不得查询users表不存在的phone列");
 assert.match(migration, /create table public\.stock_order_expenses[\s\S]*?enable row level security/, "整单费用必须独立存储并启用RLS");
-assert.match(migration, /p_status='SHIPPED'[\s\S]*?p_packaging_cost_cny is null[\s\S]*?p_procurement_expenses_cny is null[\s\S]*?p_shipping_expenses_cny is null/, "已发货必须在数据库层校验三项费用");
-assert.match(statusRoute, /status === "SHIPPED"[\s\S]*?p_packaging_cost_cny/, "只有已发货时提交整单费用");
-assert.match(stockView, /status === "SHIPPED"[\s\S]*?packagingExpense/, "仓库已发货时应显示费用输入");
-assert.match(stockView, /STOCK_PROGRESS_STAGES: StockOrderStatus\[\] = \["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"\]/, "仓库详情须完整展示五个常规备货状态");
+assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','SHIP'\)/, "常规进度只允许采购、回货、理货和整单发货动作");
+assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
+assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
 assert.doesNotMatch(stockView, /未维护类型|实际采购单价（CNY）|保存采购核价/, "仓库明细暂不显示空类型占位或实际采购价入口");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");

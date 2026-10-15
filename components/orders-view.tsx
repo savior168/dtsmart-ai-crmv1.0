@@ -16,10 +16,10 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
+import type { StockProgress } from "@/lib/stock-progress";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
-const CURRENT_PI_STATUSES: SalesOrderStatus[] = ["DRAFT", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"];
-const HISTORICAL_PI_STATUSES: SalesOrderStatus[] = ["CONFIRMED", "STOCK_DRAFT", "READY", "SHORTAGE", "CANCELLED"];
+const CURRENT_PI_STATUSES = ["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE"] as const;
+const HISTORICAL_PI_STATUSES: SalesOrderStatus[] = ["CONFIRMED", "STOCK_DRAFT", "READY", "CANCELLED"];
 type Row = {
   id: string;
   order_number: string;
@@ -205,7 +205,7 @@ export function OrdersView() {
             />
           </label>
           <AppSelect
-            value={CURRENT_PI_STATUSES.includes(status as SalesOrderStatus) ? status : ""}
+            value={CURRENT_PI_STATUSES.includes(status as typeof CURRENT_PI_STATUSES[number]) ? status : ""}
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
             className={appFieldClass}
             aria-label="按订单状态筛选"
@@ -213,7 +213,7 @@ export function OrdersView() {
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {k === "WAITING_STOCK" ? "待备货／部分备货中" : SALES_ORDER_STATUS_LABELS[k]}
+                {k === "ACTIVE" ? "已提交仓库／备货中" : SALES_ORDER_STATUS_LABELS[k]}
               </option>
             ))}
           </AppSelect>
@@ -301,7 +301,7 @@ export function OrdersView() {
                         <td className="px-4 py-3 font-semibold text-blue-700">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.confirmation_method === "DIRECT_PI" && row.status === "WAITING_STOCK" && stock?.progress && stock.progress.percent > 0 ? stockProgressLabel(stock.progress) : SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
+                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.confirmation_method === "DIRECT_PI" && ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"].includes(row.status) ? "已提交仓库" : SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? stock ? <><span className="text-amber-700">已撤回（历史）</span>{canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block text-xs font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()}>查看原备货记录</Link> : null}</> : <span className="text-slate-500">未提交</span>
                           : stock ? <><StockProgressCell progress={stock.progress}/>{canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block text-xs font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()}>{stock.stock_number}</Link> : <small className="block text-slate-500">{stock.stock_number}</small>}</> : "—"}</td>

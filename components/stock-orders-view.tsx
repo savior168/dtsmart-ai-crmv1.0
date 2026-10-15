@@ -19,8 +19,8 @@ import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
 
 type Row = { id:string; sales_order_id:string; stock_number:string; order_number:string; warehouse_reference_number:string|null; customer_short_name:string; destination_country:string|null; status:StockOrderStatus; progress:StockProgress; status_note:string|null; stocking_requirements:string|null; expected_ready_at:string|null; created_at:string; updated_at:string; sales?:{name?:string|null;email?:string}|null };
 type Payload = { data:Row[]; count:number; profile:{role:string}; can_view_all:boolean; can_view_pi:boolean; can_export:boolean };
-const CURRENT_STOCK_STATUSES: StockOrderStatus[] = ["DRAFT", "WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"];
-const EXCEPTION_STOCK_STATUSES: StockOrderStatus[] = ["READY", "SHORTAGE", "CANCELLED"];
+const CURRENT_STOCK_STATUSES = ["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE"] as const;
+const EXCEPTION_STOCK_STATUSES: StockOrderStatus[] = ["READY", "CANCELLED"];
 
 export function StockOrdersView() {
   const router=useRouter();
@@ -83,7 +83,7 @@ export function StockOrdersView() {
     <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><p className="mt-1 text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p></header>
     <AppFilterBar>
       <label className="relative min-w-[260px] flex-1 xl:min-w-[360px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索订单编号、备货单号或客户名称" className={`${appFieldClass} w-full pl-9`}/></label>
-      <AppSelect value={CURRENT_STOCK_STATUSES.includes(status as StockOrderStatus) ? status : ""} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{CURRENT_STOCK_STATUSES.map(key=><option key={key} value={key}>{key==="WAITING"?"待备货／部分备货中":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
+      <AppSelect value={CURRENT_STOCK_STATUSES.includes(status as typeof CURRENT_STOCK_STATUSES[number]) ? status : ""} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货单</option>{CURRENT_STOCK_STATUSES.map(key=><option key={key} value={key}>{key==="ACTIVE"?"执行中（查看件数进度）":key==="WAITING"?"待仓库开始":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
       <AppSelect value={country} onChange={e=>{setCountry(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按目的国家筛选" forceSearch><option value="">全部目的国家</option>{COUNTRY_OPTIONS.map(option=><option key={option.code} value={option.code}>{option.name}</option>)}</AppSelect>
       {data?.profile.role!=="WAREHOUSE"?<UserScopeSelect permission="stock.data_all" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} custom/>:null}
       <label className="flex items-center gap-2 text-xs text-slate-500">创建日期<input aria-label="备货单创建开始日期" type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>{setDateFrom(e.target.value);setPage(1)}} className={appFieldClass}/><span>至</span><input aria-label="备货单创建结束日期" type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>{setDateTo(e.target.value);setPage(1)}} className={appFieldClass}/></label>
@@ -112,7 +112,7 @@ export function StockOrdersView() {
             {data?.can_export?<td className="px-3 py-3"><input type="checkbox" aria-label={`选择备货单 ${row.warehouse_reference_number||row.stock_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id)||(selectedIds.length>=50&&!selectedIds.includes(row.id))} onChange={()=>toggleSelection(row.id)} className="size-4 accent-blue-600"/></td>:null}
             <td className="px-4 py-3 font-semibold">{data?.can_view_pi?<Link href={`/orders/${row.sales_order_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.warehouse_reference_number || row.order_number}</Link>:row.warehouse_reference_number || row.order_number}</td>
             <td className="max-w-52 px-4 py-3" title={row.customer_short_name}>{row.customer_short_name}</td>
-            <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":stockProgressLabel(row.progress)}</AppStatusBadge></td>
+            <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":row.status==="WAITING"?"待仓库开始":["PREPARING","RECEIVED","SORTING","READY_TO_SHIP"].includes(row.status)?"执行中":stockProgressLabel(row.progress)}</AppStatusBadge></td>
             <td className="px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
             <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
             <td className="px-4 py-3 text-blue-700">{row.stock_number}</td>

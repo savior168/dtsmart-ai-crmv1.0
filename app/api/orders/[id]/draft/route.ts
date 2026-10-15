@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { parsePiOrderInput } from "@/lib/pi-order-input";
-import { sqlErrorMessage } from "@/lib/sales-flow";
+import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -21,6 +21,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ data });
   } catch (error) {
     const message = sqlErrorMessage(error, "PI草稿保存失败");
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
+    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || (isPiOrderNumberConflict(error) ? 409 : 400) });
   }
 }
