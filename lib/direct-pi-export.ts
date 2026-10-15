@@ -1,4 +1,36 @@
 import XLSX, { type CellStyle } from "xlsx-js-style";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+
+const nodeRequire = createRequire(import.meta.url);
+const Zip = nodeRequire("xlsx") as typeof import("xlsx");
+
+/** Preserve the supplied corporate logo and its original position in the PI template. */
+function addPiLogo(workbook: Uint8Array): Buffer {
+  const template = Zip.CFB.read(readFileSync(path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx")), { type: "buffer" });
+  const output = Zip.CFB.read(Buffer.from(workbook), { type: "buffer" });
+  for (const part of ["/xl/drawings/drawing1.xml", "/xl/drawings/_rels/drawing1.xml.rels", "/xl/media/image.png", "/xl/worksheets/_rels/sheet1.xml.rels"]) {
+    const original = Zip.CFB.find(template, part);
+    if (!original?.content) throw new Error(`PI模板缺少品牌图像部件 ${part}`);
+    Zip.CFB.utils.cfb_add(output, part, Buffer.from(original.content));
+  }
+  const worksheet = Zip.CFB.find(output, "/xl/worksheets/sheet1.xml");
+  const contentTypes = Zip.CFB.find(output, "/[Content_Types].xml");
+  if (!worksheet?.content || !contentTypes?.content) throw new Error("PI工作簿结构不完整");
+  let xml = Buffer.from(worksheet.content).toString("utf8");
+  if (/<(?:\w+:)?drawing\b/.test(xml)) throw new Error("PI工作簿已包含图像，不能重复插入");
+  const originalSheet = Zip.CFB.find(template, "/xl/worksheets/sheet1.xml");
+  const drawing = originalSheet?.content ? Buffer.from(originalSheet.content).toString("utf8").match(/<x:drawing\b[^>]*\/>/)?.[0] : null;
+  if (!drawing) throw new Error("PI模板缺少品牌图像位置");
+  xml = xml.replace(/<\/worksheet>$/, `${drawing}</worksheet>`);
+  worksheet.content = Buffer.from(xml, "utf8");
+  let types = Buffer.from(contentTypes.content).toString("utf8");
+  if (!/Extension="png"/.test(types)) types = types.replace("</Types>", '<Default Extension="png" ContentType="image/png"/></Types>');
+  if (!/PartName="\/xl\/drawings\/drawing1.xml"/.test(types)) types = types.replace("</Types>", '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>');
+  contentTypes.content = Buffer.from(types, "utf8");
+  return Buffer.from(Zip.CFB.write(output, { fileType: "zip", type: "buffer" }) as Uint8Array);
+}
 
 type DirectPiOrder = {
   order_number: string;
@@ -125,8 +157,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, "G4", "QUOTATION VALID:", boxed); merge(sheet, "G4:I5");
   set(sheet, "J4", validDays(issueDate, order.pi_valid_until), boxed); merge(sheet, "J4:K5");
   set(sheet, "D6", `Web: ${order.seller_website || ""}`); merge(sheet, "D6:F6");
-  set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
-  set(sheet, "J6", order.payment_method || currency, boxed); merge(sheet, "J6:K7");
+  set(sheet, "G6", `PAYMENT / METHOD:\n(${currency})`, boxed); merge(sheet, "G6:I7");
+  set(sheet, "J6", order.payment_method || "", boxed); merge(sheet, "J6:K7");
   set(sheet, "D7", `Sales Manager: ${order.seller_contact_name || ""}`); merge(sheet, "D7:F7");
   set(sheet, "D8", `Contact No: ${order.seller_contact_phone || ""}`); merge(sheet, "D8:F8");
   set(sheet, "G8", "DELIVERY DATE:", boxed); merge(sheet, "G8:I9");
@@ -138,8 +170,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     [15, "Company:", order.customer?.company_name || order.customer_short_name], [16, "Email:", order.delivery_email || ""],
   ];
   for (const [row, label, value] of delivery) {
-    set(sheet, `A${row}`, label); merge(sheet, `A${row}:C${row}`);
-    set(sheet, `D${row}`, value); merge(sheet, `D${row}:F${row}`);
+    set(sheet, `A${row}`, `${label} ${value}`.trim(), { ...base, alignment: { vertical: "center", wrapText: true } });
+    merge(sheet, `A${row}:F${row}`);
   }
   set(sheet, "G13", `Delivery address: ${order.delivery_address || ""}`, { ...base, alignment: { wrapText: true, vertical: "center" } }); merge(sheet, "G13:K16");
   set(sheet, "F17", "Thanks your business!", { ...center, font: { name: "Arial", sz: 15, bold: true, italic: true, color: { rgb: "0070C0" } } }); merge(sheet, "F17:H17");
@@ -191,5 +223,5 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:K${signatureDate}`);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "PI");
-  return XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as ArrayBuffer;
+  return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);
 }

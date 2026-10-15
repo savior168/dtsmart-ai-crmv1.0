@@ -150,7 +150,8 @@ export function OrderDetailView({ id }: { id: string }) {
             返回PI订单列表
           </Link>
           <div className="flex gap-2">
-            {directPi && data.stock_order ? <button type="button" disabled={loading} onClick={() => void load()} className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm disabled:opacity-50"><RefreshCw size={15}/>刷新备货进度</button> : null}
+            {directPi && data.stock_order && o.status !== "DRAFT" ? <button type="button" disabled={loading} onClick={() => void load()} className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm disabled:opacity-50"><RefreshCw size={15}/>刷新备货进度</button> : null}
+            {directPi && o.status !== "CANCELLED" ? <Link href={`/orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
             {data.can_export ? (
               <a
                 href={`/api/orders/${id}/export`}
@@ -166,7 +167,7 @@ export function OrderDetailView({ id }: { id: string }) {
             >
               查看关联报价
             </Link> : null}
-            {data.stock_order ? <Link
+            {data.stock_order && !(directPi && o.status === "DRAFT") ? <Link
               href={`/stock-orders/${data.stock_order.id}`}
               className="h-9 rounded-lg border px-3 py-2 text-sm text-emerald-700"
             >
@@ -208,7 +209,8 @@ export function OrderDetailView({ id }: { id: string }) {
             ))}
           </div>
           {directPi ? <div className="grid gap-4 border-t p-5 text-sm md:grid-cols-2"><div className="rounded-lg bg-slate-50 p-4"><b>双币金额及汇率</b><p className="mt-2">1 {o.currency} = {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(12)) : "—"} CNY</p><p>人民币总额 ¥{Number(o.total_cny).toFixed(2)}（含运费 ¥{Number(o.shipping_cny).toFixed(2)}）</p><p>客户付款总额 {o.currency} {Number(o.total_amount).toFixed(2)}</p></div><div className="rounded-lg bg-slate-50 p-4"><b>收货与收款快照</b><p className="mt-2">收件人：{o.delivery_recipient || "—"} · 电话：{o.delivery_phone || "—"}</p><p>邮箱：{o.delivery_email || "—"}</p><p>地址：{o.delivery_address || "—"}</p><p className="mt-2 whitespace-pre-wrap">收款信息：{o.payment_account_snapshot || "—"}</p></div></div> : null}
-          {directPi && data.stock_order && data.receiving_progress ? <div className="border-t px-5 py-4 text-sm">
+          {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span><Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link></div> : null}
+          {directPi && data.stock_order && o.status !== "DRAFT" && data.receiving_progress ? <div className="border-t px-5 py-4 text-sm">
             <b>仓库备货进度：{SALES_ORDER_STATUS_LABELS[o.status]}</b>
             <span className="ml-3 text-slate-600">已回齐 {data.receiving_progress.received_items}/{data.receiving_progress.total_items} 项；累计回货 {data.receiving_progress.received_units}/{data.receiving_progress.ordered_units} 件</span>
             <p className="mt-1 text-xs text-slate-500">部分回货仍处于备货中；全部回货后才可进入测试、打包和理货。</p>

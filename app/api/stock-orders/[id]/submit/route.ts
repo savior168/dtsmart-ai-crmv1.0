@@ -6,9 +6,14 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { supabase } = await requirePermission("stock.submit");
+    const { supabase, account } = await requirePermission("stock.submit");
+    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("只有仓库员可以提交备货草稿");
     const { id } = await params;
-    const { data, error } = await supabase.rpc("submit_stock_order", {
+    const { data: stock, error: stockError } = await supabase.from("stock_orders")
+      .select("status,warehouse_reference_number").eq("id", id).single();
+    if (stockError) throw stockError;
+    if (stock.status === "DRAFT" && stock.warehouse_reference_number) throw new Error("此备货单已撤回，请修改PI并重新提交");
+    const { data, error } = await supabase.rpc("warehouse_submit_stock_draft", {
       p_stock_order_id: id,
     });
     if (error) throw error;

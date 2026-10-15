@@ -6,8 +6,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { supabase } = await requirePermission("stock.prepare");
+    const { supabase, account } = await requirePermission("stock.prepare");
+    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("只有仓库员可以完善备货单");
     const { id } = await params;
+    const { data: stock, error: stockError } = await supabase.from("stock_orders")
+      .select("status,warehouse_reference_number").eq("id", id).single();
+    if (stockError) throw stockError;
+    if (stock.status === "DRAFT" && stock.warehouse_reference_number) throw new Error("此备货单已撤回，请修改PI并重新提交");
     const body = await request.json();
     const items = Array.isArray(body.items)
       ? body.items.map((item: Record<string, unknown>, index: number) => ({
@@ -18,7 +23,7 @@ export async function PATCH(
           ).trim(),
         }))
       : [];
-    const { data, error } = await supabase.rpc("update_stock_order_draft", {
+    const { data, error } = await supabase.rpc("warehouse_prepare_stock_draft", {
       p_stock_order_id: id,
       p_stocking_requirements: String(body.stocking_requirements || "").trim(),
       p_expected_ready_at: String(body.expected_ready_at || "") || null,

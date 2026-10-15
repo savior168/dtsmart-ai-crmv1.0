@@ -1,5 +1,8 @@
 import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
 import { validPiMoney, validPiQuantity, validPiSellingPrice } from "@/lib/pi-line-values";
+import type { createClient } from "@/lib/supabase/server";
+
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>;
 
 export function parsePiOrderInput(body: Record<string, unknown>) {
   const currency = String(body.currency || "").trim().toUpperCase();
@@ -52,4 +55,11 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     p_stocking_requirements: String(body.stocking_requirements || "").trim().slice(0, 2000) || "常规理货",
     p_items: items,
   };
+}
+
+export async function requireOwnedPiCustomer(supabase: ServerSupabase, accountId: string, customerId: string) {
+  const { data, error } = await supabase.from("customers").select("id")
+    .eq("id", customerId).eq("owner_id", accountId).is("deleted_at", null).neq("status", "RELEASED").maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("只能为归属自己的有效客户创建PI订单");
 }

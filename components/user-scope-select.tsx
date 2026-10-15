@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AppSelect } from "@/components/ui/app-select";
 
 type UserOption = { id: string; name: string | null; email: string; role: string };
 
@@ -12,6 +13,7 @@ export function UserScopeSelect({
   filterLabel = "归属人",
   permission,
   initializeDefault = false,
+  custom = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -20,6 +22,7 @@ export function UserScopeSelect({
   filterLabel?: string;
   permission: string;
   initializeDefault?: boolean;
+  custom?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [elevated, setElevated] = useState(false);
@@ -63,10 +66,11 @@ export function UserScopeSelect({
   // 普通销售员没有跨用户数据权限，不渲染归属人筛选控件，也避免
   // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
   if (!loaded || !elevated) return null;
+  const selected = (value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? defaultValue : "");
+  const options = <>{canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
+    {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}</>;
+  if (custom) return <AppSelect aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className} forceSearch>{options}</AppSelect>;
   return (
-    <select aria-label="按归属人筛选" value={(value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? defaultValue : "")} onChange={(event) => onChange(event.target.value)} className={className}>
-      {canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
-      {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}
-    </select>
+    <select aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className}>{options}</select>
   );
 }

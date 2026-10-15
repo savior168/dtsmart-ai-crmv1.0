@@ -36,6 +36,7 @@ type StockExportData = {
   destination_country?: string | null;
   stocking_requirements?: string | null;
   status_note?: string | null;
+  order_change_note?: string | null;
   expected_ready_at?: string | null;
   shipped_at?: string | null;
   delivery_recipient?: string | null;
@@ -202,11 +203,15 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
+  const changes = String(stock.order_change_note || "").split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:\d+[.、)]|[⑴⑵⑶])\s*/, "").trim()).filter(Boolean);
   const values: Array<[string, unknown]> = [
     ["B3", stock.salesperson?.name || stock.salesperson?.email || ""], ["E3", stock.created_at.slice(0, 10)],
-    ["G3", stock.warehouse_reference_number || stock.order_number], ["H3", stock.customer_short_name], ["K3", stock.destination_country || ""],
-    ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""], ["B4", [`PI编号：${stock.order_number}`,stock.status_note || "",items.some((item) => !item.procurement_cost_confirmed && item.estimated_unit_cost_cny !== null && item.estimated_unit_cost_cny !== undefined) ? "未核价金额为销售预估成本，仅供备货参考" : ""].filter(Boolean).join("；")],
-    ["H4", stock.stocking_requirements || "常规理货"], ["B8", ""], ["B9", [stock.delivery_recipient, stock.delivery_phone, stock.delivery_email, stock.delivery_address].filter(Boolean).join("；")],
+    ["G3", stock.warehouse_reference_number || stock.order_number], ["H3", stock.customer_short_name], ["K3", /^[A-Z]{2}$/.test(stock.destination_country || "") ? new Intl.DisplayNames(["zh-CN"], { type: "region" }).of(stock.destination_country || "") || stock.destination_country : stock.destination_country || ""],
+    ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
+    ["H4", `＊＊＊\n【理货要求】\n${stock.stocking_requirements || "常规理货"}`],
+    ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
+    ["D9", [`${stock.delivery_recipient || ""}${stock.delivery_phone ? ` / ${stock.delivery_phone}` : ""}${stock.delivery_email ? ` / ${stock.delivery_email}` : ""}`, stock.delivery_address || ""].join("\n").trim()],
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
@@ -215,8 +220,8 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     const row = 13 + index;
     const item = items[index];
     const valuesForRow: Array<[string, unknown]> = item ? [
-      [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
-      [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, item.procurement_cost_confirmed ? Number(item.procurement_cost) : item.estimated_unit_cost_cny === null || item.estimated_unit_cost_cny === undefined ? "" : Number(item.estimated_unit_cost_cny)],
+      [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || item.item_name || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
+      [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, item.procurement_cost_confirmed ? Number(item.procurement_cost) : ""],
       [`K${row}`, Number(item.quantity || 0)], [`L${row}`, [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；")], [`N${row}`, [`已回货：${item.received_quantity ?? 0}/${item.quantity}`,item.warehouse_supplier_code ? `供应商编码：${item.warehouse_supplier_code}` : "",item.preparation_requirement,item.internal_note].filter(Boolean).join("；")],
     ] : [[`B${row}`, ""], [`C${row}`, ""], [`E${row}`, ""], [`F${row}`, ""], [`G${row}`, ""], [`H${row}`, ""], [`J${row}`, ""], [`K${row}`, ""], [`L${row}`, ""], [`N${row}`, ""]];
     for (const [cell, value] of valuesForRow) xml = setCell(xml, cell, value);

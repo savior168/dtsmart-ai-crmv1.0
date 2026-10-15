@@ -91,6 +91,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
   { code: "orders.view", label: "PI订单", group: "销售管理", description: "查看PI订单和历史销售订单", kind: "PAGE" },
   { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "为本人客户创建PI草稿并确认提交仓库", kind: "ACTION" },
+  { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "主管只读查看全部销售订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
   { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅归属销售员或系统管理员可删除从未提交仓库的PI草稿；已提交历史不可删除", kind: "ACTION" },
@@ -101,8 +102,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
   { code: "stock.procurement.edit", label: "确认实际采购价", group: "采购管理", description: "指定采购人员核实并维护备货单实际采购单价；可与备货状态权限分别授权", kind: "ACTION" },
-  { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "订单归属销售员填写采购备货中文描述和理货要求，不修改采购价格", kind: "ACTION" },
-  { code: "stock.submit", label: "提交备货单", group: "采购管理", description: "订单归属销售员将已完善备货单提交采购备货人员", kind: "ACTION" },
+  { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "仓库员完善历史报价产生的备货草稿；PI明细由销售在PI订单中修改", kind: "ACTION" },
+  { code: "stock.submit", label: "确认备货草稿", group: "采购管理", description: "仓库员确认历史报价产生的备货草稿；PI由销售确认后自动提交", kind: "ACTION" },
   { code: "stock.export", label: "导出备货单", group: "采购管理", description: "按备货模板导出备货Excel", kind: "ACTION" },
 
   { code: "pi.rates.view", label: "汇率设置", group: "PI财务设置", description: "查看PI参考汇率和业务汇率规则", kind: "PAGE", core: true },

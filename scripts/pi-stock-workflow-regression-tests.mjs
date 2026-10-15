@@ -11,6 +11,9 @@ const detail = read("app/api/stock-orders/[id]/route.ts");
 const exportRoute = read("app/api/stock-orders/[id]/export/route.ts");
 const receiving = read("app/api/stock-orders/[id]/receiving/route.ts");
 const order = read("app/api/orders/[id]/route.ts");
+const orderDetailView = read("components/order-detail-view.tsx");
+const stockDraftApi = read("app/api/stock-orders/[id]/draft/route.ts");
+const stockSubmitApi = read("app/api/stock-orders/[id]/submit/route.ts");
 const customerPi = read("lib/direct-pi-export.ts");
 const customerPiRoute = read("app/api/orders/[id]/export/route.ts");
 const piForm = read("components/pi-order-form.tsx");
@@ -38,21 +41,22 @@ assert.match(positiveMarginMigration, /guard_direct_pi_submit_margin[\s\S]*old\.
 assert.match(positiveMarginMigration, /update_direct_pi_draft[\s\S]*submit_direct_pi_order[\s\S]*pi_revision is distinct from p_expected_revision/, "草稿编辑与提交均不能用空版本号绕过并发校验");
 assert.match(read("supabase/migrations/20261014072155_pi_order_change_note.sql"), /pi_revision is distinct from p_expected_revision/, "草稿变更说明不能用空版本号绕过并发校验");
 assert.match(read("scripts/pi-stock-local-db-test.sql"), /空版本号不得绕过PI草稿并发校验[\s\S]*空版本号不得绕过PI提交并发校验/, "本机数据库验收必须覆盖空版本号绕过用例");
-assert.match(createPiApi, /validPiSellingPrice/, "创建PI接口不能保存亏本产品");
+assert.match(createPiApi, /parsePiOrderInput\(body\)/, "创建PI接口必须调用共享业务校验");
 assert.match(read("lib/pi-order-input.ts"), /validPiSellingPrice/, "编辑PI接口不能保存亏本产品");
 assert.equal(validPiQuantity("1.5"), false, "数量不得为小数");
 assert.equal(validPiQuantity("-1"), false, "数量不得为负数");
 assert.equal(validPiMoney("1.001"), false, "人民币价格最多两位小数");
 assert.equal(validPiSellingPrice("10", "10"), false, "售价必须严格高于成本");
 assert.equal(validPiSellingPrice("10.01", "10"), true, "正利润产品可以保存");
-assert.match(createPiApi, /\.eq\("owner_id", account\.id\)/, "PI创建API必须核对客户当前归属");
+assert.match(createPiApi, /requireOwnedPiCustomer\(supabase, account\.id, input\.p_customer_id\)/, "PI创建API必须核对客户当前归属");
 assert.match(strictOwnerMigration, /customer\.owner_id is distinct from actor\.id/, "数据库创建函数必须对所有角色强制当前归属校验");
 assert.match(strictOwnerMigration, /c\.owner_id=target\.sales_user_id/, "PI提交前必须再次核对客户归属");
 assert.match(piForm, /forceSearch[\s\S]*请选择我的客户/, "PI客户下拉即使选项较少也必须可搜索");
 assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
-assert.match(orderListView, /"PI号",\s*"类型",\s*"客户简称",\s*"PI状态",\s*"PI金额",\s*"备货单"/, "PI列表按业务优先级展示关键字段");
+assert.match(orderListView, /label="订单编号"[\s\S]*label="客户名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度/, "PI列表按业务订单编号、客户、国家、金额和状态的优先级展示");
+assert.match(orderListApi, /warehouse_reference_number\.ilike/, "PI列表必须能搜索销售与仓库共用的订单编号");
 for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockListApi]]) {
   assert.match(view, /date_from[\s\S]*date_to/, "列表创建日期区间必须传给接口");
   assert.match(api, /gte\("created_at"[\s\S]*lte\("created_at"/, "接口必须按创建日期区间筛选");
@@ -60,10 +64,25 @@ for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockL
 }
 assert.match(orderListApi, /currency[\s\S]*type === "PI"/, "PI列表必须按币种和业务类型筛选");
 assert.doesNotMatch(stockListView, /报价编号|quote_number/, "备货单列表不得继续展示旧报价编号");
-assert.match(stockListView, /备货单号[\s\S]*PI号[\s\S]*客户简称[\s\S]*目的国家[\s\S]*备货状态/, "备货单列表应优先显示仓库交接所需字段");
+assert.match(stockListView, /label="订单编号"[\s\S]*label="客户名称"[\s\S]*label="状态"[\s\S]*目的国家[\s\S]*label="备货单号"/, "备货单列表应优先显示业务订单编号、客户及当前状态");
+assert.match(stockListView, /row\.warehouse_reference_number \|\| row\.order_number/, "仓库列表必须优先显示销售填写的业务订单编号");
+for (const api of [orderListApi, stockListApi]) {
+  assert.match(api, /SORT_COLUMNS[\s\S]*sort_by[\s\S]*sort_dir[\s\S]*\.order\(SORT_COLUMNS\[sortBy[\s\S]*\.range\(/, "关键列必须按服务端排序后再分页");
+  assert.match(api, /countryFilterRawValues\(\[country\]\)/, "目的国家筛选应匹配旧数据中不同的国家写法");
+}
 assert.match(order, /can_delete_draft:[\s\S]*!stock\.data[\s\S]*export async function DELETE[\s\S]*delete_never_submitted_pi_draft/, "只有未生成备货单的PI草稿才提供受权限控制的删除入口");
+assert.match(orderListApi, /can_delete_draft:[\s\S]*hasPermission\(account, "orders\.delete_draft"\)[\s\S]*!stockByOrderId\.has\(item\.id\)/, "PI列表删除入口也必须按权限、归属及未生成备货单判断");
+assert.match(orderListView, /row\.can_delete_draft[\s\S]*删除草稿[\s\S]*<ConfirmDialog[\s\S]*deleteDraft\(\)/, "PI列表应提供未提交草稿的确认删除操作");
 assert.match(draftDeleteMigration, /target\.confirmed_at is not null[\s\S]*stock_orders[\s\S]*PI_SUBMIT[\s\S]*PI_RECALL[\s\S]*PI_DRAFT_DELETE/, "数据库必须阻止删除已提交或撤回草稿并保留删除审计");
-assert.doesNotMatch(orderListView, /仓库约定订单编号|warehouse_reference_number/, "PI列表不得展示内部仓库约定编号");
+assert.match(orderListView, /row\.warehouse_reference_number \|\| "—"/, "PI列表首列必须显示销售填写的订单编号而非系统PI号");
+assert.match(orderListView, /已撤回（历史）[\s\S]*查看原备货记录/, "已撤回PI不得把旧备货单展示为有效备货进度，但销售仍可追溯");
+assert.match(orderDetailView, /原备货单已撤回（历史），当前不作为仓库待办[\s\S]*查看原备货记录/, "撤回后的PI详情应提供只读历史入口");
+assert.match(piMigration, /if stock\.id is null then[\s\S]*insert into public\.stock_orders[\s\S]*else[\s\S]*update public\.stock_orders set status='WAITING'[\s\S]*where id=stock\.id[\s\S]*delete from public\.stock_order_items where stock_order_id=stock\.id/, "撤回后重提必须复用原备货单，并同步更新明细而非生成第二张有效备货单");
+assert.match(stockListView, /已撤回，待重新提交/, "备货列表必须区分撤回记录与有效待办");
+assert.match(stockView, /data\.recalled_pi[\s\S]*当前不是仓库待办/, "撤回备货详情必须显示不可继续处理的说明");
+assert.match(detail, /\.eq\("id", id\)\.maybeSingle\(\)[\s\S]*if \(!order\)[\s\S]*account\.role === "WAREHOUSE"[\s\S]*withdrawn: true[\s\S]*status: 410/, "仓库停留在已撤回详情页刷新时必须返回明确的已撤回状态，而不是单行JSON错误");
+assert.match(stockView, /response\.status === 410 && body\.withdrawn[\s\S]*订单 \$\{withdrawnOrderNumber\} 已撤回[\s\S]*返回备货单列表/, "已撤回的备货详情必须有可返回列表的友好提示");
+for (const api of [stockDraftApi, stockSubmitApi]) assert.match(api, /stock\.status === "DRAFT" && stock\.warehouse_reference_number[\s\S]*已撤回/, "旧备货草稿接口不得处理撤回的直接PI");
 assert.match(piForm, /AppSelect[\s\S]*搜索并选择客户付款币种/, "币种应使用系统可搜索选择组件");
 assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下拉");
 assert.match(piForm, /下载模板[\s\S]*导入Excel[\s\S]*粘贴表格[\s\S]*添加产品/, "PI产品明细应提供批量快捷操作");
@@ -72,12 +91,17 @@ assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "P
 assert.match(piForm, /"序号", "产品类型 \*", "产品品牌 \*", "产品型号 \*", "产品质量 \*", "产品描述", "成本单价（人民币） \*", "销售单价（人民币） \*", "数量 \*", "销售金额（人民币）", "总利润（人民币）", "利润率", "理货要求", "仓库备注", "操作"/, "PI录入列头必须用准确中文并保留必填字段与金额利润列");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
 assert.match(piForm, /const defaultValidity = \(\) => \{ const date = new Date\(\); date\.setDate\(date\.getDate\(\) \+ 5\)/, "新建PI有效期默认当前日期后5天");
-assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*外币单价待换算/, "人民币录入时必须预览所选付款币种单价");
+assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*客户单价待换算/, "人民币录入时必须清晰预览所选付款币种单价");
+assert.match(piForm, /客户金额待换算/, "人民币销售金额应清晰预览客户付款币种金额");
+assert.match(piForm, /countryInfo\(selectedCustomer\.country\)\.name/, "目的国家只显示中文名称而不附加国家代码");
+assert.match(piForm, /recalledDraft \? <div>[\s\S]*订单变更说明/, "订单变更说明只在撤回后编辑PI时显示");
+assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收件人[\s\S]*电话[\s\S]*邮箱[\s\S]*收货地址/, "收货信息四项应在宽屏同一行显示");
+assert.match(piForm, /function PiLineTextArea[\s\S]*scrollHeight[\s\S]*<PiLineTextArea label=/, "产品文本字段应自动增高以完整显示内容");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
 assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息按录单业务顺序排列");
 assert.match(piForm, /value=\{shippingInput\}[\s\S]*setShippingInput/, "运费应在费用汇总中由销售输入");
 assert.match(piForm, /<label htmlFor="pi-shipping"[\s\S]*aria-hidden="true"[^>]*>¥<\/span><input id="pi-shipping" aria-label="人民币运费"/, "人民币运费输入框应直观显示人民币符号");
-assert.match(createPiApi, /row\.item_name, row\.brand, row\.model, row\.quality/, "创建PI接口必须校验产品、品牌、型号和质量");
+assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "创建PI共享校验必须覆盖产品、品牌、型号和质量");
 assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "编辑PI接口必须校验相同的必填字段");
 assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sql"), /x\.brand[\s\S]*x\.model[\s\S]*x\.quality/, "数据库RPC必须防止绕过必填字段校验");
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
@@ -103,7 +127,7 @@ assert.match(order, /received_items[\s\S]*received_units/, "销售订单应展�
 assert.doesNotMatch(order.match(/const receivingProgress =[\s\S]*?} : null;/)?.[0] || "", /warehouse_supplier_code|procurement_cost/, "销售进度摘要不得夹带供应商或成本数据");
 assert.doesNotMatch(customerPi, /createWorkbookFile/, "客户PI必须使用专用版式，不能退回通用表格导出");
 assert.doesNotMatch(customerPiRoute.match(/\.from\("sales_order_items"\)[\s\S]*?\.order\("line_number"\)/)?.[0] || "", /unit_cost|estimated|procurement|profit|margin|supplier|received|internal_note|preparation/i, "客户PI导出查询不能读取内部成本或供应商字段");
-assert.match(customerPiRoute, /order\.data\.status === "DRAFT"[\s\S]*不能作为正式PI导出/, "未提交的PI草稿不能作为正式客户文件导出");
+assert.match(customerPiRoute, /\["DRAFT", "CANCELLED"\]\.includes\(order\.data\.status\)[\s\S]*不能作为正式PI导出/, "未提交或已取消的PI不能作为正式客户文件导出");
 assert.match(piForm, /useState\("USD"\)/, "创建PI默认客户付款币种应为美元");
 assert.match(piForm, /setCurrency\(event\.target\.value\); setRate\(String\(exchangeRates\.find/, "变更报价币种时应带入该币种业务汇率，不得保留旧币种汇率");
 assert.doesNotMatch(piForm, /setCurrency\(event\.target\.value\); setAccountId\(""\)/, "变更报价币种不得清空已选收款账户");
@@ -116,6 +140,10 @@ assert.match(migration, /create table public\.stock_order_expenses[\s\S]*?enable
 assert.match(migration, /p_status='SHIPPED'[\s\S]*?p_packaging_cost_cny is null[\s\S]*?p_procurement_expenses_cny is null[\s\S]*?p_shipping_expenses_cny is null/, "已发货必须在数据库层校验三项费用");
 assert.match(statusRoute, /status === "SHIPPED"[\s\S]*?p_packaging_cost_cny/, "只有已发货时提交整单费用");
 assert.match(stockView, /status === "SHIPPED"[\s\S]*?packagingExpense/, "仓库已发货时应显示费用输入");
+assert.match(stockView, /STOCK_PROGRESS_STAGES: StockOrderStatus\[\] = \["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"\]/, "仓库详情须完整展示五个常规备货状态");
+assert.doesNotMatch(stockView, /未维护类型|实际采购单价（CNY）|保存采购核价/, "仓库明细暂不显示空类型占位或实际采购价入口");
+assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
+assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");
 assert.doesNotMatch(order, /stock_order_expenses|packaging_cost_cny|shipping_expenses_cny/, "销售订单详情不得返回仓库整单费用");
 
 const orderFixture = {
@@ -133,11 +161,20 @@ const itemFixture = { line_number: 1, item_name: "Part", brand: "MAC", model: "A
 const workbook = buildDirectPiWorkbook(orderFixture, [itemFixture]);
 const archive = XLSX.CFB.read(Buffer.from(workbook), { type: "buffer" });
 assert.equal(archive.FullPaths.some((path) => /externalLinks/i.test(path)), false, "客户PI不得保留源模板的外部工作簿链接");
+const logo = XLSX.CFB.find(archive, "/xl/media/image.png");
+assert.ok(logo?.content?.length > 200000, "客户PI必须保留用户提供的企业Logo");
+assert.ok(XLSX.CFB.find(archive, "/xl/drawings/drawing1.xml"), "企业Logo必须有工作表定位");
+assert.match(Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8"), /<x:drawing r:id=/, "工作表必须引用企业Logo");
 const book = XLSX.read(workbook, { type: "array", cellFormula: true, cellStyles: true });
 const sheet = book.Sheets[book.SheetNames[0]];
 assert.equal(sheet.G2.v, "COMMERCIAL INVOICE");
 assert.equal(sheet.J2.v, "PI-TEST");
 assert.equal(sheet.J4.v, "5 days");
+assert.equal(sheet.G6.v, "PAYMENT / METHOD:\n(NGN)", "客户PI页眉付款标签下须显示本单币种");
+assert.equal(sheet.J6.v, "NAIRA/RMB", "客户PI页眉付款栏仍须显示实际付款渠道");
+assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["To: Jo", "TEL: +44 123", "Company: Buyer Ltd", "Email: jo@example.com"], "收货信息每项的标签与值应紧邻显示在同一单元格");
+assert.equal(sheet.D13, undefined, "收货信息不得再把标签和值分开放在相隔数列的单元格");
+assert.ok(sheet["!merges"].some(({ s, e }) => s.r === 12 && s.c === 0 && e.r === 12 && e.c === 5), "收货信息每行需合并为完整的单项信息单元格");
 assert.match(sheet.I18.v, /NGN/);
 assert.equal(sheet.I19.v, 20000);
 assert.equal(sheet.J19.v, 1);

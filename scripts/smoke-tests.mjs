@@ -360,7 +360,11 @@ const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /if \(!requested \|\| requested === account\.id \|\| requested\.toLowerCase\(\) === "all"\) return account\.id/, "主管服务端默认必须只读取自己的数据");
 assert.match(currentUserAuth, /account\.role === "ADMIN"[\s\S]*requested\.toLowerCase\(\) === "all"/, "只有系统管理员能够主动选择全部用户数据");
 assert.match(currentUserAuth, /eq\("manager_id", account\.id\)/, "主管跨用户读取必须在服务端限定直属下级");
-assert.match(userScopeSelect, /initializeDefault = false[\s\S]*value=\{\(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? defaultValue : ""\)\}/, "归属人控件必须显示本人默认值，并将主管旧的 all 参数显示为本人");
+assert.match(
+  userScopeSelect,
+  /initializeDefault = false[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? defaultValue : ""\)/,
+  "归属人控件必须显示本人默认值，并将主管旧的 all 参数显示为本人",
+);
 assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
 assert.match(customerListFields, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
