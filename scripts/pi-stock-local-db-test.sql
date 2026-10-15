@@ -6,10 +6,12 @@ begin;
 insert into auth.users(id,email,raw_user_meta_data) values
   ('00000000-0000-0000-0000-000000000101','pi-sales-a@example.invalid','{}'),
   ('00000000-0000-0000-0000-000000000102','pi-sales-b@example.invalid','{}'),
-  ('00000000-0000-0000-0000-000000000103','pi-warehouse@example.invalid','{}');
+  ('00000000-0000-0000-0000-000000000103','pi-warehouse@example.invalid','{}'),
+  ('00000000-0000-0000-0000-000000000104','pi-supervisor@example.invalid','{}');
 update public.users set status='ACTIVE',role='SALES' where id in
   ('00000000-0000-0000-0000-000000000101','00000000-0000-0000-0000-000000000102');
 update public.users set status='ACTIVE',role='WAREHOUSE' where id='00000000-0000-0000-0000-000000000103';
+update public.users set status='ACTIVE',role='SUPERVISOR' where id='00000000-0000-0000-0000-000000000104';
 insert into public.profiles(id,name,email,phone,business_phone,business_email) values
   ('00000000-0000-0000-0000-000000000101','Sales A','pi-sales-a@example.invalid','+86 13800000000',
    '+86 13900000000','sales-a-business@example.invalid');
@@ -283,5 +285,78 @@ begin
   if exists(select 1 from public.sales_orders where id=current_setting('test.delete_id')::uuid) then
     raise exception '管理员应能删除销售员从未提交的PI草稿';
   end if;
+end $$;
+-- Two-line warehouse flow: line status is independent; parent status follows
+-- the earliest unfinished line, and physical receipts cannot regress.
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000101',true);
+do $$
+declare created public.sales_orders; stock public.stock_orders;
+begin
+  created:=public.create_direct_pi_order(
+    '00000000-0000-0000-0000-000000000201','WH-LINES-001','USD',0.14,0,
+    'Bank transfer','00000000-0000-0000-0000-000000000301',current_date+30,current_date+15,
+    'Buyer receiver',null,null,'Test address','Standard pack',
+    '[{"item_name":"Screen","brand":"DT","model":"A1","quality":"ORG","description_zh":"屏幕","quantity":2,"unit_price_cny":50,"estimated_unit_cost_cny":30},{"item_name":"Cable","brand":"DT","model":"C1","quality":"ORG","description_zh":"数据线","quantity":1,"unit_price_cny":10,"estimated_unit_cost_cny":4}]'::jsonb);
+  perform public.submit_direct_pi_order(created.id,created.pi_revision);
+  select * into stock from public.stock_orders where sales_order_id=created.id;
+  perform set_config('test.lines_stock_id',stock.id::text,true);
+  perform set_config('test.lines_pi_id',created.id::text,true);
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000102',true);
+do $$
+declare stock public.stock_orders; line_id uuid; rejected boolean:=false;
+begin
+  if exists(select 1 from public.stock_orders where id=current_setting('test.lines_stock_id')::uuid) then
+    raise exception '其他销售员不得查看此备货单'; end if;
+  select * into stock from public.stock_orders where id=current_setting('test.lines_stock_id')::uuid;
+  select id into line_id from public.stock_order_items where stock_order_id=stock.id and line_number=1;
+  begin
+    perform public.update_stock_item_stages(stock.id,jsonb_build_array(jsonb_build_object('item_id',line_id,'status','PREPARING')),
+      stock.updated_at,'Sales bypass');
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '销售员不得更新备货项状态'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000104',true);
+do $$
+begin
+  if exists(select 1 from public.stock_orders where id=current_setting('test.lines_stock_id')::uuid) then
+    raise exception '主管不得越权查看非本人备货单'; end if;
+  if exists(select 1 from public.sales_orders o where o.id=current_setting('test.lines_pi_id')::uuid) then
+    raise exception '主管不得越权查看非本人PI'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000103',true);
+do $$
+declare stock public.stock_orders; line_id uuid; rejected boolean:=false;
+begin
+  select * into stock from public.stock_orders where id=current_setting('test.lines_stock_id')::uuid;
+  if stock.id is null then raise exception '仓库员必须能查看所有正式备货单'; end if;
+  select id into line_id from public.stock_order_items where stock_order_id=stock.id and line_number=1;
+  begin
+    perform public.update_stock_item_stages(stock.id,jsonb_build_array(jsonb_build_object('item_id',line_id,'status','RECEIVED')),
+      stock.updated_at,'Skip stage');
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '产品不得跳级'; end if;
+  stock:=public.update_stock_item_stages(stock.id,jsonb_build_array(jsonb_build_object('item_id',line_id,'status','PREPARING')),
+    stock.updated_at,'Started first line');
+  if stock.status<>'WAITING' or (select preparation_status from public.stock_order_items where id=line_id)<>'PREPARING' then
+    raise exception '逐项备货不应推进尚未开工的其他项或整单状态'; end if;
+  begin
+    perform public.update_stock_item_stages(stock.id,jsonb_build_array(jsonb_build_object('item_id',line_id,'status','RECEIVED')),
+      stock.updated_at,'No receipt yet');
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '未回齐不得标记已回货'; end if;
+  perform public.save_stock_receiving_details(stock.id,
+    '[{"line_number":1,"received_quantity":2,"warehouse_supplier_code":"SUP-001"},{"line_number":2,"received_quantity":0,"warehouse_supplier_code":""}]'::jsonb,stock.updated_at);
+  select * into stock from public.stock_orders where id=stock.id;
+  stock:=public.update_stock_item_stages(stock.id,jsonb_build_array(jsonb_build_object('item_id',line_id,'status','RECEIVED')),
+    stock.updated_at,'First line received');
+  rejected:=false;
+  begin
+    perform public.save_stock_receiving_details(stock.id,
+      '[{"line_number":1,"received_quantity":1,"warehouse_supplier_code":"SUP-001"},{"line_number":2,"received_quantity":0,"warehouse_supplier_code":""}]'::jsonb,stock.updated_at);
+  exception when others then rejected:=true; end;
+  if not rejected then raise exception '已回货产品不得把回货数改少'; end if;
+  if stock.status<>'WAITING' or (select count(*) from public.stock_order_items where stock_order_id=stock.id and preparation_status='WAITING')<>1 then
+    raise exception '逐项状态不能误覆盖其他产品'; end if;
 end $$;
 rollback;

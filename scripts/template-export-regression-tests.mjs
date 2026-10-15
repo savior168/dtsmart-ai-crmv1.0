@@ -44,6 +44,7 @@ const stockBuffer = await buildStockWorkbook({
   customer_short_name: "Demo",
   destination_country: "DE",
   stocking_requirements: "Pack",
+  order_change_note: "1. Add 2 items\n2. Update delivery date\n3. New label",
   status_note: "",
   shipped_at: "2026-10-13T09:00:00Z",
   delivery_recipient: "Tom",
@@ -79,8 +80,16 @@ assert.ok(containsMedia(quoteBuffer), "报价单必须保留企业 Logo");
 
 const stock = firstSheet(stockBuffer);
 assert.equal(stock.G3.v, "ORDER-TEST-001");
+assert.equal(stock.K3.v, "德国", "目的国家须显示中文名称而非代码");
 assert.equal(stock.N3.v, "2026-10-13", "实际发货日须来自已发货事件");
-assert.match(stock.B9.v, /Tom.*\+49 123.*tom@example.com.*Berlin/, "收货信息须写入下单表模板");
+assert.match(stock.D9.v, /Tom.*\+49 123.*tom@example.com.*\nBerlin/, "收货信息须按模板的收件人与地址两行写入");
+assert.match(stock.B9.v, /收件人.*详细收件地址/s, "不得覆盖下单表模板的固定标签");
+assert.match(stock.B4.v, /订单变更说明/, "不得用仓库状态备注覆盖订单变更说明栏");
+assert.equal(stock.C5.v, "Add 2 items");
+assert.equal(stock.C6.v, "Update delivery date");
+assert.equal(stock.C7.v, "New label");
+assert.match(stock.H4.v, /【理货要求】.*Pack/s, "理货要求须保留模板标题和布局");
+assert.equal(stock.B8.v, "外箱唛头：", "不得清空模板固定标签");
 assert.equal(stock.C13.v, "屏幕");
 assert.match(stock.L13.v, /交付形态：单片屏.*显示技术细分：软 OLED/, "备货模板应带出保存时的品类规格快照");
 assert.match(stock.L13.v, /颜色：深蓝色/, "备货模板应带出保存时的颜色快照");
@@ -90,6 +99,10 @@ assert.equal(stock.J11.f, 'IF(COUNT(J13:J999)<COUNT(K13:K999),"",SUMPRODUCT(J13:
 assert.equal(stock.J13?.v ?? "", "", "未确认采购价在备货单中必须留空，不能伪装成 0 元");
 assert.equal(stock.J14.v, 6.25, "已确认采购价应保留");
 assert.ok(stock.C13.s, "备货产品行样式必须保留");
+const stockTemplate = XLSX.readFile("assets/templates/Warehouse_Stock_Template.xlsx", { cellStyles: true }).Sheets["工作表1"];
+assert.deepEqual(stock["!merges"], stockTemplate["!merges"], "备货单须保留模板合并单元格");
+assert.deepEqual(stock["!cols"], stockTemplate["!cols"], "备货单须保留模板列宽");
+assert.deepEqual(stock["!rows"], stockTemplate["!rows"], "备货单须保留模板行高");
 
 await mkdir(".tmp", { recursive: true });
 await writeFile(".tmp/quote-template-regression.xlsx", quoteBuffer);

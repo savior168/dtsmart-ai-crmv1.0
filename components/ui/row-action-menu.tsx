@@ -76,6 +76,7 @@ export function RowActionMenu({ children, label = "操作", ariaLabel }: RowActi
         <div
           ref={menuRef}
           role="menu"
+          onClick={() => setOpen(false)}
           className="fixed z-[100] min-w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
           style={position ? {
             top: position.top,

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
   FileDown,
@@ -14,6 +14,8 @@ import { AppDateTimeField } from "@/components/ui/app-date-time-field";
 import { CountryLabel } from "@/components/country-label";
 import { localDateTimeInput } from "@/lib/date-time";
 import { summarizeProductSpecificationsSnapshot } from "@/lib/product-specifications";
+import { StockProgressCell } from "@/components/stock-progress-cell";
+import { summarizeStockProgress } from "@/lib/stock-progress";
 type Item = {
   id: string;
   line_number: number;
@@ -31,6 +33,7 @@ type Item = {
   procurement_cost_confirmed: boolean;
   quantity: number;
   received_quantity: number;
+  preparation_status: StockOrderStatus;
   warehouse_supplier_code: string | null;
   preparation_requirement: string | null;
   internal_note: string | null;
@@ -40,6 +43,7 @@ type Event = {
   from_status: string | null;
   to_status: StockOrderStatus;
   note: string | null;
+  created_by: string;
   created_at: string;
   creator?: { name?: string | null; email?: string } | null;
 };
@@ -66,22 +70,31 @@ type Payload = {
   events: Event[];
   expenses?: { packaging_cost_cny: number; procurement_expenses_cny: number; shipping_expenses_cny: number; updated_at: string } | null;
   can_prepare: boolean;
+  recalled_pi: boolean;
   can_view_pi: boolean;
+  can_export: boolean;
   can_submit: boolean;
   can_update: boolean;
-  can_edit_procurement: boolean;
   can_edit_receiving: boolean;
   allowed_statuses: StockOrderStatus[];
+};
+const STOCK_PROGRESS_STAGES: StockOrderStatus[] = ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"];
+const ITEM_STAGES: StockOrderStatus[] = ["WAITING", ...STOCK_PROGRESS_STAGES];
+const STAGE_COLORS: Record<string, string> = {
+  WAITING: "bg-slate-100 text-slate-700", PREPARING: "bg-amber-100 text-amber-800",
+  RECEIVED: "bg-cyan-100 text-cyan-800", SORTING: "bg-violet-100 text-violet-800",
+  READY_TO_SHIP: "bg-blue-100 text-blue-800", SHIPPED: "bg-emerald-100 text-emerald-800",
 };
 export function StockOrderDetailView({ id }: { id: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [items, setItems] = useState<Item[]>([]);
-  const [procurementDraft, setProcurementDraft] = useState<Record<string, string>>({});
   const [receivingDraft, setReceivingDraft] = useState<Record<string, { received: string; supplierCode: string }>>({});
   const [receivingSearch, setReceivingSearch] = useState("");
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [withdrawnOrderNumber, setWithdrawnOrderNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<StockOrderStatus>("PREPARING");
   const [note, setNote] = useState("");
@@ -98,18 +111,25 @@ export function StockOrderDetailView({ id }: { id: string }) {
     const body = await response.json().catch(() => ({}));
     setLoading(false);
     if (!response.ok) {
+      if (response.status === 410 && body.withdrawn) {
+        setData(null);
+        setWithdrawnOrderNumber(String(body.order_number || ""));
+        setError(body.message || "此PI订单已撤回，原备货单不再是仓库待办。");
+        return;
+      }
       setError(body.error || "备货详情加载失败");
       return;
     }
+    setWithdrawnOrderNumber("");
     setData(body);
     setItems(body.items || []);
-    setProcurementDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, item.procurement_cost_confirmed ? String(item.procurement_cost) : ""])));
+    setSelectedItemIds([]);
     setReceivingDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, { received: String(item.received_quantity ?? 0), supplierCode: item.warehouse_supplier_code || "" }])));
     setRequirements(body.order.stocking_requirements || "");
     setExpected(
       localDateTimeInput(body.order.expected_ready_at),
     );
-    setStatus(body.allowed_statuses?.[0] || body.order.status);
+    setStatus(body.allowed_statuses?.find((item: StockOrderStatus) => ["SHORTAGE", "CANCELLED"].includes(item)) || body.allowed_statuses?.[0] || body.order.status);
     setNote("");
     setPackagingExpense(body.expenses ? String(body.expenses.packaging_cost_cny) : "");
     setProcurementExpense(body.expenses ? String(body.expenses.procurement_expenses_cny) : "");
@@ -119,14 +139,17 @@ export function StockOrderDetailView({ id }: { id: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-  const totalCost = useMemo(() => items.every((item) => item.procurement_cost_confirmed)
-    ? items.reduce((sum, item) => sum + Number(item.procurement_cost) * Number(item.quantity), 0)
-    : null, [items]);
   const visibleItems = items.map((item, index) => ({ item, index })).filter(({ item }) => {
     if (pendingOnly && Number(receivingDraft[item.id]?.received ?? item.received_quantity) >= Number(item.quantity)) return false;
     const query = receivingSearch.trim().toLowerCase();
     return !query || [item.item_name, item.brand, item.model, receivingDraft[item.id]?.supplierCode].some((value) => String(value || "").toLowerCase().includes(query));
   });
+  const selectedItems = items.filter((item) => selectedItemIds.includes(item.id));
+  const selectedStage = selectedItems.length && selectedItems.every((item) => item.preparation_status === selectedItems[0].preparation_status)
+    ? selectedItems[0].preparation_status : null;
+  const nextSelectedStage = selectedStage ? ITEM_STAGES[ITEM_STAGES.indexOf(selectedStage) + 1] : null;
+  const receivingDirty = items.some((item) => String(item.received_quantity ?? 0) !== String(receivingDraft[item.id]?.received ?? 0)
+    || (item.warehouse_supplier_code || "") !== (receivingDraft[item.id]?.supplierCode || ""));
   function updateItem(
     index: number,
     key: "description_zh" | "preparation_requirement",
@@ -162,14 +185,6 @@ export function StockOrderDetailView({ id }: { id: string }) {
       items,
     });
   }
-  async function saveProcurementCosts() {
-    const costs = items.map((item) => {
-      const raw = (procurementDraft[item.id] || "").trim();
-      if (raw && !/^\d+(?:\.\d{1,2})?$/.test(raw)) throw new Error(`第 ${item.line_number} 行采购价应为非负金额，最多两位小数`);
-      return { line_number: item.line_number, procurement_cost: raw ? Number(raw) : null };
-    });
-    await request(`/api/stock-orders/${id}/procurement`, "PATCH", { items: costs });
-  }
   async function saveReceivingDetails() {
     const details = items.map((item) => {
       const draft = receivingDraft[item.id];
@@ -195,6 +210,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
     if (saved) await request(`/api/stock-orders/${id}/submit`, "POST");
   }
   async function updateStatus() {
+    if (!["SHORTAGE", "CANCELLED", "PREPARING"].includes(status)) { setError("常规备货状态请逐项更新产品"); return; }
     if (["SHORTAGE", "CANCELLED", "READY_TO_SHIP", "SHIPPED"].includes(status) && !note.trim()) {
       setError("请填写缺货/取消原因，或测试打包/物流交接说明");
       return;
@@ -219,6 +235,30 @@ export function StockOrderDetailView({ id }: { id: string }) {
       } : {}),
     });
   }
+  async function advanceItems(chosen: Item[]) {
+    if (!data || !chosen.length || busy) return;
+    const current = chosen[0].preparation_status;
+    if (chosen.some((item) => item.preparation_status !== current)) { setError("批量更新请选择当前状态相同的产品"); return; }
+    const next = ITEM_STAGES[ITEM_STAGES.indexOf(current) + 1];
+    if (!next) return;
+    if (receivingDirty) { setError("请先保存回货数量或供应商编码，再更新产品状态"); return; }
+    if (["READY_TO_SHIP", "SHIPPED"].includes(next) && !note.trim()) { setError("进入待出货或已发货前请填写测试、打包或物流交接说明"); return; }
+    if (ITEM_STAGES.indexOf(next) >= ITEM_STAGES.indexOf("RECEIVED") && chosen.some((item) => item.received_quantity !== item.quantity)) {
+      setError("请先将选中产品的累计已回货数量保存至订购数量"); return;
+    }
+    const finalShipping = next === "SHIPPED" && items.every((item) => item.preparation_status === "SHIPPED" || chosen.some((row) => row.id === item.id));
+    if (finalShipping && [packagingExpense, procurementExpense, shippingExpense]
+      .some((value) => !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(value.trim()))) {
+      setError("全部产品发货前，请填写三项整单费用；无费用请填0"); return;
+    }
+    await request(`/api/stock-orders/${id}/item-status`, "PATCH", {
+      changes: chosen.map((item) => ({ item_id: item.id, status: next })),
+      expected_updated_at: data.order.updated_at, note: note.trim(),
+      packaging_cost_cny: finalShipping ? packagingExpense : null,
+      procurement_expenses_cny: finalShipping ? procurementExpense : null,
+      shipping_expenses_cny: finalShipping ? shippingExpense : null,
+    });
+  }
   if (loading && !data)
     return (
       <main className="grid min-h-[70vh] place-items-center">
@@ -226,7 +266,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
       </main>
     );
   if (!data)
-    return <main className="p-6 text-rose-600">{error || "备货单不存在"}</main>;
+    return <main className="p-4 lg:p-6"><div className="mx-auto max-w-xl rounded-xl border border-amber-200 bg-white p-6">
+      <h1 className="text-lg font-semibold text-slate-900">{withdrawnOrderNumber ? `订单 ${withdrawnOrderNumber} 已撤回` : "备货单不可查看"}</h1>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{error || "备货单不存在或您无权查看"}</p>
+      <Link href="/stock-orders" className="mt-4 inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">返回备货单列表</Link>
+    </div></main>;
   const o = data.order;
   return (
     <main className="p-4 lg:p-6">
@@ -246,7 +290,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
             >
               查看订单 {o.order_number}
             </Link> : null}
-            {o.status !== "DRAFT" ? (
+            {o.status !== "CANCELLED" ? <Link href={`/stock-orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
+            {data.can_export ? (
               <a
                 href={`/api/stock-orders/${id}/export`}
                 className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm text-emerald-700"
@@ -267,9 +312,24 @@ export function StockOrderDetailView({ id }: { id: string }) {
               </p>
             </div>
             <span className="rounded bg-blue-50 px-3 py-1.5 text-sm text-blue-700">
-              {STOCK_STATUS_LABELS[o.status]}
+              {data.recalled_pi ? "已撤回（历史）" : STOCK_STATUS_LABELS[o.status]}
             </span>
           </header>
+          {data.recalled_pi ? <p className="border-b bg-amber-50 px-5 py-3 text-sm text-amber-800">这张备货单随 PI 撤回，当前不是仓库待办；原内容仅供追溯。请在 PI 草稿中修改并重新提交。</p> : null}
+          {o.status !== "DRAFT" ? <div className="border-b px-5 py-4">
+            <p className="mb-2 text-xs text-slate-500">仓库备货流程 · 按顺序流转</p>
+            <ol className="flex flex-wrap items-center gap-2 text-xs" aria-label="仓库备货流程">
+              {STOCK_PROGRESS_STAGES.map((stage, index) => {
+                const currentIndex = STOCK_PROGRESS_STAGES.indexOf(o.status);
+                return <li key={stage} className={`rounded-full border px-3 py-1.5 ${stage === o.status ? "border-blue-600 bg-blue-50 font-semibold text-blue-700" : currentIndex > index ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500"}`}>
+                  {index + 1}. {STOCK_STATUS_LABELS[stage]}
+                </li>;
+              })}
+            </ol>
+            {o.status === "WAITING" ? <p className="mt-2 text-xs text-slate-500">当前待仓库接单，下一步可更新为“备货中”。</p> : null}
+            {["SHORTAGE", "CANCELLED"].includes(o.status) ? <p className="mt-2 text-xs text-amber-700">当前为{STOCK_STATUS_LABELS[o.status]}，不属于常规五步进度。</p> : null}
+            {!data.recalled_pi ? <div className="mt-3 max-w-sm"><StockProgressCell progress={summarizeStockProgress(o.status, items)}/></div> : null}
+          </div> : null}
           {error ? (
             <div className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
               {error}
@@ -279,7 +339,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
             {[
               ["客户简称", o.customer_short_name],
               ["目的国家", o.destination_country || "-"],
-              ["当前状态", STOCK_STATUS_LABELS[o.status]],
+              ["当前状态", data.recalled_pi ? "已撤回（历史）" : STOCK_STATUS_LABELS[o.status]],
               ["状态备注", o.status_note || "-"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg bg-slate-50 p-4">
@@ -297,7 +357,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>
             <p className="mb-3 text-xs text-slate-500">
-              仅展示仓库所需规格、数量、理货要求及成本；销售价、客户付款价和利润率不会在备货单展示。预估成本由销售录入，采购人员另行确认实际采购单价。
+              仅展示仓库所需规格、数量、理货要求及 PI 预估成本；销售价、客户付款价和利润率不会在备货单展示。
             </p>
             <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
               <input value={receivingSearch} onChange={(e) => setReceivingSearch(e.target.value)} placeholder="搜索产品、型号、供应商编码" className="h-9 min-w-64 rounded border px-3" />
@@ -305,10 +365,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
               <span className="text-slate-500">显示 {visibleItems.length}/{items.length} 项</span>
             </div>
             <div className="overflow-x-auto rounded-xl border">
-              <table className="w-full min-w-[1200px] text-left text-sm">
+              <table className="w-full min-w-[1100px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
                   <tr>
                     {[
+                      "选择",
                       "序号",
                       "产品类型",
                       "品牌",
@@ -316,10 +377,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "客户质量/描述",
                       "中文质量/描述（仓库）",
                       "预估成本价（CNY）",
-                      "实际采购单价（CNY）",
                       "数量",
                       "已回货数量",
                       "供应商编码",
+                      "本项备货状态",
                       "理货要求",
                       "仓库备注",
                     ].map((x) => (
@@ -332,10 +393,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 <tbody>
                   {visibleItems.map(({ item, index }) => (
                     <tr key={item.id} className="border-t">
+                      <td className="px-3 py-3">{data.can_update && ITEM_STAGES.includes(item.preparation_status) && item.preparation_status !== "SHIPPED" ? <input type="checkbox" aria-label={`选择第 ${item.line_number} 项`} checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => event.target.checked ? [...current, item.id] : current.filter((value) => value !== item.id))} /> : null}</td>
                       <td className="px-3 py-3">{item.line_number}</td>
                       <td className="px-3 py-3 font-medium">
-                        {item.product_type_snapshot || "未维护类型"}
-                        <small className="mt-1 block font-normal text-slate-500">{item.item_name}</small>
+                        {item.product_type_snapshot || item.item_name || "—"}
+                        {item.product_type_snapshot && item.item_name !== item.product_type_snapshot ? <small className="mt-1 block font-normal text-slate-500">{item.item_name}</small> : null}
                       </td>
                       <td className="px-3 py-3">{item.brand || "-"}</td>
                       <td className="px-3 py-3">{item.model || "-"}</td>
@@ -364,20 +426,6 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-3 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
-                      <td className="px-3 py-2">
-                        {data.can_edit_procurement ? (
-                          <input
-                            inputMode="decimal"
-                            value={procurementDraft[item.id] ?? ""}
-                            onChange={(e) => setProcurementDraft((current) => ({ ...current, [item.id]: e.target.value }))}
-                            placeholder="待采购核价"
-                            aria-label={`第 ${item.line_number} 行实际采购单价`}
-                            className="h-9 w-28 rounded border px-2 text-right"
-                          />
-                        ) : (
-                          item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-500">待采购核价</span>
-                        )}
-                      </td>
                       <td className="px-3 py-3">{item.quantity}</td>
                       <td className="px-3 py-2">
                         {data.can_edit_receiving ? <input inputMode="numeric" value={receivingDraft[item.id]?.received ?? "0"}
@@ -389,6 +437,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                           onChange={(e) => setReceivingDraft((current) => ({ ...current, [item.id]: { received: current[item.id]?.received ?? "0", supplierCode: e.target.value } }))}
                           aria-label={`第 ${item.line_number} 行供应商编码`} maxLength={100} className="h-9 w-36 rounded border px-2" /> : item.warehouse_supplier_code || "—"}
                       </td>
+                      <td className="px-3 py-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${STAGE_COLORS[item.preparation_status] || STAGE_COLORS.WAITING}`}>{STOCK_STATUS_LABELS[item.preparation_status] || "待备货"}</span>{data.can_update && ITEM_STAGES.includes(item.preparation_status) && item.preparation_status !== "SHIPPED" ? <button disabled={busy} onClick={() => void advanceItems([item])} className="mt-1 block whitespace-nowrap text-xs font-medium text-blue-700 hover:underline disabled:opacity-40">推进至{STOCK_STATUS_LABELS[ITEM_STAGES[ITEM_STAGES.indexOf(item.preparation_status) + 1]]}</button> : null}</td>
                       <td className="px-3 py-2">
                         {data.can_prepare ? (
                           <input
@@ -411,37 +460,27 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="border-t bg-amber-50">
-                    <td
-                      colSpan={7}
-                      className="px-3 py-3 text-right font-medium"
-                    >
-                      已确认采购金额合计
-                    </td>
-                    <td className="px-3 py-3 font-bold text-amber-800">
-                      {totalCost === null ? "待全部核价" : totalCost.toFixed(2)}
-                    </td>
-                    <td colSpan={5} />
-                  </tr>
-                </tfoot>
               </table>
             </div>
           </div>
-          {data.can_edit_procurement ? (
-            <section className="mx-5 mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
-              <p className="text-sm text-amber-900">采购人员填写实际采购单价；留空表示尚未确认，0 仅用于已确认免费取得的商品。该价格不含包装费和其他费用。</p>
-              <button disabled={busy} onClick={() => void saveProcurementCosts().catch((cause) => setError(cause instanceof Error ? cause.message : "采购价格式不正确"))} className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 text-sm text-amber-900"><Save size={16} />保存采购核价</button>
-            </section>
-          ) : null}
           {data.can_edit_receiving ? <section className="mx-5 mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
             <p className="text-sm text-blue-900">按产品填写累计已回货数量和供应商编码；部分回货可多次保存，不能超过订购数量。</p>
             <button disabled={busy} onClick={() => void saveReceivingDetails().catch((cause) => setError(cause instanceof Error ? cause.message : "回货数量格式不正确"))}
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-300 bg-white px-4 text-sm text-blue-900"><Save size={16} />保存回货信息</button>
           </section> : null}
+          {data.can_update && ITEM_STAGES.includes(o.status) && o.status !== "SHIPPED" ? <section className="mx-5 mb-5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+            <h2 className="font-semibold">逐项更新备货进度</h2>
+            <p className="mt-1 text-xs text-slate-600">每项只推进一个阶段；可勾选当前状态相同的产品批量推进。整单进度按各项数量加权计算，回货数量单独显示。</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3"><input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} placeholder="本次说明；待出货/已发货必填" className="h-10 min-w-64 flex-1 rounded-lg border bg-white px-3 text-sm"/><button disabled={busy || !nextSelectedStage} onClick={() => void advanceItems(selectedItems)} className="h-10 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white disabled:opacity-40">{nextSelectedStage ? `推进选中 ${selectedItems.length} 项至${STOCK_STATUS_LABELS[nextSelectedStage]}` : "选择相同状态的产品"}</button></div>
+            {items.some((item) => item.preparation_status === "READY_TO_SHIP") ? <div className="mt-3 grid gap-3 md:grid-cols-3">{([
+              ["包装费用（人民币）", packagingExpense, setPackagingExpense],
+              ["采购发生费用（人民币）", procurementExpense, setProcurementExpense],
+              ["出货发生费用（人民币）", shippingExpense, setShippingExpense],
+            ] as const).map(([label, value, setValue]) => <label key={label} className="text-sm">{label}<input value={value} onChange={(event) => setValue(event.target.value)} inputMode="decimal" placeholder="整单全部发货时填写；无费用填0" className="mt-1 h-10 w-full rounded-lg border bg-white px-3"/></label>)}</div> : null}
+          </section> : null}
           {data.can_prepare ? (
             <section className="mx-5 mb-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-              <h2 className="font-semibold">完善并提交备货信息</h2>
+              <h2 className="font-semibold">仓库完善备货信息</h2>
               <div className="mt-3 grid gap-3 md:grid-cols-[1fr_260px]">
                 <label className="text-sm">
                   <span className="mb-1 block text-slate-600">
@@ -473,15 +512,16 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm text-white"
                   >
                     <Send size={16} />
-                    提交采购备货
+                    确认备货草稿
                   </button>
                 ) : null}
               </div>
             </section>
           ) : null}
-          {data.can_update && data.allowed_statuses.length ? (
+          {data.can_update && data.allowed_statuses.some((key) => ["SHORTAGE", "CANCELLED"].includes(key)) ? (
             <section className="mx-5 mb-5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
-              <h2 className="font-semibold">仓库更新备货状态</h2>
+              <h2 className="font-semibold">整单异常处理</h2>
+              <p className="mt-1 text-xs text-slate-600">常规进度请在产品明细逐项更新；整单缺货或取消才使用此入口。</p>
               <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr_auto]">
                 <select
                   value={status}
@@ -490,7 +530,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                   }
                   className="h-10 rounded-lg border bg-white px-3 text-sm"
                 >
-                  {data.allowed_statuses.map((key) => (
+                  {data.allowed_statuses.filter((key) => ["SHORTAGE", "CANCELLED"].includes(key) || (o.status === "SHORTAGE" && key === "PREPARING")).map((key) => (
                     <option key={key} value={key}>
                       {STOCK_STATUS_LABELS[key]}
                     </option>
@@ -519,21 +559,6 @@ export function StockOrderDetailView({ id }: { id: string }) {
                   确认状态
                 </button>
               </div>
-              {status === "SHIPPED" ? (
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  {([
-                    ["包装费用（人民币）", packagingExpense, setPackagingExpense],
-                    ["采购发生费用（人民币）", procurementExpense, setProcurementExpense],
-                    ["出货发生费用（人民币）", shippingExpense, setShippingExpense],
-                  ] as const).map(([label, value, setValue]) => (
-                    <label key={label} className="text-sm font-medium">{label} *
-                      <input type="number" min="0" step="0.01" inputMode="decimal" required value={value}
-                        onChange={(event) => setValue(event.target.value)} placeholder="无费用填 0"
-                        className="mt-1 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
-                    </label>
-                  ))}
-                </div>
-              ) : null}
             </section>
           ) : null}
           {data.expenses ? (
@@ -567,7 +592,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     {event.note || "无备注"}
                   </span>
                   <span className="ml-auto text-xs text-slate-400">
-                    {event.creator?.name || event.creator?.email || "系统"}
+                    操作人：{event.creator?.name || event.creator?.email || `未知用户（${event.created_by.slice(0, 8)}）`}
                   </span>
                 </div>
               ))}
