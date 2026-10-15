@@ -113,7 +113,7 @@ export function CustomersView() {
   const [count, setCount] = useState(0);
   const [totalCustomerCount, setTotalCustomerCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
+  const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
