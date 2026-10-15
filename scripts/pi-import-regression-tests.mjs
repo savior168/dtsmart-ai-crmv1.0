@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import XLSX from "xlsx";
-import { parseCustomerPiWorkbook } from "../lib/pi-document-import.ts";
+import { matchImportedPaymentAccount, parseCustomerPiWorkbook } from "../lib/pi-document-import.ts";
 
 const template = readFileSync("assets/templates/PI_Import_Template.xlsx");
 const archive = XLSX.CFB.read(template, { type: "buffer" });
@@ -42,6 +42,10 @@ exampleSheet.J6.v = "T/T Bank Transfer (USD)";
 const exportedPi = parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" }));
 assert.equal(exportedPi.document.currency, "USD", "正式导出中的付款方式应从币种标注中识别币种");
 assert.equal(exportedPi.document.payment_method, "T/T Bank Transfer", "正式导出付款方式应去除重复币种后缀并匹配系统渠道");
+assert.equal(typeof exportedPi.payment_account_instructions, "string", "应识别正式PI内的付款账户信息以便服务端安全匹配");
+assert.equal(matchImportedPaymentAccount("BANK: A\nACCOUNT: 123", [{ id: "account-1", currency: "USD", instructions: " bank: a account: 123 " }], "USD"), "account-1", "账户明文仅经忽略空白后的精确匹配才应自动关联");
+assert.equal(matchImportedPaymentAccount("BANK: A\nACCOUNT: 123", [{ id: "account-1", currency: "USD", instructions: "BANK: A ACCOUNT: 123" }, { id: "account-2", currency: "USD", instructions: "BANK: A ACCOUNT: 123" }], "USD"), "", "多账户匹配时不得自动绑定");
+assert.equal(matchImportedPaymentAccount("BANK: A\nACCOUNT: 123", [{ id: "account-1", currency: "EUR", instructions: "BANK: A ACCOUNT: 123" }], "USD"), "", "币种不同不得自动绑定账户");
 exampleSheet.J6.v = "EUR";
 assert.equal(parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })).document.currency, "EUR", "导入币种以明确填写的币种字段为准，不受缓存表头影响");
 exampleSheet.J6.v = "USD";
@@ -65,5 +69,7 @@ assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单�
 assert.match(form, /source\.shipping_payment \* importedRate/, "导入外币运费应按当前业务汇率折算并预填人民币运费");
 assert.match(form, /exactCustomerMatches\.length === 1/, "仅在本人客户名称唯一精确匹配时自动关联客户");
 assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货单"/, "差异核对确认应保留直接提交仓库意图");
+assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /matchImportedPaymentAccount[\s\S]*payment_account_id/,
+  "付款账户只能服务端唯一精确匹配，并只在导入草稿中保存账户ID而不保留账户明文");
 console.log("PI整单导入模板、必填标记、解析校验及待补全流程回归通过。");
 
