@@ -55,7 +55,8 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   const sheet = workbook.Sheets[sheetName];
   const warehouse_reference_number = cellText(sheet, "J2");
   if (!warehouse_reference_number || warehouse_reference_number.length > 80) throw new Error("PI订单编号不能为空且不得超过80字");
-  const currencyCandidates = [cellText(sheet, "G6").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, "I18").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, "J6")];
+  // J6 is the explicit import currency; formula-cached header text may be stale until Excel recalculates.
+  const currencyCandidates = [cellText(sheet, "J6"), cellText(sheet, "G6").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, "I18").match(/\(([A-Z]{3})\)/)?.[1]];
   const currency = currencyCandidates.find((value) => value && QUOTE_CURRENCY_CODES.has(value)) || "";
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
   const paymentText = cellText(sheet, "J6");

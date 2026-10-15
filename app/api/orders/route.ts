@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
       throw new Error("所选PI订单无效；每次最多导出50张");
     }
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
-    const requestedPageSize = Number(params.get("page_size") || 30);
-    const pageSize = [10, 30, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 30;
+    const requestedPageSize = Number(params.get("page_size") || 20);
+    const pageSize = [10, 20, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 20;
     const status = params.get("status")?.trim() || "";
     const currency = params.get("currency")?.trim().toUpperCase() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
@@ -110,13 +110,13 @@ export async function GET(request: NextRequest) {
       })).flat();
       const itemRows = (await mapExportBatches(idBatches, 4, async (batchIds) => {
         const first = await supabase.from("sales_order_items").select(
-          "sales_order_id,line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
+          "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
         ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(0, 999);
         if (first.error) throw first.error;
         const items = [...(first.data || [])];
         for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
           const next = await supabase.from("sales_order_items").select(
-            "sales_order_id,line_number,item_name,brand,model,quality,quality_en,description,description_en,quantity,unit_price,unit_price_cny",
+            "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
           ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(offset, offset + 999);
           if (next.error) throw next.error;
           items.push(...(next.data || []));

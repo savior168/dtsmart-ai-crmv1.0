@@ -25,7 +25,7 @@ const monthLabel=(value?:string)=>value&&/^\d{4}-\d{2}/.test(value)?`${value.sli
 export function UsageView({ embedded=false, businessTypeControl=null }:{ embedded?:boolean; businessTypeControl?:ReactNode }) {
   const initialRange=quickCostDateRange("TODAY");
   const [from,setFrom]=useState(initialRange.from); const [to,setTo]=useState(initialRange.to); const [datePreset,setDatePreset]=useState<CostDateRangePreset>("TODAY"); const [model,setModel]=useState(""); const [status,setStatus]=useState(""); const [scopeUserId,setScopeUserId]=useState("");
-  const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(30); const [data,setData]=useState<UsageBody|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
+  const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(20); const [data,setData]=useState<UsageBody|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
   const [googleExpanded,setGoogleExpanded]=useState(false); const [googleBilling,setGoogleBilling]=useState<GoogleBilling|null>(null); const [billingLoading,setBillingLoading]=useState(false);
   const [purposeExpanded,setPurposeExpanded]=useState(false);
   const {toast,node}=useToast();

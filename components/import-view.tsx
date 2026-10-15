@@ -75,7 +75,7 @@ type Stats = {
   errors: string[];
 };
 type PreviewStats = { success_count: number; conflict_count: number; existing_duplicate_count?: number; suspected_count?: number };
-const pageSizes = [10, 30, 50, 100, 300, 500];
+const pageSizes = [10, 20, 50, 100, 300, 500];
 const directoryProps = { webkitdirectory: "" } as Record<string, string>;
 const LAST_IMPORT_RESULT_KEY = "dtsmart-last-import-result";
 const IMPORT_TASK_KEY = "dtsmart-import-task";
@@ -237,7 +237,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
   );
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
+  const [pageSize, setPageSize] = useState(20);
   const [showFailures, setShowFailures] = useState(false);
   const [showFieldGuide, setShowFieldGuide] = useState(false);
   const [detailFilter, setDetailFilter] = useState<

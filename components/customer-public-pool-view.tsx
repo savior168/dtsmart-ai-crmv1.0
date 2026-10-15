@@ -1,1931 +1,23 @@
-"use client";
-
-import Link from "next/link";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
-import {
-  ArchiveRestore,
-  ChevronDown,
-  ChevronUp,
-  CheckCircle2,
-  Copy,
-  Download,
-  Eye,
-  FileSpreadsheet,
-  LoaderCircle,
-  Mail,
-  Paperclip,
-  Phone,
-  Plus,
-  Search,
-  Settings2,
-  ShieldCheck,
-  Trash2,
-  UserPlus,
-  X,
-} from "lucide-react";
-import { CountryLabel } from "@/components/country-label";
-import {
-  AppDialog,
-  ConfirmDialog,
-  DialogActions as SharedDialogActions,
-} from "@/components/ui/app-dialog";
-import { AppPagination } from "@/components/ui/app-pagination";
-import { CustomerPublicLink } from "@/components/ui/customer-public-link";
-import { CustomerContactSummary } from "@/components/customer-contact-summary";
-import { CustomerPublicChannels } from "@/components/customer-public-channels";
-import { AppTabs } from "@/components/ui/app-tabs";
-import { CustomerForm } from "@/components/customer-form";
-import { canOpenListRow } from "@/lib/ui/list-row-navigation";
-import { CustomerScoreBadge } from "@/components/customer-score-badge";
-import { customerSourceLabel } from "@/lib/customers/source-display";
-import { displayCustomerName } from "@/lib/customer-display";
-import {
-  CUSTOMER_LIST_COLUMNS,
-  CUSTOMER_LIST_DEFAULT_COLUMNS,
-  customerListSortField,
-  normalizeCustomerListColumns,
-  type CustomerListColumn,
-} from "@/lib/customers/list-fields";
-import { downloadCustomerWorkbook } from "@/lib/customer-export";
-import type { UserRole } from "@/lib/auth/permissions";
-import { appFieldClass } from "@/components/ui/app-list";
-import { customerIndustryDisplay } from "@/lib/customers/industry-display";
-import { AttachmentPreview } from "@/components/ui/attachment-preview";
-import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
-import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
-import { CompactDateRange } from "@/components/ui/compact-date-range";
-import { countryInfo } from "@/lib/countries";
-
-type Role = UserRole;
-type Tab =
-  | "available"
-  | "claimed"
-  | "pending"
-  | "renewals"
-  | "handover"
-  | "history";
-type Owner = { id: string; name: string | null; email: string };
-type PoolRow = {
-  id: string;
-  company_name: string;
-  contact_name: string | null;
-  country: string | null;
-  address: string | null;
-  industry: string | null;
-  phone: string | null;
-  whatsapp: string | null;
-  email: string | null;
-  website_email: string | null;
-  website_phone: string | null;
-  website: string | null;
-  google_url: string | null;
-  facebook_url?: string | null;
-  instagram_url?: string | null;
-  linkedin_url?: string | null;
-  tiktok_url?: string | null;
-  other_public_urls?: string[] | null;
-  ai_level: string | null;
-  ai_score: number | null;
-  ai_score_source?: string | null;
-  ai_screening_done?: boolean | null;
-  business_scope: string | null;
-  owner_id: string | null;
-  owner: Owner | null;
-  created_by?: string | null;
-  creator?: Owner | null;
-  pool_status: string | null;
-  status: string;
-  claimed_at?: string | null;
-  followup_status: string | null;
-  last_contact_time: string | null;
-  source: string | null;
-  source_batch?: string | null;
-  source_batch_id?: string | null;
-  created_at: string;
-  updated_at: string;
-  contact_masked: boolean;
-  can_claim: boolean;
-  last_release?: { at: string; by: string; reason: string } | null;
-  can_open_customer: boolean;
-  protection?: { expire_date?: string; extension_count?: number } | null;
-  my_supplements?: Array<{ id: string; field_name: string; value_raw: string; source_type: string; source_batch?: string | null; source_row?: number | null; created_at: string }>;
-  verified_contacts?: Array<{ type: string; value_raw: string; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null; contact_status?: string | null; captured_at?: string | null }>;
-};
-type AssignmentOptions = {
-  assignees: Owner[];
-  inactive_users: Array<Owner & { status: string; customer_count: number }>;
-};
-type PoolFilterOptions = {
-  countries: SearchableFilterOption[];
-  industries: Array<{ value: string; label: string; tone: "verified" | "raw" | "mixed"; count?: number }>;
-  owners: Owner[];
-  sources: Array<{ value: string; label: string }>;
-  batches: Array<{ value: string; label: string; source: string }>;
-  screening_tasks: Array<{ value: string; label: string; customer_count: number }>;
-};
-type Renewal = {
-  id: string;
-  renewal_number: number;
-  reason: string;
-  next_plan: string;
-  evidence_attachment_id: string;
-  created_at: string;
-  customer?: { company_name?: string; country?: string } | null;
-  owner?: Owner | null;
-};
-type History = {
-  id: string;
-  batch_id: string;
-  customer_id: string;
-  batch_number: string;
-  batch_name: string;
-  reason_type: string;
-  reason: string;
-  mode: string;
-  customer_count: number;
-  created_at: string;
-  source?: Owner | null;
-  target?: Owner | null;
-  creator?: Owner | null;
-  previous_owner?: Owner | null;
-  next_owner?: Owner | null;
-  current_owner?: Owner | null;
-  customer?: {
-    id: string;
-    company_name: string;
-    contact_name?: string | null;
-    country?: string | null;
-    address?: string | null;
-    phone?: string | null;
-    email?: string | null;
-    website?: string | null;
-    google_url?: string | null;
-    status?: string | null;
-    pool_status?: string | null;
-  } | null;
-};
-
-const tabLabels: Record<Tab, string> = {
-  available: "å¾…è®¤é¢†å®¢æˆ·",
-  claimed: "è®¤é¢†è®°å½•",
-  pending: "å¾…ç®¡ç†å‘˜åˆ†é…",
-  renewals: "ç»­æœŸå®¡æ‰¹",
-  handover: "ç¦»èŒäº¤æ¥",
-  history: "åˆ†é…è®°å½•",
-};
-const tabDescriptions: Record<Tab, string> = {
-  available: "æ— å½’å±ï¼Œå¯æäº¤çœŸå®è”ç³»å‡­è¯è®¤é¢†",
-  claimed: "æŸ¥è¯¢å®¢æˆ·å½“å‰å½’å±",
-  pending: "åˆ°æœŸä¸”æœ‰ä¸šåŠ¡è®°å½•æˆ–è´¦å·åœç”¨çš„æ•°æ®",
-  renewals: "å®¡æ ¸é”€å”®å‘˜ç¬¬ä¸‰æ¬¡åŠåç»­ç»­æœŸç”³è¯·",
-  handover: "è½¬ç§»åœç”¨æˆ–ç¦»èŒè´¦å·çš„å…¨éƒ¨ä¸šåŠ¡æ•°æ®",
-  history: "è¿½æº¯å…¬æµ·åˆ†é…å’Œç¦»èŒäº¤æ¥æ‰¹æ¬¡",
-};
-const field = appFieldClass;
-async function api(url: string, init?: RequestInit) {
-  const response = await fetch(url, { cache: "no-store", ...init });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "æ“ä½œå¤±è´¥");
-  return body;
-}
-const displayUser = (user?: Owner | null) =>
-  user ? user.name || user.email : "â€”";
-const formatDate = (value?: string | null) =>
-  value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "â€”";
-
-const poolStageLabels: Record<string, string> = { UNCLAIMED: "å¾…è®¤é¢†", CLAIMED: "æ½œåœ¨å®¢æˆ·", FOLLOWING: "æ„å‘å®¢æˆ·", QUOTE: "æ„å‘å®¢æˆ·", DEAL: "æˆäº¤å®¢æˆ·", RELEASED: "å†å²é‡Šæ”¾çŠ¶æ€" };
-const followupLabels: Record<string, string> = { WAITING_CONTACT: "å¾…è”ç³»", CONTACTED: "å·²è”ç³»", REPLIED: "å·²å›å¤", NEEDS_FOLLOWUP: "éœ€è·Ÿè¿›", PAUSED: "æš‚ç¼“", CLOSED: "å·²ç»“æŸ" };
-const POOL_DEFAULT_FIELDS: Record<"available" | "claimed" | "pending", CustomerListColumn[]> = {
-  // Sales action order: identify value first, then use the best contact and
-  // public entry points, and finally inspect provenance and freshness.
-  available: ["company_name", "country", "ai_score", "phone", "email", "website", "google_url", "source", "updated_at"],
-  claimed: ["company_name", "country", "ai_score", "status", "followup_status", "last_contact_time", "owner", "protection"],
-  pending: ["company_name", "country", "ai_score", "phone", "email", "source", "updated_at"],
-};
-
-const poolColumnWidth: Partial<Record<CustomerListColumn, string>> = {
-  company_name: "w-48",
-  ai_score: "w-20",
-  industry: "w-36",
-  country: "w-24",
-  phone: "w-64",
-  email: "w-52",
-  verified_contacts: "w-52",
-  website: "w-36",
-  google_url: "w-40",
-  status: "w-28",
-  followup_status: "w-28",
-  last_contact_time: "w-32",
-  protection: "w-28",
-  owner: "w-32",
-  source: "w-32",
-  source_batch: "w-36",
-  updated_at: "w-36",
-};
-
-function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: unknown) {
-  const defaults = POOL_DEFAULT_FIELDS[value];
-  const normalized = Array.isArray(saved)
-    ? normalizeCustomerListColumns(saved, value === "claimed")
-    : defaults;
-  // A customer without an owner has no protection period.  Ignore a stale
-  // browser preference rather than showing a meaningless empty column.
-  if (value !== "available") return normalized;
-  const compact = normalized.filter((field) => !["protection", "whatsapp", "website_phone", "website_email", "social", "verified_contacts"].includes(field));
-  const contactIndex = compact.indexOf("phone");
-  if (contactIndex < 0) compact.splice(Math.min(3, compact.length), 0, "phone");
-  return [...new Set(compact)];
-}
-
-function fieldLabel(field: CustomerListColumn, tab: Tab) {
-  if (tab === "available" && field === "phone") return "è”ç³»å·ç ";
-  return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
-}
-
-function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai" }) {
-  const [copied, setCopied] = useState("");
-  type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
-  const iconFor = (type: string) => type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> : <Phone size={14}/>;
-  const originals: DisplayContact[] = [
-    { label: "åŸå§‹ç”µè¯", value: row.phone || "æœªæä¾›", type: "PHONE", icon: <Phone size={14}/>, source: "original" },
-    { label: "åŸå§‹ WhatsApp", value: row.whatsapp || "æœªæä¾›", type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" },
-    { label: "åŸå§‹é‚®ç®±", value: row.email || "æœªæä¾›", type: "EMAIL", icon: <Mail size={14}/>, source: "original" },
-  ];
-  const contactKey = (type: string, value: string) => {
-    if (type === "EMAIL") return `${type}:${value.trim().toLowerCase()}`;
-    return `${type}:${normalizePhoneInternational(value, row.country).replace(/\D/g, "") || value.replace(/\D/g, "")}`;
-  };
-  const originalKeys = new Set(originals.filter((item) => item.value !== "æœªæä¾›").map((item) => contactKey(item.type, item.value)));
-  const collected: DisplayContact[] = [
-    ...(row.verified_contacts || []).filter((contact) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(contact.verification_status || "")) && ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type || "").toUpperCase()) && String(contact.value_raw || "").trim()).map((contact): DisplayContact => ({
-      label: `${String(contact.source_channel || "public").toLowerCase() === "website" ? "å®˜ç½‘" : String(contact.source_channel || "").toLowerCase() === "google_maps" ? "Google Maps" : "å…¬å¼€æ¥æº"}æ ¸éªŒ${String(contact.type).toUpperCase() === "EMAIL" ? "é‚®ç®±" : String(contact.type).toUpperCase() === "WHATSAPP" ? "WhatsApp" : "ç”µè¯"}`,
-      value: String(contact.value_raw).trim(), type: String(contact.type).toUpperCase() as "PHONE" | "EMAIL" | "WHATSAPP", icon: iconFor(String(contact.type).toUpperCase()),
-      source: contact.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified",
-      channel: contact.source_channel, sourceUrl: contact.exact_source_url,
-    })),
-  ];
-  // A discovered contact can also be saved in the compatibility fields. Keep
-  // it visible for older analysis records, while avoiding a second identical
-  // row once the structured customer_contacts record is available.
-  for (const [label, value, type] of [["å®˜ç½‘æ ¸éªŒç”µè¯", row.website_phone, "PHONE"], ["å®˜ç½‘æ ¸éªŒé‚®ç®±", row.website_email, "EMAIL"]] as const) {
-    if (!value || collected.some((item) => contactKey(item.type, item.value) === contactKey(type, value))) continue;
-    collected.push({ label, value, type, icon: iconFor(type), source: "verified", channel: "website" });
-  }
-  const contacts = (source === "original" ? originals : collected)
-    .filter((item, index, all) => source === "original" || (!originalKeys.has(contactKey(item.type, item.value)) && all.findIndex((candidate) => contactKey(candidate.type, candidate.value) === contactKey(item.type, item.value)) === index));
-  if (!contacts.length) return <span className="text-slate-400">â€”</span>;
-  return <div className="space-y-1">{contacts.map((item, index) => {
-    const muted = item.value === "æœªæä¾›";
-    const key = `${item.label}:${item.value}:${index}`;
-    const badge = item.source === "original" ? "åŸå§‹" : item.source === "conflict" ? "å¾…æ ¸å¯¹" : "å·²æ ¸éªŒ";
-    const tone = item.source === "original" ? "bg-slate-100 text-slate-500" : item.source === "conflict" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-amber-700";
-    const display = muted || item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, row.country);
-    const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, row.country).replace(/\D/g, "") : "";
-    const text = whatsappDigits
-      ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="æ‰“å¼€ WhatsApp Web å¯¹è¯" className="min-w-0 flex-1 truncate text-[#128C7E] hover:underline">{display}</a>
-      : <span className="min-w-0 flex-1 truncate">{display}</span>;
-    return <span key={key} title={`${item.label}ï¼š${item.value}${item.sourceUrl ? `\næ¥æºï¼š${item.sourceUrl}` : ""}`} className={`flex min-w-0 items-center gap-1.5 text-xs ${muted ? "text-slate-400" : "text-slate-700"}`}><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>{text}<button type="button" disabled={muted} onClick={() => { void navigator.clipboard?.writeText(item.value).then(() => { setCopied(key); window.setTimeout(() => setCopied((current) => current === key ? "" : current), 1400); }).catch(() => undefined); }} aria-label={`å¤åˆ¶${item.label}`} title={copied === key ? "å·²å¤åˆ¶" : `å¤åˆ¶${item.label}`} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-blue-600 disabled:pointer-events-none disabled:opacity-30">{copied === key ? <CheckCircle2 size={13} className="text-emerald-600"/> : <Copy size={13}/>}</button></span>;
-  })}</div>;
-}
-
-function poolText(row: PoolRow, key: CustomerListColumn) {
-  if (key === "company_name") return displayCustomerName(row.company_name);
-  if (key === "contact_name") return row.contact_name || "â€”";
-  if (key === "country") return row.country || "â€”";
-  if (key === "industry") return customerIndustryDisplay(row).text;
-  if (key === "ai_score") return row.ai_score == null ? "æœªç­›é€‰" : `${row.ai_level || "â€”"} Â· ${row.ai_score}`;
-  if (key === "status") return row.contact_masked ? "å·²è®¤é¢†" : poolStageLabels[row.status] || row.status || "â€”";
-  if (key === "followup_status") return row.contact_masked ? "å½’å±äººå¯è§" : followupLabels[row.followup_status || "WAITING_CONTACT"] || "å¾…è”ç³»";
-  if (key === "protection") return row.contact_masked ? "å½’å±äººå¯è§" : row.protection?.expire_date ? `è‡³ ${new Date(row.protection.expire_date).toLocaleDateString("zh-CN")}` : "â€”";
-  if (key === "last_contact_time") return row.contact_masked ? "å½’å±äººå¯è§" : formatDate(row.last_contact_time);
-  if (key === "owner") return displayUser(row.owner);
-  if (key === "phone") return row.phone || "â€”";
-  if (key === "email") return row.email || "â€”";
-  if (key === "website_email") return row.website_email || "â€”";
-  if (key === "website_phone") return row.website_phone || "â€”";
-  if (key === "website") return row.website || "â€”";
-  if (key === "google_url") return row.google_url || "â€”";
-  if (key === "source") return row.source === "EXCEL_IMPORT" ? "Excelå¯¼å…¥" : row.source || "â€”";
-  if (key === "source_batch") return row.source_batch || "â€”";
-  if (key === "updated_at") return formatDate(row.updated_at);
-  return "â€”";
-}
-
-// Keep the exact same score thresholds and visual language as â€œæˆ‘çš„å®¢æˆ·â€.
-function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
-  if (field === "company_name") {
-    const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AIæ ¸éªŒï¼š" : "åŸå§‹ç±»åˆ«ï¼š"}{industry.text}</small>{row.last_release ? <small className="mt-1 inline-flex max-w-full cursor-help items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-800 ring-1 ring-amber-100" title={`æœ€è¿‘ä¸€æ¬¡é‡Šæ”¾\né‡Šæ”¾äººï¼š${row.last_release.by}\né‡Šæ”¾æ—¶é—´ï¼š${formatDate(row.last_release.at)}\né‡Šæ”¾åŸå› ï¼š${row.last_release.reason}`}>æ›¾è¢«é‡Šæ”¾ Â· {new Date(row.last_release.at).toLocaleDateString("zh-CN")}</small> : null}{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="æŸ¥çœ‹ä»…è‡ªå·±å¯è§çš„è¡¥å……èµ„æ–™">æˆ‘çš„è¡¥å…… {row.my_supplements.length} é¡¹</button> : null}</span>;
-  }
-  if (field === "country") return <CountryLabel value={row.country}/>;
-  if (field === "ai_score") return <span className="inline-flex items-center gap-1"><CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>{row.ai_score_source==="MANUAL_REVIEW"?<small className="text-blue-700">äººå·¥å¤æ ¸</small>:null}</span>;
-  if (field === "phone" && row.contact_masked === false) return <CustomerContactSummary customer={row} source="all" display="phone"/>;
-  if (field === "email" && !row.owner_id) return <CustomerContactSummary customer={row} source="all" display="email"/>;
-  if (field === "verified_contacts" && !row.owner_id) return <CustomerContactSummary customer={row} source="ai"/>;
-  if (field === "source") return <span className="block min-w-0 truncate" title={[row.source_batch ? `æ‰¹æ¬¡ï¼š${row.source_batch}` : "", `åˆ›å»ºäººï¼š${displayUser(row.creator)}`].filter(Boolean).join("\n")}>{customerSourceLabel(row.source)}</span>;
-  if (field === "website") return <CustomerPublicLink value={row.website} kind="website"/>;
-  if (field === "google_url") return <CustomerPublicChannels customer={row}/>;
-  return <span className="line-clamp-2">{poolText(row, field)}</span>;
-}
-
-export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport = false }: { initialRole?: Role; initialCanExport?: boolean }) {
-  const [tab, setTab] = useState<Tab>("available");
-  const [rows, setRows] = useState<PoolRow[]>([]);
-  const [role, setRole] = useState<Role>(initialRole);
-  const [count, setCount] = useState<number | null>(null);
-  const [tabCounts, setTabCounts] = useState<Partial<Record<Tab, number>>>({});
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
-  const [query, setQuery] = useState("");
-  const [createdFrom, setCreatedFrom] = useState("");
-  const [createdTo, setCreatedTo] = useState("");
-  const [focusedCustomerId, setFocusedCustomerId] = useState("");
-  const [countries, setCountries] = useState<string[]>([]);
-  const [industries, setIndustries] = useState<string[]>([]);
-  const [aiLevel, setAiLevel] = useState("");
-  const [aiStatus, setAiStatus] = useState<"all" | "done" | "pending" | "failed">("all");
-  const [target, setTarget] = useState("");
-  const [customerStatus, setCustomerStatus] = useState("");
-  const [ownerId, setOwnerId] = useState("");
-  const [sourceType, setSourceType] = useState("");
-  const [sourceBatches, setSourceBatches] = useState<string[]>([]);
-  const [sourceBatchOpen, setSourceBatchOpen] = useState(false);
-  const [sourceBatchQuery, setSourceBatchQuery] = useState("");
-  const [screeningTaskIds, setScreeningTaskIds] = useState<string[]>([]);
-  const [screeningTaskOpen, setScreeningTaskOpen] = useState(false);
-  const [screeningTaskQuery, setScreeningTaskQuery] = useState("");
-  const [sort, setSort] = useState("updated_at");
-  const [direction, setDirection] = useState<"asc" | "desc">("desc");
-  const [fields, setFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
-  const [draftFields, setDraftFields] = useState<CustomerListColumn[]>(POOL_DEFAULT_FIELDS.available);
-  const [fieldOpen, setFieldOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState("");
-  const [canExport, setCanExport] = useState(initialRole === "ADMIN" || initialCanExport);
-  const [selectingAll, setSelectingAll] = useState(false);
-  const newRef = useRef<HTMLDivElement>(null);
-  const sourceBatchRef = useRef<HTMLDivElement>(null);
-  const screeningTaskRef = useRef<HTMLDivElement>(null);
-  const requestVersion = useRef(0);
-  const listAbortRef = useRef<AbortController | null>(null);
-  const optionsAbortRef = useRef<AbortController | null>(null);
-  const [filterOptions, setFilterOptions] = useState<PoolFilterOptions>({
-    countries: [],
-    industries: [],
-    owners: [],
-    sources: [],
-    batches: [],
-    screening_tasks: [],
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-  const [claim, setClaim] = useState<PoolRow | null>(null);
-  const [supplementRow, setSupplementRow] = useState<PoolRow | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const selectionScope = JSON.stringify([tab, query, createdFrom, createdTo, focusedCustomerId, countries, industries, aiLevel, aiStatus, target, customerStatus, ownerId, sourceType, sourceBatches, screeningTaskIds]);
-  const selectionScopeRef = useRef(selectionScope);
-  useEffect(() => { selectionScopeRef.current = selectionScope; }, [selectionScope]);
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
-  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 3000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-  const orderedFieldOptions = useMemo(() => {
-    const ordered = draftFields.map((key) => CUSTOMER_LIST_COLUMNS.find((column) => column.key === key)).filter((column): column is (typeof CUSTOMER_LIST_COLUMNS)[number] => Boolean(column));
-    CUSTOMER_LIST_COLUMNS.forEach((column) => { if (!draftFields.includes(column.key)) ordered.push(column); });
-    return ordered;
-  }, [draftFields]);
-  const appendIndustryFilters = useCallback((params: URLSearchParams) => {
-    for (const value of industries) {
-      const label = value.startsWith("industry:") ? value.slice("industry:".length).trim() : value.trim();
-      if (label) params.append("industry_group", label);
-    }
-  }, [industries]);
-  const appendSourceBatchFilters = useCallback((params: URLSearchParams) => {
-    for (const value of sourceBatches) params.append("source_batch", value);
-  }, [sourceBatches]);
-  const load = useCallback(async () => {
-    if (!["available", "claimed", "pending"].includes(tab)) {
-      setLoading(false);
-      return;
-    }
-    const version = ++requestVersion.current;
-    listAbortRef.current?.abort();
-    const controller = new AbortController();
-    listAbortRef.current = controller;
-    setLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams({
-        tab,
-        page: String(page),
-        page_size: String(pageSize),
-      });
-      if (query.trim()) params.set("q", query.trim());
-      if (createdFrom) params.set("created_from", createdFrom);
-      if (createdTo) params.set("created_to", createdTo);
-      if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
-      for(const country of countries)params.append("country",country);
-      appendIndustryFilters(params);
-      if (aiLevel) params.set("ai_level", aiLevel);
-      if (aiStatus !== "all") params.set("ai_status", aiStatus);
-      if (target) params.set("target", target);
-      if (customerStatus && tab === "claimed") params.set("status", customerStatus);
-      if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
-      if (sourceType) params.set("source_type", sourceType);
-      appendSourceBatchFilters(params);
-      for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
-      params.set("sort", sort);
-      params.set("direction", direction);
-      const body = await api(`/api/customers/public-pool?${params}`, { signal: controller.signal });
-      if (version !== requestVersion.current) return;
-      const nextCount = Number(body.count || 0);
-      setRows(body.data || []);
-      setCount(nextCount);
-      setRole(body.role || "SALES");
-      setCanExport(Boolean(body.can_export));
-    } catch (caught) {
-      if (version === requestVersion.current && !(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "å®¢æˆ·å…¬æµ·åŠ è½½å¤±è´¥");
-    } finally {
-      if (version === requestVersion.current) setLoading(false);
-    }
-  }, [
-    aiLevel,
-    aiStatus,
-    appendIndustryFilters,
-    customerStatus,
-    countries,
-    createdFrom,
-    createdTo,
-    ownerId,
-    sourceType,
-    appendSourceBatchFilters,
-    screeningTaskIds,
-    page,
-    pageSize,
-    query,
-    tab,
-    target,
-    sort,
-    direction,
-    focusedCustomerId,
-  ]);
-  useEffect(() => {
-    const customerId = new URLSearchParams(window.location.search).get("customer") || "";
-    if (customerId) setFocusedCustomerId(customerId);
-  }, []);
-  useEffect(() => {
-    if (!focusedCustomerId || claim) return;
-    const focused = rows.find((row) => row.id === focusedCustomerId);
-    if (focused?.can_claim) setClaim(focused);
-  }, [claim, focusedCustomerId, rows]);
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("public-pool-columns-available-v5") || "null");
-      const next = poolFieldsForTab("available", saved);
-      setFields(next);
-      setDraftFields(next);
-    } catch {
-      setFields(POOL_DEFAULT_FIELDS.available);
-      setDraftFields(POOL_DEFAULT_FIELDS.available);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    const refreshOnFocus = () => {
-      if (document.visibilityState !== "visible") return;
-      void api("/api/customers/public-pool?permissions=1").then((body) => setCanExport(Boolean(body.can_export))).catch(() => undefined);
-    };
-    window.addEventListener("focus", refreshOnFocus);
-    return () => window.removeEventListener("focus", refreshOnFocus);
-  }, []);
-  const loadTabCounts = useCallback(() => {
-    api("/api/customers/public-pool?counts=1")
-      .then((body) => setTabCounts(body || {}))
-      .catch(() => undefined);
-  }, []);
-  useEffect(() => { loadTabCounts(); }, [loadTabCounts]);
-  const refreshAssignmentHistory = useCallback(() => {
-    setHistoryRefreshKey((value) => value + 1);
-    void loadTabCounts();
-  }, [loadTabCounts]);
-  useEffect(() => {
-    const close = (event: MouseEvent) => {
-      const targetNode = event.target as Node;
-      if (newRef.current && !newRef.current.contains(targetNode)) setNewOpen(false);
-      if (sourceBatchRef.current && !sourceBatchRef.current.contains(targetNode)) setSourceBatchOpen(false);
-      if (screeningTaskRef.current && !screeningTaskRef.current.contains(targetNode)) setScreeningTaskOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
-  useEffect(() => {
-    if (!["available", "claimed", "pending"].includes(tab)) return;
-    optionsAbortRef.current?.abort();
-    const controller = new AbortController();
-    optionsAbortRef.current = controller;
-    const params = new URLSearchParams({ tab, options: "1" });
-    for (const country of countries) params.append("country", country);
-    if (aiLevel) params.set("ai_level", aiLevel);
-    if (aiStatus !== "all") params.set("ai_status", aiStatus);
-    if (target) params.set("target", target);
-    if (sourceType) params.set("source_type", sourceType);
-    appendSourceBatchFilters(params);
-    api(`/api/customers/public-pool?${params}`, { signal: controller.signal })
-      .then((body) => {
-        const nextOptions = {
-          countries: body.countries || [],
-          industries: body.industries || [],
-          owners: body.owners || [],
-          sources: body.sources || [],
-          batches: body.batches || [],
-          screening_tasks: body.screening_tasks || [],
-        };
-        setFilterOptions(nextOptions);
-        const availableIndustries = new Set(nextOptions.industries.map((item: { value: string }) => item.value));
-        setIndustries((current) => current.filter((value) => availableIndustries.has(value)));
-      })
-      .catch((caught) => {
-        if (!(caught instanceof DOMException && caught.name === "AbortError")) setFilterOptions({ countries: [], industries: [], owners: [], sources: [], batches: [], screening_tasks: [] });
-      });
-    return () => controller.abort();
-  }, [aiLevel, aiStatus, appendSourceBatchFilters, countries, sourceType, tab, target]);
-  useEffect(
-    () => setPage(1),
-    [aiLevel, aiStatus, customerStatus, countries, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target],
-  );
-  useEffect(() => {
-    setSelected(new Set());
-  }, [aiLevel, aiStatus, customerStatus, countries, createdFrom, createdTo, focusedCustomerId, industries, ownerId, query, screeningTaskIds, sourceBatches, sourceType, tab, target]);
-  const visibleTabs = useMemo(() => {
-    const base: Tab[] = ["available", "claimed"];
-    if (role === "ADMIN")
-      base.push("pending", "handover", "history", "renewals");
-    else if (role === "SUPERVISOR") base.push("renewals");
-    return base;
-  }, [role]);
-  function changeTab(value: Tab) {
-    setTab(value);
-    setError("");
-    setSelected(new Set());
-    setCreatedFrom("");
-    setCreatedTo("");
-    setCountries([]);
-    setIndustries([]);
-    setOwnerId("");
-    setCustomerStatus("");
-    setSourceType("");
-    setSourceBatches([]);
-    setSourceBatchOpen(false);
-    setSourceBatchQuery("");
-    setScreeningTaskIds([]);
-    setScreeningTaskOpen(false);
-    setSort(value === "claimed" ? "claimed_at" : "updated_at");
-    setDirection("desc");
-    if (value === "available" || value === "claimed" || value === "pending") {
-      let next = POOL_DEFAULT_FIELDS[value];
-      try {
-        const saved = JSON.parse(localStorage.getItem(`public-pool-columns-${value}-v5`) || "null");
-        if (saved) next = poolFieldsForTab(value, saved);
-      } catch {}
-      setFields(next);
-      setDraftFields(next);
-    }
-    if (value === "history") void loadTabCounts();
-  }
-  function resetFilters() {
-    setQuery("");
-    setCreatedFrom("");
-    setCreatedTo("");
-    setCountries([]);
-    setIndustries([]);
-    setAiLevel("");
-    setAiStatus("all");
-    setTarget("");
-    setCustomerStatus("");
-    setOwnerId("");
-    setSourceType("");
-    setSourceBatches([]);
-    setSourceBatchOpen(false);
-    setSourceBatchQuery("");
-    setScreeningTaskIds([]);
-    setScreeningTaskOpen(false);
-    setSort(tab === "claimed" ? "claimed_at" : "updated_at");
-    setDirection("desc");
-    setPage(1);
-  }
-  function changeSort(key: CustomerListColumn) {
-    if (tab === "claimed" && role !== "ADMIN" && ["contact_name", "phone", "whatsapp", "email", "website_email", "website_phone", "verified_contacts", "website", "google_url", "status", "followup_status", "last_contact_time", "protection", "updated_at"].includes(key)) return;
-    const next = customerListSortField(key);
-    if (sort === next) setDirection((current) => current === "asc" ? "desc" : "asc");
-    else { setSort(next); setDirection("asc"); }
-    setPage(1);
-  }
-  function moveDraftField(key: CustomerListColumn, offset: -1 | 1) {
-    setDraftFields((current) => {
-      const index = current.indexOf(key);
-      const targetIndex = index + offset;
-      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-      return next;
-    });
-  }
-  async function exportData() {
-    if (!canExport || exporting || !["available", "claimed", "pending"].includes(tab)) return;
-    setExporting(true);
-    setExportProgress("æ­£åœ¨è¯»å–å®¢æˆ·æ•°æ®â€¦");
-    setError("");
-    try {
-      const exported: PoolRow[] = [];
-      const seenIds = new Set<string>();
-      const selectedIds = [...selected];
-      const selectedBatches = Array.from({ length: Math.ceil(selectedIds.length / 100) }, (_, index) => selectedIds.slice(index * 100, (index + 1) * 100));
-      let total = -1;
-      for (let exportPage = 1; ; exportPage += 1) {
-        const selectedBatch = selectedIds.length ? selectedBatches[exportPage - 1] : null;
-        if (selectedIds.length && !selectedBatch) break;
-        const params = new URLSearchParams({ tab, page: String(selectedBatch ? 1 : exportPage), page_size: selectedBatch ? "100" : "200", sort, direction, export: "1" });
-        for (const id of selectedBatch || []) params.append("selected_id", id);
-        if (query.trim()) params.set("q", query.trim());
-        if (createdFrom) params.set("created_from", createdFrom);
-        if (createdTo) params.set("created_to", createdTo);
-        for(const country of countries)params.append("country",country);
-        appendIndustryFilters(params);
-        if (aiLevel) params.set("ai_level", aiLevel);
-        if (aiStatus !== "all") params.set("ai_status", aiStatus);
-        if (target) params.set("target", target);
-        if (customerStatus && tab === "claimed") params.set("status", customerStatus);
-        if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
-        if (sourceType) params.set("source_type", sourceType);
-        appendSourceBatchFilters(params);
-        for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
-        const body = await api(`/api/customers/public-pool?${params}`, { signal: AbortSignal.timeout(45_000) });
-        const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
-        const currentTotal = Number(body.count ?? 0);
-        if (!Number.isSafeInteger(currentTotal) || currentTotal < 0 || (selectedBatch ? currentTotal !== selectedBatch.length : total >= 0 && currentTotal !== total)) throw new Error("å¯¼å‡ºæœŸé—´å®¢æˆ·èŒƒå›´å‘ç”Ÿå˜åŒ–ï¼Œè¯·é‡æ–°é€‰æ‹©åé‡è¯•");
-        total = selectedBatch ? selectedIds.length : currentTotal;
-        for (const row of pageRows) {
-          if (!row.id || seenIds.has(row.id)) throw new Error("å¯¼å‡ºæœŸé—´å®¢æˆ·åˆ—è¡¨å‘ç”Ÿå˜åŒ–ï¼Œè¯·é‡è¯•");
-          seenIds.add(row.id);
-          exported.push(row);
-        }
-        setExportProgress(`å·²è¯»å– ${exported.length} / ${total} æ¡`);
-        if (selectedBatch && pageRows.length !== selectedBatch.length || !pageRows.length && exported.length < total) throw new Error(`å¯¼å‡ºä¸­æ–­ï¼šå·²è¯»å– ${exported.length} / ${total} æ¡ï¼Œè¯·é‡è¯•`);
-        if (selectedBatch) continue;
-        if (exported.length >= total) break;
-      }
-      if (!exported.length) { setToast("å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æ²¡æœ‰å¯å¯¼å‡ºçš„å®¢æˆ·"); return; }
-      setExportProgress(`æ­£åœ¨ç”Ÿæˆ ${exported.length} æ¡å®¢æˆ·çš„å·¥ä½œç°¿â€¦`);
-      downloadCustomerWorkbook(exported as unknown as Array<Record<string, unknown>>, `å®¢æˆ·å…¬æµ·-${tabLabels[tab]}`, { columns: fields, includeOwner: role === "ADMIN", includeAllContactChannels: true, includeAiEvidence: role === "ADMIN" });
-      setToast(`å·²å¯¼å‡º${selectedIds.length ? "å·²é€‰" : "å½“å‰ç­›é€‰ç»“æœ"} ${exported.length} æ¡`);
-    } catch (caught) {
-      setError(caught instanceof Error && ["TimeoutError", "AbortError"].includes(caught.name) ? "å¯¼å‡ºæ•°æ®è¯»å–è¶…æ—¶ï¼Œè¯·ç¼©å°ç­›é€‰èŒƒå›´åé‡è¯•" : caught instanceof Error ? caught.message : "å¯¼å‡ºå¤±è´¥");
-    } finally {
-      setExporting(false);
-      setExportProgress("");
-    }
-  }
-  async function selectAllResults() {
-    if (selectingAll || !["available", "claimed", "pending"].includes(tab)) return;
-    const requestedScope = selectionScope;
-    setSelectingAll(true);
-    setError("");
-    try {
-      const ids: string[] = [];
-      let expectedTotal: number | null = null;
-      for (let resultPage = 1; ; resultPage += 1) {
-        const params = new URLSearchParams({ tab, page: String(resultPage), page_size: "100", sort, direction });
-        if (query.trim()) params.set("q", query.trim());
-        if (focusedCustomerId) params.set("customer_id", focusedCustomerId);
-        if (createdFrom) params.set("created_from", createdFrom);
-        if (createdTo) params.set("created_to", createdTo);
-        for(const country of countries)params.append("country",country);
-        appendIndustryFilters(params);
-        if (aiLevel) params.set("ai_level", aiLevel);
-        if (aiStatus !== "all") params.set("ai_status", aiStatus);
-        if (target) params.set("target", target);
-        if (customerStatus && tab === "claimed") params.set("status", customerStatus);
-        if (ownerId && tab === "claimed") params.set("owner_id", ownerId);
-        if (sourceType) params.set("source_type", sourceType);
-        appendSourceBatchFilters(params);
-        for (const taskId of screeningTaskIds) params.append("ai_task_id", taskId);
-        const body = await api(`/api/customers/public-pool?${params}`);
-        if (selectionScopeRef.current !== requestedScope) throw new Error("ç­›é€‰æ¡ä»¶å·²æ”¹å˜ï¼Œè¯·é‡æ–°å…¨é€‰");
-        const pageRows = Array.isArray(body.data) ? body.data as PoolRow[] : [];
-        const total = Number(body.count);
-        if (!Number.isSafeInteger(total) || total < 0) throw new Error("å®¢æˆ·æ•°é‡å¼‚å¸¸ï¼Œè¯·åˆ·æ–°åé‡è¯•");
-        if (expectedTotal !== null && total !== expectedTotal) throw new Error("å…¨é€‰æœŸé—´å®¢æˆ·æ•°é‡å‘ç”Ÿå˜åŒ–ï¼Œè¯·åˆ·æ–°åé‡è¯•");
-        expectedTotal = total;
-        ids.push(...pageRows.map((row) => row.id));
-        if (new Set(ids).size !== ids.length || ids.length > total || (!pageRows.length && ids.length < total)) throw new Error("å…¨é€‰æœŸé—´å®¢æˆ·åˆ—è¡¨å‘ç”Ÿå˜åŒ–ï¼Œè¯·åˆ·æ–°åé‡è¯•");
-        if (ids.length === total) break;
-        if (pageRows.length < 100) throw new Error(`å…¨é€‰ä¸­æ–­ï¼šå·²è¯»å– ${ids.length}/${total} å®¶ï¼Œè¯·é‡è¯•`);
-      }
-      setSelected(new Set(ids));
-      setToast(ids.length ? `å·²é€‰æ‹©å½“å‰ç­›é€‰ç»“æœ ${ids.length} å®¶å®¢æˆ·` : "å½“å‰ç­›é€‰æ¡ä»¶ä¸‹æ²¡æœ‰å®¢æˆ·");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "å…¨é€‰å½“å‰ç­›é€‰ç»“æœå¤±è´¥");
-    } finally {
-      setSelectingAll(false);
-    }
-  }
-  return (
-    <main className="p-4 lg:p-6">
-      <div className="mx-auto max-w-[1680px]">
-        <header>
-          <div>
-            <h2 className="text-2xl font-bold">å®¢æˆ·å…¬æµ·</h2>
-          </div>
-        </header>
-        <div className="mt-4">
-          <AppTabs
-            value={tab}
-            items={visibleTabs.map((value) => ({
-              value,
-              label: tabLabels[value],
-              description: tabDescriptions[value],
-              count: value === "handover" ? undefined : tabCounts[value],
-              countTone: value === "available" ? "success" : value === "renewals" || value === "pending" ? "warning" : value === "history" ? "success" : undefined,
-            }))}
-            onChange={changeTab}
-            label="å®¢æˆ·å…¬æµ·åˆ†ç±»"
-          />
-        </div>
-        {tab === "available" ? <p className="mt-3 text-xs text-slate-500">AI è¯„åˆ†è¾¾åˆ° 60 åˆ†ä»é¡»æ ¸å®è¡Œä¸šã€ç»è¥è¯æ®ä¸è”ç³»æ–¹å¼ã€‚</p> : null}
-        {tab === "claimed" ? <p className="mt-3 text-xs text-slate-500">æ˜¾ç¤ºå…¨ç³»ç»Ÿå½“å‰å½’å±ï¼›ä»–äººå®¢æˆ·çš„è”ç³»æ–¹å¼å’Œè·Ÿè¿›è¯¦æƒ…ä»…å½’å±äººåŠæˆæƒç®¡ç†è€…å¯è§ã€‚</p> : null}
-        {["available", "claimed", "pending"].includes(tab) ? (
-          <>
-            <section className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="relative w-[300px] shrink-0">
-                  <Search
-                    size={17}
-                    className="absolute left-3 top-3 text-slate-400"
-                  />
-                  <input
-                    name="public-pool-search"
-                    autoComplete="off"
-                    data-lpignore="true"
-                    data-1p-ignore="true"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={tab === "claimed" && role !== "ADMIN" ? "æœç´¢å®¢æˆ·åç§°ã€å›½å®¶/åœ°åŒºæˆ–è¡Œä¸š" : "æœç´¢åç§°ã€è”ç³»äººã€å›½å®¶/åœ°åŒºã€ç”µè¯ã€é‚®ç®±æˆ–é“¾æ¥"}
-                    className={`${appFieldClass} w-full min-w-0 pl-9`}
-                  />
-                </label>
-                <CompactDateRange label={tab === "claimed" ? "è®¤é¢†æ—¥æœŸ" : "å½•å…¥æ—¥æœŸ"} fromLabel={tab === "claimed" ? "è®¤é¢†å¼€å§‹æ—¥æœŸ" : "å½•å…¥å¼€å§‹æ—¥æœŸ"} toLabel={tab === "claimed" ? "è®¤é¢†ç»“æŸæ—¥æœŸ" : "å½•å…¥ç»“æŸæ—¥æœŸ"} from={createdFrom} to={createdTo} onFromChange={(value)=>{setCreatedFrom(value);setPage(1)}} onToChange={(value)=>{setCreatedTo(value);setPage(1)}}/>
-                <SearchableMultiSelectFilter className="w-44 shrink-0" label="å›½å®¶/åœ°åŒº" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
-                <SearchableMultiSelectFilter className="w-44 shrink-0" label="æ‰€å±è¡Œä¸š" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
-                <select
-                  value={sourceType}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setSourceType(next);
-                    if (next) setSourceBatches((current) => current.filter((value) => filterOptions.batches.some((item) => item.value === value && item.source === next)));
-                  }}
-                  className={`${appFieldClass} w-40 shrink-0`}
-                  aria-label="æŒ‰æ•°æ®æ¥æºç­›é€‰"
-                >
-                  <option value="">å…¨éƒ¨æ•°æ®æ¥æº</option>
-                  {filterOptions.sources.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </select>
-                <div ref={sourceBatchRef} className="relative w-52 shrink-0">
-                  <button type="button" onClick={() => setSourceBatchOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={sourceBatchOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
-                    <span className="truncate">{sourceBatches.length ? `æ¥æºæ‰¹æ¬¡ï¼ˆ${sourceBatches.length}ï¼‰` : "å…¨éƒ¨æ¥æºæ‰¹æ¬¡"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
-                  </button>
-                  {sourceBatchOpen ? <div role="listbox" aria-label="æ¥æºæ‰¹æ¬¡å¤šé€‰" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
-                    <input value={sourceBatchQuery} onChange={(event) => setSourceBatchQuery(event.target.value)} placeholder="æœç´¢æ¥æºæ‰¹æ¬¡" className={`${appFieldClass} mb-2 h-9 w-full`} />
-                    <button type="button" onClick={() => { setSourceBatches([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">æ¸…ç©ºæ¥æºæ‰¹æ¬¡</button>
-                    {filterOptions.batches.filter((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())).map((item) => <label key={`${item.source}:${item.value}`} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={sourceBatches.includes(item.value)} onChange={() => { setSourceBatches((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words">{item.label}</span></label>)}
-                    {!filterOptions.batches.some((item) => (!sourceType || item.source === sourceType) && item.label.toLowerCase().includes(sourceBatchQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">æ²¡æœ‰åŒ¹é…çš„æ¥æºæ‰¹æ¬¡</p> : null}
-                  </div> : null}
-                </div>
-                {role === "ADMIN" ? <div ref={screeningTaskRef} className="relative w-48 shrink-0">
-                  <button type="button" onClick={() => setScreeningTaskOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={screeningTaskOpen} className={`${appFieldClass} flex w-full items-center justify-between gap-2 text-left`}>
-                    <span className="truncate">{screeningTaskIds.length ? `AIç­›é€‰æ‰¹æ¬¡ï¼ˆ${screeningTaskIds.length}ï¼‰` : "å…¨éƒ¨AIç­›é€‰æ‰¹æ¬¡"}</span><ChevronDown size={15} className="shrink-0 text-slate-400" />
-                  </button>
-                  {screeningTaskOpen ? <div role="listbox" aria-label="AIç­›é€‰æ‰¹æ¬¡å¤šé€‰" className="absolute left-0 top-full z-40 mt-1 max-h-80 min-w-80 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
-                    <input value={screeningTaskQuery} onChange={(event) => setScreeningTaskQuery(event.target.value)} placeholder="æœç´¢ä»»åŠ¡ç¼–å·æˆ–ä»»åŠ¡åç§°" className={`${appFieldClass} mb-2 h-9 w-full`} />
-                    <button type="button" onClick={() => { setScreeningTaskIds([]); setPage(1); }} className="mb-1 w-full rounded px-2 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">æ¸…ç©ºAIç­›é€‰æ‰¹æ¬¡</button>
-                    {filterOptions.screening_tasks.filter((item) => item.label.toLowerCase().includes(screeningTaskQuery.trim().toLowerCase())).map((item) => <label key={item.value} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={screeningTaskIds.includes(item.value)} onChange={() => { setScreeningTaskIds((current) => current.includes(item.value) ? current.filter((value) => value !== item.value) : [...current, item.value]); setPage(1); }} /><span className="min-w-0 break-words"><span className="block">{item.label}</span><small className="mt-0.5 block text-slate-400">è¯¥ä»»åŠ¡å…± {item.customer_count} æ¡ï¼›ä»…åŠ è½½å½“å‰é¡µç­¾å†…çš„å®¢æˆ·</small></span></label>)}
-                    {!filterOptions.screening_tasks.some((item) => item.label.toLowerCase().includes(screeningTaskQuery.trim().toLowerCase())) ? <p className="px-2 py-3 text-sm text-slate-400">æ²¡æœ‰åŒ¹é…çš„AIç­›é€‰æ‰¹æ¬¡</p> : null}
-                  </div> : null}
-                </div> : null}
-                <select
-                  value={aiLevel}
-                  onChange={(event) => setAiLevel(event.target.value)}
-                  className={`${appFieldClass} w-36 shrink-0`}
-                >
-                  <option value="">å…¨éƒ¨AIç­‰çº§</option>
-                  {["A", "B", "C", "D"].map((value) => (
-                    <option key={value}>{value}</option>
-                  ))}
-                </select>
-                <select
-                  value={target}
-                  onChange={(event) => setTarget(event.target.value)}
-                  className={`${appFieldClass} w-36 shrink-0`}
-                >
-                  <option value="">å…¨éƒ¨ç›®æ ‡åˆ¤æ–­</option>
-                  <option value="valid">æœ‰æ•ˆç›®æ ‡</option>
-                  <option value="invalid">æ— æ•ˆç›®æ ‡</option>
-                  <option value="review">å¾…å¤æ ¸</option>
-                </select>
-                <select
-                  value={aiStatus}
-                  onChange={(event) => setAiStatus(event.target.value as "all" | "done" | "pending" | "failed")}
-                  className={`${appFieldClass} w-36 shrink-0`}
-                  aria-label="AIåˆ†æçŠ¶æ€"
-                >
-                  <option value="all">å…¨éƒ¨AIåˆ†æçŠ¶æ€</option>
-                  <option value="done">å·²åˆ†æ</option>
-                  <option value="pending">æœªåˆ†æ</option>
-                  <option value="failed">åˆ†æå¤±è´¥</option>
-                </select>
-                {tab === "claimed" && role === "ADMIN" ? <select
-                  value={customerStatus}
-                  onChange={(event) => setCustomerStatus(event.target.value)}
-                  className={appFieldClass}
-                  aria-label="ç­›é€‰å·²è®¤é¢†å®¢æˆ·çš„å½“å‰é˜¶æ®µ"
-                >
-                  <option value="">å…¨éƒ¨å·²è®¤é¢†å®¢æˆ·é˜¶æ®µ</option>
-                  <option value="CLAIMED">æ½œåœ¨å®¢æˆ·</option>
-                  <option value="FOLLOWING">æ„å‘å®¢æˆ·</option>
-                  <option value="DEAL">å·²æˆäº¤</option>
-                </select> : null}
-                {tab === "claimed" ? (
-                  <select
-                    value={ownerId}
-                    onChange={(event) => setOwnerId(event.target.value)}
-                    className={`${appFieldClass} w-40 shrink-0`}
-                  >
-                    <option value="">å…¨éƒ¨è®¤é¢†äºº</option>
-                    {filterOptions.owners.map((value) => (
-                      <option key={value.id} value={value.id}>
-                        {displayUser(value)}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  null
-                )}
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="h-10 shrink-0 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50"
-                >
-                  é‡ç½®
-                </button>
-              </div>
-              {screeningTaskIds.length ? <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-blue-700">å·²æŒ‰ {screeningTaskIds.length} ä¸ª AI ç­›é€‰æ‰¹æ¬¡åŠ è½½å½“å‰â€œ{tabLabels[tab]}â€ä¸­çš„ {count ?? 0} å®¶å®¢æˆ·ï¼›åŒæ‰¹å®¢æˆ·è‹¥å·²è¿›å…¥å…¶ä»–å…¬æµ·é¡µç­¾ï¼Œè¯·åˆ‡æ¢åˆ°å¯¹åº”é¡µç­¾æŸ¥çœ‹ã€‚</p> : null}
-              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
-                {role === "ADMIN" ? <div ref={newRef} className="relative">
-                  <button type="button" onClick={() => setNewOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">
-                    <Plus size={16} className="shrink-0" />
-                    <span className="leading-none">æ–°å¢å®¢æˆ·</span>
-                    <ChevronDown size={15} className={`ml-0.5 shrink-0 transition-transform ${newOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {newOpen ? <div className="absolute left-0 top-11 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                    <button type="button" onClick={() => { setNewOpen(false); setCreateOpen(true); }} className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-blue-50"><UserPlus size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">æ‰‹åŠ¨æ–°å¢</span><small className="text-slate-500">æ–°å¢åè¿›å…¥å®¢æˆ·å…¬æµ·ï¼Œæš‚ä¸å½’å±ä»»ä½•é”€å”®å‘˜</small></span></button>
-                    <Link href="/import?destination=public" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><FileSpreadsheet size={20} className="mt-0.5 shrink-0 text-emerald-600" /><span><span className="block text-sm font-medium">æ‰¹é‡å¯¼å…¥</span><small className="text-slate-500">å¯¼å…¥åè¿›å…¥å®¢æˆ·å…¬æµ·ï¼Œæš‚ä¸å½’å±ä»»ä½•é”€å”®å‘˜</small></span></Link>
-                    <a href="/api/import/template" className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"><Download size={20} className="mt-0.5 shrink-0 text-blue-600" /><span><span className="block text-sm font-medium">ä¸‹è½½å¯¼å…¥æ¨¡æ¿</span><small className="text-slate-500">.xlsx Â· å«å­—æ®µè¯´æ˜å’Œç¤ºä¾‹æ•°æ®</small></span></a>
-                    <div className="border-t px-3 py-2 text-xs text-slate-400">è¯·ä½¿ç”¨ç³»ç»Ÿæœ€æ–°æ¨¡æ¿ï¼Œå‹¿ä¿®æ”¹ç¬¬ä¸€è¡Œå­—æ®µåç§°</div>
-                  </div> : null}
-                </div> : null}
-                {canExport ? <button type="button" disabled={exporting} onClick={() => void exportData()} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50 disabled:opacity-50"><Download size={16} />{exporting ? exportProgress || "æ­£åœ¨å¯¼å‡ºâ€¦" : selected.size ? `å¯¼å‡ºå·²é€‰ ${selected.size} å®¶` : "å¯¼å‡ºç­›é€‰ç»“æœ"}</button> : null}
-                <button type="button" onClick={() => { setDraftFields(fields); setFieldOpen(true); }} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm hover:bg-slate-50"><Settings2 size={16} />å­—æ®µè®¾ç½®</button>
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                  <button type="button" disabled={selectingAll || !(count ?? 0)} onClick={() => (count ?? 0) > 0 && selected.size >= (count ?? 0) ? setSelected(new Set()) : void selectAllResults()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"><CheckCircle2 size={16}/>{selectingAll ? "æ­£åœ¨å…¨é€‰â€¦" : (count ?? 0) > 0 && selected.size >= (count ?? 0) ? "å–æ¶ˆå…¨é€‰" : "å…¨é€‰ç­›é€‰ç»“æœ"}</button>
-                  {role === "ADMIN" && ["available", "pending"].includes(tab) ? <button disabled={!selected.size} type="button" onClick={() => setAssignOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"><UserPlus size={16}/>åˆ†é…å·²é€‰ {selected.size} å®¶</button> : null}
-                  {role === "ADMIN" ? <button disabled={!selected.size} type="button" onClick={() => setDeleteIds([...selected])} className="inline-flex h-10 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-40"><Trash2 size={16}/>åˆ é™¤å·²é€‰ {selected.size} å®¶</button> : null}
-                </div>
-              </div>
-            </section>
-            {error ? (
-              <p className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">
-                {error}
-              </p>
-            ) : null}
-            <PoolTable
-              rows={rows}
-              tab={tab as "available" | "claimed" | "pending"}
-              role={role}
-              loading={loading}
-              hasActiveFilters={Boolean(query.trim() || createdFrom || createdTo || countries.length || industries.length || aiLevel || aiStatus !== "all" || target || customerStatus || ownerId || sourceType || sourceBatches.length || screeningTaskIds.length)}
-              resetFilters={resetFilters}
-              fields={fields}
-              sort={sort}
-              direction={direction}
-              changeSort={changeSort}
-              canDelete={role === "ADMIN"}
-              selected={selected}
-              setSelected={setSelected}
-              claim={setClaim}
-              showSupplements={setSupplementRow}
-              remove={(row) => setDeleteIds([row.id])}
-            />
-            <AppPagination
-              page={page}
-              pageSize={pageSize}
-              total={count ?? 0}
-              itemLabel="å®¶å®¢æˆ·"
-              onPage={setPage}
-              onPageSize={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-            />
-          </>
-        ) : null}
-        {tab === "renewals" ? (
-          <RenewalReview role={role} toast={setToast} />
-        ) : null}
-        {tab === "handover" && role === "ADMIN" ? (
-          <HandoverPanel toast={setToast} onHistoryChanged={refreshAssignmentHistory} />
-        ) : null}
-        {tab === "history" && role === "ADMIN" ? <AssignmentHistory refreshKey={historyRefreshKey} /> : null}
-        {claim ? (
-          <ClaimDialog
-            row={claim}
-            close={() => { setClaim(null); setFocusedCustomerId(""); window.history.replaceState(null, "", "/customers/pool?tab=available"); }}
-            saved={(message) => {
-              setClaim(null);
-              setFocusedCustomerId("");
-              setToast(message);
-              void load();
-            }}
-          />
-        ) : null}
-        {supplementRow ? <SupplementDialog row={supplementRow} close={() => setSupplementRow(null)} /> : null}
-        {assignOpen ? (
-          <AssignDialog
-            customerIds={[...selected]}
-            close={() => setAssignOpen(false)}
-            saved={(message) => {
-              setAssignOpen(false);
-              setToast(message);
-              void load();
-              refreshAssignmentHistory();
-            }}
-          />
-        ) : null}
-        {createOpen ? <AppDialog title="æ–°å¢å…¬æµ·å®¢æˆ·" description="ä»…ç³»ç»Ÿç®¡ç†å‘˜å¯æ‰§è¡Œï¼›ä¿å­˜åå®¢æˆ·æ— å½’å±äººå¹¶è¿›å…¥å¾…è®¤é¢†åˆ—è¡¨ã€‚" onClose={() => setCreateOpen(false)} width="max-w-4xl"><CustomerForm destination="PUBLIC_POOL" onCancel={() => setCreateOpen(false)} onDone={() => { setCreateOpen(false); setToast("å…¬æµ·å®¢æˆ·æ–°å¢æˆåŠŸ"); void load(); }}/></AppDialog> : null}
-        {fieldOpen ? <AppDialog title="å­—æ®µæ˜¾ç¤ºè®¾ç½®" description="å½“å‰å…¬æµ·åˆ†ç±»ç‹¬ç«‹ä¿å­˜å­—æ®µä¸é¡ºåºï¼Œä¸å½±å“æˆ‘çš„å®¢æˆ·å’Œå…¶ä»–å…¬æµ·åˆ†ç±»ã€‚" onClose={() => setFieldOpen(false)} width="max-w-md"><div className="max-h-[55vh] space-y-1 overflow-auto">{orderedFieldOptions.map((column) => <label key={column.key} className="flex items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"><input type="checkbox" checked={draftFields.includes(column.key)} onChange={() => setDraftFields((current) => current.includes(column.key) ? current.filter((item) => item !== column.key) : [...current, column.key])}/><span className="min-w-0 flex-1">{column.label}</span><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === 0} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, -1); }} className="rounded p-1 disabled:opacity-30" title="ä¸Šç§»"><ChevronUp size={14}/></button><button type="button" disabled={!draftFields.includes(column.key) || draftFields.indexOf(column.key) === draftFields.length - 1} onClick={(event) => { event.preventDefault(); moveDraftField(column.key, 1); }} className="rounded p-1 disabled:opacity-30" title="ä¸‹ç§»"><ChevronDown size={14}/></button></label>)}</div><div className="mt-4 flex items-center justify-between border-t pt-4"><button type="button" onClick={() => setDraftFields(POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS)} className="text-sm text-blue-600">æ¢å¤å½“å‰åˆ†ç±»é»˜è®¤</button><div className="flex gap-2"><button type="button" onClick={() => setFieldOpen(false)} className="rounded-lg border px-4 py-2 text-sm">å–æ¶ˆ</button><button type="button" onClick={() => { const next = draftFields.length ? draftFields : POOL_DEFAULT_FIELDS[tab as "available" | "claimed" | "pending"] || CUSTOMER_LIST_DEFAULT_COLUMNS; setFields(next); localStorage.setItem(`public-pool-columns-${tab}-v5`, JSON.stringify(next)); setFieldOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">ä¿å­˜é€‰æ‹©</button></div></div></AppDialog> : null}
-        {deleteIds ? <PoolDeleteDialog customerIds={deleteIds} close={() => setDeleteIds(null)} saved={(message) => { setDeleteIds(null); setSelected(new Set()); setToast(message); void load(); }} /> : null}
-        {toast ? (
-          <div
-            role="status"
-            className="fixed bottom-6 right-6 z-[95] flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white shadow-2xl"
-          >
-            <CheckCircle2 size={17} className="text-emerald-400" />
-            {toast}
-            <button onClick={() => setToast("")}>
-              <X size={16} />
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </main>
-  );
-}
-
-function PoolTable({
-  rows,
-  tab,
-  role,
-  loading,
-  hasActiveFilters,
-  resetFilters,
-  fields,
-  sort,
-  direction,
-  changeSort,
-  canDelete,
-  selected,
-  setSelected,
-  claim,
-  showSupplements,
-  remove,
-}: {
-  rows: PoolRow[];
-  tab: "available" | "claimed" | "pending";
-  role: Role;
-  loading: boolean;
-  hasActiveFilters: boolean;
-  resetFilters: () => void;
-  fields: CustomerListColumn[];
-  sort: string;
-  direction: "asc" | "desc";
-  changeSort: (key: CustomerListColumn) => void;
-  canDelete: boolean;
-  selected: Set<string>;
-  setSelected: (value: Set<string>) => void;
-  claim: (row: PoolRow) => void;
-  showSupplements: (row: PoolRow) => void;
-  remove: (row: PoolRow) => void;
-}) {
-  const selectable = true;
-  const all = rows.length > 0 && rows.every((row) => selected.has(row.id));
-  function toggle(id: string) {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
-  }
-  function togglePage() {
-    const next = new Set(selected);
-    for (const row of rows) {
-      if (all) next.delete(row.id);
-      else next.add(row.id);
-    }
-    setSelected(next);
-  }
-  return (
-    <section className="mt-4 overflow-x-auto rounded-t-xl border bg-white shadow-sm">
-      <table className="w-full min-w-[1440px] table-fixed text-left text-sm">
-        <thead className="bg-slate-50 text-slate-500">
-          <tr>
-            {selectable ? (
-              <th className="sticky left-0 z-30 w-12 bg-slate-50 px-4 py-3">
-                <input
-                  aria-label="å…¨é€‰æœ¬é¡µ"
-                  type="checkbox"
-                  checked={all}
-                  onChange={togglePage}
-                />
-              </th>
-            ) : null}
-            {fields.map((field) => { const sortable = !(tab === "claimed" && role !== "ADMIN" && ["contact_name", "phone", "whatsapp", "email", "website_email", "website_phone", "verified_contacts", "website", "google_url", "status", "followup_status", "last_contact_time", "protection", "updated_at"].includes(field)); return <th key={field} className={`${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-20 bg-slate-50` : ""} ${poolColumnWidth[field] || "w-32"} px-3 py-3`}><button type="button" disabled={!sortable} onClick={() => changeSort(field)} className="inline-flex items-center gap-1 font-medium enabled:hover:text-blue-700 disabled:cursor-default" title={sortable ? "ç‚¹å‡»åˆ‡æ¢å‡åº/é™åº" : "å…¶ä»–äººçš„è¯¥å­—æ®µä¸å¯ç”¨äºæ’åº"}>{fieldLabel(field, tab)}{sortable ? <span className={`text-[10px] ${sort === customerListSortField(field) ? "text-blue-600" : "text-slate-300"}`}>{sort === customerListSortField(field) ? (direction === "asc" ? "â–²" : "â–¼") : "â†•"}</span> : null}</button></th>; })}
-            <th className="sticky right-0 z-30 w-36 bg-slate-50 px-3 py-3 text-center shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">æ“ä½œ</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {rows.map((row) => (
-            <tr key={row.id} onDoubleClick={event=>{if(row.can_open_customer&&canOpenListRow(event.target))window.location.assign(`/customers/${row.id}?from=pool`)}} className={`group hover:bg-blue-50/40 ${row.can_open_customer?"cursor-pointer":""}`}>
-              {selectable ? (
-                <td className="sticky left-0 z-20 bg-white px-4 py-4 group-hover:bg-blue-50">
-                  <input
-                    aria-label={`é€‰æ‹©${row.company_name}`}
-                    type="checkbox"
-                    checked={selected.has(row.id)}
-                    onChange={() => toggle(row.id)}
-                  />
-                </td>
-              ) : null}
-              {fields.map((field) => <td key={field} className={`overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">æ•æ„Ÿä¿¡æ¯å·²éšè—</small> : null}</td>)}
-              <td className="sticky right-0 z-20 align-middle bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
-                <div className="flex items-center justify-center gap-2 whitespace-nowrap">
-                {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`æŸ¥çœ‹${row.company_name}è¯¦æƒ…`} aria-label={`æŸ¥çœ‹${row.company_name}è¯¦æƒ…`}><Eye size={14}/></Link> : null}
-                {row.can_claim ? <button onClick={() => claim(row)} className="inline-flex h-8 items-center rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100">è®¤é¢†</button> : null}
-                {!row.can_claim && !row.can_open_customer ? (
-                  <span className="text-xs text-slate-400">å·²è¢«è®¤é¢†</span>
-                ) : null}
-                {canDelete ? <button type="button" onClick={() => remove(row)} title="æ°¸ä¹…åˆ é™¤å®¢æˆ·" aria-label={`æ°¸ä¹…åˆ é™¤${row.company_name}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-50"><Trash2 size={14}/></button> : null}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {loading ? (
-        <div className="grid min-h-56 place-items-center text-slate-400">
-          <LoaderCircle className="animate-spin text-blue-600" />
-        </div>
-      ) : !rows.length ? (
-        <div className="grid min-h-56 place-items-center text-sm text-slate-400">
-          <div className="text-center">
-            <p>{hasActiveFilters ? "æ²¡æœ‰ç¬¦åˆå½“å‰ç­›é€‰æ¡ä»¶çš„å®¢æˆ·" : "å½“å‰å…¬æµ·æš‚æ— å¾…è®¤é¢†å®¢æˆ·"}</p>
-            {hasActiveFilters ? <button type="button" onClick={resetFilters} className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-medium text-blue-700 hover:bg-blue-100">æ¸…é™¤ç­›é€‰</button> : null}
-          </div>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function SupplementDialog({ row, close }: { row: PoolRow; close: () => void }) {
-  const fieldLabels: Record<string, string> = { contact_name: "è”ç³»äºº", phone: "ç”µè¯", whatsapp: "whatsapp", email: "é‚®ç®±", website: "å®˜ç½‘", google_url: "Google Maps", address: "åœ°å€" };
-  return <Modal title="æˆ‘çš„è¡¥å……èµ„æ–™" subtitle={`${row.company_name} Â· ä»…æ‚¨æœ¬äººå¯è§ï¼Œä¸è¦†ç›–å®¢æˆ·å…¬æµ·åŸå§‹èµ„æ–™`} close={close}>
-    <div className="grid gap-2 sm:grid-cols-2">{(row.my_supplements || []).map((item) => <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm"><span className="block text-xs text-slate-500">{fieldLabels[item.field_name] || item.field_name}</span><span className="mt-1 block break-all text-slate-800">{item.value_raw}</span>{item.source_batch ? <small className="mt-2 block text-slate-400">{item.source_batch}{item.source_row ? ` Â· ç¬¬ ${item.source_row} è¡Œ` : ""}</small> : null}</div>)}</div>
-  </Modal>;
-}
-
-function PoolDeleteDialog({ customerIds, close, saved }: { customerIds: string[]; close: () => void; saved: (message: string) => void }) {
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [processed, setProcessed] = useState(0);
-  const [error, setError] = useState("");
-  const activeRequest = useRef<AbortController | null>(null);
-  const stopped = useRef(false);
-  const batchSize = 10;
-
-  function stopOrClose() {
-    if (!busy) return close();
-    stopped.current = true;
-    activeRequest.current?.abort();
-    saved("å·²åœæ­¢å‘é€åç»­åˆ é™¤è¯·æ±‚ï¼›å½“å‰æ‰¹ç»“æœæœªç¡®è®¤ï¼Œåˆ—è¡¨å·²åˆ·æ–°ï¼Œè¯·æ ¸å¯¹åå†é‡è¯•");
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!reason.trim()) return setError("è¯·å¡«å†™æ°¸ä¹…åˆ é™¤åŸå› ");
-    setBusy(true);
-    setProcessed(0);
-    setError("");
-    let success = 0;
-    let failed = 0;
-    let firstFailure = "";
-    let processedCount = 0;
-    try {
-      const deleteBatch = async (batch: string[]): Promise<void> => {
-        const controller = new AbortController();
-        activeRequest.current = controller;
-        const timeout = setTimeout(() => controller.abort(), 30_000);
-        let body: Awaited<ReturnType<typeof api>>;
-        try {
-          body = await api("/api/customers/public-pool/delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ids: batch, reason: reason.trim() }),
-            signal: controller.signal,
-          });
-        } catch (caught) {
-          if (controller.signal.aborted) throw new Error("è¯·æ±‚ç­‰å¾…è¶…æ—¶ï¼Œå½“å‰æ‰¹ç»“æœæœªç¡®è®¤ï¼›è¯·åˆ·æ–°å®¢æˆ·åˆ—è¡¨æ ¸å¯¹åé‡è¯•");
-          throw caught;
-        } finally {
-          clearTimeout(timeout);
-          if (activeRequest.current === controller) activeRequest.current = null;
-        }
-        const results = body.results as Array<{ id: string; ok: boolean; error?: string }> | undefined;
-        if (!Array.isArray(results) || results.length !== batch.length || results.some((item, index) => item.id !== batch[index] || typeof item.ok !== "boolean")) throw new Error("åˆ é™¤ç»“æœä¸æäº¤å®¢æˆ·ä¸ä¸€è‡´");
-        success += results.filter((item) => item.ok).length;
-        failed += results.filter((item) => !item.ok).length;
-        firstFailure ||= results.find((item) => !item.ok)?.error || "";
-        processedCount += batch.length;
-        setProcessed(processedCount);
-      };
-      for (let offset = 0; offset < customerIds.length; offset += batchSize) {
-        if (stopped.current) return;
-        await deleteBatch(customerIds.slice(offset, offset + batchSize));
-      }
-      if (!success) return setError(firstFailure || "æ‰€é€‰å®¢æˆ·å‡æœªåˆ é™¤");
-      saved(failed
-        ? "å·²æ°¸ä¹…åˆ é™¤ " + success + " å®¶ï¼›" + failed + " å®¶æœªåˆ é™¤ã€‚" + (firstFailure || "è¯·åˆ·æ–°åæ ¸å¯¹")
-        : "å·²æ°¸ä¹…åˆ é™¤ " + success + " å®¶å®¢æˆ·");
-    } catch (caught) {
-      if (stopped.current) return;
-      const message = caught instanceof Error ? caught.message : "åˆ é™¤å¤±è´¥";
-      if (success) {
-        saved("å·²åˆ é™¤ " + success + " å®¶ï¼Œæ“ä½œä¸­æ–­ã€‚è¯·åˆ·æ–°åˆ—è¡¨æ ¸å¯¹å…¶ä½™å®¢æˆ·åå†é‡è¯•ï¼š" + message);
-      } else {
-        setError(message + "ï¼›è¯·åˆ·æ–°åˆ—è¡¨æ ¸å¯¹åé‡è¯•");
-      }
-    } finally {
-      if (!stopped.current) setBusy(false);
-    }
-  }
-
-  return <AppDialog title="æ°¸ä¹…åˆ é™¤å…¬æµ·å®¢æˆ·" description={"å°†æ°¸ä¹…åˆ é™¤æ‰€é€‰ " + customerIds.length + " å®¶å®¢æˆ·ã€‚å·²æœ‰æŠ¥ä»·æˆ–è®¢å•çš„å®¢æˆ·ä¼šè¢«ç³»ç»Ÿé˜»æ­¢åˆ é™¤ã€‚"} onClose={stopOrClose} width="max-w-md">
-    <form onSubmit={submit}>
-      <div className="rounded-xl bg-rose-50 p-4 text-sm leading-6 text-rose-800">æ­¤æ“ä½œä¸å¯æ¢å¤ã€‚ç³»ç»Ÿä¸ä¼šæ ¹æ®AIä½åˆ†è‡ªåŠ¨åˆ é™¤ï¼Œåªæœ‰æ‚¨æ˜ç¡®é€‰æ‹©å¹¶ç¡®è®¤çš„å®¢æˆ·æ‰ä¼šè¢«å¤„ç†ã€‚</div>
-      <label className="mt-4 block">
-        <span className="mb-1.5 block text-sm font-medium text-slate-700">åˆ é™¤åŸå› </span>
-        <textarea required rows={4} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="ä¾‹å¦‚ï¼šé‡å¤æµ‹è¯•æ•°æ®ã€ç¡®è®¤æ— æ•ˆä¸”æ— éœ€ä¿ç•™" className="w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"/>
-      </label>
-      {busy ? <p role="status" className="mt-3 text-sm text-slate-600">å·²å¤„ç† {processed} / {customerIds.length} å®¶ï¼Œæ¯æ‰¹æœ€å¤š 10 å®¶</p> : null}
-      {error ? <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
-      <SharedDialogActions busy={busy} onCancel={stopOrClose} confirmLabel="ç¡®è®¤æ°¸ä¹…åˆ é™¤" tone="danger"/>
-    </form>
-  </AppDialog>;
-}
-function ClaimDialog({
-  row,
-  close,
-  saved,
-}: {
-  row: PoolRow;
-  close: () => void;
-  saved: (message: string) => void;
-}) {
-  const [channel, setChannel] = useState("WHATSAPP");
-  const [stage, setStage] = useState("CLAIMED");
-  const [result, setResult] = useState("");
-  const [nextPlan, setNextPlan] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (["FOLLOWING", "DEAL"].includes(stage) && (!row.phone?.trim() || !row.email?.trim())) return setError("æ„å‘å®¢æˆ·å’Œæˆäº¤å®¢æˆ·å¿…é¡»åŒæ—¶å…·å¤‡è”ç³»ç”µè¯å’Œé‚®ç®±ï¼Œè¯·å…ˆè¡¥å…¨å…¬æµ·ä¸»æ¡£");
-    if (stage !== "CLAIMED" && !file) return setError("æ½œåœ¨å®¢æˆ·ä»¥å¤–çš„é˜¶æ®µå¿…é¡»ä¸Šä¼ çœŸå®å‡­è¯é™„ä»¶");
-    setBusy(true);
-    setError("");
-    const form = new FormData();
-    form.set("customer_id", row.id);
-    form.set("channel", channel);
-    form.set("stage", stage);
-    form.set("result", result);
-    form.set("next_plan", nextPlan);
-    if (file) form.set("file", file);
-    try {
-      const body = await api("/api/customers/public-pool/claim", {
-        method: "POST",
-        body: form,
-      });
-      saved(body.message || "è®¤é¢†æˆåŠŸ");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "è®¤é¢†å¤±è´¥");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal
-      title="è®¤é¢†å®¢æˆ·"
-      subtitle={`${row.company_name} Â· æ½œåœ¨å’Œæ„å‘å®¢æˆ·ä¿æŠ¤90å¤©ï¼Œæˆäº¤å®¢æˆ·æ°¸ä¹…ä¿æŠ¤ï¼›æ½œåœ¨å®¢æˆ·æ— éœ€å‡­è¯ï¼Œè®¤é¢†ä¸ºæ„å‘æˆ–æˆäº¤å®¢æˆ·é¡»ä¸Šä¼ å¯æ ¸éªŒå‡­è¯ã€‚`}
-      close={close}
-    >
-      <form onSubmit={submit} className="space-y-4">
-        {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">æˆ‘çš„è¡¥å……èµ„æ–™</b><span className="text-xs text-blue-700">ä»…è‡ªå·±å¯è§ Â· ä¸è¦†ç›–å…¬æµ·åŸèµ„æ–™</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"è”ç³»äºº",phone:"ç”µè¯",whatsapp:"whatsapp",email:"é‚®ç®±",website:"å®˜ç½‘",google_url:"Google Maps",address:"åœ°å€"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` Â· ç¬¬ ${item.source_row} è¡Œ`:""}</small>:null}</div>)}</div></section>:null}
-        <ClaimChoice label="è®¤é¢†åå®¢æˆ·é˜¶æ®µ" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"æ½œåœ¨å®¢æˆ·",description:"å®Œæˆé¦–è§¦è¾¾ï¼Œå…ˆè¿›å…¥é”€å”®è·Ÿè¿›"},{value:"FOLLOWING",label:"æ„å‘å®¢æˆ·",description:"å·²å›å¤æˆ–å·²çº¦åˆ°æ²Ÿé€šï¼Œéœ€ä¸Šä¼ å‡­è¯"},{value:"DEAL",label:"æˆäº¤å®¢æˆ·",description:"å·²æœ‰è®¢å•ã€åˆåŒæˆ–é‡‡è´­ç¡®è®¤ï¼Œéœ€ä¸Šä¼ å‡­è¯"}]}/>
-        {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">è”ç³»ç”µè¯ <b className="text-rose-600">*</b> Â· é‚®ç®± <b className="text-rose-600">*</b>ï¼›ä¸¤é¡¹é¡»å·²åœ¨å®¢æˆ·ä¸»æ¡£ä¸­å¡«å†™ã€‚</p> : null}
-        <ClaimChoice label="å®é™…è”ç³»æ¸ é“" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"é‚®ç®±"},{value:"PHONE",label:"ç”µè¯"},{value:"LINKEDIN",label:"LinkedIn / å…¶ä»–ç¤¾åª’"},{value:"OTHER",label:"å®˜ç½‘è¡¨å• / å…¶ä»–æ–¹å¼"}]}/>
-        <ClaimChoice label="æœ¬æ¬¡çœŸå®è”ç³»ç»“æœ" placeholder="è¯·é€‰æ‹©è”ç³»ç»“æœ" value={result} onChange={setResult} options={[{value:"å·²å‘é€é¦–æ¡å¼€å‘ä¿¡æ¯ï¼Œå¾…å›å¤",label:"å·²å‘é€é¦–æ¡å¼€å‘ä¿¡æ¯ï¼Œå¾…å›å¤"},{value:"å·²è”ç³»åˆ°å¯¹æ–¹ï¼Œéœ€æ±‚å¾…ç¡®è®¤",label:"å·²è”ç³»åˆ°å¯¹æ–¹ï¼Œéœ€æ±‚å¾…ç¡®è®¤"},{value:"å¯¹æ–¹è¦æ±‚åç»­è·Ÿè¿›",label:"å¯¹æ–¹è¦æ±‚åç»­è·Ÿè¿›"},{value:"ç¡®è®¤å­˜åœ¨é‡‡è´­æˆ–åˆä½œéœ€æ±‚",label:"ç¡®è®¤å­˜åœ¨é‡‡è´­æˆ–åˆä½œéœ€æ±‚"},{value:"æš‚ä¸åŒ¹é…æˆ–æ˜ç¡®æ— éœ€æ±‚",label:"æš‚ä¸åŒ¹é…æˆ–æ˜ç¡®æ— éœ€æ±‚"},{value:"è”ç³»æ–¹å¼æ— æ•ˆæˆ–æ— æ³•è§¦è¾¾",label:"è”ç³»æ–¹å¼æ— æ•ˆæˆ–æ— æ³•è§¦è¾¾"},{value:"å…¶ä»–çœŸå®è”ç³»ç»“æœ",label:"å…¶ä»–çœŸå®è”ç³»ç»“æœ"}]}/>
-        <label className="block text-sm font-medium">
-          è”ç³»çºªè¦ä¸ä¸‹ä¸€æ­¥å®‰æ’ <span className="text-rose-600">*</span>
-          <textarea
-            value={nextPlan}
-            onChange={(e) => setNextPlan(e.target.value)}
-            rows={2}
-            className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            placeholder="ä¾‹å¦‚ï¼šå·²å‘é‡‡è´­è´Ÿè´£äººå‘é€äº§å“ç›®å½•ï¼Œçº¦å®šå‘¨ä¸‰ç¡®è®¤ç»´ä¿®é…ä»¶éœ€æ±‚ã€‚"
-            required
-          />
-        </label>
-        <EvidenceInput file={file} setFile={setFile} required={stage !== "CLAIMED"} />
-        {!result || (stage !== "CLAIMED" && !file) ? <p className="text-xs text-amber-700">è¯·å…ˆé€‰æ‹©çœŸå®è”ç³»ç»“æœï¼›æ½œåœ¨å®¢æˆ·ä»¥å¤–çš„é˜¶æ®µè¿˜å¿…é¡»ä¸Šä¼ çœŸå®å‡­è¯ã€‚</p> : null}
-        {error ? <ErrorText value={error} /> : null}
-        <DialogActions busy={busy} disabled={!result || (stage !== "CLAIMED" && !file)} close={close} label="ç¡®è®¤è®¤é¢†" />
-      </form>
-    </Modal>
-  );
-}
-
-function ClaimChoice({ label, value, onChange, options, placeholder = "è¯·é€‰æ‹©" }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string; description?: string }>; placeholder?: string }) {
-  const selected = options.find((option) => option.value === value);
-  return <div className="text-sm font-medium text-slate-800"><span>{label} <span className="text-rose-600">*</span></span><details className="group relative mt-2"><summary className="flex h-11 cursor-pointer list-none items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-700 outline-none transition hover:border-blue-300 hover:bg-blue-50/30 focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-100"><span className={selected ? "truncate" : "text-slate-400"}>{selected?.label || placeholder}</span><ChevronDown size={16} className="shrink-0 text-slate-400 transition group-open:rotate-180"/></summary><div className="absolute z-30 mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">{options.map((option) => <button key={option.value} type="button" onClick={(event) => { onChange(option.value); event.currentTarget.closest("details")?.removeAttribute("open"); }} className={`block w-full rounded-lg px-3 py-2 text-left transition ${option.value === value ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"}`}><span className="block text-sm font-medium">{option.label}</span>{option.description ? <span className="mt-0.5 block text-xs leading-5 text-slate-500">{option.description}</span> : null}</button>)}</div></details>{label === "è®¤é¢†åå®¢æˆ·é˜¶æ®µ" ? <span className="mt-1.5 block text-xs font-normal text-slate-500">æ½œåœ¨å®¢æˆ·æ— éœ€é™„ä»¶ï¼›å…¶ä»–é˜¶æ®µå¿…é¡»æä¾›å¯æ ¸éªŒå‡­è¯ã€‚</span> : null}</div>;
-}
-
-function AssignDialog({
-  customerIds,
-  close,
-  saved,
-}: {
-  customerIds: string[];
-  close: () => void;
-  saved: (message: string) => void;
-}) {
-  const [options, setOptions] = useState<AssignmentOptions>({
-    assignees: [],
-    inactive_users: [],
-  });
-  const [target, setTarget] = useState("");
-  const [name, setName] = useState("");
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    api("/api/admin/customer-assignments")
-      .then(setOptions)
-      .catch((e) => setError(e.message));
-  }, []);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const body = await api("/api/admin/customer-assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "ASSIGN",
-          customer_ids: customerIds,
-          target_user_id: target,
-          batch_name: name,
-          reason,
-        }),
-      });
-      saved(`${body.message}ï¼ˆ${body.data?.batch_number || "å·²ç”Ÿæˆæ‰¹æ¬¡"}ï¼‰`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "åˆ†é…å¤±è´¥");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal
-      title="ç®¡ç†å‘˜åˆ†é…å…¬æµ·å®¢æˆ·"
-      subtitle={`å·²é€‰æ‹© ${customerIds.length} å®¶ï¼›åªå…è®¸åˆ†é…å½“å‰æ— å½’å±çš„å®¢æˆ·`}
-      close={close}
-    >
-      <form onSubmit={submit} className="space-y-4">
-        <label className="block text-sm font-medium">
-          æ¥æ”¶é”€å”®å‘˜
-          <select
-            required
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            className={`${field} mt-2 w-full`}
-          >
-            <option value="">è¯·é€‰æ‹©</option>
-            {options.assignees.map((user) => (
-              <option key={user.id} value={user.id}>
-                {displayUser(user)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          åˆ†é…æ‰¹æ¬¡åç§°
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={`${field} mt-2 w-full`}
-            placeholder="å¦‚ï¼š9æœˆå¾·å›½ç»´ä¿®å®¢æˆ·åˆ†é…"
-          />
-        </label>
-        <label className="block text-sm font-medium">
-          åˆ†é…åŸå› 
-          <textarea
-            required
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={3}
-            className="mt-2 w-full rounded-lg border p-3 text-sm"
-          />
-        </label>
-        {error ? <ErrorText value={error} /> : null}
-        <DialogActions busy={busy} close={close} label="ç¡®è®¤åˆ†é…" />
-      </form>
-    </Modal>
-  );
-}
-
-function HandoverPanel({ toast, onHistoryChanged }: { toast: (value: string) => void; onHistoryChanged: () => void }) {
-  const [options, setOptions] = useState<AssignmentOptions>({
-    assignees: [],
-    inactive_users: [],
-  });
-  const [source, setSource] = useState("");
-  const [target, setTarget] = useState("");
-  const [mode, setMode] = useState<"ASSIGN" | "RELEASE">("ASSIGN");
-  const [name, setName] = useState("");
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const load = useCallback(
-    () =>
-      api("/api/admin/customer-assignments")
-        .then(setOptions)
-        .catch((e) => setError(e.message)),
-    [],
-  );
-  useEffect(() => {
-    void load();
-  }, [load]);
-  const sourceRow = options.inactive_users.find((user) => user.id === source);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setConfirmOpen(true);
-  }
-  async function executeHandover() {
-    setBusy(true);
-    setError("");
-    try {
-      const body = await api("/api/admin/customer-assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "HANDOVER",
-          source_user_id: source,
-          target_user_id: target,
-          mode,
-          batch_name: name,
-          reason,
-        }),
-      });
-      toast(`${body.message}ï¼ˆ${body.data?.batch_number || "å·²ç”Ÿæˆæ‰¹æ¬¡"}ï¼‰`);
-      setSource("");
-      setTarget("");
-      setReason("");
-      setConfirmOpen(false);
-      void load();
-      onHistoryChanged();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "äº¤æ¥å¤±è´¥");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="mt-4 rounded-xl border bg-white p-5 shadow-sm">
-      <div className="flex items-start gap-3">
-        <ArchiveRestore className="mt-0.5 text-blue-600" />
-        <div>
-          <h3 className="font-semibold">åœç”¨/ç¦»èŒè´¦å·å®¢æˆ·äº¤æ¥</h3>
-          <p className="mt-1 text-sm leading-6 text-slate-500">
-            åœ¨èŒè´¦å·çš„å®¢æˆ·ä¸èƒ½è¢«å¼ºåˆ¶è½¬èµ°ã€‚ä»…åœç”¨æˆ–ç¦»èŒè´¦å·å¯æ•´ä½“ç§»äº¤ï¼›æŠ¥ä»·ã€è®¢å•å’Œå¤‡è´§è´£ä»»ä¸€å¹¶ç§»äº¤ï¼Œå†å²æ“ä½œäººä»ä¿ç•™ã€‚
-          </p>
-        </div>
-      </div>
-      <form onSubmit={submit} className="mt-5 grid gap-4 xl:grid-cols-2">
-        <label className="text-sm font-medium">
-          åŸå½’å±äºº
-          <select
-            required
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            className={`${field} mt-2 w-full`}
-          >
-            <option value="">é€‰æ‹©åœç”¨/ç¦»èŒè´¦å·</option>
-            {options.inactive_users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {displayUser(user)} Â·{" "}
-                {user.status === "DEPARTED" ? "å·²ç¦»èŒ" : "å·²åœç”¨"} Â·{" "}
-                {user.customer_count}å®¶
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm font-medium">
-          å¤„ç†æ–¹å¼
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as "ASSIGN" | "RELEASE")}
-            className={`${field} mt-2 w-full`}
-          >
-            <option value="ASSIGN">æ•´ä½“äº¤æ¥ç»™æŒ‡å®šé”€å”®å‘˜</option>
-            <option value="RELEASE">é‡Šæ”¾æ™®é€šå®¢æˆ·è¿›å…¥å…¬æµ·ï¼›æ´»åŠ¨ä¸šåŠ¡å•æ®è¿›å…¥å¾…åˆ†é…</option>
-          </select>
-        </label>
-        {mode === "ASSIGN" ? (
-          <label className="text-sm font-medium">
-            æ¥æ”¶äºº
-            <select
-              required
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              className={`${field} mt-2 w-full`}
-            >
-              <option value="">è¯·é€‰æ‹©å·²å¯ç”¨é”€å”®å‘˜</option>
-              {options.assignees
-                .filter((user) => user.id !== source)
-                .map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {displayUser(user)}
-                  </option>
-                ))}
-            </select>
-          </label>
-        ) : null}
-        <label className="text-sm font-medium">
-          äº¤æ¥æ‰¹æ¬¡åç§°
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={`${field} mt-2 w-full`}
-            placeholder="å¦‚ï¼šå¼ ä¸‰ç¦»èŒå®¢æˆ·äº¤æ¥"
-          />
-        </label>
-        <label className="text-sm font-medium xl:col-span-2">
-          äº¤æ¥åŸå› 
-          <textarea
-            required
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={3}
-            className="mt-2 w-full rounded-lg border p-3 text-sm"
-          />
-        </label>
-        {error ? (
-          <div className="xl:col-span-2">
-            <ErrorText value={error} />
-          </div>
-        ) : null}
-        <div className="xl:col-span-2">
-          <button
-            disabled={busy}
-            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {busy ? "å¤„ç†ä¸­â€¦" : "ç¡®è®¤ç”Ÿæˆäº¤æ¥æ‰¹æ¬¡"}
-          </button>
-        </div>
-      </form>
-      <ConfirmDialog open={confirmOpen} title="ç¡®è®¤å®¢æˆ·äº¤æ¥ï¼Ÿ" description={`å°†å¤„ç† ${sourceRow?.customer_count || 0} å®¶å®¢æˆ·åŠå…¶å…³è”æŠ¥ä»·ã€è®¢å•å’Œå¤‡è´§è´£ä»»ï¼Œå¹¶ç”Ÿæˆä¸å¯åˆ é™¤çš„äº¤æ¥æ‰¹æ¬¡ã€‚å†å²æ“ä½œäººå’Œå®¡è®¡è®°å½•ä¼šä¿ç•™ã€‚`} confirmLabel="ç¡®è®¤æ‰§è¡Œäº¤æ¥" busy={busy} onCancel={()=>setConfirmOpen(false)} onConfirm={()=>void executeHandover()}/>
-    </section>
-  );
-}
-
-function RenewalReview({
-  role,
-  toast,
-}: {
-  role: Role;
-  toast: (value: string) => void;
-}) {
-  const [rows, setRows] = useState<Renewal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [review, setReview] = useState<{row: Renewal; decision: "APPROVED" | "REJECTED"}|null>(null);
-  const [reviewNote, setReviewNote] = useState("");
-  const [reviewBusy, setReviewBusy] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [search, setSearch] = useState("");
-  const [ownerId, setOwnerId] = useState("");
-  const owners = useMemo(() => {
-    const seen = new Map<string, Owner>();
-    for (const row of rows) if (row.owner?.id) seen.set(row.owner.id, row.owner);
-    return [...seen.values()].sort((left, right) => displayUser(left).localeCompare(displayUser(right), "zh-CN"));
-  }, [rows]);
-  const filteredRows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return rows.filter((row) => (!ownerId || row.owner?.id === ownerId) && (!needle || [row.customer?.company_name, row.customer?.country, row.owner?.name, row.owner?.email, row.reason, row.next_plan].some((value) => String(value || "").toLowerCase().includes(needle))));
-  }, [ownerId, rows, search]);
-  const visibleRows = useMemo(
-    () => filteredRows.slice((page - 1) * pageSize, page * pageSize),
-    [filteredRows, page, pageSize],
-  );
-  useEffect(() => setPage(1), [ownerId, search]);
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const body = await api(
-        "/api/customers/protection/renewals?status=PENDING",
-      );
-      setRows(body.data || []);
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "åŠ è½½å¤±è´¥");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  async function decide() {
-    if (!review || (review.decision === "REJECTED" && !reviewNote.trim())) return;
-    setReviewBusy(true);
-    try {
-      const body = await api("/api/customers/protection/renewals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          request_id: review.row.id,
-          decision: review.decision,
-          review_note: reviewNote.trim(),
-        }),
-      });
-      toast(body.message);
-      setReview(null);
-      setReviewNote("");
-      void load();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "å®¡æ ¸å¤±è´¥");
-    } finally {
-      setReviewBusy(false);
-    }
-  }
-  return (
-    <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
-      <header className="border-b p-5">
-        <h3 className="flex items-center gap-2 font-semibold">
-          <ShieldCheck className="text-blue-600" />
-          å®¢æˆ·ç»­æœŸå®¡æ‰¹
-        </h3>
-        <p className="mt-1 text-sm text-slate-500">
-          {role === "SUPERVISOR"
-            ? "ä»…æ˜¾ç¤ºç›´å±é”€å”®å‘˜ç¬¬3æ¬¡åŠä»¥åçš„ç”³è¯·ã€‚"
-            : "æ˜¾ç¤ºæ‰€æœ‰å¾…å®¡æ ¸ç”³è¯·ï¼›é€šå¸¸ç”±ç›´å±ä¸»ç®¡ä¼˜å…ˆå¤„ç†ã€‚"}
-        </p>
-      </header>
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
-        <label className="relative w-[320px] shrink-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="æœç´¢å®¢æˆ·ã€å›½å®¶/åœ°åŒºã€ç”³è¯·äººæˆ–ç”³è¯·å†…å®¹" className={`${appFieldClass} w-full pl-9`}/></label>
-        <select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className={`${appFieldClass} w-56 shrink-0`}><option value="">å…¨éƒ¨ç”³è¯·äºº</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{displayUser(owner)}</option>)}</select>
-        <button type="button" onClick={() => { setSearch(""); setOwnerId(""); }} className="h-10 shrink-0 rounded-lg border px-3 text-sm hover:bg-slate-50">é‡ç½®</button>
-      </div>
-      {error ? (
-        <div className="m-5">
-          <ErrorText value={error} />
-        </div>
-      ) : null}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] text-left text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              {[
-                "å®¢æˆ·",
-                "ç”³è¯·äºº",
-                "ç»­æœŸæ¬¡æ•°",
-                "æœ¬æ¬¡ç»“æœ",
-                "ä¸‹ä¸€æ­¥è®¡åˆ’",
-                "å‡­è¯",
-                "ç”³è¯·æ—¶é—´",
-                "æ“ä½œ",
-              ].map((value) => (
-                <th
-                  key={value}
-                  className="px-4 py-3 font-medium text-slate-500"
-                >
-                  {value}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {visibleRows.map((row) => (
-              <tr key={row.id}>
-                <td className="px-4 py-4 font-medium">
-                  {row.customer?.company_name || "â€”"}
-                </td>
-                <td className="px-4 py-4">{displayUser(row.owner)}</td>
-                <td className="px-4 py-4">ç¬¬ {row.renewal_number} æ¬¡</td>
-                <td className="max-w-64 px-4 py-4">{row.reason}</td>
-                <td className="max-w-64 px-4 py-4">{row.next_plan}</td>
-                <td className="px-4 py-4"><AttachmentPreview attachment={{ id: row.evidence_attachment_id, filename: "ç»­æœŸå‡­è¯", mime_type: null }} /></td>
-                <td className="px-4 py-4">{formatDate(row.created_at)}</td>
-                <td className="px-4 py-4">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => { setReview({ row, decision: "APPROVED" }); setReviewNote(""); }}
-                      className="rounded-lg bg-blue-600 px-3 py-2 text-xs text-white"
-                    >
-                      é€šè¿‡
-                    </button>
-                    <button
-                      onClick={() => { setReview({ row, decision: "REJECTED" }); setReviewNote(""); }}
-                      className="rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-600"
-                    >
-                      é©³å›
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {loading ? (
-          <div className="grid min-h-52 place-items-center">
-            <LoaderCircle className="animate-spin text-blue-600" />
-          </div>
-      ) : !filteredRows.length ? (
-          <div className="grid min-h-52 place-items-center text-sm text-slate-400">
-            æš‚æ— å¾…å®¡æ ¸ç»­æœŸç”³è¯·
-          </div>
-        ) : null}
-      </div>
-      <AppPagination
-        page={page}
-        pageSize={pageSize}
-        total={filteredRows.length}
-        itemLabel="æ¡ç”³è¯·"
-        onPage={setPage}
-        onPageSize={(size) => {
-          setPageSize(size);
-          setPage(1);
-        }}
-      />
-      <AppDialog open={Boolean(review)} title={review?.decision === "APPROVED" ? "é€šè¿‡ç»­æœŸç”³è¯·" : "é©³å›ç»­æœŸç”³è¯·"} description={review ? `${review.row.customer?.company_name || "å®¢æˆ·"} Â· ç¬¬ ${review.row.renewal_number} æ¬¡ç»­æœŸ` : undefined} onClose={()=>setReview(null)} width="max-w-md">
-        <label className="text-sm font-medium text-slate-700">{review?.decision === "REJECTED" ? "é©³å›åŸå› ï¼ˆå¿…å¡«ï¼‰" : "å®¡æ ¸å¤‡æ³¨ï¼ˆå¯é€‰ï¼‰"}<textarea autoFocus value={reviewNote} onChange={event=>setReviewNote(event.target.value)} rows={4} className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm" placeholder={review?.decision === "REJECTED" ? "è¯·å¡«å†™æ˜ç¡®çš„é©³å›åŸå› " : "å¯è®°å½•å‡­è¯æ ¸éªŒæƒ…å†µ"}/></label>
-        <form onSubmit={event=>{event.preventDefault();void decide()}}><SharedDialogActions busy={reviewBusy} onCancel={()=>setReview(null)} confirmLabel={review?.decision === "APPROVED" ? "ç¡®è®¤é€šè¿‡" : "ç¡®è®¤é©³å›"} tone={review?.decision === "REJECTED" ? "danger" : "primary"}/></form>
-      </AppDialog>
-    </section>
-  );
-}
-
-function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
-  const [rows, setRows] = useState<History[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [count, setCount] = useState(0);
-  const [users, setUsers] = useState<Owner[]>([]);
-  const [search, setSearch] = useState("");
-  const [historyType, setHistoryType] = useState("");
-  const [sourceUserId, setSourceUserId] = useState("");
-  const [targetUserId, setTargetUserId] = useState("");
-  const [createdBy, setCreatedBy] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  useEffect(() => {
-    const params = new URLSearchParams({ mode: "history", page: String(page), page_size: String(pageSize) });
-    if (search.trim()) params.set("q", search.trim());
-    if (historyType) params.set("history_type", historyType);
-    if (sourceUserId) params.set("source_user_id", sourceUserId);
-    if (targetUserId) params.set("target_user_id", targetUserId);
-    if (createdBy) params.set("created_by", createdBy);
-    if (dateFrom) params.set("date_from", dateFrom);
-    if (dateTo) params.set("date_to", dateTo);
-    setLoading(true);
-    setError("");
-    api(`/api/admin/customer-assignments?${params}`)
-      .then((body) => { setRows(body.data || []); setCount(Number(body.count || 0)); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [page, pageSize, search, historyType, sourceUserId, targetUserId, createdBy, dateFrom, dateTo, refreshKey]);
-  useEffect(() => {
-    api("/api/admin/customer-assignments?mode=history_options")
-      .then((body) => setUsers(body.users || []))
-      .catch(() => setUsers([]));
-  }, []);
-  useEffect(() => { setPage(1); }, [search, historyType, sourceUserId, targetUserId, createdBy, dateFrom, dateTo]);
-  const reset = () => {
-    setSearch(""); setHistoryType(""); setSourceUserId(""); setTargetUserId("");
-    setCreatedBy(""); setDateFrom(""); setDateTo(""); setPage(1);
-  };
-  return (
-    <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
-      <header className="border-b p-5">
-        <h3 className="font-semibold">å®¢æˆ·åˆ†é…æ˜ç»†ä¸äº¤æ¥è®°å½•</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          æ¯æ¡è®°å½•å¯¹åº”ä¸€ä½å®é™…è¢«åˆ†é…å®¢æˆ·ï¼›ä¿ç•™åˆ†é…æ—¶çš„åŸå½’å±äººã€æ¥æ”¶äººå’Œæ“ä½œäººï¼Œå¹¶æ˜¾ç¤ºå®¢æˆ·å½“å‰å½’å±ï¼Œä¾¿äºé€æ¡æ ¸å¯¹ã€‚
-        </p>
-      </header>
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
-        <label className="relative w-[320px] shrink-0"><Search size={16} className="absolute left-3 top-3 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="æœç´¢å®¢æˆ·ã€ç”µè¯ã€é‚®ç®±ã€æ‰¹æ¬¡æˆ–åˆ†é…åŸå› " className={`${appFieldClass} w-full pl-9`}/></label>
-        <select value={historyType} onChange={(event) => setHistoryType(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="ç­›é€‰è®°å½•ç±»å‹"><option value="">å…¨éƒ¨è®°å½•ç±»å‹</option><option value="ASSIGN">å®¢æˆ·åˆ†é…</option><option value="HANDOVER">è´¦å·äº¤æ¥</option><option value="RELEASE">æ‰¹é‡é‡Šæ”¾</option></select>
-        <select value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="ç­›é€‰æ¥æ”¶äºº"><option value="">å…¨éƒ¨æ¥æ”¶äºº</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <select value={sourceUserId} onChange={(event) => setSourceUserId(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="ç­›é€‰åŸå½’å±äºº"><option value="">å…¨éƒ¨åŸå½’å±äºº</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <select value={createdBy} onChange={(event) => setCreatedBy(event.target.value)} className={`${appFieldClass} w-40 shrink-0`} aria-label="ç­›é€‰æ“ä½œäºº"><option value="">å…¨éƒ¨æ“ä½œäºº</option>{users.map((user) => <option key={user.id} value={user.id}>{displayUser(user)}</option>)}</select>
-        <CompactDateRange label="æ“ä½œæ—¥æœŸ" from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo}/>
-        <button type="button" onClick={reset} className="h-10 shrink-0 rounded-lg border bg-white px-4 text-sm hover:bg-slate-50">é‡ç½®</button>
-      </div>
-      {error ? (
-        <div className="m-5">
-          <ErrorText value={error} />
-        </div>
-      ) : null}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1560px] text-left text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              {[
-                "å®¢æˆ·ä¿¡æ¯",
-                "åˆ†é…æ‰¹æ¬¡",
-                "ç±»å‹",
-                "åŸå½’å±äºº",
-                "æ¥æ”¶äºº",
-                "å½“å‰å½’å±",
-                "æ“ä½œäºº",
-                "åˆ†é…æ—¶é—´",
-                "åŸå› ",
-                "æ“ä½œ",
-              ].map((value) => (
-                <th
-                  key={value}
-                  className="px-4 py-3 font-medium text-slate-500"
-                >
-                  {value}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td className="px-4 py-4"><b className="block font-medium">{row.customer?.company_name || "â€”"}</b><small className="mt-1 block text-slate-500">{row.customer?.country || "â€”"}{row.customer?.phone ? ` Â· ${row.customer.phone}` : ""}</small><small className="block text-slate-400">{row.customer?.email || row.customer?.address || "â€”"}</small></td>
-                <td className="px-4 py-4"><span className="block font-mono text-xs text-blue-700">{row.batch_number}</span><small className="mt-1 block text-slate-500">{row.batch_name}</small></td>
-                <td className="px-4 py-4">
-                  {row.reason_type === "ACCOUNT_HANDOVER"
-                    ? "è´¦å·äº¤æ¥"
-                    : row.mode === "RELEASE"
-                      ? "æ‰¹é‡é‡Šæ”¾"
-                      : "å®¢æˆ·åˆ†é…"}
-                </td>
-                <td className="px-4 py-4">{displayUser(row.previous_owner || row.source)}</td>
-                <td className="px-4 py-4">{displayUser(row.next_owner || row.target)}</td>
-                <td className="px-4 py-4">{displayUser(row.current_owner)}</td>
-                <td className="px-4 py-4">{displayUser(row.creator)}</td>
-                <td className="px-4 py-4">{formatDate(row.created_at)}</td>
-                <td className="max-w-72 px-4 py-4">
-                  <span className="line-clamp-2">{row.reason}</span>
-                </td>
-                <td className="px-4 py-4"><Link href={`/customers/${row.customer_id}?from=pool`} className="font-medium text-blue-600">æŸ¥çœ‹å®¢æˆ·</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {loading ? (
-          <div className="grid min-h-52 place-items-center">
-            <LoaderCircle className="animate-spin text-blue-600" />
-          </div>
-        ) : !rows.length ? (
-          <div className="grid min-h-52 place-items-center text-sm text-slate-400">
-            æš‚æ— åˆ†é…è®°å½•
-          </div>
-        ) : null}
-      </div>
-      <AppPagination
-        page={page}
-        pageSize={pageSize}
-        total={count}
-        itemLabel="æ¡è®°å½•"
-        onPage={setPage}
-        onPageSize={(size) => {
-          setPageSize(size);
-          setPage(1);
-        }}
-      />
-    </section>
-  );
-}
-
-function EvidenceInput({
-  file,
-  setFile,
-  required,
-}: {
-  file: File | null;
-  setFile: (file: File | null) => void;
-  required: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-4 text-sm">
-      <span className="flex items-center gap-2 font-medium">
-        <Paperclip size={17} />
-        çœŸå®è”ç³»å‡­è¯ {required ? <span className="text-rose-600">*</span> : <span className="font-normal text-slate-400">ï¼ˆæ½œåœ¨å®¢æˆ·é€‰å¡«ï¼‰</span>}
-      </span>
-      <input
-        id="claim-evidence-file"
-        required={required}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,application/pdf"
-        onChange={(event) => setFile(event.target.files?.[0] || null)}
-        className="sr-only"
-      />
-      <label htmlFor="claim-evidence-file" className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition hover:border-blue-300 hover:bg-blue-50/30">
-        <span className={`min-w-0 truncate ${file ? "text-slate-700" : "text-slate-500"}`}>{file ? file.name : "é€‰æ‹©å‡­è¯æ–‡ä»¶"}</span>
-        <span className="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{file ? "æ›´æ¢" : "é€‰æ‹©æ–‡ä»¶"}</span>
-      </label>
-      <small className="mt-2 block text-slate-500">
-        {file ? `å·²é€‰æ‹©ï¼š${file.name}` : required ? "å½“å‰é˜¶æ®µå¿…é¡»ä¸Šä¼ ï¼›æ”¯æŒ JPGã€PNGã€WebPã€PDFï¼Œæœ€å¤§15MB" : "æ½œåœ¨å®¢æˆ·å¯ä¸ä¸Šä¼ ï¼›æ”¯æŒ JPGã€PNGã€WebPã€PDFï¼Œæœ€å¤§15MB"}
-      </small>
-    </div>
-  );
-}
-function DialogActions({
-  busy,
-  disabled = false,
-  close,
-  label,
-}: {
-  busy: boolean;
-  disabled?: boolean;
-  close: () => void;
-  label: string;
-}) {
-  return (
-    <SharedDialogActions busy={busy} disabled={disabled} onCancel={close} confirmLabel={label} />
-  );
-}
-function ErrorText({ value }: { value: string }) {
-  return (
-    <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{value}</p>
-  );
-}
-function Modal({
-  title,
-  subtitle,
-  close,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  close: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <AppDialog title={title} description={subtitle} onClose={close}>
-      {children}
-    </AppDialog>
-  );
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíß®´İ:-jZ.¶›­–)Ş³R'W6R6Æ–VçB#°Ğ Ğ¦–×÷'BÆ–æ²g&öÒ&æW‡BöÆ–æ²#°Ğ¦–×÷'B&V7BÂ°Ğ¢W6T6ÆÆ&6²ÀĞ¢W6TVffV7BÀĞ¢W6TÖVÖòÀĞ¢W6U&VbÀĞ¢W6U7FFRÀĞ¢G—Rf÷&ÔWfVçBÀĞ§Òg&öÒ'&V7B#°Ğ¦–×÷'B°Ğ¢&6†—fU&W7F÷&RÀĞ¢6†Wg&öäF÷vâÀĞ¢6†Wg&öåWÀĞ¢6†V6´6—&6ÆS"ÀĞ¢6÷’ÀĞ¢F÷væÆöBÀĞ¢W–RÀĞ¢f–ÆU7&VG6†VWBÀĞ¢ÆöFW$6—&6ÆRÀĞ¢Ö–ÂÀĞ¢W&6Æ—ÀĞ¢†öæRÀĞ¢ÇW2ÀĞ¢6V&6‚ÀĞ¢6WGF–æw3"ÀĞ¢6†–VÆD6†V6²ÀĞ¢G&6ƒ"ÀĞ¢W6W%ÇW2ÀĞ¢‚ÀĞ§Òg&öÒ&ÇV6–FR×&V7B#°Ğ¦–×÷'B²6÷VçG'”Æ&VÂÒg&öÒ$ö6ö×öæVçG2ö6÷VçG'’ÖÆ&VÂ#°Ğ¦–×÷'B°Ğ¢F–ÆörÀĞ¢6öæf—&ÔF–ÆörÀĞ¢F–Æöt7F–öç226†&VDF–Æöt7F–öç2ÀĞ§Òg&öÒ$ö6ö×öæVçG2÷V’öÖF–Æör#°Ğ¦–×÷'B²v–æF–öâÒg&öÒ$ö6ö×öæVçG2÷V’ö×v–æF–öâ#°Ğ¦–×÷'B²7W7FöÖW%V&Æ–4Æ–æ²Òg&öÒ$ö6ö×öæVçG2÷V’ö7W7FöÖW"×V&Æ–2ÖÆ–æ²#°Ğ¦–×÷'B²7W7FöÖW$6öçF7E7VÖÖ'’Òg&öÒ$ö6ö×öæVçG2ö7W7FöÖW"Ö6öçF7B×7VÖÖ'’#°Ğ¦–×÷'B²7W7FöÖW%V&Æ–46†ææVÇ2Òg&öÒ$ö6ö×öæVçG2ö7W7FöÖW"×V&Æ–2Ö6†ææVÇ2#°Ğ¦–×÷'B²F'2Òg&öÒ$ö6ö×öæVçG2÷V’ö×F'2#°Ğ¦–×÷'B²7W7FöÖW$f÷&ÒÒg&öÒ$ö6ö×öæVçG2ö7W7FöÖW"Öf÷&Ò#°Ğ¦–×÷'B²6ä÷VäÆ—7E&÷rÒg&öÒ$öÆ–"÷V’öÆ—7B×&÷rÖæf–vF–öâ#°Ğ¦–×÷'B²7W7FöÖW%66÷&T&FvRÒg&öÒ$ö6ö×öæVçG2ö7W7FöÖW"×66÷&RÖ&FvR#°Ğ¦–×÷'B²7W7FöÖW%6÷W&6TÆ&VÂÒg&öÒ$öÆ–"ö7W7FöÖW'2÷6÷W&6RÖF—7Æ’#°Ğ¦–×÷'B²F—7Æ”7W7FöÖW$æÖRÒg&öÒ$öÆ–"ö7W7FöÖW"ÖF—7Æ’#°Ğ¦–×÷'B°Ğ¢5U5DôÔU%ôÄ•5Eô4ôÅTÔå2ÀĞ¢5U5DôÔU%ôÄ•5EôDTdTÅEô4ôÅTÔå2ÀĞ¢7W7FöÖW$Æ—7E6÷'Df–VÆBÀĞ¢æ÷&ÖÆ—¦T7W7FöÖW$Æ—7D6öÇVÖç2ÀĞ¢G—R7W7FöÖW$Æ—7D6öÇVÖâÀĞ§Òg&öÒ$öÆ–"ö7W7FöÖW'2öÆ—7BÖf–VÆG2#°Ğ¦–×÷'B²F÷væÆöD7W7FöÖW%v÷&¶&öö²Òg&öÒ$öÆ–"ö7W7FöÖW"ÖW‡÷'B#°Ğ¦–×÷'BG—R²W6W%&öÆRÒg&öÒ$öÆ–"öWF‚÷W&Ö—76–öç2#°Ğ¦–×÷'B²f–VÆD6Æ72Òg&öÒ$ö6ö×öæVçG2÷V’öÖÆ—7B#°Ğ¦–×÷'B²7W7FöÖW$–æGW7G'”F—7Æ’Òg&öÒ$öÆ–"ö7W7FöÖW'2ö–æGW7G'’ÖF—7Æ’#°Ğ¦–×÷'B²GF6†ÖVçE&Wf–WrÒg&öÒ$ö6ö×öæVçG2÷V’öGF6†ÖVçB×&Wf–Wr#°Ğ¦–×÷'B²f÷&ÖE†öæT–çFW&æF–öæÂÂæ÷&ÖÆ—¦U†öæT–çFW&æF–öæÂÒg&öÒ$öÆ–"ö6öçF7G2÷†öæRÖæ÷&ÖÆ—¦F–öâ#°Ğ¦–×÷'B²6V&6†&ÆT×VÇF•6VÆV7Df–ÇFW"ÂG—R6V&6†&ÆTf–ÇFW$÷F–öâÒg&öÒ$ö6ö×öæVçG2÷V’÷6V&6†&ÆRÖ×VÇF’×6VÆV7BÖf–ÇFW"#°Ğ¦–×÷'B²6ö×7DFFU&ævRÒg&öÒ$ö6ö×öæVçG2÷V’ö6ö×7BÖFFR×&ævR#°Ğ¦–×÷'B²6÷VçG'”–æfòÒg&öÒ$öÆ–"ö6÷VçG&–W2#°Ğ Ğ§G—R&öÆRÒW6W%&öÆS°Ğ§G—RF"ĞĞ¢Â&f–Æ&ÆR Ğ¢Â&6Æ–ÖVB Ğ¢Â'VæF–ær Ğ¢Â'&VæWvÇ2 Ğ¢Â&†æF÷fW" Ğ¢Â&†—7F÷'’#°Ğ§G—R÷væW"Ò²–C¢7G&–æs²æÖS¢7G&–ærÂçVÆÃ²VÖ–Ã¢7G&–ærÓ°Ğ§G—RööÅ&÷rÒ°Ğ¢–C¢7G&–æs°Ğ¢6ö×ç•öæÖS¢7G&–æs°Ğ¢6öçF7EöæÖS¢7G&–ærÂçVÆÃ°Ğ¢6÷VçG'“¢7G&–ærÂçVÆÃ°Ğ¢FG&W73¢7G&–ærÂçVÆÃ°Ğ¢–æGW7G'“¢7G&–ærÂçVÆÃ°Ğ¢†öæS¢7G&–ærÂçVÆÃ°Ğ¢v†G6¢7G&–ærÂçVÆÃ°Ğ¢VÖ–Ã¢7G&–ærÂçVÆÃ°Ğ¢vV'6—FUöVÖ–Ã¢7G&–ærÂçVÆÃ°Ğ¢vV'6—FU÷†öæS¢7G&–ærÂçVÆÃ°Ğ¢vV'6—FS¢7G&–ærÂçVÆÃ°Ğ¢vöövÆU÷W&Ã¢7G&–ærÂçVÆÃ°Ğ¢f6V&ööµ÷W&Ãó¢7G&–ærÂçVÆÃ°Ğ¢–ç7Fw&Õ÷W&Ãó¢7G&–ærÂçVÆÃ°Ğ¢Æ–æ¶VF–å÷W&Ãó¢7G&–ærÂçVÆÃ°Ğ¢F–·Föµ÷W&Ãó¢7G&–ærÂçVÆÃ°Ğ¢÷F†W%÷V&Æ–5÷W&Ç3ó¢7G&–æuµÒÂçVÆÃ°Ğ¢•öÆWfVÃ¢7G&–ærÂçVÆÃ°Ğ¢•÷66÷&S¢çVÖ&W"ÂçVÆÃ°Ğ¢•÷66÷&U÷6÷W&6Só¢7G&–ærÂçVÆÃ°Ğ¢•÷67&VVæ–æuöFöæSó¢&ööÆVâÂçVÆÃ°Ğ¢'W6–æW75÷66÷S¢7G&–ærÂçVÆÃ°Ğ¢÷væW%ö–C¢7G&–ærÂçVÆÃ°Ğ¢÷væW#¢÷væW"ÂçVÆÃ°Ğ¢7&VFVEö'“ó¢7G&–ærÂçVÆÃ°Ğ¢7&VF÷#ó¢÷væW"ÂçVÆÃ°Ğ¢ööÅ÷7FGW3¢7G&–ærÂçVÆÃ°Ğ¢7FGW3¢7G&–æs°Ğ¢6Æ–ÖVEöCó¢7G&–ærÂçVÆÃ°Ğ¢föÆÆ÷wW÷7FGW3¢7G&–ærÂçVÆÃ°Ğ¢Æ7Eö6öçF7E÷F–ÖS¢7G&–ærÂçVÆÃ°Ğ¢6÷W&6S¢7G&–ærÂçVÆÃ°Ğ¢6÷W&6Uö&F6ƒó¢7G&–ærÂçVÆÃ°Ğ¢6÷W&6Uö&F6…ö–Có¢7G&–ærÂçVÆÃ°Ğ¢7&VFVEöC¢7G&–æs°Ğ¢WFFVEöC¢7G&–æs°Ğ¢6öçF7EöÖ6¶VC¢&ööÆVã°Ğ¢6åö6Æ–Ó¢&ööÆVã°Ğ¢Æ7E÷&VÆV6Só¢²C¢7G&–æs²'“¢7G&–æs²&V6öã¢7G&–ærÒÂçVÆÃ°Ğ¢6åö÷Våö7W7FöÖW#¢&ööÆVã°Ğ¢&÷FV7F–öãó¢²W‡—&UöFFSó¢7G&–æs²W‡FVç6–öåö6÷VçCó¢çVÖ&W"ÒÂçVÆÃ°Ğ¢×•÷7WÆVÖVçG3ó¢'&“Ç²–C¢7G&–æs²f–VÆEöæÖS¢7G&–æs²fÇVU÷&s¢7G&–æs²6÷W&6U÷G—S¢7G&–æs²6÷W&6Uö&F6ƒó¢7G&–ærÂçVÆÃ²6÷W&6U÷&÷só¢çVÖ&W"ÂçVÆÃ²7&VFVEöC¢7G&–ærÓã°Ğ¢fW&–f–VEö6öçF7G3ó¢'&“Ç²G—S¢7G&–æs²fÇVU÷&s¢7G&–æs²6÷W&6Uö6†ææVÃó¢7G&–ærÂçVÆÃ²W†7E÷6÷W&6U÷W&Ãó¢7G&–ærÂçVÆÃ²fW&–f–6F–öå÷7FGW3ó¢7G&–ærÂçVÆÃ²6öçF7E÷7FGW3ó¢7G&–ærÂçVÆÃ²6GW&VEöCó¢7G&–ærÂçVÆÂÓã°Ğ§Ó°Ğ§G—R76–væÖVçD÷F–öç2Ò°Ğ¢76–væVW3¢÷væW%µÓ°Ğ¢–æ7F—fU÷W6W'3¢'&“Ä÷væW"b²7FGW3¢7G&–æs²7W7FöÖW%ö6÷VçC¢çVÖ&W"Óã°Ğ§Ó°Ğ§G—RööÄf–ÇFW$÷F–öç2Ò°Ğ¢6÷VçG&–W3¢6V&6†&ÆTf–ÇFW$÷F–öåµÓ°Ğ¢–æGW7G&–W3¢'&“Ç²fÇVS¢7G&–æs²Æ&VÃ¢7G&–æs²FöæS¢'fW&–f–VB"Â'&r"Â&Ö—†VB#²6÷VçCó¢çVÖ&W"Óã°Ğ¢÷væW'3¢÷væW%µÓ°Ğ¢6÷W&6W3¢'&“Ç²fÇVS¢7G&–æs²Æ&VÃ¢7G&–ærÓã°Ğ¢&F6†W3¢'&“Ç²fÇVS¢7G&–æs²Æ&VÃ¢7G&–æs²6÷W&6S¢7G&–ærÓã°Ğ¢67&VVæ–æu÷F6·3¢'&“Ç²fÇVS¢7G&–æs²Æ&VÃ¢7G&–æs²7W7FöÖW%ö6÷VçC¢çVÖ&W"Óã°Ğ§Ó°Ğ§G—R&VæWvÂÒ°Ğ¢–C¢7G&–æs°Ğ¢&VæWvÅöçVÖ&W#¢çVÖ&W#°Ğ¢&V6öã¢7G&–æs°Ğ¢æW‡E÷Æã¢7G&–æs°Ğ¢Wf–FVæ6UöGF6†ÖVçEö–C¢7G&–æs°Ğ¢7&VFVEöC¢7G&–æs°Ğ¢7W7FöÖW#ó¢²6ö×ç•öæÖSó¢7G&–æs²6÷VçG'“ó¢7G&–ærÒÂçVÆÃ°Ğ¢÷væW#ó¢÷væW"ÂçVÆÃ°Ğ§Ó°Ğ§G—R†—7F÷'’Ò°Ğ¢–C¢7G&–æs°Ğ¢&F6…ö–C¢7G&–æs°Ğ¢7W7FöÖW%ö–C¢7G&–æs°Ğ¢&F6…öçVÖ&W#¢7G&–æs°Ğ¢&F6…öæÖS¢7G&–æs°Ğ¢&V6öå÷G—S¢7G&–æs°Ğ¢&V6öã¢7G&–æs°Ğ¢ÖöFS¢7G&–æs°Ğ¢7W7FöÖW%ö6÷VçC¢çVÖ&W#°Ğ¢7&VFVEöC¢7G&–æs°Ğ¢6÷W&6Só¢÷væW"ÂçVÆÃ°Ğ¢F&vWCó¢÷væW"ÂçVÆÃ°Ğ¢7&VF÷#ó¢÷væW"ÂçVÆÃ°Ğ¢&Wf–÷W5ö÷væW#ó¢÷væW"ÂçVÆÃ°Ğ¢æW‡Eö÷væW#ó¢÷væW"ÂçVÆÃ°Ğ¢7W'&VçEö÷væW#ó¢÷væW"ÂçVÆÃ°Ğ¢7W7FöÖW#ó¢°Ğ¢–C¢7G&–æs°Ğ¢6ö×ç•öæÖS¢7G&–æs°Ğ¢6öçF7EöæÖSó¢7G&–ærÂçVÆÃ°Ğ¢6÷VçG'“ó¢7G&–ærÂçVÆÃ°Ğ¢FG&W73ó¢7G&–ærÂçVÆÃ°Ğ¢†öæSó¢7G&–ærÂçVÆÃ°Ğ¢VÖ–Ãó¢7G&–ærÂçVÆÃ°Ğ¢vV'6—FSó¢7G&–ærÂçVÆÃ°Ğ¢vöövÆU÷W&Ãó¢7G&–ærÂçVÆÃ°Ğ¢7FGW3ó¢7G&–ærÂçVÆÃ°Ğ¢ööÅ÷7FGW3ó¢7G&–ærÂçVÆÃ°Ğ¢ÒÂçVÆÃ°Ğ§Ó°Ğ Ğ¦6öç7BF$Æ&VÇ3¢&V6÷&CÅF"Â7G&–æsâÒ°Ğ¢f–Æ&ÆS¢.[è^ŠêNš(nZê.h‹r"ÀĞ¢6Æ–ÖVC¢.ŠêNš(nŠë[ÙR"ÀĞ¢VæF–æs¢.[è^zêynYXˆn˜XÒ"ÀĞ¢&VæWvÇ3¢.{ºŞiÉşZêh›’"ÀĞ¢†æF÷fW#¢.zk¾ˆÎKªNhêR"ÀĞ¢†—7F÷'“¢.Xˆn˜XŞŠë[ÙR"ÀĞ§Ó°Ğ¦6öç7BF$FW67&—F–öç3¢&V6÷&CÅF"Â7G&–æsâÒ°Ğ¢f–Æ&ÆS¢.iz[Ù.[îûÈÎXúşhùKªNyÉşZéîˆN{;¾XzŞŠøŠêNš(b"ÀĞ¢6Æ–ÖVC¢.iú^Šú.Zê.h‹~[Ù>X˜Ş[Ù.[â"ÀĞ¢VæF–æs¢.X‹iÉşK‰NiÈK‰®XªŠë[Ù^h‰n‹JnXû~XÎyJy¨Ni[hÚâ"ÀĞ¢&VæWvÇ3¢.Zêj™HYJîYzÊÎKˆjÊXø®Yî{ºŞ{ºŞiÉşyK>Šûr"ÀĞ¢†æF÷fW#¢.‹ÚÎz{¾XÎyJh‰nzk¾ˆÎ‹JnXû~y¨NXZ˜:K‰®Xªi[hÚâ"ÀĞ¢†—7F÷'“¢.‹ûŞkªşXZÎk[~Xˆn˜XŞY(Îzk¾ˆÎKªNhê^h›jÊ"ÀĞ§Ó°Ğ¦6öç7Bf–VÆBÒf–VÆD6Æ73°Ğ¦7–æ2gVæ7F–öâ’‡W&Ã¢7G&–ærÂ–æ—Có¢&WVW7D–æ—B’°Ğ¢6öç7B&W7öç6RÒv—BfWF6‚‡W&ÂÂ²66†S¢&æò×7F÷&R"Âââæ–æ—BÒ“°Ğ¢6öç7B&öG’Òv—B&W7öç6Ræ§6öâ‚’æ6F6‚‚‚’Óâ‡·Ò’“°Ğ¢–b‚&W7öç6Ræö²’F‡&÷ræWrW'&÷"†&öG’æW'&÷"ÇÂ.i8ŞKÙÎZK‹JR"“°Ğ¢&WGW&â&öG“°Ğ§ĞĞ¦6öç7BF—7Æ•W6W"Ò‡W6W#ó¢÷væW"ÂçVÆÂ’ÓàĞ¢W6W"òW6W"ææÖRÇÂW6W"æVÖ–Â¢.(	B#°Ğ¦6öç7Bf÷&ÖDFFRÒ‡fÇVSó¢7G&–ærÂçVÆÂ’ÓàĞ¢fÇVRòæWrFFR‡fÇVR’çFôÆö6ÆU7G&–ær‚'¦‚Ô4â"Â²†÷W##¢fÇ6RÒ’¢.(	B#°Ğ Ğ¦6öç7BööÅ7FvTÆ&VÇ3¢&V6÷&CÇ7G&–ærÂ7G&–æsâÒ²Tä4Ä”ÔTC¢.[è^ŠêNš(b"Â4Ä”ÔTC¢.kÙÎYÊZê.h‹r"ÂdôÄÄõt”äs¢.hHşY	Zê.h‹r"ÂTõDS¢.hHşY	Zê.h‹r"ÂDTÃ¢.h‰KªNZê.h‹r"Â$TÄT4TC¢.XènXû.˜x®iKîx«nh"Ó°Ğ¦6öç7BföÆÆ÷wWÆ&VÇ3¢&V6÷&CÇ7G&–ærÂ7G&–æsâÒ²t•D”äuô4ôåD5C¢.[è^ˆN{;²"Â4ôåD5DTC¢.[{.ˆN{;²"Â$UÄ”TC¢.[{.Y¹îZHÒ"ÂäTTE5ôdôÄÄõuU¢.™È‹yş‹ù²"ÂU4TC¢.i¨.{É2"Â4Äõ4TC¢.[{.{¹>iÙò"Ó°Ğ¦6öç7BôôÅôDTdTÅEôd”TÄE3¢&V6÷&CÂ&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær"Â7W7FöÖW$Æ—7D6öÇVÖåµÓâÒ°Ğ¢òò6ÆW27F–öâ÷&FW#¢–FVçF–g’fÇVRf—'7BÂF†VâW6RF†R&W7B6öçF7Bæ@Ğ¢òòV&Æ–2VçG'’ö–çG2ÂæBf–æÆÇ’–ç7V7B&÷fVææ6RæBg&W6†æW72àĞ¢f–Æ&ÆS¢²&6ö×ç•öæÖR"Â&6÷VçG'’"Â&•÷66÷&R"Â'†öæR"Â&VÖ–Â"Â'vV'6—FR"Â&vöövÆU÷W&Â"Â'6÷W&6R"Â'WFFVEöB%ÒÀĞ¢6Æ–ÖVC¢²&6ö×ç•öæÖR"Â&6÷VçG'’"Â&•÷66÷&R"Â'7FGW2"Â&föÆÆ÷wW÷7FGW2"Â&Æ7Eö6öçF7E÷F–ÖR"Â&÷væW""Â'&÷FV7F–öâ%ÒÀĞ¢VæF–æs¢²&6ö×ç•öæÖR"Â&6÷VçG'’"Â&•÷66÷&R"Â'†öæR"Â&VÖ–Â"Â'6÷W&6R"Â'WFFVEöB%ÒÀĞ§Ó°Ğ Ğ¦6öç7BööÄ6öÇVÖåv–GFƒ¢'F–ÃÅ&V6÷&CÄ7W7FöÖW$Æ—7D6öÇVÖâÂ7G&–æsãâÒ°Ğ¢6ö×ç•öæÖS¢'rÓC‚"ÀĞ¢•÷66÷&S¢'rÓ#"ÀĞ¢–æGW7G'“¢'rÓ3b"ÀĞ¢6÷VçG'“¢'rÓ#B"ÀĞ¢†öæS¢'rÓcB"ÀĞ¢VÖ–Ã¢'rÓS""ÀĞ¢fW&–f–VEö6öçF7G3¢'rÓS""ÀĞ¢vV'6—FS¢'rÓ3b"ÀĞ¢vöövÆU÷W&Ã¢'rÓC"ÀĞ¢7FGW3¢'rÓ#‚"ÀĞ¢föÆÆ÷wW÷7FGW3¢'rÓ#‚"ÀĞ¢Æ7Eö6öçF7E÷F–ÖS¢'rÓ3""ÀĞ¢&÷FV7F–öã¢'rÓ#‚"ÀĞ¢÷væW#¢'rÓ3""ÀĞ¢6÷W&6S¢'rÓ3""ÀĞ¢6÷W&6Uö&F6ƒ¢'rÓ3b"ÀĞ¢WFFVEöC¢'rÓ3b"ÀĞ§Ó°Ğ Ğ¦gVæ7F–öâööÄf–VÆG4f÷%F"‡fÇVS¢&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær"Â6fVCó¢Væ¶æ÷vâ’°Ğ¢6öç7BFVfVÇG2ÒôôÅôDTdTÅEôd”TÄE5·fÇVUÓ°Ğ¢6öç7Bæ÷&ÖÆ—¦VBÒ'&’æ—4'&’‡6fVBĞ¢òæ÷&ÖÆ—¦T7W7FöÖW$Æ—7D6öÇVÖç2‡6fVBÂfÇVRÓÓÒ&6Æ–ÖVB"Ğ¢¢FVfVÇG3°Ğ¢òò7W7FöÖW"v—F†÷WBâ÷væW"†2æò&÷FV7F–öâW&–öBâ–væ÷&R7FÆPĞ¢òò'&÷w6W"&VfW&Væ6R&F†W"F†â6†÷v–ærÖVæ–ævÆW72V×G’6öÇVÖâàĞ¢–b‡fÇVRÓÒ&f–Æ&ÆR"’&WGW&âæ÷&ÖÆ—¦VC°Ğ¢6öç7B6ö×7BÒæ÷&ÖÆ—¦VBæf–ÇFW"‚†f–VÆB’Óâ²'&÷FV7F–öâ"Â'v†G6"Â'vV'6—FU÷†öæR"Â'vV'6—FUöVÖ–Â"Â'6ö6–Â"Â'fW&–f–VEö6öçF7G2%Òæ–æ6ÇVFW2†f–VÆB’“°Ğ¢6öç7B6öçF7D–æFW‚Ò6ö×7Bæ–æFW„öb‚'†öæR"“°Ğ¢–b†6öçF7D–æFW‚Â’6ö×7Bç7Æ–6R„ÖF‚æÖ–âƒ2Â6ö×7BæÆVæwF‚’ÂÂ'†öæR"“°Ğ¢&WGW&â²ââææWr6WB†6ö×7B•Ó°Ğ§ĞĞ Ğ¦gVæ7F–öâf–VÆDÆ&VÂ†f–VÆC¢7W7FöÖW$Æ—7D6öÇVÖâÂF#¢F"’°Ğ¢–b‡F"ÓÓÒ&f–Æ&ÆR"bbf–VÆBÓÓÒ'†öæR"’&WGW&â.ˆN{;¾Xû~z#°Ğ¢&WGW&â5U5DôÔU%ôÄ•5Eô4ôÅTÔå2æf–æB‚†6öÇVÖâ’Óâ6öÇVÖâæ¶W’ÓÓÒf–VÆB“òæÆ&VÂÇÂf–VÆC°Ğ§ĞĞ Ğ¦gVæ7F–öâ6öçF7DÆ–æ·2‡²&÷rÂ6÷W&6RÓ¢²&÷s¢ööÅ&÷s²6÷W&6S¢&÷&–v–æÂ"Â&’"Ò’°Ğ¢6öç7B¶6÷–VBÂ6WD6÷–VEÒÒW6U7FFR‚""“°Ğ¢G—RF—7Æ”6öçF7BÒ²Æ&VÃ¢7G&–æs²fÇVS¢7G&–æs²G—S¢%„ôäR"Â$TÔ”Â"Â%t„E4#²–6öã¢&V7Bå&V7DæöFS²6÷W&6S¢&÷&–v–æÂ"Â'fW&–f–VB"Â&6öæfÆ–7B#²6†ææVÃó¢7G&–ærÂçVÆÃ²6÷W&6UW&Ãó¢7G&–ærÂçVÆÂÓ°Ğ¢6öç7B–6öäf÷"Ò‡G—S¢7G&–ær’ÓâG—RÓÓÒ$TÔ”Â"òÄÖ–Â6—¦S×³GÒóâ¢G—RÓÓÒ%t„E4"òÇ7â6Æ74æÖSÒ'FW‡BÕ³…ÒföçBÖ&öÆBÆVF–ærÖæöæRFW‡BÕ²3#TC3ceÒ#åtÂ÷7ãâ¢Å†öæR6—¦S×³GÒóã°Ğ¢6öç7B÷&–v–æÇ3¢F—7Æ”6öçF7EµÒÒ°Ğ¢²Æ&VÃ¢.XéşZx¾yK^ŠùÒ"ÂfÇVS¢&÷rç†öæRÇÂ.iÊ®hùKé²"ÂG—S¢%„ôäR"Â–6öã¢Å†öæR6—¦S×³GÒóâÂ6÷W&6S¢&÷&–v–æÂ"ÒÀĞ¢²Æ&VÃ¢.XéşZx²v†G4"ÂfÇVS¢&÷rçv†G6ÇÂ.iÊ®hùKé²"ÂG—S¢%t„E4"Â–6öã¢Ç7â6Æ74æÖSÒ'FW‡BÕ³…ÒföçBÖ&öÆBÆVF–ærÖæöæRFW‡BÕ²3#TC3ceÒ#åtÂ÷7ãâÂ6÷W&6S¢&÷&–v–æÂ"ÒÀĞ¢²Æ&VÃ¢.XéşZx¾˜*îzë"ÂfÇVS¢&÷ræVÖ–ÂÇÂ.iÊ®hùKé²"ÂG—S¢$TÔ”Â"Â–6öã¢ÄÖ–Â6—¦S×³GÒóâÂ6÷W&6S¢&÷&–v–æÂ"ÒÀĞ¢Ó°Ğ¢6öç7B6öçF7D¶W’Ò‡G—S¢7G&–ærÂfÇVS¢7G&–ær’Óâ°Ğ¢–b‡G—RÓÓÒ$TÔ”Â"’&WGW&âG·G—WÓ¢G·fÇVRçG&–Ò‚’çFôÆ÷vW$66R‚—Ö°Ğ¢&WGW&âG·G—WÓ¢G¶æ÷&ÖÆ—¦U†öæT–çFW&æF–öæÂ‡fÇVRÂ&÷ræ6÷VçG'’’ç&WÆ6R‚õÄBörÂ""’ÇÂfÇVRç&WÆ6R‚õÄBörÂ""—Ö°Ğ¢Ó°Ğ¢6öç7B÷&–v–æÄ¶W—2ÒæWr6WB†÷&–v–æÇ2æf–ÇFW"‚†—FVÒ’Óâ—FVÒçfÇVRÓÒ.iÊ®hùKé²"’æÖ‚†—FVÒ’Óâ6öçF7D¶W’†—FVÒçG—RÂ—FVÒçfÇVR’’“°Ğ¢6öç7B6öÆÆV7FVC¢F—7Æ”6öçF7EµÒÒ°Ğ¢âââ‡&÷rçfW&–f–VEö6öçF7G2ÇÂµÒ’æf–ÇFW"‚†6öçF7B’Óâ²$äUuõdU$”d”TB"Â$4ôädÄ”5D”äuõdU$”d”TB%Òæ–æ6ÇVFW2…7G&–ær†6öçF7BçfW&–f–6F–öå÷7FGW2ÇÂ""’’bb²%„ôäR"Â$TÔ”Â"Â%t„E4%Òæ–æ6ÇVFW2…7G&–ær†6öçF7BçG—RÇÂ""’çFõWW$66R‚’’bb7G&–ær†6öçF7BçfÇVU÷&rÇÂ""’çG&–Ò‚’’æÖ‚†6öçF7B“¢F—7Æ”6öçF7BÓâ‡°Ğ¢Æ&VÃ¢Gµ7G&–ær†6öçF7Bç6÷W&6Uö6†ææVÂÇÂ'V&Æ–2"’çFôÆ÷vW$66R‚’ÓÓÒ'vV'6—FR"ò.Zé{Ù"¢7G&–ær†6öçF7Bç6÷W&6Uö6†ææVÂÇÂ""’çFôÆ÷vW$66R‚’ÓÓÒ&vöövÆUöÖ2"ò$vöövÆRÖ2"¢.XZÎ[ÈiÚ^k©'Şjš¨ÂGµ7G&–ær†6öçF7BçG—R’çFõWW$66R‚’ÓÓÒ$TÔ”Â"ò.˜*îzë"¢7G&–ær†6öçF7BçG—R’çFõWW$66R‚’ÓÓÒ%t„E4"ò%v†G4"¢.yK^ŠùÒ'ÖÀĞ¢fÇVS¢7G&–ær†6öçF7BçfÇVU÷&r’çG&–Ò‚’ÂG—S¢7G&–ær†6öçF7BçG—R’çFõWW$66R‚’2%„ôäR"Â$TÔ”Â"Â%t„E4"Â–6öã¢–6öäf÷"…7G&–ær†6öçF7BçG—R’çFõWW$66R‚’’ÀĞ¢6÷W&6S¢6öçF7BçfW&–f–6F–öå÷7FGW2ÓÓÒ$4ôädÄ”5D”äuõdU$”d”TB"ò&6öæfÆ–7B"¢'fW&–f–VB"ÀĞ¢6†ææVÃ¢6öçF7Bç6÷W&6Uö6†ææVÂÂ6÷W&6UW&Ã¢6öçF7BæW†7E÷6÷W&6U÷W&ÂÀĞ¢Ò’’ÀĞ¢Ó°Ğ¢òòF—66÷fW&VB6öçF7B6âÇ6ò&R6fVB–âF†R6ö×F–&–Æ—G’f–VÆG2â¶VW Ğ¢òò—Bf—6–&ÆRf÷"öÆFW"æÇ—6—2&V6÷&G2Âv†–ÆRfö–F–ær6V6öæB–FVçF–6ÀĞ¢òò&÷röæ6RF†R7G'V7GW&VB7W7FöÖW%ö6öçF7G2&V6÷&B—2f–Æ&ÆRàĞ¢f÷"†6öç7B¶Æ&VÂÂfÇVRÂG—UÒöbµ².Zé{Ùjš¨ÎyK^ŠùÒ"Â&÷rçvV'6—FU÷†öæRÂ%„ôäR%ÒÂ².Zé{Ùjš¨Î˜*îzë"Â&÷rçvV'6—FUöVÖ–ÂÂ$TÔ”Â%ÕÒ26öç7B’°Ğ¢–b‚fÇVRÇÂ6öÆÆV7FVBç6öÖR‚†—FVÒ’Óâ6öçF7D¶W’†—FVÒçG—RÂ—FVÒçfÇVR’ÓÓÒ6öçF7D¶W’‡G—RÂfÇVR’’’6öçF–çVS°Ğ¢6öÆÆV7FVBçW6‚‡²Æ&VÂÂfÇVRÂG—RÂ–6öã¢–6öäf÷"‡G—R’Â6÷W&6S¢'fW&–f–VB"Â6†ææVÃ¢'vV'6—FR"Ò“°Ğ¢ĞĞ¢6öç7B6öçF7G2Ò‡6÷W&6RÓÓÒ&÷&–v–æÂ"ò÷&–v–æÇ2¢6öÆÆV7FVBĞ¢æf–ÇFW"‚†—FVÒÂ–æFW‚ÂÆÂ’Óâ6÷W&6RÓÓÒ&÷&–v–æÂ"ÇÂ‚÷&–v–æÄ¶W—2æ†2†6öçF7D¶W’†—FVÒçG—RÂ—FVÒçfÇVR’’bbÆÂæf–æD–æFW‚‚†6æF–FFR’Óâ6öçF7D¶W’†6æF–FFRçG—RÂ6æF–FFRçfÇVR’ÓÓÒ6öçF7D¶W’†—FVÒçG—RÂ—FVÒçfÇVR’’ÓÓÒ–æFW‚’“°Ğ¢–b‚6öçF7G2æÆVæwF‚’&WGW&âÇ7â6Æ74æÖSÒ'FW‡B×6ÆFRÓC#î(	CÂ÷7ãã°Ğ¢&WGW&âÆF—b6Æ74æÖSÒ'76R×’Ó#ç¶6öçF7G2æÖ‚†—FVÒÂ–æFW‚’Óâ°Ğ¢6öç7B×WFVBÒ—FVÒçfÇVRÓÓÒ.iÊ®hùKé²#°Ğ¢6öç7B¶W’ÒG¶—FVÒæÆ&VÇÓ¢G¶—FVÒçfÇVWÓ¢G¶–æFW‡Ö°Ğ¢6öç7B&FvRÒ—FVÒç6÷W&6RÓÓÒ&÷&–v–æÂ"ò.XéşZx²"¢—FVÒç6÷W&6RÓÓÒ&6öæfÆ–7B"ò.[è^jZû’"¢.[{.jš¨Â#°Ğ¢6öç7BFöæRÒ—FVÒç6÷W&6RÓÓÒ&÷&–v–æÂ"ò&&r×6ÆFRÓFW‡B×6ÆFRÓS"¢—FVÒç6÷W&6RÓÓÒ&6öæfÆ–7B"ò&&rÖÖ&W"ÓSFW‡BÖÖ&W"Ós"¢&&rÖVÖW&ÆBÓSFW‡BÖÖ&W"Ós#°Ğ¢6öç7BF—7Æ’Ò×WFVBÇÂ—FVÒçG—RÓÓÒ$TÔ”Â"ò—FVÒçfÇVR¢f÷&ÖE†öæT–çFW&æF–öæÂ†—FVÒçfÇVRÂ&÷ræ6÷VçG'’“°Ğ¢6öç7Bv†G6F–v—G2Ò—FVÒçG—RÓÓÒ%t„E4"bb×WFVBòæ÷&ÖÆ—¦U†öæT–çFW&æF–öæÂ†—FVÒçfÇVRÂ&÷ræ6÷VçG'’’ç&WÆ6R‚õÄBörÂ""’¢"#°Ğ¢6öç7BFW‡BÒv†G6F–v—G0Ğ¢òÆ‡&Vc×¶‡GG3¢ò÷væÖRòG·v†G6F–v—G7ÖÒF&vWCÒ%ö&Ææ²"&VÃÒ&æ÷&VfW'&W""F—FÆSÒ.h™>[Èv†G4vV"ZûŠùÒ"6Æ74æÖSÒ&Ö–â×rÓfÆW‚ÓG'Væ6FRFW‡BÕ²3#„3tUÒ†÷fW#§VæFW&Æ–æR#ç¶F—7Æ—ÓÂöàĞ¢¢Ç7â6Æ74æÖSÒ&Ö–â×rÓfÆW‚ÓG'Væ6FR#ç¶F—7Æ—ÓÂ÷7ãã°Ğ¢&WGW&âÇ7â¶W“×¶¶W—ÒF—FÆS×¶G¶—FVÒæÆ&VÇŞûÉ¢G¶—FVÒçfÇVWÒG¶—FVÒç6÷W&6UW&ÂòÆîiÚ^k©ûÉ¢G¶—FVÒç6÷W&6UW&ÇÖ¢"'ÖÒ6Æ74æÖS×¶fÆW‚Ö–â×rÓ—FV×2Ö6VçFW"vÓãRFW‡B×‡2G¶×WFVBò'FW‡B×6ÆFRÓC"¢'FW‡B×6ÆFRÓs'ÖÓãÇ7â6Æ74æÖS×¶—FVÒç6÷W&6RÓÓÒ'fW&–f–VB"ò'6‡&–æ²ÓFW‡BÖVÖW&ÆBÓc"¢—FVÒç6÷W&6RÓÓÒ&6öæfÆ–7B"ò'6‡&–æ²ÓFW‡BÖÖ&W"Óc"¢'6‡&–æ²ÓFW‡B×6ÆFRÓC'Óç¶—FVÒæ–6öçÓÂ÷7ããÇ7â6Æ74æÖS×¶6‡&–æ²Ó&÷VæFVB‚Ó’ÓãRFW‡BÕ³…ÒÆVF–ærÖæöæRG·FöæWÖÓç¶&FvWÓÂ÷7ãç·FW‡GÓÆ'WGFöâG—SÒ&'WGFöâ"F—6&ÆVC×¶×WFVGÒöä6Æ–6³×²‚’Óâ²fö–Bæf–vF÷"æ6Æ—&ö&Còçw&—FUFW‡B†—FVÒçfÇVR’çF†Vâ‚‚’Óâ²6WD6÷–VB†¶W’“²v–æF÷rç6WEF–ÖV÷WB‚‚’Óâ6WD6÷–VB‚†7W'&VçB’Óâ7W'&VçBÓÓÒ¶W’ò""¢7W'&VçB’ÂC“²Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“²×Ò&–ÖÆ&VÃ×¶ZHŞX‹bG¶—FVÒæÆ&VÇÖÒF—FÆS×¶6÷–VBÓÓÒ¶W’ò.[{.ZHŞX‹b"¢ZHŞX‹bG¶—FVÒæÆ&VÇÖÒ6Æ74æÖSÒ'6‡&–æ²Ó&÷VæFVBÓãRFW‡B×6ÆFRÓC†÷fW#¦&r×6ÆFRÓ†÷fW#§FW‡BÖ&ÇVRÓcF—6&ÆVC§ö–çFW"ÖWfVçG2ÖæöæRF—6&ÆVC¦÷6—G’Ó3#ç¶6÷–VBÓÓÒ¶W’òÄ6†V6´6—&6ÆS"6—¦S×³7Ò6Æ74æÖSÒ'FW‡BÖVÖW&ÆBÓc"óâ¢Ä6÷’6—¦S×³7ÒóçÓÂö'WGFöããÂ÷7ãã°Ğ¢Ò—ÓÂöF—cã°Ğ§ĞĞ Ğ¦gVæ7F–öâööÅFW‡B‡&÷s¢ööÅ&÷rÂ¶W“¢7W7FöÖW$Æ—7D6öÇVÖâ’°Ğ¢–b†¶W’ÓÓÒ&6ö×ç•öæÖR"’&WGW&âF—7Æ”7W7FöÖW$æÖR‡&÷ræ6ö×ç•öæÖR“°Ğ¢–b†¶W’ÓÓÒ&6öçF7EöæÖR"’&WGW&â&÷ræ6öçF7EöæÖRÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ&6÷VçG'’"’&WGW&â&÷ræ6÷VçG'’ÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ&–æGW7G'’"’&WGW&â7W7FöÖW$–æGW7G'”F—7Æ’‡&÷r’çFW‡C°Ğ¢–b†¶W’ÓÓÒ&•÷66÷&R"’&WGW&â&÷ræ•÷66÷&RÓÒçVÆÂò.iÊ®zÙ¾˜’"¢G·&÷ræ•öÆWfVÂÇÂ.(	B'Ò+rG·&÷ræ•÷66÷&WÖ°Ğ¢–b†¶W’ÓÓÒ'7FGW2"’&WGW&â&÷ræ6öçF7EöÖ6¶VBò.[{.ŠêNš(b"¢ööÅ7FvTÆ&VÇ5·&÷rç7FGW5ÒÇÂ&÷rç7FGW2ÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ&föÆÆ÷wW÷7FGW2"’&WGW&â&÷ræ6öçF7EöÖ6¶VBò.[Ù.[îK«®XúşŠx"¢föÆÆ÷wWÆ&VÇ5·&÷ræföÆÆ÷wW÷7FGW2ÇÂ%t•D”äuô4ôåD5B%ÒÇÂ.[è^ˆN{;²#°Ğ¢–b†¶W’ÓÓÒ'&÷FV7F–öâ"’&WGW&â&÷ræ6öçF7EöÖ6¶VBò.[Ù.[îK«®XúşŠx"¢&÷rç&÷FV7F–öãòæW‡—&UöFFRòˆ{2G¶æWrFFR‡&÷rç&÷FV7F–öâæW‡—&UöFFR’çFôÆö6ÆTFFU7G&–ær‚'¦‚Ô4â"—Ö¢.(	B#°Ğ¢–b†¶W’ÓÓÒ&Æ7Eö6öçF7E÷F–ÖR"’&WGW&â&÷ræ6öçF7EöÖ6¶VBò.[Ù.[îK«®XúşŠx"¢f÷&ÖDFFR‡&÷ræÆ7Eö6öçF7E÷F–ÖR“°Ğ¢–b†¶W’ÓÓÒ&÷væW""’&WGW&âF—7Æ•W6W"‡&÷ræ÷væW"“°Ğ¢–b†¶W’ÓÓÒ'†öæR"’&WGW&â&÷rç†öæRÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ&VÖ–Â"’&WGW&â&÷ræVÖ–ÂÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ'vV'6—FUöVÖ–Â"’&WGW&â&÷rçvV'6—FUöVÖ–ÂÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ'vV'6—FU÷†öæR"’&WGW&â&÷rçvV'6—FU÷†öæRÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ'vV'6—FR"’&WGW&â&÷rçvV'6—FRÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ&vöövÆU÷W&Â"’&WGW&â&÷rævöövÆU÷W&ÂÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ'6÷W&6R"’&WGW&â&÷rç6÷W&6RÓÓÒ$U„4TÅô”Õõ%B"ò$W†6VÎZûÎXZR"¢&÷rç6÷W&6RÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ'6÷W&6Uö&F6‚"’&WGW&â&÷rç6÷W&6Uö&F6‚ÇÂ.(	B#°Ğ¢–b†¶W’ÓÓÒ'WFFVEöB"’&WGW&âf÷&ÖDFFR‡&÷rçWFFVEöB“°Ğ¢&WGW&â.(	B#°Ğ§ĞĞ Ğ¢òò¶VWF†RW†7B6ÖR66÷&RF‡&W6†öÆG2æBf—7VÂÆæwVvR2(	Îh‰y¨NZê.h‹~(	ÒàĞ¦gVæ7F–öâööÅfÇVR‡²&÷rÂf–VÆBÂ6†÷u7WÆVÖVçG2Ó¢²&÷s¢ööÅ&÷s²f–VÆC¢7W7FöÖW$Æ—7D6öÇVÖã²6†÷u7WÆVÖVçG3ó¢‡&÷s¢ööÅ&÷r’Óâfö–BÒ’°Ğ¢–b†f–VÆBÓÓÒ&6ö×ç•öæÖR"’°Ğ¢6öç7B–æGW7G'’Ò7W7FöÖW$–æGW7G'”F—7Æ’‡&÷r“°Ğ¢&WGW&âÇ7â6Æ74æÖSÒ&&Æö6²Ö–â×rÓ#ãÇ7â6Æ74æÖSÒ&&Æö6²G'Væ6FRföçBÖÖVF—VÒFW‡BÖ&ÇVRÓs#ç¶F—7Æ”7W7FöÖW$æÖR‡&÷ræ6ö×ç•öæÖR—ÓÂ÷7ããÇ6ÖÆÂ6Æ74æÖS×¶×BÓãR&Æö6²G'Væ6FRFW‡B×‡2föçBÖæ÷&ÖÂG¶–æGW7G'’çfW&–f–VBò'FW‡BÖVÖW&ÆBÓc"¢'FW‡B×6ÆFRÓS'ÖÒF—FÆS×¶–æGW7G'’çF—FÆWÓç¶–æGW7G'’çfW&–f–VBò$jš¨ÎûÉ¢"¢.XéşZx¾{¾XŠ¾ûÉ¢'×¶–æGW7G'’çFW‡GÓÂ÷6ÖÆÃç·&÷ræÆ7E÷&VÆV6RòÇ6ÖÆÂ6Æ74æÖSÒ&×BÓ–æÆ–æRÖfÆW‚Ö‚×rÖgVÆÂ7W'6÷"Ö†VÇ—FV×2Ö6VçFW"vÓ&÷VæFVBÖÖB&rÖÖ&W"ÓS‚ÓãR’ÓãRFW‡B×‡2föçBÖæ÷&ÖÂFW‡BÖÖ&W"Óƒ&–ærÓ&–ærÖÖ&W"Ó"F—FÆS×¶iÈ‹ùKˆjÊ˜x®iKåÆî˜x®iKîK«®ûÉ¢G·&÷ræÆ7E÷&VÆV6Ræ'—ÕÆî˜x®iKîi{n™{NûÉ¢G¶f÷&ÖDFFR‡&÷ræÆ7E÷&VÆV6RæB—ÕÆî˜x®iKîXéşYºûÉ¢G·&÷ræÆ7E÷&VÆV6Rç&V6öçÖÓîi»îŠ*¾˜x®iKâ+r¶æWrFFR‡&÷ræÆ7E÷&VÆV6RæB’çFôÆö6ÆTFFU7G&–ær‚'¦‚Ô4â"—ÓÂ÷6ÖÆÃâ¢çVÆÇ×·&÷ræ×•÷7WÆVÖVçG3òæÆVæwF‚òÆ'WGFöâG—SÒ&'WGFöâ"öä6Æ–6³×²†WfVçB’Óâ²WfVçBç7F÷&÷vF–öâ‚“²6†÷u7WÆVÖVçG3òâ‡&÷r“²×Ò6Æ74æÖSÒ&×BÓ–æÆ–æRÖfÆW‚&÷VæFVB&rÖ&ÇVRÓS‚ÓãR’ÓãRFW‡B×‡2föçBÖæ÷&ÖÂFW‡BÖ&ÇVRÓsG&ç6—F–öâ†÷fW#¦&rÖ&ÇVRÓ†÷fW#§FW‡BÖ&ÇVRÓƒfö7W3¦÷WFÆ–æRÖæöæRfö7W3§&–ærÓ"fö7W3§&–ærÖ&ÇVRÓ#"F—FÆSÒ.iú^yÈ¾K¸^ˆz®[{XúşŠxy¨NŠ^XX^‹XNii’#îh‰y¨NŠ^XXR·&÷ræ×•÷7WÆVÖVçG2æÆVæwF‡Òš“Âö'WGFöãâ¢çVÆÇÓÂ÷7ãã°Ğ¢ĞĞ¢–b†f–VÆBÓÓÒ&6÷VçG'’"’&WGW&âÄ6÷VçG'”Æ&VÂfÇVS×·&÷ræ6÷VçG'—Òóã°Ğ¢–b†f–VÆBÓÓÒ&•÷66÷&R"’&WGW&âÇ7â6Æ74æÖSÒ&–æÆ–æRÖfÆW‚—FV×2Ö6VçFW"vÓ#ãÄ7W7FöÖW%66÷&T&FvR66÷&S×·&÷ræ•÷66÷&WÒÆWfVÃ×·&÷ræ•öÆWfVÇÒóç·&÷ræ•÷66÷&U÷6÷W&6SÓÓÒ$ÔåTÅõ$Ud”Ur#óÇ6ÖÆÂ6Æ74æÖSÒ'FW‡BÖ&ÇVRÓs#îK«®[z^ZHŞjƒÂ÷6ÖÆÃã¦çVÆÇÓÂ÷7ãã°Ğ¢–b†f–VÆBÓÓÒ'†öæR"bb&÷ræ6öçF7EöÖ6¶VBÓÓÒfÇ6R’&WGW&âÄ7W7FöÖW$6öçF7E7VÖÖ'’7W7FöÖW#×·&÷wÒ6÷W&6SÒ&ÆÂ"F—7Æ“Ò'†öæR"óã°Ğ¢–b†f–VÆBÓÓÒ&VÖ–Â"bb&÷ræ÷væW%ö–B’&WGW&âÄ7W7FöÖW$6öçF7E7VÖÖ'’7W7FöÖW#×·&÷wÒ6÷W&6SÒ&ÆÂ"F—7Æ“Ò&VÖ–Â"óã°Ğ¢–b†f–VÆBÓÓÒ'fW&–f–VEö6öçF7G2"bb&÷ræ÷væW%ö–B’&WGW&âÄ7W7FöÖW$6öçF7E7VÖÖ'’7W7FöÖW#×·&÷wÒ6÷W&6SÒ&’"óã°Ğ¢–b†f–VÆBÓÓÒ'6÷W&6R"’&WGW&âÇ7â6Æ74æÖSÒ&&Æö6²Ö–â×rÓG'Væ6FR"F—FÆS×µ·&÷rç6÷W&6Uö&F6‚òh›jÊûÉ¢G·&÷rç6÷W&6Uö&F6‡Ö¢""ÂX‰¾[»®K«®ûÉ¢G¶F—7Æ•W6W"‡&÷ræ7&VF÷"—ÖÒæf–ÇFW"„&ööÆVâ’æ¦ö–â‚%Æâ"—Óç¶7W7FöÖW%6÷W&6TÆ&VÂ‡&÷rç6÷W&6R—ÓÂ÷7ãã°Ğ¢–b†f–VÆBÓÓÒ'vV'6—FR"’&WGW&âÄ7W7FöÖW%V&Æ–4Æ–æ²fÇVS×·&÷rçvV'6—FWÒ¶–æCÒ'vV'6—FR"óã°Ğ¢–b†f–VÆBÓÓÒ&vöövÆU÷W&Â"’&WGW&âÄ7W7FöÖW%V&Æ–46†ææVÇ27W7FöÖW#×·&÷wÒóã°Ğ¢&WGW&âÇ7â6Æ74æÖSÒ&Æ–æRÖ6Æ×Ó"#ç·ööÅFW‡B‡&÷rÂf–VÆB—ÓÂ÷7ãã°Ğ§ĞĞ Ğ¦W‡÷'BgVæ7F–öâ7W7FöÖW%V&Æ–5ööÅf–Wr‡²–æ—F–Å&öÆRÒ%4ÄU2"Â–æ—F–Ä6äW‡÷'BÒfÇ6RÓ¢²–æ—F–Å&öÆSó¢&öÆS²–æ—F–Ä6äW‡÷'Có¢&ööÆVâÒ’°Ğ¢6öç7B·F"Â6WEF%ÒÒW6U7FFSÅF#â‚&f–Æ&ÆR"“°Ğ¢6öç7B·&÷w2Â6WE&÷w5ÒÒW6U7FFSÅööÅ&÷uµÓâ…µÒ“°Ğ¢6öç7B·&öÆRÂ6WE&öÆUÒÒW6U7FFSÅ&öÆSâ†–æ—F–Å&öÆR“°Ğ¢6öç7B¶6÷VçBÂ6WD6÷VçEÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°Ğ¢6öç7B·F$6÷VçG2Â6WEF$6÷VçG5ÒÒW6U7FFSÅ'F–ÃÅ&V6÷&CÅF"ÂçVÖ&W#ããâ‡·Ò“°Ğ¢6öç7B·vRÂ6WEvUÒÒW6U7FFRƒ“°Ğ¢6öç7B·vU6—¦RÂ6WEvU6—¦UÒÒW6U7FFRƒ#“°Ğ¢6öç7B·VW'’Â6WEVW'•ÒÒW6U7FFR‚""“°Ğ¢6öç7B¶7&VFVDg&öÒÂ6WD7&VFVDg&öÕÒÒW6U7FFR‚""“°Ğ¢6öç7B¶7&VFVEFòÂ6WD7&VFVEFõÒÒW6U7FFR‚""“°Ğ¢6öç7B¶fö7W6VD7W7FöÖW$–BÂ6WDfö7W6VD7W7FöÖW$–EÒÒW6U7FFR‚""“°Ğ¢6öç7B¶6÷VçG&–W2Â6WD6÷VçG&–W5ÒÒW6U7FFSÇ7G&–æuµÓâ…µÒ“°Ğ¢6öç7B¶–æGW7G&–W2Â6WD–æGW7G&–W5ÒÒW6U7FFSÇ7G&–æuµÓâ…µÒ“°Ğ¢6öç7B¶”ÆWfVÂÂ6WD”ÆWfVÅÒÒW6U7FFR‚""“°Ğ¢6öç7B¶•7FGW2Â6WD•7FGW5ÒÒW6U7FFSÂ&ÆÂ"Â&FöæR"Â'VæF–ær"Â&f–ÆVB#â‚&ÆÂ"“°Ğ¢6öç7B·F&vWBÂ6WEF&vWEÒÒW6U7FFR‚""“°Ğ¢6öç7B¶7W7FöÖW%7FGW2Â6WD7W7FöÖW%7FGW5ÒÒW6U7FFR‚""“°Ğ¢6öç7B¶÷væW$–BÂ6WD÷væW$–EÒÒW6U7FFR‚""“°Ğ¢6öç7B·6÷W&6UG—RÂ6WE6÷W&6UG—UÒÒW6U7FFR‚""“°Ğ¢6öç7B·6÷W&6T&F6†W2Â6WE6÷W&6T&F6†W5ÒÒW6U7FFSÇ7G&–æuµÓâ…µÒ“°Ğ¢6öç7B·6÷W&6T&F6„÷VâÂ6WE6÷W&6T&F6„÷VåÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B·6÷W&6T&F6…VW'’Â6WE6÷W&6T&F6…VW'•ÒÒW6U7FFR‚""“°Ğ¢6öç7B·67&VVæ–æuF6´–G2Â6WE67&VVæ–æuF6´–G5ÒÒW6U7FFSÇ7G&–æuµÓâ…µÒ“°Ğ¢6öç7B·67&VVæ–æuF6´÷VâÂ6WE67&VVæ–æuF6´÷VåÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B·67&VVæ–æuF6µVW'’Â6WE67&VVæ–æuF6µVW'•ÒÒW6U7FFR‚""“°Ğ¢6öç7B·6÷'BÂ6WE6÷'EÒÒW6U7FFR‚'WFFVEöB"“°Ğ¢6öç7B¶F—&V7F–öâÂ6WDF—&V7F–öåÒÒW6U7FFSÂ&62"Â&FW62#â‚&FW62"“°Ğ¢6öç7B¶f–VÆG2Â6WDf–VÆG5ÒÒW6U7FFSÄ7W7FöÖW$Æ—7D6öÇVÖåµÓâ…ôôÅôDTdTÅEôd”TÄE2æf–Æ&ÆR“°Ğ¢6öç7B¶G&gDf–VÆG2Â6WDG&gDf–VÆG5ÒÒW6U7FFSÄ7W7FöÖW$Æ—7D6öÇVÖåµÓâ…ôôÅôDTdTÅEôd”TÄE2æf–Æ&ÆR“°Ğ¢6öç7B¶f–VÆD÷VâÂ6WDf–VÆD÷VåÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B¶7&VFT÷VâÂ6WD7&VFT÷VåÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B¶æWt÷VâÂ6WDæWt÷VåÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B¶W‡÷'F–ærÂ6WDW‡÷'F–æuÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B¶W‡÷'E&öw&W72Â6WDW‡÷'E&öw&W75ÒÒW6U7FFR‚""“°Ğ¢6öç7B¶6äW‡÷'BÂ6WD6äW‡÷'EÒÒW6U7FFR†–æ—F–Å&öÆRÓÓÒ$DÔ”â"ÇÂ–æ—F–Ä6äW‡÷'B“°Ğ¢6öç7B·6VÆV7F–ætÆÂÂ6WE6VÆV7F–ætÆÅÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7BæWu&VbÒW6U&VcÄ…DÔÄF—dVÆVÖVçCâ†çVÆÂ“°Ğ¢6öç7B6÷W&6T&F6…&VbÒW6U&VcÄ…DÔÄF—dVÆVÖVçCâ†çVÆÂ“°Ğ¢6öç7B67&VVæ–æuF6µ&VbÒW6U&VcÄ…DÔÄF—dVÆVÖVçCâ†çVÆÂ“°Ğ¢6öç7B&WVW7EfW'6–öâÒW6U&Vbƒ“°Ğ¢6öç7BÆ—7D&÷'E&VbÒW6U&VcÄ&÷'D6öçG&öÆÆW"ÂçVÆÃâ†çVÆÂ“°Ğ¢6öç7B÷F–öç4&÷'E&VbÒW6U&VcÄ&÷'D6öçG&öÆÆW"ÂçVÆÃâ†çVÆÂ“°Ğ¢6öç7B¶f–ÇFW$÷F–öç2Â6WDf–ÇFW$÷F–öç5ÒÒW6U7FFSÅööÄf–ÇFW$÷F–öç3â‡°Ğ¢6÷VçG&–W3¢µÒÀĞ¢–æGW7G&–W3¢µÒÀĞ¢÷væW'3¢µÒÀĞ¢6÷W&6W3¢µÒÀĞ¢&F6†W3¢µÒÀĞ¢67&VVæ–æu÷F6·3¢µÒÀĞ¢Ò“°Ğ¢6öç7B¶ÆöF–ærÂ6WDÆöF–æuÒÒW6U7FFR‡G'VR“°Ğ¢6öç7B¶W'&÷"Â6WDW'&÷%ÒÒW6U7FFR‚""“°Ğ¢6öç7B·Fö7BÂ6WEFö7EÒÒW6U7FFR‚""“°Ğ¢6öç7B¶6Æ–ÒÂ6WD6Æ–ÕÒÒW6U7FFSÅööÅ&÷rÂçVÆÃâ†çVÆÂ“°Ğ¢6öç7B·7WÆVÖVçE&÷rÂ6WE7WÆVÖVçE&÷uÒÒW6U7FFSÅööÅ&÷rÂçVÆÃâ†çVÆÂ“°Ğ¢6öç7B·6VÆV7FVBÂ6WE6VÆV7FVEÒÒW6U7FFSÅ6WCÇ7G&–æsãâ†æWr6WB‚’“°Ğ¢6öç7B6VÆV7F–öå66÷RÒ¥4ôâç7G&–æv–g’…·F"ÂVW'’Â7&VFVDg&öÒÂ7&VFVEFòÂfö7W6VD7W7FöÖW$–BÂ6÷VçG&–W2Â–æGW7G&–W2Â”ÆWfVÂÂ•7FGW2ÂF&vWBÂ7W7FöÖW%7FGW2Â÷væW$–BÂ6÷W&6UG—RÂ6÷W&6T&F6†W2Â67&VVæ–æuF6´–G5Ò“°Ğ¢6öç7B6VÆV7F–öå66÷U&VbÒW6U&Vb‡6VÆV7F–öå66÷R“°Ğ¢W6TVffV7B‚‚’Óâ²6VÆV7F–öå66÷U&Vbæ7W'&VçBÒ6VÆV7F–öå66÷S²ÒÂ·6VÆV7F–öå66÷UÒ“°Ğ¢6öç7B¶76–vä÷VâÂ6WD76–vä÷VåÒÒW6U7FFR†fÇ6R“°Ğ¢6öç7B¶FVÆWFT–G2Â6WDFVÆWFT–G5ÒÒW6U7FFSÇ7G&–æuµÒÂçVÆÃâ†çVÆÂ“°Ğ¢6öç7B¶†—7F÷'•&Vg&W6„¶W’Â6WD†—7F÷'•&Vg&W6„¶W•ÒÒW6U7FFRƒ“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢–b‚Fö7B’&WGW&ã°Ğ¢6öç7BF–ÖW"Òv–æF÷rç6WEF–ÖV÷WB‚‚’Óâ6WEFö7B‚""’Â3“°Ğ¢&WGW&â‚’Óâv–æF÷ræ6ÆV%F–ÖV÷WB‡F–ÖW"“°Ğ¢ÒÂ·Fö7EÒ“°Ğ¢6öç7B÷&FW&VDf–VÆD÷F–öç2ÒW6TÖVÖò‚‚’Óâ°Ğ¢6öç7B÷&FW&VBÒG&gDf–VÆG2æÖ‚†¶W’’Óâ5U5DôÔU%ôÄ•5Eô4ôÅTÔå2æf–æB‚†6öÇVÖâ’Óâ6öÇVÖâæ¶W’ÓÓÒ¶W’’’æf–ÇFW"‚†6öÇVÖâ“¢6öÇVÖâ—2‡G—Vöb5U5DôÔU%ôÄ•5Eô4ôÅTÔå2•¶çVÖ&W%ÒÓâ&ööÆVâ†6öÇVÖâ’“°Ğ¢5U5DôÔU%ôÄ•5Eô4ôÅTÔå2æf÷$V6‚‚†6öÇVÖâ’Óâ²–b‚G&gDf–VÆG2æ–æ6ÇVFW2†6öÇVÖâæ¶W’’’÷&FW&VBçW6‚†6öÇVÖâ“²Ò“°Ğ¢&WGW&â÷&FW&VC°Ğ¢ÒÂ¶G&gDf–VÆG5Ò“°Ğ¢6öç7BVæD–æGW7G'”f–ÇFW'2ÒW6T6ÆÆ&6²‚‡&×3¢U$Å6V&6…&×2’Óâ°Ğ¢f÷"†6öç7BfÇVRöb–æGW7G&–W2’°Ğ¢6öç7BÆ&VÂÒfÇVRç7F'G5v—F‚‚&–æGW7G'“¢"’òfÇVRç6Æ–6R‚&–æGW7G'“¢"æÆVæwF‚’çG&–Ò‚’¢fÇVRçG&–Ò‚“°Ğ¢–b†Æ&VÂ’&×2æVæB‚&–æGW7G'•öw&÷W"ÂÆ&VÂ“°Ğ¢ĞĞ¢ÒÂ¶–æGW7G&–W5Ò“°Ğ¢6öç7BVæE6÷W&6T&F6„f–ÇFW'2ÒW6T6ÆÆ&6²‚‡&×3¢U$Å6V&6…&×2’Óâ°Ğ¢f÷"†6öç7BfÇVRöb6÷W&6T&F6†W2’&×2æVæB‚'6÷W&6Uö&F6‚"ÂfÇVR“°Ğ¢ÒÂ·6÷W&6T&F6†W5Ò“°Ğ¢6öç7BÆöBÒW6T6ÆÆ&6²†7–æ2‚’Óâ°Ğ¢–b‚²&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær%Òæ–æ6ÇVFW2‡F"’’°Ğ¢6WDÆöF–ær†fÇ6R“°Ğ¢&WGW&ã°Ğ¢ĞĞ¢6öç7BfW'6–öâÒ²·&WVW7EfW'6–öâæ7W'&VçC°Ğ¢Æ—7D&÷'E&Vbæ7W'&VçCòæ&÷'B‚“°Ğ¢6öç7B6öçG&öÆÆW"ÒæWr&÷'D6öçG&öÆÆW"‚“°Ğ¢Æ—7D&÷'E&Vbæ7W'&VçBÒ6öçG&öÆÆW#°Ğ¢6WDÆöF–ær‡G'VR“°Ğ¢6WDW'&÷"‚""“°Ğ¢G'’°Ğ¢6öç7B&×2ÒæWrU$Å6V&6…&×2‡°Ğ¢F"ÀĞ¢vS¢7G&–ær‡vR’ÀĞ¢vU÷6—¦S¢7G&–ær‡vU6—¦R’ÀĞ¢Ò“°Ğ¢–b‡VW'’çG&–Ò‚’’&×2ç6WB‚'"ÂVW'’çG&–Ò‚’“°Ğ¢–b†7&VFVDg&öÒ’&×2ç6WB‚&7&VFVEög&öÒ"Â7&VFVDg&öÒ“°Ğ¢–b†7&VFVEFò’&×2ç6WB‚&7&VFVE÷Fò"Â7&VFVEFò“°Ğ¢–b†fö7W6VD7W7FöÖW$–B’&×2ç6WB‚&7W7FöÖW%ö–B"Âfö7W6VD7W7FöÖW$–B“°Ğ¢f÷"†6öç7B6÷VçG'’öb6÷VçG&–W2—&×2æVæB‚&6÷VçG'’"Æ6÷VçG'’“°Ğ¢VæD–æGW7G'”f–ÇFW'2‡&×2“°Ğ¢–b†”ÆWfVÂ’&×2ç6WB‚&•öÆWfVÂ"Â”ÆWfVÂ“°Ğ¢–b†•7FGW2ÓÒ&ÆÂ"’&×2ç6WB‚&•÷7FGW2"Â•7FGW2“°Ğ¢–b‡F&vWB’&×2ç6WB‚'F&vWB"ÂF&vWB“°Ğ¢–b†7W7FöÖW%7FGW2bbF"ÓÓÒ&6Æ–ÖVB"’&×2ç6WB‚'7FGW2"Â7W7FöÖW%7FGW2“°Ğ¢–b†÷væW$–BbbF"ÓÓÒ&6Æ–ÖVB"’&×2ç6WB‚&÷væW%ö–B"Â÷væW$–B“°Ğ¢–b‡6÷W&6UG—R’&×2ç6WB‚'6÷W&6U÷G—R"Â6÷W&6UG—R“°Ğ¢VæE6÷W&6T&F6„f–ÇFW'2‡&×2“°Ğ¢f÷"†6öç7BF6´–Böb67&VVæ–æuF6´–G2’&×2æVæB‚&•÷F6µö–B"ÂF6´–B“°Ğ¢&×2ç6WB‚'6÷'B"Â6÷'B“°Ğ¢&×2ç6WB‚&F—&V7F–öâ"ÂF—&V7F–öâ“°Ğ¢6öç7B&öG’Òv—B’†ö’ö7W7FöÖW'2÷V&Æ–2×ööÃòG·&×7ÖÂ²6–væÃ¢6öçG&öÆÆW"ç6–væÂÒ“°Ğ¢–b‡fW'6–öâÓÒ&WVW7EfW'6–öâæ7W'&VçB’&WGW&ã°Ğ¢6öç7BæW‡D6÷VçBÒçVÖ&W"†&öG’æ6÷VçBÇÂ“°Ğ¢6WE&÷w2†&öG’æFFÇÂµÒ“°Ğ¢6WD6÷VçB†æW‡D6÷VçB“°Ğ¢6WE&öÆR†&öG’ç&öÆRÇÂ%4ÄU2"“°Ğ¢6WD6äW‡÷'B„&ööÆVâ†&öG’æ6åöW‡÷'B’“°Ğ¢Ò6F6‚†6Vv‡B’°Ğ¢–b‡fW'6–öâÓÓÒ&WVW7EfW'6–öâæ7W'&VçBbb†6Vv‡B–ç7Fæ6VöbDôÔW†6WF–öâbb6Vv‡BææÖRÓÓÒ$&÷'DW'&÷""’’6WDW'&÷"†6Vv‡B–ç7Fæ6VöbW'&÷"ò6Vv‡BæÖW76vR¢.Zê.h‹~XZÎk[~Xª‹ÛŞZK‹JR"“°Ğ¢Òf–æÆÇ’°Ğ¢–b‡fW'6–öâÓÓÒ&WVW7EfW'6–öâæ7W'&VçB’6WDÆöF–ær†fÇ6R“°Ğ¢ĞĞ¢ÒÂ°Ğ¢”ÆWfVÂÀĞ¢•7FGW2ÀĞ¢VæD–æGW7G'”f–ÇFW'2ÀĞ¢7W7FöÖW%7FGW2ÀĞ¢6÷VçG&–W2ÀĞ¢7&VFVDg&öÒÀĞ¢7&VFVEFòÀĞ¢÷væW$–BÀĞ¢6÷W&6UG—RÀĞ¢VæE6÷W&6T&F6„f–ÇFW'2ÀĞ¢67&VVæ–æuF6´–G2ÀĞ¢vRÀĞ¢vU6—¦RÀĞ¢VW'’ÀĞ¢F"ÀĞ¢F&vWBÀĞ¢6÷'BÀĞ¢F—&V7F–öâÀĞ¢fö7W6VD7W7FöÖW$–BÀĞ¢Ò“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢6öç7B7W7FöÖW$–BÒæWrU$Å6V&6…&×2‡v–æF÷ræÆö6F–öâç6V&6‚’ævWB‚&7W7FöÖW""’ÇÂ"#°Ğ¢–b†7W7FöÖW$–B’6WDfö7W6VD7W7FöÖW$–B†7W7FöÖW$–B“°Ğ¢ÒÂµÒ“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢–b‚fö7W6VD7W7FöÖW$–BÇÂ6Æ–Ò’&WGW&ã°Ğ¢6öç7Bfö7W6VBÒ&÷w2æf–æB‚‡&÷r’Óâ&÷ræ–BÓÓÒfö7W6VD7W7FöÖW$–B“°Ğ¢–b†fö7W6VCòæ6åö6Æ–Ò’6WD6Æ–Ò†fö7W6VB“°Ğ¢ÒÂ¶6Æ–ÒÂfö7W6VD7W7FöÖW$–BÂ&÷w5Ò“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢G'’°Ğ¢6öç7B6fVBÒ¥4ôâç'6R†Æö6Å7F÷&vRævWD—FVÒ‚'V&Æ–2×ööÂÖ6öÇVÖç2Öf–Æ&ÆR×cR"’ÇÂ&çVÆÂ"“°Ğ¢6öç7BæW‡BÒööÄf–VÆG4f÷%F"‚&f–Æ&ÆR"Â6fVB“°Ğ¢6WDf–VÆG2†æW‡B“°Ğ¢6WDG&gDf–VÆG2†æW‡B“°Ğ¢Ò6F6‚°Ğ¢6WDf–VÆG2…ôôÅôDTdTÅEôd”TÄE2æf–Æ&ÆR“°Ğ¢6WDG&gDf–VÆG2…ôôÅôDTdTÅEôd”TÄE2æf–Æ&ÆR“°Ğ¢ĞĞ¢ÒÂµÒ“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢fö–BÆöB‚“°Ğ¢ÒÂ¶ÆöEÒ“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢6öç7B&Vg&W6„öäfö7W2Ò‚’Óâ°Ğ¢–b†Fö7VÖVçBçf—6–&–Æ—G•7FFRÓÒ'f—6–&ÆR"’&WGW&ã°Ğ¢fö–B’‚"ö’ö7W7FöÖW'2÷V&Æ–2×ööÃ÷W&Ö—76–öç3Ó"’çF†Vâ‚†&öG’’Óâ6WD6äW‡÷'B„&ööÆVâ†&öG’æ6åöW‡÷'B’’’æ6F6‚‚‚’ÓâVæFVf–æVB“°Ğ¢Ó°Ğ¢v–æF÷ræFDWfVçDÆ—7FVæW"‚&fö7W2"Â&Vg&W6„öäfö7W2“°Ğ¢&WGW&â‚’Óâv–æF÷rç&VÖ÷fTWfVçDÆ—7FVæW"‚&fö7W2"Â&Vg&W6„öäfö7W2“°Ğ¢ÒÂµÒ“°Ğ¢6öç7BÆöEF$6÷VçG2ÒW6T6ÆÆ&6²‚‚’Óâ°Ğ¢’‚"ö’ö7W7FöÖW'2÷V&Æ–2×ööÃö6÷VçG3Ó"Ğ¢çF†Vâ‚†&öG’’Óâ6WEF$6÷VçG2†&öG’ÇÂ·Ò’Ğ¢æ6F6‚‚‚’ÓâVæFVf–æVB“°Ğ¢ÒÂµÒ“°Ğ¢W6TVffV7B‚‚’Óâ²ÆöEF$6÷VçG2‚“²ÒÂ¶ÆöEF$6÷VçG5Ò“°Ğ¢6öç7B&Vg&W6„76–væÖVçD†—7F÷'’ÒW6T6ÆÆ&6²‚‚’Óâ°Ğ¢6WD†—7F÷'•&Vg&W6„¶W’‚‡fÇVR’ÓâfÇVR²“°Ğ¢fö–BÆöEF$6÷VçG2‚“°Ğ¢ÒÂ¶ÆöEF$6÷VçG5Ò“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢6öç7B6Æ÷6RÒ†WfVçC¢Ö÷W6TWfVçB’Óâ°Ğ¢6öç7BF&vWDæöFRÒWfVçBçF&vWB2æöFS°Ğ¢–b†æWu&Vbæ7W'&VçBbbæWu&Vbæ7W'&VçBæ6öçF–ç2‡F&vWDæöFR’’6WDæWt÷Vâ†fÇ6R“°Ğ¢–b‡6÷W&6T&F6…&Vbæ7W'&VçBbb6÷W&6T&F6…&Vbæ7W'&VçBæ6öçF–ç2‡F&vWDæöFR’’6WE6÷W&6T&F6„÷Vâ†fÇ6R“°Ğ¢–b‡67&VVæ–æuF6µ&Vbæ7W'&VçBbb67&VVæ–æuF6µ&Vbæ7W'&VçBæ6öçF–ç2‡F&vWDæöFR’’6WE67&VVæ–æuF6´÷Vâ†fÇ6R“°Ğ¢Ó°Ğ¢Fö7VÖVçBæFDWfVçDÆ—7FVæW"‚&Ö÷W6VF÷vâ"Â6Æ÷6R“°Ğ¢&WGW&â‚’ÓâFö7VÖVçBç&VÖ÷fTWfVçDÆ—7FVæW"‚&Ö÷W6VF÷vâ"Â6Æ÷6R“°Ğ¢ÒÂµÒ“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢–b‚²&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær%Òæ–æ6ÇVFW2‡F"’’&WGW&ã°Ğ¢÷F–öç4&÷'E&Vbæ7W'&VçCòæ&÷'B‚“°Ğ¢6öç7B6öçG&öÆÆW"ÒæWr&÷'D6öçG&öÆÆW"‚“°Ğ¢÷F–öç4&÷'E&Vbæ7W'&VçBÒ6öçG&öÆÆW#°Ğ¢6öç7B&×2ÒæWrU$Å6V&6…&×2‡²F"Â÷F–öç3¢#"Ò“°Ğ¢f÷"†6öç7B6÷VçG'’öb6÷VçG&–W2’&×2æVæB‚&6÷VçG'’"Â6÷VçG'’“°Ğ¢–b†”ÆWfVÂ’&×2ç6WB‚&•öÆWfVÂ"Â”ÆWfVÂ“°Ğ¢–b†•7FGW2ÓÒ&ÆÂ"’&×2ç6WB‚&•÷7FGW2"Â•7FGW2“°Ğ¢–b‡F&vWB’&×2ç6WB‚'F&vWB"ÂF&vWB“°Ğ¢–b‡6÷W&6UG—R’&×2ç6WB‚'6÷W&6U÷G—R"Â6÷W&6UG—R“°Ğ¢VæE6÷W&6T&F6„f–ÇFW'2‡&×2“°Ğ¢’†ö’ö7W7FöÖW'2÷V&Æ–2×ööÃòG·&×7ÖÂ²6–væÃ¢6öçG&öÆÆW"ç6–væÂÒĞ¢çF†Vâ‚†&öG’’Óâ°Ğ¢6öç7BæW‡D÷F–öç2Ò°Ğ¢6÷VçG&–W3¢&öG’æ6÷VçG&–W2ÇÂµÒÀĞ¢–æGW7G&–W3¢&öG’æ–æGW7G&–W2ÇÂµÒÀĞ¢÷væW'3¢&öG’æ÷væW'2ÇÂµÒÀĞ¢6÷W&6W3¢&öG’ç6÷W&6W2ÇÂµÒÀĞ¢&F6†W3¢&öG’æ&F6†W2ÇÂµÒÀĞ¢67&VVæ–æu÷F6·3¢&öG’ç67&VVæ–æu÷F6·2ÇÂµÒÀĞ¢Ó°Ğ¢6WDf–ÇFW$÷F–öç2†æW‡D÷F–öç2“°Ğ¢6öç7Bf–Æ&ÆT–æGW7G&–W2ÒæWr6WB†æW‡D÷F–öç2æ–æGW7G&–W2æÖ‚†—FVÓ¢²fÇVS¢7G&–ærÒ’Óâ—FVÒçfÇVR’“°Ğ¢6WD–æGW7G&–W2‚†7W'&VçB’Óâ7W'&VçBæf–ÇFW"‚‡fÇVR’Óâf–Æ&ÆT–æGW7G&–W2æ†2‡fÇVR’’“°Ğ¢ÒĞ¢æ6F6‚‚†6Vv‡B’Óâ°Ğ¢–b‚†6Vv‡B–ç7Fæ6VöbDôÔW†6WF–öâbb6Vv‡BææÖRÓÓÒ$&÷'DW'&÷""’’6WDf–ÇFW$÷F–öç2‡²6÷VçG&–W3¢µÒÂ–æGW7G&–W3¢µÒÂ÷væW'3¢µÒÂ6÷W&6W3¢µÒÂ&F6†W3¢µÒÂ67&VVæ–æu÷F6·3¢µÒÒ“°Ğ¢Ò“°Ğ¢&WGW&â‚’Óâ6öçG&öÆÆW"æ&÷'B‚“°Ğ¢ÒÂ¶”ÆWfVÂÂ•7FGW2ÂVæE6÷W&6T&F6„f–ÇFW'2Â6÷VçG&–W2Â6÷W&6UG—RÂF"ÂF&vWEÒ“°Ğ¢W6TVffV7B€Ğ¢‚’Óâ6WEvRƒ’ÀĞ¢¶”ÆWfVÂÂ•7FGW2Â7W7FöÖW%7FGW2Â6÷VçG&–W2Â–æGW7G&–W2Â÷væW$–BÂVW'’Â67&VVæ–æuF6´–G2Â6÷W&6T&F6†W2Â6÷W&6UG—RÂF"ÂF&vWEÒÀĞ¢“°Ğ¢W6TVffV7B‚‚’Óâ°Ğ¢6WE6VÆV7FVB†æWr6WB‚’“°Ğ¢ÒÂ¶”ÆWfVÂÂ•7FGW2Â7W7FöÖW%7FGW2Â6÷VçG&–W2Â7&VFVDg&öÒÂ7&VFVEFòÂfö7W6VD7W7FöÖW$–BÂ–æGW7G&–W2Â÷væW$–BÂVW'’Â67&VVæ–æuF6´–G2Â6÷W&6T&F6†W2Â6÷W&6UG—RÂF"ÂF&vWEÒ“°Ğ¢6öç7Bf—6–&ÆUF'2ÒW6TÖVÖò‚‚’Óâ°Ğ¢6öç7B&6S¢F%µÒÒ²&f–Æ&ÆR"Â&6Æ–ÖVB%Ó°Ğ¢–b‡&öÆRÓÓÒ$DÔ”â"Ğ¢&6RçW6‚‚'VæF–ær"Â&†æF÷fW""Â&†—7F÷'’"Â'&VæWvÇ2"“°Ğ¢VÇ6R–b‡&öÆRÓÓÒ%5UU%d•4õ""’&6RçW6‚‚'&VæWvÇ2"“°Ğ¢&WGW&â&6S°Ğ¢ÒÂ·&öÆUÒ“°Ğ¢gVæ7F–öâ6†ævUF"‡fÇVS¢F"’°Ğ¢6WEF"‡fÇVR“°Ğ¢6WDW'&÷"‚""“°Ğ¢6WE6VÆV7FVB†æWr6WB‚’“°Ğ¢6WD7&VFVDg&öÒ‚""“°Ğ¢6WD7&VFVEFò‚""“°Ğ¢6WD6÷VçG&–W2…µÒ“°Ğ¢6WD–æGW7G&–W2…µÒ“°Ğ¢6WD÷væW$–B‚""“°Ğ¢6WD7W7FöÖW%7FGW2‚""“°Ğ¢6WE6÷W&6UG—R‚""“°Ğ¢6WE6÷W&6T&F6†W2…µÒ“°Ğ¢6WE6÷W&6T&F6„÷Vâ†fÇ6R“°Ğ¢6WE6÷W&6T&F6…VW'’‚""“°Ğ¢6WE67&VVæ–æuF6´–G2…µÒ“°Ğ¢6WE67&VVæ–æuF6´÷Vâ†fÇ6R“°Ğ¢6WE6÷'B‡fÇVRÓÓÒ&6Æ–ÖVB"ò&6Æ–ÖVEöB"¢'WFFVEöB"“°Ğ¢6WDF—&V7F–öâ‚&FW62"“°Ğ¢–b‡fÇVRÓÓÒ&f–Æ&ÆR"ÇÂfÇVRÓÓÒ&6Æ–ÖVB"ÇÂfÇVRÓÓÒ'VæF–ær"’°Ğ¢ÆWBæW‡BÒôôÅôDTdTÅEôd”TÄE5·fÇVUÓ°Ğ¢G'’°Ğ¢6öç7B6fVBÒ¥4ôâç'6R†Æö6Å7F÷&vRævWD—FVÒ†V&Æ–2×ööÂÖ6öÇVÖç2ÒG·fÇVWÒ×cV’ÇÂ&çVÆÂ"“°Ğ¢–b‡6fVB’æW‡BÒööÄf–VÆG4f÷%F"‡fÇVRÂ6fVB“°Ğ¢Ò6F6‚·ĞĞ¢6WDf–VÆG2†æW‡B“°Ğ¢6WDG&gDf–VÆG2†æW‡B“°Ğ¢ĞĞ¢–b‡fÇVRÓÓÒ&†—7F÷'’"’fö–BÆöEF$6÷VçG2‚“°Ğ¢ĞĞ¢gVæ7F–öâ&W6WDf–ÇFW'2‚’°Ğ¢6WEVW'’‚""“°Ğ¢6WD7&VFVDg&öÒ‚""“°Ğ¢6WD7&VFVEFò‚""“°Ğ¢6WD6÷VçG&–W2…µÒ“°Ğ¢6WD–æGW7G&–W2…µÒ“°Ğ¢6WD”ÆWfVÂ‚""“°Ğ¢6WD•7FGW2‚&ÆÂ"“°Ğ¢6WEF&vWB‚""“°Ğ¢6WD7W7FöÖW%7FGW2‚""“°Ğ¢6WD÷væW$–B‚""“°Ğ¢6WE6÷W&6UG—R‚""“°Ğ¢6WE6÷W&6T&F6†W2…µÒ“°Ğ¢6WE6÷W&6T&F6„÷Vâ†fÇ6R“°Ğ¢6WE6÷W&6T&F6…VW'’‚""“°Ğ¢6WE67&VVæ–æuF6´–G2…µÒ“°Ğ¢6WE67&VVæ–æuF6´÷Vâ†fÇ6R“°Ğ¢6WE6÷'B‡F"ÓÓÒ&6Æ–ÖVB"ò&6Æ–ÖVEöB"¢'WFFVEöB"“°Ğ¢6WDF—&V7F–öâ‚&FW62"“°Ğ¢6WEvRƒ“°Ğ¢ĞĞ¢gVæ7F–öâ6†ævU6÷'B†¶W“¢7W7FöÖW$Æ—7D6öÇVÖâ’°Ğ¢–b‡F"ÓÓÒ&6Æ–ÖVB"bb&öÆRÓÒ$DÔ”â"bb²&6öçF7EöæÖR"Â'†öæR"Â'v†G6"Â&VÖ–Â"Â'vV'6—FUöVÖ–Â"Â'vV'6—FU÷†öæR"Â'fW&–f–VEö6öçF7G2"Â'vV'6—FR"Â&vöövÆU÷W&Â"Â'7FGW2"Â&föÆÆ÷wW÷7FGW2"Â&Æ7Eö6öçF7E÷F–ÖR"Â'&÷FV7F–öâ"Â'WFFVEöB%Òæ–æ6ÇVFW2†¶W’’’&WGW&ã°Ğ¢6öç7BæW‡BÒ7W7FöÖW$Æ—7E6÷'Df–VÆB†¶W’“°Ğ¢–b‡6÷'BÓÓÒæW‡B’6WDF—&V7F–öâ‚†7W'&VçB’Óâ7W'&VçBÓÓÒ&62"ò&FW62"¢&62"“°Ğ¢VÇ6R²6WE6÷'B†æW‡B“²6WDF—&V7F–öâ‚&62"“²ĞĞ¢6WEvRƒ“°Ğ¢ĞĞ¢gVæ7F–öâÖ÷fTG&gDf–VÆB†¶W“¢7W7FöÖW$Æ—7D6öÇVÖâÂöfg6WC¢ÓÂ’°Ğ¢6WDG&gDf–VÆG2‚†7W'&VçB’Óâ°Ğ¢6öç7B–æFW‚Ò7W'&VçBæ–æFW„öb†¶W’“°Ğ¢6öç7BF&vWD–æFW‚Ò–æFW‚²öfg6WC°Ğ¢–b†–æFW‚ÂÇÂF&vWD–æFW‚ÂÇÂF&vWD–æFW‚ãÒ7W'&VçBæÆVæwF‚’&WGW&â7W'&VçC°Ğ¢6öç7BæW‡BÒ²ââæ7W'&VçEÓ°Ğ¢¶æW‡E¶–æFW…ÒÂæW‡E·F&vWD–æFW…ÕÒÒ¶æW‡E·F&vWD–æFW…ÒÂæW‡E¶–æFW…ÕÓ°Ğ¢&WGW&âæW‡C°Ğ¢Ò“°Ğ¢ĞĞ¢7–æ2gVæ7F–öâW‡÷'DFF‚’°Ğ¢–b‚6äW‡÷'BÇÂW‡÷'F–ærÇÂ²&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær%Òæ–æ6ÇVFW2‡F"’’&WGW&ã°Ğ¢6WDW‡÷'F–ær‡G'VR“°Ğ¢6WDW‡÷'E&öw&W72‚.jÚ>YÊŠû¾XùnZê.h‹~i[hÚî(
+b"“°Ğ¢6WDW'&÷"‚""“°Ğ¢G'’°Ğ¢6öç7BW‡÷'FVC¢ööÅ&÷uµÒÒµÓ°Ğ¢6öç7B6VVä–G2ÒæWr6WCÇ7G&–æsâ‚“°Ğ¢6öç7B6VÆV7FVD–G2Ò²ââç6VÆV7FVEÓ°Ğ¢6öç7B6VÆV7FVD&F6†W2Ò'&’æg&öÒ‡²ÆVæwFƒ¢ÖF‚æ6V–Â‡6VÆV7FVD–G2æÆVæwF‚ò’ÒÂ…òÂ–æFW‚’Óâ6VÆV7FVD–G2ç6Æ–6R†–æFW‚¢Â†–æFW‚²’¢’“°Ğ¢ÆWBF÷FÂÒÓ°Ğ¢f÷"†ÆWBW‡÷'EvRÒ²²W‡÷'EvR³Ò’°Ğ¢6öç7B6VÆV7FVD&F6‚Ò6VÆV7FVD–G2æÆVæwF‚ò6VÆV7FVD&F6†W5¶W‡÷'EvRÒÒ¢çVÆÃ°Ğ¢–b‡6VÆV7FVD–G2æÆVæwF‚bb6VÆV7FVD&F6‚’'&V³°Ğ¢6öç7B&×2ÒæWrU$Å6V&6…&×2‡²F"ÂvS¢7G&–ær‡6VÆV7FVD&F6‚ò¢W‡÷'EvR’ÂvU÷6—¦S¢6VÆV7FVD&F6‚ò#"¢##"Â6÷'BÂF—&V7F–öâÂW‡÷'C¢#"Ò“°Ğ¢f÷"†6öç7B–Böb6VÆV7FVD&F6‚ÇÂµÒ’&×2æVæB‚'6VÆV7FVEö–B"Â–B“°Ğ¢–b‡VW'’çG&–Ò‚’’&×2ç6WB‚'"ÂVW'’çG&–Ò‚’“°Ğ¢–b†7&VFVDg&öÒ’&×2ç6WB‚&7&VFVEög&öÒ"Â7&VFVDg&öÒ“°Ğ¢–b†7&VFVEFò’&×2ç6WB‚&7&VFVE÷Fò"Â7&VFVEFò“°Ğ¢f÷"†6öç7B6÷VçG'’öb6÷VçG&–W2—&×2æVæB‚&6÷VçG'’"Æ6÷VçG'’“°Ğ¢VæD–æGW7G'”f–ÇFW'2‡&×2“°Ğ¢–b†”ÆWfVÂ’&×2ç6WB‚&•öÆWfVÂ"Â”ÆWfVÂ“°Ğ¢–b†•7FGW2ÓÒ&ÆÂ"’&×2ç6WB‚&•÷7FGW2"Â•7FGW2“°Ğ¢–b‡F&vWB’&×2ç6WB‚'F&vWB"ÂF&vWB“°Ğ¢–b†7W7FöÖW%7FGW2bbF"ÓÓÒ&6Æ–ÖVB"’&×2ç6WB‚'7FGW2"Â7W7FöÖW%7FGW2“°Ğ¢–b†÷væW$–BbbF"ÓÓÒ&6Æ–ÖVB"’&×2ç6WB‚&÷væW%ö–B"Â÷væW$–B“°Ğ¢–b‡6÷W&6UG—R’&×2ç6WB‚'6÷W&6U÷G—R"Â6÷W&6UG—R“°Ğ¢VæE6÷W&6T&F6„f–ÇFW'2‡&×2“°Ğ¢f÷"†6öç7BF6´–Böb67&VVæ–æuF6´–G2’&×2æVæB‚&•÷F6µö–B"ÂF6´–B“°Ğ¢6öç7B&öG’Òv—B’†ö’ö7W7FöÖW'2÷V&Æ–2×ööÃòG·&×7ÖÂ²6–væÃ¢&÷'E6–væÂçF–ÖV÷WBƒCUó’Ò“°Ğ¢6öç7BvU&÷w2Ò'&’æ—4'&’†&öG’æFF’ò&öG’æFF2ööÅ&÷uµÒ¢µÓ°Ğ¢6öç7B7W'&VçEF÷FÂÒçVÖ&W"†&öG’æ6÷VçBóò“°Ğ¢–b‚çVÖ&W"æ—56fT–çFVvW"†7W'&VçEF÷FÂ’ÇÂ7W'&VçEF÷FÂÂÇÂ‡6VÆV7FVD&F6‚ò7W'&VçEF÷FÂÓÒ6VÆV7FVD&F6‚æÆVæwF‚¢F÷FÂãÒbb7W'&VçEF÷FÂÓÒF÷FÂ’’F‡&÷ræWrW'&÷"‚.ZûÎX{®iÉş™{NZê.h‹~ˆÈ>Y»NXùyIşXùXÉnûÈÎŠû~˜xŞik˜hºYî˜xŞŠùR"“°Ğ¢F÷FÂÒ6VÆV7FVD&F6‚ò6VÆV7FVD–G2æÆVæwF‚¢7W'&VçEF÷FÃ°Ğ¢f÷"†6öç7B&÷röbvU&÷w2’°Ğ¢–b‚&÷ræ–BÇÂ6VVä–G2æ†2‡&÷ræ–B’’F‡&÷ræWrW'&÷"‚.ZûÎX{®iÉş™{NZê.h‹~X‰~ŠXùyIşXùXÉnûÈÎŠû~˜xŞŠùR"“°Ğ¢6VVä–G2æFB‡&÷ræ–B“°Ğ¢W‡÷'FVBçW6‚‡&÷r“°Ğ¢ĞĞ¢6WDW‡÷'E&öw&W72†[{.Šû¾XùbG¶W‡÷'FVBæÆVæwF‡ÒòG·F÷FÇÒiÚ“°Ğ¢–b‡6VÆV7FVD&F6‚bbvU&÷w2æÆVæwF‚ÓÒ6VÆV7FVD&F6‚æÆVæwF‚ÇÂvU&÷w2æÆVæwF‚bbW‡÷'FVBæÆVæwF‚ÂF÷FÂ’F‡&÷ræWrW'&÷"†ZûÎX{®KŠŞijŞûÉ®[{.Šû¾XùbG¶W‡÷'FVBæÆVæwF‡ÒòG·F÷FÇÒiÚûÈÎŠû~˜xŞŠùV“°Ğ¢–b‡6VÆV7FVD&F6‚’6öçF–çVS°Ğ¢–b†W‡÷'FVBæÆVæwF‚ãÒF÷FÂ’'&V³°Ğ¢ĞĞ¢–b‚W‡÷'FVBæÆVæwF‚’²6WEFö7B‚.[Ù>X˜ŞzÙ¾˜iÚK»nKˆ¾k*iÈXúşZûÎX{®y¨NZê.h‹r"“²&WGW&ã²ĞĞ¢6WDW‡÷'E&öw&W72†jÚ>YÊyIşh‰G¶W‡÷'FVBæÆVæwF‡ÒiÚZê.h‹~y¨N[z^KÙÎ{ş(
+f“°Ğ¢F÷væÆöD7W7FöÖW%v÷&¶&öö²†W‡÷'FVB2Væ¶æ÷vâ2'&“Å&V6÷&CÇ7G&–ærÂVæ¶æ÷vããâÂZê.h‹~XZÎk[rÒG·F$Æ&VÇ5·F%×ÖÂ²6öÇVÖç3¢f–VÆG2Â–æ6ÇVFT÷væW#¢&öÆRÓÓÒ$DÔ”â"Â–æ6ÇVFTÆÄ6öçF7D6†ææVÇ3¢G'VRÂ–æ6ÇVFT”Wf–FVæ6S¢&öÆRÓÓÒ$DÔ”â"Ò“°Ğ¢6WEFö7B†[{.ZûÎX{¢G·6VÆV7FVD–G2æÆVæwF‚ò.[{.˜’"¢.[Ù>X˜ŞzÙ¾˜{¹>iéÂ'ÒG¶W‡÷'FVBæÆVæwF‡ÒiÚ“°Ğ¢Ò6F6‚†6Vv‡B’°Ğ¢6WDW'&÷"†6Vv‡B–ç7Fæ6VöbW'&÷"bb²%F–ÖV÷WDW'&÷""Â$&÷'DW'&÷"%Òæ–æ6ÇVFW2†6Vv‡BææÖR’ò.ZûÎX{®i[hÚîŠû¾Xùn‹h^i{nûÈÎŠû~{Ê[şzÙ¾˜ˆÈ>Y»NYî˜xŞŠùR"¢6Vv‡B–ç7Fæ6VöbW'&÷"ò6Vv‡BæÖW76vR¢.ZûÎX{®ZK‹JR"“°Ğ¢Òf–æÆÇ’°Ğ¢6WDW‡÷'F–ær†fÇ6R“°Ğ¢6WDW‡÷'E&öw&W72‚""“°Ğ¢ĞĞ¢ĞĞ¢7–æ2gVæ7F–öâ6VÆV7DÆÅ&W7VÇG2‚’°Ğ¢–b‡6VÆV7F–ætÆÂÇÂ²&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær%Òæ–æ6ÇVFW2‡F"’’&WGW&ã°Ğ¢6öç7B&WVW7FVE66÷RÒ6VÆV7F–öå66÷S°Ğ¢6WE6VÆV7F–ætÆÂ‡G'VR“°Ğ¢6WDW'&÷"‚""“°Ğ¢G'’°Ğ¢6öç7B–G3¢7G&–æuµÒÒµÓ°Ğ¢ÆWBW‡V7FVEF÷FÃ¢çVÖ&W"ÂçVÆÂÒçVÆÃ°Ğ¢f÷"†ÆWB&W7VÇEvRÒ²²&W7VÇEvR³Ò’°Ğ¢6öç7B&×2ÒæWrU$Å6V&6…&×2‡²F"ÂvS¢7G&–ær‡&W7VÇEvR’ÂvU÷6—¦S¢#"Â6÷'BÂF—&V7F–öâÒ“°Ğ¢–b‡VW'’çG&–Ò‚’’&×2ç6WB‚'"ÂVW'’çG&–Ò‚’“°Ğ¢–b†fö7W6VD7W7FöÖW$–B’&×2ç6WB‚&7W7FöÖW%ö–B"Âfö7W6VD7W7FöÖW$–B“°Ğ¢–b†7&VFVDg&öÒ’&×2ç6WB‚&7&VFVEög&öÒ"Â7&VFVDg&öÒ“°Ğ¢–b†7&VFVEFò’&×2ç6WB‚&7&VFVE÷Fò"Â7&VFVEFò“°Ğ¢f÷"†6öç7B6÷VçG'’öb6÷VçG&–W2—&×2æVæB‚&6÷VçG'’"Æ6÷VçG'’“°Ğ¢VæD–æGW7G'”f–ÇFW'2‡&×2“°Ğ¢–b†”ÆWfVÂ’&×2ç6WB‚&•öÆWfVÂ"Â”ÆWfVÂ“°Ğ¢–b†•7FGW2ÓÒ&ÆÂ"’&×2ç6WB‚&•÷7FGW2"Â•7FGW2“°Ğ¢–b‡F&vWB’&×2ç6WB‚'F&vWB"ÂF&vWB“°Ğ¢–b†7W7FöÖW%7FGW2bbF"ÓÓÒ&6Æ–ÖVB"’&×2ç6WB‚'7FGW2"Â7W7FöÖW%7FGW2“°Ğ¢–b†÷væW$–BbbF"ÓÓÒ&6Æ–ÖVB"’&×2ç6WB‚&÷væW%ö–B"Â÷væW$–B“°Ğ¢–b‡6÷W&6UG—R’&×2ç6WB‚'6÷W&6U÷G—R"Â6÷W&6UG—R“°Ğ¢VæE6÷W&6T&F6„f–ÇFW'2‡&×2“°Ğ¢f÷"†6öç7BF6´–Böb67&VVæ–æuF6´–G2’&×2æVæB‚&•÷F6µö–B"ÂF6´–B“°Ğ¢6öç7B&öG’Òv—B’†ö’ö7W7FöÖW'2÷V&Æ–2×ööÃòG·&×7Ö“°Ğ¢–b‡6VÆV7F–öå66÷U&Vbæ7W'&VçBÓÒ&WVW7FVE66÷R’F‡&÷ræWrW'&÷"‚.zÙ¾˜iÚK»n[{.iKXùûÈÎŠû~˜xŞikXZ˜’"“°Ğ¢6öç7BvU&÷w2Ò'&’æ—4'&’†&öG’æFF’ò&öG’æFF2ööÅ&÷uµÒ¢µÓ°Ğ¢6öç7BF÷FÂÒçVÖ&W"†&öG’æ6÷VçB“°Ğ¢–b‚çVÖ&W"æ—56fT–çFVvW"‡F÷FÂ’ÇÂF÷FÂÂ’F‡&÷ræWrW'&÷"‚.Zê.h‹~i[˜xş[È.[‹ûÈÎŠû~X‹~ikYî˜xŞŠùR"“°Ğ¢–b†W‡V7FVEF÷FÂÓÒçVÆÂbbF÷FÂÓÒW‡V7FVEF÷FÂ’F‡&÷ræWrW'&÷"‚.XZ˜iÉş™{NZê.h‹~i[˜xşXùyIşXùXÉnûÈÎŠû~X‹~ikYî˜xŞŠùR"“°Ğ¢W‡V7FVEF÷FÂÒF÷FÃ°Ğ¢–G2çW6‚‚ââçvU&÷w2æÖ‚‡&÷r’Óâ&÷ræ–B’“°Ğ¢–b†æWr6WB†–G2’ç6—¦RÓÒ–G2æÆVæwF‚ÇÂ–G2æÆVæwF‚âF÷FÂÇÂ‚vU&÷w2æÆVæwF‚bb–G2æÆVæwF‚ÂF÷FÂ’’F‡&÷ræWrW'&÷"‚.XZ˜iÉş™{NZê.h‹~X‰~ŠXùyIşXùXÉnûÈÎŠû~X‹~ikYî˜xŞŠùR"“°Ğ¢–b†–G2æÆVæwF‚ÓÓÒF÷FÂ’'&V³°Ğ¢–b‡vU&÷w2æÆVæwF‚Â’F‡&÷ræWrW'&÷"†XZ˜KŠŞijŞûÉ®[{.Šû¾XùbG¶–G2æÆVæwF‡ÒòG·F÷FÇÒZënûÈÎŠû~˜xŞŠùV“°Ğ¢ĞĞ¢6WE6VÆV7FVB†æWr6WB†–G2’“°Ğ¢6WEFö7B†–G2æÆVæwF‚ò[{.˜hº[Ù>X˜ŞzÙ¾˜{¹>iéÂG¶–G2æÆVæwF‡ÒZënZê.h‹v¢.[Ù>X˜ŞzÙ¾˜iÚK»nKˆ¾k*iÈZê.h‹r"“°Ğ¢Ò6F6‚†6Vv‡B’°Ğ¢6WDW'&÷"†6Vv‡B–ç7Fæ6VöbW'&÷"ò6Vv‡BæÖW76vR¢.XZ˜[Ù>X˜ŞzÙ¾˜{¹>iéÎZK‹JR"“°Ğ¢Òf–æÆÇ’°Ğ¢6WE6VÆV7F–ætÆÂ†fÇ6R“°Ğ¢ĞĞ¢ĞĞ¢&WGW&â€Ğ¢ÆÖ–â6Æ74æÖSÒ'ÓBÆs§Ób#àĞ¢ÆF—b6Æ74æÖSÒ&×‚ÖWFòÖ‚×rÕ³cƒ…Ò#àĞ¢Æ†VFW#àĞ¢ÆF—càĞ¢Æƒ"6Æ74æÖSÒ'FW‡BÓ'†ÂföçBÖ&öÆB#îZê.h‹~XZÎk[sÂöƒ#àĞ¢ÂöF—càĞ¢Âö†VFW#àĞ¢ÆF—b6Æ74æÖSÒ&×BÓB#àĞ¢ÄF'0Ğ¢fÇVS×·F'ĞĞ¢—FV×3×·f—6–&ÆUF'2æÖ‚‡fÇVR’Óâ‡°Ğ¢fÇVRÀĞ¢Æ&VÃ¢F$Æ&VÇ5·fÇVUÒÀĞ¢FW67&—F–öã¢F$FW67&—F–öç5·fÇVUÒÀĞ¢6÷VçC¢fÇVRÓÓÒ&†æF÷fW""òVæFVf–æVB¢F$6÷VçG5·fÇVUÒÀĞ¢6÷VçEFöæS¢fÇVRÓÓÒ&f–Æ&ÆR"ò'7V66W72"¢fÇVRÓÓÒ'&VæWvÇ2"ÇÂfÇVRÓÓÒ'VæF–ær"ò'v&æ–ær"¢fÇVRÓÓÒ&†—7F÷'’"ò'7V66W72"¢VæFVf–æVBÀĞ¢Ò’—ĞĞ¢öä6†ævS×¶6†ævUF'ĞĞ¢Æ&VÃÒ.Zê.h‹~XZÎk[~Xˆn{² Ğ¢óàĞ¢ÂöF—càĞ¢·F"ÓÓÒ&f–Æ&ÆR"òÇ6Æ74æÖSÒ&×BÓ2FW‡B×‡2FW‡B×6ÆFRÓS#ä’ŠøNXˆn‹ëîX‹cXˆnK¸Şš¾jZéîŠÎK‰®8{¸ş‰
+^ŠøhÚîKˆîˆN{;¾ik[Èş8#Â÷â¢çVÆÇĞĞ¢·F"ÓÓÒ&6Æ–ÖVB"òÇ6Æ74æÖSÒ&×BÓ2FW‡B×‡2FW‡B×6ÆFRÓS#îi‹îzK®XZ{;¾{¹ş[Ù>X˜Ş[Ù.[îûÉ¾K¹nK«®Zê.h‹~y¨NˆN{;¾ik[ÈşY(Î‹yş‹ù¾Šúnh8^K¸^[Ù.[îK«®Xø®hèiØ>zêynˆ^XúşŠx8#Â÷â¢çVÆÇĞĞ¢µ²&f–Æ&ÆR"Â&6Æ–ÖVB"Â'VæF–ær%Òæ–æ6ÇVFW2‡F"’ò€Ğ¢ÃàĞ¢Ç6V7F–öâ6Æ74æÖSÒ&×BÓB&÷VæFVB×†Â&÷&FW"&r×v†—FRÓB6†F÷r×6Ò#àĞ¢ÆF—b6Æ74æÖSÒ&fÆW‚fÆW‚×w&—FV×2ÖVæBvÓ2#àĞ¢ÆÆ&VÂ6Æ74æÖSÒ'&VÆF—fRrÕ³3…Ò6‡&–æ²Ó#àĞ¢Å6V&6€Ğ¢6—¦S×³wĞĞ¢6Æ74æÖSÒ&'6öÇWFRÆVgBÓ2F÷Ó2FW‡B×6ÆFRÓC Ğ¢óàĞ¢Æ–çW@Ğ¢æÖSÒ'V&Æ–2×ööÂ×6V&6‚ Ğ¢WFô6ö×ÆWFSÒ&öfb Ğ¢FFÖÇ–væ÷&SÒ'G'VR Ğ¢FFÓÖ–væ÷&SÒ'G'VR Ğ¢fÇVS×·VW'—ĞĞ¢öä6†ævS×²†WfVçB’Óâ6WEVW'’†WfVçBçF&vWBçfÇVR—ĞĞ¢Æ6V†öÆFW#×·F"ÓÓÒ&6Æ–ÖVB"bb&öÆRÓÒ$DÔ”â"ò.i	Î{J.Zê.h‹~YŞz{8Y»ŞZëbşYËXË®h‰nŠÎK‰¢"¢.i	Î{J.YŞz{8ˆN{;¾K«®8Y»ŞZëbşYËXË®8yK^ŠùŞ8˜*îzëh‰n™;îhêR'ĞĞ¢6Æ74æÖS×¶G¶f–VÆD6Æ77ÒrÖgVÆÂÖ–â×rÓÂÓ–ĞĞ¢óàĞ¢ÂöÆ&VÃàĞ¢Ä6ö×7DFFU&ævRÆ&VÃ×·F"ÓÓÒ&6Æ–ÖVB"ò.ŠêNš(niz^iÉò"¢.[Ù^XZ^iz^iÉò'Òg&öÔÆ&VÃ×·F"ÓÓÒ&6Æ–ÖVB"ò.ŠêNš(n[ÈZx¾iz^iÉò"¢.[Ù^XZ^[ÈZx¾iz^iÉò'ÒFôÆ&VÃ×·F"ÓÓÒ&6Æ–ÖVB"ò.ŠêNš(n{¹>iÙşiz^iÉò"¢.[Ù^XZ^{¹>iÙşiz^iÉò'Òg&öÓ×¶7&VFVDg&ö×ÒFó×¶7&VFVEF÷Òöäg&öÔ6†ævS×²‡fÇVR“Óç·6WD7&VFVDg&öÒ‡fÇVR“·6WEvRƒ—×ÒöåFô6†ævS×²‡fÇVR“Óç·6WD7&VFVEFò‡fÇVR“·6WEvRƒ—×ÒóàĞ¢Å6V&6†&ÆT×VÇF•6VÆV7Df–ÇFW"6Æ74æÖSÒ'rÓCB6‡&–æ²Ó"Æ&VÃÒ.Y»ŞZëbşYËXË¢"fÇVS×¶6÷VçG&–W7Ò÷F–öç3×¶f–ÇFW$÷F–öç2æ6÷VçG&–W2æÖ‚†—FVÒ“Óâ‡²ââæ—FVÒÆÆ&VÃ¦6÷VçG'”–æfò†—FVÒçfÇVR’ææÖWÇÆ—FVÒæÆ&VÇÇÆ—FVÒçfÇVWÒ’—Òöä6†ævS×²‡fÇVR“Óç·6WD6÷VçG&–W2‡fÇVR“·6WEvRƒ—×ÒóàĞ¢Å6V&6†&ÆT×VÇF•6VÆV7Df–ÇFW"6Æ74æÖSÒ'rÓCB6‡&–æ²Ó"Æ&VÃÒ.h˜[îŠÎK‰¢"fÇVS×¶–æGW7G&–W7Ò÷F–öç3×¶f–ÇFW$÷F–öç2æ–æGW7G&–W7Òöä6†ævS×²‡fÇVR“Óç·6WD–æGW7G&–W2‡fÇVR“·6WEvRƒ—×ÒóàĞ¢Ç6VÆV7@Ğ¢fÇVS×·6÷W&6UG—WĞĞ¢öä6†ævS×²†WfVçB’Óâ°Ğ¢6öç7BæW‡BÒWfVçBçF&vWBçfÇVS°Ğ¢6WE6÷W&6UG—R†æW‡B“°Ğ¢–b†æW‡B’6WE6÷W&6T&F6†W2‚†7W'&VçB’Óâ7W'&VçBæf–ÇFW"‚‡fÇVR’Óâf–ÇFW$÷F–öç2æ&F6†W2ç6öÖR‚†—FVÒ’Óâ—FVÒçfÇVRÓÓÒfÇVRbb—FVÒç6÷W&6RÓÓÒæW‡B’’“°Ğ¢×ĞĞ¢6Æ74æÖS×¶G¶f–VÆD6Æ77ÒrÓC6‡&–æ²ÓĞĞ¢&–ÖÆ&VÃÒ.hÈi[hÚîiÚ^k©zÙ¾˜’ Ğ¢àĞ¢Æ÷F–öâfÇVSÒ"#îXZ˜:i[hÚîiÚ^k©Âö÷F–öãàĞ¢¶f–ÇFW$÷F–öç2ç6÷W&6W2æÖ‚†—FVÒ’ÓâÆ÷F–öâ¶W“×¶—FVÒçfÇVWÒfÇVS×¶—FVÒçfÇVWÓç¶—FVÒæÆ&VÇÓÂö÷F–öãâ—ĞĞ¢Â÷6VÆV7CàĞ¢ÆF—b&Vc×·6÷W&6T&F6…&VgÒ6Æ74æÖSÒ'&VÆF—fRrÓS"6‡&–æ²Ó#àĞ¢Æ'WGFöâG—SÒ&'WGFöâ"öä6Æ–6³×²‚’Óâ6WE6÷W&6T&F6„÷Vâ‚†7W'&VçB’Óâ7W'&VçB—Ò&–Ö†7÷WÒ&Æ—7F&÷‚"&–ÖW‡æFVC×·6÷W&6T&F6„÷VçÒ6Æ74æÖS×¶G¶f–VÆD6Æ77ÒfÆW‚rÖgVÆÂ—FV×2Ö6VçFW"§W7F–g’Ö&WGvVVâvÓ"FW‡BÖÆVgFÓàĞ¢Ç7â6Æ74æÖSÒ'G'Væ6FR#ç·6÷W&6T&F6†W2æÆVæwF‚òiÚ^k©h›jÊûÈ‚G·6÷W&6T&F6†W2æÆVæwF‡ŞûÈ–¢.XZ˜:iÚ^k©h›jÊ'ÓÂ÷7ããÄ6†Wg&öäF÷vâ6—¦S×³WÒ6Æ74æÖSÒ'6‡&–æ²ÓFW‡B×6ÆFRÓC"óàĞ¢Âö'WGFöãàĞ¢·6÷W&6T&F6„÷VâòÆF—b&öÆSÒ&Æ—7F&÷‚"&–ÖÆ&VÃÒ.iÚ^k©h›jÊZI®˜’"6Æ74æÖSÒ&'6öÇWFRÆVgBÓF÷ÖgVÆÂ¢ÓC×BÓÖ‚Ö‚ÓƒÖ–â×rÓƒ÷fW&fÆ÷r×’ÖWFò&şºÓ{h‘éì¶»§q«^t´ÌÁä´Íôøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•õì…Í½ÉÑ…‰±•ô½¹±¥¬õì ¤€ôø¡…¹•M½ÉĞ¡™¥•±¥ô±…ÍÍ9…µ”ô‰¥¹±¥¹”µ™±•à¥Ñ•µÌµ•¹Ñ•È…À´Ä™½¹Ğµµ•‘¥Õ´•¹…‰±•é¡½Ù•ÈéÑ•áĞµ‰±Õ”´ÜÀÀ‘¥Í…‰±•éÕÉÍ½Èµ‘•™…Õ±ĞˆÑ¥Ñ±”õíÍ½ÉÑ…‰±”€ü€‹
+ç–ï–"š6‹–6–ê<¿¦f7–ê<ˆ€è€‹–Û’î[’êëj¢¾—–¶_šº×’â7–>¿R£’ê;š:K–ê<‰ôùí™¥•±‘1…‰•°¡™¥•±°Ñ…ˆ¥õíÍ½ÉÑ…‰±”€ü€ñÍÁ…¸±…ÍÍ9…µ”õíÑ•áĞµlÄÁÁát€‘íÍ½ÉĞ€ôôôÕÍÑ½µ•É1¥ÍÑM½ÉÑ¥•±¡™¥•±¤€ü€‰Ñ•áĞµ‰±Õ”´ØÀÀˆ€è€‰Ñ•áĞµÍ±…Ñ”´ÌÀÀ‰õôùíÍ½ÉĞ€ôôôÕÍÑ½µ•É1¥ÍÑM½ÉÑ¥•±¡™¥•±¤€ü€¡‘¥É•Ñ¥½¸€ôôô€‰…ÍŒˆ€ü€‹ŠZÈˆ€è€‹ŠZğˆ¤€è€‹ŠT‰ôğ½ÍÁ…¸ø€è¹Õ±±ôğ½‰ÕÑÑ½¸øğ½Ñ øìô¥ô4(€€€€€€€€€€€€ñÑ ±…ÍÍ9…µ”ô‰ÍÑ¥­äÉ¥¡Ğ´Àè´ÌÀÜ´ÌØ‰œµÍ±…Ñ”´ÔÀÁà´ÌÁä´ÌÑ•áĞµ•¹Ñ•ÈÍ¡…‘½Üµl´ÙÁá|Á|ÄÁÁá|´ÄÁÁá}É‰„ ÄÔ°ÈÌ°ĞÈ°¸ĞÔ¥tˆûšN7’öpğ½Ñ ø4(€€€€€€€€€€ğ½ÑÈø4(€€€€€€€€ğ½Ñ¡•…ø4(€€€€€€€€ñÑ‰½‘ä±…ÍÍ9…µ”ô‰‘¥Ù¥‘”µäˆø4(€€€€€€€€€íÉ½İÌ¹µ…À ¡É½Ü¤€ôø€ 4(€€€€€€€€€€€€ñÑÈ­•äõíÉ½Ü¹¥‘ô½¹½Õ‰±•±¥¬õí•Ù•¹Ğôùí¥˜¡É½Ü¹…¹}½Á•¹}ÕÍÑ½µ•È˜™…¹=Á•¹1¥ÍÑI½Ü¡•Ù•¹Ğ¹Ñ…É•Ğ¤¥İ¥¹‘½Ü¹±½…Ñ¥½¸¹…ÍÍ¥¸¡€½ÕÍÑ½µ•ÉÌ¼‘íÉ½Ü¹¥‘ôı™É½´õÁ½½±€¥õô±…ÍÍ9…µ”õíÉ½ÕÀ¡½Ù•Èé‰œµ‰±Õ”´ÔÀ¼ĞÀ€‘íÉ½Ü¹…¹}½Á•¹}ÕÍÑ½µ•Èü‰ÕÉÍ½ÈµÁ½¥¹Ñ•Èˆèˆ‰õôø4(€€€€€€€€€€€€€íÍ•±•Ñ…‰±”€ü€ 4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰ÍÑ¥­ä±•™Ğ´Àè´ÈÀ‰œµİ¡¥Ñ”Áà´ĞÁä´ĞÉ½ÕÀµ¡½Ù•Èé‰œµ‰±Õ”´ÔÀˆø4(€€€€€€€€€€€€€€€€€€ñ¥¹ÁÕĞ4(€€€€€€€€€€€€€€€€€€€…É¥„µ±…‰•°õíƒ¦'š.¤‘íÉ½Ü¹½µÁ…¹å}¹…µ•õô4(€€€€€€€€€€€€€€€€€€€ÑåÁ”ô‰¡•­‰½àˆ4(€€€€€€€€€€€€€€€€€€€¡•­•õíÍ•±•Ñ•¹¡…Ì¡É½Ü¹¥¥ô4(€€€€€€€€€€€€€€€€€€€½¹¡…¹”õì ¤€ôøÑ½±”¡É½Ü¹¥¥ô4(€€€€€€€€€€€€€€€€€€¼ø4(€€€€€€€€€€€€€€€€ğ½Ñø4(€€€€€€€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€€€€€€í™¥•±‘Ì¹µ…À ¡™¥•±¤€ôø€ñÑ­•äõí™¥•±‘ô±…ÍÍ9…µ”õí½Ù•É™±½Üµ¡¥‘‘•¸Áà´ÌÁä´Ğ…±¥¸µµ¥‘‘±”€‘í™¥•±€ôôô€‰½µÁ…¹å}¹…µ”ˆ€üÍÑ¥­ä€‘íÍ•±•Ñ…‰±”€ü€‰±•™Ğ´ÄÈˆ€è€‰±•™Ğ´À‰ôè´ÄÀ‰œµİ¡¥Ñ”™½¹Ğµµ•‘¥Õ´É½ÕÀµ¡½Ù•Èé‰œµ‰±Õ”´ÔÁ€€è€ˆ‰õôøñA½½±Y…±Õ”É½ÜõíÉ½İô™¥•±õí™¥•±‘ôÍ¡½İMÕÁÁ±•µ•¹ÑÌõíÍ¡½İMÕÁÁ±•µ•¹ÑÍô¼ùí™¥•±€ôôô€‰½µÁ…¹å}¹…µ”ˆ€˜˜É½Ü¹½¹Ñ…Ñ}µ…Í­•€ü€ñÍµ…±°±…ÍÍ9…µ”ô‰µĞ´Ä‰±½¬Ñ•áĞµ…µ‰•È´ØÀÀˆûšV?š’ş‡š¿–ŞË¦jC¢^<ğ½Íµ…±°ø€è¹Õ±±ôğ½Ñø¥ô4(€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰ÍÑ¥­äÉ¥¡Ğ´Àè´ÈÀ…±¥¸µµ¥‘‘±”‰œµİ¡¥Ñ”Áà´ÌÁä´ĞÍ¡…‘½Üµl´ÙÁá|Á|ÄÁÁá|´ÄÁÁá}É‰„ ÄÔ°ÈÌ°ĞÈ°¸ĞÔ¥tÉ½ÕÀµ¡½Ù•Èé‰œµ‰±Õ”´ÔÀˆø4(€€€€€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰™±•à¥Ñ•µÌµ•¹Ñ•È©ÕÍÑ¥™äµ•¹Ñ•È…À´Èİ¡¥Ñ•ÍÁ…”µ¹½İÉ…Àˆø4(€€€€€€€€€€€€€€€íÉ½Ü¹…¹}½Á•¹}ÕÍÑ½µ•È€ü€ñ1¥¹¬¡É•˜õí€½ÕÍÑ½µ•ÉÌ¼‘íÉ½Ü¹¥‘ôı™É½´õÁ½½±ô±…ÍÍ9…µ”ô‰É¥ ´àÜ´àÍ¡É¥¹¬´ÀÁ±…”µ¥Ñ•µÌµ•¹Ñ•ÈÉ½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀ‰œµİ¡¥Ñ”Ñ•áĞµÍ±…Ñ”´ØÀÀÑÉ…¹Í¥Ñ¥½¸¡½Ù•Èé‰½É‘•Èµ‰±Õ”´ÌÀÀ¡½Ù•Èé‰œµ‰±Õ”´ÔÀ¡½Ù•ÈéÑ•áĞµ‰±Õ”´ÜÀÀˆÑ¥Ñ±”õíƒš~—r,‘íÉ½Ü¹½µÁ…¹å}¹…µ•÷¢¾›šô…É¥„µ±…‰•°õíƒš~—r,‘íÉ½Ü¹½µÁ…¹å}¹…µ•÷¢¾›šôøñå”Í¥é”õìÄÑô¼øğ½1¥¹¬ø€è¹Õ±±ô4(€€€€€€€€€€€€€€€íÉ½Ü¹…¹}±…¥´€ü€ñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôø±…¥´¡É½Ü¥ô±…ÍÍ9…µ”ô‰¥¹±¥¹”µ™±•à ´à¥Ñ•µÌµ•¹Ñ•ÈÉ½Õ¹‘•µ±œ‰½É‘•È‰½É‘•Èµ‰±Õ”´ÈÀÀ‰œµ‰±Õ”´ÔÀÁà´È¸ÔÑ•áĞµáÌ™½¹Ğµµ•‘¥Õ´Ñ•áĞµ‰±Õ”´ÜÀÀÑÉ…¹Í¥Ñ¥½¸¡½Ù•Èé‰œµ‰±Õ”´ÄÀÀˆû¢º“¦Šğ½‰ÕÑÑ½¸ø€è¹Õ±±ô4(€€€€€€€€€€€€€€€ì…É½Ü¹…¹}±…¥´€˜˜€…É½Ü¹…¹}½Á•¹}ÕÍÑ½µ•È€ü€ 4(€€€€€€€€€€€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ•áĞµáÌÑ•áĞµÍ±…Ñ”´ĞÀÀˆû–ŞË¢Š¯¢º“¦Šğ½ÍÁ…¸ø4(€€€€€€€€€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€€€€€€€€í…¹•±•Ñ”€ü€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÉ•µ½Ù”¡É½Ü¥ôÑ¥Ñ±”ô‹šÂã’æ–"ƒ¦f“–º‹š"Üˆ…É¥„µ±…‰•°õíƒšÂã’æ–"ƒ¦f‘íÉ½Ü¹½µÁ…¹å}¹…µ•õô±…ÍÍ9…µ”ô‰É¥ ´àÜ´àÍ¡É¥¹¬´ÀÁ±…”µ¥Ñ•µÌµ•¹Ñ•ÈÉ½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÉ½Í”´ÄÀÀÑ•áĞµÉ½Í”´ØÀÀ¡½Ù•Èé‰œµÉ½Í”´ÔÀˆøñQÉ…Í ÈÍ¥é”õìÄÑô¼øğ½‰ÕÑÑ½¸ø€è¹Õ±±ô4(€€€€€€€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€€€€€€€ğ½Ñø4(€€€€€€€€€€€€ğ½ÑÈø4(€€€€€€€€€€¤¥ô4(€€€€€€€€ğ½Ñ‰½‘äø4(€€€€€€ğ½Ñ…‰±”ø4(€€€€€í±½…‘¥¹œ€ü€ 4(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥µ¥¸µ ´ÔØÁ±…”µ¥Ñ•µÌµ•¹Ñ•ÈÑ•áĞµÍ±…Ñ”´ĞÀÀˆø4(€€€€€€€€€€ñ1½…‘•É¥É±”±…ÍÍ9…µ”ô‰…¹¥µ…Ñ”µÍÁ¥¸Ñ•áĞµ‰±Õ”´ØÀÀˆ€¼ø4(€€€€€€€€ğ½‘¥Øø4(€€€€€€¤€è€…É½İÌ¹±•¹Ñ €ü€ 4(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥µ¥¸µ ´ÔØÁ±…”µ¥Ñ•µÌµ•¹Ñ•ÈÑ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´ĞÀÀˆø4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•áĞµ•¹Ñ•Èˆø4(€€€€€€€€€€€€ñÀùí¡…ÍÑ¥Ù•¥±Ñ•ÉÌ€ü€‹šÊ‡šr'²›–B#–öO–&7¶o¦'šv‡’îÛj–º‹š"Üˆ€è€‹–öO–&7–³šÖßšjš^ƒ–ú¢º“¦Š–º‹š"Ü‰ôğ½Àø4(€€€€€€€€€€€í¡…ÍÑ¥Ù•¥±Ñ•ÉÌ€ü€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õíÉ•Í•Ñ¥±Ñ•ÉÍô±…ÍÍ9…µ”ô‰µĞ´ÌÉ½Õ¹‘•µ±œ‰½É‘•È‰½É‘•Èµ‰±Õ”´ÈÀÀ‰œµ‰±Õ”´ÔÀÁà´ÌÁä´È™½¹Ğµµ•‘¥Õ´Ñ•áĞµ‰±Õ”´ÜÀÀ¡½Ù•Èé‰œµ‰±Õ”´ÄÀÀˆûšâ¦f“¶o¦$ğ½‰ÕÑÑ½¸ø€è¹Õ±±ô4(€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€ğ½‘¥Øø4(€€€€€€¤€è¹Õ±±ô4(€€€€ğ½Í•Ñ¥½¸ø4(€€¤ì4)ô4(4)™Õ¹Ñ¥½¸MÕÁÁ±•µ•¹Ñ¥…±½œ¡ìÉ½Ü°±½Í”ôèìÉ½ÜèA½½±I½Üì±½Í”è€ ¤€ôøÙ½¥ô¤ì4(€½¹ÍĞ™¥•±‘1…‰•±ÌèI•½ÉñÍÑÉ¥¹œ°ÍÑÉ¥¹œø€ôì½¹Ñ…Ñ}¹…µ”è€‹¢SÎï’êèˆ°Á¡½¹”è€‹R×¢¾tˆ°İ¡…ÑÍ…ÁÀè€‰İ¡…ÑÍ…ÁÀˆ°•µ…¥°è€‹¦
+»ºÄˆ°İ•‰Í¥Ñ”è€‹–ºcöDˆ°½½±•}ÕÉ°è€‰½½±”5…ÁÌˆ°…‘‘É•ÍÌè€‹–rÃ–v ˆôì4(€É•ÑÕÉ¸€ñ5½‘…°Ñ¥Ñ±”ô‹š"Gj¢†—–¢ÖšZdˆÍÕ‰Ñ¥Ñ±”õí€‘íÉ½Ü¹½µÁ…¹å}¹…µ•ôƒ
+Üƒ’îš
+£šr³’êë–>¿¢¾ò3’â7¢šn[–º‹š"ß–³šÖß–:–/¢ÖšZeô±½Í”õí±½Í•ôø4(€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥…À´ÈÍ´éÉ¥µ½±Ì´Èˆùì¡É½Ü¹µå}ÍÕÁÁ±•µ•¹ÑÌñğmt¤¹µ…À ¡¥Ñ•´¤€ôø€ñ‘¥Ø­•äõí¥Ñ•´¹¥‘ô±…ÍÍ9…µ”ô‰É½Õ¹‘•µá°‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀ‰œµÍ±…Ñ”´ÔÀÁà´ÌÁä´ÌÑ•áĞµÍ´ˆøñÍÁ…¸±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµáÌÑ•áĞµÍ±…Ñ”´ÔÀÀˆùí™¥•±‘1…‰•±Ím¥Ñ•´¹™¥•±‘}¹…µ•tñğ¥Ñ•´¹™¥•±‘}¹…µ•ôğ½ÍÁ…¸øñÍÁ…¸±…ÍÍ9…µ”ô‰µĞ´Ä‰±½¬‰É•…¬µ…±°Ñ•áĞµÍ±…Ñ”´àÀÀˆùí¥Ñ•´¹Ù…±Õ•}É…İôğ½ÍÁ…¸ùí¥Ñ•´¹Í½ÕÉ•}‰…Ñ €ü€ñÍµ…±°±…ÍÍ9…µ”ô‰µĞ´È‰±½¬Ñ•áĞµÍ±…Ñ”´ĞÀÀˆùí¥Ñ•´¹Í½ÕÉ•}‰…Ñ¡õí¥Ñ•´¹Í½ÕÉ•}É½Ü€ü€ƒ
+Üƒ²°€‘í¥Ñ•´¹Í½ÕÉ•}É½İôƒ¢†1€€è€ˆ‰ôğ½Íµ…±°ø€è¹Õ±±ôğ½‘¥Øø¥ôğ½‘¥Øø4(€€ğ½5½‘…°øì4)ô4(4)™Õ¹Ñ¥½¸A½½±•±•Ñ•¥…±½œ¡ìÕÍÑ½µ•É%‘Ì°±½Í”°Í…Ù•ôèìÕÍÑ½µ•É%‘ÌèÍÑÉ¥¹mtì±½Í”è€ ¤€ôøÙ½¥ìÍ…Ù•è€¡µ•ÍÍ…”èÍÑÉ¥¹œ¤€ôøÙ½¥ô¤ì4(€½¹ÍĞmÉ•…Í½¸°Í•ÑI•…Í½¹t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm‰ÕÍä°Í•Ñ	ÕÍåt€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì4(€½¹ÍĞmÁÉ½•ÍÍ•°Í•ÑAÉ½•ÍÍ•‘t€ôÕÍ•MÑ…Ñ” À¤ì4(€½¹ÍĞm•ÉÉ½È°Í•ÑÉÉ½Ét€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞ…Ñ¥Ù•I•ÅÕ•ÍĞ€ôÕÍ•I•˜ñ‰½ÉÑ½¹ÑÉ½±±•Èğ¹Õ±°ø¡¹Õ±°¤ì4(€½¹ÍĞÍÑ½ÁÁ•€ôÕÍ•I•˜¡™…±Í”¤ì4(€½¹ÍĞ‰…Ñ¡M¥é”€ô€ÄÀì4(4(€™Õ¹Ñ¥½¸ÍÑ½Á=É±½Í” ¤ì4(€€€¥˜€ …‰ÕÍä¤É•ÑÕÉ¸±½Í” ¤ì4(€€€ÍÑ½ÁÁ•¹ÕÉÉ•¹Ğ€ôÑÉÕ”ì4(€€€…Ñ¥Ù•I•ÅÕ•ÍĞ¹ÕÉÉ•¹Ğü¹…‰½ÉĞ ¤ì4(€€€Í…Ù• ‹–ŞË–sš¶‹–>G¦–B;î·–"ƒ¦f“¢¾ßšÆ¾òo–öO–&7š&çîOšzsšr«†»¢º“¾ò3–"_¢†£–ŞË–"ßšZÃ¾ò3¢¾ßš‚ã–¾ç–B;–7¦7¢¾Tˆ¤ì4(€ô4(4(€…Íå¹Œ™Õ¹Ñ¥½¸ÍÕ‰µ¥Ğ¡•Ù•¹Ğè½ÉµÙ•¹Ğ¤ì4(€€€•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ì4(€€€¥˜€ …É•…Í½¸¹ÑÉ¥´ ¤¤É•ÑÕÉ¸Í•ÑÉÉ½È ‹¢¾ß–†¯–gšÂã’æ–"ƒ¦f“–:–n€ˆ¤ì4(€€€Í•Ñ	ÕÍä¡ÑÉÕ”¤ì4(€€€Í•ÑAÉ½•ÍÍ• À¤ì4(€€€Í•ÑÉÉ½È ˆˆ¤ì4(€€€±•ĞÍÕ•ÍÌ€ô€Àì4(€€€±•Ğ™…¥±•€ô€Àì4(€€€±•Ğ™¥ÉÍÑ…¥±ÕÉ”€ô€ˆˆì4(€€€±•ĞÁÉ½•ÍÍ•‘½Õ¹Ğ€ô€Àì4(€€€ÑÉäì4(€€€€€½¹ÍĞ‘•±•Ñ•	…Ñ €ô…Íå¹Œ€¡‰…Ñ èÍÑÉ¥¹mt¤èAÉ½µ¥Í”ñÙ½¥ø€ôøì4(€€€€€€€½¹ÍĞ½¹ÑÉ½±±•È€ô¹•Ü‰½ÉÑ½¹ÑÉ½±±•È ¤ì4(€€€€€€€…Ñ¥Ù•I•ÅÕ•ÍĞ¹ÕÉÉ•¹Ğ€ô½¹ÑÉ½±±•Èì4(€€€€€€€½¹ÍĞÑ¥µ•½ÕĞ€ôÍ•ÑQ¥µ•½ÕĞ  ¤€ôø½¹ÑÉ½±±•È¹…‰½ÉĞ ¤°€ÌÁ|ÀÀÀ¤ì4(€€€€€€€±•Ğ‰½‘äèİ…¥Ñ•ñI•ÑÕÉ¹QåÁ”ñÑåÁ•½˜…Á¤øøì4(€€€€€€€ÑÉäì4(€€€€€€€€€‰½‘ä€ô…İ…¥Ğ…Á¤ ˆ½…Á¤½ÕÍÑ½µ•ÉÌ½ÁÕ‰±¥ŒµÁ½½°½‘•±•Ñ”ˆ°ì4(€€€€€€€€€€€µ•Ñ¡½è€‰A=MPˆ°4(€€€€€€€€€€€¡•…‘•ÉÌèì€‰½¹Ñ•¹ĞµQåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½©Í½¸ˆô°4(€€€€€€€€€€€‰½‘äè)M=8¹ÍÑÉ¥¹¥™ä¡ì¥‘Ìè‰…Ñ °É•…Í½¸èÉ•…Í½¸¹ÑÉ¥´ ¤ô¤°4(€€€€€€€€€€€Í¥¹…°è½¹ÑÉ½±±•È¹Í¥¹…°°4(€€€€€€€€€ô¤ì4(€€€€€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€€€€€¥˜€¡½¹ÑÉ½±±•È¹Í¥¹…°¹…‰½ÉÑ•¤Ñ¡É½Ü¹•ÜÉÉ½È ‹¢¾ßšÆ¶'–ú¢Úš^Û¾ò3–öO–&7š&çîOšzsšr«†»¢º“¾òo¢¾ß–"ßšZÃ–º‹š"ß–"_¢†£š‚ã–¾ç–B;¦7¢¾Tˆ¤ì4(€€€€€€€€€Ñ¡É½Ü…Õ¡Ğì4(€€€€€€€ô™¥¹…±±äì4(€€€€€€€€€±•…ÉQ¥µ•½ÕĞ¡Ñ¥µ•½ÕĞ¤ì4(€€€€€€€€€¥˜€¡…Ñ¥Ù•I•ÅÕ•ÍĞ¹ÕÉÉ•¹Ğ€ôôô½¹ÑÉ½±±•È¤…Ñ¥Ù•I•ÅÕ•ÍĞ¹ÕÉÉ•¹Ğ€ô¹Õ±°ì4(€€€€€€€ô4(€€€€€€€½¹ÍĞÉ•ÍÕ±ÑÌ€ô‰½‘ä¹É•ÍÕ±ÑÌ…ÌÉÉ…äñì¥èÍÑÉ¥¹œì½¬è‰½½±•…¸ì•ÉÉ½ÈüèÍÑÉ¥¹œôøğÕ¹‘•™¥¹•ì4(€€€€€€€¥˜€ …ÉÉ…ä¹¥ÍÉÉ…ä¡É•ÍÕ±ÑÌ¤ñğÉ•ÍÕ±ÑÌ¹±•¹Ñ €„ôô‰…Ñ ¹±•¹Ñ ñğÉ•ÍÕ±ÑÌ¹Í½µ” ¡¥Ñ•´°¥¹‘•à¤€ôø¥Ñ•´¹¥€„ôô‰…Ñ¡m¥¹‘•átñğÑåÁ•½˜¥Ñ•´¹½¬€„ôô€‰‰½½±•…¸ˆ¤¤Ñ¡É½Ü¹•ÜÉÉ½È ‹–"ƒ¦f“îOšzs’â;š>C’ê“–º‹š"ß’â7’â¢Ğˆ¤ì4(€€€€€€€ÍÕ•ÍÌ€¬ôÉ•ÍÕ±ÑÌ¹™¥±Ñ•È ¡¥Ñ•´¤€ôø¥Ñ•´¹½¬¤¹±•¹Ñ ì4(€€€€€€€™…¥±•€¬ôÉ•ÍÕ±ÑÌ¹™¥±Ñ•È ¡¥Ñ•´¤€ôø€…¥Ñ•´¹½¬¤¹±•¹Ñ ì4(€€€€€€€™¥ÉÍÑ…¥±ÕÉ”ñğôÉ•ÍÕ±ÑÌ¹™¥¹ ¡¥Ñ•´¤€ôø€…¥Ñ•´¹½¬¤ü¹•ÉÉ½Èñğ€ˆˆì4(€€€€€€€ÁÉ½•ÍÍ•‘½Õ¹Ğ€¬ô‰…Ñ ¹±•¹Ñ ì4(€€€€€€€Í•ÑAÉ½•ÍÍ•¡ÁÉ½•ÍÍ•‘½Õ¹Ğ¤ì4(€€€€€ôì4(€€€€€™½È€¡±•Ğ½™™Í•Ğ€ô€Àì½™™Í•Ğ€ğÕÍÑ½µ•É%‘Ì¹±•¹Ñ ì½™™Í•Ğ€¬ô‰…Ñ¡M¥é”¤ì4(€€€€€€€¥˜€¡ÍÑ½ÁÁ•¹ÕÉÉ•¹Ğ¤É•ÑÕÉ¸ì4(€€€€€€€…İ…¥Ğ‘•±•Ñ•	…Ñ ¡ÕÍÑ½µ•É%‘Ì¹Í±¥”¡½™™Í•Ğ°½™™Í•Ğ€¬‰…Ñ¡M¥é”¤¤ì4(€€€€€ô4(€€€€€¥˜€ …ÍÕ•ÍÌ¤É•ÑÕÉ¸Í•ÑÉÉ½È¡™¥ÉÍÑ…¥±ÕÉ”ñğ€‹š&¦'–º‹š"ß–všr«–"ƒ¦fˆ¤ì4(€€€€€Í…Ù•¡™…¥±•4(€€€€€€€€ü€‹–ŞËšÂã’æ–"ƒ¦f€ˆ€¬ÍÕ•ÍÌ€¬€ˆƒ–ºÛ¾òlˆ€¬™…¥±•€¬€ˆƒ–ºÛšr«–"ƒ¦f“ˆ€¬€¡™¥ÉÍÑ…¥±ÕÉ”ñğ€‹¢¾ß–"ßšZÃ–B;š‚ã–¾äˆ¤4(€€€€€€€€è€‹–ŞËšÂã’æ–"ƒ¦f€ˆ€¬ÍÕ•ÍÌ€¬€ˆƒ–ºÛ–º‹š"Üˆ¤ì4(€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€¥˜€¡ÍÑ½ÁÁ•¹ÕÉÉ•¹Ğ¤É•ÑÕÉ¸ì4(€€€€€½¹ÍĞµ•ÍÍ…”€ô…Õ¡Ğ¥¹ÍÑ…¹•½˜ÉÉ½È€ü…Õ¡Ğ¹µ•ÍÍ…”€è€‹–"ƒ¦f“–’Ç¢Ò”ˆì4(€€€€€¥˜€¡ÍÕ•ÍÌ¤ì4(€€€€€€€Í…Ù• ‹–ŞË–"ƒ¦f€ˆ€¬ÍÕ•ÍÌ€¬€ˆƒ–ºÛ¾ò3šN7’ös’â·šZ·¢¾ß–"ßšZÃ–"_¢†£š‚ã–¾ç–Û’ög–º‹š"ß–B;–7¦7¢¾W¾òhˆ€¬µ•ÍÍ…”¤ì4(€€€€€ô•±Í”ì4(€€€€€€€Í•ÑÉÉ½È¡µ•ÍÍ…”€¬€‹¾òo¢¾ß–"ßšZÃ–"_¢†£š‚ã–¾ç–B;¦7¢¾Tˆ¤ì4(€€€€€ô4(€€€ô™¥¹…±±äì4(€€€€€¥˜€ …ÍÑ½ÁÁ•¹ÕÉÉ•¹Ğ¤Í•Ñ	ÕÍä¡™…±Í”¤ì4(€€€ô4(€ô4(4(€É•ÑÕÉ¸€ñÁÁ¥…±½œÑ¥Ñ±”ô‹šÂã’æ–"ƒ¦f“–³šÖß–º‹š"Üˆ‘•ÍÉ¥ÁÑ¥½¸õì‹–ÂšÂã’æ–"ƒ¦f“š&¦$€ˆ€¬ÕÍÑ½µ•É%‘Ì¹±•¹Ñ €¬€ˆƒ–ºÛ–º‹š"ß–ŞËšr'š*—’îßš"[¢º‹–6Wj–º‹š"ß’òk¢Š¯Îïî¦bïš¶‹–"ƒ¦f“‰ô½¹±½Í”õíÍÑ½Á=É±½Í•ôİ¥‘Ñ ô‰µ…àµÜµµˆø4(€€€€ñ™½É´½¹MÕ‰µ¥ĞõíÍÕ‰µ¥Ñôø4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É½Õ¹‘•µá°‰œµÉ½Í”´ÔÀÀ´ĞÑ•áĞµÍ´±•…‘¥¹œ´ØÑ•áĞµÉ½Í”´àÀÀˆûš¶“šN7’ös’â7–>¿š‹–’7Îïî’â7’òkš‚çš6¹'’ö;–"¢«–*£–"ƒ¦f“¾ò3–>«šr'š
+£šb;†»¦'š.§–æÛ†»¢º“j–º‹š"ßš&7’òk¢Š¯–’Bğ½‘¥Øø4(€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰µĞ´Ğ‰±½¬ˆø4(€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”ô‰µˆ´Ä¸Ô‰±½¬Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´Ñ•áĞµÍ±…Ñ”´ÜÀÀˆû–"ƒ¦f“–:–n€ğ½ÍÁ…¸ø4(€€€€€€€€ñÑ•áÑ…É•„É•ÅÕ¥É•É½İÌõìÑôµ…á1•¹Ñ õìÔÀÁôÙ…±Õ”õíÉ•…Í½¹ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•ÑI•…Í½¸¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ôÁ±…•¡½±‘•Èô‹’ú/–š¾òk¦7–’7šÖ/¢¾WšVÃš6»†»¢º“š^ƒšV#’âSš^ƒ¦r’şwVdˆ±…ÍÍ9…µ”ô‰Üµ™Õ±°É½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀÀ´ÌÑ•áĞµÍ´½ÕÑ±¥¹”µ¹½¹”™½ÕÌé‰½É‘•ÈµÉ½Í”´ĞÀÀ™½ÕÌéÉ¥¹œ´È™½ÕÌéÉ¥¹œµÉ½Í”´ÄÀÀˆ¼ø4(€€€€€€ğ½±…‰•°ø4(€€€€€í‰ÕÍä€ü€ñÀÉ½±”ô‰ÍÑ…ÑÕÌˆ±…ÍÍ9…µ”ô‰µĞ´ÌÑ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´ØÀÀˆû–ŞË–’BíÁÉ½•ÍÍ•‘ô€¼íÕÍÑ½µ•É%‘Ì¹±•¹Ñ¡ôƒ–ºÛ¾ò3š¾?š&çšr–’h€ÄÀƒ–ºØğ½Àø€è¹Õ±±ô4(€€€€€í•ÉÉ½È€ü€ñÀ±…ÍÍ9…µ”ô‰µĞ´ÌÉ½Õ¹‘•µ±œ‰œµÉ½Í”´ÔÀÀ´ÌÑ•áĞµÍ´Ñ•áĞµÉ½Í”´ÜÀÀˆùí•ÉÉ½Éôğ½Àø€è¹Õ±±ô4(€€€€€€ñM¡…É•‘¥…±½Ñ¥½¹Ì‰ÕÍäõí‰ÕÍåô½¹…¹•°õíÍÑ½Á=É±½Í•ô½¹™¥Éµ1…‰•°ô‹†»¢º“šÂã’æ–"ƒ¦fˆÑ½¹”ô‰‘…¹•Èˆ¼ø4(€€€€ğ½™½É´ø4(€€ğ½ÁÁ¥…±½œøì4)ô4)™Õ¹Ñ¥½¸±…¥µ¥…±½œ¡ì4(€É½Ü°4(€±½Í”°4(€Í…Ù•°4)ôèì4(€É½ÜèA½½±I½Üì4(€±½Í”è€ ¤€ôøÙ½¥ì4(€Í…Ù•è€¡µ•ÍÍ…”èÍÑÉ¥¹œ¤€ôøÙ½¥ì4)ô¤ì4(€½¹ÍĞm¡…¹¹•°°Í•Ñ¡…¹¹•±t€ôÕÍ•MÑ…Ñ” ‰]!QMA@ˆ¤ì4(€½¹ÍĞmÍÑ…”°Í•ÑMÑ…•t€ôÕÍ•MÑ…Ñ” ‰1%5ˆ¤ì4(€½¹ÍĞmÉ•ÍÕ±Ğ°Í•ÑI•ÍÕ±Ñt€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm¹•áÑA±…¸°Í•Ñ9•áÑA±…¹t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm™¥±”°Í•Ñ¥±•t€ôÕÍ•MÑ…Ñ”ñ¥±”ğ¹Õ±°ø¡¹Õ±°¤ì4(€½¹ÍĞm‰ÕÍä°Í•Ñ	ÕÍåt€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì4(€½¹ÍĞm•ÉÉ½È°Í•ÑÉÉ½Ét€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€…Íå¹Œ™Õ¹Ñ¥½¸ÍÕ‰µ¥Ğ¡•Ù•¹Ğè½ÉµÙ•¹Ğ¤ì4(€€€•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ì4(€€€¥˜€¡l‰=11=]%9ˆ°€‰0‰t¹¥¹±Õ‘•Ì¡ÍÑ…”¤€˜˜€ …É½Ü¹Á¡½¹”ü¹ÑÉ¥´ ¤ñğ€…É½Ü¹•µ…¥°ü¹ÑÉ¥´ ¤¤¤É•ÑÕÉ¸Í•ÑÉÉ½È ‹š?–BG–º‹š"ß–J3š"C’ê“–º‹š"ß–ş¦†ï–B3š^Û–ß–’¢SÎïR×¢¾w–J3¦
+»ºÇ¾ò3¢¾ß–#¢†—–£–³šÖß’âïš†Œˆ¤ì4(€€€¥˜€¡ÍÑ…”€„ôô€‰1%5ˆ€˜˜€…™¥±”¤É•ÑÕÉ¸Í•ÑÉÉ½È ‹šös–r£–º‹š"ß’î—–’[j¦bÛšº×–ş¦†ï’â+’òƒr–º{–·¢¾¦f’îØˆ¤ì4(€€€Í•Ñ	ÕÍä¡ÑÉÕ”¤ì4(€€€Í•ÑÉÉ½È ˆˆ¤ì4(€€€½¹ÍĞ™½É´€ô¹•Ü½Éµ…Ñ„ ¤ì4(€€€™½É´¹Í•Ğ ‰ÕÍÑ½µ•É}¥ˆ°É½Ü¹¥¤ì4(€€€™½É´¹Í•Ğ ‰¡…¹¹•°ˆ°¡…¹¹•°¤ì4(€€€™½É´¹Í•Ğ ‰ÍÑ…”ˆ°ÍÑ…”¤ì4(€€€™½É´¹Í•Ğ ‰É•ÍÕ±Ğˆ°É•ÍÕ±Ğ¤ì4(€€€™½É´¹Í•Ğ ‰¹•áÑ}Á±…¸ˆ°¹•áÑA±…¸¤ì4(€€€¥˜€¡™¥±”¤™½É´¹Í•Ğ ‰™¥±”ˆ°™¥±”¤ì4(€€€ÑÉäì4(€€€€€½¹ÍĞ‰½‘ä€ô…İ…¥Ğ…Á¤ ˆ½…Á¤½ÕÍÑ½µ•ÉÌ½ÁÕ‰±¥ŒµÁ½½°½±…¥´ˆ°ì4(€€€€€€€µ•Ñ¡½è€‰A=MPˆ°4(€€€€€€€‰½‘äè™½É´°4(€€€€€ô¤ì4(€€€€€Í…Ù•¡‰½‘ä¹µ•ÍÍ…”ñğ€‹¢º“¦Šš"C–*|ˆ¤ì4(€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€Í•ÑÉÉ½È¡…Õ¡Ğ¥¹ÍÑ…¹•½˜ÉÉ½È€ü…Õ¡Ğ¹µ•ÍÍ…”€è€‹¢º“¦Š–’Ç¢Ò”ˆ¤ì4(€€€ô™¥¹…±±äì4(€€€€€Í•Ñ	ÕÍä¡™…±Í”¤ì4(€€€ô4(€ô4(€É•ÑÕÉ¸€ 4(€€€€ñ5½‘…°4(€€€€€Ñ¥Ñ±”ô‹¢º“¦Š–º‹š"Üˆ4(€€€€€ÍÕ‰Ñ¥Ñ±”õí€‘íÉ½Ü¹½µÁ…¹å}¹…µ•ôƒ
+Üƒšös–r£–J3š?–BG–º‹š"ß’şwš*äÃ–’§¾ò3š"C’ê“–º‹š"ßšÂã’æ’şwš*“¾òošös–r£–º‹š"ßš^ƒ¦r–·¢¾¾ò3¢º“¦Š’âëš?–BGš"[š"C’ê“–º‹š"ß¦†ï’â+’òƒ–>¿š‚ã¦ª3–·¢¾	ô4(€€€€€±½Í”õí±½Í•ô4(€€€€ø4(€€€€€€ñ™½É´½¹MÕ‰µ¥ĞõíÍÕ‰µ¥Ñô±…ÍÍ9…µ”ô‰ÍÁ…”µä´Ğˆø4(€€€€€€€íÉ½Ü¹µå}ÍÕÁÁ±•µ•¹ÑÌü¹±•¹Ñ €ü€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰É½Õ¹‘•µá°‰½É‘•È‰½É‘•Èµ‰±Õ”´ÄÀÀ‰œµ‰±Õ”´ÔÀ¼ØÀÀ´Ìˆøñ‘¥Ø±…ÍÍ9…µ”ô‰µˆ´È™±•à¥Ñ•µÌµ•¹Ñ•È©ÕÍÑ¥™äµ‰•Ñİ••¸ˆøñˆ±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´àÀÀˆûš"Gj¢†—–¢ÖšZdğ½ˆøñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ•áĞµáÌÑ•áĞµ‰±Õ”´ÜÀÀˆû’î¢«–ŞÇ–>¿¢ƒ
+Üƒ’â7¢šn[–³šÖß–:¢ÖšZdğ½ÍÁ…¸øğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰É¥…À´ÈÍ´éÉ¥µ½±Ì´ÈˆùíÉ½Ü¹µå}ÍÕÁÁ±•µ•¹ÑÌ¹µ…À ¡¥Ñ•´¤ôøñ‘¥Ø­•äõí¥Ñ•´¹¥‘ô±…ÍÍ9…µ”ô‰É½Õ¹‘•µ±œ‰œµİ¡¥Ñ”Áà´ÌÁä´ÈÑ•áĞµÍ´ˆøñÍÁ…¸±…ÍÍ9…µ”ô‰µÈ´ÈÑ•áĞµÍ±…Ñ”´ÔÀÀˆùíí½¹Ñ…Ñ}¹…µ”è‹¢SÎï’êèˆ±Á¡½¹”è‹R×¢¾tˆ±İ¡…ÑÍ…ÁÀè‰İ¡…ÑÍ…ÁÀˆ±•µ…¥°è‹¦
+»ºÄˆ±İ•‰Í¥Ñ”è‹–ºcöDˆ±½½±•}ÕÉ°è‰½½±”5…ÁÌˆ±…‘‘É•ÍÌè‹–rÃ–v ‰õm¥Ñ•´¹™¥•±‘}¹…µ•uññ¥Ñ•´¹™¥•±‘}¹…µ•ôğ½ÍÁ…¸øñÍÁ…¸±…ÍÍ9…µ”ô‰‰É•…¬µ…±°Ñ•áĞµÍ±…Ñ”´àÀÀˆùí¥Ñ•´¹Ù…±Õ•}É…İôğ½ÍÁ…¸ùí¥Ñ•´¹Í½ÕÉ•}‰…Ñ üñÍµ…±°±…ÍÍ9…µ”ô‰µĞ´Ä‰±½¬Ñ•áĞµÍ±…Ñ”´ĞÀÀˆùí¥Ñ•´¹Í½ÕÉ•}‰…Ñ¡õí¥Ñ•´¹Í½ÕÉ•}É½Üı€ƒ
+Üƒ²°€‘í¥Ñ•´¹Í½ÕÉ•}É½İôƒ¢†1€èˆ‰ôğ½Íµ…±°øé¹Õ±±ôğ½‘¥Øø¥ôğ½‘¥Øøğ½Í•Ñ¥½¸øé¹Õ±±ô4(€€€€€€€€ñ±…¥µ¡½¥”±…‰•°ô‹¢º“¦Š–B;–º‹š"ß¦bÛšºÔˆÙ…±Õ”õíÍÑ…•ô½¹¡…¹”õíÍ•ÑMÑ…•ô½ÁÑ¥½¹ÌõímíÙ…±Õ”è‰1%5ˆ±±…‰•°è‹šös–r£–º‹š"Üˆ±‘•ÍÉ¥ÁÑ¥½¸è‹–º3š"C¦š[¢›¢úû¾ò3–#¢şo–—¦R–R»¢Ş¢şl‰ô±íÙ…±Õ”è‰=11=]%9ˆ±±…‰•°è‹š?–BG–º‹š"Üˆ±‘•ÍÉ¥ÁÑ¥½¸è‹–ŞË–n{–’7š"[–ŞËê›–"ÃšÊ¦k¾ò3¦r’â+’òƒ–·¢¾‰ô±íÙ…±Õ”è‰0ˆ±±…‰•°è‹š"C’ê“–º‹š"Üˆ±‘•ÍÉ¥ÁÑ¥½¸è‹–ŞËšr'¢º‹–6W–B#–B3š"[¦¢Ò·†»¢º“¾ò3¦r’â+’òƒ–·¢¾‰õuô¼ø4(€€€€€€€íl‰=11=]%9ˆ°€‰0‰t¹¥¹±Õ‘•Ì¡ÍÑ…”¤€ü€ñÀ±…ÍÍ9…µ”ô‰Ñ•áĞµáÌÑ•áĞµÍ±…Ñ”´ØÀÀˆû¢SÎïR×¢¾t€ñˆ±…ÍÍ9…µ”ô‰Ñ•áĞµÉ½Í”´ØÀÀˆø¨ğ½ˆøƒ
+Üƒ¦
+»ºÄ€ñˆ±…ÍÍ9…µ”ô‰Ñ•áĞµÉ½Í”´ØÀÀˆø¨ğ½ˆû¾òo’â“¦†ç¦†ï–ŞË–r£–º‹š"ß’âïš†’â·–†¯–gğ½Àø€è¹Õ±±ô4(€€€€€€€€ñ±…¥µ¡½¥”±…‰•°ô‹–º{¦f¢SÎïšâƒ¦LˆÙ…±Õ”õí¡…¹¹•±ô½¹¡…¹”õíÍ•Ñ¡…¹¹•±ô½ÁÑ¥½¹ÌõímíÙ…±Õ”è‰]!QMA@ˆ±±…‰•°è‰]¡…ÑÍÁÀ‰ô±íÙ…±Õ”è‰5%0ˆ±±…‰•°è‹¦
+»ºÄ‰ô±íÙ…±Õ”è‰A!=9ˆ±±…‰•°è‹R×¢¾t‰ô±íÙ…±Õ”è‰1%9-%8ˆ±±…‰•°è‰1¥¹­•‘%¸€¼ƒ–Û’î[’û–ªH‰ô±íÙ…±Õ”è‰=Q!Hˆ±±…‰•°è‹–ºcöG¢†£–6T€¼ƒ–Û’î[šZç–ò<‰õuô¼ø4(€€€€€€€€ñ±…¥µ¡½¥”±…‰•°ô‹šr³š²‡r–º{¢SÎïîOšzpˆÁ±…•¡½±‘•Èô‹¢¾ß¦'š.§¢SÎïîOšzpˆÙ…±Õ”õíÉ•ÍÕ±Ñô½¹¡…¹”õíÍ•ÑI•ÍÕ±Ñô½ÁÑ¥½¹ÌõímíÙ…±Õ”è‹–ŞË–>G¦¦š[šv‡–ò–>G’ş‡š¿¾ò3–ú–n{–’4ˆ±±…‰•°è‹–ŞË–>G¦¦š[šv‡–ò–>G’ş‡š¿¾ò3–ú–n{–’4‰ô±íÙ…±Õ”è‹–ŞË¢SÎï–"Ã–¾çšZç¾ò3¦ršÆ–ú†»¢ºˆ±±…‰•°è‹–ŞË¢SÎï–"Ã–¾çšZç¾ò3¦ršÆ–ú†»¢º‰ô±íÙ…±Õ”è‹–¾çšZç¢ššÆ–B;î·¢Ş¢şlˆ±±…‰•°è‹–¾çšZç¢ššÆ–B;î·¢Ş¢şl‰ô±íÙ…±Õ”è‹†»¢º“–¶c–r£¦¢Ò·š"[–B#’ös¦ršÆˆ±±…‰•°è‹†»¢º“–¶c–r£¦¢Ò·š"[–B#’ös¦ršÆ‰ô±íÙ…±Õ”è‹šj’â7–2ç¦7š"[šb;†»š^ƒ¦ršÆˆ±±…‰•°è‹šj’â7–2ç¦7š"[šb;†»š^ƒ¦ršÆ‰ô±íÙ…±Õ”è‹¢SÎïšZç–ò?š^ƒšV#š"[š^ƒšÎW¢›¢úøˆ±±…‰•°è‹¢SÎïšZç–ò?š^ƒšV#š"[š^ƒšÎW¢›¢úø‰ô±íÙ…±Õ”è‹–Û’î[r–º{¢SÎïîOšzpˆ±±…‰•°è‹–Û’î[r–º{¢SÎïîOšzp‰õuô¼ø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒ¢SÎïê«¢š’â;’â/’âš¶—–º'š:H€ñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ•áĞµÉ½Í”´ØÀÀˆø¨ğ½ÍÁ…¸ø4(€€€€€€€€€€ñÑ•áÑ…É•„4(€€€€€€€€€€€Ù…±Õ”õí¹•áÑA±…¹ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•Ñ9•áÑA±…¸¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€É½İÌõìÉô4(€€€€€€€€€€€±…ÍÍ9…µ”ô‰µĞ´ÈÜµ™Õ±°É½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀÀ´ÌÑ•áĞµÍ´½ÕÑ±¥¹”µ¹½¹”ÑÉ…¹Í¥Ñ¥½¸™½ÕÌé‰½É‘•Èµ‰±Õ”´ĞÀÀ™½ÕÌéÉ¥¹œ´È™½ÕÌéÉ¥¹œµ‰±Õ”´ÄÀÀˆ4(€€€€€€€€€€€Á±…•¡½±‘•Èô‹’ú/–š¾òk–ŞË–BG¦¢Ò·¢Ò¢Ò’êë–>G¦’êŸ–Nn»–öW¾ò3ê›–ºk–F£’â'†»¢º“îÓ’ş»¦7’îÛ¦ršÆˆ4(€€€€€€€€€€€É•ÅÕ¥É•4(€€€€€€€€€€¼ø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€€ñÙ¥‘•¹•%¹ÁÕĞ™¥±”õí™¥±•ôÍ•Ñ¥±”õíÍ•Ñ¥±•ôÉ•ÅÕ¥É•õíÍÑ…”€„ôô€‰1%5‰ô€¼ø4(€€€€€€€ì…É•ÍÕ±Ğñğ€¡ÍÑ…”€„ôô€‰1%5ˆ€˜˜€…™¥±”¤€ü€ñÀ±…ÍÍ9…µ”ô‰Ñ•áĞµáÌÑ•áĞµ…µ‰•È´ÜÀÀˆû¢¾ß–#¦'š.§r–º{¢SÎïîOšzs¾òošös–r£–º‹š"ß’î—–’[j¦bÛšº×¢şc–ş¦†ï’â+’òƒr–º{–·¢¾ğ½Àø€è¹Õ±±ô4(€€€€€€€í•ÉÉ½È€ü€ñÉÉ½ÉQ•áĞÙ…±Õ”õí•ÉÉ½Éô€¼ø€è¹Õ±±ô4(€€€€€€€€ñ¥…±½Ñ¥½¹Ì‰ÕÍäõí‰ÕÍåô‘¥Í…‰±•õì…É•ÍÕ±Ğñğ€¡ÍÑ…”€„ôô€‰1%5ˆ€˜˜€…™¥±”¥ô±½Í”õí±½Í•ô±…‰•°ô‹†»¢º“¢º“¦Šˆ€¼ø4(€€€€€€ğ½™½É´ø4(€€€€ğ½5½‘…°ø4(€€¤ì4)ô4(4)™Õ¹Ñ¥½¸±…¥µ¡½¥”¡ì±…‰•°°Ù…±Õ”°½¹¡…¹”°½ÁÑ¥½¹Ì°Á±…•¡½±‘•È€ô€‹¢¾ß¦'š.¤ˆôèì±…‰•°èÍÑÉ¥¹œìÙ…±Õ”èÍÑÉ¥¹œì½¹¡…¹”è€¡Ù…±Õ”èÍÑÉ¥¹œ¤€ôøÙ½¥ì½ÁÑ¥½¹ÌèÉÉ…äñìÙ…±Õ”èÍÑÉ¥¹œì±…‰•°èÍÑÉ¥¹œì‘•ÍÉ¥ÁÑ¥½¸üèÍÑÉ¥¹œôøìÁ±…•¡½±‘•ÈüèÍÑÉ¥¹œô¤ì4(€½¹ÍĞÍ•±•Ñ•€ô½ÁÑ¥½¹Ì¹™¥¹ ¡½ÁÑ¥½¸¤€ôø½ÁÑ¥½¸¹Ù…±Õ”€ôôôÙ…±Õ”¤ì4(€É•ÑÕÉ¸€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´Ñ•áĞµÍ±…Ñ”´àÀÀˆøñÍÁ…¸ùí±…‰•±ô€ñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ•áĞµÉ½Í”´ØÀÀˆø¨ğ½ÍÁ…¸øğ½ÍÁ…¸øñ‘•Ñ…¥±Ì±…ÍÍ9…µ”ô‰É½ÕÀÉ•±…Ñ¥Ù”µĞ´ÈˆøñÍÕµµ…Éä±…ÍÍ9…µ”ô‰™±•à ´ÄÄÕÉÍ½ÈµÁ½¥¹Ñ•È±¥ÍĞµ¹½¹”¥Ñ•µÌµ•¹Ñ•È©ÕÍÑ¥™äµ‰•Ñİ••¸É½Õ¹‘•µá°‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀ‰œµİ¡¥Ñ”Áà´ÌÑ•áĞµÍ´™½¹Ğµ¹½Éµ…°Ñ•áĞµÍ±…Ñ”´ÜÀÀ½ÕÑ±¥¹”µ¹½¹”ÑÉ…¹Í¥Ñ¥½¸¡½Ù•Èé‰½É‘•Èµ‰±Õ”´ÌÀÀ¡½Ù•Èé‰œµ‰±Õ”´ÔÀ¼ÌÀ™½ÕÌµÙ¥Í¥‰±”é‰½É‘•Èµ‰±Õ”´ĞÀÀ™½ÕÌµÙ¥Í¥‰±”éÉ¥¹œ´È™½ÕÌµÙ¥Í¥‰±”éÉ¥¹œµ‰±Õ”´ÄÀÀˆøñÍÁ…¸±…ÍÍ9…µ”õíÍ•±•Ñ•€ü€‰ÑÉÕ¹…Ñ”ˆ€è€‰Ñ•áĞµÍ±…Ñ”´ĞÀÀ‰ôùíÍ•±•Ñ•ü¹±…‰•°ñğÁ±…•¡½±‘•Éôğ½ÍÁ…¸øñ¡•ÙÉ½¹½İ¸Í¥é”õìÄÙô±…ÍÍ9…µ”ô‰Í¡É¥¹¬´ÀÑ•áĞµÍ±…Ñ”´ĞÀÀÑÉ…¹Í¥Ñ¥½¸É½ÕÀµ½Á•¸éÉ½Ñ…Ñ”´ÄàÀˆ¼øğ½ÍÕµµ…Éäøñ‘¥Ø±…ÍÍ9…µ”ô‰…‰Í½±ÕÑ”è´ÌÀµĞ´Èµ…àµ ´ØÀÜµ™Õ±°½Ù•É™±½Üµäµ…ÕÑ¼É½Õ¹‘•µá°‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀ‰œµİ¡¥Ñ”À´Ä¸ÔÍ¡…‘½Üµá°ˆùí½ÁÑ¥½¹Ì¹µ…À ¡½ÁÑ¥½¸¤€ôø€ñ‰ÕÑÑ½¸­•äõí½ÁÑ¥½¸¹Ù…±Õ•ôÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì¡•Ù•¹Ğ¤€ôøì½¹¡…¹”¡½ÁÑ¥½¸¹Ù…±Õ”¤ì•Ù•¹Ğ¹ÕÉÉ•¹ÑQ…É•Ğ¹±½Í•ÍĞ ‰‘•Ñ…¥±Ìˆ¤ü¹É•µ½Ù•ÑÑÉ¥‰ÕÑ” ‰½Á•¸ˆ¤ìõô±…ÍÍ9…µ”õí‰±½¬Üµ™Õ±°É½Õ¹‘•µ±œÁà´ÌÁä´ÈÑ•áĞµ±•™ĞÑÉ…¹Í¥Ñ¥½¸€‘í½ÁÑ¥½¸¹Ù…±Õ”€ôôôÙ…±Õ”€ü€‰‰œµ‰±Õ”´ÔÀÑ•áĞµ‰±Õ”´ÜÀÀˆ€è€‰Ñ•áĞµÍ±…Ñ”´ÜÀÀ¡½Ù•Èé‰œµÍ±…Ñ”´ÔÀ‰õôøñÍÁ…¸±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆùí½ÁÑ¥½¸¹±…‰•±ôğ½ÍÁ…¸ùí½ÁÑ¥½¸¹‘•ÍÉ¥ÁÑ¥½¸€ü€ñÍÁ…¸±…ÍÍ9…µ”ô‰µĞ´À¸Ô‰±½¬Ñ•áĞµáÌ±•…‘¥¹œ´ÔÑ•áĞµÍ±…Ñ”´ÔÀÀˆùí½ÁÑ¥½¸¹‘•ÍÉ¥ÁÑ¥½¹ôğ½ÍÁ…¸ø€è¹Õ±±ôğ½‰ÕÑÑ½¸ø¥ôğ½‘¥Øøğ½‘•Ñ…¥±Ìùí±…‰•°€ôôô€‹¢º“¦Š–B;–º‹š"ß¦bÛšºÔˆ€ü€ñÍÁ…¸±…ÍÍ9…µ”ô‰µĞ´Ä¸Ô‰±½¬Ñ•áĞµáÌ™½¹Ğµ¹½Éµ…°Ñ•áĞµÍ±…Ñ”´ÔÀÀˆûšös–r£–º‹š"ßš^ƒ¦r¦f’îÛ¾òo–Û’î[¦bÛšº×–ş¦†ïš>C’úo–>¿š‚ã¦ª3–·¢¾ğ½ÍÁ…¸ø€è¹Õ±±ôğ½‘¥Øøì4)ô4(4)™Õ¹Ñ¥½¸ÍÍ¥¹¥…±½œ¡ì4(€ÕÍÑ½µ•É%‘Ì°4(€±½Í”°4(€Í…Ù•°4)ôèì4(€ÕÍÑ½µ•É%‘ÌèÍÑÉ¥¹mtì4(€±½Í”è€ ¤€ôøÙ½¥ì4(€Í…Ù•è€¡µ•ÍÍ…”èÍÑÉ¥¹œ¤€ôøÙ½¥ì4)ô¤ì4(€½¹ÍĞm½ÁÑ¥½¹Ì°Í•Ñ=ÁÑ¥½¹Ít€ôÕÍ•MÑ…Ñ”ñÍÍ¥¹µ•¹Ñ=ÁÑ¥½¹Ìø¡ì4(€€€…ÍÍ¥¹••Ìèmt°4(€€€¥¹…Ñ¥Ù•}ÕÍ•ÉÌèmt°4(€ô¤ì4(€½¹ÍĞmÑ…É•Ğ°Í•ÑQ…É•Ñt€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm¹…µ”°Í•Ñ9…µ•t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÉ•…Í½¸°Í•ÑI•…Í½¹t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm‰ÕÍä°Í•Ñ	ÕÍåt€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì4(€½¹ÍĞm•ÉÉ½È°Í•ÑÉÉ½Ét€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€ÕÍ•™™•Ğ  ¤€ôøì4(€€€…Á¤ ˆ½…Á¤½…‘µ¥¸½ÕÍÑ½µ•Èµ…ÍÍ¥¹µ•¹ÑÌˆ¤4(€€€€€€¹Ñ¡•¸¡Í•Ñ=ÁÑ¥½¹Ì¤4(€€€€€€¹…Ñ  ¡”¤€ôøÍ•ÑÉÉ½È¡”¹µ•ÍÍ…”¤¤ì4(€ô°mt¤ì4(€…Íå¹Œ™Õ¹Ñ¥½¸ÍÕ‰µ¥Ğ¡•Ù•¹Ğè½ÉµÙ•¹Ğ¤ì4(€€€•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ì4(€€€Í•Ñ	ÕÍä¡ÑÉÕ”¤ì4(€€€Í•ÑÉÉ½È ˆˆ¤ì4(€€€ÑÉäì4(€€€€€½¹ÍĞ‰½‘ä€ô…İ…¥Ğ…Á¤ ˆ½…Á¤½…‘µ¥¸½ÕÍÑ½µ•Èµ…ÍÍ¥¹µ•¹ÑÌˆ°ì4(€€€€€€€µ•Ñ¡½è€‰A=MPˆ°4(€€€€€€€¡•…‘•ÉÌèì€‰½¹Ñ•¹ĞµQåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½©Í½¸ˆô°4(€€€€€€€‰½‘äè)M=8¹ÍÑÉ¥¹¥™ä¡ì4(€€€€€€€€€…Ñ¥½¸è€‰MM%8ˆ°4(€€€€€€€€€ÕÍÑ½µ•É}¥‘ÌèÕÍÑ½µ•É%‘Ì°4(€€€€€€€€€Ñ…É•Ñ}ÕÍ•É}¥èÑ…É•Ğ°4(€€€€€€€€€‰…Ñ¡}¹…µ”è¹…µ”°4(€€€€€€€€€É•…Í½¸°4(€€€€€€€ô¤°4(€€€€€ô¤ì4(€€€€€Í…Ù•¡€‘í‰½‘ä¹µ•ÍÍ…•÷¾ò ‘í‰½‘ä¹‘…Ñ„ü¹‰…Ñ¡}¹Õµ‰•Èñğ€‹–ŞËRš"Cš&çš²„‰÷¾ò%€¤ì4(€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€Í•ÑÉÉ½È¡…Õ¡Ğ¥¹ÍÑ…¹•½˜ÉÉ½È€ü…Õ¡Ğ¹µ•ÍÍ…”€è€‹–"¦7–’Ç¢Ò”ˆ¤ì4(€€€ô™¥¹…±±äì4(€€€€€Í•Ñ	ÕÍä¡™…±Í”¤ì4(€€€ô4(€ô4(€É•ÑÕÉ¸€ 4(€€€€ñ5½‘…°4(€€€€€Ñ¥Ñ±”ô‹º‡B–Fc–"¦7–³šÖß–º‹š"Üˆ4(€€€€€ÍÕ‰Ñ¥Ñ±”õíƒ–ŞË¦'š.¤€‘íÕÍÑ½µ•É%‘Ì¹±•¹Ñ¡ôƒ–ºÛ¾òo–>«–¢ºã–"¦7–öO–&7š^ƒ–öK–Æ{j–º‹š"İô4(€€€€€±½Í”õí±½Í•ô4(€€€€ø4(€€€€€€ñ™½É´½¹MÕ‰µ¥ĞõíÍÕ‰µ¥Ñô±…ÍÍ9…µ”ô‰ÍÁ…”µä´Ğˆø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒš:—šRÛ¦R–R»–F`4(€€€€€€€€€€ñÍ•±•Ğ4(€€€€€€€€€€€É•ÅÕ¥É•4(€€€€€€€€€€€Ù…±Õ”õíÑ…É•Ñô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•ÑQ…É•Ğ¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€±…ÍÍ9…µ”õí€‘í™¥•±‘ôµĞ´ÈÜµ™Õ±±ô4(€€€€€€€€€€ø4(€€€€€€€€€€€€ñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû¢¾ß¦'š.¤ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€í½ÁÑ¥½¹Ì¹…ÍÍ¥¹••Ì¹µ…À ¡ÕÍ•È¤€ôø€ 4(€€€€€€€€€€€€€€ñ½ÁÑ¥½¸­•äõíÕÍ•È¹¥‘ôÙ…±Õ”õíÕÍ•È¹¥‘ôø4(€€€€€€€€€€€€€€€í‘¥ÍÁ±…åUÍ•È¡ÕÍ•È¥ô4(€€€€€€€€€€€€€€ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€ğ½Í•±•Ğø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒ–"¦7š&çš²‡–B7À4(€€€€€€€€€€ñ¥¹ÁÕĞ4(€€€€€€€€€€€Ù…±Õ”õí¹…µ•ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•Ñ9…µ”¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€±…ÍÍ9…µ”õí€‘í™¥•±‘ôµĞ´ÈÜµ™Õ±±ô4(€€€€€€€€€€€Á±…•¡½±‘•Èô‹–š¾òhçšr#–úß–n÷îÓ’ş»–º‹š"ß–"¦4ˆ4(€€€€€€€€€€¼ø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒ–"¦7–:–n€4(€€€€€€€€€€ñÑ•áÑ…É•„4(€€€€€€€€€€€É•ÅÕ¥É•4(€€€€€€€€€€€Ù…±Õ”õíÉ•…Í½¹ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•ÑI•…Í½¸¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€É½İÌõìÍô4(€€€€€€€€€€€±…ÍÍ9…µ”ô‰µĞ´ÈÜµ™Õ±°É½Õ¹‘•µ±œ‰½É‘•ÈÀ´ÌÑ•áĞµÍ´ˆ4(€€€€€€€€€€¼ø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€í•ÉÉ½È€ü€ñÉÉ½ÉQ•áĞÙ…±Õ”õí•ÉÉ½Éô€¼ø€è¹Õ±±ô4(€€€€€€€€ñ¥…±½Ñ¥½¹Ì‰ÕÍäõí‰ÕÍåô±½Í”õí±½Í•ô±…‰•°ô‹†»¢º“–"¦4ˆ€¼ø4(€€€€€€ğ½™½É´ø4(€€€€ğ½5½‘…°ø4(€€¤ì4)ô4(4)™Õ¹Ñ¥½¸!…¹‘½Ù•ÉA…¹•°¡ìÑ½…ÍĞ°½¹!¥ÍÑ½Éå¡…¹•ôèìÑ½…ÍĞè€¡Ù…±Õ”èÍÑÉ¥¹œ¤€ôøÙ½¥ì½¹!¥ÍÑ½Éå¡…¹•è€ ¤€ôøÙ½¥ô¤ì4(€½¹ÍĞm½ÁÑ¥½¹Ì°Í•Ñ=ÁÑ¥½¹Ít€ôÕÍ•MÑ…Ñ”ñÍÍ¥¹µ•¹Ñ=ÁÑ¥½¹Ìø¡ì4(€€€…ÍÍ¥¹••Ìèmt°4(€€€¥¹…Ñ¥Ù•}ÕÍ•ÉÌèmt°4(€ô¤ì4(€½¹ÍĞmÍ½ÕÉ”°Í•ÑM½ÕÉ•t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÑ…É•Ğ°Í•ÑQ…É•Ñt€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmµ½‘”°Í•Ñ5½‘•t€ôÕÍ•MÑ…Ñ”ğ‰MM%8ˆğ€‰I1Mˆø ‰MM%8ˆ¤ì4(€½¹ÍĞm¹…µ”°Í•Ñ9…µ•t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÉ•…Í½¸°Í•ÑI•…Í½¹t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm‰ÕÍä°Í•Ñ	ÕÍåt€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì4(€½¹ÍĞm•ÉÉ½È°Í•ÑÉÉ½Ét€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm½¹™¥Éµ=Á•¸°Í•Ñ½¹™¥Éµ=Á•¹t€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì4(€½¹ÍĞ±½…€ôÕÍ•…±±‰…¬ 4(€€€€ ¤€ôø4(€€€€€…Á¤ ˆ½…Á¤½…‘µ¥¸½ÕÍÑ½µ•Èµ…ÍÍ¥¹µ•¹ÑÌˆ¤4(€€€€€€€€¹Ñ¡•¸¡Í•Ñ=ÁÑ¥½¹Ì¤4(€€€€€€€€¹…Ñ  ¡”¤€ôøÍ•ÑÉÉ½È¡”¹µ•ÍÍ…”¤¤°4(€€€mt°4(€€¤ì4(€ÕÍ•™™•Ğ  ¤€ôøì4(€€€Ù½¥±½… ¤ì4(€ô°m±½…‘t¤ì4(€½¹ÍĞÍ½ÕÉ•I½Ü€ô½ÁÑ¥½¹Ì¹¥¹…Ñ¥Ù•}ÕÍ•ÉÌ¹™¥¹ ¡ÕÍ•È¤€ôøÕÍ•È¹¥€ôôôÍ½ÕÉ”¤ì4(€…Íå¹Œ™Õ¹Ñ¥½¸ÍÕ‰µ¥Ğ¡•Ù•¹Ğè½ÉµÙ•¹Ğ¤ì4(€€€•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ì4(€€€Í•Ñ½¹™¥Éµ=Á•¸¡ÑÉÕ”¤ì4(€ô4(€…Íå¹Œ™Õ¹Ñ¥½¸•á•ÕÑ•!…¹‘½Ù•È ¤ì4(€€€Í•Ñ	ÕÍä¡ÑÉÕ”¤ì4(€€€Í•ÑÉÉ½È ˆˆ¤ì4(€€€ÑÉäì4(€€€€€½¹ÍĞ‰½‘ä€ô…İ…¥Ğ…Á¤ ˆ½…Á¤½…‘µ¥¸½ÕÍÑ½µ•Èµ…ÍÍ¥¹µ•¹ÑÌˆ°ì4(€€€€€€€µ•Ñ¡½è€‰A=MPˆ°4(€€€€€€€¡•…‘•ÉÌèì€‰½¹Ñ•¹ĞµQåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½©Í½¸ˆô°4(€€€€€€€‰½‘äè)M=8¹ÍÑÉ¥¹¥™ä¡ì4(€€€€€€€€€…Ñ¥½¸è€‰!9=YHˆ°4(€€€€€€€€€Í½ÕÉ•}ÕÍ•É}¥èÍ½ÕÉ”°4(€€€€€€€€€Ñ…É•Ñ}ÕÍ•É}¥èÑ…É•Ğ°4(€€€€€€€€€µ½‘”°4(€€€€€€€€€‰…Ñ¡}¹…µ”è¹…µ”°4(€€€€€€€€€É•…Í½¸°4(€€€€€€€ô¤°4(€€€€€ô¤ì4(€€€€€Ñ½…ÍĞ¡€‘í‰½‘ä¹µ•ÍÍ…•÷¾ò ‘í‰½‘ä¹‘…Ñ„ü¹‰…Ñ¡}¹Õµ‰•Èñğ€‹–ŞËRš"Cš&çš²„‰÷¾ò%€¤ì4(€€€€€Í•ÑM½ÕÉ” ˆˆ¤ì4(€€€€€Í•ÑQ…É•Ğ ˆˆ¤ì4(€€€€€Í•ÑI•…Í½¸ ˆˆ¤ì4(€€€€€Í•Ñ½¹™¥Éµ=Á•¸¡™…±Í”¤ì4(€€€€€Ù½¥±½… ¤ì4(€€€€€½¹!¥ÍÑ½Éå¡…¹• ¤ì4(€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€Í•ÑÉÉ½È¡…Õ¡Ğ¥¹ÍÑ…¹•½˜ÉÉ½È€ü…Õ¡Ğ¹µ•ÍÍ…”€è€‹’ê“š:—–’Ç¢Ò”ˆ¤ì4(€€€ô™¥¹…±±äì4(€€€€€Í•Ñ	ÕÍä¡™…±Í”¤ì4(€€€ô4(€ô4(€É•ÑÕÉ¸€ 4(€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰µĞ´ĞÉ½Õ¹‘•µá°‰½É‘•È‰œµİ¡¥Ñ”À´ÔÍ¡…‘½ÜµÍ´ˆø4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰™±•à¥Ñ•µÌµÍÑ…ÉĞ…À´Ìˆø4(€€€€€€€€ñÉ¡¥Ù•I•ÍÑ½É”±…ÍÍ9…µ”ô‰µĞ´À¸ÔÑ•áĞµ‰±Õ”´ØÀÀˆ€¼ø4(€€€€€€€€ñ‘¥Øø4(€€€€€€€€€€ñ Ì±…ÍÍ9…µ”ô‰™½¹ĞµÍ•µ¥‰½±ˆû–sR ¿šï¢3¢Ò›–>ß–º‹š"ß’ê“š:”ğ½ Ìø4(€€€€€€€€€€ñÀ±…ÍÍ9…µ”ô‰µĞ´ÄÑ•áĞµÍ´±•…‘¥¹œ´ØÑ•áĞµÍ±…Ñ”´ÔÀÀˆø4(€€€€€€€€€€€ƒ–r£¢3¢Ò›–>ßj–º‹š"ß’â7¢÷¢Š¯–òë–"Û¢ö³¢ÖÃ’î–sR£š"[šï¢3¢Ò›–>ß–>¿šVÓ’öOï’ê“¾òoš*—’îß¢º‹–6W–J3–’¢ÒŸ¢Ò’îï’â–æÛï’ê“¾ò3–:–>ËšN7’ös’êë’î7’şwVg4(€€€€€€€€€€ğ½Àø4(€€€€€€€€ğ½‘¥Øø4(€€€€€€ğ½‘¥Øø4(€€€€€€ñ™½É´½¹MÕ‰µ¥ĞõíÍÕ‰µ¥Ñô±…ÍÍ9…µ”ô‰µĞ´ÔÉ¥…À´Ğá°éÉ¥µ½±Ì´Èˆø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒ–:–öK–Æ{’êè4(€€€€€€€€€€ñÍ•±•Ğ4(€€€€€€€€€€€É•ÅÕ¥É•4(€€€€€€€€€€€Ù…±Õ”õíÍ½ÕÉ•ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•ÑM½ÕÉ”¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€±…ÍÍ9…µ”õí€‘í™¥•±‘ôµĞ´ÈÜµ™Õ±±ô4(€€€€€€€€€€ø4(€€€€€€€€€€€€ñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû¦'š.§–sR ¿šï¢3¢Ò›–>Üğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€í½ÁÑ¥½¹Ì¹¥¹…Ñ¥Ù•}ÕÍ•ÉÌ¹µ…À ¡ÕÍ•È¤€ôø€ 4(€€€€€€€€€€€€€€ñ½ÁÑ¥½¸­•äõíÕÍ•È¹¥‘ôÙ…±Õ”õíÕÍ•È¹¥‘ôø4(€€€€€€€€€€€€€€€í‘¥ÍÁ±…åUÍ•È¡ÕÍ•È¥ôƒ
+İìˆ€‰ô4(€€€€€€€€€€€€€€€íÕÍ•È¹ÍÑ…ÑÕÌ€ôôô€‰AIQˆ€ü€‹–ŞËšï¢0ˆ€è€‹–ŞË–sR ‰ôƒ
+İìˆ€‰ô4(€€€€€€€€€€€€€€€íÕÍ•È¹ÕÍÑ½µ•É}½Õ¹Ñ÷–ºØ4(€€€€€€€€€€€€€€ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€ğ½Í•±•Ğø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒ–’BšZç–ò<4(€€€€€€€€€€ñÍ•±•Ğ4(€€€€€€€€€€€Ù…±Õ”õíµ½‘•ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•Ñ5½‘”¡”¹Ñ…É•Ğ¹Ù…±Õ”…Ì€‰MM%8ˆğ€‰I1Mˆ¥ô4(€€€€€€€€€€€±…ÍÍ9…µ”õí€‘í™¥•±‘ôµĞ´ÈÜµ™Õ±±ô4(€€€€€€€€€€ø4(€€€€€€€€€€€€ñ½ÁÑ¥½¸Ù…±Õ”ô‰MM%8ˆûšVÓ’öO’ê“š:—îgš2–ºk¦R–R»–F`ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€€ñ½ÁÑ¥½¸Ù…±Õ”ô‰I1Mˆû¦+šRûšf»¦k–º‹š"ß¢şo–—–³šÖß¾òošÒï–*£’âk–*‡–6Wš6»¢şo–—–ú–"¦4ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€ğ½Í•±•Ğø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€íµ½‘”€ôôô€‰MM%8ˆ€ü€ 4(€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€€€ƒš:—šRÛ’êè4(€€€€€€€€€€€€ñÍ•±•Ğ4(€€€€€€€€€€€€€É•ÅÕ¥É•4(€€€€€€€€€€€€€Ù…±Õ”õíÑ…É•Ñô4(€€€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•ÑQ…É•Ğ¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€€€±…ÍÍ9…µ”õí€‘í™¥•±‘ôµĞ´ÈÜµ™Õ±±ô4(€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€ñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû¢¾ß¦'š.§–ŞË–B¿R£¦R–R»–F`ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€€€í½ÁÑ¥½¹Ì¹…ÍÍ¥¹••Ì4(€€€€€€€€€€€€€€€€¹™¥±Ñ•È ¡ÕÍ•È¤€ôøÕÍ•È¹¥€„ôôÍ½ÕÉ”¤4(€€€€€€€€€€€€€€€€¹µ…À ¡ÕÍ•È¤€ôø€ 4(€€€€€€€€€€€€€€€€€€ñ½ÁÑ¥½¸­•äõíÕÍ•È¹¥‘ôÙ…±Õ”õíÕÍ•È¹¥‘ôø4(€€€€€€€€€€€€€€€€€€€í‘¥ÍÁ±…åUÍ•È¡ÕÍ•È¥ô4(€€€€€€€€€€€€€€€€€€ğ½½ÁÑ¥½¸ø4(€€€€€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€€€ğ½Í•±•Ğø4(€€€€€€€€€€ğ½±…‰•°ø4(€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€ƒ’ê“š:—š&çš²‡–B7À4(€€€€€€€€€€ñ¥¹ÁÕĞ4(€€€€€€€€€€€Ù…±Õ”õí¹…µ•ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•Ñ9…µ”¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€±…ÍÍ9…µ”õí€‘í™¥•±‘ôµĞ´ÈÜµ™Õ±±ô4(€€€€€€€€€€€Á±…•¡½±‘•Èô‹–š¾òk–òƒ’â'šï¢3–º‹š"ß’ê“š:”ˆ4(€€€€€€€€€€¼ø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´á°é½°µÍÁ…¸´Èˆø4(€€€€€€€€€ƒ’ê“š:—–:–n€4(€€€€€€€€€€ñÑ•áÑ…É•„4(€€€€€€€€€€€É•ÅÕ¥É•4(€€€€€€€€€€€Ù…±Õ”õíÉ•…Í½¹ô4(€€€€€€€€€€€½¹¡…¹”õì¡”¤€ôøÍ•ÑI•…Í½¸¡”¹Ñ…É•Ğ¹Ù…±Õ”¥ô4(€€€€€€€€€€€É½İÌõìÍô4(€€€€€€€€€€€±…ÍÍ9…µ”ô‰µĞ´ÈÜµ™Õ±°É½Õ¹‘•µ±œ‰½É‘•ÈÀ´ÌÑ•áĞµÍ´ˆ4(€€€€€€€€€€¼ø4(€€€€€€€€ğ½±…‰•°ø4(€€€€€€€í•ÉÉ½È€ü€ 4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰á°é½°µÍÁ…¸´Èˆø4(€€€€€€€€€€€€ñÉÉ½ÉQ•áĞÙ…±Õ”õí•ÉÉ½Éô€¼ø4(€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€¤€è¹Õ±±ô4(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰á°é½°µÍÁ…¸´Èˆø4(€€€€€€€€€€ñ‰ÕÑÑ½¸4(€€€€€€€€€€€‘¥Í…‰±•õí‰ÕÍåô4(€€€€€€€€€€€±…ÍÍ9…µ”ô‰É½Õ¹‘•µ±œ‰œµ‰±Õ”´ØÀÀÁà´ÔÁä´È¸ÔÑ•áĞµÍ´™½¹Ğµµ•‘¥Õ´Ñ•áĞµİ¡¥Ñ”‘¥Í…‰±•é½Á…¥Ñä´ÔÀˆ4(€€€€€€€€€€ø4(€€€€€€€€€€€í‰ÕÍä€ü€‹–’B’â·Š˜ˆ€è€‹†»¢º“Rš"C’ê“š:—š&çš²„‰ô4(€€€€€€€€€€ğ½‰ÕÑÑ½¸ø4(€€€€€€€€ğ½‘¥Øø4(€€€€€€ğ½™½É´ø4(€€€€€€ñ½¹™¥Éµ¥…±½œ½Á•¸õí½¹™¥Éµ=Á•¹ôÑ¥Ñ±”ô‹†»¢º“–º‹š"ß’ê“š:—¾ò|ˆ‘•ÍÉ¥ÁÑ¥½¸õíƒ–Â–’B€‘íÍ½ÕÉ•I½Üü¹ÕÍÑ½µ•É}½Õ¹Ğñğ€Áôƒ–ºÛ–º‹š"ß–>+–Û–Ï¢Sš*—’îß¢º‹–6W–J3–’¢ÒŸ¢Ò’îï¾ò3–æÛRš"C’â7–>¿–"ƒ¦f“j’ê“š:—š&çš²‡–:–>ËšN7’ös’êë–J3–º‡¢º‡¢ºÃ–öW’òk’şwVg	ô½¹™¥Éµ1…‰•°ô‹†»¢º“š&Ÿ¢†3’ê“š:”ˆ‰ÕÍäõí‰ÕÍåô½¹…¹•°õì ¤ôùÍ•Ñ½¹™¥Éµ=Á•¸¡™…±Í”¥ô½¹½¹™¥É´õì ¤ôùÙ½¥•á•ÕÑ•!…¹‘½Ù•È ¥ô¼ø4(€€€€ğ½Í•Ñ¥½¸ø4(€€¤ì4)ô4(4)™Õ¹Ñ¥½¸I•¹•İ…±I•Ù¥•Ü¡ì4(€É½±”°4(€Ñ½…ÍĞ°4)ôèì4(€É½±”èI½±”ì4(€Ñ½…ÍĞè€¡Ù…±Õ”èÍÑÉ¥¹œ¤€ôøÙ½¥ì4)ô¤ì4(€½¹ÍĞmÉ½İÌ°Í•ÑI½İÍt€ôÕÍ•MÑ…Ñ”ñI•¹•İ…±mtø¡mt¤ì4(€½¹ÍĞm±½…‘¥¹œ°Í•Ñ1½…‘¥¹t€ôÕÍ•MÑ…Ñ”¡ÑÉÕ”¤ì4(€½¹ÍĞm•ÉÉ½È°Í•ÑÉÉ½Ét€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÉ•Ù¥•Ü°Í•ÑI•Ù¥•İt€ôÕÍ•MÑ…Ñ”ñíÉ½ÜèI•¹•İ…°ì‘•¥Í¥½¸è€‰AAI=Yˆğ€‰I)Q‰õñ¹Õ±°ø¡¹Õ±°¤ì4(€½¹ÍĞmÉ•Ù¥•İ9½Ñ”°Í•ÑI•Ù¥•İ9½Ñ•t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÉ•Ù¥•İ	ÕÍä°Í•ÑI•Ù¥•İ	ÕÍåt€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì4(€½¹ÍĞmÁ…”°Í•ÑA…•t€ôÕÍ•MÑ…Ñ” Ä¤ì4(€½¹ÍĞmÁ…•M¥é”°Í•ÑA…•M¥é•t€ôÕÍ•MÑ…Ñ” ÄÀ¤ì4(€½¹ÍĞmÍ•…É °Í•ÑM•…É¡t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm½İ¹•É%°Í•Ñ=İ¹•É%‘t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞ½İ¹•ÉÌ€ôÕÍ•5•µ¼  ¤€ôøì4(€€€½¹ÍĞÍ••¸€ô¹•Ü5…ÀñÍÑÉ¥¹œ°=İ¹•Èø ¤ì4(€€€™½È€¡½¹ÍĞÉ½Ü½˜É½İÌ¤¥˜€¡É½Ü¹½İ¹•Èü¹¥¤Í••¸¹Í•Ğ¡É½Ü¹½İ¹•È¹¥°É½Ü¹½İ¹•È¤ì4(€€€É•ÑÕÉ¸l¸¸¹Í••¸¹Ù…±Õ•Ì ¥t¹Í½ÉĞ ¡±•™Ğ°É¥¡Ğ¤€ôø‘¥ÍÁ±…åUÍ•È¡±•™Ğ¤¹±½…±•½µÁ…É”¡‘¥ÍÁ±…åUÍ•È¡É¥¡Ğ¤°€‰é µ8ˆ¤¤ì4(€ô°mÉ½İÍt¤ì4(€½¹ÍĞ™¥±Ñ•É•‘I½İÌ€ôÕÍ•5•µ¼  ¤€ôøì4(€€€½¹ÍĞ¹••‘±”€ôÍ•…É ¹ÑÉ¥´ ¤¹Ñ½1½İ•É…Í” ¤ì4(€€€É•ÑÕÉ¸É½İÌ¹™¥±Ñ•È ¡É½Ü¤€ôø€ …½İ¹•É%ñğÉ½Ü¹½İ¹•Èü¹¥€ôôô½İ¹•É%¤€˜˜€ …¹••‘±”ñğmÉ½Ü¹ÕÍÑ½µ•Èü¹½µÁ…¹å}¹…µ”°É½Ü¹ÕÍÑ½µ•Èü¹½Õ¹ÑÉä°É½Ü¹½İ¹•Èü¹¹…µ”°É½Ü¹½İ¹•Èü¹•µ…¥°°É½Ü¹É•…Í½¸°É½Ü¹¹•áÑ}Á±…¹t¹Í½µ” ¡Ù…±Õ”¤€ôøMÑÉ¥¹œ¡Ù…±Õ”ñğ€ˆˆ¤¹Ñ½1½İ•É…Í” ¤¹¥¹±Õ‘•Ì¡¹••‘±”¤¤¤¤ì4(€ô°m½İ¹•É%°É½İÌ°Í•…É¡t¤ì4(€½¹ÍĞÙ¥Í¥‰±•I½İÌ€ôÕÍ•5•µ¼ 4(€€€€ ¤€ôø™¥±Ñ•É•‘I½İÌ¹Í±¥” ¡Á…”€´€Ä¤€¨Á…•M¥é”°Á…”€¨Á…•M¥é”¤°4(€€€m™¥±Ñ•É•‘I½İÌ°Á…”°Á…•M¥é•t°4(€€¤ì4(€ÕÍ•™™•Ğ  ¤€ôøÍ•ÑA…” Ä¤°m½İ¹•É%°Í•…É¡t¤ì4(€½¹ÍĞ±½…€ôÕÍ•…±±‰…¬¡…Íå¹Œ€ ¤€ôøì4(€€€Í•Ñ1½…‘¥¹œ¡ÑÉÕ”¤ì4(€€€ÑÉäì4(€€€€€½¹ÍĞ‰½‘ä€ô…İ…¥Ğ…Á¤ 4(€€€€€€€€ˆ½…Á¤½ÕÍÑ½µ•ÉÌ½ÁÉ½Ñ•Ñ¥½¸½É•¹•İ…±ÌıÍÑ…ÑÕÌõA9%9ˆ°4(€€€€€€¤ì4(€€€€€Í•ÑI½İÌ¡‰½‘ä¹‘…Ñ„ñğmt¤ì4(€€€€€Í•ÑÉÉ½È ˆˆ¤ì4(€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€Í•ÑÉÉ½È¡…Õ¡Ğ¥¹ÍÑ…¹•½˜ÉÉ½È€ü…Õ¡Ğ¹µ•ÍÍ…”€è€‹–*ƒ¢ö÷–’Ç¢Ò”ˆ¤ì4(€€€ô™¥¹…±±äì4(€€€€€Í•Ñ1½…‘¥¹œ¡™…±Í”¤ì4(€€€ô4(€ô°mt¤ì4(€ÕÍ•™™•Ğ  ¤€ôøì4(€€€Ù½¥±½… ¤ì4(€ô°m±½…‘t¤ì4(€…Íå¹Œ™Õ¹Ñ¥½¸‘•¥‘” ¤ì4(€€€¥˜€ …É•Ù¥•Üñğ€¡É•Ù¥•Ü¹‘•¥Í¥½¸€ôôô€‰I)Qˆ€˜˜€…É•Ù¥•İ9½Ñ”¹ÑÉ¥´ ¤¤¤É•ÑÕÉ¸ì4(€€€Í•ÑI•Ù¥•İ	ÕÍä¡ÑÉÕ”¤ì4(€€€ÑÉäì4(€€€€€½¹ÍĞ‰½‘ä€ô…İ…¥Ğ…Á¤ ˆ½…Á¤½ÕÍÑ½µ•ÉÌ½ÁÉ½Ñ•Ñ¥½¸½É•¹•İ…±Ìˆ°ì4(€€€€€€€µ•Ñ¡½è€‰A=MPˆ°4(€€€€€€€¡•…‘•ÉÌèì€‰½¹Ñ•¹ĞµQåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½©Í½¸ˆô°4(€€€€€€€‰½‘äè)M=8¹ÍÑÉ¥¹¥™ä¡ì4(€€€€€€€€€É•ÅÕ•ÍÑ}¥èÉ•Ù¥•Ü¹É½Ü¹¥°4(€€€€€€€€€‘•¥Í¥½¸èÉ•Ù¥•Ü¹‘•¥Í¥½¸°4(€€€€€€€€€É•Ù¥•İ}¹½Ñ”èÉ•Ù¥•İ9½Ñ”¹ÑÉ¥´ ¤°4(€€€€€€€ô¤°4(€€€€€ô¤ì4(€€€€€Ñ½…ÍĞ¡‰½‘ä¹µ•ÍÍ…”¤ì4(€€€€€Í•ÑI•Ù¥•Ü¡¹Õ±°¤ì4(€€€€€Í•ÑI•Ù¥•İ9½Ñ” ˆˆ¤ì4(€€€€€Ù½¥±½… ¤ì4(€€€ô…Ñ €¡…Õ¡Ğ¤ì4(€€€€€Í•ÑÉÉ½È¡…Õ¡Ğ¥¹ÍÑ…¹•½˜ÉÉ½È€ü…Õ¡Ğ¹µ•ÍÍ…”€è€‹–º‡š‚ã–’Ç¢Ò”ˆ¤ì4(€€€ô™¥¹…±±äì4(€€€€€Í•ÑI•Ù¥•İ	ÕÍä¡™…±Í”¤ì4(€€€ô4(€ô4(€É•ÑÕÉ¸€ 4(€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰µĞ´Ğ½Ù•É™±½Üµ¡¥‘‘•¸É½Õ¹‘•µá°‰½É‘•È‰œµİ¡¥Ñ”Í¡…‘½ÜµÍ´ˆø4(€€€€€€ñ¡•…‘•È±…ÍÍ9…µ”ô‰‰½É‘•ÈµˆÀ´Ôˆø4(€€€€€€€€ñ Ì±…ÍÍ9…µ”ô‰™±•à¥Ñ•µÌµ•¹Ñ•È…À´È™½¹ĞµÍ•µ¥‰½±ˆø4(€€€€€€€€€€ñM¡¥•±‘¡•¬±…ÍÍ9…µ”ô‰Ñ•áĞµ‰±Õ”´ØÀÀˆ€¼ø4(€€€€€€€€€ƒ–º‹š"ßî·šr–º‡š&ä4(€€€€€€€€ğ½ Ìø4(€€€€€€€€ñÀ±…ÍÍ9…µ”ô‰µĞ´ÄÑ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´ÔÀÀˆø4(€€€€€€€€€íÉ½±”€ôôô€‰MUAIY%M=Hˆ4(€€€€€€€€€€€€ü€‹’îšbû’ënÓ–Æ{¦R–R»–Fc²°Ïš²‡–>+’î—–B;jRÏ¢¾ßˆ4(€€€€€€€€€€€€è€‹šbû’ëš&šr'–ú–º‡š‚ãRÏ¢¾ß¾òo¦k–âãRÇnÓ–Æ{’âïº‡’òc–#–’B‰ô4(€€€€€€€€ğ½Àø4(€€€€€€ğ½¡•…‘•Èø4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰™±•à™±•àµİÉ…À¥Ñ•µÌµ•¹Ñ•È…À´Ì‰½É‘•Èµˆ‰½É‘•ÈµÍ±…Ñ”´ÄÀÀÀ´Ğˆø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰É•±…Ñ¥Ù”ÜµlÌÈÁÁátÍ¡É¥¹¬´ÀˆøñM•…É Í¥é”õìÄÙô±…ÍÍ9…µ”ô‰…‰Í½±ÕÑ”±•™Ğ´ÌÑ½À´ÌÑ•áĞµÍ±…Ñ”´ĞÀÀˆ¼øñ¥¹ÁÕĞÙ…±Õ”õíÍ•…É¡ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•ÑM•…É ¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ôÁ±…•¡½±‘•Èô‹šBsÒ‹–º‹š"ß–n÷–ºØ¿–rÃ–2ëRÏ¢¾ß’êëš"[RÏ¢¾ß––ºäˆ±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜµ™Õ±°Á°´åô¼øğ½±…‰•°ø4(€€€€€€€€ñÍ•±•ĞÙ…±Õ”õí½İ¹•É%‘ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•Ñ=İ¹•É%¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜ´ÔØÍ¡É¥¹¬´Áôøñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû–£¦£RÏ¢¾ß’êèğ½½ÁÑ¥½¸ùí½İ¹•ÉÌ¹µ…À ¡½İ¹•È¤€ôø€ñ½ÁÑ¥½¸­•äõí½İ¹•È¹¥‘ôÙ…±Õ”õí½İ¹•È¹¥‘ôùí‘¥ÍÁ±…åUÍ•È¡½İ¹•È¥ôğ½½ÁÑ¥½¸ø¥ôğ½Í•±•Ğø4(€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøìÍ•ÑM•…É  ˆˆ¤ìÍ•Ñ=İ¹•É% ˆˆ¤ìõô±…ÍÍ9…µ”ô‰ ´ÄÀÍ¡É¥¹¬´ÀÉ½Õ¹‘•µ±œ‰½É‘•ÈÁà´ÌÑ•áĞµÍ´¡½Ù•Èé‰œµÍ±…Ñ”´ÔÀˆû¦7ö¸ğ½‰ÕÑÑ½¸ø4(€€€€€€ğ½‘¥Øø4(€€€€€í•ÉÉ½È€ü€ 4(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰´´Ôˆø4(€€€€€€€€€€ñÉÉ½ÉQ•áĞÙ…±Õ”õí•ÉÉ½Éô€¼ø4(€€€€€€€€ğ½‘¥Øø4(€€€€€€¤€è¹Õ±±ô4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰½Ù•É™±½Üµàµ…ÕÑ¼ˆø4(€€€€€€€€ñÑ…‰±”±…ÍÍ9…µ”ô‰Üµ™Õ±°µ¥¸µÜµlÄÀàÁÁátÑ•áĞµ±•™ĞÑ•áĞµÍ´ˆø4(€€€€€€€€€€ñÑ¡•…±…ÍÍ9…µ”ô‰‰œµÍ±…Ñ”´ÔÀˆø4(€€€€€€€€€€€€ñÑÈø4(€€€€€€€€€€€€€íl4(€€€€€€€€€€€€€€€€‹–º‹š"Üˆ°4(€€€€€€€€€€€€€€€€‹RÏ¢¾ß’êèˆ°4(€€€€€€€€€€€€€€€€‹î·šrš²‡šVÀˆ°4(€€€€€€€€€€€€€€€€‹šr³š²‡îOšzpˆ°4(€€€€€€€€€€€€€€€€‹’â/’âš¶—¢º‡–"Hˆ°4(€€€€€€€€€€€€€€€€‹–·¢¾ˆ°4(€€€€€€€€€€€€€€€€‹RÏ¢¾ßš^Û¦^Ğˆ°4(€€€€€€€€€€€€€€€€‹šN7’öpˆ°4(€€€€€€€€€€€€€t¹µ…À ¡Ù…±Õ”¤€ôø€ 4(€€€€€€€€€€€€€€€€ñÑ 4(€€€€€€€€€€€€€€€€€­•äõíÙ…±Õ•ô4(€€€€€€€€€€€€€€€€€±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ì™½¹Ğµµ•‘¥Õ´Ñ•áĞµÍ±…Ñ”´ÔÀÀˆ4(€€€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€€íÙ…±Õ•ô4(€€€€€€€€€€€€€€€€ğ½Ñ ø4(€€€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€€€ğ½ÑÈø4(€€€€€€€€€€ğ½Ñ¡•…ø4(€€€€€€€€€€ñÑ‰½‘ä±…ÍÍ9…µ”ô‰‘¥Ù¥‘”µäˆø4(€€€€€€€€€€€íÙ¥Í¥‰±•I½İÌ¹µ…À ¡É½Ü¤€ôø€ 4(€€€€€€€€€€€€€€ñÑÈ­•äõíÉ½Ü¹¥‘ôø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğ™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€€€€€€€€€€íÉ½Ü¹ÕÍÑ½µ•Èü¹½µÁ…¹å}¹…µ”ñğ€‹ŠP‰ô4(€€€€€€€€€€€€€€€€ğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí‘¥ÍÁ±…åUÍ•È¡É½Ü¹½İ¹•È¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆû²°íÉ½Ü¹É•¹•İ…±}¹Õµ‰•Éôƒš²„ğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰µ…àµÜ´ØĞÁà´ĞÁä´ĞˆùíÉ½Ü¹É•…Í½¹ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰µ…àµÜ´ØĞÁà´ĞÁä´ĞˆùíÉ½Ü¹¹•áÑ}Á±…¹ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´ĞˆøñÑÑ…¡µ•¹ÑAÉ•Ù¥•Ü…ÑÑ…¡µ•¹Ğõíì¥èÉ½Ü¹•Ù¥‘•¹•}…ÑÑ…¡µ•¹Ñ}¥°™¥±•¹…µ”è€‹î·šr–·¢¾ˆ°µ¥µ•}ÑåÁ”è¹Õ±°õô€¼øğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí™½Éµ…Ñ…Ñ”¡É½Ü¹É•…Ñ•‘}…Ğ¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆø4(€€€€€€€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰™±•à…À´Èˆø4(€€€€€€€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸4(€€€€€€€€€€€€€€€€€€€€€½¹±¥¬õì ¤€ôøìÍ•ÑI•Ù¥•Ü¡ìÉ½Ü°‘•¥Í¥½¸è€‰AAI=Yˆô¤ìÍ•ÑI•Ù¥•İ9½Ñ” ˆˆ¤ìõô4(€€€€€€€€€€€€€€€€€€€€€±…ÍÍ9…µ”ô‰É½Õ¹‘•µ±œ‰œµ‰±Õ”´ØÀÀÁà´ÌÁä´ÈÑ•áĞµáÌÑ•áĞµİ¡¥Ñ”ˆ4(€€€€€€€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€€€€€€ƒ¦k¢ş4(€€€€€€€€€€€€€€€€€€€€ğ½‰ÕÑÑ½¸ø4(€€€€€€€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸4(€€€€€€€€€€€€€€€€€€€€€½¹±¥¬õì ¤€ôøìÍ•ÑI•Ù¥•Ü¡ìÉ½Ü°‘•¥Í¥½¸è€‰I)Qˆô¤ìÍ•ÑI•Ù¥•İ9½Ñ” ˆˆ¤ìõô4(€€€€€€€€€€€€€€€€€€€€€±…ÍÍ9…µ”ô‰É½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÉ½Í”´ÈÀÀÁà´ÌÁä´ÈÑ•áĞµáÌÑ•áĞµÉ½Í”´ØÀÀˆ4(€€€€€€€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€€€€€€ƒ¦¦Ï–nx4(€€€€€€€€€€€€€€€€€€€€ğ½‰ÕÑÑ½¸ø4(€€€€€€€€€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€€€€€€€€€ğ½Ñø4(€€€€€€€€€€€€€€ğ½ÑÈø4(€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€ğ½Ñ‰½‘äø4(€€€€€€€€ğ½Ñ…‰±”ø4(€€€€€€€í±½…‘¥¹œ€ü€ 4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥µ¥¸µ ´ÔÈÁ±…”µ¥Ñ•µÌµ•¹Ñ•Èˆø4(€€€€€€€€€€€€ñ1½…‘•É¥É±”±…ÍÍ9…µ”ô‰…¹¥µ…Ñ”µÍÁ¥¸Ñ•áĞµ‰±Õ”´ØÀÀˆ€¼ø4(€€€€€€€€€€ğ½‘¥Øø4(€€€€€€¤€è€…™¥±Ñ•É•‘I½İÌ¹±•¹Ñ €ü€ 4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥µ¥¸µ ´ÔÈÁ±…”µ¥Ñ•µÌµ•¹Ñ•ÈÑ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´ĞÀÀˆø4(€€€€€€€€€€€ƒšjš^ƒ–ú–º‡š‚ãî·šrRÏ¢¾Ü4(€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€¤€è¹Õ±±ô4(€€€€€€ğ½‘¥Øø4(€€€€€€ñÁÁA…¥¹…Ñ¥½¸4(€€€€€€€Á…”õíÁ…•ô4(€€€€€€€Á…•M¥é”õíÁ…•M¥é•ô4(€€€€€€€Ñ½Ñ…°õí™¥±Ñ•É•‘I½İÌ¹±•¹Ñ¡ô4(€€€€€€€¥Ñ•µ1…‰•°ô‹šv‡RÏ¢¾Üˆ4(€€€€€€€½¹A…”õíÍ•ÑA…•ô4(€€€€€€€½¹A…•M¥é”õì¡Í¥é”¤€ôøì4(€€€€€€€€€Í•ÑA…•M¥é”¡Í¥é”¤ì4(€€€€€€€€€Í•ÑA…” Ä¤ì4(€€€€€€€õô4(€€€€€€¼ø4(€€€€€€ñÁÁ¥…±½œ½Á•¸õí	½½±•…¸¡É•Ù¥•Ü¥ôÑ¥Ñ±”õíÉ•Ù¥•Üü¹‘•¥Í¥½¸€ôôô€‰AAI=Yˆ€ü€‹¦k¢şî·šrRÏ¢¾Üˆ€è€‹¦¦Ï–n{î·šrRÏ¢¾Ü‰ô‘•ÍÉ¥ÁÑ¥½¸õíÉ•Ù¥•Ü€ü€‘íÉ•Ù¥•Ü¹É½Ü¹ÕÍÑ½µ•Èü¹½µÁ…¹å}¹…µ”ñğ€‹–º‹š"Ü‰ôƒ
+Üƒ²°€‘íÉ•Ù¥•Ü¹É½Ü¹É•¹•İ…±}¹Õµ‰•Éôƒš²‡î·šr}€€èÕ¹‘•™¥¹•‘ô½¹±½Í”õì ¤ôùÍ•ÑI•Ù¥•Ü¡¹Õ±°¥ôİ¥‘Ñ ô‰µ…àµÜµµˆø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áĞµÍ´™½¹Ğµµ•‘¥Õ´Ñ•áĞµÍ±…Ñ”´ÜÀÀˆùíÉ•Ù¥•Üü¹‘•¥Í¥½¸€ôôô€‰I)Qˆ€ü€‹¦¦Ï–n{–:–nƒ¾ò#–ş–†¯¾ò$ˆ€è€‹–º‡š‚ã–’šÎ£¾ò#–>¿¦'¾ò$‰ôñÑ•áÑ…É•„…ÕÑ½½ÕÌÙ…±Õ”õíÉ•Ù¥•İ9½Ñ•ô½¹¡…¹”õí•Ù•¹ĞôùÍ•ÑI•Ù¥•İ9½Ñ”¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ôÉ½İÌõìÑô±…ÍÍ9…µ”ô‰µĞ´ÈÜµ™Õ±°É½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀÀ´ÌÑ•áĞµÍ´ˆÁ±…•¡½±‘•ÈõíÉ•Ù¥•Üü¹‘•¥Í¥½¸€ôôô€‰I)Qˆ€ü€‹¢¾ß–†¯–gšb;†»j¦¦Ï–n{–:–n€ˆ€è€‹–>¿¢ºÃ–öW–·¢¾š‚ã¦ª3š–Ô‰ô¼øğ½±…‰•°ø4(€€€€€€€€ñ™½É´½¹MÕ‰µ¥Ğõí•Ù•¹Ğôùí•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤íÙ½¥‘•¥‘” ¥õôøñM¡…É•‘¥…±½Ñ¥½¹Ì‰ÕÍäõíÉ•Ù¥•İ	ÕÍåô½¹…¹•°õì ¤ôùÍ•ÑI•Ù¥•Ü¡¹Õ±°¥ô½¹™¥Éµ1…‰•°õíÉ•Ù¥•Üü¹‘•¥Í¥½¸€ôôô€‰AAI=Yˆ€ü€‹†»¢º“¦k¢şˆ€è€‹†»¢º“¦¦Ï–nx‰ôÑ½¹”õíÉ•Ù¥•Üü¹‘•¥Í¥½¸€ôôô€‰I)Qˆ€ü€‰‘…¹•Èˆ€è€‰ÁÉ¥µ…Éä‰ô¼øğ½™½É´ø4(€€€€€€ğ½ÁÁ¥…±½œø4(€€€€ğ½Í•Ñ¥½¸ø4(€€¤ì4)ô4(4)™Õ¹Ñ¥½¸ÍÍ¥¹µ•¹Ñ!¥ÍÑ½Éä¡ìÉ•™É•Í¡-•äôèìÉ•™É•Í¡-•äè¹Õµ‰•Èô¤ì4(€½¹ÍĞmÉ½İÌ°Í•ÑI½İÍt€ôÕÍ•MÑ…Ñ”ñ!¥ÍÑ½Éåmtø¡mt¤ì4(€½¹ÍĞm±½…‘¥¹œ°Í•Ñ1½…‘¥¹t€ôÕÍ•MÑ…Ñ”¡ÑÉÕ”¤ì4(€½¹ÍĞm•ÉÉ½È°Í•ÑÉÉ½Ét€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÁ…”°Í•ÑA…•t€ôÕÍ•MÑ…Ñ” Ä¤ì4(€½¹ÍĞmÁ…•M¥é”°Í•ÑA…•M¥é•t€ôÕÍ•MÑ…Ñ” ÄÀ¤ì4(€½¹ÍĞm½Õ¹Ğ°Í•Ñ½Õ¹Ñt€ôÕÍ•MÑ…Ñ” À¤ì4(€½¹ÍĞmÕÍ•ÉÌ°Í•ÑUÍ•ÉÍt€ôÕÍ•MÑ…Ñ”ñ=İ¹•Émtø¡mt¤ì4(€½¹ÍĞmÍ•…É °Í•ÑM•…É¡t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm¡¥ÍÑ½ÉåQåÁ”°Í•Ñ!¥ÍÑ½ÉåQåÁ•t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÍ½ÕÉ•UÍ•É%°Í•ÑM½ÕÉ•UÍ•É%‘t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÑ…É•ÑUÍ•É%°Í•ÑQ…É•ÑUÍ•É%‘t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞmÉ•…Ñ•‘	ä°Í•ÑÉ•…Ñ•‘	åt€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm‘…Ñ•É½´°Í•Ñ…Ñ•É½µt€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€½¹ÍĞm‘…Ñ•Q¼°Í•Ñ…Ñ•Q½t€ôÕÍ•MÑ…Ñ” ˆˆ¤ì4(€ÕÍ•™™•Ğ  ¤€ôøì4(€€€½¹ÍĞÁ…É…µÌ€ô¹•ÜUI1M•…É¡A…É…µÌ¡ìµ½‘”è€‰¡¥ÍÑ½Éäˆ°Á…”èMÑÉ¥¹œ¡Á…”¤°Á…•}Í¥é”èMÑÉ¥¹œ¡Á…•M¥é”¤ô¤ì4(€€€¥˜€¡Í•…É ¹ÑÉ¥´ ¤¤Á…É…µÌ¹Í•Ğ ‰Äˆ°Í•…É ¹ÑÉ¥´ ¤¤ì4(€€€¥˜€¡¡¥ÍÑ½ÉåQåÁ”¤Á…É…µÌ¹Í•Ğ ‰¡¥ÍÑ½Éå}ÑåÁ”ˆ°¡¥ÍÑ½ÉåQåÁ”¤ì4(€€€¥˜€¡Í½ÕÉ•UÍ•É%¤Á…É…µÌ¹Í•Ğ ‰Í½ÕÉ•}ÕÍ•É}¥ˆ°Í½ÕÉ•UÍ•É%¤ì4(€€€¥˜€¡Ñ…É•ÑUÍ•É%¤Á…É…µÌ¹Í•Ğ ‰Ñ…É•Ñ}ÕÍ•É}¥ˆ°Ñ…É•ÑUÍ•É%¤ì4(€€€¥˜€¡É•…Ñ•‘	ä¤Á…É…µÌ¹Í•Ğ ‰É•…Ñ•‘}‰äˆ°É•…Ñ•‘	ä¤ì4(€€€¥˜€¡‘…Ñ•É½´¤Á…É…µÌ¹Í•Ğ ‰‘…Ñ•}™É½´ˆ°‘…Ñ•É½´¤ì4(€€€¥˜€¡‘…Ñ•Q¼¤Á…É…µÌ¹Í•Ğ ‰‘…Ñ•}Ñ¼ˆ°‘…Ñ•Q¼¤ì4(€€€Í•Ñ1½…‘¥¹œ¡ÑÉÕ”¤ì4(€€€Í•ÑÉÉ½È ˆˆ¤ì4(€€€…Á¤¡€½…Á¤½…‘µ¥¸½ÕÍÑ½µ•Èµ…ÍÍ¥¹µ•¹ÑÌü‘íÁ…É…µÍõ€¤4(€€€€€€¹Ñ¡•¸ ¡‰½‘ä¤€ôøìÍ•ÑI½İÌ¡‰½‘ä¹‘…Ñ„ñğmt¤ìÍ•Ñ½Õ¹Ğ¡9Õµ‰•È¡‰½‘ä¹½Õ¹Ğñğ€À¤¤ìô¤4(€€€€€€¹…Ñ  ¡”¤€ôøÍ•ÑÉÉ½È¡”¹µ•ÍÍ…”¤¤4(€€€€€€¹™¥¹…±±ä  ¤€ôøÍ•Ñ1½…‘¥¹œ¡™…±Í”¤¤ì4(€ô°mÁ…”°Á…•M¥é”°Í•…É °¡¥ÍÑ½ÉåQåÁ”°Í½ÕÉ•UÍ•É%°Ñ…É•ÑUÍ•É%°É•…Ñ•‘	ä°‘…Ñ•É½´°‘…Ñ•Q¼°É•™É•Í¡-•åt¤ì4(€ÕÍ•™™•Ğ  ¤€ôøì4(€€€…Á¤ ˆ½…Á¤½…‘µ¥¸½ÕÍÑ½µ•Èµ…ÍÍ¥¹µ•¹ÑÌıµ½‘”õ¡¥ÍÑ½Éå}½ÁÑ¥½¹Ìˆ¤4(€€€€€€¹Ñ¡•¸ ¡‰½‘ä¤€ôøÍ•ÑUÍ•ÉÌ¡‰½‘ä¹ÕÍ•ÉÌñğmt¤¤4(€€€€€€¹…Ñ   ¤€ôøÍ•ÑUÍ•ÉÌ¡mt¤¤ì4(€ô°mt¤ì4(€ÕÍ•™™•Ğ  ¤€ôøìÍ•ÑA…” Ä¤ìô°mÍ•…É °¡¥ÍÑ½ÉåQåÁ”°Í½ÕÉ•UÍ•É%°Ñ…É•ÑUÍ•É%°É•…Ñ•‘	ä°‘…Ñ•É½´°‘…Ñ•Q½t¤ì4(€½¹ÍĞÉ•Í•Ğ€ô€ ¤€ôøì4(€€€Í•ÑM•…É  ˆˆ¤ìÍ•Ñ!¥ÍÑ½ÉåQåÁ” ˆˆ¤ìÍ•ÑM½ÕÉ•UÍ•É% ˆˆ¤ìÍ•ÑQ…É•ÑUÍ•É% ˆˆ¤ì4(€€€Í•ÑÉ•…Ñ•‘	ä ˆˆ¤ìÍ•Ñ…Ñ•É½´ ˆˆ¤ìÍ•Ñ…Ñ•Q¼ ˆˆ¤ìÍ•ÑA…” Ä¤ì4(€ôì4(€É•ÑÕÉ¸€ 4(€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰µĞ´Ğ½Ù•É™±½Üµ¡¥‘‘•¸É½Õ¹‘•µá°‰½É‘•È‰œµİ¡¥Ñ”Í¡…‘½ÜµÍ´ˆø4(€€€€€€ñ¡•…‘•È±…ÍÍ9…µ”ô‰‰½É‘•ÈµˆÀ´Ôˆø4(€€€€€€€€ñ Ì±…ÍÍ9…µ”ô‰™½¹ĞµÍ•µ¥‰½±ˆû–º‹š"ß–"¦7šb;î’â;’ê“š:—¢ºÃ–öTğ½ Ìø4(€€€€€€€€ñÀ±…ÍÍ9…µ”ô‰µĞ´ÄÑ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´ÔÀÀˆø4(€€€€€€€€€ƒš¾?šv‡¢ºÃ–öW–¾ç–êS’â’ö7–º{¦f¢Š¯–"¦7–º‹š"ß¾òo’şwVg–"¦7š^Ûj–:–öK–Æ{’êëš:—šRÛ’êë–J3šN7’ös’êë¾ò3–æÛšbû’ë–º‹š"ß–öO–&7–öK–Æ{¾ò3’úÿ’ê;¦Cšv‡š‚ã–¾ç4(€€€€€€€€ğ½Àø4(€€€€€€ğ½¡•…‘•Èø4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰™±•à™±•àµİÉ…À¥Ñ•µÌµ•¹Ñ•È…À´Ì‰½É‘•Èµˆ‰½É‘•ÈµÍ±…Ñ”´ÄÀÀÀ´Ğˆø4(€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰É•±…Ñ¥Ù”ÜµlÌÈÁÁátÍ¡É¥¹¬´ÀˆøñM•…É Í¥é”õìÄÙô±…ÍÍ9…µ”ô‰…‰Í½±ÕÑ”±•™Ğ´ÌÑ½À´ÌÑ•áĞµÍ±…Ñ”´ĞÀÀˆ¼øñ¥¹ÁÕĞÙ…±Õ”õíÍ•…É¡ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•ÑM•…É ¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ôÁ±…•¡½±‘•Èô‹šBsÒ‹–º‹š"ßR×¢¾w¦
+»ºÇš&çš²‡š"[–"¦7–:–n€ˆ±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜµ™Õ±°Á°´åô¼øğ½±…‰•°ø4(€€€€€€€€ñÍ•±•ĞÙ…±Õ”õí¡¥ÍÑ½ÉåQåÁ•ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•Ñ!¥ÍÑ½ÉåQåÁ”¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜ´ĞÀÍ¡É¥¹¬´Áô…É¥„µ±…‰•°ô‹¶o¦'¢ºÃ–öWÆï–z,ˆøñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû–£¦£¢ºÃ–öWÆï–z,ğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰MM%8ˆû–º‹š"ß–"¦4ğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰!9=YHˆû¢Ò›–>ß’ê“š:”ğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰I1Mˆûš&ç¦?¦+šRøğ½½ÁÑ¥½¸øğ½Í•±•Ğø4(€€€€€€€€ñÍ•±•ĞÙ…±Õ”õíÑ…É•ÑUÍ•É%‘ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•ÑQ…É•ÑUÍ•É%¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜ´ĞÀÍ¡É¥¹¬´Áô…É¥„µ±…‰•°ô‹¶o¦'š:—šRÛ’êèˆøñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû–£¦£š:—šRÛ’êèğ½½ÁÑ¥½¸ùíÕÍ•ÉÌ¹µ…À ¡ÕÍ•È¤€ôø€ñ½ÁÑ¥½¸­•äõíÕÍ•È¹¥‘ôÙ…±Õ”õíÕÍ•È¹¥‘ôùí‘¥ÍÁ±…åUÍ•È¡ÕÍ•È¥ôğ½½ÁÑ¥½¸ø¥ôğ½Í•±•Ğø4(€€€€€€€€ñÍ•±•ĞÙ…±Õ”õíÍ½ÕÉ•UÍ•É%‘ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•ÑM½ÕÉ•UÍ•É%¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜ´ĞÀÍ¡É¥¹¬´Áô…É¥„µ±…‰•°ô‹¶o¦'–:–öK–Æ{’êèˆøñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû–£¦£–:–öK–Æ{’êèğ½½ÁÑ¥½¸ùíÕÍ•ÉÌ¹µ…À ¡ÕÍ•È¤€ôø€ñ½ÁÑ¥½¸­•äõíÕÍ•È¹¥‘ôÙ…±Õ”õíÕÍ•È¹¥‘ôùí‘¥ÍÁ±…åUÍ•È¡ÕÍ•È¥ôğ½½ÁÑ¥½¸ø¥ôğ½Í•±•Ğø4(€€€€€€€€ñÍ•±•ĞÙ…±Õ”õíÉ•…Ñ•‘	åô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•ÑÉ•…Ñ•‘	ä¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô±…ÍÍ9…µ”õí€‘í…ÁÁ¥•±‘±…ÍÍôÜ´ĞÀÍ¡É¥¹¬´Áô…É¥„µ±…‰•°ô‹¶o¦'šN7’ös’êèˆøñ½ÁÑ¥½¸Ù…±Õ”ôˆˆû–£¦£šN7’ös’êèğ½½ÁÑ¥½¸ùíÕÍ•ÉÌ¹µ…À ¡ÕÍ•È¤€ôø€ñ½ÁÑ¥½¸­•äõíÕÍ•È¹¥‘ôÙ…±Õ”õíÕÍ•È¹¥‘ôùí‘¥ÍÁ±…åUÍ•È¡ÕÍ•È¥ôğ½½ÁÑ¥½¸ø¥ôğ½Í•±•Ğø4(€€€€€€€€ñ½µÁ…Ñ…Ñ•I…¹”±…‰•°ô‹šN7’ösš^—šr|ˆ™É½´õí‘…Ñ•É½µôÑ¼õí‘…Ñ•Q½ô½¹É½µ¡…¹”õíÍ•Ñ…Ñ•É½µô½¹Q½¡…¹”õíÍ•Ñ…Ñ•Q½ô¼ø4(€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õíÉ•Í•Ñô±…ÍÍ9…µ”ô‰ ´ÄÀÍ¡É¥¹¬´ÀÉ½Õ¹‘•µ±œ‰½É‘•È‰œµİ¡¥Ñ”Áà´ĞÑ•áĞµÍ´¡½Ù•Èé‰œµÍ±…Ñ”´ÔÀˆû¦7ö¸ğ½‰ÕÑÑ½¸ø4(€€€€€€ğ½‘¥Øø4(€€€€€í•ÉÉ½È€ü€ 4(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰´´Ôˆø4(€€€€€€€€€€ñÉÉ½ÉQ•áĞÙ…±Õ”õí•ÉÉ½Éô€¼ø4(€€€€€€€€ğ½‘¥Øø4(€€€€€€¤€è¹Õ±±ô4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰½Ù•É™±½Üµàµ…ÕÑ¼ˆø4(€€€€€€€€ñÑ…‰±”±…ÍÍ9…µ”ô‰Üµ™Õ±°µ¥¸µÜµlÄÔØÁÁátÑ•áĞµ±•™ĞÑ•áĞµÍ´ˆø4(€€€€€€€€€€ñÑ¡•…±…ÍÍ9…µ”ô‰‰œµÍ±…Ñ”´ÔÀˆø4(€€€€€€€€€€€€ñÑÈø4(€€€€€€€€€€€€€íl4(€€€€€€€€€€€€€€€€‹–º‹š"ß’ş‡š¼ˆ°4(€€€€€€€€€€€€€€€€‹–"¦7š&çš²„ˆ°4(€€€€€€€€€€€€€€€€‹Æï–z,ˆ°4(€€€€€€€€€€€€€€€€‹–:–öK–Æ{’êèˆ°4(€€€€€€€€€€€€€€€€‹š:—šRÛ’êèˆ°4(€€€€€€€€€€€€€€€€‹–öO–&7–öK–Æxˆ°4(€€€€€€€€€€€€€€€€‹šN7’ös’êèˆ°4(€€€€€€€€€€€€€€€€‹–"¦7š^Û¦^Ğˆ°4(€€€€€€€€€€€€€€€€‹–:–n€ˆ°4(€€€€€€€€€€€€€€€€‹šN7’öpˆ°4(€€€€€€€€€€€€€t¹µ…À ¡Ù…±Õ”¤€ôø€ 4(€€€€€€€€€€€€€€€€ñÑ 4(€€€€€€€€€€€€€€€€€­•äõíÙ…±Õ•ô4(€€€€€€€€€€€€€€€€€±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ì™½¹Ğµµ•‘¥Õ´Ñ•áĞµÍ±…Ñ”´ÔÀÀˆ4(€€€€€€€€€€€€€€€€ø4(€€€€€€€€€€€€€€€€€íÙ…±Õ•ô4(€€€€€€€€€€€€€€€€ğ½Ñ ø4(€€€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€€€ğ½ÑÈø4(€€€€€€€€€€ğ½Ñ¡•…ø4(€€€€€€€€€€ñÑ‰½‘ä±…ÍÍ9…µ”ô‰‘¥Ù¥‘”µäˆø4(€€€€€€€€€€€íÉ½İÌ¹µ…À ¡É½Ü¤€ôø€ 4(€€€€€€€€€€€€€€ñÑÈ­•äõíÉ½Ü¹¥‘ôø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆøñˆ±…ÍÍ9…µ”ô‰‰±½¬™½¹Ğµµ•‘¥Õ´ˆùíÉ½Ü¹ÕÍÑ½µ•Èü¹½µÁ…¹å}¹…µ”ñğ€‹ŠP‰ôğ½ˆøñÍµ…±°±…ÍÍ9…µ”ô‰µĞ´Ä‰±½¬Ñ•áĞµÍ±…Ñ”´ÔÀÀˆùíÉ½Ü¹ÕÍÑ½µ•Èü¹½Õ¹ÑÉäñğ€‹ŠP‰õíÉ½Ü¹ÕÍÑ½µ•Èü¹Á¡½¹”€ü€ƒ
+Ü€‘íÉ½Ü¹ÕÍÑ½µ•È¹Á¡½¹•õ€€è€ˆ‰ôğ½Íµ…±°øñÍµ…±°±…ÍÍ9…µ”ô‰‰±½¬Ñ•áĞµÍ±…Ñ”´ĞÀÀˆùíÉ½Ü¹ÕÍÑ½µ•Èü¹•µ…¥°ñğÉ½Ü¹ÕÍÑ½µ•Èü¹…‘‘É•ÍÌñğ€‹ŠP‰ôğ½Íµ…±°øğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´ĞˆøñÍÁ…¸±…ÍÍ9…µ”ô‰‰±½¬™½¹Ğµµ½¹¼Ñ•áĞµáÌÑ•áĞµ‰±Õ”´ÜÀÀˆùíÉ½Ü¹‰…Ñ¡}¹Õµ‰•Éôğ½ÍÁ…¸øñÍµ…±°±…ÍÍ9…µ”ô‰µĞ´Ä‰±½¬Ñ•áĞµÍ±…Ñ”´ÔÀÀˆùíÉ½Ü¹‰…Ñ¡}¹…µ•ôğ½Íµ…±°øğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆø4(€€€€€€€€€€€€€€€€€íÉ½Ü¹É•…Í½¹}ÑåÁ”€ôôô€‰=U9Q}!9=YHˆ4(€€€€€€€€€€€€€€€€€€€€ü€‹¢Ò›–>ß’ê“š:”ˆ4(€€€€€€€€€€€€€€€€€€€€èÉ½Ü¹µ½‘”€ôôô€‰I1Mˆ4(€€€€€€€€€€€€€€€€€€€€€€ü€‹š&ç¦?¦+šRøˆ4(€€€€€€€€€€€€€€€€€€€€€€è€‹–º‹š"ß–"¦4‰ô4(€€€€€€€€€€€€€€€€ğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí‘¥ÍÁ±…åUÍ•È¡É½Ü¹ÁÉ•Ù¥½ÕÍ}½İ¹•ÈñğÉ½Ü¹Í½ÕÉ”¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí‘¥ÍÁ±…åUÍ•È¡É½Ü¹¹•áÑ}½İ¹•ÈñğÉ½Ü¹Ñ…É•Ğ¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí‘¥ÍÁ±…åUÍ•È¡É½Ü¹ÕÉÉ•¹Ñ}½İ¹•È¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí‘¥ÍÁ±…åUÍ•È¡É½Ü¹É•…Ñ½È¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆùí™½Éµ…Ñ…Ñ”¡É½Ü¹É•…Ñ•‘}…Ğ¥ôğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰µ…àµÜ´ÜÈÁà´ĞÁä´Ğˆø4(€€€€€€€€€€€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”ô‰±¥¹”µ±…µÀ´ÈˆùíÉ½Ü¹É•…Í½¹ôğ½ÍÁ…¸ø4(€€€€€€€€€€€€€€€€ğ½Ñø4(€€€€€€€€€€€€€€€€ñÑ±…ÍÍ9…µ”ô‰Áà´ĞÁä´Ğˆøñ1¥¹¬¡É•˜õí€½ÕÍÑ½µ•ÉÌ¼‘íÉ½Ü¹ÕÍÑ½µ•É}¥‘ôı™É½´õÁ½½±ô±…ÍÍ9…µ”ô‰™½¹Ğµµ•‘¥Õ´Ñ•áĞµ‰±Õ”´ØÀÀˆûš~—r/–º‹š"Üğ½1¥¹¬øğ½Ñø4(€€€€€€€€€€€€€€ğ½ÑÈø4(€€€€€€€€€€€€¤¥ô4(€€€€€€€€€€ğ½Ñ‰½‘äø4(€€€€€€€€ğ½Ñ…‰±”ø4(€€€€€€€í±½…‘¥¹œ€ü€ 4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥µ¥¸µ ´ÔÈÁ±…”µ¥Ñ•µÌµ•¹Ñ•Èˆø4(€€€€€€€€€€€€ñ1½…‘•É¥É±”±…ÍÍ9…µ”ô‰…¹¥µ…Ñ”µÍÁ¥¸Ñ•áĞµ‰±Õ”´ØÀÀˆ€¼ø4(€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€¤€è€…É½İÌ¹±•¹Ñ €ü€ 4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É¥µ¥¸µ ´ÔÈÁ±…”µ¥Ñ•µÌµ•¹Ñ•ÈÑ•áĞµÍ´Ñ•áĞµÍ±…Ñ”´ĞÀÀˆø4(€€€€€€€€€€€ƒšjš^ƒ–"¦7¢ºÃ–öT4(€€€€€€€€€€ğ½‘¥Øø4(€€€€€€€€¤€è¹Õ±±ô4(€€€€€€ğ½‘¥Øø4(€€€€€€ñÁÁA…¥¹…Ñ¥½¸4(€€€€€€€Á…”õíÁ…•ô4(€€€€€€€Á…•M¥é”õíÁ…•M¥é•ô4(€€€€€€€Ñ½Ñ…°õí½Õ¹Ñô4(€€€€€€€¥Ñ•µ1…‰•°ô‹šv‡¢ºÃ–öTˆ4(€€€€€€€½¹A…”õíÍ•ÑA…•ô4(€€€€€€€½¹A…•M¥é”õì¡Í¥é”¤€ôøì4(€€€€€€€€€Í•ÑA…•M¥é”¡Í¥é”¤ì4(€€€€€€€€€Í•ÑA…” Ä¤ì4(€€€€€€€õô4(€€€€€€¼ø4(€€€€ğ½Í•Ñ¥½¸ø4(€€¤ì4)ô4(4)™Õ¹Ñ¥½¸Ù¥‘•¹•%¹ÁÕĞ¡ì4(€™¥±”°4(€Í•Ñ¥±”°4(€É•ÅÕ¥É•°4)ôèì4(€™¥±”è¥±”ğ¹Õ±°ì4(€Í•Ñ¥±”è€¡™¥±”è¥±”ğ¹Õ±°¤€ôøÙ½¥ì4(€É•ÅÕ¥É•è‰½½±•…¸ì4)ô¤ì4(€É•ÑÕÉ¸€ 4(€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰É½Õ¹‘•µá°‰½É‘•È‰½É‘•Èµ‘…Í¡•‰½É‘•ÈµÍ±…Ñ”´ÈÀÀ‰œµÍ±…Ñ”´ÔÀ¼ÔÀÀ´ĞÑ•áĞµÍ´ˆø4(€€€€€€ñÍÁ…¸±…ÍÍ9…µ”ô‰™±•à¥Ñ•µÌµ•¹Ñ•È…À´È™½¹Ğµµ•‘¥Õ´ˆø4(€€€€€€€€ñA…Á•É±¥ÀÍ¥é”õìÄİô€¼ø4(€€€€€€€ƒr–º{¢SÎï–·¢¾íÉ•ÅÕ¥É•€ü€ñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ•áĞµÉ½Í”´ØÀÀˆø¨ğ½ÍÁ…¸ø€è€ñÍÁ…¸±…ÍÍ9…µ”ô‰™½¹Ğµ¹½Éµ…°Ñ•áĞµÍ±…Ñ”´ĞÀÀˆû¾ò#šös–r£–º‹š"ß¦'–†¯¾ò$ğ½ÍÁ…¸ùô4(€€€€€€ğ½ÍÁ…¸ø4(€€€€€€ñ¥¹ÁÕĞ4(€€€€€€€¥ô‰±…¥´µ•Ù¥‘•¹”µ™¥±”ˆ4(€€€€€€€É•ÅÕ¥É•õíÉ•ÅÕ¥É•‘ô4(€€€€€€€ÑåÁ”ô‰™¥±”ˆ4(€€€€€€€…•ÁĞô‰¥µ…”½©Á•œ±¥µ…”½Á¹œ±¥µ…”½İ•‰À±…ÁÁ±¥…Ñ¥½¸½Á‘˜ˆ4(€€€€€€€½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•Ñ¥±”¡•Ù•¹Ğ¹Ñ…É•Ğ¹™¥±•Ìü¹lÁtñğ¹Õ±°¥ô4(€€€€€€€±…ÍÍ9…µ”ô‰ÍÈµ½¹±äˆ4(€€€€€€¼ø4(€€€€€€ñ±…‰•°¡Ñµ±½Èô‰±…¥´µ•Ù¥‘•¹”µ™¥±”ˆ±…ÍÍ9…µ”ô‰µĞ´Ì™±•àÕÉÍ½ÈµÁ½¥¹Ñ•È¥Ñ•µÌµ•¹Ñ•È©ÕÍÑ¥™äµ‰•Ñİ••¸…À´ÌÉ½Õ¹‘•µ±œ‰½É‘•È‰½É‘•ÈµÍ±…Ñ”´ÈÀÀ‰œµİ¡¥Ñ”Áà´ÌÁä´È¸ÔÑÉ…¹Í¥Ñ¥½¸¡½Ù•Èé‰½É‘•Èµ‰±Õ”´ÌÀÀ¡½Ù•Èé‰œµ‰±Õ”´ÔÀ¼ÌÀˆø4(€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”õíµ¥¸µÜ´ÀÑÉÕ¹…Ñ”€‘í™¥±”€ü€‰Ñ•áĞµÍ±…Ñ”´ÜÀÀˆ€è€‰Ñ•áĞµÍ±…Ñ”´ÔÀÀ‰õôùí™¥±”€ü™¥±”¹¹…µ”€è€‹¦'š.§–·¢¾šZ’îØ‰ôğ½ÍÁ…¸ø4(€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”ô‰Í¡É¥¹¬´ÀÉ½Õ¹‘•µµ‰œµÍ±…Ñ”´ÄÀÀÁà´ÈÁä´ÄÑ•áĞµáÌ™½¹Ğµµ•‘¥Õ´Ñ•áĞµÍ±…Ñ”´ØÀÀˆùí™¥±”€ü€‹šnÓš6ˆˆ€è€‹¦'š.§šZ’îØ‰ôğ½ÍÁ…¸ø4(€€€€€€ğ½±…‰•°ø4(€€€€€€ñÍµ…±°±…ÍÍ9…µ”ô‰µĞ´È‰±½¬Ñ•áĞµÍ±…Ñ”´ÔÀÀˆø4(€€€€€€€í™¥±”€üƒ–ŞË¦'š.§¾òh‘í™¥±”¹¹…µ•õ€€èÉ•ÅÕ¥É•€ü€‹–öO–&7¦bÛšº×–ş¦†ï’â+’òƒ¾òošR¿š2)AA9]•‰CA¾ò3šr–’œÄÕ5ˆ€è€‹šös–r£–º‹š"ß–>¿’â7’â+’òƒ¾òošR¿š2)AA9]•‰CA¾ò3šr–’œÄÕ5‰ô4(€€€€€€ğ½Íµ…±°ø4(€€€€ğ½‘¥Øø4(€€¤ì4)ô4)™Õ¹Ñ¥½¸¥…±½Ñ¥½¹Ì¡ì4(€‰ÕÍä°4(€‘¥Í…‰±•€ô™…±Í”°4(€±½Í”°4(€±…‰•°°4)ôèì4(€‰ÕÍäè‰½½±•…¸ì4(€‘¥Í…‰±•üè‰½½±•…¸ì4(€±½Í”è€ ¤€ôøÙ½¥ì4(€±…‰•°èÍÑÉ¥¹œì4)ô¤ì4(€É•ÑÕÉ¸€ 4(€€€€ñM¡…É•‘¥…±½Ñ¥½¹Ì‰ÕÍäõí‰ÕÍåô‘¥Í…‰±•õí‘¥Í…‰±•‘ô½¹…¹•°õí±½Í•ô½¹™¥Éµ1…‰•°õí±…‰•±ô€¼ø4(€€¤ì4)ô4)™Õ¹Ñ¥½¸ÉÉ½ÉQ•áĞ¡ìÙ…±Õ”ôèìÙ…±Õ”èÍÑÉ¥¹œô¤ì4(€É•ÑÕÉ¸€ 4(€€€€ñÀ±…ÍÍ9…µ”ô‰É½Õ¹‘•µ±œ‰œµÉ½Í”´ÔÀÀ´ÌÑ•áĞµÍ´Ñ•áĞµÉ½Í”´ÜÀÀˆùíÙ…±Õ•ôğ½Àø4(€€¤ì4)ô4)™Õ¹Ñ¥½¸5½‘…°¡ì4(€Ñ¥Ñ±”°4(€ÍÕ‰Ñ¥Ñ±”°4(€±½Í”°4(€¡¥±‘É•¸°4)ôèì4(€Ñ¥Ñ±”èÍÑÉ¥¹œì4(€ÍÕ‰Ñ¥Ñ±”üèÍÑÉ¥¹œì4(€±½Í”è€ ¤€ôøÙ½¥ì4(€¡¥±‘É•¸èI•…Ğ¹I•…Ñ9½‘”ì4)ô¤ì4(€É•ÑÕÉ¸€ 4(€€€€ñÁÁ¥…±½œÑ¥Ñ±”õíÑ¥Ñ±•ô‘•ÍÉ¥ÁÑ¥½¸õíÍÕ‰Ñ¥Ñ±•ô½¹±½Í”õí±½Í•ôø4(€€€€€í¡¥±‘É•¹ô4(€€€€ğ½ÁÁ¥…±½œø4(€€¤ì4)ô4

@@ -7,14 +7,14 @@ import { AppSelect } from "@/components/ui/app-select";
 import { ConfirmDialog } from "@/components/ui/app-dialog";
 
 type ImportDraft = { id: string; source_file_name: string; source_order_number: string | null; revision: number; status: string; converted_order_id: string | null; created_at: string };
-const sizes = [10, 30, 50, 100, 300, 500];
+const sizes = [10, 20, 50, 100, 300, 500];
 
 export function PiImportView() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ImportDraft[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(30);
+  const [size, setSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

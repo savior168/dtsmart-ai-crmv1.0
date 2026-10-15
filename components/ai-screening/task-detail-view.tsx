@@ -27,7 +27,7 @@ export function TaskDetailView({ taskId }: { taskId: string }) {
   const [items, setItems] = useState<TaskItem[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
+  const [pageSize, setPageSize] = useState(20);
   const [status, setStatus] = useState("");
   const [step, setStep] = useState("");
   const [retryState, setRetryState] = useState("");

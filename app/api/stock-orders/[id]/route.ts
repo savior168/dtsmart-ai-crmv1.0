@@ -7,10 +7,10 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   try {
     const { supabase, account } = await requirePermission("stock.view");
     const { id } = await context.params;
-    const [{ data: order, error }, { data: items, error: itemError }, { data: events, error: eventError }] = await Promise.all([
-      supabase.from("stock_orders").select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).maybeSingle(),
+    const [{ data: order, error }, { data: items, error: itemError }, { data: events, count: eventCount, error: eventError }] = await Promise.all([
+      supabase.from("stock_orders").select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,delivery_recipient,delivery_address,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).maybeSingle(),
       supabase.from("stock_order_items").select("id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,prepared_quantity,shipped_quantity,warehouse_supplier_code,preparation_requirement,internal_note,preparation_status").eq("stock_order_id", id).order("line_number"),
-      supabase.from("stock_order_events").select("id,from_status,to_status,note,created_by,created_at").eq("stock_order_id", id).order("created_at", { ascending: false }),
+      supabase.from("stock_order_events").select("id,from_status,to_status,note,created_by,created_at", { count: "exact" }).eq("stock_order_id", id).order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, 9),
     ]);
     if (error) throw error;
     if (!order) {
@@ -35,6 +35,12 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     }
     if (itemError) throw itemError;
     if (eventError) throw eventError;
+    // The visible stock order establishes access before resolving its sales owner.
+    // Warehouse RLS intentionally does not expose arbitrary users.
+    const salesOwner = order.sales_user_id && !order.sales
+      ? await createAdminClient().from("users").select("name,email").eq("id", order.sales_user_id).maybeSingle()
+      : null;
+    if (salesOwner?.error) throw salesOwner.error;
     // The event rows are permission-scoped above. Ordinary warehouse users cannot
     // SELECT other users through users RLS, so resolve only those actor IDs here.
     const actorIds = [...new Set((events || []).map((event) => event.created_by).filter(Boolean))];
@@ -55,7 +61,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const warehouseEditor = ["WAREHOUSE", "ADMIN"].includes(account.role);
     const recalledPi = order.status === "DRAFT" && Boolean(order.warehouse_reference_number);
     const transitions:Record<string,string[]>={WAITING:["PREPARING","SHORTAGE","CANCELLED"],PREPARING:["RECEIVED","SHORTAGE","CANCELLED"],RECEIVED:["SORTING","SHORTAGE","CANCELLED"],SORTING:["READY_TO_SHIP","SHORTAGE","CANCELLED"],READY_TO_SHIP:["SHIPPED","CANCELLED"],SHORTAGE:["PREPARING","CANCELLED"],DRAFT:[],SHIPPED:[],READY:[],CANCELLED:[]};
-    return NextResponse.json({ order, items: items || [], events: scopedEvents, ...(warehouseEditor ? { expenses } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_edit_procurement: warehouseEditor && hasPermission(account, "stock.procurement.edit") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), allowed_statuses:transitions[order.status]||[] });
+    return NextResponse.json({ order: { ...order, sales: order.sales || salesOwner?.data || null }, items: items || [], events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_edit_procurement: warehouseEditor && hasPermission(account, "stock.procurement.edit") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), allowed_statuses:transitions[order.status]||[] });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

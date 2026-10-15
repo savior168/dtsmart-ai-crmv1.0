@@ -3,15 +3,18 @@ export type PhysicalStockItem = {
   received_quantity: number | null;
   prepared_quantity?: number | null;
   shipped_quantity?: number | null;
+  preparation_status?: string | null;
 };
 
-/** The four counts partition physical units; percentages always total 100. */
+/** The five counts partition every ordered unit; percentages always total 100. */
 export function physicalStockBuckets(items: PhysicalStockItem[]) {
   const ordered = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const received = items.reduce((sum, item) => sum + Number(item.received_quantity || 0), 0);
   const prepared = items.reduce((sum, item) => sum + Number(item.prepared_quantity || 0), 0);
   const shipped = items.reduce((sum, item) => sum + Number(item.shipped_quantity || 0), 0);
-  const counts = [ordered - received, received - prepared, prepared - shipped, shipped];
+  const notStarted = items.reduce((sum, item) => sum + (!item.preparation_status || item.preparation_status === "WAITING"
+    ? Number(item.quantity || 0) - Number(item.received_quantity || 0) : 0), 0);
+  const counts = [notStarted, ordered - received - notStarted, received - prepared, prepared - shipped, shipped];
   if (counts.some((count) => !Number.isSafeInteger(count) || count < 0) || !Number.isSafeInteger(ordered)) {
     throw new Error("备货实物数量异常，请联系管理员核对记录");
   }
