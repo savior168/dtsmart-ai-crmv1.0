@@ -22,6 +22,7 @@ export type ImportedPiDocument = {
   delivery_company: string;
   delivery_email: string;
   delivery_address: string;
+  payment_account_id?: string | null;
   items: ImportedPiItem[];
   subtotal_payment: number;
   shipping_payment: number;
@@ -31,6 +32,14 @@ export type ImportedPiDocument = {
 const cellText = (sheet: XLSX.WorkSheet, address: string) => String(sheet[address]?.v ?? "").trim();
 const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const afterLabel = (value: string) => value.replace(/^[^:：]*[:：]\s*/, "").trim();
+const normalizePaymentInstructions = (value: string) => value.normalize("NFKC").replace(/\s+/g, "").toLocaleLowerCase();
+
+export function matchImportedPaymentAccount(sourceInstructions: string, accounts: Array<{ id: string; currency: string; instructions: string }>, currency: string) {
+  const normalized = normalizePaymentInstructions(sourceInstructions);
+  if (!normalized) return "";
+  const matches = accounts.filter((account) => account.currency === currency && normalizePaymentInstructions(account.instructions) === normalized);
+  return matches.length === 1 ? matches[0].id : "";
+}
 
 function dateValue(value: unknown, date1904 = false) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -100,7 +109,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   const shippingRow = subtotalRow + 1;
   const shipping_payment = Number(sheet[`K${shippingRow}`]?.v || 0);
   if (!Number.isFinite(shipping_payment) || shipping_payment < 0) throw new Error("客户PI运费不正确");
-  return { sheet_name: sheetName, document: {
+  return { sheet_name: sheetName, payment_account_instructions: cellText(sheet, "A32"), document: {
     warehouse_reference_number, currency, payment_method: paymentMethod,
     delivery_date: dateValue(sheet.J8?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: deliveryValue(13, "To"),
     delivery_phone: deliveryValue(14, "TEL"), delivery_company: deliveryValue(15, "Company"),
