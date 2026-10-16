@@ -5,7 +5,7 @@ import { STOCK_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
 import { buildStockWorkbook } from "@/lib/template-xlsx";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
-import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
+import { STOCK_EXECUTING_STATUSES, stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (selectedIds.length) query = query.in("id", selectedIds);
-      if (status === "ACTIVE") query = query.in("status", ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"]);
+      if (status === "ACTIVE") query = query.in("status", [...STOCK_EXECUTING_STATUSES]);
       else if (status) query = query.eq("status", status);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
