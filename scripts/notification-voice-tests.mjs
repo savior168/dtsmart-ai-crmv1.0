@@ -50,10 +50,22 @@ assert.equal(notificationToastSummary({ type: "CUSTOMER_ADMIN_ASSIGNED", content
 assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "管理员发布了系统公告，请查看。");
 assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), action_status: "PENDING" }).length < 120);
 const notificationPanel = readFileSync("components/notification-admin-panel.tsx", "utf8");
+const announcementApi = readFileSync("app/api/admin/notifications/announcements/route.ts", "utf8");
+const announcementListApi = readFileSync("app/api/admin/notifications/route.ts", "utf8");
+const audienceMigration = readFileSync("supabase/migrations/20261016140000_role_targeted_announcements.sql", "utf8");
 const settingsLayout = readFileSync("components/settings-layout-content.tsx", "utf8");
 assert.match(settingsLayout, /path === "\/settings\/notifications"\) return <>{children}<\/>/, "通知页面不应重复显示系统管理介绍和导航");
 for (const label of ["备货与仓库", "PI 变更", "客户与账号待办", "系统公告"]) {
   assert.ok(notificationPanel.includes(label), `通知设置应按业务类别展示：${label}`);
 }
 assert.match(notificationPanel, /policies\.filter\(row => group\.types\.includes\(row\.type\)\)[\s\S]*<details key=\{group\.label\}/, "通知分类应可折叠且保留各类型开关");
+assert.match(notificationPanel, /所有启用用户[\s\S]*指定角色[\s\S]*USER_ROLES\.map/, "公告必须可以选择全员或指定角色");
+assert.match(notificationPanel, /audience === "ALL" \? null : selectedRoles/, "发布请求必须包含明确的接收范围");
+assert.match(notificationPanel, /接收范围：\{item\.recipient_roles/, "公告历史必须显示实际接收范围");
+assert.match(announcementApi, /requireAdmin\(\)[\s\S]*recipientRoles[\s\S]*USER_ROLES\.includes[\s\S]*p_recipient_roles: recipientRoles/, "只有管理员可发布，且服务端必须校验并传递角色范围");
+assert.match(announcementListApi, /recipient_roles,recipient_count/, "公告历史必须返回角色及接收人数");
+assert.match(audienceMigration, /actor\.role <> 'ADMIN'[\s\S]*u\.status = 'ACTIVE' and \(normalized_roles is null or u\.role = any\(normalized_roles\)\)/, "数据库必须再次校验管理员并只向匹配角色的启用用户送达");
+assert.match(audienceMigration, /on conflict \(request_id\) do nothing[\s\S]*ANNOUNCEMENT_REQUEST_CONFLICT[\s\S]*NO_ACTIVE_RECIPIENTS/, "公告发布必须保证幂等及非空收件人");
+assert.match(audienceMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\]\)[\s\S]*from public, anon, authenticated/, "定向公告函数不得向匿名用户开放");
 console.log("notification voice whitelist tests passed");
+
