@@ -153,6 +153,7 @@ assert.ok(stock["!rows"][12].hpt > stockTemplate["!rows"][12].hpt, "有逐项理
 assert.ok(stock["!rows"][12].hpt <= 45, "短理货备注与相邻描述应保持适中的行高");
 const stockPackage = XLSX.CFB.read(stockBuffer, { type: "buffer" });
 const stockStylesXml = Buffer.from(XLSX.CFB.find(stockPackage, "/xl/styles.xml").content).toString("utf8");
+assert.doesNotMatch(stockStylesXml, /<fill\s*\/>/, "备货 Excel 不得包含其他 OOXML 阅读器无法解析的空填充样式");
 assert.match(stock.J11.z, /^"采购成本 ∑= "/, "采购成本汇总标签须保持模板原文且不重复标注人民币");
 const stockSheetXml = Buffer.from(XLSX.CFB.find(stockPackage, "/xl/worksheets/sheet1.xml").content).toString("utf8");
 const noteFontId = Number(stockStylesXml.match(/<fonts count="(\d+)"/)[1]) - 1;
@@ -167,3 +168,4 @@ await mkdir(".tmp", { recursive: true });
 await writeFile(".tmp/quote-template-regression.xlsx", quoteBuffer);
 await writeFile(".tmp/stock-template-regression.xlsx", stockBuffer);
 console.log("报价单与备货单模板导出回归测试通过。");
+
