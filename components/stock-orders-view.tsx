@@ -17,6 +17,7 @@ import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
 import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
+import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 
 type Row = { id:string; sales_order_id:string; stock_number:string; order_number:string; warehouse_reference_number:string|null; customer_short_name:string; destination_country:string|null; status:StockOrderStatus; progress:StockProgress; status_note:string|null; stocking_requirements:string|null; expected_ready_at:string|null; created_at:string; updated_at:string; sales?:{name?:string|null;email?:string}|null };
 type Payload = { data:Row[]; count:number; profile:{role:string}; can_view_all:boolean; can_view_pi:boolean; can_export:boolean };
@@ -49,14 +50,14 @@ export function StockOrdersView() {
       if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);if(country)params.set("country",country);if(userId)params.set("user_id",userId);
       if(dateFrom)params.set("date_from",dateFrom);if(dateTo)params.set("date_to",dateTo);
       selectedIds.forEach(id=>params.append("id",id));
-      await downloadFilteredExport(`/api/stock-orders?${params}`,"备货单-已选单据.zip");
+      await downloadFilteredExport(`/api/stock-orders?${params}`,batchExportFilename("备货单","zip"));
     } catch(cause) {setError(cause instanceof Error?cause.message:"备货单导出失败")}
     finally {setExportBusy(false)}
   }
   async function exportOne(row:Row) {
     if(singleExportId)return;
     setSingleExportId(row.id);setError("");
-    try {await downloadFilteredExport(`/api/stock-orders/${row.id}/export`,`${row.warehouse_reference_number||row.order_number}-备货单.xlsx`)}
+    try {await downloadFilteredExport(`/api/stock-orders/${row.id}/export`,documentExportFilename(row.stock_number,"备货单","xlsx"))}
     catch(cause){setError(cause instanceof Error?cause.message:"备货单导出失败，请稍后重试")}
     finally{setSingleExportId(null)}
   }
@@ -92,7 +93,7 @@ export function StockOrdersView() {
       <details className="relative text-sm"><summary className="flex h-10 cursor-pointer items-center rounded-lg border bg-white px-3 text-slate-600">{EXCEPTION_STOCK_STATUSES.includes(status as StockOrderStatus) ? `历史/异常：${STOCK_STATUS_LABELS[status as StockOrderStatus]}` : "历史/异常筛选"}</summary><div className="absolute left-0 top-11 z-30 w-52 rounded-lg border bg-white p-2 shadow-lg"><AppSelect value={EXCEPTION_STOCK_STATUSES.includes(status as StockOrderStatus) ? status : ""} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={`${appFieldClass} w-full`} aria-label="按历史或异常备货状态筛选"><option value="">不筛选</option>{EXCEPTION_STOCK_STATUSES.map(key=><option key={key} value={key}>{STOCK_STATUS_LABELS[key]}</option>)}</AppSelect></div></details>
       <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setDateFrom("");setDateTo("");setSortBy("updated_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
     </AppFilterBar>
-    {data?.can_export?<div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定备货单；可跨页选择，最多50张，导出为Excel压缩包</span><button type="button" onClick={()=>void exportSelected()} disabled={exportBusy||selectedIds.length===0} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy?"正在导出…":`批量导出 Excel（${selectedIds.length}张）`}</button></div>:null}
+    {data?.can_export?<div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式备货单；可跨页选择，最多50张</span><button type="button" onClick={()=>void exportSelected()} disabled={exportBusy||selectedIds.length===0} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy?"正在导出…":`批量导出 Excel（${selectedIds.length}张）`}</button><Link href={selectedIds.length?`/stock-orders/batch-preview?${selectedIds.map(id=>`id=${encodeURIComponent(id)}`).join("&")}`:"#"} target="_blank" rel="noopener noreferrer" aria-disabled={!selectedIds.length} onClick={event=>{if(!selectedIds.length)event.preventDefault()}} className={`inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 ${selectedIds.length?"hover:bg-blue-50":"cursor-not-allowed opacity-50"}`}><FileDown size={15}/>批量导出 PDF（{selectedIds.length}张）</Link></div>:null}
     {error?<div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
     <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="overflow-x-auto"><table className="w-full min-w-[1450px] text-left text-sm">
@@ -121,7 +122,7 @@ export function StockOrdersView() {
             <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
             <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
             <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.created_at).toLocaleString("zh-CN")}</td>
-            <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50"><div className="flex items-center gap-2"><Link href={`/stock-orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">{row.status==="DRAFT"&&row.warehouse_reference_number?"查看撤回记录":row.status==="DRAFT"&&["WAREHOUSE","ADMIN"].includes(data?.profile.role||"")?"完善备货信息":"查看详情"}</Link><RowActionMenu ariaLabel={`备货单 ${row.warehouse_reference_number||row.order_number} 的更多操作`} label="更多"><RowActionItem onClick={()=>router.push(`/stock-orders/${row.id}/preview`)}>预览{row.status==="DRAFT"?"草稿":" / 打印"}</RowActionItem>{data?.can_export&&!["DRAFT","CANCELLED"].includes(row.status)?<RowActionItem disabled={singleExportId!==null} onClick={()=>void exportOne(row)}>{singleExportId===row.id?"导出中…":"导出 Excel"}</RowActionItem>:null}</RowActionMenu></div></td>
+            <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50"><div className="flex items-center gap-2"><Link href={`/stock-orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">{row.status==="DRAFT"&&row.warehouse_reference_number?"查看撤回记录":row.status==="DRAFT"&&["WAREHOUSE","ADMIN"].includes(data?.profile.role||"")?"完善备货信息":"查看详情"}</Link><RowActionMenu ariaLabel={`备货单 ${row.warehouse_reference_number||row.order_number} 的更多操作`} label="更多"><RowActionItem onClick={()=>router.push(`/stock-orders/${row.id}/preview`)}>预览{row.status==="DRAFT"?"草稿":" / 打印"}</RowActionItem>{data?.can_export&&!["DRAFT","CANCELLED"].includes(row.status)?<><RowActionItem disabled={singleExportId!==null} onClick={()=>void exportOne(row)}>{singleExportId===row.id?"导出中…":"导出 Excel"}</RowActionItem><RowActionItem onClick={()=>window.open(`/stock-orders/${row.id}/preview?export=pdf`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></>:null}</RowActionMenu></div></td>
           </tr>) : <tr><td colSpan={tableColumns} className="h-56 text-center text-slate-400">暂无备货单</td></tr>}</tbody>
       </table></div>
       <AppPagination page={page} pageSize={pageSize} total={data?.count||0} itemLabel="张备货单" onPage={setPage} onPageSize={size=>{setPageSize(size);setPage(1)}}/>

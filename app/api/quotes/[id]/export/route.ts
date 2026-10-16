@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { buildQuoteWorkbook } from "@/lib/template-xlsx";
+import { documentExportFilename } from "@/lib/export-file-name";
 
 function download(buffer: Buffer, filename: string) {
   return new NextResponse(new Uint8Array(buffer), {
@@ -24,7 +25,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     if (error) throw error;
     if (itemError) throw itemError;
     const buffer = await buildQuoteWorkbook(quote as never, (items || []) as never);
-    return download(buffer, `${quote.quote_number}.xlsx`);
+    return download(buffer, documentExportFilename(quote.quote_number, "报价单", "xlsx"));
   } catch (error) {
     const message = sqlErrorMessage(error, "报价单导出失败");
     return NextResponse.json({ error: message }, { status: 400 });

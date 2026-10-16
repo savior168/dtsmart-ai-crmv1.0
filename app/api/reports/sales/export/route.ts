@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { defaultMonthRange, loadSalesReport, type ReportCountRow } from "@/lib/reports/sales";
 import { workbookResponse } from "@/lib/xlsx-export";
+import { dataExportFilename } from "@/lib/export-file-name";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
     section("报价状态", report.breakdowns.quote_statuses); section("备货状态", report.breakdowns.stock_statuses);
     lines.push([]); add(["日期", "新增在库", "跟进记录", "新增报价单"]);
     report.breakdowns.trend.forEach((row) => add([row.date, row.customers, row.followups, row.quotes]));
-    return workbookResponse(`销售业务报表_${from.slice(0, 10)}_${displayTo}.xlsx`, [{ name: "销售业务报表", rows: lines, widths: [24, 20, 18, 18, 18, 18, 18, 18, 18] }]);
+    return workbookResponse(dataExportFilename(`销售业务报表_${from.slice(0, 10)}_${displayTo}`), [{ name: "销售业务报表", rows: lines, widths: [24, 20, 18, 18, 18, 18, 18, 18, 18] }]);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "销售报表导出失败" }, { status: 400 });
   }

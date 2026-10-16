@@ -55,5 +55,8 @@ assert.match(formSource, /const basicKeys=\["company_name","contact_name","count
 assert.match(formSource, /x-dtsmart-toast":"manual-error"/, "客户表单错误已在表单内展示时不应再弹全局重复错误toast");
 assert.match(taskRuntime, /toastMode === "manual-error" && !response\.ok/, "manual-error只抑制重复失败toast，不影响统一成功反馈");
 assert.match(editApi, /const writable = \[[\s\S]*"company_name", "contact_name", "country", "phone", "whatsapp", "email"/, "服务端应允许编辑对应原始字段");
+const editableCustomerFields = editApi.match(/const writable = \[[\s\S]*?\];/)?.[0] || "";
+assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_score|review_count/,
+  "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
 assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onStage=.*setStageOpen\(true\)[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入阶段变更和跟进留痕流程");
 console.log("手动新增与编辑客户表单回显、必填和工作流边界回归测试通过。");

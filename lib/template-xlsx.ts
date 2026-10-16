@@ -39,6 +39,7 @@ type StockExportData = {
   order_change_note?: string | null;
   expected_ready_at?: string | null;
   shipped_at?: string | null;
+  status_label?: string | null;
   delivery_recipient?: string | null;
   delivery_phone?: string | null;
   delivery_email?: string | null;
@@ -248,8 +249,10 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     ["K4", stock.stocking_requirements?.trim() || "常规理货"],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
     ["D9", [`姓名：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`].join("\n")],
+    ["B10", stock.status_label ? `备货状态：${stock.status_label}` : ""],
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
+  if (stock.status_label) xml = withRowHeight(xml, 10, 20);
   xml = withCellStyle(withRowHeight(xml, 9, 57), "D9", styles.contactStyle);
   if (stock.stocking_requirements?.trim() && stock.stocking_requirements.trim() !== "常规理货") xml = withCellStyle(xml, "K4", styles.nStyle);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");

@@ -5,6 +5,7 @@ import { workbookResponse } from "@/lib/xlsx-export";
 import { followupDayBounds } from "@/lib/customers/followup-day";
 import { countryFilterRawValues } from "@/lib/countries";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { dataExportFilename } from "@/lib/export-file-name";
 
 type FollowupRow = {
   type: string | null;
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
         scope === "history" ? row.actor_name || row.actor_email : row.owner_name || row.owner_email,
       ];
     });
-    return workbookResponse(`跟进记录_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "跟进记录", rows: [headings, ...lines], widths: [26, 16, 10, 10, 16, 16, 52, 20, 20, 18], wrapColumns: [6] }]);
+    return workbookResponse(dataExportFilename("跟进记录"), [{ name: "跟进记录", rows: [headings, ...lines], widths: [26, 16, 10, 10, 16, 16, 52, 20, 20, 18], wrapColumns: [6] }]);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "跟进记录导出失败" }, { status: 400 });
   }

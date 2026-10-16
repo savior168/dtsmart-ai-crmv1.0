@@ -51,17 +51,27 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const actors = new Map((actorResult.data || []).map((actor) => [actor.id, actor]));
     const scopedEvents = (events || []).map((event) => ({ ...event, creator: actors.get(event.created_by) || null }));
     let expenses = null;
+    let shipments = null;
+    let shipmentFeatureReady = false;
     if (["WAREHOUSE", "ADMIN"].includes(account.role)) {
-      const result = await supabase.from("stock_order_expenses")
-        .select("packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,updated_at")
-        .eq("stock_order_id", id).maybeSingle();
-      if (result.error) throw result.error;
-      expenses = result.data;
+      const [expenseResult, shipmentResult] = await Promise.all([
+        supabase.from("stock_order_expenses")
+          .select("packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,updated_at")
+          .eq("stock_order_id", id).maybeSingle(),
+        supabase.from("stock_order_shipments")
+          .select("id,item_ids,packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,handoff_note,created_by,created_at")
+          .eq("stock_order_id", id).order("created_at", { ascending: false }),
+      ]);
+      if (expenseResult.error) throw expenseResult.error;
+      if (shipmentResult.error && !["42P01", "PGRST205"].includes(shipmentResult.error.code || "")) throw shipmentResult.error;
+      expenses = expenseResult.data;
+      shipments = shipmentResult.data || [];
+      shipmentFeatureReady = !shipmentResult.error;
     }
     const warehouseEditor = ["WAREHOUSE", "ADMIN"].includes(account.role);
     const recalledPi = order.status === "DRAFT" && Boolean(order.warehouse_reference_number);
     const transitions:Record<string,string[]>={WAITING:["PREPARING","SHORTAGE","CANCELLED"],PREPARING:["RECEIVED","SHORTAGE","CANCELLED"],RECEIVED:["SORTING","SHORTAGE","CANCELLED"],SORTING:["READY_TO_SHIP","SHORTAGE","CANCELLED"],READY_TO_SHIP:["SHIPPED","CANCELLED"],SHORTAGE:["PREPARING","CANCELLED"],DRAFT:[],SHIPPED:[],READY:[],CANCELLED:[]};
-    return NextResponse.json({ order: { ...order, sales: order.sales || salesOwner?.data || null }, items: items || [], events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_edit_procurement: warehouseEditor && hasPermission(account, "stock.procurement.edit") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), allowed_statuses:transitions[order.status]||[] });
+    return NextResponse.json({ order: { ...order, sales: order.sales || salesOwner?.data || null }, items: items || [], events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_edit_procurement: warehouseEditor && hasPermission(account, "stock.procurement.edit") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), allowed_statuses:transitions[order.status]||[] });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

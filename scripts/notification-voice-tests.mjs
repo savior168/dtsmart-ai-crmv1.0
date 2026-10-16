@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { notificationVoiceText } from "../lib/notification-voice.ts";
 import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
 import { defaultNotificationPolicy, notificationPolicyType } from "../lib/notification-policy.ts";
@@ -48,4 +49,11 @@ assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "�
 assert.equal(notificationToastSummary({ type: "CUSTOMER_ADMIN_ASSIGNED", content: "管理员分配了 3 个客户" }), "管理员向您分配了 3 个客户，请及时跟进。");
 assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "管理员发布了系统公告，请查看。");
 assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), action_status: "PENDING" }).length < 120);
+const notificationPanel = readFileSync("components/notification-admin-panel.tsx", "utf8");
+const settingsLayout = readFileSync("components/settings-layout-content.tsx", "utf8");
+assert.match(settingsLayout, /path === "\/settings\/notifications"\) return <>{children}<\/>/, "通知页面不应重复显示系统管理介绍和导航");
+for (const label of ["备货与仓库", "PI 变更", "客户与账号待办", "系统公告"]) {
+  assert.ok(notificationPanel.includes(label), `通知设置应按业务类别展示：${label}`);
+}
+assert.match(notificationPanel, /policies\.filter\(row => group\.types\.includes\(row\.type\)\)[\s\S]*<details key=\{group\.label\}/, "通知分类应可折叠且保留各类型开关");
 console.log("notification voice whitelist tests passed");

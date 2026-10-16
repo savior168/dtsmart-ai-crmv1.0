@@ -24,11 +24,12 @@ export async function POST(request: NextRequest) {
     const label = String(body.label || "").trim();
     const currency = String(body.currency || "").trim().toUpperCase();
     const instructions = String(body.instructions || "").trim();
-    if (!label || label.length > 120 || !/^[A-Z]{3}$/.test(currency) || !instructions || instructions.length > 2000) {
+    const active = body.active;
+    if (typeof active !== "boolean" || !label || label.length > 120 || !/^[A-Z]{3}$/.test(currency) || !instructions || instructions.length > 2000) {
       throw new Error("请填写账户名称、三位币种代码及完整收款信息");
     }
     const { data, error } = await supabase.from("pi_payment_accounts")
-      .insert({ label, currency, instructions }).select("id,label,currency,instructions,active").single();
+      .insert({ label, currency, instructions, active }).select("id,label,currency,instructions,active").single();
     if (error) throw error;
     return NextResponse.json({ data }, { status: 201 });
   } catch (error) {

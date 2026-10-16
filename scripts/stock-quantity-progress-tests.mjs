@@ -1,5 +1,29 @@
 import assert from "node:assert/strict";
+import { createJiti } from "jiti";
 import { physicalStockBuckets } from "../lib/stock-progress-math.ts";
+
+const { stockProgressLabel, stockItemProgressKey, summarizeStockProgress } = createJiti(import.meta.url, { alias: { "@": process.cwd() } })("../lib/stock-progress.ts");
+const state = (status, received, prepared = 0, shipped = 0, preparation_status = status) =>
+  summarizeStockProgress(status, [{ quantity: 10, received_quantity: received, prepared_quantity: prepared,
+    shipped_quantity: shipped, preparation_status }]);
+assert.equal(stockProgressLabel(state("WAITING", 0)), "待仓库接单");
+assert.equal(stockProgressLabel(state("PREPARING", 0)), "采购中");
+assert.equal(stockProgressLabel(state("PREPARING", 5)), "部分回货");
+assert.equal(stockProgressLabel(state("PREPARING", 5, 2)), "部分回货");
+assert.equal(stockProgressLabel(state("RECEIVED", 10)), "已回齐待理货");
+assert.equal(stockProgressLabel(state("SORTING", 10, 3)), "理货中");
+assert.equal(stockProgressLabel(state("READY_TO_SHIP", 10, 10)), "已理货待交货代");
+assert.equal(stockProgressLabel(state("READY_TO_SHIP", 10, 10, 3)), "部分已交货代");
+assert.equal(stockProgressLabel(state("SHIPPED", 10, 10, 10)), "已交货代");
+assert.equal(stockProgressLabel(state("SHORTAGE", 5)), "缺货异常");
+assert.equal(stockProgressLabel(state("CANCELLED", 5)), "已取消");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 0, preparation_status: "WAITING" }), "WAITING");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 0, preparation_status: "PREPARING" }), "PURCHASING");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 4, preparation_status: "PREPARING" }), "PARTIAL_RECEIPT");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 0 }), "RECEIVED");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 4 }), "SORTING");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 10 }), "READY_TO_SHIP");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 10, shipped_quantity: 10 }), "SHIPPED");
 
 const scenario = physicalStockBuckets([
   { quantity: 30, received_quantity: 0, prepared_quantity: 0, shipped_quantity: 0, preparation_status: "WAITING" },

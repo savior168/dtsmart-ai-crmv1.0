@@ -25,6 +25,7 @@ import {
   type ImportRow,
 } from "@/lib/import-parser";
 import { downloadWorkbook } from "@/lib/xlsx-export";
+import { dataExportFilename } from "@/lib/export-file-name";
 import { customerIdentityKeys } from "@/lib/import-dedupe";
 import { CountryLabel } from "@/components/country-label";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -390,7 +391,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
         return status === "conflict" ? [...base, row.conflict_owner_name || "已归属其他用户", resultLabels[status], reason] : [...base, resultLabels[status], reason];
       }),
     ];
-    downloadWorkbook("完整导入报告.xlsx", [
+    downloadWorkbook(dataExportFilename("客户完整导入报告"), [
       { name: "成功导入", rows: sheetRows("success") },
       { name: "失败导入", rows: sheetRows("failed") },
       { name: "重复数据", rows: sheetRows("duplicate") },

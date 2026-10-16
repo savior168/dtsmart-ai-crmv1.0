@@ -5,9 +5,10 @@ import { STOCK_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
 import { buildStockWorkbook } from "@/lib/template-xlsx";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
-import { summarizeStockProgress } from "@/lib/stock-progress";
+import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 
 const SORT_COLUMNS = {
   stock_number: "stock_number",
@@ -33,7 +34,12 @@ export async function GET(request: NextRequest) {
     if (params.get("view") === "dashboard") {
       const dashboard = await supabase.rpc("stock_order_dashboard");
       if (dashboard.error) throw dashboard.error;
-      return NextResponse.json(dashboard.data || { counts: {}, recent: [] }, {
+      const result = dashboard.data || { counts: {}, recent: [] };
+      const recent = Array.isArray(result.recent) ? result.recent : [];
+      const itemsByStockId = await loadStockProgressItems(supabase, recent.map((order: { id: string }) => order.id));
+      return NextResponse.json({ ...result, recent: recent.map((order: { id: string; status: string }) => ({
+        ...order, progress: summarizeStockProgress(order.status, itemsByStockId.get(order.id) || []),
+      })) }, {
         headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" },
       });
     }
@@ -95,7 +101,7 @@ export async function GET(request: NextRequest) {
             "id,sales_order_id,sales_user_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
           ).in("id", batchIds),
           supabase.from("stock_order_items").select(
-            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,warehouse_supplier_code,preparation_requirement,internal_note",
+            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
           ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(0, 999),
           supabase.from("stock_order_events").select("stock_order_id,created_at").in("stock_order_id", batchIds).eq("to_status", "SHIPPED").order("created_at", { ascending: false }).order("id").range(0, 999),
         ]);
@@ -105,7 +111,7 @@ export async function GET(request: NextRequest) {
         const items = [...(firstItems.data || [])];
         for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
           const next = await supabase.from("stock_order_items").select(
-            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,warehouse_supplier_code,preparation_requirement,internal_note",
+            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
           ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(offset, offset + 999);
           if (next.error) throw next.error;
           items.push(...(next.data || []));
@@ -144,20 +150,22 @@ export async function GET(request: NextRequest) {
       for (const event of batches.flatMap((batch) => batch.shipped)) {
         if (!shippedByStockId.has(event.stock_order_id)) shippedByStockId.set(event.stock_order_id, event.created_at);
       }
+      const exportedAt = new Date();
       const files: Array<{ name: string; data: ArrayBuffer | Uint8Array }> = [];
       for (const row of rows) {
         const detail = detailById.get(row.id);
         const items = itemsByStockId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("备货数据已更新，请刷新筛选结果");
-        files.push({ name: `${row.warehouse_reference_number || row.order_number}-备货单.xlsx`,
+        files.push({ name: documentExportFilename(row.stock_number, "备货单", "xlsx", exportedAt),
           data: await buildStockWorkbook({ ...detail, salesperson: detail.salesperson || salesOwnerById.get(detail.sales_user_id) || null,
             order_change_note: piNoteById.get(detail.sales_order_id) || null,
-            shipped_at: shippedByStockId.get(row.id) || null } as never, items as never) });
+            shipped_at: shippedByStockId.get(row.id) || null,
+            status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never) });
       }
       const zip = buildWorkbookZip(files);
       return new NextResponse(streamZipBytes(zip), { headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": "attachment; filename*=UTF-8''stock-orders.zip",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(batchExportFilename("备货单", "zip", exportedAt))}`,
         "Cache-Control": "private, no-store",
       } });
     }
