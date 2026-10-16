@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
-
 export async function POST(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("orders.import");
@@ -47,4 +46,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
-

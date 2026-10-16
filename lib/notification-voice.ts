@@ -13,6 +13,8 @@ const handoffPhrases: Record<string, string> = {
   PROTECTION_RENEWAL_REVIEW: "您有客户续期申请待审核",
   CUSTOMER_ADMIN_ASSIGNED: "您有新分配的客户待处理",
   CUSTOMER_HANDOVER: "您有客户交接待处理",
+  FOLLOWUP_DUE: "您有客户跟进提醒",
+  SYSTEM_ANNOUNCEMENT: "您有新的系统公告，请前往通知中心查看",
 };
 
 export function notificationVoiceText(notice: VoiceNotice): string | null {

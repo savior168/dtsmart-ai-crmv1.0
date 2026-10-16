@@ -168,7 +168,8 @@ assert.match(webEnrichment,/collectPublicGooglePlaceEvidence[\s\S]*hasMeaningful
 assert.match(webEnrichment,/maxPaidDetailCallsPerCustomer[\s\S]*paidDetailCallCount >= maxPaidDetailCallsPerCustomer/,"单客户Place Details调用必须有硬上限");
 assert.match(aiRunner,/OPENAI_MAX_RESERVED_USD_PER_CALL[\s\S]*if \(!reserved\.allowed\)[\s\S]*按已取得的真实证据完成判断/,"OpenAI达到费用上限后必须停止付费调用并按免费证据继续分析");
 const shell = read("components/app-shell.tsx");
-assert.match(shell, /toastNotices[\s\S]*fixed bottom-5 right-5[\s\S]*立即查看[\s\S]*稍后处理/, "关键通知必须在右下角弹出并可直达业务详情");
+assert.match(shell, /toastNotices[\s\S]*fixed bottom-5 right-5[\s\S]*立即查看[\s\S]*稍后查看/, "关键通知必须在右下角弹出并可直达业务详情");
+assert.match(shell, /action: "DISMISS"/, "关闭通知弹框不得将未读消息标记为已读");
 assert.match(shell, /canLoadNotices = Boolean\(profile && \(profile\.role === "ADMIN" \|\| profile\.permissions\.includes\("notifications\.view"\)\)\)[\s\S]*if \(!canLoadNotices\)[\s\S]*setInterval\(refresh, 15000\)/, "登录页、未核验会话或无通知权限的角色不得轮询通知接口");
 const notifications = read("components/notifications-view.tsx");
 assert.match(notifications, /未读[\s\S]*待处理[\s\S]*已归档[\s\S]*标记已处理/, "通知中心必须同时管理阅读与业务处理状态");

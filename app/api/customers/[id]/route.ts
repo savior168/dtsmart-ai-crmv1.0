@@ -5,6 +5,7 @@ import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
+import { sqlErrorMessage } from "@/lib/sales-flow";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -16,16 +17,13 @@ const writable = [
   "store_name", "product_image", "store_score", "review_count",
 ];
 
-async function assertNoDuplicateIdentity(customerId: string, payload: Record<string, unknown>) {
+async function assertNoDuplicateIdentity(customerId: string, payload: Record<string, unknown>, current: Record<string, unknown>) {
   const admin = createAdminClient();
-  const { data: current, error } = await admin.from("customers")
-    .select("id,company_name,phone,whatsapp,email,website,google_url")
-    .eq("id", customerId)
-    .single();
-  if (error) throw error;
   const candidate = { ...current, ...payload };
   const lookupKeys = customerLookupIdentityKeys(candidate);
   if (!lookupKeys.length) return;
+  const existingKeys = customerLookupIdentityKeys(current);
+  if (lookupKeys.length === existingKeys.length && lookupKeys.every((key) => existingKeys.includes(key))) return;
   const rows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += 1000) {
     const page = await admin.from("customers")
@@ -101,20 +99,23 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
     validateCustomerContactPayload(payload);
-    const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country").eq("id", id).single();
+    const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country,phone,whatsapp,email,website,google_url").eq("id", id).single();
     if (customerError) throw customerError;
     const canEdit = account.role === "ADMIN" || customer.owner_id === user.id;
     if (!canEdit) return NextResponse.json({ error: "只能编辑归属自己的客户原始资料；跨用户数据仅供查看" }, { status: 403 });
     if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
     if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
     if (!(payload.country ?? customer.country)?.toString().trim()) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
-    await assertNoDuplicateIdentity(id, payload);
+    await assertNoDuplicateIdentity(id, payload, customer);
+    for (const key of ["phone", "whatsapp", "email"] as const) {
+      if (key in payload && String(payload[key] ?? "") === String(customer[key] ?? "")) delete payload[key];
+    }
     const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select(["id", "status", ...writable].join(",")).single();
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_UPDATE", "customer", id, { fields: Object.keys(payload) });
     return NextResponse.json(data);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "更新失败" }, { status: 400 });
+    return NextResponse.json({ error: sqlErrorMessage(error, "更新失败") }, { status: 400 });
   }
 }
 

@@ -19,7 +19,7 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
   }
   const guarded = guards.some((source) => source.includes(`protectPage("${permission}")`)
     || source.includes(`requirePermission("${permission}")`)
-    || (permission === "system.users.view" && source.includes("requireAdmin()")));
+    || (["system.users.view", "system.notifications.view"].includes(permission) && source.includes("requireAdmin()")));
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
 }
 assert.match(read("app/api/pi-exchange-rates/route.ts"), /account\.role === "ADMIN"[\s\S]*rates\.map\(\(\{ currency, label, business_cny \}\)/, "销售读取业务汇率不能泄露管理员的参考来源、手工值和调整规则");
@@ -35,6 +35,9 @@ for (const [code, page, api, method] of [
 }
 assert.match(sidebar, /href: "\/settings\/pi-exchange-rates", permission: "pi.rates.view"/, "汇率菜单必须使用独立页面权限");
 assert.match(sidebar, /href: "\/settings\/pi-payment-accounts", permission: "pi.accounts.view"/, "收款账户菜单必须使用独立页面权限");
+assert.match(permissionCatalog, /code: "system\.notifications\.view"[^\n]*core: true/, "通知与公告入口必须仅系统管理员可见");
+assert.match(read("app/api/admin/notifications/route.ts"), /requireAdmin\(\)/, "通知策略接口必须核验系统管理员");
+assert.match(read("app/api/admin/notifications/announcements/route.ts"), /requireAdmin\(\)/, "公告发布接口必须核验系统管理员");
 
 const roleApi = read("app/api/admin/roles/route.ts");
 assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");

@@ -125,6 +125,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "system.roles.view", label: "查看权限配置", group: "系统管理", description: "查看角色与用户权限", kind: "PAGE", core: true },
   { code: "system.roles.manage", label: "配置角色与用户权限", group: "系统管理", description: "调整角色默认权限和用户覆盖权限", kind: "ACTION", core: true },
   { code: "system.audit.view", label: "查看操作日志", group: "系统管理", description: "查看本人产生的系统关键操作记录；系统管理员可切换操作人", kind: "PAGE" },
+  { code: "system.notifications.view", label: "通知与公告设置", group: "系统管理", description: "配置系统通知方式并发布全员公告", kind: "PAGE", core: true },
   { code: "system.security.view", label: "查看安全设置", group: "系统管理", description: "只读查看登录与密码安全策略", kind: "PAGE" },
   { code: "system.security.manage", label: "修改安全设置", group: "系统管理", description: "修改登录锁定与临时密码策略", kind: "ACTION", core: true },
 ];
@@ -162,6 +163,7 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("system.users.")) return "system.users.view";
   if (code.startsWith("system.roles.")) return "system.roles.view";
   if (code.startsWith("system.audit.")) return "system.audit.view";
+  if (code.startsWith("system.notifications.")) return "system.notifications.view";
   if (code.startsWith("system.security.")) return "system.security.view";
   return code;
 }

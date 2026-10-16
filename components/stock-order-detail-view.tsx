@@ -472,7 +472,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div> : null}
             {error ? <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
             <div className="overflow-x-auto rounded-xl border">
-              <table className="w-full min-w-[1100px] text-left text-sm">
+              <table className="w-full min-w-[1740px] table-fixed text-left text-sm">
+                <colgroup>
+                  {[42, 48, 74, 74, 104, 112, 110, 170, 115, 58, 125, 105, 105, 158, 190, 150, ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}
+                </colgroup>
                 <thead className="bg-slate-50 text-xs">
                   <tr>
                     {[
@@ -494,7 +497,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "仓库备注",
                       ...(canExecute ? ["操作"] : []),
                     ].map((x) => (
-                      <th key={x} className="px-3 py-3 font-medium">
+                      <th key={x} className="break-words px-2 py-3 font-medium leading-4">
                         {x}
                       </th>
                     ))}
@@ -505,18 +508,20 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     <tr key={item.id} className="border-t">
                       <td className="px-3 py-3">{canExecute ? <input type="checkbox" aria-label={`选择第 ${item.line_number} 项进行批量备货操作`} checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => event.target.checked ? [...current, item.id] : current.filter((value) => value !== item.id))} /> : null}</td>
                       <td className="px-3 py-3">{item.line_number}</td>
-                      <td className="px-3 py-3 font-medium">
-                        {item.product_type_snapshot || item.item_name || "—"}
-                        {item.product_type_snapshot && item.item_name !== item.product_type_snapshot ? <small className="mt-1 block font-normal text-slate-500">{item.item_name}</small> : null}
+                      <td className="px-2 py-2 font-medium">
+                        <div className="line-clamp-2 break-words leading-5" title={[item.product_type_snapshot || item.item_name || "—", item.product_type_snapshot && item.item_name !== item.product_type_snapshot ? item.item_name : ""].filter(Boolean).join(" · ")}>
+                          {item.product_type_snapshot || item.item_name || "—"}{item.product_type_snapshot && item.item_name !== item.product_type_snapshot ? <small className="font-normal text-slate-500"> · {item.item_name}</small> : null}
+                        </div>
                       </td>
-                      <td className="px-3 py-3">{item.brand || "-"}</td>
-                      <td className="px-3 py-3">{item.model || "-"}</td>
-                      <td className="px-3 py-3">
-                        {item.quality || "-"}
-                        {item.product_color_snapshot || item.product_specifications_snapshot ? <small className="mt-1 block text-slate-500">{[item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", summarizeProductSpecificationsSnapshot(item.product_specifications_snapshot)].filter(Boolean).join(" · ")}</small> : null}
+                      <td className="px-2 py-2"><div className="line-clamp-2 break-words leading-5" title={item.brand || "-"}>{item.brand || "-"}</div></td>
+                      <td className="px-2 py-2"><div className="line-clamp-2 break-words leading-5" title={item.model || "-"}>{item.model || "-"}</div></td>
+                      <td className="px-2 py-2">
+                        <div className="line-clamp-2 break-words leading-5" title={[item.quality || "-", item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", summarizeProductSpecificationsSnapshot(item.product_specifications_snapshot)].filter(Boolean).join(" · ")}>
+                          {item.quality || "-"}{item.product_color_snapshot || item.product_specifications_snapshot ? <small className="text-slate-500"> · {[item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", summarizeProductSpecificationsSnapshot(item.product_specifications_snapshot)].filter(Boolean).join(" · ")}</small> : null}
+                        </div>
                       </td>
-                      <td className="px-3 py-3">{item.description || "-"}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2"><div className="line-clamp-2 break-words leading-5" title={item.description || "-"}>{item.description || "-"}</div></td>
+                      <td className="px-2 py-2">
                         {data.can_prepare ? (
                           <input
                             value={item.description_zh || ""}
@@ -528,34 +533,34 @@ export function StockOrderDetailView({ id }: { id: string }) {
                               )
                             }
                             placeholder="必填：采购备货中文质量/描述"
-                            className="h-9 min-w-60 rounded border px-2"
+                            className="h-9 w-full min-w-0 rounded border px-2"
                           />
                         ) : (
-                          item.description_zh || "-"
+                          <div className="line-clamp-2 break-words leading-5" title={item.description_zh || "-"}>{item.description_zh || "-"}</div>
                         )}
                       </td>
-                      <td className="px-3 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
-                      <td className="px-3 py-3">{item.quantity}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
+                      <td className="px-2 py-2">{item.quantity}</td>
+                      <td className="px-2 py-2">
                         {canExecute ? <input value={receivingDraft[item.id]?.supplierCode ?? ""}
                           onChange={(e) => setReceivingDraft((current) => ({ ...current, [item.id]: { ...current[item.id], supplierCode: e.target.value } }))}
                           onBlur={() => saveLineOnBlur(item, "RECEIVE")}
-                          aria-label={`第 ${item.line_number} 行供应商编码`} maxLength={100} className="h-9 w-36 rounded border px-2" /> : item.warehouse_supplier_code || "—"}
+                          aria-label={`第 ${item.line_number} 行供应商编码`} maxLength={100} className="h-9 w-full min-w-0 rounded border px-2" /> : <div className="line-clamp-2 break-words leading-5" title={item.warehouse_supplier_code || "—"}>{item.warehouse_supplier_code || "—"}</div>}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         {canExecute ? <input inputMode="numeric" pattern="[0-9]*" maxLength={10} value={receivingDraft[item.id]?.received ?? "0"}
                           onChange={(e) => { if (/^\d{0,10}$/.test(e.target.value)) setReceivingDraft((current) => ({ ...current, [item.id]: { ...current[item.id], received: e.target.value } })); }}
                           onBlur={() => saveLineOnBlur(item, "RECEIVE")}
-                          aria-label={`第 ${item.line_number} 行累计已回货数量`} className="h-9 w-24 rounded border px-2 text-right" /> : item.received_quantity}
+                          aria-label={`第 ${item.line_number} 行累计已回货数量`} className="h-9 w-full min-w-0 rounded border px-2 text-right" /> : item.received_quantity}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         {canExecute ? <input inputMode="numeric" pattern="[0-9]*" maxLength={10} value={receivingDraft[item.id]?.prepared ?? "0"}
                           onChange={(e) => { if (/^\d{0,10}$/.test(e.target.value)) setReceivingDraft((current) => ({ ...current, [item.id]: { ...current[item.id], prepared: e.target.value } })); }}
                           onBlur={() => saveLineOnBlur(item, "PREPARE")}
-                          aria-label={`第 ${item.line_number} 行累计已完成理货数量`} className="h-9 w-24 rounded border px-2 text-right" /> : item.prepared_quantity}
+                          aria-label={`第 ${item.line_number} 行累计已完成理货数量`} className="h-9 w-full min-w-0 rounded border px-2 text-right" /> : item.prepared_quantity}
                       </td>
-                      <td className="px-3 py-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${STAGE_COLORS[item.preparation_status] || STAGE_COLORS.WAITING}`}>{item.shipped_quantity === item.quantity ? "已交货代" : item.prepared_quantity === item.quantity ? "已理货待交货代" : item.received_quantity < item.quantity ? item.received_quantity > 0 ? "部分回货" : item.preparation_status === "WAITING" ? "待采购" : "采购中" : item.prepared_quantity > 0 ? "理货中" : "已回货待理货"}</span><small className="mt-1 block whitespace-nowrap text-slate-500">回货 {item.received_quantity}/{item.quantity} · 理货 {item.prepared_quantity}/{item.quantity}</small>{savingItemId === item.id ? <small className="mt-1 block text-blue-700">正在自动保存…</small> : null}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${STAGE_COLORS[item.preparation_status] || STAGE_COLORS.WAITING}`}>{item.shipped_quantity === item.quantity ? "已交货代" : item.prepared_quantity === item.quantity ? "已理货待交货代" : item.received_quantity < item.quantity ? item.received_quantity > 0 ? "部分回货" : item.preparation_status === "WAITING" ? "待采购" : "采购中" : item.prepared_quantity > 0 ? "理货中" : "已回货待理货"}</span><small className="mt-1 block whitespace-nowrap text-xs leading-4 text-slate-500">回货 {item.received_quantity}/{item.quantity} · 理货 {item.prepared_quantity}/{item.quantity}</small>{savingItemId === item.id ? <small className="mt-1 block text-blue-700">正在自动保存…</small> : null}</td>
+                      <td className="px-2 py-2">
                         {data.can_prepare ? (
                           <input
                             value={item.preparation_requirement || ""}
@@ -567,14 +572,14 @@ export function StockOrderDetailView({ id }: { id: string }) {
                               )
                             }
                             placeholder="该产品特殊理货要求"
-                            className="h-9 min-w-56 rounded border px-2"
+                            className="h-9 w-full min-w-0 rounded border px-2"
                           />
                         ) : (
-                          item.preparation_requirement || "-"
+                          <div className="line-clamp-2 break-words text-[13px] leading-5 text-slate-600" title={item.preparation_requirement || "-"}>{item.preparation_requirement || "-"}</div>
                         )}
                       </td>
-                      <td className="px-3 py-3">{item.internal_note || "-"}</td>
-                      {canExecute ? <td className="px-3 py-3"><button type="button" disabled={busy || savingItemId !== null || hasUnsavedQuantity} onClick={() => setCorrection({
+                      <td className="px-2 py-2"><div className="line-clamp-2 break-words text-[13px] leading-5 text-slate-600" title={item.internal_note || "-"}>{item.internal_note || "-"}</div></td>
+                      {canExecute ? <td className="px-2 py-2"><button type="button" disabled={busy || savingItemId !== null || hasUnsavedQuantity} onClick={() => setCorrection({
                         itemId: item.id, received: String(item.received_quantity), prepared: String(item.prepared_quantity),
                         supplierCode: item.warehouse_supplier_code || "", reason: "", revertStart: false,
                       })} className="whitespace-nowrap rounded border border-amber-300 px-3 py-1.5 text-amber-800 disabled:opacity-40">更正进度</button></td> : null}

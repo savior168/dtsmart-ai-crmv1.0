@@ -40,7 +40,6 @@ export function matchImportedPaymentAccount(sourceInstructions: string, accounts
   const matches = accounts.filter((account) => account.currency === currency && normalizePaymentInstructions(account.instructions) === normalized);
   return matches.length === 1 ? matches[0].id : "";
 }
-
 function dateValue(value: unknown, date1904 = false) {
   if (typeof value === "number" && Number.isFinite(value)) {
     if (value < 1 || value > 2958465) return "";
@@ -117,4 +116,3 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
     items, subtotal_payment, shipping_payment: money(shipping_payment), total_payment: money(subtotal_payment + shipping_payment),
   } satisfies ImportedPiDocument };
 }
-
