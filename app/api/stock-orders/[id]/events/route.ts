@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const result = await supabase.from("stock_order_events")
       .select("id,from_status,to_status,note,created_by,created_at", { count: "exact" })
       .eq("stock_order_id", id).order("created_at", { ascending: false }).order("id", { ascending: false })
-      .range((page - 1) * 20, page * 20 - 1);
+      .range((page - 1) * 10, page * 10 - 1);
     if (result.error) throw result.error;
     const actorIds = [...new Set((result.data || []).map((event) => event.created_by).filter(Boolean))];
     const actorResult = actorIds.length
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (actorResult.error) throw actorResult.error;
     const actors = new Map((actorResult.data || []).map((actor) => [actor.id, actor]));
     return NextResponse.json({ data: (result.data || []).map((event) => ({ ...event, creator: actors.get(event.created_by) || null })),
-      count: result.count || 0, page, page_size: 20 });
+      count: result.count || 0, page, page_size: 10 });
   } catch (error) {
     const message = sqlErrorMessage(error, "状态流转记录加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

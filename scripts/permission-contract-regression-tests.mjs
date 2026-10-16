@@ -19,7 +19,7 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
   }
   const guarded = guards.some((source) => source.includes(`protectPage("${permission}")`)
     || source.includes(`requirePermission("${permission}")`)
-    || (permission === "system.users.view" && source.includes("requireAdmin()")));
+    || (["system.users.view", "system.notifications.view"].includes(permission) && source.includes("requireAdmin()")));
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
 }
 assert.match(read("app/api/pi-exchange-rates/route.ts"), /account\.role === "ADMIN"[\s\S]*rates\.map\(\(\{ currency, label, business_cny \}\)/, "销售读取业务汇率不能泄露管理员的参考来源、手工值和调整规则");
@@ -35,6 +35,19 @@ for (const [code, page, api, method] of [
 }
 assert.match(sidebar, /href: "\/settings\/pi-exchange-rates", permission: "pi.rates.view"/, "汇率菜单必须使用独立页面权限");
 assert.match(sidebar, /href: "\/settings\/pi-payment-accounts", permission: "pi.accounts.view"/, "收款账户菜单必须使用独立页面权限");
+assert.match(permissionCatalog, /code: "system\.notifications\.view"[^\n]*core: true/, "通知与公告入口必须仅系统管理员可见");
+assert.match(read("app/api/admin/notifications/route.ts"), /requireAdmin\(\)/, "通知策略接口必须核验系统管理员");
+assert.match(read("app/api/admin/notifications/announcements/route.ts"), /requireAdmin\(\)/, "公告发布接口必须核验系统管理员");
+const notificationGrants = read("supabase/migrations/20261016130000_notification_privilege_hardening.sql");
+for (const table of ["notification_delivery_policies", "user_notification_preferences", "system_announcements"]) {
+  assert.match(notificationGrants, new RegExp(`revoke all on table public\\.${table} from public, anon, authenticated`), `${table} 必须显式撤销默认 API 权限`);
+}
+assert.match(notificationGrants, /grant select on table public\.notification_delivery_policies to authenticated/, "通知策略仅允许登录用户读取");
+assert.match(notificationGrants, /grant select, insert, update on table public\.user_notification_preferences to authenticated/, "个人偏好不得赋予删除权限");
+assert.doesNotMatch(notificationGrants, /grant .+ on table public\.system_announcements to authenticated/, "公告表不得允许普通用户直接写入");
+for (const name of ["set_notification_delivery_policy", "publish_system_announcement"]) {
+  assert.match(notificationGrants, new RegExp(`revoke all on function public\\.${name}\\([\\s\\S]*?from public, anon, authenticated`), `${name} 不得向匿名用户开放`);
+}
 
 const roleApi = read("app/api/admin/roles/route.ts");
 assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");

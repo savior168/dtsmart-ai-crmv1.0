@@ -102,7 +102,11 @@ export function TaskRuntime() {
         const failed = response.ok ? current.failed : current.failed + 1; const failures = response.ok ? current.failures : [...current.failures, String(body.error || "AI 分析失败")];
         save(AI_KEY, { ...current, status: "running", done: current.done + 1, success: current.success + (response.ok ? 1 : 0), failed, failures, updatedAt: Date.now() });
         window.clearTimeout(aiFinishTimer); aiFinishTimer = window.setTimeout(() => { if (aiActive === 0) { const finished = read(AI_KEY); if (finished) { const next = { ...finished, status: "completed" as const, updatedAt: Date.now() }; save(AI_KEY, next); toast(`AI筛选完成：成功 ${next.success} 条，失败 ${next.failed} 条`, next.failed ? "error" : "success"); } } }, 1800);
-      } else if (trackMutation && new Headers(init?.headers).get("x-dtsmart-toast") !== "manual") toast(response.ok ? "操作成功" : (typeof body.error === "string" ? body.error : "操作失败，请重试"), response.ok ? "success" : "error", true);
+      } else if (trackMutation) {
+        const toastMode = new Headers(init?.headers).get("x-dtsmart-toast");
+        const shouldShowToast = toastMode !== "manual" && !(toastMode === "manual-error" && !response.ok);
+        if (shouldShowToast) toast(response.ok ? "操作成功" : (typeof body.error === "string" ? body.error : "操作失败，请重试"), response.ok ? "success" : "error", true);
+      }
       return response;
     };
     const receiveToast = (event: Event) => {

@@ -22,6 +22,7 @@ export type ImportedPiDocument = {
   delivery_company: string;
   delivery_email: string;
   delivery_address: string;
+  payment_account_id?: string | null;
   items: ImportedPiItem[];
   subtotal_payment: number;
   shipping_payment: number;
@@ -31,7 +32,14 @@ export type ImportedPiDocument = {
 const cellText = (sheet: XLSX.WorkSheet, address: string) => String(sheet[address]?.v ?? "").trim();
 const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const afterLabel = (value: string) => value.replace(/^[^:：]*[:：]\s*/, "").trim();
+const normalizePaymentInstructions = (value: string) => value.normalize("NFKC").replace(/\s+/g, "").toLocaleLowerCase();
 
+export function matchImportedPaymentAccount(sourceInstructions: string, accounts: Array<{ id: string; currency: string; instructions: string }>, currency: string) {
+  const normalized = normalizePaymentInstructions(sourceInstructions);
+  if (!normalized) return "";
+  const matches = accounts.filter((account) => account.currency === currency && normalizePaymentInstructions(account.instructions) === normalized);
+  return matches.length === 1 ? matches[0].id : "";
+}
 function dateValue(value: unknown, date1904 = false) {
   if (typeof value === "number" && Number.isFinite(value)) {
     if (value < 1 || value > 2958465) return "";
@@ -55,10 +63,12 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   const sheet = workbook.Sheets[sheetName];
   const warehouse_reference_number = cellText(sheet, "J2");
   if (!warehouse_reference_number || warehouse_reference_number.length > 80) throw new Error("PI订单编号不能为空且不得超过80字");
-  const currencyCandidates = [cellText(sheet, "G6").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, "I18").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, "J6")];
+  // J6 is the explicit import currency; formula-cached header text may be stale until Excel recalculates.
+  const currencyCandidates = [cellText(sheet, "J6"), cellText(sheet, "G6").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, "I18").match(/\(([A-Z]{3})\)/)?.[1]];
   const currency = currencyCandidates.find((value) => value && QUOTE_CURRENCY_CODES.has(value)) || "";
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
   const paymentText = cellText(sheet, "J6");
+  const paymentMethod = paymentText === currency ? "" : paymentText.replace(new RegExp(`\\s*\\(${currency}\\)\\s*$`, "i"), "").trim();
   const items: ImportedPiItem[] = [];
   let subtotalRow = 0;
   for (let row = 19; row <= 518; row += 1) {
@@ -98,8 +108,8 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   const shippingRow = subtotalRow + 1;
   const shipping_payment = Number(sheet[`K${shippingRow}`]?.v || 0);
   if (!Number.isFinite(shipping_payment) || shipping_payment < 0) throw new Error("客户PI运费不正确");
-  return { sheet_name: sheetName, document: {
-    warehouse_reference_number, currency, payment_method: paymentText === currency ? "" : paymentText,
+  return { sheet_name: sheetName, payment_account_instructions: cellText(sheet, "A32"), document: {
+    warehouse_reference_number, currency, payment_method: paymentMethod,
     delivery_date: dateValue(sheet.J8?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: deliveryValue(13, "To"),
     delivery_phone: deliveryValue(14, "TEL"), delivery_company: deliveryValue(15, "Company"),
     delivery_email: deliveryValue(16, "Email"), delivery_address: afterLabel(cellText(sheet, "G13")),

@@ -101,7 +101,7 @@ export function ProductImportReviewView({ id }: { id: string }) {
   async function save(event: FormEvent) {
     event.preventDefault(); if (!editing || !form) return; setBusy(true);
     try {
-      const response = await fetch(`/api/product-imports/${id}/rows/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ normalized_data: form }) });
+      const response = await fetch(`/api/product-imports/${id}/rows/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" }, body: JSON.stringify({ normalized_data: form }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) { setError(body.error || "导入行保存失败"); return; }
       setEditing(null); await load();
@@ -112,7 +112,7 @@ export function ProductImportReviewView({ id }: { id: string }) {
   async function skip(row: Row) {
     setBusy(true);
     try {
-      const response = await fetch(`/api/product-imports/${id}/rows/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "SKIP", confirm_split_complete: splitCompleteRow?.id === row.id }) });
+      const response = await fetch(`/api/product-imports/${id}/rows/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" }, body: JSON.stringify({ action: "SKIP", confirm_split_complete: splitCompleteRow?.id === row.id }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) { setError(body.error || "跳过失败"); return; }
       setSplitCompleteRow(null); await load();
@@ -125,7 +125,7 @@ export function ProductImportReviewView({ id }: { id: string }) {
     if (bulkAction === "SET_CATEGORY" && !bulkCategoryId) { setError("请先选择准确的商品分类"); return; }
     const action = bulkAction; setBusy(true);
     try {
-      const response = await fetch(`/api/product-imports/${id}/rows`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ids: selected, category_id: action === "SET_CATEGORY" ? bulkCategoryId : undefined }) });
+      const response = await fetch(`/api/product-imports/${id}/rows`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" }, body: JSON.stringify({ action, ids: selected, category_id: action === "SET_CATEGORY" ? bulkCategoryId : undefined }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) { setError(body.error || "批量处理失败"); return; }
       setBulkAction(null); await load();
@@ -138,7 +138,7 @@ export function ProductImportReviewView({ id }: { id: string }) {
     if (!publishableIds.length) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/product-imports/${id}/publish`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ row_ids: publishableIds }) });
+      const response = await fetch(`/api/product-imports/${id}/publish`, { method: "POST", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" }, body: JSON.stringify({ row_ids: publishableIds }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) { setError(body.error || "发布失败"); setPublishOpen(false); return; }
       setPublishOpen(false); await load();
@@ -152,7 +152,7 @@ export function ProductImportReviewView({ id }: { id: string }) {
     setBusy(true);
     try {
       const response = await fetch(`/api/product-imports/${id}/rows/${splitRow.id}/split`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" },
         body: JSON.stringify({ excerpt: splitExcerpt.trim() }),
       });
       const body = await response.json().catch(() => ({}));

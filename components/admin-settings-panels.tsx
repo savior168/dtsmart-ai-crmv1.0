@@ -15,7 +15,7 @@ const fieldClass = "h-10 rounded-lg border border-slate-200 bg-white px-3 text-s
 const statusTone: Record<AccountStatus,string> = { PENDING:"bg-amber-50 text-amber-700", ACTIVE:"bg-emerald-50 text-emerald-700", REJECTED:"bg-rose-50 text-rose-700", DISABLED:"bg-slate-100 text-slate-600", DEPARTED:"bg-slate-800 text-white", LOCKED:"bg-orange-50 text-orange-700" };
 
 async function api(url:string, init?:RequestInit) {
-  const response = await fetch(url, { cache:"no-store", ...init, headers:{ "Content-Type":"application/json", ...(init?.headers || {}) } });
+  const response = await fetch(url, { cache:"no-store", ...init, headers:{ "Content-Type":"application/json", ...(init?.method && init.method.toUpperCase() !== "GET" ? { "x-dtsmart-toast":"manual-error" } : {}), ...(init?.headers || {}) } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || "操作失败");
   return body;

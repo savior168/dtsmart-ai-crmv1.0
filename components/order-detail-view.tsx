@@ -10,6 +10,7 @@ import { CountryLabel } from "@/components/country-label";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import { StockProgressCell } from "@/components/stock-progress-cell";
 import type { StockProgress } from "@/lib/stock-progress";
+import { stockProgressLabel } from "@/lib/stock-progress";
 type Payload = {
   order: {
     id: string;
@@ -190,7 +191,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
               <p className="mt-1 text-sm text-slate-500">{directPi ? "客户订单编号" : "报价编号"}：<span className="font-semibold text-slate-800">{directPi ? o.warehouse_reference_number : o.quote_number}</span> · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
             </div>
-            <AppStatusBadge status={o.status}>{directPi && ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"].includes(o.status) ? "已提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
+            <AppStatusBadge status={o.status}>{directPi && o.status !== "WAITING_STOCK" && data.stock_order ? stockProgressLabel(data.stock_order.progress) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>
           {error ? (
             <p className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
@@ -202,10 +203,10 @@ export function OrderDetailView({ id }: { id: string }) {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">客户名称 · 目的国家</p><p className="mt-2 text-lg font-semibold text-slate-900">{o.customer_short_name}</p><div className="mt-1 text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><p className="text-xs text-blue-700">客户应付总额 · 含运费</p><p className="mt-2 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p><p className="mt-1 text-xs text-blue-700">其中运费 {o.currency} {Number(o.shipping_cost).toFixed(2)}</p></div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-2 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress}/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress} wide/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
             </div>
             <div className="grid gap-4 border-t px-5 py-4 text-sm lg:grid-cols-2">
-              <div><h2 className="font-semibold text-slate-800">订单与收货信息</h2><p className="mt-2 text-slate-600">确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"} · 收件人：{o.delivery_recipient || "—"}</p><p className="mt-1 text-slate-600">电话：{o.delivery_phone || "—"} · 邮箱：{o.delivery_email || "—"}</p><p className="mt-1 break-words text-slate-600">收货地址：{o.delivery_address || "—"}</p></div>
+              <div><h2 className="font-semibold text-slate-800">订单与收货信息</h2><p className="mt-2 text-slate-600">确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"} · 收件人：{o.delivery_recipient || "—"}</p><p className="mt-1 text-slate-600">电话：{o.delivery_phone || "—"} · 邮箱：{o.delivery_email || "—"}</p><p className="mt-1 break-words text-slate-600">收货地址：{o.delivery_address || "—"}</p><p className="mt-1 text-slate-600">预计交付日期：{o.delivery_date || "—"}</p></div>
               <div><h2 className="font-semibold text-slate-800">付款与汇率</h2><p className="mt-2 text-slate-600">付款方式：{o.payment_method || "—"} · 1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p><p className="mt-1 text-slate-600">人民币总额（含运费）：¥{Number(o.total_cny).toFixed(2)}</p><details className="mt-2"><summary className="cursor-pointer text-blue-700">查看收款账户快照</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-slate-600">{o.payment_account_snapshot || "—"}</p></details></div>
             </div>
             <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>
@@ -267,7 +268,7 @@ export function OrderDetailView({ id }: { id: string }) {
             </table>
           </div>
           {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p><b className="mt-4 block">逐项理货要求与仓库备注</b><div className="mt-2 space-y-1">{data.items.map((item) => <p key={item.id}>{item.line_number}. {item.item_name}：{item.preparation_requirement || "常规理货"}{item.internal_note ? `；备注：${item.internal_note}` : ""}</p>)}</div></div> : null}
-          <section className="grid gap-4 p-5 md:grid-cols-2">
+          {!directPi ? <section className="grid gap-4 p-5 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1.5 block text-slate-600">预计交付日期</span>
               <input
@@ -278,7 +279,7 @@ export function OrderDetailView({ id }: { id: string }) {
                 className="h-10 w-full rounded-lg border px-3"
               />
             </label>
-            {!directPi ? <label className="text-sm">
+            <label className="text-sm">
               <span className="mb-1.5 block text-slate-600">客户确认说明</span>
               <textarea
                 disabled={!data.can_edit}
@@ -287,9 +288,9 @@ export function OrderDetailView({ id }: { id: string }) {
                 rows={3}
                 className="w-full rounded-lg border p-3"
               />
-            </label> : null}
-          </section>
-          {data.can_edit || data.can_cancel ? (
+            </label>
+          </section> : null}
+          {data.can_cancel || (data.can_edit && !directPi) ? (
             <footer className="flex justify-end gap-2 border-t p-4">
               {data.can_cancel ? (
                 <button
@@ -301,7 +302,7 @@ export function OrderDetailView({ id }: { id: string }) {
                   取消订单
                 </button>
               ) : null}
-              {data.can_edit ? (
+              {data.can_edit && !directPi ? (
                 <button
                   disabled={busy}
                   onClick={() =>

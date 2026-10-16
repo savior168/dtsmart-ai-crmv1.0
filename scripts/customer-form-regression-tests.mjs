@@ -11,6 +11,7 @@ const formSource = await readFile(new URL("../components/customer-form.tsx", imp
 const editApi = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
 const createApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 const detailSource = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
+const taskRuntime = await readFile(new URL("../components/task-runtime.tsx", import.meta.url), "utf8");
 const noop = () => undefined;
 
 const newCustomer = renderToStaticMarkup(createElement(CustomerForm, { onDone: noop, onCancel: noop }));
@@ -51,6 +52,8 @@ for (const value of [existing.company_name, existing.phone, existing.whatsapp, e
 }
 assert.doesNotMatch(editCustomer, /<select[^>]*value="FOLLOWING"/, "基本资料编辑不能绕过阶段变更留痕");
 assert.match(formSource, /const basicKeys=\["company_name","contact_name","country","phone","whatsapp","email","website","google_url","address","category","notes","facebook_url","instagram_url","tiktok_url","linkedin_url","other_public_urls"\]/, "编辑保存必须覆盖可回显的原始资料字段");
+assert.match(formSource, /x-dtsmart-toast":"manual-error"/, "客户表单错误已在表单内展示时不应再弹全局重复错误toast");
+assert.match(taskRuntime, /toastMode === "manual-error" && !response\.ok/, "manual-error只抑制重复失败toast，不影响统一成功反馈");
 assert.match(editApi, /const writable = \[[\s\S]*"company_name", "contact_name", "country", "phone", "whatsapp", "email"/, "服务端应允许编辑对应原始字段");
 assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onStage=.*setStageOpen\(true\)[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入阶段变更和跟进留痕流程");
 console.log("手动新增与编辑客户表单回显、必填和工作流边界回归测试通过。");

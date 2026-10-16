@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requireUser } from "@/lib/auth/current-user";
 
-const fields = "id,type,category,title,content,metadata,href,entity_type,entity_id,read_at,archived_at,action_status,deliver_at,created_at";
+const fields = "id,type,category,title,content,metadata,href,entity_type,entity_id,read_at,dismissed_at,archived_at,action_status,deliver_at,created_at";
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,11 +36,15 @@ export async function PATCH(request: NextRequest) {
   try {
     const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
     if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
-    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" };
+    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" | "DISMISS" };
     const action = body.action || (body.id ? "READ" : "READ_ALL");
+    if (!["READ", "READ_ALL", "ARCHIVE", "RESTORE", "RESOLVE", "DISMISS"].includes(action)) {
+      return NextResponse.json({ error: "通知操作无效" }, { status: 400 });
+    }
     const now = new Date().toISOString();
     let query = supabase.from("system_notifications").update(
-      action === "ARCHIVE" ? { archived_at: now, read_at: now }
+      action === "DISMISS" ? { dismissed_at: now }
+        : action === "ARCHIVE" ? { archived_at: now, read_at: now }
         : action === "RESTORE" ? { archived_at: null }
           : action === "RESOLVE" ? { action_status: "RESOLVED", read_at: now }
             : { read_at: now },

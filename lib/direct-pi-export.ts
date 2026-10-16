@@ -2,6 +2,7 @@ import XLSX, { type CellStyle } from "xlsx-js-style";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { createPiDocumentModel } from "./pi-document-model.ts";
 
 const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
@@ -81,13 +82,12 @@ type DirectPiItem = {
   unit_price: number;
 };
 
-const border = { style: "thin" as const, color: { rgb: "333333" } };
+const border = { style: "thin" as const, color: { rgb: "475569" } };
 const blue = "173EA9";
 const base: CellStyle = { font: { name: "Arial", sz: 10 }, alignment: { vertical: "center" } };
 const center: CellStyle = { ...base, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
 const boxed: CellStyle = { ...center, border: { top: border, bottom: border, left: border, right: border } };
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const dateOnly = (value: string | null | undefined) => value?.slice(0, 10) || "";
 const formatMoney = (currency: string) => currency === "CNY" ? '"¥"#,##0.00' : currency === "NGN" ? '"₦"#,##0.00' : `"${currency} "#,##0.00`;
 
 function set(sheet: XLSX.WorkSheet, address: string, value: string | number, style: CellStyle = base) {
@@ -138,21 +138,13 @@ function outline(sheet: XLSX.WorkSheet, reference: string) {
   }
 }
 
-function validDays(issueDate: string, validUntil: string | null) {
-  if (!validUntil) return "";
-  const start = Date.parse(`${issueDate}T00:00:00Z`);
-  const end = Date.parse(`${dateOnly(validUntil)}T00:00:00Z`);
-  const days = Math.round((end - start) / 86_400_000);
-  return Number.isFinite(days) && days >= 0 ? `${days} days` : dateOnly(validUntil);
-}
-
 function moneyStyle(currency: string, highlighted = false): CellStyle {
   return {
     ...boxed,
     numFmt: formatMoney(currency),
     alignment: { horizontal: "right", vertical: "center" },
-    font: { name: "Arial", sz: 10, bold: true, color: { rgb: highlighted ? "E00000" : blue } },
-    ...(highlighted ? { fill: { fgColor: { rgb: "FFFF00" } } } : {}),
+    font: { name: "Arial", sz: 10, bold: true, color: { rgb: highlighted ? "B91C1C" : blue } },
+    ...(highlighted ? { fill: { fgColor: { rgb: "FEF08A" } } } : {}),
   };
 }
 
@@ -174,7 +166,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
       Math.abs(roundMoney(Number(order.subtotal) + Number(order.shipping_cost)) - Number(order.total_amount)) > 0.01) {
     throw new Error("PI产品金额与订单汇总不一致，请核对后重试");
   }
-  const issueDate = dateOnly(order.created_at || order.confirmed_at);
+  const document = createPiDocumentModel(order, items);
+  const issueDate = document.issueDate;
   const lastItemRow = 18 + Math.max(9, items.length);
   const subtotalRow = lastItemRow + 1;
   const shippingRow = subtotalRow + 1;
@@ -186,38 +179,39 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const signatureDate = signatureName + 1;
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
   sheet["!ref"] = `A1:K${signatureDate}`;
-  sheet["!cols"] = [6, 16, 4, 16, 15, 17, 18, 4, 17, 11, 19].map((wch) => ({ wch }));
+  // The logical nine-column table uses the same proportions as the browser preview.
+  sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 10].map((wch) => ({ wch }));
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
     hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : 18,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
   set(sheet, "I1", "DCN: E-S-002 Rev.05", { ...base, alignment: { horizontal: "right" } }); merge(sheet, "I1:K1");
-  set(sheet, "D2", order.seller_company_name || "DT-Smart Technology Co., Ltd", { ...base, font: { name: "Arial", sz: 16, bold: true } }); merge(sheet, "D2:F3");
+  set(sheet, "D2", document.companyName, { ...base, font: { name: "Arial", sz: 12, bold: true } }); merge(sheet, "D2:F3");
   const green: CellStyle = { ...boxed, fill: { fgColor: { rgb: "70AD47" } }, font: { name: "Arial", sz: 14, bold: true, underline: true } };
   set(sheet, "G2", "COMMERCIAL INVOICE", green); merge(sheet, "G2:I3");
-  set(sheet, "J2", order.order_number, { ...green, font: { name: "Arial", sz: 14 } }); merge(sheet, "J2:K3");
-  set(sheet, "D4", `Address: ${order.seller_company_address || ""}`, { ...base, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
-  set(sheet, "G4", "QUOTATION VALID:", boxed); merge(sheet, "G4:I5");
-  set(sheet, "J4", validDays(issueDate, order.pi_valid_until), boxed); merge(sheet, "J4:K5");
-  set(sheet, "D6", `Official Website: ${order.seller_website || ""}`); merge(sheet, "D6:F6");
+  set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 14 } }); merge(sheet, "J2:K3");
+  set(sheet, "D4", `Address: ${document.companyAddress}`, { ...base, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
+  set(sheet, "G4", "QUOTATION VALID", boxed); merge(sheet, "G4:I5");
+  set(sheet, "J4", document.quotationValidUntil, boxed); merge(sheet, "J4:K5");
+  set(sheet, "D6", `Official Website: ${document.website}`); merge(sheet, "D6:F6");
   set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
-  set(sheet, "J6", `${order.payment_method || ""} (${currency})`, boxed); merge(sheet, "J6:K7");
-  set(sheet, "D7", `Sales Manager: ${order.seller_contact_name || ""}`); merge(sheet, "D7:F7");
-  set(sheet, "D8", `Contact No: ${order.seller_contact_phone || ""}`); merge(sheet, "D8:F8");
-  set(sheet, "G8", "DELIVERY DATE:", boxed); merge(sheet, "G8:I9");
-  set(sheet, "J8", dateOnly(order.delivery_date), boxed); merge(sheet, "J8:K9");
-  set(sheet, "D9", `Email: ${order.seller_contact_email || ""}`); merge(sheet, "D9:F9");
+  set(sheet, "J6", document.paymentMethod, boxed); merge(sheet, "J6:K7");
+  set(sheet, "D7", `Sales Manager: ${document.salesManager}`); merge(sheet, "D7:F7");
+  set(sheet, "D8", `Contact No: ${document.contactPhone}`); merge(sheet, "D8:F8");
+  set(sheet, "G8", "DELIVERY DATE", boxed); merge(sheet, "G8:I9");
+  set(sheet, "J8", document.deliveryDate, boxed); merge(sheet, "J8:K9");
+  set(sheet, "D9", `Email: ${document.contactEmail}`); merge(sheet, "D9:F9");
   set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, "A12:K12");
   const delivery: Array<[number, string, string]> = [
-    [13, "To:", order.delivery_recipient || ""], [14, "TEL:", order.delivery_phone || ""],
-    [15, "Company:", order.customer?.company_name || order.customer_short_name], [16, "Email:", order.delivery_email || ""],
+    [13, "To:", document.recipient], [14, "TEL:", document.deliveryPhone],
+    [15, "Company:", document.deliveryCompany], [16, "Email:", document.deliveryEmail],
   ];
   for (const [row, label, value] of delivery) {
     set(sheet, `A${row}`, `${label} ${value}`.trim(), { ...base, alignment: { vertical: "center", wrapText: true } });
     merge(sheet, `A${row}:F${row}`);
   }
-  set(sheet, "G13", `Delivery address: ${order.delivery_address || ""}`, { ...base, alignment: { wrapText: true, vertical: "center" } }); merge(sheet, "G13:K16");
+  set(sheet, "G13", `Delivery address: ${document.deliveryAddress}`, { ...base, alignment: { wrapText: true, vertical: "center" } }); merge(sheet, "G13:K16");
   set(sheet, "F17", "Thanks your business!", { ...center, font: { name: "Arial", sz: 15, bold: true, italic: true, color: { rgb: "0070C0" } } }); merge(sheet, "F17:H17");
 
   const heading: CellStyle = { ...boxed, font: { name: "Arial", sz: 10, bold: true }, fill: { fgColor: { rgb: "E2EFDA" } } };
@@ -260,7 +254,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
       set(sheet, `K${row}`, paid, moneyStyle(currency));
     }
   }
-  set(sheet, `A${paymentHeader}`, "**PAYMENT INFORMATION**", { ...boxed, font: { name: "Arial", sz: 11, bold: true }, fill: { fgColor: { rgb: "E7E6E6" } } }); merge(sheet, `A${paymentHeader}:K${paymentHeader}`);
+  set(sheet, `A${paymentHeader}`, "**PAYMENT INFORMATION**", { ...boxed, font: { name: "Arial", sz: 11, bold: true }, fill: { fgColor: { rgb: "F1F5F9" } } }); merge(sheet, `A${paymentHeader}:K${paymentHeader}`);
   set(sheet, `A${paymentBody}`, order.payment_account_snapshot.trim(), { ...base, border: { top: border, bottom: border, left: border, right: border }, font: { name: "Arial", sz: 12, bold: true, color: { rgb: blue } }, alignment: { wrapText: true, vertical: "top" } }); merge(sheet, `A${paymentBody}:K${paymentBody}`);
   set(sheet, `A${signatureHeader}`, "Signature By Supplier:", center); merge(sheet, `A${signatureHeader}:F${signatureHeader}`);
   set(sheet, `G${signatureHeader}`, "Signature By Buyer:", center); merge(sheet, `G${signatureHeader}:K${signatureHeader}`);

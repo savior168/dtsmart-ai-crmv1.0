@@ -43,7 +43,7 @@ export async function GET(
     if (stock.error) throw stock.error;
     if (quote.error) throw quote.error;
     const stockItems = stock.data ? await supabase.from("stock_order_items")
-      .select("quantity,received_quantity,prepared_quantity,shipped_quantity").eq("stock_order_id", stock.data.id) : null;
+      .select("quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status").eq("stock_order_id", stock.data.id) : null;
     if (stockItems?.error) throw stockItems.error;
     const receivingProgress = stockItems ? {
       total_items: stockItems.data?.length || 0,

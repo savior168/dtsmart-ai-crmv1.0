@@ -2,10 +2,11 @@ import { STOCK_STATUS_LABELS } from "@/lib/types";
 import { physicalStockBuckets, type PhysicalStockItem } from "./stock-progress-math";
 
 export const STOCK_BUCKETS = [
-  { key: "pending", label: "未回货", color: "bg-slate-400" },
-  { key: "received", label: "已回货待完成理货", color: "bg-amber-500" },
-  { key: "prepared", label: "已理货待发货", color: "bg-blue-500" },
-  { key: "shipped", label: "已发货", color: "bg-emerald-500" },
+  { key: "pending", label: "待采购", color: "bg-slate-400" },
+  { key: "purchasing", label: "采购中", color: "bg-amber-500" },
+  { key: "received", label: "已回货待理货", color: "bg-cyan-500" },
+  { key: "prepared", label: "已理货待交货代", color: "bg-violet-500" },
+  { key: "shipped", label: "已交货代", color: "bg-emerald-500" },
 ] as const;
 export type StockBucketKey = (typeof STOCK_BUCKETS)[number]["key"];
 export type StockProgress = {
@@ -32,5 +33,9 @@ export function summarizeStockProgress(
 }
 
 export function stockProgressLabel(progress: StockProgress) {
-  return STOCK_STATUS_LABELS[progress.status as keyof typeof STOCK_STATUS_LABELS] || progress.status;
+  if (["DRAFT", "WAITING", "SHIPPED", "READY", "SHORTAGE", "CANCELLED"].includes(progress.status)) {
+    return STOCK_STATUS_LABELS[progress.status as keyof typeof STOCK_STATUS_LABELS] || progress.status;
+  }
+  const occupied = STOCK_BUCKETS.filter((bucket) => progress.buckets[bucket.key].units > 0);
+  return occupied.length > 1 ? "多阶段备货（查看进度条）" : occupied[0]?.label || "暂无备货数量";
 }

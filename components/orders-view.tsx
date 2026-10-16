@@ -16,6 +16,7 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
+import { stockProgressLabel } from "@/lib/stock-progress";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { StockProgress } from "@/lib/stock-progress";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
@@ -291,6 +292,9 @@ export function OrdersView() {
                     const stock = Array.isArray(row.stock)
                       ? row.stock[0]
                       : row.stock;
+                    const statusLabel = row.confirmation_method === "DIRECT_PI" && row.status !== "WAITING_STOCK" && stock
+                      ? stockProgressLabel(stock.progress)
+                      : SALES_ORDER_STATUS_LABELS[row.status];
                     return (
                       <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
                         {canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}
@@ -302,7 +306,7 @@ export function OrdersView() {
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.confirmation_method === "DIRECT_PI" && ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"].includes(row.status) ? "已提交仓库" : SALES_ORDER_STATUS_LABELS[row.status]}</AppStatusBadge></td>
+                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{statusLabel}</AppStatusBadge></td>
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
