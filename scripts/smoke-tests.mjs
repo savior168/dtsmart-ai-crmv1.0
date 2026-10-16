@@ -106,6 +106,8 @@ assert.doesNotMatch(workflow, /order\("created_at"/, "任务队列不得查询�
 assert.match(workflow, /normalizeError\(error, \{ stage: "TASK" \}\)/, "任务级Supabase对象错误必须保留真实错误码和消息");
 const nextConfig = read("next.config.ts");
 assert.match(nextConfig, /withWorkflow\(nextConfig\)/, "生产构建必须启用持久化Workflow");
+assert.doesNotMatch(nextConfig, /Clear-Site-Data/i, "登录页不得清除 Vercel 预览访问 cookie，导致静态资源和登录表单加载失败");
+assert.match(read("app/api/auth/password-login/route.ts"), /getAll:\s*\(\)\s*=>\s*\[\]/, "密码登录必须独立处理旧 Supabase 会话，不依赖全站清除 cookie");
 const taskCenter = read("components/ai-screening/task-center-view.tsx");
 for (const action of ["停止任务", "取消任务", "继续执行", "重试失败项"]) {
   assert.match(taskCenter, new RegExp(action), `任务中心缺少操作：${action}`);
