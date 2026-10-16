@@ -36,11 +36,13 @@ assert.match(read("components/stock-order-detail-view.tsx"), /showStockProgress 
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dl className="grid grid-cols-2[\s\S]*className="col-span-2 min-w-0"/, "收货资料应紧凑分列，长地址跨列显示");
 assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 border-l-amber-400 bg-white text-amber-900/, "整单理货要求应使用橙色强调文字及边框，而非整块黄色底色");
+assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\s\S]*border-r border-slate-100 px-2 py-2[\s\S]*<br\/>交货代[\s\S]*<td className="px-3 py-2">/, "单项进度数量摘要不得不换行溢出并覆盖理货要求列");
 assert.match(read("components/stock-progress-cell.tsx"), /grid grid-cols-5 gap-1[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "PI、备货单列表和详情应在同一行显示五个阶段的件数和百分比");
 assert.match(read("components/stock-progress-cell.tsx"), /overflow-x-auto[\s\S]*min-w-\[390px\][\s\S]*bucket\.color/, "窄屏应保留可横向查看的完整五阶段颜色图例");
 assert.match(read("tailwind.config.ts"), /\.\/lib\/stock-progress\.ts/, "构建时须扫描状态颜色定义，否则进度条和图例会缺色");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
-assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*部分回货会同时显示未回货和已回货数量/, "筛选和进度说明应使用同一单项状态计算口径");
+assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*理货中的产品按实际件数分别计入/, "筛选和进度说明应使用同一单项状态计算口径");
+assert.match(read("components/stock-progress-cell.tsx"), /progress\.sorting_items > 0[\s\S]*理货中 \{progress\.sorting_items\} 项/, "理货中的产品须在整单进度旁显式标明，而不重复纳入第六个实物阶段");
 assert.match(read("components/stock-order-detail-view.tsx"), /value=\{progressNote\}[\s\S]*value=\{exceptionNote\}/, "仓库快捷操作与整单异常处理应使用独立说明，避免自动串填");
 assert.match(read("components/stock-order-detail-view.tsx"), /status, note: exceptionNote\.trim\(\)/, "整单异常状态应只记录本次异常原因");
 assert.match(read("components/stock-order-detail-view.tsx"), /选择当前筛选的 \{visibleIds\.length\} 项/, "几百项单据需支持按筛选结果批量选择");
