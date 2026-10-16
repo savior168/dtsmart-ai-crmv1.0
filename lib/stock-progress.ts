@@ -2,11 +2,11 @@ import { SALES_ORDER_STATUS_LABELS, STOCK_STATUS_LABELS, type SalesOrderStatus }
 import { physicalStockBuckets, type PhysicalStockItem } from "./stock-progress-math";
 
 export const STOCK_BUCKETS = [
-  { key: "pending", label: "待采购", color: "bg-slate-400" },
-  { key: "purchasing", label: "采购中", color: "bg-amber-500" },
-  { key: "received", label: "已回货待理货", color: "bg-cyan-500" },
-  { key: "prepared", label: "已理货待交货代", color: "bg-violet-500" },
-  { key: "shipped", label: "已交货代", color: "bg-emerald-500" },
+  { key: "pending", label: "待采购", shortLabel: "待采购", color: "bg-slate-400" },
+  { key: "purchasing", label: "采购中", shortLabel: "采购中", color: "bg-amber-500" },
+  { key: "received", label: "已回货待理货", shortLabel: "回货待理", color: "bg-cyan-500" },
+  { key: "prepared", label: "已理货待交货代", shortLabel: "待交货代", color: "bg-violet-500" },
+  { key: "shipped", label: "已交货代", shortLabel: "已交货代", color: "bg-emerald-500" },
 ] as const;
 export type StockBucketKey = (typeof STOCK_BUCKETS)[number]["key"];
 export type StockProgress = {
