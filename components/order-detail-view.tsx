@@ -11,6 +11,19 @@ import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import { StockProgressCell } from "@/components/stock-progress-cell";
 import type { StockProgress } from "@/lib/stock-progress";
 import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
+
+function PiInternalTextCell({ text, fallback, label, lineNumber, onOpen }: {
+  text: string | null; fallback: string; label: string; lineNumber: number;
+  onOpen: (title: string, content: string) => void;
+}) {
+  const content = text?.trim() || fallback;
+  return <td className="min-w-[180px] max-w-[260px] px-3 py-3">
+    <div className="flex min-w-0 items-start gap-2">
+      <span className="line-clamp-2 min-w-0 flex-1 break-words leading-5" title={content}>{content}</span>
+      {text?.trim() ? <button type="button" onClick={() => onOpen(`第 ${lineNumber} 项 · ${label}`, content)} className="shrink-0 whitespace-nowrap text-xs font-medium text-blue-700 hover:underline" aria-label={`查看第 ${lineNumber} 项完整${label}`}>查看全文</button> : null}
+    </div>
+  </td>;
+}
 type Payload = {
   order: {
     id: string;
@@ -81,6 +94,7 @@ export function OrderDetailView({ id }: { id: string }) {
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallReason, setRecallReason] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [expandedLineText, setExpandedLineText] = useState<{ title: string; content: string } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
@@ -214,7 +228,7 @@ export function OrderDetailView({ id }: { id: string }) {
           </> : <div className="grid gap-4 p-5 md:grid-cols-4">{[["客户名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span><Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link></div> : null}
           <div className="overflow-x-auto border-y">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>
               <thead className="bg-slate-50 text-xs">
                 <tr>
                   {[
@@ -228,6 +242,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     ...(directPi ? ["销售单价（人民币）", "成本单价（人民币）", "利润率"] : []),
                     "单价",
                     "金额",
+                    ...(directPi ? ["理货要求", "仓库备注"] : []),
                   ].map((x) => (
                     <th key={x} className="px-3 py-3 font-medium">
                       {x}
@@ -252,6 +267,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     <td className="px-3 py-3 font-semibold">
                       {o.currency} {Number(i.amount).toFixed(2)}
                     </td>
+                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number} onOpen={(title, content) => setExpandedLineText({ title, content })}/><PiInternalTextCell text={i.internal_note} fallback="—" label="仓库备注" lineNumber={i.line_number} onOpen={(title, content) => setExpandedLineText({ title, content })}/></> : null}
                   </tr>
                 ))}
               </tbody>
@@ -264,11 +280,12 @@ export function OrderDetailView({ id }: { id: string }) {
                   <td className="px-3 py-3 font-bold text-blue-700">
                     {o.currency} {Number(o.total_amount).toFixed(2)}
                   </td>
+                  {directPi ? <td colSpan={2}/> : null}
                 </tr>
               </tfoot>
             </table>
           </div>
-          {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p><b className="mt-4 block">逐项理货要求与仓库备注</b><div className="mt-2 space-y-1">{data.items.map((item) => <p key={item.id}>{item.line_number}. {item.item_name}：{item.preparation_requirement || "常规理货"}{item.internal_note ? `；备注：${item.internal_note}` : ""}</p>)}</div></div> : null}
+          {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p></div> : null}
           {!directPi ? <section className="grid gap-4 p-5 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1.5 block text-slate-600">预计交付日期</span>
@@ -325,6 +342,9 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
+        <AppDialog open={expandedLineText !== null} title={expandedLineText?.title || "逐项内容"} onClose={() => setExpandedLineText(null)} width="max-w-2xl">
+          <p className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-800">{expandedLineText?.content}</p>
+        </AppDialog>
         <AppDialog open={deleteOpen} title="删除未提交的PI草稿" description="仅从未提交过、也未生成备货单的草稿可删除；删除后无法恢复。" onClose={() => setDeleteOpen(false)} width="max-w-md">
           <p className="text-sm text-slate-700">确认删除 PI {o.order_number} 及其产品明细吗？</p>
           <form onSubmit={(event) => { event.preventDefault(); void deleteDraft(); }}><DialogActions busy={busy} onCancel={() => setDeleteOpen(false)} confirmLabel="确认删除草稿" tone="danger"/></form>

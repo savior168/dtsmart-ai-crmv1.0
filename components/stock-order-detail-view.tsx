@@ -476,13 +476,17 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div>
           ) : null}
           {o.status_note?.trim() ? <p className="border-b bg-amber-50 px-5 py-2 text-sm text-amber-900"><b>状态备注：</b>{o.status_note}</p> : null}
-          <div className={`grid gap-3 border-b p-5 lg:grid-cols-2 ${showStockProgress ? "xl:grid-cols-12" : "xl:grid-cols-2"}`}>
-            {showStockProgress ? <section className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4 xl:col-span-5" aria-labelledby="stock-progress-heading">
+          <div className={`grid gap-3 border-b p-5 lg:grid-cols-2 ${showStockProgress ? "xl:grid-cols-3" : ""}`}>
+            {showStockProgress ? <section className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4 lg:col-span-2 xl:col-span-1" aria-labelledby="stock-progress-heading">
               <h2 id="stock-progress-heading" className="mb-3 text-sm font-semibold text-slate-900">整单实物进度 · {stockProgress.ordered_units} 件</h2>
               <StockProgressCell progress={stockProgress} wide/>
-              <p className="mt-3 text-xs leading-5 text-slate-500">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。部分回货会同时显示未回货和已回货数量；“理货中”表示回齐后尚未全部理完；“已交货代”仅表示仓库完成交接，不代表客户签收。</p>
+              <p className="mt-3 text-xs leading-5 text-slate-500">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。理货中的产品按实际件数分别计入“已回货待理货”和“已理货未交货代”，未完成整行理货不能交货代；“已交货代”仅表示仓库完成交接，不代表客户签收。</p>
             </section> : null}
-            <section className={`min-w-0 rounded-xl border border-slate-200 bg-white p-4 ${showStockProgress ? "xl:col-span-3" : ""}`} aria-labelledby="stock-recipient-heading">
+            <section className={`min-w-0 rounded-xl border p-4 ${o.stocking_requirements?.trim() ? "border-slate-200 border-l-4 border-l-amber-400 bg-white text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600"}`} aria-labelledby="stock-requirements-heading">
+              <h2 id="stock-requirements-heading" className="mb-2 text-sm font-semibold">整单理货要求</h2>
+              <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6" tabIndex={0}>{o.stocking_requirements || "常规理货"}</p>
+            </section>
+            <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="stock-recipient-heading">
               <h2 id="stock-recipient-heading" className="mb-3 text-sm font-semibold text-slate-900">客户与收货信息</h2>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm leading-5">
                 <div><dt className="text-xs text-slate-500">客户</dt><dd className="font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
@@ -490,10 +494,6 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 <div><dt className="text-xs text-slate-500">收件人</dt><dd className="font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>
                 <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">收货地址</dt><dd className="break-words text-slate-800">{o.delivery_address || "—"}</dd></div>
               </dl>
-            </section>
-            <section className={`min-w-0 rounded-xl border p-4 ${o.stocking_requirements?.trim() ? "border-slate-200 border-l-4 border-l-amber-400 bg-white text-slate-800" : "border-slate-200 bg-slate-50 text-slate-600"} ${showStockProgress ? "lg:col-span-2 xl:col-span-4" : ""}`} aria-labelledby="stock-requirements-heading">
-              <h2 id="stock-requirements-heading" className="mb-2 text-sm font-semibold">整单理货要求</h2>
-              <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6" tabIndex={0}>{o.stocking_requirements || "常规理货"}</p>
             </section>
           </div>
           <div className="p-5 pt-0">
@@ -513,9 +513,9 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div> : null}
             {error ? <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
             <div className="overflow-x-auto rounded-xl border">
-              <table className="w-full min-w-[1740px] table-fixed text-left text-sm">
+              <table className="w-full min-w-[1880px] table-fixed text-left text-sm">
                 <colgroup>
-                  {[42, 48, 74, 74, 104, 112, 110, 170, 115, 58, 125, 105, 105, 158, 190, 150, ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}
+                  {[42, 48, 74, 74, 104, 112, 110, 170, 115, 58, 125, 105, 105, 180, 190, 150, ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}
                 </colgroup>
                 <thead className="bg-slate-50 text-xs">
                   <tr>
@@ -600,8 +600,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
                           onBlur={() => saveLineOnBlur(item, "PREPARE")}
                           aria-label={`第 ${item.line_number} 行累计已完成理货数量`} className="h-9 w-full min-w-0 rounded border px-2 text-right" /> : item.prepared_quantity}
                       </td>
-                      <td className="px-2 py-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${stockItemProgress(item).tone}`}>{stockItemProgress(item).label}</span><small className="mt-1 block whitespace-nowrap text-xs leading-4 text-slate-500">回货 {item.received_quantity}/{item.quantity} · 理货 {item.prepared_quantity}/{item.quantity} · 交货代 {item.shipped_quantity}/{item.quantity}</small>{savingItemId === item.id ? <small className="mt-1 block text-blue-700">正在自动保存…</small> : null}</td>
-                      <td className="px-2 py-2">
+                      <td className="border-r border-slate-100 px-2 py-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${stockItemProgress(item).tone}`}>{stockItemProgress(item).label}</span><small className="mt-1 block text-xs leading-4 text-slate-500">回货 {item.received_quantity}/{item.quantity} · 理货 {item.prepared_quantity}/{item.quantity}<br/>交货代 {item.shipped_quantity}/{item.quantity}</small>{savingItemId === item.id ? <small className="mt-1 block text-blue-700">正在自动保存…</small> : null}</td>
+                      <td className="px-3 py-2">
                         {data.can_prepare ? (
                           <input
                             value={item.preparation_requirement || ""}

@@ -31,14 +31,18 @@ assert.match(read("app/api/stock-orders/[id]/corrections/route.ts"), /requirePer
 assert.match(read("components/stock-order-detail-view.tsx"), /更正进度[\s\S]*更正原因（必填）[\s\S]*确认更正并记入流水/, "仓库员应有清晰的单项进度更正入口且必须填写原因");
 assert.match(read("app/api/stock-orders/[id]/route.ts"), /customer_short_name,destination_country,delivery_recipient,delivery_address/, "备货详情应从对应备货单快照读取收件人与收货地址");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dt[^>]*>收件人<\/dt><dd[^>]*>\{o\.delivery_recipient[\s\S]*<dt[^>]*>收货地址<\/dt><dd[^>]*>\{o\.delivery_address/, "仓库详情摘要应清晰显示收件人和收货地址");
-assert.match(read("components/stock-order-detail-view.tsx"), /整单实物进度[\s\S]*客户与收货信息[\s\S]*整单理货要求/, "备货详情顶部应按进度、收货信息、理货要求顺序显示三块摘要");
+assert.match(read("components/stock-order-detail-view.tsx"), /整单实物进度[\s\S]*整单理货要求[\s\S]*客户与收货信息/, "备货详情顶部应按进度、理货要求、收货信息顺序显示三块摘要");
+assert.match(read("components/stock-order-detail-view.tsx"), /showStockProgress \? "xl:grid-cols-3"/, "备货详情三块摘要在大屏应等宽排列");
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dl className="grid grid-cols-2[\s\S]*className="col-span-2 min-w-0"/, "收货资料应紧凑分列，长地址跨列显示");
-assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 border-l-amber-400 bg-white text-slate-800/, "整单理货要求应使用轻量强调边框而非整块黄色底色");
-assert.match(read("components/stock-progress-cell.tsx"), /wide \? "grid-cols-2 xl:grid-cols-3" : "grid-cols-3"/, "PI、备货单列表和详情应以明确分列展示全部五个互斥阶段");
-assert.match(read("components/stock-progress-cell.tsx"), /min-w-\[350px\][\s\S]*rounded-md bg-slate-50 px-1\.5 py-1[\s\S]*truncate text-slate-600/, "紧凑进度格应给每个阶段留足宽度并以轻量卡片区分");
+assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 border-l-amber-400 bg-white text-amber-900/, "整单理货要求应使用橙色强调文字及边框，而非整块黄色底色");
+assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\s\S]*border-r border-slate-100 px-2 py-2[\s\S]*<br\/>交货代[\s\S]*<td className="px-3 py-2">/, "单项进度数量摘要不得不换行溢出并覆盖理货要求列");
+assert.match(read("components/stock-progress-cell.tsx"), /grid grid-cols-5 gap-1[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "PI、备货单列表和详情应在同一行显示五个阶段的件数和百分比");
+assert.match(read("components/stock-progress-cell.tsx"), /overflow-x-auto[\s\S]*min-w-\[390px\][\s\S]*bucket\.color/, "窄屏应保留可横向查看的完整五阶段颜色图例");
+assert.match(read("tailwind.config.ts"), /\.\/lib\/stock-progress\.ts/, "构建时须扫描状态颜色定义，否则进度条和图例会缺色");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
-assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*部分回货会同时显示未回货和已回货数量/, "筛选和进度说明应使用同一单项状态计算口径");
+assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*理货中的产品按实际件数分别计入/, "筛选和进度说明应使用同一单项状态计算口径");
+assert.match(read("components/stock-progress-cell.tsx"), /progress\.sorting_items > 0[\s\S]*理货中 \{progress\.sorting_items\} 项/, "理货中的产品须在整单进度旁显式标明，而不重复纳入第六个实物阶段");
 assert.match(read("components/stock-order-detail-view.tsx"), /value=\{progressNote\}[\s\S]*value=\{exceptionNote\}/, "仓库快捷操作与整单异常处理应使用独立说明，避免自动串填");
 assert.match(read("components/stock-order-detail-view.tsx"), /status, note: exceptionNote\.trim\(\)/, "整单异常状态应只记录本次异常原因");
 assert.match(read("components/stock-order-detail-view.tsx"), /选择当前筛选的 \{visibleIds\.length\} 项/, "几百项单据需支持按筛选结果批量选择");
@@ -134,21 +138,26 @@ assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
 assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="客户名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*归属人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表列序须按订单、备货单、客户、国家、金额、状态、进度、归属人与时间排列");
+assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">归属人/, "PI列表归属人标题应完整显示在一行");
 assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
 assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
+assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "仓库备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和仓库备注放在产品明细最后两列");
+assert.match(orderDetailView, /function PiInternalTextCell[\s\S]*line-clamp-2[\s\S]*查看全文[\s\S]*AppDialog open=\{expandedLineText !== null\}/, "逐项长内容应限制行高并可在弹窗查看全文");
+assert.doesNotMatch(orderDetailView, /逐项理货要求与仓库备注/, "PI详情不应在产品表格后重复列出逐项内部要求");
 const piBatchActions = orderListView.split("批量导出 PI，已选")[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piBatchActions, /导出 Excel[\s\S]*导出 PDF/, "所选正式PI应在统一批量导出菜单提供Excel和PDF入口");
 assert.match(orderDetailView, /导出 PI Excel[\s\S]*导出 PI PDF/, "PI详情应直接提供Excel与PDF两种选择");
 const batchPdfPage = read("components/batch-order-print-preview.tsx");
 assert.match(batchPdfPage, /ids\.length > 50[\s\S]*new Set\(ids\)\.size !== ids\.length/, "批量PDF必须限制数量与重复ID");
 assert.match(batchPdfPage, /!payload\.can_export[\s\S]*"DRAFT", "CANCELLED"[\s\S]*confirmation_method !== "DIRECT_PI"/, "批量PDF必须逐张核对正式PI导出权限");
-assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"\]\)/, "未发货筛选必须准确覆盖待接单、采购、回货、理货和待发货五类状态");
+assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.PI_EXECUTING_STATUSES\]\)/, "PI执行中筛选必须使用与列表状态一致的共享状态集合");
+assert.match(stockListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.STOCK_EXECUTING_STATUSES\]\)/, "备货执行中筛选必须使用与PI同步的共享状态集合");
 assert.match(orderListView, /<td className="px-4 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
-assert.match(progressCellView, /<div className=\{`mt-2 grid[\s\S]*bucket\.label[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表应直接显示各阶段件数和百分比");
+assert.match(progressCellView, /<div className="mt-2 grid grid-cols-5[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表应直接显示五个阶段的件数和百分比");
 assert.match(progressCellView, /title=\{detail\}[\s\S]*aria-label=\{detail\}/, "紧凑进度条仍须为鼠标悬停和辅助技术保留阶段详情");
 assert.match(orderListApi, /warehouse_reference_number\.ilike/, "PI列表必须能搜索销售与仓库共用的订单编号");
 for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockListApi]]) {
@@ -166,7 +175,7 @@ for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockL
 }
 assert.match(orderListApi, /currency[\s\S]*type === "PI"/, "PI列表必须按币种和业务类型筛选");
 assert.doesNotMatch(stockListView, /报价编号|quote_number/, "备货单列表不得继续展示旧报价编号");
-assert.match(stockListView, /label="订单编号"[\s\S]*<th[^>]*>备货进度<\/th>[\s\S]*label="备货单号"[\s\S]*label="客户名称"[\s\S]*label="状态"[\s\S]*目的国家/, "备货单列表应先展示业务订单号和进度，再展示备货单号、客户与状态");
+assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="客户名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*销售员[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表列序应按备货单、关联订单、客户、国家、状态、进度、销售员和时间排列");
 assert.match(stockListView, /data\?\.can_view_all\?<th[^>]*>销售员<\/th>:null/, "销售员查看自己的备货单时不重复显示销售员列");
 assert.match(stockListView, /row\.warehouse_reference_number \|\| row\.order_number/, "仓库列表必须优先显示销售填写的业务订单编号");
 for (const api of [orderListApi, stockListApi]) {
