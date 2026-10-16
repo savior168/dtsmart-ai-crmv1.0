@@ -7,7 +7,7 @@ import { createPiDocumentModel } from "./pi-document-model.ts";
 const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
 
-/** Preserve the supplied corporate logo, sized to the compact PI header. */
+/** Preserve the supplied corporate logo at the same 108px size as the preview. */
 function addPiLogo(workbook: Uint8Array): Buffer {
   const template = Zip.CFB.read(readFileSync(path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx")), { type: "buffer" });
   const output = Zip.CFB.read(Buffer.from(workbook), { type: "buffer" });
@@ -17,10 +17,10 @@ function addPiLogo(workbook: Uint8Array): Buffer {
     let bytes = Buffer.from(original.content);
     if (part.endsWith("drawing1.xml")) {
       const drawingXml = bytes.toString("utf8")
-        // Excel anchors use EMUs (9,525 per CSS pixel). Keep the 80px logo
-        // inside A:C (about 117px wide) and vertically centred in rows 2:9.
-        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>171450</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>533400</xdr:rowOff></xdr:from>")
-        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="762000" cy="762000" />');
+        // A:C is about 134px wide. Centre the logo horizontally and within
+        // the 170px-high header (rows 2:9); offsets and extents are in EMUs.
+        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>114300</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>295275</xdr:rowOff></xdr:from>")
+        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="1028700" cy="1028700" />');
       bytes = Buffer.from(drawingXml, "utf8");
     }
     Zip.CFB.utils.cfb_add(output, part, bytes);
@@ -30,6 +30,7 @@ function addPiLogo(workbook: Uint8Array): Buffer {
   if (!worksheet?.content || !contentTypes?.content) throw new Error("PI工作簿结构不完整");
   let xml = Buffer.from(worksheet.content).toString("utf8");
   if (/<(?:\w+:)?drawing\b/.test(xml)) throw new Error("PI工作簿已包含图像，不能重复插入");
+  xml = xml.replace(/<sheetView workbookViewId="0"\s*\/>/, '<sheetView showGridLines="0" workbookViewId="0"/>');
   const originalSheet = Zip.CFB.find(template, "/xl/worksheets/sheet1.xml");
   const drawingId = originalSheet?.content ? Buffer.from(originalSheet.content).toString("utf8").match(/<x:drawing\b[^>]*r:id="([^"]+)"/)?.[1] : null;
   if (!drawingId) throw new Error("PI模板缺少品牌图像位置");
@@ -185,26 +186,27 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   // The logical nine-column table uses the same proportions as the browser preview.
   sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : 18,
+    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : index >= 1 && index <= 8 ? 16 : index === 9 || index === 10 ? 6 : 18,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
   set(sheet, "I1", "DCN: E-S-002 Rev.05", { ...base, alignment: { horizontal: "right" } }); merge(sheet, "I1:K1");
   set(sheet, "D2", document.companyName, { ...base, font: { name: "Arial", sz: 12, bold: true } }); merge(sheet, "D2:F3");
-  const green: CellStyle = { ...boxed, fill: { fgColor: { rgb: "70AD47" } }, font: { name: "Arial", sz: 14, bold: true, underline: true } };
+  const green: CellStyle = { ...boxed, fill: { fgColor: { rgb: "70AD47" } }, font: { name: "Arial", sz: 10, bold: true, underline: true } };
   set(sheet, "G2", "COMMERCIAL INVOICE", green); merge(sheet, "G2:I3");
-  set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 14 } }); merge(sheet, "J2:K3");
-  set(sheet, "D4", `Address: ${document.companyAddress}`, { ...base, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
+  set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 11 } }); merge(sheet, "J2:K3");
+  const companyLine: CellStyle = { ...base, font: { name: "Arial", sz: 9 } };
+  set(sheet, "D4", `Address: ${document.companyAddress}`, { ...companyLine, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
   set(sheet, "G4", "QUOTATION VALID", boxed); merge(sheet, "G4:I5");
   set(sheet, "J4", document.quotationValidUntil, boxed); merge(sheet, "J4:K5");
-  set(sheet, "D6", `Official Website: ${document.website}`); merge(sheet, "D6:F6");
+  set(sheet, "D6", `Official Website: ${document.website}`, companyLine); merge(sheet, "D6:F6");
   set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
   set(sheet, "J6", document.paymentMethod, boxed); merge(sheet, "J6:K7");
-  set(sheet, "D7", `Sales Manager: ${document.salesManager}`); merge(sheet, "D7:F7");
-  set(sheet, "D8", `Contact No: ${document.contactPhone}`); merge(sheet, "D8:F8");
+  set(sheet, "D7", `Sales Manager: ${document.salesManager}`, companyLine); merge(sheet, "D7:F7");
+  set(sheet, "D8", `Contact No: ${document.contactPhone}`, companyLine); merge(sheet, "D8:F8");
   set(sheet, "G8", "DELIVERY DATE", boxed); merge(sheet, "G8:I9");
   set(sheet, "J8", document.deliveryDate, boxed); merge(sheet, "J8:K9");
-  set(sheet, "D9", `Email: ${document.contactEmail}`); merge(sheet, "D9:F9");
+  set(sheet, "D9", `Email: ${document.contactEmail}`, companyLine); merge(sheet, "D9:F9");
   set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, "A12:K12");
   const delivery: Array<[number, string, string]> = [
     [13, "To:", document.recipient], [14, "TEL:", document.deliveryPhone],
