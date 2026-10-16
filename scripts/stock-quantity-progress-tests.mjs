@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { createJiti } from "jiti";
 import { physicalStockBuckets } from "../lib/stock-progress-math.ts";
 
-const { stockProgressLabel, stockItemProgressKey, summarizeStockProgress } = createJiti(import.meta.url, { alias: { "@": process.cwd() } })("../lib/stock-progress.ts");
+const { STOCK_BUCKETS, stockProgressLabel, stockItemProgressKey, summarizeStockProgress } = createJiti(import.meta.url, { alias: { "@": process.cwd() } })("../lib/stock-progress.ts");
+assert.deepEqual(STOCK_BUCKETS.map(({ key, color }) => [key, color]), [
+  ["pending", "bg-slate-400"], ["purchasing", "bg-amber-500"], ["received", "bg-cyan-500"],
+  ["prepared", "bg-violet-500"], ["shipped", "bg-emerald-500"],
+]);
+assert.equal(new Set(STOCK_BUCKETS.map(({ color }) => color)).size, 5, "五个互斥阶段应有五种不同颜色");
+assert.ok(STOCK_BUCKETS.every(({ shortLabel }) => shortLabel.length <= 5), "紧凑图例名称须适合五项同排");
 const state = (status, received, prepared = 0, shipped = 0, preparation_status = status) =>
   summarizeStockProgress(status, [{ quantity: 10, received_quantity: received, prepared_quantity: prepared,
     shipped_quantity: shipped, preparation_status }]);
@@ -35,6 +41,12 @@ const scenario = physicalStockBuckets([
 ]);
 assert.equal(scenario.ordered, 300);
 assert.deepEqual(scenario.counts, [30, 50, 40, 130, 50]);
+const pendingAndPurchasing = physicalStockBuckets([
+  { quantity: 120, received_quantity: 0, preparation_status: "WAITING" },
+  { quantity: 175, received_quantity: 0, preparation_status: "PREPARING" },
+]);
+assert.deepEqual(pendingAndPurchasing.counts, [120, 175, 0, 0, 0]);
+assert.deepEqual(pendingAndPurchasing.percents, [41, 59, 0, 0, 0]);
 assert.equal(scenario.percents.reduce((sum, value) => sum + value, 0), 100);
 assert.deepEqual(physicalStockBuckets([{ quantity: 1, received_quantity: 0 }, { quantity: 1, received_quantity: 1 },
   { quantity: 1, received_quantity: 1, prepared_quantity: 1 }]).percents, [34, 0, 33, 33, 0]);
