@@ -5,7 +5,7 @@ export const STOCK_BUCKETS = [
   { key: "pending", label: "待采购", shortLabel: "待采购", color: "bg-slate-400" },
   { key: "purchasing", label: "采购中", shortLabel: "采购中", color: "bg-amber-500" },
   { key: "received", label: "已回货待理货", shortLabel: "回货待理", color: "bg-cyan-500" },
-  { key: "prepared", label: "已理货待交货代", shortLabel: "待交货代", color: "bg-violet-500" },
+  { key: "prepared", label: "已理货未交货代", shortLabel: "已理货", color: "bg-violet-500" },
   { key: "shipped", label: "已交货代", shortLabel: "已交货代", color: "bg-emerald-500" },
 ] as const;
 export type StockBucketKey = (typeof STOCK_BUCKETS)[number]["key"];
@@ -15,6 +15,9 @@ export type StockProgress = {
   received_units: number;
   prepared_units: number;
   shipped_units: number;
+  sorting_items: number;
+  sorting_prepared_units: number;
+  sorting_ordered_units: number;
   buckets: Record<StockBucketKey, { units: number; percent: number }>;
 };
 
@@ -24,9 +27,18 @@ export function summarizeStockProgress(
   items: PhysicalStockItem[],
 ): StockProgress {
   const { ordered, received, prepared, shipped, counts, percents } = physicalStockBuckets(items);
+  const sortingItems = items.filter((item) => {
+    const quantity = Number(item.quantity || 0);
+    const preparedQuantity = Number(item.prepared_quantity || 0);
+    return quantity > 0 && Number(item.received_quantity || 0) === quantity
+      && preparedQuantity > 0 && preparedQuantity < quantity;
+  });
   return {
     status, ordered_units: ordered, received_units: received,
     prepared_units: prepared, shipped_units: shipped,
+    sorting_items: sortingItems.length,
+    sorting_prepared_units: sortingItems.reduce((sum, item) => sum + Number(item.prepared_quantity || 0), 0),
+    sorting_ordered_units: sortingItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
     buckets: Object.fromEntries(STOCK_BUCKETS.map((bucket, index) => [bucket.key,
       { units: counts[index], percent: percents[index] }])) as StockProgress["buckets"],
   };
@@ -44,7 +56,7 @@ export function stockProgressLabel(progress: StockProgress) {
   if (progress.received_units === progress.ordered_units) {
     return progress.prepared_units > 0 ? "理货中" : "已回齐待理货";
   }
-  if (progress.received_units > 0) return "部分回货";
+  if (progress.received_units > 0) return progress.sorting_items > 0 ? "部分回货，理货中" : "部分回货";
   return progress.buckets.purchasing.units > 0 ? "采购中" : "待采购";
 }
 
