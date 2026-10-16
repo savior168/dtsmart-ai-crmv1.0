@@ -138,6 +138,7 @@ assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
 assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="客户名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*归属人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表列序须按订单、备货单、客户、国家、金额、状态、进度、归属人与时间排列");
+assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">归属人/, "PI列表归属人标题应完整显示在一行");
 assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
 assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
