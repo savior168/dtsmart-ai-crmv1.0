@@ -271,7 +271,7 @@ export function OrdersView() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1450px] text-left text-sm">
+              <table className="w-full min-w-[1650px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
                   <tr>
                     {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || type !== "PI" || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
@@ -281,8 +281,8 @@ export function OrdersView() {
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status"/>
-                    <th className="px-4 py-3 font-medium">备货进度</th>
-                    {canViewAll ? <th className="px-4 py-3 font-medium">归属人</th> : null}
+                    <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
+                    {canViewAll ? <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">归属人</th> : null}
                     <SortHeader label="更新时间" column="updated_at"/>
                     <SortHeader label="创建时间" column="created_at"/>
                     <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
@@ -313,7 +313,7 @@ export function OrdersView() {
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
                         {canViewAll ? (
-                          <td className="px-4 py-3">
+                          <td className="whitespace-nowrap px-4 py-3">
                             {row.owner?.name || row.owner?.email || "-"}
                           </td>
                         ) : null}
