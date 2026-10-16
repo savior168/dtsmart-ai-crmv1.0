@@ -11,7 +11,7 @@ import { SALES_ORDER_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
 import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
-import { summarizeStockProgress } from "@/lib/stock-progress";
+import { PI_EXECUTING_STATUSES, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
         .range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (selectedIds.length) query = query.in("id", selectedIds);
-      if (status === "ACTIVE") query = query.in("status", ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"]);
+      if (status === "ACTIVE") query = query.in("status", [...PI_EXECUTING_STATUSES]);
       else if (status) query = query.eq("status", status);
       if (currency) query = query.eq("currency", currency);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
