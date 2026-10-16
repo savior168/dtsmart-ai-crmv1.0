@@ -35,7 +35,8 @@ assert.match(read("components/stock-order-detail-view.tsx"), /整单实物进度
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dl className="grid grid-cols-2[\s\S]*className="col-span-2 min-w-0"/, "收货资料应紧凑分列，长地址跨列显示");
 assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 border-l-amber-400 bg-white text-slate-800/, "整单理货要求应使用轻量强调边框而非整块黄色底色");
-assert.match(read("components/stock-progress-cell.tsx"), /wide \? "gap-y-2 text-\[11px\] leading-4 xl:grid-cols-3"/, "详情图例应以紧凑列布局展示全部五个互斥阶段");
+assert.match(read("components/stock-progress-cell.tsx"), /wide \? "grid-cols-2 xl:grid-cols-3" : "grid-cols-3"/, "PI、备货单列表和详情应以明确分列展示全部五个互斥阶段");
+assert.match(read("components/stock-progress-cell.tsx"), /min-w-\[350px\][\s\S]*rounded-md bg-slate-50 px-1\.5 py-1[\s\S]*truncate text-slate-600/, "紧凑进度格应给每个阶段留足宽度并以轻量卡片区分");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
 assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*部分回货会同时显示未回货和已回货数量/, "筛选和进度说明应使用同一单项状态计算口径");
 assert.match(read("components/stock-order-detail-view.tsx"), /value=\{progressNote\}[\s\S]*value=\{exceptionNote\}/, "仓库快捷操作与整单异常处理应使用独立说明，避免自动串填");
@@ -147,7 +148,7 @@ assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \
 assert.match(orderListView, /<td className="px-4 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
-assert.match(progressCellView, /<div className=\{`mt-2 grid grid-cols-2[\s\S]*bucket\.label[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表应直接显示各阶段件数和百分比");
+assert.match(progressCellView, /<div className=\{`mt-2 grid[\s\S]*bucket\.label[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表应直接显示各阶段件数和百分比");
 assert.match(progressCellView, /title=\{detail\}[\s\S]*aria-label=\{detail\}/, "紧凑进度条仍须为鼠标悬停和辅助技术保留阶段详情");
 assert.match(orderListApi, /warehouse_reference_number\.ilike/, "PI列表必须能搜索销售与仓库共用的订单编号");
 for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockListApi]]) {
