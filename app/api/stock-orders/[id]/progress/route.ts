@@ -9,9 +9,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
     const action = String(body.action || "");
-    if (!["START", "RECEIVE", "PREPARE", "SHIP"].includes(action)) throw new Error("无效的备货动作");
+    if (action === "SHIP") throw new Error("请刷新备货页面，从交货代入口逐项选择完整产品行并填写三项人民币费用");
+    if (!["START", "RECEIVE", "PREPARE"].includes(action)) throw new Error("无效的备货动作");
     const changes = body.changes;
-    if (!Array.isArray(changes) || changes.length > 500 || (action === "SHIP" ? changes.length !== 0 : changes.length === 0)
+    if (!Array.isArray(changes) || changes.length > 500 || changes.length === 0
       || changes.some((change) => !change || typeof change !== "object" || typeof change.item_id !== "string"
         || (action !== "START" && (!Number.isSafeInteger(change.quantity) || change.quantity < 0))
         || (action === "RECEIVE" && (typeof change.supplier_code !== "string" || change.supplier_code.length > 100)))) {
@@ -21,7 +22,6 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!Number.isFinite(Date.parse(expected))) throw new Error("备货单版本无效，请刷新后重试");
     const note = String(body.note || "").trim();
     if (note.length > 1000) throw new Error("说明不能超过1000字");
-    if (action === "SHIP" && !note) throw new Error("交货代时请填写交接说明");
     const { data, error } = await supabase.rpc("record_stock_progress", {
       p_stock_order_id: id, p_action: action, p_changes: changes,
       p_expected_updated_at: expected, p_note: note || null,

@@ -17,8 +17,10 @@ function addPiLogo(workbook: Uint8Array): Buffer {
     let bytes = Buffer.from(original.content);
     if (part.endsWith("drawing1.xml")) {
       const drawingXml = bytes.toString("utf8")
-        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>247650</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>95250</xdr:rowOff></xdr:from>")
-        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="1143000" cy="1143000" />');
+        // Excel anchors use EMUs (9,525 per CSS pixel). Keep the 80px logo
+        // inside A:C (about 117px wide) and vertically centred in rows 2:9.
+        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>171450</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>533400</xdr:rowOff></xdr:from>")
+        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="762000" cy="762000" />');
       bytes = Buffer.from(drawingXml, "utf8");
     }
     Zip.CFB.utils.cfb_add(output, part, bytes);
@@ -88,7 +90,8 @@ const base: CellStyle = { font: { name: "Arial", sz: 10 }, alignment: { vertical
 const center: CellStyle = { ...base, alignment: { horizontal: "center", vertical: "center", wrapText: true } };
 const boxed: CellStyle = { ...center, border: { top: border, bottom: border, left: border, right: border } };
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const formatMoney = (currency: string) => currency === "CNY" ? '"¥"#,##0.00' : currency === "NGN" ? '"₦"#,##0.00' : `"${currency} "#,##0.00`;
+// The preview deliberately displays fixed two-decimal amounts without grouping.
+const formatMoney = (currency: string) => currency === "CNY" ? '"¥"0.00' : currency === "NGN" ? '"₦"0.00' : `"${currency} "0.00`;
 
 function set(sheet: XLSX.WorkSheet, address: string, value: string | number, style: CellStyle = base) {
   sheet[address] = { t: typeof value === "number" ? "n" : "s", v: value, s: style };
@@ -180,7 +183,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
   sheet["!ref"] = `A1:K${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
-  sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 10].map((wch) => ({ wch }));
+  sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
     hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : 18,
   }));
@@ -259,12 +262,13 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, `A${signatureHeader}`, "Signature By Supplier:", center); merge(sheet, `A${signatureHeader}:F${signatureHeader}`);
   set(sheet, `G${signatureHeader}`, "Signature By Buyer:", center); merge(sheet, `G${signatureHeader}:K${signatureHeader}`);
   set(sheet, `A${signatureName}`, "DT-SMART", center); merge(sheet, `A${signatureName}:F${signatureName}`);
-  set(sheet, `G${signatureName}`, order.customer_short_name, center); merge(sheet, `G${signatureName}:K${signatureName}`);
+  set(sheet, `G${signatureName}`, document.deliveryCompany, center); merge(sheet, `G${signatureName}:K${signatureName}`);
   set(sheet, `A${signatureDate}`, issueDate, center); merge(sheet, `A${signatureDate}:F${signatureDate}`);
   set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:K${signatureDate}`);
-  outline(sheet, "A2:C9");
-  outline(sheet, "D2:F9");
+  outline(sheet, "A2:F9");
   outline(sheet, "A12:K16");
+  outline(sheet, "A13:F16");
+  outline(sheet, "G13:K16");
   outline(sheet, "A18:K18");
   outline(sheet, `A19:K${totalRow}`);
   const book = XLSX.utils.book_new();

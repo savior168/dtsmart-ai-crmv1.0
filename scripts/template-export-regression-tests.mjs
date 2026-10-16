@@ -52,6 +52,7 @@ const stockBuffer = await buildStockWorkbook({
   stocking_requirements: "Pack",
   order_change_note: "1. Add 2 items\n2. Update delivery date\n3. New label",
   status_note: "",
+  status_label: "部分已交货代",
   shipped_at: "2026-10-13T09:00:00Z",
   delivery_recipient: "Tom",
   delivery_phone: "+49 123",
@@ -113,6 +114,7 @@ const stock = firstSheet(stockBuffer);
 assert.equal(stock.G3.v, "ORDER-TEST-001");
 assert.equal(stock.K3.v, "德国", "目的国家须显示中文名称而非代码");
 assert.equal(stock.N3.v, "2026-10-13", "实际发货日须来自已发货事件");
+assert.equal(stock.B10.v, "备货状态：部分已交货代", "备货 Excel 状态须与详情和预览共用同一口径");
 assert.match(stock.D9.v, /姓名：Tom.*电话：\+49 123\n邮箱：tom@example.com\n地址：Berlin/, "收货信息须按姓名、电话、邮箱和地址分项显示");
 assert.match(stock.B9.v, /收件人.*详细收件地址/s, "不得覆盖下单表模板的固定标签");
 assert.match(stock.B4.v, /订单变更说明/, "不得用仓库状态备注覆盖订单变更说明栏");

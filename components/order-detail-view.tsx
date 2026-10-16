@@ -10,7 +10,7 @@ import { CountryLabel } from "@/components/country-label";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import { StockProgressCell } from "@/components/stock-progress-cell";
 import type { StockProgress } from "@/lib/stock-progress";
-import { stockProgressLabel } from "@/lib/stock-progress";
+import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
 type Payload = {
   order: {
     id: string;
@@ -155,7 +155,7 @@ export function OrderDetailView({ id }: { id: string }) {
             <ArrowLeft size={16} />
             返回PI订单列表
           </Link>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {directPi && data.stock_order && o.status !== "DRAFT" ? <button type="button" disabled={loading} onClick={() => void load()} className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm disabled:opacity-50"><RefreshCw size={15}/>刷新备货进度</button> : null}
             {directPi && o.status !== "CANCELLED" ? <Link href={`/orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
             {data.can_export ? (
@@ -164,9 +164,10 @@ export function OrderDetailView({ id }: { id: string }) {
                 className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm text-violet-700"
               >
                 <FileDown size={16} />
-                {directPi ? "导出PI Excel" : "导出历史订单Excel"}
+                {directPi ? "导出 PI Excel" : "导出历史订单 Excel"}
               </a>
             ) : null}
+            {data.can_export && directPi ? <Link href={`/orders/${id}/preview?export=pdf`} target="_blank" rel="noopener noreferrer" title="打开打印窗口并选择另存为 PDF" className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm text-violet-700"><FileDown size={16}/>导出 PI PDF</Link> : null}
             {!directPi ? <Link
               href={`/quotes/${o.quote_id}`}
               className="h-9 rounded-lg border px-3 py-2 text-sm text-blue-700"
@@ -191,7 +192,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
               <p className="mt-1 text-sm text-slate-500">{directPi ? "客户订单编号" : "报价编号"}：<span className="font-semibold text-slate-800">{directPi ? o.warehouse_reference_number : o.quote_number}</span> · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
             </div>
-            <AppStatusBadge status={o.status}>{directPi && o.status !== "WAITING_STOCK" && data.stock_order ? stockProgressLabel(data.stock_order.progress) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
+            <AppStatusBadge status={o.status} tone={directPi && (PI_EXECUTING_STATUSES as readonly string[]).includes(o.status) ? "violet" : undefined}>{directPi ? piOrderStatusLabel(o.status) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>
           {error ? (
             <p className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">

@@ -13,6 +13,7 @@ import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
 import { summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
+import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 
 const SORT_COLUMNS = {
   order_number: "warehouse_reference_number",
@@ -132,17 +133,18 @@ export async function GET(request: NextRequest) {
         list.push(item);
         itemsByOrderId.set(item.sales_order_id, list);
       }
+      const exportedAt = new Date();
       const files = rows.map((row) => {
         const detail = orderById.get(row.id);
         const items = itemsByOrderId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("PI数据已更新，请刷新筛选结果");
-        return { name: `${row.warehouse_reference_number || row.order_number}.xlsx`,
+        return { name: documentExportFilename(row.order_number, "PI订单", "xlsx", exportedAt),
           data: buildDirectPiWorkbook({ ...detail, order_number: row.warehouse_reference_number || row.order_number } as never, items as never) };
       });
       const zip = buildWorkbookZip(files);
       return new NextResponse(streamZipBytes(zip), { headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": "attachment; filename*=UTF-8''PI-orders.zip",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(batchExportFilename("PI订单", "zip", exportedAt))}`,
         "Cache-Control": "private, no-store",
       } });
     }

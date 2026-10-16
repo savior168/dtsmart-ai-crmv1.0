@@ -3,6 +3,7 @@ import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { costLedgerRange } from "@/lib/cost-center";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workbookResponse } from "@/lib/xlsx-export";
+import { dataExportFilename } from "@/lib/export-file-name";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const selectedIds = (request: NextRequest, key: string) => [...new Set(request.nextUrl.searchParams.getAll(key).flatMap((value) => value.split(",")).map((value) => value.trim()).filter((value) => uuidPattern.test(value)))].slice(0, 50);
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
       const task=row.task_id?taskMap.get(row.task_id):null;const customer=row.customer_id?customerMap.get(row.customer_id):null;
       return [occurredText, row.provider, row.service, row.operation, row.model_or_sku, task?.name||"非任务调用",task?.task_number||"—",customer?.company_name||"—", row.quantity, row.unit, row.input_tokens, row.cached_input_tokens, row.output_tokens, amountType, snapshot?.pricing_configured === false ? "待配置" : Number(row.amount_usd || 0).toFixed(6), user?.name || user?.email || (row.user_id ? "历史账号" : "系统")];
     });
-    return workbookResponse(`API费用明细_${String(from).slice(0, 10)}_${String(params.get("to") || new Date().toISOString().slice(0, 10))}.xlsx`, [{ name: "API费用明细", rows: [headings, ...rows], widths: [20, 16, 16, 26, 28, 26, 20, 26, 12, 12, 16, 18, 16, 16, 16, 18] }]);
+    return workbookResponse(dataExportFilename(`API费用明细_${String(from).slice(0, 10)}_${String(params.get("to") || new Date().toISOString().slice(0, 10))}`), [{ name: "API费用明细", rows: [headings, ...rows], widths: [20, 16, 16, 26, 28, 26, 20, 26, 12, 12, 16, 18, 16, 16, 16, 18] }]);
   } catch (error) {
     const message = error instanceof Error ? error.message : "费用明细导出失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

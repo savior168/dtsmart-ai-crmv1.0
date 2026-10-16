@@ -29,6 +29,14 @@ create table public.system_notifications(
   entity_type text,entity_id uuid,dedupe_key text,action_status text
 );
 create table public.audit_logs(user_id uuid,action text,target_type text,target_id uuid,content jsonb);
+create table public.stock_order_expenses(
+  stock_order_id uuid primary key references public.stock_orders(id),
+  packaging_cost_cny numeric(14,2) not null,
+  procurement_expenses_cny numeric(14,2) not null,
+  shipping_expenses_cny numeric(14,2) not null,
+  updated_by uuid not null references public.users(id),
+  updated_at timestamptz not null default now()
+);
 create function public.update_stock_item_stages(p_stock_order_id uuid,p_changes jsonb,
   p_expected_updated_at timestamptz,p_note text default null,
   p_packaging_cost_cny numeric default null,p_procurement_expenses_cny numeric default null,

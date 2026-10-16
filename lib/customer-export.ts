@@ -7,6 +7,7 @@ import type { PublicChannel } from "@/lib/public-url";
 import { customerSourceLabel } from "@/lib/customers/source-display";
 import { FOLLOWUP_STAGE_LABELS, type Customer, type CustomerStatus, type FollowupStage } from "@/lib/types";
 import { downloadWorkbook, type WorkbookSheet } from "@/lib/xlsx-export";
+import { customerExportFilename } from "@/lib/export-file-name";
 
 export type CustomerExportColumn =
   | "company_name"
@@ -364,6 +365,5 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
 export function downloadCustomerWorkbook(customers: Array<Record<string, unknown>>, fileName: string, options: CustomerWorkbookOptions = {}) {
   const sheets = buildCustomerWorkbookSheets(customers, options);
   if (!sheets.length) return;
-  const date = new Date().toISOString().slice(0, 10);
-  downloadWorkbook(`${fileName}-${date}.xlsx`, sheets);
+  downloadWorkbook(customerExportFilename(fileName), sheets);
 }

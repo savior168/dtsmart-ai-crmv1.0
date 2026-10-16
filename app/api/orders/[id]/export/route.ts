@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { buildQuoteWorkbook } from "@/lib/template-xlsx";
 import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
+import { documentExportFilename } from "@/lib/export-file-name";
 export async function GET(
   _: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -51,7 +52,7 @@ export async function GET(
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${businessNumber}.xlsx`)}`,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(documentExportFilename(order.data.order_number, "PI订单", "xlsx"))}`,
         "Cache-Control": "private, no-store",
       },
     });

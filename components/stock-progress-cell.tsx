@@ -17,14 +17,14 @@ export function StockProgressCell({ progress, wide = false }: { progress: StockP
           style={{ width: `${value.percent}%` }} title={detail} aria-label={detail}/>;
       })}
     </div>
-    {wide ? <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] leading-4 text-slate-700 md:grid-cols-4">
+    <div className={`mt-2 grid grid-cols-2 gap-x-3 text-slate-700 ${wide ? "gap-y-1.5 text-[11px] leading-4 md:grid-cols-4" : "gap-y-1 text-[10px] leading-3 min-[1500px]:grid-cols-3"}`}>
       {STOCK_BUCKETS.map((bucket) => {
         const value = progress.buckets[bucket.key];
         return <span key={bucket.key} className="flex items-start gap-1.5">
-          <span className={`mt-1 size-2 shrink-0 rounded-sm ${bucket.color}`}/>
-          <span><span className="block text-slate-600">{bucket.label}</span><span className="block whitespace-nowrap font-semibold">{value.units}件 · {value.percent}%</span></span>
+          <span className={`mt-0.5 size-2 shrink-0 rounded-sm ${bucket.color}`}/>
+          <span className="min-w-0"><span className="block text-slate-600">{bucket.label}</span><span className="block whitespace-nowrap font-semibold">{value.units}件 · {value.percent}%</span></span>
         </span>;
       })}
-    </div> : null}
+    </div>
   </div>;
 }

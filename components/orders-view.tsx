@@ -16,12 +16,13 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { stockProgressLabel } from "@/lib/stock-progress";
+import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { StockProgress } from "@/lib/stock-progress";
+import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
-const CURRENT_PI_STATUSES = ["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE"] as const;
-const HISTORICAL_PI_STATUSES: SalesOrderStatus[] = ["CONFIRMED", "STOCK_DRAFT", "READY", "CANCELLED"];
+const CURRENT_PI_STATUSES = ["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"] as const;
+const HISTORICAL_PI_STATUSES: SalesOrderStatus[] = ["CONFIRMED", "STOCK_DRAFT", "READY"];
 type Row = {
   id: string;
   order_number: string;
@@ -83,7 +84,7 @@ export function OrdersView() {
       if (dateTo) params.set("date_to", dateTo);
       if (userId) params.set("user_id", userId);
       selectedIds.forEach((id) => params.append("id", id));
-      await downloadFilteredExport(`/api/orders?${params}`, "PI订单-已选单据.zip");
+      await downloadFilteredExport(`/api/orders?${params}`, batchExportFilename("PI订单", "zip"));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PI订单导出失败");
     } finally {
@@ -95,7 +96,7 @@ export function OrdersView() {
     setSingleExportId(row.id);
     setError("");
     try {
-      await downloadFilteredExport(`/api/orders/${row.id}/export`, `${row.warehouse_reference_number || row.order_number}.xlsx`);
+      await downloadFilteredExport(`/api/orders/${row.id}/export`, documentExportFilename(row.order_number, "PI订单", "xlsx"));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PI订单导出失败，请稍后重试");
     } finally {
@@ -215,7 +216,7 @@ export function OrdersView() {
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {k === "ACTIVE" ? "已提交仓库（未发货）" : SALES_ORDER_STATUS_LABELS[k]}
+                {k === "ACTIVE" ? "已提交仓库（执行中）" : piOrderStatusLabel(k)}
               </option>
             ))}
           </AppSelect>
@@ -257,7 +258,7 @@ export function OrdersView() {
             重置
           </button>
         </AppFilterBar>
-        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式PI；可跨页选择，最多50张，导出为Excel压缩包</span><button type="button" onClick={() => void exportSelected()} disabled={exportBusy || type !== "PI" || selectedIds.length === 0} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy ? "正在导出…" : `批量导出 Excel（${selectedIds.length}张）`}</button></div> : null}
+        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><button type="button" onClick={() => void exportSelected()} disabled={exportBusy || type !== "PI" || selectedIds.length === 0} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy ? "正在导出…" : `批量导出 Excel（${selectedIds.length}张）`}</button><Link href={selectedIds.length && type === "PI" ? `/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}` : "#"} target="_blank" rel="noopener noreferrer" aria-disabled={!selectedIds.length || type !== "PI"} onClick={(event) => { if (!selectedIds.length || type !== "PI") event.preventDefault(); }} className={`inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 ${!selectedIds.length || type !== "PI" ? "cursor-not-allowed opacity-50" : "hover:bg-blue-50"}`}><FileDown size={15}/>批量导出 PDF（{selectedIds.length}张）</Link></div> : null}
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -292,9 +293,8 @@ export function OrdersView() {
                     const stock = Array.isArray(row.stock)
                       ? row.stock[0]
                       : row.stock;
-                    const statusLabel = row.confirmation_method === "DIRECT_PI" && row.status !== "WAITING_STOCK" && stock
-                      ? stockProgressLabel(stock.progress)
-                      : SALES_ORDER_STATUS_LABELS[row.status];
+                    const statusLabel = row.confirmation_method === "DIRECT_PI"
+                      ? piOrderStatusLabel(row.status) : SALES_ORDER_STATUS_LABELS[row.status];
                     return (
                       <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
                         {canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}
@@ -306,7 +306,7 @@ export function OrdersView() {
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3"><AppStatusBadge status={row.status}>{statusLabel}</AppStatusBadge></td>
+                        <td className="px-4 py-3"><AppStatusBadge status={row.status} tone={row.confirmation_method === "DIRECT_PI" && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? "violet" : undefined}>{statusLabel}</AppStatusBadge></td>
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
@@ -324,9 +324,9 @@ export function OrdersView() {
                         <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                           <div className="flex items-center gap-2">
                             <Link href={`/orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">查看详情</Link>
+                            {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <><button type="button" disabled={singleExportId !== null} onClick={() => void exportOne(row)} className="whitespace-nowrap text-xs font-medium text-blue-700 disabled:opacity-50">{singleExportId === row.id ? "导出中…" : "Excel"}</button><Link href={`/orders/${row.id}/preview?export=pdf`} target="_blank" rel="noopener noreferrer" title="打开打印窗口并选择另存为 PDF" className="whitespace-nowrap text-xs font-medium text-blue-700">PDF</Link></> : null}
                             <RowActionMenu ariaLabel={`订单 ${row.warehouse_reference_number || row.order_number} 的更多操作`} label="更多">
                               {row.confirmation_method === "DIRECT_PI" ? <RowActionItem onClick={() => router.push(`/orders/${row.id}/preview`)}>预览{row.status === "DRAFT" ? "草稿" : " / 打印"}</RowActionItem> : null}
-                              {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "导出中…" : "导出 Excel"}</RowActionItem> : null}
                               {row.can_delete_draft ? <RowActionItem tone="danger" onClick={() => setDeleting(row)}>删除草稿</RowActionItem> : null}
                             </RowActionMenu>
                           </div>

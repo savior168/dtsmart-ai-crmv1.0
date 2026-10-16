@@ -3,7 +3,7 @@ type ToastMessage = { type: string; title?: string; content?: string | null; act
 
 const stockStageLabels: Record<string, string> = {
   DRAFT: "待完善备货信息", WAITING: "待仓库接单", PREPARING: "采购中",
-  RECEIVED: "已回货待理货", SORTING: "理货中", READY_TO_SHIP: "已理货待交货代",
+  RECEIVED: "已回齐待理货", SORTING: "理货中", READY_TO_SHIP: "已理货待交货代",
   SHIPPED: "已交货代", READY: "已备齐（历史）", SHORTAGE: "缺货异常", CANCELLED: "已取消",
 };
 

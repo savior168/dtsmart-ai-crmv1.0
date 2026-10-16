@@ -7,35 +7,38 @@ import { flushSync } from "react-dom";
 import { ArrowLeft, FileDown, LoaderCircle, Printer } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
-import { STOCK_STATUS_LABELS } from "@/lib/types";
+import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { createPiDocumentModel, DEFAULT_OFFICIAL_WEBSITE } from "@/lib/pi-document-model";
+import { documentExportFilename } from "@/lib/export-file-name";
 
 type PiItem = { line_number:number; item_name:string; brand:string|null; model:string|null; quality:string|null; description:string|null; quantity:number; unit_price:number; amount:number };
-type PiPayload = { order:{ order_number:string; warehouse_reference_number:string|null; confirmation_method:string|null; status:string; customer_short_name:string; currency:string; created_at:string; pi_valid_until:string|null; delivery_date:string|null; payment_method:string|null; payment_account_snapshot:string|null; seller_company_name:string|null; seller_company_address:string|null; seller_website:string|null; seller_contact_name:string|null; seller_contact_phone:string|null; seller_contact_email:string|null; delivery_recipient:string|null; delivery_phone:string|null; delivery_email:string|null; delivery_address:string|null; subtotal:number; shipping_cost:number; total_amount:number }; items:PiItem[]; can_export:boolean };
-type StockItem = { line_number:number; item_name:string; brand:string|null; model:string|null; quality:string|null; description:string|null; description_zh:string|null; quantity:number; estimated_unit_cost_cny:number|null; preparation_requirement:string|null; internal_note:string|null };
-type StockPayload = { order:{ stock_number:string; warehouse_reference_number:string|null; order_number:string; customer_short_name:string; destination_country:string|null; status:string; stocking_requirements:string|null; expected_ready_at:string|null; created_at:string }; items:StockItem[]; can_export:boolean };
+export type PiPayload = { order:{ order_number:string; warehouse_reference_number:string|null; confirmation_method:string|null; status:string; customer_short_name:string; currency:string; created_at:string; pi_valid_until:string|null; delivery_date:string|null; payment_method:string|null; payment_account_snapshot:string|null; seller_company_name:string|null; seller_company_address:string|null; seller_website:string|null; seller_contact_name:string|null; seller_contact_phone:string|null; seller_contact_email:string|null; delivery_recipient:string|null; delivery_phone:string|null; delivery_email:string|null; delivery_address:string|null; subtotal:number; shipping_cost:number; total_amount:number }; items:PiItem[]; can_export:boolean };
+type StockItem = { line_number:number; item_name:string; brand:string|null; model:string|null; quality:string|null; description:string|null; description_zh:string|null; quantity:number; received_quantity:number; prepared_quantity:number; shipped_quantity:number; preparation_status:string; estimated_unit_cost_cny:number|null; preparation_requirement:string|null; internal_note:string|null };
+export type StockPayload = { order:{ stock_number:string; warehouse_reference_number:string|null; order_number:string; customer_short_name:string; destination_country:string|null; status:string; stocking_requirements:string|null; expected_ready_at:string|null; created_at:string }; items:StockItem[]; can_export:boolean };
 
 const printable = (status:string) => !["DRAFT","CANCELLED"].includes(status);
 const date = (value:string|null|undefined) => value?.slice(0,10) || "—";
 const money = (value:number|null|undefined) => Number(value || 0).toFixed(2);
 
-export function OrderPrintPreview({kind,id}:{kind:"pi"|"stock";id:string}) {
-  const [payload,setPayload]=useState<PiPayload|StockPayload|null>(null);
+export function OrderPrintPreview({kind,id,initialPayload,embedded=false}:{kind:"pi"|"stock";id:string;initialPayload?:PiPayload|StockPayload;embedded?:boolean}) {
+  const [payload,setPayload]=useState<PiPayload|StockPayload|null>(initialPayload||null);
   const [error,setError]=useState("");
   const [downloading,setDownloading]=useState(false);
   const [printTime,setPrintTime]=useState("");
   useEffect(()=>{
+    if(embedded)return;
     const originalTitle=document.title;
     const beforePrint=()=>{
       flushSync(()=>setPrintTime(new Date().toLocaleString("zh-CN",{hour12:false})));
-      document.title=kind==="pi"?"PI订单":"备货单";
+      const exportNumber=kind==="pi"?(payload as PiPayload | null)?.order.order_number:(payload as StockPayload | null)?.order.stock_number;
+      document.title=exportNumber ? documentExportFilename(exportNumber,kind==="pi"?"PI订单":"备货单","pdf").replace(/\.pdf$/i,"") : kind==="pi"?"PI订单":"备货单";
     };
     const afterPrint=()=>{document.title=originalTitle};
     window.addEventListener("beforeprint",beforePrint);
     window.addEventListener("afterprint",afterPrint);
     return()=>{window.removeEventListener("beforeprint",beforePrint);window.removeEventListener("afterprint",afterPrint);document.title=originalTitle};
-  },[kind]);
-  useEffect(()=>{let active=true;void(async()=>{
+  },[kind,embedded,payload]);
+  useEffect(()=>{if(initialPayload)return;let active=true;void(async()=>{
     try {
       const response=await fetch(kind==="pi"?`/api/orders/${id}`:`/api/stock-orders/${id}`,{cache:"no-store"});
       const body=await response.json().catch(()=>({}));
@@ -45,14 +48,19 @@ export function OrderPrintPreview({kind,id}:{kind:"pi"|"stock";id:string}) {
     } catch {
       if(active)setError("网络连接失败，请返回详情重试");
     }
-  })();return()=>{active=false}},[kind,id]);
+  })();return()=>{active=false}},[kind,id,initialPayload]);
+  useEffect(()=>{
+    if(embedded||!payload||!payload.can_export||!printable(payload.order.status)||new URLSearchParams(window.location.search).get("export")!=="pdf")return;
+    const timer=window.setTimeout(()=>window.print(),500);
+    return()=>window.clearTimeout(timer);
+  },[payload,embedded]);
   const back=kind==="pi"?`/orders/${id}`:`/stock-orders/${id}`;
   async function download() {
     if(downloading||!payload)return;
     setDownloading(true);setError("");
     try {
-      const number=kind==="pi"?((payload as PiPayload).order.warehouse_reference_number||(payload as PiPayload).order.order_number):((payload as StockPayload).order.warehouse_reference_number||(payload as StockPayload).order.order_number);
-      await downloadFilteredExport(kind==="pi"?`/api/orders/${id}/export`:`/api/stock-orders/${id}/export`,`${number}${kind==="stock"?"-备货单":""}.xlsx`);
+      const number=kind==="pi"?(payload as PiPayload).order.order_number:(payload as StockPayload).order.stock_number;
+      await downloadFilteredExport(kind==="pi"?`/api/orders/${id}/export`:`/api/stock-orders/${id}/export`,documentExportFilename(number,kind==="pi"?"PI订单":"备货单","xlsx"));
     } catch(cause){setError(cause instanceof Error?cause.message:"导出失败，请稍后重试")}
     finally{setDownloading(false)}
   }
@@ -60,14 +68,16 @@ export function OrderPrintPreview({kind,id}:{kind:"pi"|"stock";id:string}) {
   if(!payload)return <main className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-blue-600" aria-label="正在加载单据"/></main>;
   const pi=kind==="pi"?(payload as PiPayload):null;
   const stock=kind==="stock"?(payload as StockPayload):null;
+  const stockStatus=stock ? stock.order.status === "DRAFT" && stock.order.warehouse_reference_number
+    ? "已撤回，待重新提交" : stockProgressLabel(summarizeStockProgress(stock.order.status,stock.items)) : "";
   const piDocument=pi?createPiDocumentModel(pi.order,pi.items):null;
   const official=printable(payload.order.status) && payload.can_export;
   const number=pi?.order.warehouse_reference_number||pi?.order.order_number||stock?.order.warehouse_reference_number||stock?.order.order_number||"";
-  return <main className="print-root min-h-screen bg-slate-100 px-3 py-5 text-slate-900 print:bg-white print:p-0">
-    <div className="mx-auto mb-4 flex max-w-[1100px] flex-wrap items-center justify-between gap-2 print:hidden">
+  return <main className={`print-root min-h-screen bg-slate-100 px-3 py-5 text-slate-900 print:bg-white print:p-0 ${embedded ? "document-print-batch-page" : ""}`}>
+    {!embedded?<div className="mx-auto mb-4 flex max-w-[1100px] flex-wrap items-center justify-between gap-2 print:hidden">
       <Link href={back} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm"><ArrowLeft size={16}/>返回详情</Link>
       <div className="flex gap-2"><button type="button" onClick={()=>void download()} disabled={!official||downloading} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm disabled:opacity-50"><FileDown size={16}/>{downloading?"导出中…":"导出 Excel"}</button><button type="button" onClick={()=>window.print()} disabled={!official} title="在打印窗口中选择“另存为 PDF”即可导出 PDF" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm disabled:opacity-50"><FileDown size={16}/>导出 PDF</button><button type="button" onClick={()=>window.print()} disabled={!official} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50"><Printer size={16}/>打印</button></div>
-    </div>
+    </div>:null}
     {error?<p role="alert" className="mx-auto mb-3 max-w-[1100px] rounded-lg bg-rose-50 p-3 text-sm text-rose-700 print:hidden">{error}</p>:null}
     {!official?<p className="mx-auto mb-3 max-w-[1100px] rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">当前单据尚未正式提交，或您的角色没有导出权限；仅供屏幕核对，不能作为正式单据下载或打印。</p>:null}
     <article className={`mx-auto max-w-[1100px] bg-white text-xs ${stock ? "rounded-xl border border-slate-200 p-6 shadow-sm print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none" : "pi-print-document p-5 shadow print:max-w-none print:p-0 print:shadow-none"}`}>
@@ -85,7 +95,7 @@ export function OrderPrintPreview({kind,id}:{kind:"pi"|"stock";id:string}) {
             <div className="rounded-lg bg-slate-900 px-4 py-2 text-right text-white"><p className="text-[10px] text-slate-300">备货单号</p><p className="mt-0.5 text-sm font-semibold tabular-nums">{stock.order.stock_number}</p></div>
           </div>
           <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
-            {[["订单编号", number], ["客户名称", stock.order.customer_short_name], ["目的国家", <CountryLabel key="country" value={stock.order.destination_country}/>], ["当前状态", STOCK_STATUS_LABELS[stock.order.status as keyof typeof STOCK_STATUS_LABELS] || stock.order.status], ["创建日期", date(stock.order.created_at)], ["预计备货完成日期", date(stock.order.expected_ready_at)]].map(([label, value])=><div key={String(label)} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2"><dt className="text-[10px] text-slate-500">{label}</dt><dd className="mt-1 truncate font-medium text-slate-800">{value}</dd></div>)}
+            {[["订单编号", number], ["客户名称", stock.order.customer_short_name], ["目的国家", <CountryLabel key="country" value={stock.order.destination_country}/>], ["当前状态", stockStatus], ["创建日期", date(stock.order.created_at)], ["预计备货完成日期", date(stock.order.expected_ready_at)]].map(([label, value])=><div key={String(label)} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2"><dt className="text-[10px] text-slate-500">{label}</dt><dd className="mt-1 truncate font-medium text-slate-800">{value}</dd></div>)}
           </dl>
           <section className="mt-4 rounded-lg border-l-4 border-amber-400 bg-amber-50/70 px-4 py-3">
             <h2 className="text-xs font-semibold text-slate-800">整单理货要求</h2>
@@ -101,6 +111,6 @@ export function OrderPrintPreview({kind,id}:{kind:"pi"|"stock";id:string}) {
       </>:null}
       <footer className="mt-3 hidden flex-wrap justify-between gap-x-4 gap-y-1 border-t border-slate-200 pt-2 text-[10px] text-slate-500 print:flex"><span>Official website: {piDocument?.website||DEFAULT_OFFICIAL_WEBSITE}</span><span>Printed at: {printTime||new Date().toLocaleString("zh-CN",{hour12:false})}</span></footer>
     </article>
-    <style jsx global>{`@media print{@page{size:A4 ${kind === "pi" ? "portrait" : "landscape"};margin:0}.print-root{padding:10mm!important}.crm-topbar,aside{display:none!important}.crm-content{min-height:0!important}body{background:#fff!important}thead{display:table-header-group}tr{break-inside:avoid}article{box-shadow:none!important}button{display:none!important}.pi-print-document{font-size:10px!important;line-height:1.25!important}.pi-print-document h1{font-size:14px!important;line-height:1.2!important}.pi-print-document table{font-size:9px!important;line-height:1.2!important}.pi-print-document th,.pi-print-document td{padding:3px 4px!important}.pi-print-document>header{min-height:130px!important}.pi-print-document>header img{width:88px!important;height:88px!important}.pi-print-document>section{margin-top:8px!important}.pi-print-document footer{font-size:9px!important}.pi-print-document footer p{font-size:9px!important}}`}</style>
+    <style jsx global>{`@media print{@page{size:A4 ${kind === "pi" ? "portrait" : "landscape"};margin:0}.print-root{padding:10mm!important}.crm-topbar,aside{display:none!important}.crm-content{min-height:0!important}body{background:#fff!important}thead{display:table-header-group}tr{break-inside:avoid}article{box-shadow:none!important}button{display:none!important}.pi-print-document{width:1100px!important;max-width:none!important;padding:20px!important;zoom:.64;print-color-adjust:exact;-webkit-print-color-adjust:exact}.pi-print-document table{min-width:950px!important}.document-print-batch-page{min-height:0!important;break-after:page}.document-print-batch-page:last-of-type{break-after:auto}}`}</style>
   </main>;
 }
