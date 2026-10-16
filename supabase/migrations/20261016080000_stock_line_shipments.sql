@@ -23,7 +23,8 @@ create policy stock_order_shipments_warehouse_read on public.stock_order_shipmen
     exists (select 1 from public.users u where u.id=auth.uid() and u.status='ACTIVE'
       and u.role in ('WAREHOUSE','ADMIN') and public.current_user_has_business_permission('stock.view'))
   );
-grant select on public.stock_order_shipments to authenticated;
+revoke all on table public.stock_order_shipments from public,anon,authenticated;
+grant select on table public.stock_order_shipments to authenticated;
 
 -- The old record_stock_progress('SHIP') call has no cost arguments. Reject its
 -- shipped-quantity write at the database boundary, including stale browser tabs.

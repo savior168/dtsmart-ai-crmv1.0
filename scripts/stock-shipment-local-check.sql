@@ -1,4 +1,13 @@
 -- Run after stock-progress-local-fixture, quantity-progress, and the new shipment migration.
+do $$begin
+  if has_table_privilege('authenticated','public.stock_order_shipments','INSERT')
+    or has_table_privilege('authenticated','public.stock_order_shipments','UPDATE')
+    or has_table_privilege('authenticated','public.stock_order_shipments','DELETE')
+    or has_table_privilege('anon','public.stock_order_shipments','SELECT')
+    or not has_table_privilege('authenticated','public.stock_order_shipments','SELECT') then
+    raise exception 'shipment audit table grants are unsafe';
+  end if;
+end $$;
 insert into public.sales_orders(id,status,updated_at) values
   ('00000000-0000-0000-0000-000000000111','WAITING_STOCK',now());
 insert into public.stock_orders(id,sales_order_id,sales_user_id,status,updated_at,warehouse_reference_number,order_number)
