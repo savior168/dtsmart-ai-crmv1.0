@@ -160,6 +160,9 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>) {
   const entry = XLSX.CFB.find(cfb, "/xl/styles.xml");
   if (!entry?.content) throw new Error("备货模板缺少样式定义");
   let xml = Buffer.from(entry.content).toString("utf8");
+  // The supplied workbook contains an empty fill node. Excel tolerates it,
+  // but OOXML readers such as openpyxl reject the exported workbook.
+  xml = xml.replace(/<fill\s*\/>/g, '<fill><patternFill patternType="none"/></fill>');
   const fonts = xml.match(/<fonts count="(\d+)"[^>]*>([\s\S]*?)<\/fonts>/);
   const cellXfs = xml.match(/<cellXfs count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
   if (!fonts || !cellXfs) throw new Error("备货模板样式结构不完整");
@@ -281,3 +284,4 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   }
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
+
