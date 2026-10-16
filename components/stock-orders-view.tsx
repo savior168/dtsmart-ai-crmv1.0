@@ -96,16 +96,16 @@ export function StockOrdersView() {
     {data?.can_export?<div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式备货单；可跨页选择，最多50张</span><RowActionMenu ariaLabel={`批量导出备货单，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>void exportSelected()}>{exportBusy?"正在导出…":"导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>window.open(`/stock-orders/batch-preview?${selectedIds.map(id=>`id=${encodeURIComponent(id)}`).join("&")}`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div>:null}
     {error?<div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
     <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
-      <div className="overflow-x-auto"><table className="w-full min-w-[1450px] text-left text-sm">
+      <div className="overflow-x-auto"><table className="w-full min-w-[1650px] text-left text-sm">
         <thead className="bg-slate-50 text-xs text-slate-600"><tr>
           {data?.can_export?<th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的备货单，最多50张" checked={allPageSelected} disabled={!pageSelection.length||(selectedIds.length>=50&&!pageSelection.some(id=>selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th>:null}
-          <SortHeader label="订单编号" column="order_number"/>
-          <th className="px-4 py-3 font-medium">备货进度</th>
           <SortHeader label="备货单号" column="stock_number"/>
+          <SortHeader label="关联订单号" column="order_number"/>
           <SortHeader label="客户名称" column="customer_name"/>
-          <SortHeader label="状态" column="status"/>
-          {data?.can_view_all?<th className="px-4 py-3 font-medium">销售员</th>:null}
           <th className="px-4 py-3 font-medium">目的国家</th>
+          <SortHeader label="状态" column="status"/>
+          <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
+          {data?.can_view_all?<th className="px-4 py-3 font-medium">销售员</th>:null}
           <SortHeader label="更新时间" column="updated_at"/>
           <SortHeader label="创建时间" column="created_at"/>
           <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
@@ -113,13 +113,13 @@ export function StockOrdersView() {
         <tbody>{loading ? <tr><td colSpan={tableColumns} className="h-56 text-center"><LoaderCircle className="mx-auto animate-spin text-blue-600"/></td></tr> : data?.data.length ? data.data.map(row =>
           <tr key={row.id} onDoubleClick={event=>{if(canOpenListRow(event.target))router.push(`/stock-orders/${row.id}`)}} className="group cursor-pointer border-t hover:bg-blue-50/40">
             {data?.can_export?<td className="px-3 py-3"><input type="checkbox" aria-label={`选择备货单 ${row.warehouse_reference_number||row.stock_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id)||(selectedIds.length>=50&&!selectedIds.includes(row.id))} onChange={()=>toggleSelection(row.id)} className="size-4 accent-blue-600"/></td>:null}
-            <td className="px-4 py-3 font-semibold">{data?.can_view_pi?<Link href={`/orders/${row.sales_order_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.warehouse_reference_number || row.order_number}</Link>:row.warehouse_reference_number || row.order_number}</td>
-            <td className="px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
             <td className="px-4 py-3 text-xs"><Link href={`/stock-orders/${row.id}`} onClick={event=>event.stopPropagation()} className="font-medium text-blue-700 hover:underline">{row.stock_number}</Link></td>
+            <td className="px-4 py-3 font-semibold">{data?.can_view_pi?<Link href={`/orders/${row.sales_order_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.warehouse_reference_number || row.order_number}</Link>:row.warehouse_reference_number || row.order_number}</td>
             <td className="max-w-52 px-4 py-3" title={row.customer_short_name}>{row.customer_short_name}</td>
-            <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":stockProgressLabel(row.progress)}</AppStatusBadge></td>
-            {data?.can_view_all?<td className="px-4 py-3">{row.sales?.name||row.sales?.email||"-"}</td>:null}
             <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
+            <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":stockProgressLabel(row.progress)}</AppStatusBadge></td>
+            <td className="w-[420px] px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
+            {data?.can_view_all?<td className="px-4 py-3">{row.sales?.name||row.sales?.email||"-"}</td>:null}
             <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
             <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.created_at).toLocaleString("zh-CN")}</td>
             <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50"><div className="flex items-center gap-2"><Link href={`/stock-orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">{row.status==="DRAFT"&&row.warehouse_reference_number?"查看撤回记录":row.status==="DRAFT"&&["WAREHOUSE","ADMIN"].includes(data?.profile.role||"")?"完善备货信息":"查看详情"}</Link><RowActionMenu ariaLabel={`备货单 ${row.warehouse_reference_number||row.order_number} 的更多操作`} label="更多"><RowActionItem onClick={()=>router.push(`/stock-orders/${row.id}/preview`)}>预览{row.status==="DRAFT"?"草稿":" / 打印"}</RowActionItem>{data?.can_export&&!["DRAFT","CANCELLED"].includes(row.status)?<><RowActionItem disabled={singleExportId!==null} onClick={()=>void exportOne(row)}>{singleExportId===row.id?"导出中…":"导出 Excel"}</RowActionItem><RowActionItem onClick={()=>window.open(`/stock-orders/${row.id}/preview?export=pdf`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></>:null}</RowActionMenu></div></td>
