@@ -30,8 +30,8 @@ export function summarizeStockProgress(
   const sortingItems = items.filter((item) => {
     const quantity = Number(item.quantity || 0);
     const preparedQuantity = Number(item.prepared_quantity || 0);
-    return quantity > 0 && Number(item.received_quantity || 0) === quantity
-      && preparedQuantity > 0 && preparedQuantity < quantity;
+    return quantity > 0 && preparedQuantity > Number(item.shipped_quantity || 0)
+      && preparedQuantity < quantity;
   });
   return {
     status, ordered_units: ordered, received_units: received,
@@ -64,6 +64,7 @@ export const STOCK_ITEM_PROGRESS = [
   { key: "WAITING", label: "待采购", tone: "bg-slate-100 text-slate-700" },
   { key: "PURCHASING", label: "采购中", tone: "bg-amber-100 text-amber-800" },
   { key: "PARTIAL_RECEIPT", label: "部分回货", tone: "bg-cyan-100 text-cyan-800" },
+  { key: "PARTIAL_RECEIPT_SORTING", label: "部分回货·理货中", tone: "bg-violet-100 text-violet-800" },
   { key: "RECEIVED", label: "已回齐待理货", tone: "bg-cyan-100 text-cyan-800" },
   { key: "SORTING", label: "理货中", tone: "bg-violet-100 text-violet-800" },
   { key: "READY_TO_SHIP", label: "已理货待交货代", tone: "bg-blue-100 text-blue-800" },
@@ -78,7 +79,7 @@ export function stockItemProgressKey(item: PhysicalStockItem): StockItemProgress
   const shipped = Number(item.shipped_quantity || 0);
   if (quantity > 0 && shipped === quantity) return "SHIPPED";
   if (quantity > 0 && prepared === quantity) return "READY_TO_SHIP";
-  if (received > 0 && received < quantity) return "PARTIAL_RECEIPT";
+  if (received > 0 && received < quantity) return prepared > shipped ? "PARTIAL_RECEIPT_SORTING" : "PARTIAL_RECEIPT";
   if (quantity > 0 && received === quantity) return prepared > 0 ? "SORTING" : "RECEIVED";
   return item.preparation_status === "WAITING" ? "WAITING" : "PURCHASING";
 }
@@ -90,6 +91,7 @@ export function stockItemProgress(item: PhysicalStockItem) {
 
 /** The PI lifecycle is separate from the physical stages of its stock order. */
 export const PI_EXECUTING_STATUSES = ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"] as const;
+export const STOCK_EXECUTING_STATUSES = ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"] as const;
 export function piOrderStatusLabel(status: string) {
   if ((PI_EXECUTING_STATUSES as readonly string[]).includes(status)) {
     return "已提交仓库（执行中）";
