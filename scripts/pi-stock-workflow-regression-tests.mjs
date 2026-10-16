@@ -343,4 +343,3 @@ await mkdir(".tmp", { recursive: true });
 await writeFile(".tmp/pi-customer-regression.xlsx", workbook);
 
 console.log("PI备货价格隔离、回货数量校验、阶段流转和销售进度静态回归通过。");
-
