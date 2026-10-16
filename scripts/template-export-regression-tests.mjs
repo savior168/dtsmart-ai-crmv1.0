@@ -138,6 +138,7 @@ for (const [cell, label] of Object.entries({ C12: "产品类型", E12: "产品�
 }
 const stockPreviewSource = readFileSync("components/order-print-preview.tsx", "utf8").split("{stock?<>")[1]?.split("</>:null}")[0] || "";
 for (const label of ["产品质量", "产品描述", "成本单价", "订单数量", "产品质量/描述中文", "注意事项及理货要求"]) assert.ok(stockPreviewSource.includes(label), `备货预览须显示模板列头 ${label}`);
+assert.match(stockPreviewSource, /\[4,5,8,9\]\.includes\(index\)/, "备货预览的产品质量和产品描述都须标明展示给客户");
 assert.doesNotMatch(stockPreviewSource, /成本单价（人民币）|"理货要求","仓库备注"/, "备货预览列头不得与模板不一致");
 assert.match(stockPreviewSource, /采购成本/, "备货预览须显示采购成本汇总");
 assert.match(stockPreviewSource, /text-\[\#986C47\]/, "整单和单项理货提醒须使用一致的柔和字体颜色");

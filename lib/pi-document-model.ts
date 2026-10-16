@@ -1,5 +1,6 @@
 export type PiDocumentOrder = {
   order_number: string;
+  warehouse_reference_number?: string | null;
   created_at?: string | null;
   confirmed_at?: string | null;
   pi_valid_until?: string | null;
@@ -43,7 +44,7 @@ export function piDateLabel(value?: string | null) {
 export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentItem[]) {
   const issueDate = piDateLabel(order.created_at || order.confirmed_at);
   return {
-    orderNumber: order.order_number,
+    orderNumber: order.warehouse_reference_number || order.order_number,
     companyName: order.seller_company_name || "DT-Smart Technology Co., Ltd",
     companyAddress: order.seller_company_address || "—",
     website: order.seller_website || DEFAULT_OFFICIAL_WEBSITE,

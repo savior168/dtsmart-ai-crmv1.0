@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import XLSX from "xlsx";
 import { buildDirectPiWorkbook } from "../lib/direct-pi-export.ts";
+import { createPiDocumentModel } from "../lib/pi-document-model.ts";
 import { validPiMoney, validPiQuantity, validPiSellingPrice } from "../lib/pi-line-values.ts";
 
 const read = (path) => readFileSync(path, "utf8");
@@ -236,6 +237,11 @@ for (const address of ["A2", "C9", "D2", "F9", "C19"]) {
 assert.equal(sheet["!rows"][18].hpt, 24, "PI产品数据行应保持紧凑且可读");
 assert.equal(sheet.G2.v, "COMMERCIAL INVOICE");
 assert.equal(sheet.J2.v, "PI-TEST");
+const businessNumberOrder = { ...orderFixture, warehouse_reference_number: "D60058756" };
+assert.equal(createPiDocumentModel(businessNumberOrder, [itemFixture]).orderNumber, "D60058756", "PI预览应显示客户业务订单编号");
+const businessNumberWorkbook = buildDirectPiWorkbook(businessNumberOrder, [itemFixture]);
+const businessNumberBook = XLSX.read(businessNumberWorkbook, { type: "array" });
+assert.equal(businessNumberBook.Sheets[businessNumberBook.SheetNames[0]].J2.v, "D60058756", "PI Excel应与预览使用同一业务订单编号");
 assert.equal(sheet.J4.v, "2026-10-17", "PI导出有效期应与预览使用同一日期值");
 assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
 assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");

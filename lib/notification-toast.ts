@@ -1,6 +1,17 @@
 type ToastCandidate = { id: string; read_at: string | null; dismissed_at: string | null; deliver_at: string };
 type ToastMessage = { type: string; title?: string; content?: string | null; action_status?: string; metadata?: Record<string, unknown> | null };
 
+const stockStageLabels: Record<string, string> = {
+  DRAFT: "待完善备货信息", WAITING: "待仓库接单", PREPARING: "采购中",
+  RECEIVED: "已回货待理货", SORTING: "理货中", READY_TO_SHIP: "已理货待交货代",
+  SHIPPED: "已交货代", READY: "已备齐（历史）", SHORTAGE: "缺货异常", CANCELLED: "已取消",
+};
+
+export function notificationDisplayContent(content: string | null | undefined) {
+  return (content || "—").replace(/\b(DRAFT|WAITING|PREPARING|RECEIVED|SORTING|READY_TO_SHIP|SHIPPED|SHORTAGE|CANCELLED|READY)\b/g,
+    (status) => stockStageLabels[status] || status);
+}
+
 export function shouldShowNotificationToast(item: ToastCandidate, shown: ReadonlySet<string>, sessionStartedAt: string | null) {
   if (!sessionStartedAt) return false;
   const deliveredAt = Date.parse(item.deliver_at);

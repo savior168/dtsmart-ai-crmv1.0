@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { notificationVoiceText } from "../lib/notification-voice.ts";
-import { notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
+import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
 import { defaultNotificationPolicy, notificationPolicyType } from "../lib/notification-policy.ts";
 
 assert.match(notificationVoiceText({ type: "FOLLOWUP_DUE", content: "Call buyer" }), /跟进提醒/);
@@ -36,6 +36,9 @@ assert.equal(shouldShowNotificationToast({ ...unread, read_at: sessionStart }, n
 assert.equal(shouldShowNotificationToast(unread, new Set([unread.id]), sessionStart), false);
 assert.notEqual(notificationToastStorageKey("sales@example.com"), notificationToastStorageKey("warehouse@example.com"));
 assert.notEqual(notificationToastSessionKey("sales@example.com"), notificationToastSessionKey("warehouse@example.com"));
+assert.equal(notificationDisplayContent("Amy 更新订单 D60058756：WAITING→PREPARING"), "Amy 更新订单 D60058756：待仓库接单→采购中");
+assert.equal(notificationDisplayContent("订单 D60058756：READY_TO_SHIP→SHIPPED"), "订单 D60058756：已理货待交货代→已交货代");
+assert.equal(notificationDisplayContent("WAITING_FOR_REVIEW"), "WAITING_FOR_REVIEW", "不应改写非备货状态文本");
 assert.equal(notificationToastSummary({ type: "STOCK_ORDER_CREATED", metadata: { order_number: "D60058756" } }), "销售员提交了新备货单 D60058756，请及时安排备货。");
 assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 更新订单 D60058756：第5项回货0→10；" }), "Amy 更新了订单 D60058756 的备货状态，请查看。");
 assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 更正订单 D60058756：第5项理货10→5；" }), "Amy 更正了订单 D60058756 的备货进度，请核对。");
