@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, FileDown, LoaderCircle, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, LoaderCircle, Search } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { AppFilterBar, AppStatusBadge, appFieldClass } from "@/components/ui/app-list";
@@ -258,7 +258,7 @@ export function OrdersView() {
             重置
           </button>
         </AppFilterBar>
-        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><button type="button" onClick={() => void exportSelected()} disabled={exportBusy || type !== "PI" || selectedIds.length === 0} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><FileDown size={15}/>{exportBusy ? "正在导出…" : `批量导出 Excel（${selectedIds.length}张）`}</button><Link href={selectedIds.length && type === "PI" ? `/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}` : "#"} target="_blank" rel="noopener noreferrer" aria-disabled={!selectedIds.length || type !== "PI"} onClick={(event) => { if (!selectedIds.length || type !== "PI") event.preventDefault(); }} className={`inline-flex h-9 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 ${!selectedIds.length || type !== "PI" ? "cursor-not-allowed opacity-50" : "hover:bg-blue-50"}`}><FileDown size={15}/>批量导出 PDF（{selectedIds.length}张）</Link></div> : null}
+        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><RowActionMenu ariaLabel={`批量导出 PI，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy || type !== "PI" || selectedIds.length === 0} onClick={() => void exportSelected()}>{exportBusy ? "正在导出…" : "导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy || type !== "PI" || selectedIds.length === 0} onClick={() => window.open(`/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div> : null}
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -276,12 +276,12 @@ export function OrdersView() {
                   <tr>
                     {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || type !== "PI" || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
+                    <th className="px-4 py-3 font-medium">备货单号</th>
                     <SortHeader label="客户名称" column="customer_name"/>
+                    <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status"/>
                     <th className="px-4 py-3 font-medium">备货进度</th>
-                    <th className="px-4 py-3 font-medium">备货单号</th>
-                    <th className="px-4 py-3 font-medium">目的国家</th>
                     {canViewAll ? <th className="px-4 py-3 font-medium">归属人</th> : null}
                     <SortHeader label="更新时间" column="updated_at"/>
                     <SortHeader label="创建时间" column="created_at"/>
@@ -302,7 +302,9 @@ export function OrdersView() {
                           {row.confirmation_method === "DIRECT_PI" ? row.warehouse_reference_number || "—" : row.order_number}
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
                         </td>
+                        <td className="px-4 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}>{stock.stock_number}</Link> : <span className="whitespace-nowrap text-slate-500">{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
+                        <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
@@ -310,8 +312,6 @@ export function OrdersView() {
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
-                        <td className="px-4 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}>{stock.stock_number}</Link> : <span className="whitespace-nowrap text-slate-500">{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
-                        <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
                         {canViewAll ? (
                           <td className="px-4 py-3">
                             {row.owner?.name || row.owner?.email || "-"}
@@ -324,9 +324,9 @@ export function OrdersView() {
                         <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                           <div className="flex items-center gap-2">
                             <Link href={`/orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">查看详情</Link>
-                            {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <><button type="button" disabled={singleExportId !== null} onClick={() => void exportOne(row)} className="whitespace-nowrap text-xs font-medium text-blue-700 disabled:opacity-50">{singleExportId === row.id ? "导出中…" : "Excel"}</button><Link href={`/orders/${row.id}/preview?export=pdf`} target="_blank" rel="noopener noreferrer" title="打开打印窗口并选择另存为 PDF" className="whitespace-nowrap text-xs font-medium text-blue-700">PDF</Link></> : null}
                             <RowActionMenu ariaLabel={`订单 ${row.warehouse_reference_number || row.order_number} 的更多操作`} label="更多">
                               {row.confirmation_method === "DIRECT_PI" ? <RowActionItem onClick={() => router.push(`/orders/${row.id}/preview`)}>预览{row.status === "DRAFT" ? "草稿" : " / 打印"}</RowActionItem> : null}
+                              {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <><RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "导出中…" : "导出 Excel"}</RowActionItem><RowActionItem onClick={() => window.open(`/orders/${row.id}/preview?export=pdf`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></> : null}
                               {row.can_delete_draft ? <RowActionItem tone="danger" onClick={() => setDeleting(row)}>删除草稿</RowActionItem> : null}
                             </RowActionMenu>
                           </div>

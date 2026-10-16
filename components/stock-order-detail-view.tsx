@@ -480,18 +480,18 @@ export function StockOrderDetailView({ id }: { id: string }) {
             {showStockProgress ? <section className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4 xl:col-span-5" aria-labelledby="stock-progress-heading">
               <h2 id="stock-progress-heading" className="mb-3 text-sm font-semibold text-slate-900">整单实物进度 · {stockProgress.ordered_units} 件</h2>
               <StockProgressCell progress={stockProgress} wide/>
-              <p className="mt-3 text-xs leading-5 text-slate-500">按件数统计，合计 100%。部分回货会同时显示未回货和已回货数量；“理货中”表示回齐后尚未全部理完；“已交货代”仅表示仓库完成交接，不代表客户签收。</p>
+              <p className="mt-3 text-xs leading-5 text-slate-500">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。部分回货会同时显示未回货和已回货数量；“理货中”表示回齐后尚未全部理完；“已交货代”仅表示仓库完成交接，不代表客户签收。</p>
             </section> : null}
             <section className={`min-w-0 rounded-xl border border-slate-200 bg-white p-4 ${showStockProgress ? "xl:col-span-3" : ""}`} aria-labelledby="stock-recipient-heading">
               <h2 id="stock-recipient-heading" className="mb-3 text-sm font-semibold text-slate-900">客户与收货信息</h2>
-              <dl className="space-y-2.5 text-sm leading-5">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm leading-5">
                 <div><dt className="text-xs text-slate-500">客户</dt><dd className="font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
                 <div><dt className="text-xs text-slate-500">目的国家</dt><dd><CountryLabel value={o.destination_country}/></dd></div>
                 <div><dt className="text-xs text-slate-500">收件人</dt><dd className="font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>
-                <div className="min-w-0"><dt className="text-xs text-slate-500">收货地址</dt><dd className="break-words text-slate-800">{o.delivery_address || "—"}</dd></div>
+                <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">收货地址</dt><dd className="break-words text-slate-800">{o.delivery_address || "—"}</dd></div>
               </dl>
             </section>
-            <section className={`min-w-0 rounded-xl border p-4 ${o.stocking_requirements?.trim() ? "border-amber-200 bg-amber-50 text-amber-950" : "border-slate-200 bg-slate-50 text-slate-600"} ${showStockProgress ? "lg:col-span-2 xl:col-span-4" : ""}`} aria-labelledby="stock-requirements-heading">
+            <section className={`min-w-0 rounded-xl border p-4 ${o.stocking_requirements?.trim() ? "border-slate-200 border-l-4 border-l-amber-400 bg-white text-slate-800" : "border-slate-200 bg-slate-50 text-slate-600"} ${showStockProgress ? "lg:col-span-2 xl:col-span-4" : ""}`} aria-labelledby="stock-requirements-heading">
               <h2 id="stock-requirements-heading" className="mb-2 text-sm font-semibold">整单理货要求</h2>
               <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6" tabIndex={0}>{o.stocking_requirements || "常规理货"}</p>
             </section>
