@@ -170,7 +170,7 @@ for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockL
 }
 assert.match(orderListApi, /currency[\s\S]*type === "PI"/, "PI列表必须按币种和业务类型筛选");
 assert.doesNotMatch(stockListView, /报价编号|quote_number/, "备货单列表不得继续展示旧报价编号");
-assert.match(stockListView, /label="订单编号"[\s\S]*<th[^>]*>备货进度<\/th>[\s\S]*label="备货单号"[\s\S]*label="客户名称"[\s\S]*label="状态"[\s\S]*目的国家/, "备货单列表应先展示业务订单号和进度，再展示备货单号、客户与状态");
+assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="客户名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*销售员[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表列序应按备货单、关联订单、客户、国家、状态、进度、销售员和时间排列");
 assert.match(stockListView, /data\?\.can_view_all\?<th[^>]*>销售员<\/th>:null/, "销售员查看自己的备货单时不重复显示销售员列");
 assert.match(stockListView, /row\.warehouse_reference_number \|\| row\.order_number/, "仓库列表必须优先显示销售填写的业务订单编号");
 for (const api of [orderListApi, stockListApi]) {
