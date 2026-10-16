@@ -5,7 +5,7 @@ export function StockProgressCell({ progress, wide = false }: { progress: StockP
   const exceptional = ["DRAFT", "SHORTAGE", "CANCELLED"].includes(progress.status);
   const progressDetails = STOCK_BUCKETS.map((bucket) =>
     `${bucket.label}：${progress.buckets[bucket.key].units} 件（${progress.buckets[bucket.key].percent}%）`).join("；");
-  return <div className={wide ? "w-full" : "min-w-[290px] max-w-[380px]"} aria-label={`备货共 ${progress.ordered_units} 件；${STOCK_BUCKETS.map((bucket) =>
+  return <div className={wide ? "w-full" : "min-w-[350px] max-w-[400px]"} aria-label={`备货共 ${progress.ordered_units} 件；${STOCK_BUCKETS.map((bucket) =>
     `${bucket.label} ${progress.buckets[bucket.key].units} 件，占 ${progress.buckets[bucket.key].percent}%`).join("；")}`}>
     {exceptional ? <p className="mb-1 text-xs font-medium text-rose-700">{progress.status === "DRAFT" ? "未提交仓库" : progress.status === "SHORTAGE" ? "存在缺货异常" : "已取消"} · 以下为已记录的实物进度</p> : null}
     <div className={`flex h-3 overflow-hidden rounded-full bg-slate-100 ${wide ? "" : "cursor-help"}`} role="img" aria-label={`备货各环节件数占比：${progressDetails}`} title={wide ? undefined : progressDetails}>
@@ -17,12 +17,12 @@ export function StockProgressCell({ progress, wide = false }: { progress: StockP
           style={{ width: `${value.percent}%` }} title={detail} aria-label={detail}/>;
       })}
     </div>
-    <div className={`mt-2 grid grid-cols-2 gap-x-3 text-slate-700 ${wide ? "gap-y-2 text-[11px] leading-4 xl:grid-cols-3" : "gap-y-1 text-[10px] leading-3 min-[1500px]:grid-cols-3"}`}>
+    <div className={`mt-2 grid gap-x-2 gap-y-1.5 text-[11px] leading-4 text-slate-700 ${wide ? "grid-cols-2 xl:grid-cols-3" : "grid-cols-3"}`}>
       {STOCK_BUCKETS.map((bucket) => {
         const value = progress.buckets[bucket.key];
-        return <span key={bucket.key} className="flex items-start gap-1.5">
-          <span className={`mt-0.5 size-2.5 shrink-0 rounded-sm ${bucket.color}`}/>
-          <span className="min-w-0"><span className="block text-slate-600">{bucket.label}</span><span className="block whitespace-nowrap font-semibold">{value.units}件 · {value.percent}%</span></span>
+        return <span key={bucket.key} title={bucket.label} className={wide ? "min-w-0" : "min-w-0 rounded-md bg-slate-50 px-1.5 py-1"}>
+          <span className="flex min-w-0 items-center gap-1"><span className={`size-2.5 shrink-0 rounded-sm ${bucket.color}`}/><span className="truncate text-slate-600">{bucket.label}</span></span>
+          <span className="block whitespace-nowrap font-semibold tabular-nums">{value.units}件 · {value.percent}%</span>
         </span>;
       })}
     </div>
