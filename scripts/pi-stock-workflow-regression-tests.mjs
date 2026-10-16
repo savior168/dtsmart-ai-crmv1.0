@@ -143,13 +143,17 @@ assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED
 assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
+assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "仓库备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和仓库备注放在产品明细最后两列");
+assert.match(orderDetailView, /function PiInternalTextCell[\s\S]*line-clamp-2[\s\S]*查看全文[\s\S]*AppDialog open=\{expandedLineText !== null\}/, "逐项长内容应限制行高并可在弹窗查看全文");
+assert.doesNotMatch(orderDetailView, /逐项理货要求与仓库备注/, "PI详情不应在产品表格后重复列出逐项内部要求");
 const piBatchActions = orderListView.split("批量导出 PI，已选")[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piBatchActions, /导出 Excel[\s\S]*导出 PDF/, "所选正式PI应在统一批量导出菜单提供Excel和PDF入口");
 assert.match(orderDetailView, /导出 PI Excel[\s\S]*导出 PI PDF/, "PI详情应直接提供Excel与PDF两种选择");
 const batchPdfPage = read("components/batch-order-print-preview.tsx");
 assert.match(batchPdfPage, /ids\.length > 50[\s\S]*new Set\(ids\)\.size !== ids\.length/, "批量PDF必须限制数量与重复ID");
 assert.match(batchPdfPage, /!payload\.can_export[\s\S]*"DRAFT", "CANCELLED"[\s\S]*confirmation_method !== "DIRECT_PI"/, "批量PDF必须逐张核对正式PI导出权限");
-assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"\]\)/, "未发货筛选必须准确覆盖待接单、采购、回货、理货和待发货五类状态");
+assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.PI_EXECUTING_STATUSES\]\)/, "PI执行中筛选必须使用与列表状态一致的共享状态集合");
+assert.match(stockListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.STOCK_EXECUTING_STATUSES\]\)/, "备货执行中筛选必须使用与PI同步的共享状态集合");
 assert.match(orderListView, /<td className="px-4 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
