@@ -39,6 +39,9 @@ assert.notEqual(notificationToastSessionKey("sales@example.com"), notificationTo
 assert.equal(notificationToastSummary({ type: "STOCK_ORDER_CREATED", metadata: { order_number: "D60058756" } }), "销售员提交了新备货单 D60058756，请及时安排备货。");
 assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 更新订单 D60058756：第5项回货0→10；" }), "Amy 更新了订单 D60058756 的备货状态，请查看。");
 assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 更正订单 D60058756：第5项理货10→5；" }), "Amy 更正了订单 D60058756 的备货进度，请核对。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "PI备货单已撤回", content: "PI订单 D60058756 已撤回，请勿继续备货" }), "销售员撤回了 PI 备货单 D60058756，请停止备货并核对。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "订单已取消", content: "订单 D60058756 已取消" }), "销售员取消了订单 D60058756，请及时核对。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "备货单已确认", content: "Amy 已确认订单 D60058756 的备货单。" }), "Amy 确认了订单 D60058756 的备货单，请查看。");
 assert.equal(notificationToastSummary({ type: "CUSTOMER_ADMIN_ASSIGNED", content: "管理员分配了 3 个客户" }), "管理员向您分配了 3 个客户，请及时跟进。");
 assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "管理员发布了系统公告，请查看。");
 assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), action_status: "PENDING" }).length < 120);

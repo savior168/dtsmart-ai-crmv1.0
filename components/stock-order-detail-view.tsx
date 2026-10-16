@@ -402,7 +402,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <ArrowLeft size={16} />
             返回备货列表
           </Link>
-          <div className="flex gap-2">
+          <div className="flex min-w-0 flex-wrap gap-2">
             {data.can_view_pi ? <Link
               href={`/orders/${o.sales_order_id}`}
               className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700"
