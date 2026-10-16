@@ -289,6 +289,7 @@ assert.match(read("components/order-print-preview.tsx"), /const beforePrint=\(\)
 assert.match(read("components/order-print-preview.tsx"), /const afterPrint=\(\)=>\{document\.title=originalTitle\}/, "打印后应恢复页面标题，打印期间使用单据名而非系统名称");
 assert.match(read("components/order-print-preview.tsx"), /Official website:[\s\S]*Printed at:/, "打印页脚应显示官网和打印时间而非系统网址");
 assert.match(read("components/order-print-preview.tsx"), /\.pi-print-document\{width:1100px!important;max-width:none!important;padding:20px!important;zoom:\.64;print-color-adjust:exact/, "PI PDF应等比例缩放屏幕预览版式至竖版A4并保留背景色");
+assert.match(read("components/order-print-preview.tsx"), /overflow-x-auto print:overflow-visible[\s\S]*w-\[1100px\] max-w-none/, "窄屏单据预览须横向查看完整纸张，不得压缩Logo及表格列");
 assert.match(read("components/order-print-preview.tsx"), /预计备货完成日期[\s\S]*date\(stock\.order\.expected_ready_at\)/, "备货单预览应准确说明 expected_ready_at 是预计备货完成日期");
 assert.match(read("components/order-print-preview.tsx"), /"成本单价"[\s\S]*estimated_unit_cost_cny/, "备货单成本列头不应额外添加人民币后缀");
 assert.equal([...read("components/order-print-preview.tsx").matchAll(/text-\[#986C47\]/g)].length, 2, "整单与单项理货说明应使用一致且克制的浅色字体");
@@ -342,3 +343,4 @@ await mkdir(".tmp", { recursive: true });
 await writeFile(".tmp/pi-customer-regression.xlsx", workbook);
 
 console.log("PI备货价格隔离、回货数量校验、阶段流转和销售进度静态回归通过。");
+
