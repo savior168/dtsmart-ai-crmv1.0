@@ -27,6 +27,7 @@ export function StockProgressCell({ progress, wide = false }: { progress: StockP
           </span>;
         })}
       </div>
+      {progress.sorting_items > 0 ? <p className="mt-1.5 text-[10px] leading-4 text-violet-700">理货中 {progress.sorting_items} 项 · 已理货 {progress.sorting_prepared_units}/{progress.sorting_ordered_units} 件</p> : null}
     </div>
   </div>;
 }
