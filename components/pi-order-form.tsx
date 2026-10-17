@@ -12,7 +12,7 @@ import { validPiMoney, validPiQuantity, validPiSellingPrice } from "@/lib/pi-lin
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
 
-type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; phone?: string | null; email?: string | null; address?: string | null };
+type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null };
 type Account = { id: string; label: string; currency: string; instructions: string; active?: boolean };
 type ExchangeRate = { currency: string; business_cny: number | null; source: string; reference_date: string | null };
 type Line = { item_name: string; brand: string; model: string; quality: string; description: string; description_zh: string; quantity: string; unit_price_cny: string; estimated_unit_cost_cny: string; preparation_requirement: string; internal_note: string };
@@ -64,6 +64,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [items, setItems] = useState<Line[]>([newLine()]);
   const [confirmClearItems, setConfirmClearItems] = useState(false);
   const [showAccountDetails, setShowAccountDetails] = useState(false);
+  const [showCustomerTally, setShowCustomerTally] = useState(false);
+  const [tallyCopyMessage, setTallyCopyMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadingDraft, setLoadingDraft] = useState(Boolean(draftOrderId || importDraftId));
   const [importSource, setImportSource] = useState<ImportedPiDocument | null>(null);
@@ -233,12 +235,29 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   function chooseCustomer(id: string) {
     if (id !== customerId) markUnsaved();
     setCustomerId(id);
+    setShowCustomerTally(false);
+    setTallyCopyMessage("");
     const customer = customers.find((item) => item.id === id);
-    if (!customer) return;
+    if (!customer) {
+      setRecipient("");
+      setPhone("");
+      setEmail("");
+      setAddress("");
+      return;
+    }
     setRecipient(customer.contact_name?.trim() || "");
     setPhone(customer.phone || "");
     setEmail(customer.email || "");
     setAddress(customer.address || "");
+  }
+  async function copyCustomerTally() {
+    if (!selectedCustomer?.tally_requirements?.trim()) return;
+    try {
+      await navigator.clipboard.writeText(selectedCustomer.tally_requirements);
+      setTallyCopyMessage("已复制客户资料中的理货要求");
+    } catch {
+      setTallyCopyMessage("复制失败，请手动选中文字复制");
+    }
   }
   function editLine(index: number, key: keyof Line, value: string) {
     if (items[index]?.[key] !== value) markUnsaved();
@@ -359,6 +378,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">原Excel：{importSource.warehouse_reference_number} · {importSource.currency} {importSource.total_payment.toFixed(2)}（含运费 {importSource.shipping_payment.toFixed(2)}）。{selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已按PI公司名称精确匹配，请确认。" : "请从本人客户中选择与PI公司名称一致的客户。"}人民币售价和运费{effectiveRate > 0 ? "已按当前业务汇率自动折算，可核对调整" : "需在汇率可用后折算"}；预估成本{importSource.payment_account_id ? "需补充" : "及收款账户需补充或核对"}。{importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "付款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与原文件金额不一致时会要求逐项确认。</div> : null}
     <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       <label className="text-sm">公司名称<Required /><AppSelect className={field} aria-label="搜索并选择我的PI客户" forceSearch placeholderValue="" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">请选择我的客户</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name}</option>)}</AppSelect></label>
+      <label className="text-sm">公司税号<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.tax_number || ""} readOnly aria-readonly="true" placeholder="客户资料未填写" title="只可在客户资料中修改公司税号" /></label>
+      <label className="text-sm">客户名称<AppSelect className={field} aria-label="搜索客户名称并选择PI客户" forceSearch placeholderValue="" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">按客户名称查找</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.contact_name?.trim() ? `${customer.contact_name} · ${customer.company_name}` : `未填写客户名称 · ${customer.company_name}`}</option>)}</AppSelect></label>
       <label className="text-sm">目的国家<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.country ? countryInfo(selectedCustomer.country).name : "客户档案未填写"} readOnly aria-readonly="true" title="从所选客户档案自动带入" /></label>
       <label className="text-sm">订单编号<Required /><input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 D60020733；不可与其他PI重复" /></label>
       <label className="text-sm">客户付款币种<Required /><AppSelect className={field} aria-label="搜索并选择客户付款币种" value={currency} onChange={(event) => { if (event.target.value !== currency) markUnsaved(); setCurrency(event.target.value); setRate(String(exchangeRates.find((item) => item.currency === event.target.value)?.business_cny || "")); }}><option value="">请选择</option>{QUOTE_CURRENCIES.map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}</AppSelect></label>
@@ -390,7 +411,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       </tr>)}</tbody></table></div>
       <div className="mt-3 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm" aria-live="polite"><span>产品总金额（RMB）：<strong>¥{totals.subtotalCny.toFixed(2)}</strong></span><span>产品总利润（RMB）：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : `¥${totals.totalProfitCny.toFixed(2)}`}</strong></span><span>产品总利润率：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : totals.subtotalCny > 0 ? `${(totals.totalProfitCny / totals.subtotalCny * 100).toFixed(2)}%` : "—"}</strong></span></div>
     </section>
-    <section className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-[minmax(0,1fr)_auto]"><div className={`grid gap-3 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div><label className="text-sm">订单变更说明（选填）<textarea className={`${field} min-h-24 py-2`} rows={3} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" /></label>{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<label className="text-sm">理货要求（选填）<textarea className={`${field} min-h-24 py-2`} rows={3} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /></label></div>
+    <section className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-[minmax(0,1fr)_auto]"><div className={`grid gap-3 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div><label className="text-sm">订单变更说明（选填）<textarea className={`${field} min-h-24 py-2`} rows={3} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" /></label>{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<div><div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="pi-stocking-requirements" className="text-sm">理货要求（选填）</label><button type="button" disabled={!selectedCustomer?.tally_requirements?.trim()} onClick={() => setShowCustomerTally(true)} className="text-xs font-medium text-blue-700 disabled:text-slate-400">查看客户资料理货要求</button></div><textarea id="pi-stocking-requirements" className={`${field} min-h-24 py-2`} rows={3} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /></div></div>
       <div className="min-w-72 rounded-lg bg-slate-50 p-3 text-sm"><h2 className="font-semibold text-slate-900">PI费用汇总</h2><div className="mt-2 grid grid-cols-[auto_auto_auto] items-center gap-x-3 gap-y-1 text-right text-slate-600"><span></span><span>RMB</span><span>{currency}</span><span className="text-left">产品小计</span><span>¥{totals.subtotalCny.toFixed(2)}</span><span>{totals.subtotalPayment.toFixed(2)}</span><label htmlFor="pi-shipping" className="text-left">运费</label><div className="relative min-w-0"><span aria-hidden="true" className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-slate-500">¥</span><input id="pi-shipping" aria-label="人民币运费" className="h-7 w-full min-w-0 border-b border-dashed border-slate-400 bg-transparent pl-3 text-right text-sm outline-none focus:border-blue-600" type="text" inputMode="decimal" value={shippingInput} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) setShippingInput(event.target.value); }} onBlur={() => { if (shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} /></div><span>{totals.shippingPayment.toFixed(2)}</span><span className="border-t pt-2 text-left font-semibold text-slate-900">PI总额</span><span className="border-t pt-2 font-semibold text-slate-900">¥{roundMoney(totals.subtotalCny + shippingCny).toFixed(2)}</span><span className="border-t pt-2 font-semibold text-blue-700">{roundMoney(totals.subtotalPayment + totals.shippingPayment).toFixed(2)}</span></div></div>
     </section>
     <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-4"><button type="button" disabled={busy || loadingDraft || !availableAccounts.length || Boolean(savedDraftId)} onClick={() => void create()} className="rounded-lg border border-slate-300 px-6 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50">{busy ? "处理中…" : "保存PI草稿"}</button><button type="button" disabled={busy || loadingDraft || !availableAccounts.length || !canSubmitDraft || Boolean(savedDraftId)} onClick={() => setConfirmSubmit(true)} className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50">确认并生成备货单</button></div>
@@ -401,5 +422,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     <ConfirmDialog open={confirmSubmit} title="确认提交PI给仓库？" description="系统将先保存当前PI，再生成仓库可见的备货单。提交后不能直接修改产品或价格；仓库未开始备货前可撤回。" confirmLabel="确认并生成备货单" busy={busy} onCancel={() => { if (!busy) setConfirmSubmit(false); }} onConfirm={() => { setConfirmSubmit(false); void create(true); }} />
     <ConfirmDialog open={importDifferences.length > 0} title="导入数据与原Excel不一致" description={importDifferences.join("；") + `。请逐项核对；确认后${submitAfterImportDifferences ? "将保存PI并生成备货单" : "将保存为PI草稿"}。`} confirmLabel={submitAfterImportDifferences ? "已核对，确认生成备货单" : "已核对，保存PI草稿"} busy={busy} onCancel={() => { setImportDifferences([]); setSubmitAfterImportDifferences(false); }} onConfirm={() => { const shouldSubmit = submitAfterImportDifferences; setImportDifferences([]); setSubmitAfterImportDifferences(false); void create(shouldSubmit, true); }} />
     {showAccountDetails && selectedAccount ? <AppDialog title={`${selectedAccount.label} · 收款账户`} description="此账户信息会在保存PI时固化，之后管理员修改账户不会改写已保存的PI。" onClose={() => setShowAccountDetails(false)}><p className="whitespace-pre-wrap break-all text-sm leading-6 text-slate-700">{selectedAccount.instructions}</p></AppDialog> : null}
+    {showCustomerTally && selectedCustomer?.tally_requirements ? <AppDialog title="客户资料理货要求" description={`${selectedCustomer.company_name} · 只读参考；复制后可粘贴到本单理货要求或产品明细。`} onClose={() => { setShowCustomerTally(false); setTallyCopyMessage(""); }}><div className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border bg-slate-50 p-3 text-sm leading-6 text-slate-700">{selectedCustomer.tally_requirements}</div><div className="mt-3 flex flex-wrap items-center justify-end gap-3"><span role="status" className="text-xs text-slate-600">{tallyCopyMessage}</span><button type="button" onClick={() => void copyCustomerTally()} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">复制理货要求</button></div></AppDialog> : null}
   </div></main>;
 }
