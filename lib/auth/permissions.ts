@@ -1,4 +1,4 @@
-export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "WAREHOUSE"] as const;
+export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE"] as const;
 export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "DEPARTED", "LOCKED"] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -90,7 +90,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "quotes.cancel", label: "取消本人报价", group: "销售管理", description: "取消本人未确认的报价单", kind: "ACTION" },
 
   { code: "orders.view", label: "PI订单", group: "销售管理", description: "查看PI订单和历史销售订单", kind: "PAGE" },
-  { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "为本人客户创建PI草稿并确认提交仓库", kind: "ACTION" },
+  { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "销售员和主管为本人客户创建PI；跟单员可为任意在职销售员或主管的客户创建并提交PI", kind: "ACTION" },
   { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "主管只读查看全部销售订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
@@ -196,8 +196,16 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: "系统管理员",
   SUPERVISOR: "主管",
   SALES: "销售员",
+  ORDER_CLERK: "跟单员",
   WAREHOUSE: "仓库员",
 };
+
+export function isOrderClerkForbiddenPermission(permission: string) {
+  return permission.startsWith("customers.") && !["customers.view", "customers.data_all"].includes(permission)
+    || permission.startsWith("stock.") && !["stock.view", "stock.data_all"].includes(permission)
+    || permission.startsWith("quotes.")
+    || ["orders.cancel", "orders.delete_draft", "orders.import"].includes(permission);
+}
 
 export const STATUS_LABELS: Record<AccountStatus, string> = {
   PENDING: "待审核",

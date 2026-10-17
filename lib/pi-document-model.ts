@@ -7,6 +7,7 @@ export type PiDocumentOrder = {
   delivery_date?: string | null;
   payment_method?: string | null;
   currency: string;
+  show_dual_currency_prices?: boolean | null;
   customer_short_name: string;
   customer?: { company_name?: string | null; contact_name?: string | null } | null;
   seller_company_name?: string | null;
@@ -22,6 +23,11 @@ export type PiDocumentOrder = {
   subtotal: number;
   shipping_cost: number;
   total_amount: number;
+  last_balance_amount?: number | null;
+  discount_amount?: number | null;
+  other_charge_amount?: number | null;
+  paypal_fee_percent?: number | null;
+  paypal_fee_amount?: number | null;
 };
 
 export type PiDocumentItem = {
@@ -33,6 +39,7 @@ export type PiDocumentItem = {
   description?: string | null;
   quantity: number;
   unit_price: number;
+  unit_price_cny?: number | null;
 };
 
 export const DEFAULT_OFFICIAL_WEBSITE = "https://www.dt-smart.com/";
@@ -62,8 +69,14 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     deliveryAddress: order.delivery_address || "—",
     issueDate,
     currency: order.currency,
+    showDualCurrencyPrices: order.show_dual_currency_prices === true && order.currency !== "CNY",
     subtotal: Number(order.subtotal),
     shippingCost: Number(order.shipping_cost),
+    lastBalance: Number(order.last_balance_amount || 0),
+    discount: Number(order.discount_amount || 0),
+    otherCharge: Number(order.other_charge_amount || 0),
+    paypalFeePercent: Number(order.paypal_fee_percent || 0),
+    paypalFee: Number(order.paypal_fee_amount || 0),
     totalAmount: Number(order.total_amount),
     totalQuantity: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
     items: items.map((item, index) => ({
@@ -75,6 +88,7 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
       description: item.description || "",
       quantity: Number(item.quantity),
       unitPrice: Number(item.unit_price),
+      unitPriceCny: Number(item.unit_price_cny ?? 0),
       amount: Math.round((Number(item.unit_price) * Number(item.quantity) + Number.EPSILON) * 100) / 100,
     })),
   };

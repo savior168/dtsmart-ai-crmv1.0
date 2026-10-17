@@ -15,7 +15,7 @@ const manualWritableFields = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "facebook_url", "instagram_url", "linkedin_url",
   "tiktok_url", "other_public_urls", "address", "category", "notes",
-  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address",
+  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address", "shipping_address",
 ] as const;
 
 // The customer list must not download the full CRM/AI payload for every row.

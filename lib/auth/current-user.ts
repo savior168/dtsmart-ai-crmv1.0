@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, isOrderClerkForbiddenPermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
@@ -123,6 +123,7 @@ export async function requirePermission(permission: string) {
 
 export function hasPermission(account: CurrentAccount, permission: string) {
   if (account.role === "ADMIN") return true;
+  if (account.role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(permission)) return false;
   // Legacy grants and per-user overrides cannot revive an admin-only page or action.
   const pagePermission = permissionPageCode(permission);
   if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
@@ -143,11 +144,41 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
   if (!hasPermission(account, dataPermission)) return account.id;
   const requested = new URL(request.url).searchParams.get("user_id")?.trim() || "";
   if (account.role === "ADMIN") return requested.toLowerCase() === "all" ? null : requested || account.id;
+  if (account.role === "ORDER_CLERK" && dataPermission === "customers.data_all") {
+    if (!requested || requested.toLowerCase() === "all") return null;
+    const { data, error } = await createAdminClient().from("users").select("id")
+      .eq("id", requested).in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("FORBIDDEN");
+    return requested;
+  }
+  if (account.role === "ORDER_CLERK" && ["orders.data_all", "stock.data_all"].includes(dataPermission)) {
+    if (!requested || requested.toLowerCase() === "all") return null;
+    const { data, error } = await createAdminClient().from("users").select("id")
+      .eq("id", requested).in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("FORBIDDEN");
+    return requested;
+  }
   // 主管仅能读本人和直属下级；权限判断必须在服务端执行，不能只依赖
   // 下拉选项的前端限制。暂不提供“全员”或跨主管聚合范围。
   if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
   if (account.role !== "SUPERVISOR") return account.id;
   const { data, error } = await createAdminClient().from("users").select("id").eq("id", requested).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("FORBIDDEN");
+  return requested;
+}
+
+export async function requestedPiCreatorId(request: Request, account: CurrentAccount, dataPermission: string) {
+  const requested = new URL(request.url).searchParams.get("creator_id")?.trim() || "";
+  if (!requested || requested.toLowerCase() === "all") return null;
+  if (!["ADMIN", "ORDER_CLERK"].includes(account.role) || !hasPermission(account, dataPermission)
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested)) {
+    throw new Error("FORBIDDEN");
+  }
+  const { data, error } = await createAdminClient().from("users").select("id")
+    .eq("id", requested).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("FORBIDDEN");
   return requested;

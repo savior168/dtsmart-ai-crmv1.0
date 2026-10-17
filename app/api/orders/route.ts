@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   authErrorStatus,
   hasPermission,
+  requestedPiCreatorId,
   requestedOwnerId,
   requirePermission,
 } from "@/lib/auth/current-user";
@@ -14,6 +15,7 @@ import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-
 import { PI_EXECUTING_STATUSES, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const SORT_COLUMNS = {
   order_number: "warehouse_reference_number",
@@ -56,17 +58,20 @@ export async function GET(request: NextRequest) {
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const ownerId = await requestedOwnerId(request, account, "orders.data_all");
+    const creatorId = await requestedPiCreatorId(request, account, "orders.data_all");
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
       let query = supabase
         .from("sales_orders")
         .select(
-          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
+          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,prepared_by,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
           { count: "exact" },
         )
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true })
         .range(rangeStart, rangeEnd);
+      if (account.role === "ORDER_CLERK") query = query.eq("confirmation_method", "DIRECT_PI");
       if (ownerId) query = query.eq("sales_user_id", ownerId);
+      if (creatorId) query = query.eq("prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
       if (status === "ACTIVE") query = query.in("status", [...PI_EXECUTING_STATUSES]);
       else if (status) query = query.eq("status", status);
@@ -104,7 +109,7 @@ export async function GET(request: NextRequest) {
       const idBatches = Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, (index + 1) * 50));
       const details = (await mapExportBatches(idBatches, 4, async (batchIds) => {
         const result = await supabase.from("sales_orders").select(
-          "id,order_number,warehouse_reference_number,status,confirmation_method,currency,delivery_date,payment_method,customer_short_name,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,payment_account_snapshot,customer:customers(company_name,contact_name)",
+          "id,customer_id,prepared_by,order_number,warehouse_reference_number,status,confirmation_method,currency,show_dual_currency_prices,delivery_date,payment_method,customer_short_name,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,last_balance_cny,last_balance_amount,discount_cny,discount_amount,other_charge_cny,other_charge_amount,paypal_fee_percent,paypal_fee_cny,paypal_fee_amount,payment_account_snapshot,customer:customers(company_name,contact_name)",
         ).in("id", batchIds);
         if (result.error) throw result.error;
         return result.data || [];
@@ -126,6 +131,10 @@ export async function GET(request: NextRequest) {
         return items;
       })).flat();
       if (details.length !== ids.length) throw new Error("部分PI已无权查看，请刷新筛选结果");
+      const clerkCustomers = account.role === "ORDER_CLERK" ? await createAdminClient().from("customers")
+        .select("id,company_name,contact_name").in("id", [...new Set(details.map((item) => item.customer_id))]) : null;
+      if (clerkCustomers?.error) throw clerkCustomers.error;
+      const clerkCustomerById = new Map((clerkCustomers?.data || []).map((item) => [item.id, item]));
       const orderById = new Map(details.map((item) => [item.id, item]));
       const itemsByOrderId = new Map<string, typeof itemRows>();
       for (const item of itemRows) {
@@ -139,7 +148,8 @@ export async function GET(request: NextRequest) {
         const items = itemsByOrderId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("PI数据已更新，请刷新筛选结果");
         return { name: documentExportFilename(row.order_number, "PI订单", "xlsx", exportedAt),
-          data: buildDirectPiWorkbook({ ...detail, order_number: row.warehouse_reference_number || row.order_number } as never, items as never) };
+          data: buildDirectPiWorkbook({ ...detail, customer: account.role === "ORDER_CLERK" ? clerkCustomerById.get(detail.customer_id) || null : detail.customer,
+            order_number: row.warehouse_reference_number || row.order_number } as never, items as never) };
       });
       const zip = buildWorkbookZip(files);
       return new NextResponse(streamZipBytes(zip), { headers: {
@@ -149,20 +159,27 @@ export async function GET(request: NextRequest) {
       } });
     }
     const ownerIds = [...new Set(rows.map((item) => item.sales_user_id).filter(Boolean))] as string[];
+    const creatorIds = [...new Set(rows.map((item) => item.prepared_by).filter(Boolean))] as string[];
     const orderIds = rows.map((item) => item.id);
-    const [owners, stockOrders] = await Promise.all([
+    const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
+    const [owners, creators, stockOrders] = await Promise.all([
       ownerIds.length
-        ? supabase.from("users").select("id,name,email").in("id", ownerIds)
+        ? relatedClient.from("users").select("id,name,email").in("id", ownerIds)
+        : Promise.resolve({ data: [], error: null }),
+      creatorIds.length && ["ADMIN", "ORDER_CLERK"].includes(account.role)
+        ? createAdminClient().from("users").select("id,name,email").in("id", creatorIds)
         : Promise.resolve({ data: [], error: null }),
       orderIds.length
-        ? supabase.from("stock_orders").select("id,sales_order_id,stock_number,status").in("sales_order_id", orderIds)
+        ? relatedClient.from("stock_orders").select("id,sales_order_id,stock_number,status").in("sales_order_id", orderIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (owners.error) throw owners.error;
+    if (creators.error) throw creators.error;
     if (stockOrders.error) throw stockOrders.error;
     const visibleStockIds = (stockOrders.data || []).map((item) => item.id);
-    const stockItemsById = await loadStockProgressItems(supabase, visibleStockIds);
+    const stockItemsById = await loadStockProgressItems(relatedClient, visibleStockIds);
     const ownerById = new Map((owners.data || []).map((item) => [item.id, item]));
+    const creatorById = new Map((creators.data || []).map((item) => [item.id, item]));
     const stockByOrderId = new Map<string, Array<{ id: string; stock_number: string; status: string; progress: ReturnType<typeof summarizeStockProgress> }>>();
     for (const stock of stockOrders.data || []) {
       const list = stockByOrderId.get(stock.sales_order_id) || [];
@@ -174,6 +191,7 @@ export async function GET(request: NextRequest) {
       data: rows.map((item) => ({
         ...item,
         owner: ownerById.get(item.sales_user_id) || null,
+        creator: item.prepared_by ? creatorById.get(item.prepared_by) || null : null,
         stock: stockByOrderId.get(item.id) || [],
         can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") &&
           hasPermission(account, "orders.delete_draft") &&
@@ -185,9 +203,10 @@ export async function GET(request: NextRequest) {
       page,
       page_size: pageSize,
       can_view_all: hasPermission(account, "orders.data_all"),
+      can_filter_creator: ["ADMIN", "ORDER_CLERK"].includes(account.role) && hasPermission(account, "orders.data_all"),
       can_view_stock: hasPermission(account, "stock.view"),
       can_export: hasPermission(account, "orders.export"),
-      can_create: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN") && hasPermission(account, "orders.create"),
+      can_create: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN" || account.role === "ORDER_CLERK") && hasPermission(account, "orders.create"),
       can_import: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN") && hasPermission(account, "orders.import"),
     });
   } catch (error) {

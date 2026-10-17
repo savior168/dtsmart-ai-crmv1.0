@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { PI_PAYMENT_CHANNELS } from "@/lib/pi-payment-channel";
+
+const validChannel = (value: unknown) => value === "OTHER" || PI_PAYMENT_CHANNELS.some((channel) => channel === value);
 
 export async function GET() {
   try {
     const { supabase, account } = await requirePermission("orders.view");
-    let query = supabase.from("pi_payment_accounts").select("id,label,currency,instructions,active,created_at,updated_at").order("created_at", { ascending: false });
+    let query = supabase.from("pi_payment_accounts").select("id,label,currency,instructions,active,payment_channel,created_at,updated_at").order("created_at", { ascending: false });
     if (account.role !== "ADMIN") query = query.eq("active", true);
     const { data, error } = await query;
     if (error) throw error;
@@ -25,11 +28,12 @@ export async function POST(request: NextRequest) {
     const currency = String(body.currency || "").trim().toUpperCase();
     const instructions = String(body.instructions || "").trim();
     const active = body.active;
-    if (typeof active !== "boolean" || !label || label.length > 120 || !/^[A-Z]{3}$/.test(currency) || !instructions || instructions.length > 2000) {
-      throw new Error("请填写账户名称、三位币种代码及完整收款信息");
+    const paymentChannel = body.payment_channel;
+    if (typeof active !== "boolean" || !label || label.length > 120 || !/^[A-Z]{3}$/.test(currency) || !instructions || instructions.length > 2000 || !validChannel(paymentChannel)) {
+      throw new Error("请填写账户名称、付款渠道、三位币种代码及完整收款信息");
     }
     const { data, error } = await supabase.from("pi_payment_accounts")
-      .insert({ label, currency, instructions, active }).select("id,label,currency,instructions,active").single();
+      .insert({ label, currency, instructions, active, payment_channel: paymentChannel }).select("id,label,currency,instructions,active,payment_channel").single();
     if (error) throw error;
     return NextResponse.json({ data }, { status: 201 });
   } catch (error) {
@@ -49,10 +53,11 @@ export async function PATCH(request: NextRequest) {
     const label = String(body.label || "").trim();
     const currency = String(body.currency || "").trim().toUpperCase();
     const instructions = String(body.instructions || "").trim();
-    if (typeof active !== "boolean" || !label || label.length > 120 || !/^[A-Z]{3}$/.test(currency) || !instructions || instructions.length > 2000) throw new Error("请填写有效的账户名称、币种、收款信息和状态");
+    const paymentChannel = body.payment_channel;
+    if (typeof active !== "boolean" || !label || label.length > 120 || !/^[A-Z]{3}$/.test(currency) || !instructions || instructions.length > 2000 || !validChannel(paymentChannel)) throw new Error("请填写有效的账户名称、付款渠道、币种、收款信息和状态");
     const { data, error } = await supabase.from("pi_payment_accounts")
-      .update({ label, currency, instructions, active, updated_at: new Date().toISOString() }).eq("id", id)
-      .select("id,label,currency,instructions,active").single();
+      .update({ label, currency, instructions, active, payment_channel: paymentChannel, updated_at: new Date().toISOString() }).eq("id", id)
+      .select("id,label,currency,instructions,active,payment_channel").single();
     if (error) throw error;
     return NextResponse.json({ data });
   } catch (error) {

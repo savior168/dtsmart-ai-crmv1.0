@@ -416,7 +416,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     business_phone: string;
     business_email: string;
     avatar_url: string;
-    role: "ADMIN" | "SUPERVISOR" | "SALES" | "WAREHOUSE";
+    role: "ADMIN" | "SUPERVISOR" | "SALES" | "ORDER_CLERK" | "WAREHOUSE";
     must_change_password: boolean;
     permissions: string[];
   } | null>(null);
@@ -453,7 +453,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const email = String(body.email || "").trim();
       const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
-      setProfile({ name, email, phone: String(body.phone || "").trim(), business_phone: String(body.business_phone || "").trim(), business_email: String(body.business_email || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
+      setProfile({ name, email, phone: String(body.phone || "").trim(), business_phone: String(body.business_phone || "").trim(), business_email: String(body.business_email || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : body.role === "ORDER_CLERK" ? "ORDER_CLERK" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
     } catch {
       // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
     }

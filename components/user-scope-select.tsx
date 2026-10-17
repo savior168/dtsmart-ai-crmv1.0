@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AppSelect } from "@/components/ui/app-select";
 
-type UserOption = { id: string; name: string | null; email: string; role: string };
+type UserOption = { id: string; name: string | null; email: string; role: string; status?: string };
 
 export function UserScopeSelect({
   value,
@@ -12,6 +12,7 @@ export function UserScopeSelect({
   allLabel = "全部归属人",
   filterLabel = "归属人",
   permission,
+  kind = "owner",
   initializeDefault = false,
   custom = false,
 }: {
@@ -21,6 +22,7 @@ export function UserScopeSelect({
   allLabel?: string;
   filterLabel?: string;
   permission: string;
+  kind?: "owner" | "pi_creator";
   initializeDefault?: boolean;
   custom?: boolean;
 }) {
@@ -28,6 +30,7 @@ export function UserScopeSelect({
   const [elevated, setElevated] = useState(false);
   const [defaultValue, setDefaultValue] = useState("");
   const [canSelectAll, setCanSelectAll] = useState(false);
+  const [defaultAll, setDefaultAll] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
@@ -37,7 +40,7 @@ export function UserScopeSelect({
 
   useEffect(() => {
     let active = true;
-    void fetch(`/api/users/options?permission=${encodeURIComponent(permission)}`, { cache: "no-store" })
+    void fetch(`/api/users/options?permission=${encodeURIComponent(permission)}&kind=${kind}`, { cache: "no-store" })
       .then((response) => response.json().then((body) => ({ response, body })))
       .then(({ response, body }) => {
         if (!active || !response.ok) return;
@@ -46,7 +49,8 @@ export function UserScopeSelect({
         setLoaded(true);
         setUsers(Array.isArray(body.users) ? body.users : []);
         setDefaultValue(body.profile.id || "");
-        setCanSelectAll(body.profile.role === "ADMIN");
+        setCanSelectAll(body.profile.role === "ADMIN" || body.profile.role === "ORDER_CLERK");
+        setDefaultAll(body.profile.role === "ORDER_CLERK" || kind === "pi_creator");
         if (initializeDefault && elevated && !valueRef.current) {
           // 主管和系统管理员也默认查看自己的数据；只有主动选择时才扩大范围。
           onChangeRef.current(body.profile.id);
@@ -54,7 +58,7 @@ export function UserScopeSelect({
       })
       .catch(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, [initializeDefault, permission]);
+  }, [initializeDefault, kind, permission]);
 
   useEffect(() => {
     if (initializeDefault && loaded && elevated && !value && defaultValue) onChangeRef.current(defaultValue);
@@ -66,9 +70,9 @@ export function UserScopeSelect({
   // 普通销售员没有跨用户数据权限，不渲染归属人筛选控件，也避免
   // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
   if (!loaded || !elevated) return null;
-  const selected = (value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? defaultValue : "");
+  const selected = (value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? (defaultAll ? "all" : defaultValue) : "");
   const options = <>{canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
-    {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}</option>)}</>;
+    {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}{user.status && user.status !== "ACTIVE" ? "（已停用）" : ""}</option>)}</>;
   if (custom) return <AppSelect aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className} forceSearch>{options}</AppSelect>;
   return (
     <select aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className}>{options}</select>

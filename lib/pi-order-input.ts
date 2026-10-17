@@ -1,6 +1,8 @@
 import { QUOTE_CURRENCY_CODES } from "@/lib/currencies";
 import { validPiMoney, validPiQuantity, validPiSellingPrice } from "@/lib/pi-line-values";
+import { linkedPiUnitPrices } from "@/lib/pi-line-currency";
 import type { createClient } from "@/lib/supabase/server";
+import type { PiFeeInput, PiFeesInput } from "@/lib/pi-fees";
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -16,10 +18,20 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     const row = raw as Record<string, unknown>;
     const quantity = Number(row.quantity);
     const unitPriceCny = Number(row.unit_price_cny);
+    const priceSource = row.unit_price_source ?? "CNY";
+    const unitPricePayment = row.unit_price_payment === undefined
+      ? Number(linkedPiUnitPrices(String(row.unit_price_cny), "CNY", rate).payment)
+      : Number(row.unit_price_payment);
     const estimatedCostCny = Number(row.estimated_unit_cost_cny);
-    if (![row.item_name, row.brand, row.model, row.quality].every((value) => String(value || "").trim()) || !validPiQuantity(row.quantity) || !validPiMoney(row.unit_price_cny) || !validPiMoney(row.estimated_unit_cost_cny)) {
-      throw new Error("每条产品都需填写产品、品牌、型号、质量、正整数数量，以及最多两位小数的非负人民币成本和售价");
+    if (![row.item_name, row.brand, row.model, row.quality, row.description_zh].every((value) => String(value || "").trim()) || !validPiQuantity(row.quantity) || !validPiMoney(row.unit_price_cny) || !validPiMoney(unitPricePayment) || !validPiMoney(row.estimated_unit_cost_cny)) {
+      throw new Error("每条产品都需填写产品、品牌、型号、质量、产品质量/描述中文、正整数数量，以及最多两位小数的非负人民币成本和售价");
     }
+    if (priceSource !== "CNY" && priceSource !== "PAYMENT") throw new Error("产品销售单价的录入币种不正确");
+    const expected = Number(priceSource === "CNY"
+      ? linkedPiUnitPrices(String(row.unit_price_cny), "CNY", rate).payment
+      : linkedPiUnitPrices(String(unitPricePayment), "PAYMENT", rate).cny);
+    const supplied = priceSource === "CNY" ? unitPricePayment : unitPriceCny;
+    if (Math.abs(expected - supplied) > 0.001) throw new Error("人民币与外币单价换算不一致，请核对汇率后重试");
     if (!validPiSellingPrice(row.unit_price_cny, row.estimated_unit_cost_cny)) throw new Error("每条产品的人民币售价必须高于成本价，请核对后再保存");
     return {
       item_name: String(row.item_name).trim().slice(0, 160),
@@ -27,8 +39,9 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
       model: String(row.model || "").trim().slice(0, 160),
       quality: String(row.quality || "").trim().slice(0, 160),
       description: String(row.description || "").trim().slice(0, 1000),
-      description_zh: (String(row.description_zh || "").trim() || [row.item_name, row.brand, row.model, row.quality].map((value) => String(value).trim()).join(" / ")).slice(0, 1000),
-      quantity, unit_price_cny: unitPriceCny, estimated_unit_cost_cny: estimatedCostCny,
+      description_zh: String(row.description_zh).trim().slice(0, 1000),
+      quantity, unit_price_cny: unitPriceCny, unit_price_payment: unitPricePayment, unit_price_source: priceSource,
+      estimated_unit_cost_cny: estimatedCostCny,
       preparation_requirement: String(row.preparation_requirement || "").trim().slice(0, 1000),
       internal_note: String(row.internal_note || "").trim().slice(0, 1000),
     };
@@ -45,6 +58,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     throw new Error("收货信息超出允许长度，请核对后重试");
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deliveryEmail.trim())) throw new Error("请输入有效的收货邮箱地址");
+  const fees = parsePiFees(body.fees, String(body.payment_method || ""));
   return {
     p_customer_id: customerId,
     p_warehouse_reference_number: warehouseReferenceNumber,
@@ -61,6 +75,36 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     p_delivery_address: deliveryAddress.trim(),
     p_stocking_requirements: String(body.stocking_requirements || "").trim().slice(0, 2000) || "常规理货",
     p_items: items,
+    p_fees: fees,
+  };
+}
+
+function parsePiFees(value: unknown, paymentMethod: string): PiFeesInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请核对PI附加费用");
+  const fees = value as Record<string, unknown>;
+  if (fees.show_dual_currency_prices !== undefined && typeof fees.show_dual_currency_prices !== "boolean") throw new Error("PI双币种展示选项不正确");
+  const parseCharge = (key: string): PiFeeInput => {
+    const raw = fees[key];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("请核对PI附加费用");
+    const charge = raw as Record<string, unknown>;
+    const amount = Number(charge.amount);
+    if ((charge.source !== "CNY" && charge.source !== "PAYMENT") ||
+        !Number.isFinite(amount) || amount < 0 || amount > 999999999999 ||
+        !/^\d+(?:\.\d{1,2})?$/.test(String(charge.amount))) {
+      throw new Error("附加费用须为非负且最多两位小数的金额");
+    }
+    return { source: charge.source, amount };
+  };
+  const rate = Number(fees.paypal_rate_percent);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100 || !/^\d+(?:\.\d{1,4})?$/.test(String(fees.paypal_rate_percent))) {
+    throw new Error("PayPal手续费百分比须在0%至100%之间，最多四位小数");
+  }
+  return {
+    last_balance: parseCharge("last_balance"),
+    discount: parseCharge("discount"),
+    other: parseCharge("other"),
+    paypal_rate_percent: paymentMethod === "PayPal" ? rate : 0,
+    show_dual_currency_prices: fees.show_dual_currency_prices === true,
   };
 }
 

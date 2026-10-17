@@ -12,7 +12,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!Number.isInteger(revision) || revision < 1) throw new Error("PI草稿版本不正确，请刷新");
     const { p_customer_id: _customerId, ...payload } = parsePiOrderInput(body);
     void _customerId;
-    const { data, error } = await supabase.rpc("update_direct_pi_draft", {
+    const { data, error } = await supabase.rpc("update_direct_pi_draft_with_fees", {
       p_order_id: id,
       p_expected_revision: revision,
       ...payload,

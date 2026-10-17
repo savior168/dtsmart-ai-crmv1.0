@@ -37,7 +37,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const directReport = account.role === "SUPERVISOR" && customer.owner_id
       ? await admin.from("users").select("id").eq("id", customer.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
       : { data: null };
-    const canReadAll = account.role === "ADMIN" || Boolean(directReport.data);
+    const canReadAll = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(customer.owner_id)) || Boolean(directReport.data);
     const publicReadOnly = isPublicUnclaimed(customer);
     if (!canReadAll && !isOwner && !publicReadOnly) throw new Error("FORBIDDEN");
 

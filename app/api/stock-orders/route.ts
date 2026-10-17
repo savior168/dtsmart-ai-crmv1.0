@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requestedOwnerId, requestedPiCreatorId, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { STOCK_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       });
     }
     const ownerId = account.role === "WAREHOUSE" ? null : await requestedOwnerId(request, account, "stock.data_all");
+    const creatorId = await requestedPiCreatorId(request, account, "stock.data_all");
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
     const requestedPageSize = Number(params.get("page_size") || 20);
     const pageSize = [10, 20, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 20;
@@ -60,11 +61,12 @@ export async function GET(request: NextRequest) {
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const from = (page - 1) * pageSize;
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
-      let query = supabase.from("stock_orders")
-        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)", { count: "exact" })
+      let query = supabase.from("stock_orders_with_pi_preparer")
+        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,pi_prepared_by,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at", { count: "exact" })
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
+      if (creatorId) query = query.eq("pi_prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
       if (status === "ACTIVE") query = query.in("status", [...STOCK_EXECUTING_STATUSES]);
       else if (status) query = query.eq("status", status);
@@ -171,7 +173,23 @@ export async function GET(request: NextRequest) {
     }
     const visibleIds = (data || []).map((item) => item.id);
     const itemsByStockId = await loadStockProgressItems(supabase, visibleIds);
+    const clerkOwnerIds = [...new Set((data || []).map((item) => item.sales_user_id).filter(Boolean))];
+    const preparerIds = ["ADMIN", "ORDER_CLERK"].includes(account.role)
+      ? [...new Set((data || []).map((item) => item.pi_prepared_by).filter(Boolean))]
+      : [];
+    const clerkOwners = clerkOwnerIds.length
+      ? await createAdminClient().from("users").select("id,name,email").in("id", clerkOwnerIds)
+      : { data: [], error: null };
+    if (clerkOwners.error) throw clerkOwners.error;
+    const preparers = preparerIds.length
+      ? await createAdminClient().from("users").select("id,name,email").in("id", preparerIds)
+      : { data: [], error: null };
+    if (preparers.error) throw preparers.error;
+    const clerkOwnerById = new Map((clerkOwners.data || []).map((owner) => [owner.id, owner]));
+    const preparerById = new Map((preparers.data || []).map((user) => [user.id, user]));
     return NextResponse.json({ data: (data || []).map((item) => ({ ...item,
+      sales: clerkOwnerById.get(item.sales_user_id) || null,
+      preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),
       count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: ["WAREHOUSE","ADMIN"].includes(account.role) && hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: account.role === "WAREHOUSE" || hasPermission(account, "stock.data_all") });
   } catch (error) {

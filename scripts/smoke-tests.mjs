@@ -360,12 +360,13 @@ assert.match(currentUserAuth,/claims\.iat[\s\S]*force_logout_at[\s\S]*SESSION_RE
 assert.match(currentUserAuth,/AUTHORIZATION_UNAVAILABLE"\) return 503/,"权限服务临时不可用必须返回503而不是误报业务权限错误");
 const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /if \(!requested \|\| requested === account\.id \|\| requested\.toLowerCase\(\) === "all"\) return account\.id/, "主管服务端默认必须只读取自己的数据");
-assert.match(currentUserAuth, /account\.role === "ADMIN"[\s\S]*requested\.toLowerCase\(\) === "all"/, "只有系统管理员能够主动选择全部用户数据");
+assert.match(currentUserAuth, /account\.role === "ADMIN"[\s\S]*requested\.toLowerCase\(\) === "all"/, "系统管理员仍须支持主动选择全部用户数据");
+assert.match(currentUserAuth, /account\.role === "ORDER_CLERK"[\s\S]*orders\.data_all[\s\S]*return null/, "跟单员须能查看全部 PI 归属人");
 assert.match(currentUserAuth, /eq\("manager_id", account\.id\)/, "主管跨用户读取必须在服务端限定直属下级");
 assert.match(
   userScopeSelect,
-  /initializeDefault = false[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? defaultValue : ""\)/,
-  "归属人控件必须显示本人默认值，并将主管旧的 all 参数显示为本人",
+  /setDefaultAll\(body\.profile\.role === "ORDER_CLERK" \|\| kind === "pi_creator"\)[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? \(defaultAll \? "all" : defaultValue\) : ""\)/,
+  "归属人控件须保持主管本人默认值，同时让跟单员及制单人筛选默认显示全部",
 );
 assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");

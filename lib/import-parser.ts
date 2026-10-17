@@ -141,6 +141,7 @@ export function mapImportRow(row: ImportRow) {
     tiktok_url: value(row, "Tiktok主页链接", "TikTok主页链接", "tiktok_url"),
     linkedin_url: value(row, "Linked主页链接", "LinkedIn主页链接", "linkedin_url"),
     address: value(row, "公司地址", "商店地址", "地址", "address", "store address"),
+    shipping_address: value(row, "客户收货地址", "收货地址", "shipping address"),
     tally_requirements: value(row, "理货要求"),
     notes: value(row, "备注", "notes"),
     forwarder_address: value(row, "货代地址"),

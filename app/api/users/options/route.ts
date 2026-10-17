@@ -6,14 +6,19 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export async function GET(request: Request) {
   try {
     const { account: profile } = await requireUser();
-    const permission = new URL(request.url).searchParams.get("permission") || "";
+    const params = new URL(request.url).searchParams;
+    const permission = params.get("permission") || "";
+    const creatorOptions = params.get("kind") === "pi_creator";
     const definition = PERMISSION_CATALOG.find((item) => item.code === permission);
     // 用户选项属于跨用户数据。普通页面查看权限不能借此枚举全部账号；
     // 操作日志只有系统管理员可以切换操作人。
     const canSelectOwner = profile.role === "ADMIN"
       || Boolean(permission && definition?.kind === "DATA" && hasPermission(profile, permission));
     if (!canSelectOwner) return NextResponse.json({ profile, users: [], can_select_owner: false });
-    let query = createAdminClient().from("users").select("id,name,email,role").eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
+    if (creatorOptions && (!["orders.data_all", "stock.data_all"].includes(permission)
+      || !["ADMIN", "ORDER_CLERK"].includes(profile.role))) throw new Error("FORBIDDEN");
+    let query = createAdminClient().from("users").select("id,name,email,role,status");
+    if (!creatorOptions) query = query.eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
     if (profile.role === "SUPERVISOR") query = query.or(`id.eq.${profile.id},manager_id.eq.${profile.id}`);
     const { data, error } = await query.order("name");
     if (error) throw error;

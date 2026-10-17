@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, normalizeRole, permissionPageCode } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, isOrderClerkForbiddenPermission, normalizeRole, permissionPageCode } from "@/lib/auth/permissions";
 
 type OverrideEffect = "ALLOW" | "DENY" | "INHERIT";
 
@@ -23,8 +23,10 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     return NextResponse.json({
       user: target,
       catalog: PERMISSION_CATALOG,
-      role_permissions: (roleRows || []).filter((item) => item.enabled && !CORE_PERMISSION_CODES.has(item.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(item.permission_code))).map((item) => item.permission_code),
-      overrides: (overrides || []).filter((item) => !CORE_PERMISSION_CODES.has(item.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(item.permission_code))),
+      role_permissions: (roleRows || []).filter((item) => item.enabled && !CORE_PERMISSION_CODES.has(item.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(item.permission_code))
+        && !(role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(item.permission_code))).map((item) => item.permission_code),
+      overrides: (overrides || []).filter((item) => !CORE_PERMISSION_CODES.has(item.permission_code) && !CORE_PERMISSION_CODES.has(permissionPageCode(item.permission_code))
+        && !(role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(item.permission_code))),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户权限加载失败";
@@ -50,8 +52,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { data: target, error: targetError } = await admin.from("users").select("id,name,email,role").eq("id", id).maybeSingle();
     if (targetError || !target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (normalizeRole(target.role) === "ADMIN") return NextResponse.json({ error: "系统管理员固定拥有全部权限" }, { status: 400 });
-    if (["SALES","WAREHOUSE"].includes(normalizeRole(target.role)) && effect === "ALLOW" && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA") {
-      return NextResponse.json({ error: "销售员或仓库员不能获得跨用户数据权限" }, { status: 400 });
+    if (normalizeRole(target.role) === "ORDER_CLERK" && effect === "ALLOW" && isOrderClerkForbiddenPermission(permission)) {
+      return NextResponse.json({ error: "跟单员不能获得此权限" }, { status: 400 });
+    }
+    if (["SALES","ORDER_CLERK","WAREHOUSE"].includes(normalizeRole(target.role)) && effect === "ALLOW" && PERMISSION_CATALOG.find((item) => item.code === permission)?.kind === "DATA" && !(normalizeRole(target.role) === "ORDER_CLERK" && ["customers.data_all", "orders.data_all", "stock.data_all"].includes(permission))) {
+      return NextResponse.json({ error: "该角色不能获得此跨用户数据权限" }, { status: 400 });
     }
     if (effect === "INHERIT") {
       const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).eq("permission_code", permission);

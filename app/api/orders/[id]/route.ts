@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { summarizeStockProgress } from "@/lib/stock-progress";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(
   _: NextRequest,
@@ -22,18 +23,20 @@ export async function GET(
         .eq("id", id)
         .single();
     if (order.error) throw order.error;
+    if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
+    const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
     const [items, stock, quote] = await Promise.all([
       supabase
         .from("sales_order_items")
         .select("*")
         .eq("sales_order_id", id)
         .order("line_number"),
-      supabase
+      relatedClient
         .from("stock_orders")
         .select("id,stock_number,status,status_note,updated_at")
         .eq("sales_order_id", id)
         .maybeSingle(),
-      supabase
+      relatedClient
         .from("quotes")
         .select("stocking_requirements")
         .eq("id", order.data.quote_id)
@@ -42,7 +45,7 @@ export async function GET(
     if (items.error) throw items.error;
     if (stock.error) throw stock.error;
     if (quote.error) throw quote.error;
-    const stockItems = stock.data ? await supabase.from("stock_order_items")
+    const stockItems = stock.data ? await relatedClient.from("stock_order_items")
       .select("quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status").eq("stock_order_id", stock.data.id) : null;
     if (stockItems?.error) throw stockItems.error;
     const receivingProgress = stockItems ? {
@@ -51,10 +54,14 @@ export async function GET(
       ordered_units: (stockItems.data || []).reduce((sum, item) => sum + Number(item.quantity), 0),
       received_units: (stockItems.data || []).reduce((sum, item) => sum + Number(item.received_quantity), 0),
     } : null;
-    const writable =
-      order.data.sales_user_id === account.id || account.role === "ADMIN";
+    const clerkCustomer = account.role === "ORDER_CLERK" ? await relatedClient.from("customers")
+      .select("company_name,contact_name").eq("id", order.data.customer_id).maybeSingle() : null;
+    if (clerkCustomer?.error) throw clerkCustomer.error;
+    const writable = account.role === "ORDER_CLERK"
+      ? order.data.prepared_by === account.id
+      : order.data.sales_user_id === account.id || account.role === "ADMIN";
     return NextResponse.json({
-      order: order.data,
+      order: account.role === "ORDER_CLERK" ? { ...order.data, customer: clerkCustomer?.data || null } : order.data,
       items: items.data || [],
       stock_order: stock.data ? { ...stock.data, progress: summarizeStockProgress(stock.data.status, stockItems?.data || []) } : null,
       receiving_progress: receivingProgress,
@@ -64,14 +71,14 @@ export async function GET(
         hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
         order.data.status === "DRAFT" && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
-      can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
+      can_recall: account.role !== "ORDER_CLERK" && writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
       can_edit:
-        writable &&
+        account.role !== "ORDER_CLERK" && writable &&
         hasPermission(account, "orders.edit") &&
         order.data.confirmation_method !== "DIRECT_PI" &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),
       can_cancel:
-        writable &&
+        account.role !== "ORDER_CLERK" && writable &&
         hasPermission(account, "orders.cancel") &&
         !(order.data.confirmation_method === "DIRECT_PI" && !["DRAFT", "WAITING_STOCK"].includes(order.data.status)) &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),

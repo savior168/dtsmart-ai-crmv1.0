@@ -127,8 +127,7 @@ assert.equal(stock.N13.v, "理货要求：Label\n仓库备注：Keep dry", "逐�
 assert.doesNotMatch(stock.N13.v, /已回货|供应商编码|SUPPLIER-PRIVATE/, "标准备货单不应混入动态回货进度或供应商编码");
 assert.equal(stock.B8.v, "外箱唛头：", "不得清空模板固定标签");
 assert.equal(stock.C13.v, "屏幕");
-assert.match(stock.L13.v, /交付形态：单片屏.*显示技术细分：软 OLED/, "备货模板应带出保存时的品类规格快照");
-assert.match(stock.L13.v, /颜色：深蓝色/, "备货模板应带出保存时的颜色快照");
+assert.equal(stock.L13.v, "屏幕", "备货模板的后端中文描述只能使用 PI 独立输入值，不得拼接颜色或规格");
 assert.equal(stock.C24.v, "屏幕");
 assert.equal(stock.B11.f, "SUM(K13:K999)");
 assert.equal(stock.J11.f, 'IF(COUNT(J13:J999)<COUNT(K13:K999),"",SUMPRODUCT(J13:J999,K13:K999))');

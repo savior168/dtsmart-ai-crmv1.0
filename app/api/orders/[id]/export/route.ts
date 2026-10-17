@@ -4,18 +4,19 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 import { buildQuoteWorkbook } from "@/lib/template-xlsx";
 import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
 import { documentExportFilename } from "@/lib/export-file-name";
+import { createAdminClient } from "@/lib/supabase/admin";
 export async function GET(
   _: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { supabase } = await requirePermission("orders.export");
+    const { supabase, account } = await requirePermission("orders.export");
     const { id } = await params;
     const [order, items] = await Promise.all([
       supabase
         .from("sales_orders")
         .select(
-          "order_number,warehouse_reference_number,status,currency,delivery_date,payment_method,customer_short_name,destination_country,shipping_cost,subtotal,total_amount,created_at,confirmed_at,confirmation_method,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,payment_account_snapshot,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name,phone)",
+          "id,customer_id,prepared_by,order_number,warehouse_reference_number,status,currency,show_dual_currency_prices,delivery_date,payment_method,customer_short_name,destination_country,shipping_cost,subtotal,total_amount,created_at,confirmed_at,confirmation_method,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,last_balance_cny,last_balance_amount,discount_cny,discount_amount,other_charge_cny,other_charge_amount,paypal_fee_percent,paypal_fee_cny,paypal_fee_amount,payment_account_snapshot,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name,phone)",
         )
         .eq("id", id)
         .single(),
@@ -29,15 +30,20 @@ export async function GET(
     ]);
     if (order.error) throw order.error;
     if (items.error) throw items.error;
+    if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
+    const clerkCustomer = account.role === "ORDER_CLERK" ? await createAdminClient().from("customers")
+      .select("company_name,contact_name,phone").eq("id", order.data.customer_id).maybeSingle() : null;
+    if (clerkCustomer?.error) throw clerkCustomer.error;
+    const documentOrder = account.role === "ORDER_CLERK" ? { ...order.data, customer: clerkCustomer?.data || null } : order.data;
     if (["DRAFT", "CANCELLED"].includes(order.data.status)) throw new Error("PI草稿或已取消订单不能作为正式PI导出");
     const businessNumber = order.data.confirmation_method === "DIRECT_PI"
       ? order.data.warehouse_reference_number || order.data.order_number
       : order.data.order_number;
     const workbook = order.data.confirmation_method === "DIRECT_PI" ? buildDirectPiWorkbook(
-      { ...order.data, order_number: businessNumber } as never, (items.data || []) as never,
+      { ...documentOrder, order_number: businessNumber } as never, (items.data || []) as never,
     ) : await buildQuoteWorkbook(
       {
-        ...order.data,
+        ...documentOrder,
         quote_number: businessNumber,
         created_at: order.data.confirmed_at,
       } as never,

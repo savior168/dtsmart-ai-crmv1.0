@@ -34,15 +34,15 @@ export async function POST(request: NextRequest, context: Context) {
       const after = input.p_items[index];
       if (before.item_name !== after.item_name || before.brand !== after.brand || before.model !== after.model ||
           before.quality !== after.quality || before.quantity !== after.quantity) differences.push(`第${index + 1}行产品或数量已变更`);
-      if (Math.abs(roundMoney(after.unit_price_cny * input.p_fx_rate) - before.unit_price_payment) > 0.01) {
-        differences.push(`第${index + 1}行客户外币单价由 ${before.unit_price_payment.toFixed(2)} 变为 ${roundMoney(after.unit_price_cny * input.p_fx_rate).toFixed(2)}`);
+      if (Math.abs(after.unit_price_payment - before.unit_price_payment) > 0.01) {
+        differences.push(`第${index + 1}行客户外币单价由 ${before.unit_price_payment.toFixed(2)} 变为 ${after.unit_price_payment.toFixed(2)}`);
       }
     }
     if (Math.abs(roundMoney(input.p_shipping_cny * input.p_fx_rate) - source.shipping_payment) > 0.01) differences.push("外币运费与导入文件不同");
     if (differences.length && body.acknowledge_differences !== true) {
       return NextResponse.json({ error: "补全后的PI与原Excel不一致，请逐项核对；确认后才能转换为PI草稿", differences }, { status: 409 });
     }
-    const { data, error } = await supabase.rpc("convert_pi_import_draft", {
+    const { data, error } = await supabase.rpc("convert_pi_import_draft_with_fees", {
       p_draft_id: id, p_expected_revision: revision, ...input,
     });
     if (error) throw error;

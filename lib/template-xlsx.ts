@@ -52,20 +52,6 @@ const PI_TEMPLATE = path.join(process.cwd(), "assets", "templates", "DT-Smart_PI
 const STOCK_TEMPLATE = path.join(process.cwd(), "assets", "templates", "Warehouse_Stock_Template.xlsx");
 
 // Keep the template writer directly executable by Node's TypeScript-strip test.
-const stockSpecificationLabels: Record<string, string> = {
-  assembly: "交付形态", panel_subtype: "显示技术细分", size_grade: "尺寸规格", fingerprint_support: "指纹功能", glass_grade: "玻璃或盖板版本",
-  capacity_mah: "标称容量（mAh）", cell_material: "电芯材料", health_grade: "拆机电池健康度", diagnostic_support: "跑诊断支持情况", certification: "认证信息",
-  assembly_scope: "装配范围", frame_structure: "一体或分体", included_parts: "随附配件", market_version: "区域版本",
-  component_position: "配件位置", connector_variant: "接口或排线版本",
-};
-
-function stockSpecificationText(value: Record<string, string> | null | undefined) {
-  return Object.entries(value || {})
-    .filter(([key, entry]) => key !== "color_source" && typeof entry === "string" && entry.trim())
-    .map(([key, entry]) => `${stockSpecificationLabels[key] || key}：${entry}`)
-    .join(" · ");
-}
-
 function escapeXml(value: unknown) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
@@ -266,7 +252,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   for (let index = 0; index < Math.max(items.length, 9); index += 1) {
     const row = 13 + index;
     const item = items[index];
-    const warehouseDescription = item ? [item.description_zh, item.product_color_snapshot ? `颜色：${item.product_color_snapshot}` : "", stockSpecificationText(item.product_specifications_snapshot)].filter(Boolean).join("；") : "";
+    const warehouseDescription = item?.description_zh?.trim() || "";
     const warehouseAttention = item ? [item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "", item.internal_note ? `仓库备注：${item.internal_note}` : ""].filter(Boolean).join("\n") : "";
     const valuesForRow: Array<[string, unknown]> = item ? [
       [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || item.item_name || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],

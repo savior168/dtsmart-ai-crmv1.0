@@ -80,7 +80,8 @@ const piForm = read("components/pi-order-form.tsx");
 const piInput = read("lib/pi-order-input.ts");
 const deliveryMigration = read("supabase/migrations/20261015202000_pi_required_delivery_contact.sql");
 const piCustomersRoute = read("app/api/orders/pi-customers/route.ts");
-assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address"\)/, "PI客户选项应读取公司税号和客户资料理货要求，但不改变客户归属边界");
+assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address"\)/, "PI客户选项应读取客户收货地址，但不改变客户归属边界");
+assert.match(piForm, /setAddress\(customer\.shipping_address \|\| ""\)/, "PI 默认收货地址只能取客户收货地址，不得误用公司地址");
 assert.match(piForm, /公司名称<Required \/>.*?forceSearch[\s\S]*?公司税号[\s\S]*?selectedCustomer\?\.tax_number[\s\S]*?readOnly[\s\S]*?客户名称<AppSelect.*?forceSearch/, "公司名称、只读公司税号和客户名称两个可搜索入口应关联同一客户");
 assert.match(piForm, /查看客户资料理货要求[\s\S]*?selectedCustomer\.tally_requirements[\s\S]*?复制理货要求/, "PI填写时应能只读查看并复制客户资料理货要求");
 assert.match(piForm, /if \(!customer\) \{\s*setRecipient\(""\);\s*setPhone\(""\);\s*setEmail\(""\);\s*setAddress\(""\);/, "清空客户选择时不能保留前一客户的收件人和联系方式");
@@ -118,8 +119,9 @@ const sellerContactMigration = read("supabase/migrations/20261014025431_pi_busin
 const positiveMarginMigration = read("supabase/migrations/20261014072119_pi_positive_margin_guard.sql");
 
 assert.match(orderListApi, /can_create:[^\n]*account\.role === "ADMIN"[^\n]*hasPermission\(account, "orders\.create"\)/, "管理员有PI创建权限时列表必须显示创建入口");
-assert.match(createPiApi, /account\.role !== "SALES" && account\.role !== "SUPERVISOR" && account\.role !== "ADMIN"/, "列表允许管理员创建时API不能再拒绝管理员");
-assert.match(piCustomersApi, /\.eq\("owner_id", account\.id\)/, "PI客户选择必须只返回当前登录用户归属客户");
+assert.match(createPiApi, /\["SALES", "SUPERVISOR", "ADMIN", "ORDER_CLERK"\]\.includes\(account\.role\)/, "列表允许的角色在创建API中必须一致");
+assert.match(piCustomersApi, /selectedOwner = isClerk \? request\.nextUrl\.searchParams\.get\("sales_user_id"\) \|\| "" : account\.id/, "销售员PI客户选择必须只返回本人归属客户");
+assert.match(piCustomersApi, /salespeople\?\.data\?\.some\(\(user\) => user\.id === selectedOwner\)/, "跟单员不得通过任意用户ID读取客户");
 assert.match(piCustomersApi, /\.select\("id,company_name,country,contact_name/, "PI客户选择应带出与订单一致的目的国家");
 assert.match(sellerContactMigration, /p\.business_phone[\s\S]*p\.business_email/, "新PI应快照用户业务电话与业务邮箱");
 assert.match(positiveMarginMigration, /create_direct_pi_order[\s\S]*update_direct_pi_draft[\s\S]*x\.unit_price_cny<=x\.estimated_unit_cost_cny/, "创建和编辑PI均需在数据库阻止售价不高于成本");
@@ -142,8 +144,8 @@ assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "�
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
-assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*归属人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表列序须按订单、备货单、客户、国家、金额、状态、进度、归属人与时间排列");
-assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">归属人/, "PI列表归属人标题应完整显示在一行");
+assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与实际制单人");
+assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">所属销售员/, "PI列表所属销售员标题应完整显示在一行");
 assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
 assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
@@ -180,8 +182,8 @@ for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockL
 }
 assert.match(orderListApi, /currency[\s\S]*type === "PI"/, "PI列表必须按币种和业务类型筛选");
 assert.doesNotMatch(stockListView, /报价编号|quote_number/, "备货单列表不得继续展示旧报价编号");
-assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*销售员[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表列序应按备货单、关联订单、客户、国家、状态、进度、销售员和时间排列");
-assert.match(stockListView, /data\?\.can_view_all\?<th[^>]*>销售员<\/th>:null/, "销售员查看自己的备货单时不重复显示销售员列");
+assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表须依次展示所属销售员与 PI 制单人");
+assert.match(stockListView, /data\?\.can_view_all\?<th[^>]*>所属销售员<\/th>:null/, "销售员查看自己的备货单时不重复显示所属销售员列");
 assert.match(stockListView, /row\.warehouse_reference_number \|\| row\.order_number/, "仓库列表必须优先显示销售填写的业务订单编号");
 for (const api of [orderListApi, stockListApi]) {
   assert.match(api, /SORT_COLUMNS[\s\S]*sort_by[\s\S]*sort_dir[\s\S]*\.order\(SORT_COLUMNS\[sortBy[\s\S]*\.range\(/, "关键列必须按服务端排序后再分页");
@@ -203,14 +205,23 @@ for (const api of [stockDraftApi, stockSubmitApi]) assert.match(api, /stock\.sta
 assert.match(piForm, /AppSelect[\s\S]*搜索并选择客户付款币种/, "币种应使用系统可搜索选择组件");
 assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下拉");
 assert.match(piForm, /下载模板[\s\S]*导入Excel[\s\S]*粘贴表格[\s\S]*添加产品/, "PI产品明细应提供批量快捷操作");
-assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-cols-3[\s\S]*min-w-\[1600px\]/, "PI录入应保留轻量单卡片和按业务顺序排列的基础字段");
+assert.match(piForm, /rounded-xl border border-slate-200 bg-white[\s\S]*xl:grid-cols-3[\s\S]*min-w-\[2050px\]/, "PI录入应保留轻量单卡片和按业务顺序排列的基础字段");
+assert.match(piForm, /产品质量\/描述中文（展示给后端） \*/, "PI产品明细必须独立展示仓库中文描述列");
+assert.match(piForm, /editLine\(index, "description_zh", value\)/, "PI输入的仓库中文描述必须进入产品行状态");
+assert.match(piInput, /!\[row\.item_name, row\.brand, row\.model, row\.quality, row\.description_zh\]\.every/, "服务端必须拒绝空的仓库中文描述");
+assert.doesNotMatch(piInput, /description_zh:[^\n]*join\(" \/ "\)/, "仓库中文描述不得自动拼接产品、品牌或型号");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
-assert.match(piForm, /"序号", "产品类型 \*", "产品品牌 \*", "产品型号 \*", "产品质量 \*", "产品描述", "成本单价（人民币） \*", "销售单价（人民币） \*", "数量 \*", "销售金额（人民币）", "总利润（人民币）", "利润率", "理货要求", "仓库备注", "操作"/, "PI录入列头必须用准确中文并保留必填字段与金额利润列");
+assert.match(piForm, /"成本单价（人民币） \*", "销售单价（人民币） \*", `销售单价（\$\{currency \|\| "外币"\}） \*`, "数量 \*", "销售金额（人民币）", `销售金额（\$\{currency \|\| "外币"\}）`/, "PI录入列头必须按人民币单价、外币单价、数量、双币金额排列");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
 assert.match(piForm, /产品总利润率：[\s\S]*totals\.totalProfitCny \/ totals\.subtotalCny \* 100/, "整单利润率必须按产品利润除以产品销售额计算");
 assert.match(piForm, /const defaultValidity = \(\) => \{ const date = new Date\(\); date\.setDate\(date\.getDate\(\) \+ 5\)/, "新建PI有效期默认当前日期后5天");
-assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*客户单价待换算/, "人民币录入时必须清晰预览所选付款币种单价");
-assert.match(piForm, /客户金额待换算/, "人民币销售金额应清晰预览客户付款币种金额");
+assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*editUnitPrice\(index, "CNY"/, "人民币单价输入须同步换算外币");
+assert.match(piForm, /第\$\{index \+ 1\}行\$\{currency\}单价[\s\S]*editUnitPrice\(index, "PAYMENT"/, "外币单价输入须同步换算人民币");
+assert.match(piForm, /validPiMoney\(item\.unit_price_payment\)[\s\S]*Number\(item\.unit_price_payment\)/, "外币销售金额须使用外币单价计算");
+assert.match(piForm, /const newLine = \(\): Line => \(\{[^\n]*quantity: ""/, "新PI产品行的数量不得预填1");
+const piFeeMigration = read("supabase/migrations/20261017130000_pi_dual_currency_fees.sql");
+assert.match(piFeeMigration, /update public\.quote_items qi set[\s\S]*unit_price = input\.unit_price_payment,[\s\S]*update public\.sales_order_items soi set[\s\S]*unit_price = qi\.unit_price/, "外币单价必须同步到报价及销售产品行，由数据库生成金额列");
+assert.doesNotMatch(piFeeMigration, /update public\.(?:quote_items|sales_order_items) (?:qi|soi) set\s+[^;]*?\bamount\s*=/, "产品行金额是数据库生成列，不能直接赋值");
 assert.match(piForm, /countryInfo\(selectedCustomer\.country\)\.name/, "目的国家只显示中文名称而不附加国家代码");
 assert.match(piForm, /recalledDraft \? <div>[\s\S]*订单变更说明/, "订单变更说明只在撤回后编辑PI时显示");
 assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收件人[\s\S]*电话[\s\S]*邮箱[\s\S]*收货地址/, "收货信息四项应在宽屏同一行显示");
@@ -244,7 +255,7 @@ assert.doesNotMatch(customerPi, /createWorkbookFile/, "客户PI必须使用专�
 assert.doesNotMatch(customerPiRoute.match(/\.from\("sales_order_items"\)[\s\S]*?\.order\("line_number"\)/)?.[0] || "", /unit_cost|estimated|procurement|profit|margin|supplier|received|internal_note|preparation/i, "客户PI导出查询不能读取内部成本或供应商字段");
 assert.match(customerPiRoute, /\["DRAFT", "CANCELLED"\]\.includes\(order\.data\.status\)[\s\S]*不能作为正式PI导出/, "未提交或已取消的PI不能作为正式客户文件导出");
 assert.match(piForm, /useState\("USD"\)/, "创建PI默认客户付款币种应为美元");
-assert.match(piForm, /setCurrency\(event\.target\.value\); setRate\(String\(exchangeRates\.find/, "变更报价币种时应带入该币种业务汇率，不得保留旧币种汇率");
+assert.match(piForm, /function changeCurrency\(nextCurrency: string\)[\s\S]*setCurrency\(nextCurrency\);[\s\S]*updateRate\(String\(exchangeRates\.find/, "变更报价币种时应带入该币种业务汇率并同步换算单价");
 assert.doesNotMatch(piForm, /setCurrency\(event\.target\.value\); setAccountId\(""\)/, "变更报价币种不得清空已选收款账户");
 assert.doesNotMatch(piMigration, /account\.currency<>clean_currency|a\.currency=target\.currency/, "数据库不得把PI报价币种与收款账户币种绑定");
 assert.match(piMigration, /insert into public\.stock_orders\([\s\S]*?delivery_recipient,delivery_phone,delivery_email,delivery_address,updated_by\)/, "提交PI生成备货单时必须固化收货信息");
@@ -290,6 +301,9 @@ const book = XLSX.read(workbook, { type: "array", cellFormula: true, cellStyles:
 const sheet = book.Sheets[book.SheetNames[0]];
 assert.ok((sheet["!cols"]?.[10]?.wpx || 0) >= 95, "PI金额列应能完整显示币种和四位数金额，不得截断或显示井号");
 const sheetXml = Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8");
+for (const [address, label] of [["D4", "Address:"], ["D6", "Official Website:"], ["D7", "Sales Manager:"], ["D8", "Contact No:"], ["D9", "Email:"], ["G13", "Delivery address:"]]) {
+  assert.match(sheetXml, new RegExp(`<c r="${address}"[^>]*t="inlineStr">[\\s\\S]*?<b\\/>[\\s\\S]*?<t>${label}</t>[\\s\\S]*?<b val="0"\\/>`), `${address} 应仅将 PI 属性名加粗`);
+}
 assert.match(sheetXml, /<sheetView showGridLines="0"/, "客户PI需隐藏Excel默认网格线，仅展示单据边框");
 for (let row = 2; row <= 9; row += 1) assert.equal(sheet["!rows"][row - 1].hpt, 16, "Excel页眉行高须接近页面预览比例");
 assert.equal(sheet["!rows"][9].hpt + sheet["!rows"][10].hpt, 12, "页眉与收货信息之间不得留下两行正常高度的空白");
@@ -307,19 +321,19 @@ assert.equal(businessNumberBook.Sheets[businessNumberBook.SheetNames[0]].J2.v, "
 assert.equal(sheet.J4.v, "2026-10-17", "PI导出有效期应与预览使用同一日期值");
 assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
 assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
-assert.match(read("components/order-print-preview.tsx"), /<p>Address: \{piDocument!\.companyAddress/, "PI 预览企业地址应有英文属性名");
-assert.match(read("components/order-print-preview.tsx"), /<p>Official Website: \{piDocument!\.website/, "PI 预览官网应有英文属性名");
+assert.match(read("components/order-print-preview.tsx"), /<b>Address:<\/b> \{piDocument!\.companyAddress/, "PI 预览企业地址属性名应加粗、值保持常规字重");
+assert.match(read("components/order-print-preview.tsx"), /<b>Official Website:<\/b> \{piDocument!\.website/, "PI 预览官网属性名应加粗、值保持常规字重");
 assert.equal(sheet.G6.v, "PAYMENT / METHOD:", "客户PI页眉付款标签只显示栏目名称");
 assert.equal(sheet.J6.v, "NAIRA/RMB (NGN)", "客户PI页眉付款栏须紧邻显示付款渠道及本单币种");
 assert.match(read("components/order-print-preview.tsx"), /PAYMENT \/ METHOD:<\/span><span[^>]*>\{piDocument!\.paymentMethod\}/, "PI预览付款栏须复用Excel字段模型");
-assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["To: Jo", "TEL: +44 123", "Company: Buyer Ltd", "Email: jo@example.com"], "PI Excel 的 To 应取客户名称、Company 应取公司名称，而非收件人或公司简称");
+assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["Company: Buyer Ltd", "TEL: +44 123", "To: Jo", "Email: jo@example.com"], "PI Excel 应将 Company 与 To 的位置互换且值保持准确");
 const emptyContactOrder = { ...orderFixture, customer: { company_name: "Buyer Ltd", contact_name: null } };
 assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).recipient, "", "客户名称为空时 PI 预览的 To 必须留空，不得回退到收件人或公司名称");
 const emptyContactWorkbook = buildDirectPiWorkbook(emptyContactOrder, [itemFixture]);
 const emptyContactBook = XLSX.read(emptyContactWorkbook, { type: "array" });
 const emptyContactSheet = emptyContactBook.Sheets[emptyContactBook.SheetNames[0]];
-assert.equal(emptyContactSheet.A13.v, "To:", "客户名称为空时 PI Excel 的 To 也必须留空");
-assert.equal(emptyContactSheet.A15.v, "Company: Buyer Ltd", "PI Excel 的 Company 始终取公司名称");
+assert.equal(emptyContactSheet.A15.v, "To:", "客户名称为空时 PI Excel 的 To 也必须留空");
+assert.equal(emptyContactSheet.A13.v, "Company: Buyer Ltd", "PI Excel 的 Company 始终取公司名称");
 assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name\)/, "单张预览必须读取客户名称");
 assert.match(read("app/api/orders/route.ts"), /customer:customers\(company_name,contact_name\)/, "批量预览必须读取客户名称");
 assert.match(read("components/order-print-preview.tsx"), /@page\{size:A4 \$\{kind === "pi" \? "portrait" : "landscape"\}/, "PI打印须竖向而备货单宽表仍横向");
@@ -339,6 +353,24 @@ assert.match(sheet.I18.v, /NGN/);
 assert.equal(sheet.I19.v, 20000);
 assert.equal(sheet.J19.v, 1);
 assert.equal(sheet.K19.f, "I19*J19");
+const dualOrder = { ...orderFixture, show_dual_currency_prices: true };
+const dualModel = createPiDocumentModel(dualOrder, [itemFixture]);
+assert.equal(dualModel.showDualCurrencyPrices, true, "勾选后预览模型须启用双币种销售单价");
+assert.equal(dualModel.items[0].unitPriceCny, 100, "预览中的人民币单价须来自订单行快照");
+const dualBook = XLSX.read(buildDirectPiWorkbook(dualOrder, [itemFixture]), { type: "array", cellFormula: true, cellStyles: true });
+const dualSheet = dualBook.Sheets[dualBook.SheetNames[0]];
+assert.equal(dualSheet.I18.v, "Unit Price\n(CNY / NGN)");
+assert.equal(dualSheet.I19.v, "CNY ¥100.00\nNGN 20000.00");
+assert.equal(dualSheet["!rows"][18].hpt, 34, "双币种两行单价须有足够行高，不得截断");
+assert.match(read("lib/direct-pi-export.ts"), /showDualCurrencyPrices \? \{ \.\.\.moneyStyle\(currency\), alignment: \{ horizontal: "right", vertical: "center", wrapText: true \} \}/, "双币种单价须在原单价格内换行，保持PI布局");
+assert.equal(dualSheet.K19.f, "L19*J19", "双币种显示时金额公式仍须引用准确的付款币种单价");
+assert.equal(dualSheet.K19.v, 20000);
+assert.equal(dualSheet.L19.v, 20000);
+assert.equal(dualSheet["!cols"][11].hidden, true, "客户可见表格不能露出用于金额公式的辅助列");
+assert.equal(createPiDocumentModel({ ...dualOrder, currency: "CNY" }, [itemFixture]).showDualCurrencyPrices, false, "付款币种为人民币时不得重复显示两种相同币种");
+assert.match(read("supabase/migrations/20261017130000_pi_dual_currency_fees.sql"), /show_dual_currency_prices = coalesce\(\(p_fees->>'show_dual_currency_prices'\)::boolean, false\)/, "创建、修改及导入PI须在同一数据库事务中保存展示选项");
+assert.match(read("components/pi-order-form.tsx"), /setShowDualCurrencyPrices\(order\.show_dual_currency_prices === true\)/, "编辑草稿应回显已保存的展示选项");
+assert.match(read("components/order-print-preview.tsx"), /piDocument!\.showDualCurrencyPrices \? <>/, "PI网页预览和PDF应根据同一保存选项显示双币种单价");
 const piStyleXml = Buffer.from(XLSX.CFB.find(archive, "/xl/styles.xml").content).toString("utf8");
 const amountStyleId = Number(sheetXml.match(/<c r="K19" s="(\d+)"/)[1]);
 const piXfs = [...piStyleXml.match(/<cellXfs count="\d+">([\s\S]*?)<\/cellXfs>/)[1].matchAll(/<xf\b[^>]*?\/>|<xf\b[^>]*>[\s\S]*?<\/xf>/g)].map((match) => match[0]);
@@ -346,6 +378,21 @@ assert.match(piXfs[amountStyleId], /horizontal="right"/, "PI Excel 金额应统�
 assert.equal(sheet.K28.v, 20000);
 assert.equal(sheet.K30.v, 22000);
 assert.equal(XLSX.utils.format_cell(sheet.K30), "₦22000.00", "PI Excel总金额显示应与预览一致，不得自行添加千位分隔符");
+const feeOrder = { ...orderFixture, payment_method: "PayPal", last_balance_cny: 10, last_balance_amount: 2000,
+  other_charge_cny: 5, other_charge_amount: 1000, discount_cny: 2, discount_amount: 400,
+  paypal_fee_percent: 5, paypal_fee_cny: 6.15, paypal_fee_amount: 1230,
+  total_cny: 129.15, total_amount: 25830 };
+const feeModel = createPiDocumentModel(feeOrder, [itemFixture]);
+assert.equal(feeModel.paypalFeePercent, 5);
+assert.equal(feeModel.totalAmount, 25830);
+const feeBook = XLSX.read(buildDirectPiWorkbook(feeOrder, [itemFixture]), { type: "array", cellFormula: true });
+const feeSheet = feeBook.Sheets[feeBook.SheetNames[0]];
+assert.deepEqual(["G30", "G31", "G32", "G33", "G34"].map((address) => feeSheet[address].v),
+  ["LAST BALANCE:", "OTHER CHARGES:", "DISCOUNT:", "PAYPAL FEE (5%):", "TOTAL AMOUNT:"],
+  "PI Excel须与预览按相同顺序列出附加费用和PayPal百分比");
+assert.deepEqual(["K30", "K31", "K32", "K33", "K34"].map((address) => feeSheet[address].v),
+  [2000, 1000, -400, 1230, 25830]);
+assert.equal(feeSheet.K34.f, "SUM(K28:K33)", "PI Excel总额公式必须包含全部附加费用和折扣");
 const previewItems = [
   [37.75, 15], [29.36, 20], [27.56, 50], [14.53, 30], [79.40, 5],
 ].map(([price, quantity], index) => ({ ...itemFixture, line_number: index + 1, quantity, unit_price_cny: price, unit_price: price }));

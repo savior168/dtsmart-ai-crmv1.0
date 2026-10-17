@@ -8,7 +8,7 @@ const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
 
 /** Preserve the supplied corporate logo at the same 108px size as the preview. */
-function addPiLogo(workbook: Uint8Array): Buffer {
+function addPiLogo(workbook: Uint8Array, document: ReturnType<typeof createPiDocumentModel>): Buffer {
   const template = Zip.CFB.read(readFileSync(path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx")), { type: "buffer" });
   const output = Zip.CFB.read(Buffer.from(workbook), { type: "buffer" });
   for (const part of ["/xl/drawings/drawing1.xml", "/xl/drawings/_rels/drawing1.xml.rels", "/xl/media/image.png", "/xl/worksheets/_rels/sheet1.xml.rels"]) {
@@ -29,6 +29,24 @@ function addPiLogo(workbook: Uint8Array): Buffer {
   const contentTypes = Zip.CFB.find(output, "/[Content_Types].xml");
   if (!worksheet?.content || !contentTypes?.content) throw new Error("PI工作簿结构不完整");
   let xml = Buffer.from(worksheet.content).toString("utf8");
+  const richLabels: Array<[string, string, string]> = [
+    ["D4", "Address:", document.companyAddress],
+    ["D6", "Official Website:", document.website],
+    ["D7", "Sales Manager:", document.salesManager],
+    ["D8", "Contact No:", document.contactPhone],
+    ["D9", "Email:", document.contactEmail],
+    ["A13", "Company:", document.deliveryCompany],
+    ["A14", "TEL:", document.deliveryPhone],
+    ["A15", "To:", document.recipient],
+    ["A16", "Email:", document.deliveryEmail],
+    ["G13", "Delivery address:", document.deliveryAddress],
+  ];
+  const escapeXml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  for (const [address, label, value] of richLabels) {
+    const cell = new RegExp(`<c r="${address}"([^>]*)>[\\s\\S]*?<\\/c>`);
+    if (!cell.test(xml)) throw new Error(`PI工作簿缺少文本单元格 ${address}`);
+    xml = xml.replace(cell, (_match, attributes: string) => `<c r="${address}"${attributes.replace(/ t="[^"]+"/, "")} t="inlineStr"><is><r><rPr><b/></rPr><t>${escapeXml(label)}</t></r><r><rPr><b val="0"/></rPr><t xml:space="preserve">${value ? ` ${escapeXml(value)}` : ""}</t></r></is></c>`);
+  }
   if (/<(?:\w+:)?drawing\b/.test(xml)) throw new Error("PI工作簿已包含图像，不能重复插入");
   xml = xml.replace(/<sheetView workbookViewId="0"\s*\/>/, '<sheetView showGridLines="0" workbookViewId="0"/>');
   const originalSheet = Zip.CFB.find(template, "/xl/worksheets/sheet1.xml");
@@ -62,12 +80,22 @@ type DirectPiOrder = {
   delivery_address: string | null;
   delivery_date: string | null;
   currency: string;
+  show_dual_currency_prices?: boolean | null;
   fx_rate_cny_to_payment: number;
   payment_method: string | null;
   payment_account_snapshot: string | null;
   subtotal_cny: number;
   shipping_cny: number;
   total_cny: number;
+  last_balance_cny?: number;
+  last_balance_amount?: number;
+  discount_cny?: number;
+  discount_amount?: number;
+  other_charge_cny?: number;
+  other_charge_amount?: number;
+  paypal_fee_percent?: number;
+  paypal_fee_cny?: number;
+  paypal_fee_amount?: number;
   subtotal: number;
   shipping_cost: number;
   total_amount: number;
@@ -156,37 +184,46 @@ function moneyStyle(currency: string, highlighted = false): CellStyle {
 export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[]) {
   if (!items.length || items.length > 500) throw new Error("PI产品明细需为1至500行");
   const currency = order.currency.toUpperCase();
+  const showDualCurrencyPrices = order.show_dual_currency_prices === true && currency !== "CNY";
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error("PI付款币种不正确");
   if (!Number.isFinite(Number(order.fx_rate_cny_to_payment)) || Number(order.fx_rate_cny_to_payment) <= 0) throw new Error("PI汇率不正确");
   if (!order.payment_account_snapshot?.trim()) throw new Error("PI缺少已确认的收款账户");
   const sumCny = roundMoney(items.reduce((sum, item) => sum + roundMoney(Number(item.unit_price_cny) * Number(item.quantity)), 0));
   const sumPaid = roundMoney(items.reduce((sum, item) => sum + roundMoney(Number(item.unit_price) * Number(item.quantity)), 0));
   if (items.some((item) => !Number.isSafeInteger(Number(item.quantity)) || Number(item.quantity) <= 0 ||
+      !Number.isFinite(Number(item.unit_price_cny)) || Number(item.unit_price_cny) < 0 ||
       Math.abs(roundMoney(Number(item.unit_price_cny) * Number(order.fx_rate_cny_to_payment)) - Number(item.unit_price)) > 0.01)) {
     throw new Error("PI产品数量或换算单价不正确，请核对后重试");
   }
   if (Math.abs(sumCny - Number(order.subtotal_cny)) > 0.01 || Math.abs(sumPaid - Number(order.subtotal)) > 0.01 ||
-      Math.abs(roundMoney(Number(order.subtotal_cny) + Number(order.shipping_cny)) - Number(order.total_cny)) > 0.01 ||
-      Math.abs(roundMoney(Number(order.subtotal) + Number(order.shipping_cost)) - Number(order.total_amount)) > 0.01) {
+      Math.abs(roundMoney(Number(order.subtotal_cny) + Number(order.shipping_cny) + Number(order.last_balance_cny || 0) + Number(order.other_charge_cny || 0) - Number(order.discount_cny || 0) + Number(order.paypal_fee_cny || 0)) - Number(order.total_cny)) > 0.01 ||
+      Math.abs(roundMoney(Number(order.subtotal) + Number(order.shipping_cost) + Number(order.last_balance_amount || 0) + Number(order.other_charge_amount || 0) - Number(order.discount_amount || 0) + Number(order.paypal_fee_amount || 0)) - Number(order.total_amount)) > 0.01) {
     throw new Error("PI产品金额与订单汇总不一致，请核对后重试");
   }
   const document = createPiDocumentModel(order, items);
   const issueDate = document.issueDate;
+  const feeRows = [
+    ["LAST BALANCE:", document.lastBalance],
+    ["OTHER CHARGES:", document.otherCharge],
+    ["DISCOUNT:", -document.discount],
+    [`PAYPAL FEE (${document.paypalFeePercent}%):`, document.paypalFee],
+  ].filter(([, amount]) => Number(amount) !== 0) as Array<[string, number]>;
   const lastItemRow = 18 + Math.max(9, items.length);
   const subtotalRow = lastItemRow + 1;
   const shippingRow = subtotalRow + 1;
-  const totalRow = shippingRow + 1;
+  const totalRow = shippingRow + feeRows.length + 1;
   const paymentHeader = totalRow + 1;
   const paymentBody = paymentHeader + 1;
   const signatureHeader = paymentBody + 1;
   const signatureName = signatureHeader + 1;
   const signatureDate = signatureName + 1;
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
-  sheet["!ref"] = `A1:K${signatureDate}`;
+  sheet["!ref"] = `A1:${showDualCurrencyPrices ? "L" : "K"}${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
   sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
+  if (showDualCurrencyPrices) sheet["!cols"].push({ wch: 1, hidden: true });
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : index >= 1 && index <= 8 ? 16 : index === 9 || index === 10 ? 6 : 18,
+    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? (showDualCurrencyPrices ? 34 : 24) : 19) : index >= 1 && index <= 8 ? 16 : index === 9 || index === 10 ? 6 : 18,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
@@ -209,8 +246,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, "D9", `Email: ${document.contactEmail}`, companyLine); merge(sheet, "D9:F9");
   set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, "A12:K12");
   const delivery: Array<[number, string, string]> = [
-    [13, "To:", document.recipient], [14, "TEL:", document.deliveryPhone],
-    [15, "Company:", document.deliveryCompany], [16, "Email:", document.deliveryEmail],
+    [13, "Company:", document.deliveryCompany], [14, "TEL:", document.deliveryPhone],
+    [15, "To:", document.recipient], [16, "Email:", document.deliveryEmail],
   ];
   for (const [row, label, value] of delivery) {
     set(sheet, `A${row}`, `${label} ${value}`.trim(), { ...base, alignment: { vertical: "center", wrapText: true } });
@@ -222,7 +259,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const heading: CellStyle = { ...boxed, font: { name: "Arial", sz: 10, bold: true }, fill: { fgColor: { rgb: "E2EFDA" } } };
   const headings: Array<[string, string, string?]> = [
     ["A", "No."], ["B", "Items", "B18:C18"], ["D", "Brand"], ["E", "Models"], ["F", "Quality"],
-    ["G", "Description", "G18:H18"], ["I", `Unit Price\n(${currency})`],
+    ["G", "Description", "G18:H18"], ["I", showDualCurrencyPrices ? `Unit Price\n(CNY / ${currency})` : `Unit Price\n(${currency})`],
     ["J", "Quantity"], ["K", `Amount\n(${currency})`],
   ];
   for (const [column, label, range] of headings) {
@@ -234,18 +271,20 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     const item = items[index];
     const values: Array<[string, string | number]> = item ? [
       ["A", index + 1], ["B", item.item_name], ["D", item.brand || ""], ["E", item.model || ""],
-      ["F", item.quality || ""], ["G", item.description || ""], ["I", Number(item.unit_price)], ["J", Number(item.quantity)],
+      ["F", item.quality || ""], ["G", item.description || ""], ["I", showDualCurrencyPrices ? `CNY ¥${Number(item.unit_price_cny).toFixed(2)}\n${currency} ${Number(item.unit_price).toFixed(2)}` : Number(item.unit_price)], ["J", Number(item.quantity)],
     ] : [["A", ""], ["B", ""], ["D", ""], ["E", ""], ["F", ""], ["G", ""], ["I", ""], ["J", ""]];
     for (const [column, value] of values) set(sheet, `${column}${row}`, value,
-      column === "I" ? moneyStyle(currency) : boxed);
+      column === "I" ? showDualCurrencyPrices ? { ...moneyStyle(currency), alignment: { horizontal: "right", vertical: "center", wrapText: true } } : moneyStyle(currency) : boxed);
     if (item) {
-      calculated(sheet, `K${row}`, `I${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
+      if (showDualCurrencyPrices) set(sheet, `L${row}`, Number(item.unit_price));
+      calculated(sheet, `K${row}`, `${showDualCurrencyPrices ? "L" : "I"}${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
     } else { set(sheet, `K${row}`, "", boxed); }
     merge(sheet, `B${row}:C${row}`); merge(sheet, `G${row}:H${row}`);
   }
   const totalRows: Array<[number, string, number | string, number]> = [
     [subtotalRow, "SUBTOTAL:", items.reduce((sum, item) => sum + Number(item.quantity), 0), Number(order.subtotal)],
     [shippingRow, "SHIPPING COST:", "", Number(order.shipping_cost)],
+    ...feeRows.map(([label, amount], index): [number, string, string, number] => [shippingRow + index + 1, label, "", amount]),
     [totalRow, "TOTAL AMOUNT:", "", Number(order.total_amount)],
   ];
   for (const [row, label, quantity, paid] of totalRows) {
@@ -254,7 +293,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     if (row === subtotalRow) {
       calculated(sheet, `K${row}`, `SUM(K19:K${18 + items.length})`, paid, moneyStyle(currency));
     } else if (row === totalRow) {
-      calculated(sheet, `K${row}`, `K${subtotalRow}+K${shippingRow}`, paid, moneyStyle(currency, true));
+      calculated(sheet, `K${row}`, `SUM(K${subtotalRow}:K${totalRow - 1})`, paid, moneyStyle(currency, true));
     } else {
       set(sheet, `K${row}`, paid, moneyStyle(currency));
     }
@@ -275,5 +314,5 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   outline(sheet, `A19:K${totalRow}`);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "PI");
-  return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);
+  return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array, document);
 }

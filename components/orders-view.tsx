@@ -40,6 +40,7 @@ type Row = {
   updated_at: string;
   created_at: string;
   owner?: { name?: string | null; email?: string } | null;
+  creator?: { name?: string | null; email?: string } | null;
   stock?: StockLink | StockLink[] | null;
 };
 export function OrdersView() {
@@ -57,6 +58,8 @@ export function OrdersView() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [userId, setUserId] = useState("");
+  const [creatorId, setCreatorId] = useState("");
+  const [canFilterCreator, setCanFilterCreator] = useState(false);
   const [canViewAll, setCanViewAll] = useState(false);
   const [canViewStock, setCanViewStock] = useState(false);
   const [canCreate, setCanCreate] = useState(false);
@@ -83,6 +86,7 @@ export function OrdersView() {
       if (dateFrom) params.set("date_from", dateFrom);
       if (dateTo) params.set("date_to", dateTo);
       if (userId) params.set("user_id", userId);
+      if (creatorId) params.set("creator_id", creatorId);
       selectedIds.forEach((id) => params.append("id", id));
       await downloadFilteredExport(`/api/orders?${params}`, batchExportFilename("PI订单", "zip"));
     } catch (cause) {
@@ -137,6 +141,7 @@ export function OrdersView() {
     if (dateFrom) p.set("date_from", dateFrom);
     if (dateTo) p.set("date_to", dateTo);
     if (userId) p.set("user_id", userId);
+    if (creatorId) p.set("creator_id", creatorId);
     const r = await fetch(`/api/orders?${p}`, { cache: "no-store" });
     const b = await r.json().catch(() => ({}));
     setLoading(false);
@@ -147,13 +152,14 @@ export function OrdersView() {
     setData(b.data || []);
     setCount(Number(b.count || 0));
     setCanViewAll(Boolean(b.can_view_all));
+    setCanFilterCreator(Boolean(b.can_filter_creator));
     setCanViewStock(Boolean(b.can_view_stock));
     setCanCreate(Boolean(b.can_create));
     setCanImport(Boolean(b.can_import));
     setCanExport(Boolean(b.can_export));
     setError("");
-  }, [page, pageSize, q, status, currency, country, type, sortBy, sortDir, dateFrom, dateTo, userId]);
-  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, type, dateFrom, dateTo, userId]);
+  }, [page, pageSize, q, status, currency, country, type, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
+  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, type, dateFrom, dateTo, userId, creatorId]);
   const selectableIds = data.filter((row) => row.confirmation_method === "DIRECT_PI" && !["DRAFT", "CANCELLED"].includes(row.status)).map((row) => row.id);
   const pageSelection = selectableIds.slice(0, 50);
   const allPageSelected = pageSelection.length > 0 && pageSelection.every((id) => selectedIds.includes(id));
@@ -227,7 +233,8 @@ export function OrdersView() {
             <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
           </AppSelect>
           <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }}/>
-          <UserScopeSelect permission="orders.data_all" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} custom/>
+          <UserScopeSelect permission="orders.data_all" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>
+          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
           <details className="relative text-sm">
             <summary className="flex h-10 cursor-pointer items-center rounded-lg border bg-white px-3 text-slate-600">{HISTORICAL_PI_STATUSES.includes(status as SalesOrderStatus) ? `历史/异常：${SALES_ORDER_STATUS_LABELS[status as SalesOrderStatus]}` : "历史/异常筛选"}</summary>
             <div className="absolute left-0 top-11 z-30 w-52 rounded-lg border bg-white p-2 shadow-lg">
@@ -251,6 +258,7 @@ export function OrdersView() {
               setDateFrom("");
               setDateTo("");
               setUserId("");
+              setCreatorId("");
               setPage(1);
             }}
             className="h-10 shrink-0 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 xl:ml-auto"
@@ -282,7 +290,8 @@ export function OrdersView() {
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status"/>
                     <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
-                    {canViewAll ? <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">归属人</th> : null}
+                    {canViewAll ? <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th> : null}
+                    {canFilterCreator ? <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th> : null}
                     <SortHeader label="更新时间" column="updated_at"/>
                     <SortHeader label="创建时间" column="created_at"/>
                     <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
@@ -317,6 +326,7 @@ export function OrdersView() {
                             {row.owner?.name || row.owner?.email || "-"}
                           </td>
                         ) : null}
+                        {canFilterCreator ? <td className="whitespace-nowrap px-4 py-3">{row.creator?.name || row.creator?.email || "未记录"}</td> : null}
                         <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           {new Date(row.created_at).toLocaleString("zh-CN")}
