@@ -174,9 +174,7 @@ export async function GET(request: NextRequest) {
     const visibleIds = (data || []).map((item) => item.id);
     const itemsByStockId = await loadStockProgressItems(supabase, visibleIds);
     const clerkOwnerIds = [...new Set((data || []).map((item) => item.sales_user_id).filter(Boolean))];
-    const preparerIds = ["ADMIN", "ORDER_CLERK"].includes(account.role)
-      ? [...new Set((data || []).map((item) => item.pi_prepared_by).filter(Boolean))]
-      : [];
+    const preparerIds = [...new Set((data || []).map((item) => item.pi_prepared_by).filter(Boolean))];
     const clerkOwners = clerkOwnerIds.length
       ? await createAdminClient().from("users").select("id,name,email").in("id", clerkOwnerIds)
       : { data: [], error: null };

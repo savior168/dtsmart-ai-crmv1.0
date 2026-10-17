@@ -60,7 +60,6 @@ export function OrdersView() {
   const [userId, setUserId] = useState("");
   const [creatorId, setCreatorId] = useState("");
   const [canFilterCreator, setCanFilterCreator] = useState(false);
-  const [canViewAll, setCanViewAll] = useState(false);
   const [canViewStock, setCanViewStock] = useState(false);
   const [canCreate, setCanCreate] = useState(false);
   const [canImport, setCanImport] = useState(false);
@@ -151,7 +150,6 @@ export function OrdersView() {
     }
     setData(b.data || []);
     setCount(Number(b.count || 0));
-    setCanViewAll(Boolean(b.can_view_all));
     setCanFilterCreator(Boolean(b.can_filter_creator));
     setCanViewStock(Boolean(b.can_view_stock));
     setCanCreate(Boolean(b.can_create));
@@ -290,8 +288,8 @@ export function OrdersView() {
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status"/>
                     <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
-                    {canViewAll ? <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th> : null}
-                    {canFilterCreator ? <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th> : null}
+                    <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th>
+                    <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th>
                     <SortHeader label="更新时间" column="updated_at"/>
                     <SortHeader label="创建时间" column="created_at"/>
                     <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
@@ -321,12 +319,8 @@ export function OrdersView() {
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
-                        {canViewAll ? (
-                          <td className="whitespace-nowrap px-4 py-3">
-                            {row.owner?.name || row.owner?.email || "-"}
-                          </td>
-                        ) : null}
-                        {canFilterCreator ? <td className="whitespace-nowrap px-4 py-3">{row.creator?.name || row.creator?.email || "未记录"}</td> : null}
+                        <td className="whitespace-nowrap px-4 py-3">{row.owner?.name || row.owner?.email || "-"}</td>
+                        <td className="whitespace-nowrap px-4 py-3">{row.creator?.name || row.creator?.email || "未记录"}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           {new Date(row.created_at).toLocaleString("zh-CN")}

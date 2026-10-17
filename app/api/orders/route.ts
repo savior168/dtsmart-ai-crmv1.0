@@ -164,9 +164,9 @@ export async function GET(request: NextRequest) {
     const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
     const [owners, creators, stockOrders] = await Promise.all([
       ownerIds.length
-        ? relatedClient.from("users").select("id,name,email").in("id", ownerIds)
+        ? createAdminClient().from("users").select("id,name,email").in("id", ownerIds)
         : Promise.resolve({ data: [], error: null }),
-      creatorIds.length && ["ADMIN", "ORDER_CLERK"].includes(account.role)
+      creatorIds.length
         ? createAdminClient().from("users").select("id,name,email").in("id", creatorIds)
         : Promise.resolve({ data: [], error: null }),
       orderIds.length
