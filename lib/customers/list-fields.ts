@@ -63,7 +63,7 @@ export function normalizeCustomerListColumns(value: unknown, includeOwner = fals
   const saved = Array.isArray(value)
     ? value.filter((key): key is CustomerListColumn => typeof key === "string" && columnKeys.has(key as CustomerListColumn))
     : [];
-  // 行业已经作为客户名称下的“AI核验/原始类别”说明展示；列表再单列展示会重复。
+  // 行业已经作为公司名称下的“AI核验/原始类别”说明展示；列表再单列展示会重复。
   // 同时清理旧版浏览器保存的字段偏好，确保刷新后也不会继续出现重复列。
   const normalized = migrateCustomerIdentityColumnOrder(
     (saved.length ? saved : [...CUSTOMER_LIST_DEFAULT_COLUMNS]).filter((key) => key !== "industry" && key !== "social"),

@@ -380,11 +380,11 @@ assert.match(detail,/remainingCandidates[\s\S]*剩余[\s\S]*待处理[\s\S]*搜�
 assert.match(detail,/查看处理明细[\s\S]*快速排除或重复[\s\S]*进入深度核验[\s\S]*核验成功[\s\S]*技术失败[\s\S]*需重试/,"技术处理构成必须折叠展示，并区分成功、待处理和技术失败");
 assert.match(detail,/maintenancePaused[\s\S]*\["RUNNING", "PAUSING"\]\.includes\(task\.status\) && !maintenancePaused[\s\S]*task\.status === "PAUSED" \|\| maintenancePaused[\s\S]*StatusBadge status=\{maintenancePaused\?"PAUSED":task\.status\}[\s\S]*不会新增调用或费用[\s\S]*只有人工点击“继续执行”后才会恢复[\s\S]*最近进展/,"维护暂停必须显示为暂停；失效执行器卡在暂停中时必须提供完成暂停入口");
 assert.match(detail,/matched_keywords[\s\S]*匹配关键词/,"任务客户列表必须展示客户命中的获客关键词");
-assert.match(detail,/"客户名称"[\s\S]*"国家\/地区"[\s\S]*"当前评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
+assert.match(detail,/"公司名称"[\s\S]*"国家\/地区"[\s\S]*"当前评分"[\s\S]*"联系号码"[\s\S]*"邮箱"[\s\S]*"官网"[\s\S]*"公开渠道"[\s\S]*"匹配关键词"[\s\S]*"Google地址"[\s\S]*"商机线索"[\s\S]*"销售建议"[\s\S]*"核验结论"[\s\S]*"操作"/,"本次客户列表必须将联系号码、邮箱、官网与第三方公开渠道分列，并与客户结果页保持相同的触达优先顺序");
 assert.match(candidateEvidenceDialog,/<VerifiedContactsSection[\s\S]*<GroupedEvidenceSection/,"获客详情与跨任务结果必须复用统一的联系方式与中文证据组件，不能直接展示内部枚举和大段外文原文");
 assert.match(candidateEvidenceDialog,/identityLabel\[evidence\.analysis\?\.identity_status[\s\S]*核验结论/,"获客依据摘要必须使用中文业务标签并明确展示核验结论");
 assert.match(candidateEvidenceDialog,/主体需单独核对：[\s\S]*verified_business_name[\s\S]*verified_address[\s\S]*mismatch_signals/,"人工复核应展示主体名称、地址及冲突信号，不得让用户只靠改分猜测阻点");
-assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CandidateScoreDisplay[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"客户名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");
+assert.match(detail,/text-blue-700[\s\S]*acquisitionBusinessLabel[\s\S]*AI核验：[\s\S]*发现类型：[\s\S]*<CountryLabel value=\{r\.country\}\/>[\s\S]*CandidateScoreDisplay[\s\S]*CustomerContactSummary[\s\S]*CustomerPublicLink[\s\S]*CustomerPublicChannels[\s\S]*r\.address/,"公司名称下必须区分中文发现类型与AI核验行业，官网与公开渠道必须先于Google地址展示");
 assert.doesNotMatch(detail,/"客户与地区"|"AI匹配"|"商机线索与销售建议"/,"本次客户列表不得继续使用混合字段标题");
 assert.match(detail,/搜索策略效果[\s\S]*searchTotals[\s\S]*成功入池[\s\S]*已认领[\s\S]*已推进[\s\S]*平均入池成本参考/,"搜索策略效果必须默认折叠并保留从发现到转化的质量与成本闭环");
 assert.match(detail,/本任务调用[\s\S]*本任务价目估算[\s\S]*结算月预计总用量[\s\S]*预计剩余免费额度[\s\S]*超过免费额度[\s\S]*超额预计费用[\s\S]*本任务 Google Places SKU用量与账号额度/,'Google明细必须直观展示本任务、账号总量、剩余额度、超额次数和预计费用');
@@ -407,7 +407,7 @@ assert.match(detailRoute,/evidence_status[\s\S]*sort[\s\S]*SALES_PRIORITY/,"任�
 assert.match(detailRoute,/readiness === "ACTIONABLE"[\s\S]*has_actionable_contact[\s\S]*evidenceStatus === "COMPLETE"[\s\S]*evidence_complete/,"任务客户接口必须独立筛选联系方式与证据");
 assert.match(detail,/CustomerContactSummary[\s\S]*CustomerPublicLink value=\{r\.customer_profile\?\.website\|\|r\.source_website\} kind="website"\/[\s\S]*CustomerPublicChannels/,"任务客户列表官网必须显示可读域名，公开渠道仍复用统一入口");
 assert.match(detail,/r\.customer_profile\?\.website\|\|r\.source_website[\s\S]*Google 商家提供/,"Google商家绑定官网即使尚未写入主档也必须在公开来源中可访问并标明来源");
-assert.match(detail,/placeholder="搜索客户名称或地址"[\s\S]*label="国家\/地区"[\s\S]*label="核验行业"[\s\S]*全部AI等级[\s\S]*全部联系状态[\s\S]*全部证据状态[\s\S]*销售优先/,"客户筛选必须按业务上下文、质量、可联系性和销售优先级完整展示");
+assert.match(detail,/placeholder="搜索公司名称或地址"[\s\S]*label="国家\/地区"[\s\S]*label="核验行业"[\s\S]*全部AI等级[\s\S]*全部联系状态[\s\S]*全部证据状态[\s\S]*销售优先/,"客户筛选必须按业务上下文、质量、可联系性和销售优先级完整展示");
 assert.match(detail,/task\.countries\.length>1[\s\S]*task\.industries\?\.length\|\|1\)>1/,"单行业或单国家任务不得显示无意义的筛选项");
 const scoreBadge=fs.readFileSync(new URL("../components/customer-score-badge.tsx",import.meta.url),"utf8");
 const publicPool=fs.readFileSync(new URL("../components/customer-public-pool-view.tsx",import.meta.url),"utf8");
@@ -586,7 +586,7 @@ assert.match(candidateEvidenceDialog,/DISCARD[\s\S]*RECHECK_AND_ACCEPT/,"统一�
 assert.doesNotMatch(customerResults,/decision=REVIEW&candidate=|处理复核/,"待复核客户不得再跳回任务详情或使用含糊的处理复核文案");
 assert.match(detail,/r\.decision === "REVIEW" && canControl \? "复核判定" : "查看依据"/,"任务详情与客户结果必须统一复核入口文案");
 assert.doesNotMatch(customerResults,/国家代码，如 US/,"客户结果页不得要求用户手工记忆国家代码");
-assert.match(customerResults,/"客户名称","国家\/地区","当前评分","联系号码","邮箱","官网","公开渠道","匹配关键词","Google地址","证据状态","来源任务"[\s\S]*进入待复核时间[\s\S]*入池时间[\s\S]*sticky left-0[\s\S]*sticky right-0/,"客户结果必须按客户、地区、评分和联系入口展示，并固定客户名称与操作列");
+assert.match(customerResults,/"公司名称","国家\/地区","当前评分","联系号码","邮箱","官网","公开渠道","匹配关键词","Google地址","证据状态","来源任务"[\s\S]*进入待复核时间[\s\S]*入池时间[\s\S]*sticky left-0[\s\S]*sticky right-0/,"客户结果必须按客户、地区、评分和联系入口展示，并固定公司名称与操作列");
 assert.doesNotMatch(customerResults,/"目标行业"|"联系与证据"|"处理时间","操作"/,"客户结果不得继续使用含义错误或混合字段");
 assert.match(customerResultsRoute,/requestedOwnerId[\s\S]*task\.user_id[\s\S]*processed_at[\s\S]*decision/,"跨任务客户清单必须保持归属权限、北京时间今日口径与结果状态口径一致");
 assert.match(customerResultsRoute,/params\.get\("task_id"\)[\s\S]*query\.eq\("task_id", taskId\)[\s\S]*filter_task/,"来源任务筛选必须在服务端真实生效且返回有权限查看的任务标识");

@@ -785,7 +785,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
                     data-1p-ignore="true"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder={tab === "claimed" && role !== "ADMIN" ? "搜索客户名称、国家/地区或行业" : "搜索名称、联系人、国家/地区、电话、邮箱或链接"}
+                    placeholder={tab === "claimed" && role !== "ADMIN" ? "搜索公司名称、国家/地区或行业" : "搜索公司名称、客户名称、国家/地区、电话、邮箱或链接"}
                     className={`${appFieldClass} w-full min-w-0 pl-9`}
                   />
                 </label>
@@ -1120,7 +1120,7 @@ function PoolTable({
 }
 
 function SupplementDialog({ row, close }: { row: PoolRow; close: () => void }) {
-  const fieldLabels: Record<string, string> = { contact_name: "联系人", phone: "电话", whatsapp: "whatsapp", email: "邮箱", website: "官网", google_url: "Google Maps", address: "地址" };
+  const fieldLabels: Record<string, string> = { contact_name: "客户名称", phone: "电话", whatsapp: "whatsapp", email: "邮箱", website: "官网", google_url: "Google Maps", address: "地址" };
   return <Modal title="我的补充资料" subtitle={`${row.company_name} · 仅您本人可见，不覆盖客户公海原始资料`} close={close}>
     <div className="grid gap-2 sm:grid-cols-2">{(row.my_supplements || []).map((item) => <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm"><span className="block text-xs text-slate-500">{fieldLabels[item.field_name] || item.field_name}</span><span className="mt-1 block break-all text-slate-800">{item.value_raw}</span>{item.source_batch ? <small className="mt-2 block text-slate-400">{item.source_batch}{item.source_row ? ` · 第 ${item.source_row} 行` : ""}</small> : null}</div>)}</div>
   </Modal>;
@@ -1262,7 +1262,7 @@ function ClaimDialog({
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
-        {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"联系人",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
+        {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"客户名称",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
         <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"}]}/>
         {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">联系电话 <b className="text-rose-600">*</b> · 邮箱 <b className="text-rose-600">*</b>；两项须已在客户主档中填写。</p> : null}
         <ClaimChoice label="实际联系渠道" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"邮箱"},{value:"PHONE",label:"电话"},{value:"LINKEDIN",label:"LinkedIn / 其他社媒"},{value:"OTHER",label:"官网表单 / 其他方式"}]}/>

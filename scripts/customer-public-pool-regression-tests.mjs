@@ -165,7 +165,7 @@ assert.match(poolView, /tab === "claimed" && role === "ADMIN"[\s\S]*全部已认
 assert.match(listFields, /CUSTOMER_LIST_COLUMN_STORAGE_KEY[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS/, "两张客户列表必须共享字段设置和默认顺序");
 assert.match(listFields, /"company_name",[\s\S]*"country",[\s\S]*"ai_score"/, "客户列表默认顺序必须先展示国家地区，再展示AI评分");
 assert.match(listFields, /migrateCustomerIdentityColumnOrder[\s\S]*countryIndex === scoreIndex \+ 1/, "旧版浏览器保存的相邻旧顺序必须平滑迁移，且不得覆盖主动自定义顺序");
-assert.match(poolView, /available: \["company_name", "country", "ai_score"[\s\S]*claimed: \["company_name", "country", "ai_score"[\s\S]*pending: \["company_name", "country", "ai_score"/, "客户公海各列表必须统一为客户名称、国家地区、AI评分");
+assert.match(poolView, /available: \["company_name", "country", "ai_score"[\s\S]*claimed: \["company_name", "country", "ai_score"[\s\S]*pending: \["company_name", "country", "ai_score"/, "客户公海各列表必须统一为公司名称、国家地区、AI评分");
 assert.match(poolView, /role === "ADMIN"[\s\S]*新增客户[\s\S]*手动新增[\s\S]*destination=public[\s\S]*导出筛选结果/, "公海管理员必须使用与我的客户一致的新增、导入和导出操作布局");
 assert.match(poolPage, /protectPage\("customers\.view"\)[\s\S]*initialRole=\{account\.role\}/, "管理员操作入口不能依赖公海列表成功加载后才显示");
 assert.doesNotMatch(poolView, /RefreshCw|>刷新<\//, "公海顶部不得堆叠无必要的刷新按钮");

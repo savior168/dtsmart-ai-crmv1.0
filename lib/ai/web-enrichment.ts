@@ -1210,7 +1210,7 @@ export async function collectPublicGooglePlaceEvidence(input: {
       identity_status: identityStatus,
       identity_confidence: identityConfidence,
       match_signals: matchSignals,
-      mismatch_signals: identityStatus === "NOT_FOUND" ? ["公开地图结果与客户名称或地址不一致"] : mismatchSignals,
+      mismatch_signals: identityStatus === "NOT_FOUND" ? ["公开地图结果与公司名称或地址不一致"] : mismatchSignals,
       verified_google_maps_url: verifiedUrl,
     };
   } catch {

@@ -32,7 +32,7 @@ function downloadCustomers(customers: CustomerData[], fileName: string) {
 }
 
 const protectionColumns: { label: string; key: keyof Row }[] = [
-  { label: "客户名称", key: "company" }, { label: "归属人", key: "owner" }, { label: "国家/地区", key: "country" }, { label: "AI评分", key: "aiScore" },
+  { label: "公司名称", key: "company" }, { label: "归属人", key: "owner" }, { label: "国家/地区", key: "country" }, { label: "AI评分", key: "aiScore" },
   { label: "客户阶段", key: "stage" }, { label: "跟进状态", key: "followup" }, { label: "到期状态", key: "protection" }, { label: "释放方式", key: "releaseType" },
   { label: "续期次数", key: "extensionCount" }, { label: "最近跟进", key: "lastContact" }, { label: "联系电话", key: "phone" }, { label: "邮箱", key: "email" },
   { label: "官网", key: "website" }, { label: "公开渠道", key: "google" }, { label: "数据来源", key: "source" }, { label: "更新时间", key: "updated" },
@@ -69,7 +69,7 @@ function RenewalDialog({ row, close, saved }: { row: Row; close: () => void; sav
 }
 
 const conflictColumns: { label: string; key: keyof Row }[] = [
-  { label: "客户名称", key: "company" }, { label: "国家/地区", key: "country" }, { label: "联系电话", key: "phone" }, { label: "邮箱", key: "email" }, { label: "官网", key: "website" },
+  { label: "公司名称", key: "company" }, { label: "国家/地区", key: "country" }, { label: "联系电话", key: "phone" }, { label: "邮箱", key: "email" }, { label: "官网", key: "website" },
   { label: "公开渠道", key: "google" }, { label: "数据来源", key: "source" }, { label: "保护期剩余", key: "protection" }, { label: "当前归属人", key: "owner" }, { label: "冲突提交人", key: "submitters" },
 ];
 
@@ -142,7 +142,7 @@ function ReleaseHistoryPanel({ scopeUserId, onScopeUserIdChange }: { scopeUserId
   }, [page, scopeUserId]);
   return <section className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3"><div><h3 className="font-semibold text-slate-900">主动释放记录 <span className="text-sm font-normal text-slate-500">{count} 条</span></h3><p className="mt-1 text-xs text-slate-500">历史操作只读；普通销售仅能查看自己的记录，主管可查看有权限的团队成员，管理员可查看全员。这里不提供客户联系方式，也不能据此续期。</p></div><UserScopeSelect permission="customers.data_all" value={scopeUserId} onChange={onScopeUserIdChange} allLabel="全部归属人" filterLabel="原归属人" className="h-10 w-44 rounded-lg border border-slate-200 bg-white px-3 text-sm"/></div>
-    {error ? <p className="m-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-slate-600"><tr>{["客户名称", "国家/地区", "原归属人", "释放时间", "释放原因", "当前状态"].map((label) => <th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.customer_name}</td><td className="px-4 py-3"><Country value={row.country || undefined}/></td><td className="px-4 py-3">{row.previous_owner}</td><td className="px-4 py-3">{formatDate(row.released_at)}</td><td className="max-w-xs px-4 py-3 break-words">{row.release_reason || "—"}</td><td className="px-4 py-3">{row.current_state}</td></tr>)}</tbody></table>{loading ? <p className="p-4 text-sm text-slate-500">加载中…</p> : !rows.length ? <p className="p-4 text-sm text-slate-500">暂无主动释放记录</p> : null}</div>}
+    {error ? <p className="m-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-slate-600"><tr>{["公司名称", "国家/地区", "原归属人", "释放时间", "释放原因", "当前状态"].map((label) => <th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.customer_name}</td><td className="px-4 py-3"><Country value={row.country || undefined}/></td><td className="px-4 py-3">{row.previous_owner}</td><td className="px-4 py-3">{formatDate(row.released_at)}</td><td className="max-w-xs px-4 py-3 break-words">{row.release_reason || "—"}</td><td className="px-4 py-3">{row.current_state}</td></tr>)}</tbody></table>{loading ? <p className="p-4 text-sm text-slate-500">加载中…</p> : !rows.length ? <p className="p-4 text-sm text-slate-500">暂无主动释放记录</p> : null}</div>}
     <div className="flex items-center justify-between border-t px-4 py-3 text-sm"><span>共 {count} 条</span><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => { setLoading(true); setPage(page - 1); }} className="rounded border px-3 py-1.5 disabled:opacity-40">上一页</button><span className="px-2 py-1.5">{page} / {Math.max(1, Math.ceil(count / 20))}</span><button type="button" disabled={page >= Math.ceil(count / 20)} onClick={() => { setLoading(true); setPage(page + 1); }} className="rounded border px-3 py-1.5 disabled:opacity-40">下一页</button></div></div>
   </section>;
 }

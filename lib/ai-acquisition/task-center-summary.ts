@@ -69,7 +69,7 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
   const outOfPoolDetails = outOfPoolCustomerIds.map((id) => {
     const profile = customerById.get(id);
     const reason = !profile ? "客户资料不存在" : profile.deleted_at ? "客户已删除" : profile.acquisition_scope !== "PUBLIC_POOL" ? "已不属于客户公海" : profile.pool_status === "PENDING_ALLOCATION" ? "待管理员分配" : profile.pool_status === "INVALID" ? "已标记无效" : "公海状态待核对";
-    return { id, company_name: profile?.company_name || "未找到客户名称", reason, acquisition_scope: profile?.acquisition_scope || null, pool_status: profile?.pool_status || null };
+    return { id, company_name: profile?.company_name || "未找到公司名称", reason, acquisition_scope: profile?.acquisition_scope || null, pool_status: profile?.pool_status || null };
   });
   const availableCustomers = currentCustomers.filter((row) => row.pool_status === "AVAILABLE" && row.status === "UNCLAIMED" && !row.owner_id);
   const claimedCustomers = currentCustomers.filter((row) => row.pool_status === "CLAIMED" && row.status !== "UNCLAIMED" && Boolean(row.owner_id));

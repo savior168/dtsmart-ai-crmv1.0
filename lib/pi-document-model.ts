@@ -8,6 +8,7 @@ export type PiDocumentOrder = {
   payment_method?: string | null;
   currency: string;
   customer_short_name: string;
+  customer?: { company_name?: string | null; contact_name?: string | null } | null;
   seller_company_name?: string | null;
   seller_company_address?: string | null;
   seller_website?: string | null;
@@ -54,9 +55,9 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     quotationValidUntil: piDateLabel(order.pi_valid_until),
     deliveryDate: piDateLabel(order.delivery_date),
     paymentMethod: `${order.payment_method || "—"} (${order.currency})`,
-    recipient: order.delivery_recipient?.trim() || order.customer_short_name || "—",
+    recipient: order.customer?.contact_name?.trim() || "",
     deliveryPhone: order.delivery_phone || "—",
-    deliveryCompany: order.customer_short_name || "—",
+    deliveryCompany: order.customer?.company_name?.trim() || order.customer_short_name || "",
     deliveryEmail: order.delivery_email || "—",
     deliveryAddress: order.delivery_address || "—",
     issueDate,

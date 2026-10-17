@@ -67,7 +67,7 @@ assert.match(form, /"保存PI草稿"[\s\S]*"确认并生成备货单"/, "导入�
 assert.doesNotMatch(form, /if \(importDraftId && submitToWarehouse\)/, "导入PI核对页应允许直接确认提交仓库");
 assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单价应按当前业务汇率折算并预填人民币售价");
 assert.match(form, /source\.shipping_payment \* importedRate/, "导入外币运费应按当前业务汇率折算并预填人民币运费");
-assert.match(form, /exactCustomerMatches\.length === 1/, "仅在本人客户名称唯一精确匹配时自动关联客户");
+assert.match(form, /exactCustomerMatches\.length === 1/, "仅在本人公司名称唯一精确匹配时自动关联客户");
 assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货单"/, "差异核对确认应保留直接提交仓库意图");
 assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /matchImportedPaymentAccount[\s\S]*payment_account_id/,
   "付款账户只能服务端唯一精确匹配，并只在导入草稿中保存账户ID而不保留账户明文");

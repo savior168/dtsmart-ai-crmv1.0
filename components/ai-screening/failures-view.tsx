@@ -66,7 +66,7 @@ export function FailuresView() {
       {error ? <ErrorState message={error} reload={() => void load()}/> : loading ? <Loading/> : <div className="overflow-x-auto">
         <table className="w-full min-w-[1320px] table-fixed border-collapse text-left text-sm">
           <colgroup><col className="w-[190px]"/><col className="w-[190px]"/><col className="w-[135px]"/><col className="w-[320px]"/><col className="w-[170px]"/><col className="w-[90px]"/><col className="w-[160px]"/><col className="w-[160px]"/></colgroup>
-          <thead className="bg-[#f7f9fc] text-[#58657a]"><tr>{["所属任务 / 编号", "客户名称", "失败步骤", "真实原因", "错误类型", "已重试", "已消耗Token / 费用", "操作"].map((label) => <th key={label} className="px-[11px] py-[10px] font-semibold">{label}</th>)}</tr></thead>
+          <thead className="bg-[#f7f9fc] text-[#58657a]"><tr>{["所属任务 / 编号", "公司名称", "失败步骤", "真实原因", "错误类型", "已重试", "已消耗Token / 费用", "操作"].map((label) => <th key={label} className="px-[11px] py-[10px] font-semibold">{label}</th>)}</tr></thead>
           <tbody>{items.map((item) => <tr key={item.id} className="border-t border-[#edf0f4] align-middle hover:bg-[#fafcff]">
             <td className="px-[11px] py-[11px]"><b title={item.task?.name || "-"} className="block truncate font-semibold text-[#145edb]">{item.task?.name || "-"}</b><small className="block truncate text-[#8994a5]">{item.task?.task_number}</small></td>
             <td className="px-[11px] py-[11px]"><span title={item.customer?.company_name || "-"} className="block truncate">{item.customer?.company_name || "-"}</span></td>

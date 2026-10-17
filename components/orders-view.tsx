@@ -203,7 +203,7 @@ export function OrdersView() {
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="搜索订单编号、PI号或客户名称"
+              placeholder="搜索订单编号、PI号或公司名称"
               className={`${appFieldClass} w-full pl-9`}
             />
           </label>
@@ -277,7 +277,7 @@ export function OrdersView() {
                     {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || type !== "PI" || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
                     <th className="px-4 py-3 font-medium">备货单号</th>
-                    <SortHeader label="客户名称" column="customer_name"/>
+                    <SortHeader label="公司名称" column="customer_name"/>
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status"/>

@@ -55,7 +55,7 @@ type DirectPiOrder = {
   seller_contact_phone: string | null;
   seller_contact_email: string | null;
   customer_short_name: string;
-  customer?: { company_name?: string | null } | null;
+  customer?: { company_name?: string | null; contact_name?: string | null } | null;
   delivery_recipient: string | null;
   delivery_phone: string | null;
   delivery_email: string | null;

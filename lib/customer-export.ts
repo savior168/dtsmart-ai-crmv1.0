@@ -328,7 +328,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
   return [
     {
       name: "客户清单",
-      widths: headers.map((header) => header === "客户名称" ? 28 : ["官网", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) || header.startsWith("其他公开链接") ? 42 : ["电话号码", "邮箱", "WhatsApp"].includes(header) ? 30 : header === "AI依据" ? 14 : 20),
+      widths: headers.map((header) => ["公司名称", "客户名称"].includes(header) ? 28 : ["官网", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) || header.startsWith("其他公开链接") ? 42 : ["电话号码", "邮箱", "WhatsApp"].includes(header) ? 30 : header === "AI依据" ? 14 : 20),
       wrapColumns: headers.map((header, index) => ["电话号码", "邮箱", "WhatsApp", "Google Maps", "Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X（Twitter）", "WhatsApp公开链接"].includes(header) ? index : -1).filter((index) => index >= 0),
       externalHyperlinks: rows.flatMap((customer, row) => [
         ...publicLinkColumns.flatMap(({ key, column }) => {
@@ -355,7 +355,7 @@ export function buildCustomerWorkbookSheets(customers: Array<Record<string, unkn
       widths: [26, 18, 52, 52, 52, 52, 52, 18, 52, 18],
       wrapColumns: [2, 3, 4, 5, 6, 8],
       rows: [
-        ["客户名称", "AI核验行业", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据", "原始类别"],
+        ["公司名称", "AI核验行业", "分析依据摘要", "经营范围", "业务相关性", "客户价值", "跟进建议", "企业规模", "规模依据", "原始类别"],
         ...evidenceRows.map((customer) => [
           exportText(displayCustomerName(customer.company_name, "")), exportText(customer.industry), exportText(customer.ai_reason), exportText(customer.business_scope), exportText(customer.business_relevance),
           exportText(customer.customer_value), exportText(customer.followup_suggestion), exportText(customer.company_scale), exportText(customer.company_scale_evidence), exportText(customer.category),

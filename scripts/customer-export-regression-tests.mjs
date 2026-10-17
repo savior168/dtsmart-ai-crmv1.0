@@ -31,11 +31,11 @@ assert.match(customerExport, /target: `#'AI分析依据'!A\$\{evidenceRow\}`/, "
 const sheets = [
   {
     name: "客户清单",
-    rows: [["客户名称", "AI评分", "AI依据", "原始电话", "原始邮箱号", "AI采集电话", "AI采集邮箱号", "AI采集WhatsApp", "Facebook"], ["示例客户 A", "B · 76", "查看依据", "+48 123 456 789", "original@example.com", "+48 987 654 321", "service@example.com", "+48 555 111 222", "https://facebook.com/example"]],
+    rows: [["公司名称", "AI评分", "AI依据", "原始电话", "原始邮箱号", "AI采集电话", "AI采集邮箱号", "AI采集WhatsApp", "Facebook"], ["示例客户 A", "B · 76", "查看依据", "+48 123 456 789", "original@example.com", "+48 987 654 321", "service@example.com", "+48 555 111 222", "https://facebook.com/example"]],
     internalHyperlinks: [{ row: 1, column: 2, target: "#'AI分析依据'!A2" }],
     externalHyperlinks: [{ row: 1, column: 5, target: "https://example.com/contact" }],
   },
-  { name: "AI分析依据", rows: [["客户名称", "分析依据摘要"], ["示例客户 A", "官网服务页明确提供手机维修。"]] },
+  { name: "AI分析依据", rows: [["公司名称", "分析依据摘要"], ["示例客户 A", "官网服务页明确提供手机维修。"]] },
 ];
 
 const workbook = XLSX.read(createWorkbookFile(sheets), { type: "buffer", cellStyles: true });

@@ -495,7 +495,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
           </nav>
         </div>
           <form className="grid w-full gap-2 border-b p-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_repeat(6,minmax(135px,auto))_auto]" onSubmit={(event)=>{event.preventDefault();setPage(1);setSearch(draft.trim())}}>
-          <label className="relative"><Search size={15} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={(event)=>setDraft(event.target.value)} placeholder="搜索客户名称或地址"/></label>
+          <label className="relative"><Search size={15} className="absolute left-3 top-3 text-slate-400"/><input className={`${input} w-full pl-9`} value={draft} onChange={(event)=>setDraft(event.target.value)} placeholder="搜索公司名称或地址"/></label>
           {task.countries.length>1?<SearchableMultiSelectFilter label="国家/地区" value={countries} options={task.countries.map((value)=>({value,label:COUNTRY_NAMES.of(value)||value}))} onChange={(value)=>{setPage(1);setCountries(value)}}/>:null}
           {(task.industries?.length||1)>1?<SearchableMultiSelectFilter label="核验行业" value={industries} options={(task.industries?.length?task.industries:[task.industry]).filter(Boolean).map((value)=>({value,label:value}))} onChange={(value)=>{setPage(1);setIndustries(value)}}/>:null}
           <select aria-label="AI等级" className={`${input} w-full`} value={level} onChange={(event)=>{setPage(1);setLevel(event.target.value)}}><option value="">全部AI等级</option>{["A","B","C","D"].map((item)=><option key={item} value={item}>{item}级</option>)}</select>
@@ -510,7 +510,7 @@ export function AcquisitionTaskDetail({ taskId, initialDecision="" }: { taskId: 
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
                 {[
-                  "客户名称",
+                  "公司名称",
                   "国家/地区",
                   "当前评分",
                   "联系号码",

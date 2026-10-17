@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
       const idBatches = Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, (index + 1) * 50));
       const details = (await mapExportBatches(idBatches, 4, async (batchIds) => {
         const result = await supabase.from("sales_orders").select(
-          "id,order_number,warehouse_reference_number,status,confirmation_method,currency,delivery_date,payment_method,customer_short_name,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,payment_account_snapshot,customer:customers(company_name)",
+          "id,order_number,warehouse_reference_number,status,confirmation_method,currency,delivery_date,payment_method,customer_short_name,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,payment_account_snapshot,customer:customers(company_name,contact_name)",
         ).in("id", batchIds);
         if (result.error) throw result.error;
         return result.data || [];

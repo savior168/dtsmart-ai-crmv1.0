@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       if ((page.data || []).length < 1000) break;
     }
 
-    const headings = ["客户名称", "国家/地区", "AI等级", "AI评分", "客户阶段", "跟进方式", "跟进内容", "计划跟进时间", "记录时间", scope === "history" ? "记录人" : "当前归属"];
+    const headings = ["公司名称", "国家/地区", "AI等级", "AI评分", "客户阶段", "跟进方式", "跟进内容", "计划跟进时间", "记录时间", scope === "history" ? "记录人" : "当前归属"];
     const lines = rows.map((row) => {
       return [
         row.company_name, row.country, row.ai_level, row.ai_score,

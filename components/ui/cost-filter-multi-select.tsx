@@ -79,7 +79,7 @@ export function CostFilterMultiSelect({
         <ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/>
       </button>
       {open ? <div className="absolute left-0 top-full z-50 mt-1 w-[min(430px,88vw)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-        <label className="relative block"><Search className="absolute left-3 top-2.5 text-slate-400" size={15}/><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === "task" ? "搜索任务名称或任务编号" : "搜索客户名称"} className="h-9 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-blue-400"/></label>
+        <label className="relative block"><Search className="absolute left-3 top-2.5 text-slate-400" size={15}/><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === "task" ? "搜索任务名称或任务编号" : "搜索公司名称"} className="h-9 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-blue-400"/></label>
         <div role="listbox" aria-multiselectable="true" className="mt-2 max-h-64 overflow-y-auto">
           {value.length ? <button type="button" onClick={() => onChange([])} className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50">清空已选</button> : null}
           {loading ? <div className="grid h-20 place-items-center"><LoaderCircle className="animate-spin text-blue-600" size={18}/></div> : options.length ? options.map((option) => {

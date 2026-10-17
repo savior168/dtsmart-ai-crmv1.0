@@ -156,7 +156,7 @@ export function potentialCustomerDuplicateReasons(candidate: CustomerIdentityInp
   const right = companyNameFingerprint(existing.company_name);
   if (left.length >= 5 && right.length >= 5) {
     const threshold = Math.max(1, Math.floor(Math.max(left.length, right.length) * 0.15));
-    if (editDistance(left, right) <= threshold) reasons.push("客户名称高度相似");
+    if (editDistance(left, right) <= threshold) reasons.push("公司名称高度相似");
   }
   return reasons;
 }

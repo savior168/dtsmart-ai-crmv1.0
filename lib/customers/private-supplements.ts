@@ -51,7 +51,7 @@ export function buildPrivateSupplementRows(
 }
 
 export const privateSupplementFieldLabels: Record<PrivateSupplementField, string> = {
-  contact_name: "联系人",
+  contact_name: "客户名称",
   phone: "电话",
   whatsapp: "WhatsApp",
   email: "邮箱",

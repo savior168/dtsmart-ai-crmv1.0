@@ -151,7 +151,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       const exact = initialCustomerId ? listed.find((item) => item.id === initialCustomerId) : null;
       setCustomers(listed);
       if (initialCustomerId && !exact && !draftOrderId) { setCustomerId(""); setError("该客户当前不归属您，不能为其创建PI订单"); }
-      if (exact) { setRecipient(exact.contact_name?.trim() || exact.company_name); setPhone(exact.phone || ""); setEmail(exact.email || ""); setAddress(exact.address || ""); }
+      if (exact) { setRecipient(exact.contact_name?.trim() || ""); setPhone(exact.phone || ""); setEmail(exact.email || ""); setAddress(exact.address || ""); }
       setAccounts(accountBody.data || []);
       if (ratesResponse.ok) {
         setExchangeRates(ratesBody.rates || []);
@@ -206,7 +206,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setValidUntil(order.pi_valid_until || "");
         setDeliveryDate(order.delivery_date || "");
         const draftCustomer = listed.find((item) => item.id === order.customer_id);
-        setRecipient(order.delivery_recipient || draftCustomer?.contact_name?.trim() || draftCustomer?.company_name || order.customer?.company_name || order.customer_short_name || "");
+        setRecipient(order.delivery_recipient || draftCustomer?.contact_name?.trim() || "");
         setPhone(order.delivery_phone || "");
         setEmail(order.delivery_email || "");
         setAddress(order.delivery_address || "");
@@ -235,7 +235,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     setCustomerId(id);
     const customer = customers.find((item) => item.id === id);
     if (!customer) return;
-    setRecipient(customer.contact_name?.trim() || customer.company_name);
+    setRecipient(customer.contact_name?.trim() || "");
     setPhone(customer.phone || "");
     setEmail(customer.email || "");
     setAddress(customer.address || "");
@@ -358,7 +358,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}{savedDraftId ? <> · <Link className="font-semibold underline" href={`/orders/${savedDraftId}`}>查看已保存PI</Link></> : null}</div> : null}
     {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">原Excel：{importSource.warehouse_reference_number} · {importSource.currency} {importSource.total_payment.toFixed(2)}（含运费 {importSource.shipping_payment.toFixed(2)}）。{selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已按PI公司名称精确匹配，请确认。" : "请从本人客户中选择与PI公司名称一致的客户。"}人民币售价和运费{effectiveRate > 0 ? "已按当前业务汇率自动折算，可核对调整" : "需在汇率可用后折算"}；预估成本{importSource.payment_account_id ? "需补充" : "及收款账户需补充或核对"}。{importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "付款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与原文件金额不一致时会要求逐项确认。</div> : null}
     <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <label className="text-sm">客户名称<Required /><AppSelect className={field} aria-label="搜索并选择我的PI客户" forceSearch placeholderValue="" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">请选择我的客户</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name}</option>)}</AppSelect></label>
+      <label className="text-sm">公司名称<Required /><AppSelect className={field} aria-label="搜索并选择我的PI客户" forceSearch placeholderValue="" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">请选择我的客户</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name}</option>)}</AppSelect></label>
       <label className="text-sm">目的国家<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.country ? countryInfo(selectedCustomer.country).name : "客户档案未填写"} readOnly aria-readonly="true" title="从所选客户档案自动带入" /></label>
       <label className="text-sm">订单编号<Required /><input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 D60020733；不可与其他PI重复" /></label>
       <label className="text-sm">客户付款币种<Required /><AppSelect className={field} aria-label="搜索并选择客户付款币种" value={currency} onChange={(event) => { if (event.target.value !== currency) markUnsaved(); setCurrency(event.target.value); setRate(String(exchangeRates.find((item) => item.currency === event.target.value)?.business_cny || "")); }}><option value="">请选择</option>{QUOTE_CURRENCIES.map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}</AppSelect></label>

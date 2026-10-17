@@ -476,7 +476,7 @@ export function resolveIdentity(customer: CustomerRow, records: ChannelRecord[],
   // differently in the page title (for example Smartphone Doctor / Smartfon
   // Doctor). Domain and name remain corroborating signals when phone is absent.
   const score = Math.min(100, Math.max(phoneMatch ? 90 : 0, admittedWebsite ? 80 : 0, providedDomainMatch ? 75 : 0, nameScore + (providedDomainMatch ? 30 : 0) + (phoneMatch ? 25 : 0) + (emailMatch ? 50 : 0) + (addressMatch ? 20 : 0)));
-  const signals = [nameScore >= 45 ? "官网名称与客户名称一致" : "", providedDomainMatch ? "读取域名与客户官网一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
+  const signals = [nameScore >= 45 ? "官网名称与公司名称一致" : "", providedDomainMatch ? "读取域名与客户官网一致" : "", phoneMatch ? "官网电话与原始电话一致" : "", emailMatch ? "原始邮箱域名与官网一致" : "", addressMatch ? "官网地址与原始地址一致" : ""].filter(Boolean);
   const status: IdentityStatus = score >= 90 ? "MATCHED" : score >= 70 ? "LIKELY_MATCHED" : "AMBIGUOUS";
   return { status, confidence: score, verifiedBusinessName: website.title || customer.company_name, verifiedAddress: addressMatch ? customer.address : null, verifiedWebsite: website.url, verifiedGoogleMapsUrl: customer.google_url, placeId: null, candidateCount: 0, matchSignals: signals, mismatchSignals: status === "MATCHED" ? [] : ["官网主体匹配信号不足"] };
 }
@@ -1867,7 +1867,7 @@ export function insufficientDataAnalysis(customer: CustomerRow, records: Channel
   const score = Math.max(5, Math.min(39, Math.round(7 + sourceCount * 4
     + identityConfidence * 0.1 + activityPoints + reviewPoints + locatorPoints - failed.length * 2)));
   const verificationNote = "重点核对：公开渠道未显示目标维修、维修配件或批发分销事实；若销售沟通取得相反凭证，应补充到客户资料后重新分析。";
-  const reason = `${collectedText}${limitation}。系统已完成本轮全部可用渠道核验，现有真实证据显示目标业务相关性较低，综合评为D级${score}分；未把无法读取的页面或客户名称关键词当作经营事实。`;
+  const reason = `${collectedText}${limitation}。系统已完成本轮全部可用渠道核验，现有真实证据显示目标业务相关性较低，综合评为D级${score}分；未把无法读取的页面或公司名称关键词当作经营事实。`;
   const attemptEvidence = records.flatMap((record) => {
     const url = record.source_url || channelUrl(customer, record.channel);
     if (!url || !/^https?:\/\//i.test(url)) return [];

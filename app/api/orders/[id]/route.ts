@@ -17,7 +17,7 @@ export async function GET(
     const order = await supabase
         .from("sales_orders")
         .select(
-          "*,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name)",
+          "*,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name)",
         )
         .eq("id", id)
         .single();

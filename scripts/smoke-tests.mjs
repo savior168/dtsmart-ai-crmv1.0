@@ -136,7 +136,7 @@ assert.doesNotMatch(taskActionApi, /action === "reanalyze"[\s\S]{0,5000}ai_scree
 const taskDetail = read("components/ai-screening/task-detail-view.tsx");
 assert.match(taskDetail, /\["RUNNING", "PAUSING"\][\s\S]*"pause"[\s\S]*QUEUED" \? "cancel"[\s\S]*PAUSED" \? "resume"[\s\S]*FAILED" \|\|[\s\S]*COMPLETED"[\s\S]*"retry"/, "任务详情状态操作必须与任务中心一致");
 assert.match(taskDetail, /AI等级 \/ 评分/, "任务详情处理队列必须显示本任务AI等级与评分");
-assert.match(taskDetail, /block truncate font-medium/, "任务详情超长客户名称必须省略并保留悬停全文");
+assert.match(taskDetail, /block truncate font-medium/, "任务详情超长公司名称必须省略并保留悬停全文");
 assert.doesNotMatch(taskDetail, /查看原因并重试/, "任务详情失败操作必须简化为重试");
 assert.match(taskDetail, /aiErrorMessageZh/, "任务详情失败原因必须转换为中文显示");
 const taskItemsApi = read("app/api/ai/tasks/[id]/items/route.ts");
@@ -255,7 +255,7 @@ const customerForm = read("components/customer-form.tsx");
 assert.match(customerForm, /核对疑似重复客户[\s\S]*已核对，仍要新增/, "手动新增疑似重复必须在统一弹框完成核对和确认");
 const globalIdentityMigration = read("supabase/migrations/202609040001_global_customer_contact_identity_guard.sql");
 assert.match(globalIdentityMigration, /before insert or update of phone, whatsapp, email/, "生产层必须在新增和编辑时拦截全局联系方式重复");
-assert.doesNotMatch(globalIdentityMigration, /normalized_name|company_name/, "全局联系方式防重不得受客户名称拼写差异影响");
+assert.doesNotMatch(globalIdentityMigration, /normalized_name|company_name/, "全局联系方式防重不得受公司名称拼写差异影响");
 const aiCreateTask = read("components/ai-screening/create-task-view.tsx");
 const importBatchSelector = read("components/import-batch-multi-select.tsx");
 const aiCustomerApi = read("app/api/ai/customers/route.ts");
@@ -417,7 +417,7 @@ assert.ok(customersView.indexOf('value={status}') < customersView.indexOf('onCli
 assert.match(customersView, /flex flex-wrap items-end gap-3[\s\S]*onClick=\{reset\}/, "客户列表筛选控件必须在空间不足时自动换行，重置按钮保持在筛选区末尾");
 assert.doesNotMatch(customersView, /min-w-\[1500px\] grid-cols-\[/, "客户列表筛选区不得强制最小宽度导致横向溢出");
 assert.match(customersView, /if \(defaultScopeUserId\) setScopeUserId\(defaultScopeUserId\)/, "切换保护到期或冲突客户时必须默认恢复本人数据范围");
-assert.match(customersView, /搜索客户、联系人、电话、邮箱或国家\/地区/, "客户列表必须合并客户与国家关键词筛选框");
+assert.match(customersView, /搜索公司名称、客户名称、电话、邮箱或国家\/地区/, "客户列表必须合并客户与国家关键词筛选框");
 assert.doesNotMatch(customersView, /JSON\.stringify\([\s\S]{0,200}value\(row, key\)/, "客户导出不得序列化React页面组件");
 const customerExport = read("lib/customer-export.ts");
 assert.match(customerExport, /customerProtectionText[\s\S]*剩余 \$\{days\} 天/, "客户导出必须使用与页面一致的保护期纯文本");
@@ -463,7 +463,7 @@ for (const field of ["channel_checkpoint", "last_completed_channel", "score_brea
 }
 const semanticFields = read("lib/ai/semantic-fields.ts");
 assert.match(semanticFields, /AI_CUSTOMER_FIELD_CANDIDATES/, "AI筛选必须使用只读语义字段映射");
-assert.match(semanticFields, /customer_name[\s\S]*company_name/, "AI字段映射必须兼容历史客户名称字段");
+assert.match(semanticFields, /customer_name[\s\S]*company_name/, "AI字段映射必须兼容历史公司名称字段");
 assert.match(taskRunner, /saveCheckpoint/, "AI筛选必须在每个渠道后保存断点");
 assert.match(taskRunner, /saveModelCall/, "AI筛选必须记录每次OpenAI调用的Token和费用");
 const immutableMetrics = read("supabase/migrations/202608310001_ai_screening_immutable_metrics.sql");

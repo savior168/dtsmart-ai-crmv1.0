@@ -41,7 +41,7 @@ export default function CustomerConflictsPage() {
     {error && <div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}<button onClick={() => void load()} className="ml-3 underline">重新加载</button></div>}
     <section className="mt-4 overflow-x-auto rounded-xl border bg-white shadow-sm">
       <table className="min-w-[1250px] w-full text-left text-sm">
-        <thead className="bg-slate-50 text-slate-600"><tr>{["客户名称","联系人","国家/地区","电话","邮箱","官网","公开渠道","来源","当前归属人","状态","冲突时间"].map((item) => <th className="px-4 py-3 font-medium" key={item}>{item}</th>)}</tr></thead>
+        <thead className="bg-slate-50 text-slate-600"><tr>{["公司名称","客户名称","国家/地区","电话","邮箱","官网","公开渠道","来源","当前归属人","状态","冲突时间"].map((item) => <th className="px-4 py-3 font-medium" key={item}>{item}</th>)}</tr></thead>
         <tbody>{items.map((item) => {
           const row = item.details?.submitted || {};
           return <tr className="border-t" key={item.id}>

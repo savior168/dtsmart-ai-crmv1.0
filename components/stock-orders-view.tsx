@@ -85,7 +85,7 @@ export function StockOrdersView() {
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1660px]">
     <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><p className="mt-1 text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p></header>
     <AppFilterBar>
-      <label className="relative min-w-[260px] flex-1 xl:min-w-[360px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索订单编号、备货单号或客户名称" className={`${appFieldClass} w-full pl-9`}/></label>
+      <label className="relative min-w-[260px] flex-1 xl:min-w-[360px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索订单编号、备货单号或公司名称" className={`${appFieldClass} w-full pl-9`}/></label>
       <AppSelect value={CURRENT_STOCK_STATUSES.includes(status as typeof CURRENT_STOCK_STATUSES[number]) ? status : ""} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货单</option>{CURRENT_STOCK_STATUSES.map(key=><option key={key} value={key}>{key==="ACTIVE"?"备货处理中（各阶段见进度条）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
       <AppSelect value={country} onChange={e=>{setCountry(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按目的国家筛选" forceSearch><option value="">全部目的国家</option>{COUNTRY_OPTIONS.map(option=><option key={option.code} value={option.code}>{option.name}</option>)}</AppSelect>
       {data?.profile.role!=="WAREHOUSE"?<UserScopeSelect permission="stock.data_all" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} custom/>:null}
@@ -101,7 +101,7 @@ export function StockOrdersView() {
           {data?.can_export?<th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的备货单，最多50张" checked={allPageSelected} disabled={!pageSelection.length||(selectedIds.length>=50&&!pageSelection.some(id=>selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th>:null}
           <SortHeader label="备货单号" column="stock_number"/>
           <SortHeader label="关联订单号" column="order_number"/>
-          <SortHeader label="客户名称" column="customer_name"/>
+          <SortHeader label="公司名称" column="customer_name"/>
           <th className="px-4 py-3 font-medium">目的国家</th>
           <SortHeader label="状态" column="status"/>
           <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
