@@ -75,7 +75,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const directReport = account.role === "SUPERVISOR" && data.owner_id
       ? await admin.from("users").select("id").eq("id", data.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
       : { data: null };
-    const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || Boolean(directReport.data) || publicUnclaimed;
+    const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || Boolean(directReport.data) || (account.role !== "ORDER_CLERK" && publicUnclaimed);
     if (!mayRead) return NextResponse.json({ error: "无权查看其他销售员的客户资料" }, { status: 403 });
     const historicalChannel = publicChannelForUrl(data.website);
     return NextResponse.json({

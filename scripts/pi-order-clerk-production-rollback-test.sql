@@ -28,6 +28,9 @@ insert into public.customers(id,company_name,country,status,pool_status,created_
 values('90000000-0000-4000-8000-000000000223','CODEX-ROLLBACK-FORMER-OWNER-20261017','GB','CLAIMED','CLAIMED',
   '90000000-0000-4000-8000-000000000123','90000000-0000-4000-8000-000000000123',
   '90000000-0000-4000-8000-000000000123','PRIVATE_CREATE');
+insert into public.customers(id,company_name,country,status,pool_status,acquisition_scope,created_by,assigned_via)
+values('90000000-0000-4000-8000-000000000224','CODEX-ROLLBACK-PUBLIC-20261017','GB','UNCLAIMED','AVAILABLE',
+  'PUBLIC_POOL','90000000-0000-4000-8000-000000000123','ADMIN_ASSIGN');
 insert into public.pi_payment_accounts(id,label,currency,instructions,payment_channel)
 values('90000000-0000-4000-8000-000000000321','CODEX-ROLLBACK-CLERK-ACCOUNT-20261017','USD','Rollback bank details','T/T Bank Transfer');
 
@@ -73,6 +76,9 @@ begin
   end if;
   if not exists(select 1 from public.customers where id='90000000-0000-4000-8000-000000000223') then
     raise exception 'Clerk cannot read former owned customer';
+  end if;
+  if exists(select 1 from public.customers where id='90000000-0000-4000-8000-000000000224') then
+    raise exception 'Clerk can read an unassigned public-pool customer';
   end if;
   update public.customers set company_name='CODEX-ROLLBACK-ILLEGAL-EDIT'
     where id='90000000-0000-4000-8000-000000000223';
