@@ -50,6 +50,7 @@ for (const name of ["set_notification_delivery_policy", "publish_system_announce
 }
 
 const roleApi = read("app/api/admin/roles/route.ts");
+assert.match(read("lib/auth/current-user.ts"), /permissions = permissions\.filter\([\s\S]*role === "ORDER_CLERK" && isOrderClerkForbiddenPermission\(code\)/, "跟单员的历史授权不能出现在会话权限和菜单中");
 assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");
 assert.match(roleApi, /请先开启所属页面权限，再开启数据范围或功能按钮/, "服务端必须拒绝父页面关闭时直接开启子权限");
 assert.match(roleApi, /const isPagePermission = pagePermission === permission[\s\S]*pageChildren[\s\S]*changes = \[[\s\S]*roleCannotUseCrossUserData[\s\S]*item\.kind === "DATA"[\s\S]*onConflict: "role_code,permission_code"/, "页面总开关必须在服务端原子同步全部可配置子权限，并保持角色数据边界");

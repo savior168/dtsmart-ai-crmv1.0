@@ -86,7 +86,8 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
       const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
       permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
     }
-    permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code)));
+    permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code))
+      && !(role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(code)));
   }
   const account: CurrentAccount = {
     id: data.id,
