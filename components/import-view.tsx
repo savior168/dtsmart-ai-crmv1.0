@@ -442,12 +442,22 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             item.website,
             item.google_url,
           ].some(Boolean);
-          if (!item.company_name || !item.country || !hasContact) {
+          const invalidStage = Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
+          const invalidGrade = Boolean(item.manual_grade && !["S", "A", "B", "C", "D"].includes(item.manual_grade));
+          const restrictedStage = destination === "PUBLIC_POOL" && Boolean(item.import_stage || item.manual_grade);
+          const missingStageContacts = destination === "PRIVATE" && ["意向客户", "已成交客户"].includes(item.import_stage)
+            && (!item.phone || !item.email);
+          if (!item.company_name || !item.contact_name || !item.country || !hasContact || invalidStage || invalidGrade || restrictedStage || missingStageContacts) {
             bad.push({
               id: badId++,
               file_name: fileLabel,
               row_number: index + 2,
-              reason: "缺少客户名称、国家或有效联系方式，已跳过",
+              reason: !item.company_name || !item.contact_name || !item.country || !hasContact
+                ? "缺少公司名称、客户名称、国家或有效联系方式，已跳过"
+                : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
+                : invalidGrade ? "客户等级只能填写 S、A、B、C、D"
+                : restrictedStage ? "客户公海不能预设我的客户阶段或销售客户等级"
+                : "意向客户和已成交客户必须同时填写联系电话和邮箱",
               kind: "error",
               row: item,
             });
@@ -660,82 +670,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
 
   function downloadTemplate() {
     if (!canCreate) return;
-    const headers = [
-      "名称",
-      "国家",
-      "区号",
-      "完整号码",
-      "邮箱",
-      "标签",
-      "分类",
-      "商店名称",
-      "商店地址",
-      "商店类型",
-      "商店网址",
-      "商店状态",
-      "商家官网网址",
-      "谷歌网址",
-      "商店分数",
-      "商品图片",
-      "搜索关键词",
-      "创建时间",
-    ];
-    const countries = [
-      { name: "美国", code: "+1", domain: "us" },
-      { name: "英国", code: "+44", domain: "uk" },
-      { name: "德国", code: "+49", domain: "de" },
-      { name: "法国", code: "+33", domain: "fr" },
-      { name: "西班牙", code: "+34", domain: "es" },
-      { name: "意大利", code: "+39", domain: "it" },
-      { name: "荷兰", code: "+31", domain: "nl" },
-      { name: "澳大利亚", code: "+61", domain: "au" },
-      { name: "加拿大", code: "+1", domain: "ca" },
-      { name: "印度", code: "+91", domain: "in" },
-      { name: "阿联酋", code: "+971", domain: "ae" },
-      { name: "新加坡", code: "+65", domain: "sg" },
-      { name: "巴西", code: "+55", domain: "br" },
-      { name: "墨西哥", code: "+52", domain: "mx" },
-      { name: "日本", code: "+81", domain: "jp" },
-    ];
-    const industries = [
-      "手机维修店",
-      "手机配件批发商",
-      "手机配件零售商",
-      "手机进口商",
-      "电脑维修店",
-      "电脑配件批发商",
-      "消费电子批发",
-      "IT设备经销商",
-      "电商零售",
-      "通讯设备进口商",
-    ];
-    const sampleRows = Array.from({ length: 500 }, (_, index) => {
-      const country = countries[index % countries.length];
-      const industry = industries[index % industries.length];
-      const slug = `trade-${String(index + 1).padStart(3, "0")}-${country.domain}`;
-      const phone = `${country.code} ${String(200000000 + index * 7919).slice(0, 10)}`;
-      return [
-        `${country.name}${industry}示例 ${index + 1}`,
-        country.name,
-        country.code,
-        phone,
-        `sales${index + 1}@${slug}.example.com`,
-        `手机配件, ${industry}`,
-        industry,
-        `${country.name} ${industry} Store`,
-        `${index + 1} Commerce Street`,
-        industry,
-        `https://shop.${slug}.example.com`,
-        "营业中",
-        `https://${slug}.example.com`,
-        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${country.name} ${industry} ${index + 1}`)}`,
-        String(60 + (index % 40)),
-        `https://images.example.com/products/${slug}.jpg`,
-        `${industry}, mobile accessories, wholesale`,
-        "2026-08-15",
-      ];
-    });
-    downloadWorkbook("客户导入模板.xlsx", [{ name: "客户导入模板", rows: [headers, ...sampleRows], widths: [26, 14, 10, 18, 28, 26, 24, 28, 32, 22, 36, 16, 36, 42, 12, 42, 34, 18], hyperlinkColumns: [10, 12, 13, 15] }]);
+    window.location.assign("/api/import/template");
   }
 
   return (
@@ -904,7 +839,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               </button>
             </div>
             <ul className="mt-5 space-y-3 text-sm text-slate-600">
-              <li>• 必填：客户名称、国家/地区</li>
+              <li>• 必填：公司名称、客户名称、国家/地区</li>
               <li>• 至少提供一种联系方式：电话、邮箱、官网或 Google Maps</li>
               <li>• 支持多文件和文件夹批量导入，系统自动合并预览</li>
               <li>• 名称+完整电话或名称+邮箱相同的数据只保留最先导入的一条</li>
@@ -1045,7 +980,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                     setDetailSearch(event.target.value);
                     setPage(1);
                   }}
-                  placeholder="搜索客户名称、电话或邮箱"
+                  placeholder="搜索公司名称、客户名称、电话或邮箱"
                   className="w-64 rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-xs outline-none focus:border-blue-500"
                 />
               </label>
@@ -1076,15 +1011,15 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               <thead className="bg-slate-50 text-xs text-slate-600">
                 <tr>
                   {[
+                    "公司名称",
                     "客户名称",
+                    "客户阶段",
+                    "客户等级",
                     "国家/地区",
-                    "完整号码",
+                    "电话号码",
                     "邮箱",
-                    "官网网址",
-                    "谷歌网址",
-                    "商店名称",
-                    "商店类型",
-                    "商品图片",
+                    "客户官网",
+                    "谷歌商家链接",
                   ].map((head) => (
                     <th
                       key={head}
@@ -1108,6 +1043,9 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                       {row.suspected_duplicate ? <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">疑似重复，已提示核对{row.suspected_candidates?.length ? <button type="button" onClick={()=>setCandidateDialog({row,candidates:row.suspected_candidates||[]})} className="underline underline-offset-2">核对候选</button> : null}</span> : null}
                       {row.action_url ? <Link href={row.action_url} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">去公海认领<ExternalLink size={12}/></Link> : null}
                     </td>
+                    <td className="px-4 py-3">{row.contact_name || "-"}</td>
+                    <td className="px-4 py-3">{destination === "PUBLIC_POOL" ? "待认领" : row.import_stage || "潜在客户"}</td>
+                    <td className="px-4 py-3">{row.manual_grade || "未标记"}</td>
                     <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>
                     <td className="w-[160px] whitespace-nowrap px-4 py-3">
                       <span className="block truncate" title={row.phone || ""}>{row.phone || "-"}</span>
@@ -1120,17 +1058,6 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                     </td>
                     <td className="overflow-hidden px-4 py-3">
                       <LinkCell value={row.google_url} />
-                    </td>
-                    <td className="w-[180px] px-4 py-3">
-                      <span className="block truncate" title={String(row.import_meta?.store_name || "")}>{String(row.import_meta?.store_name || "-")}</span>
-                    </td>
-                    <td className="w-[150px] px-4 py-3">
-                      <span className="block truncate" title={String(row.import_meta?.store_type || "")}>{String(row.import_meta?.store_type || "-")}</span>
-                    </td>
-                    <td className="w-[210px] overflow-hidden px-4 py-3">
-                      <LinkCell
-                        value={String(row.import_meta?.product_image || "")}
-                      />
                     </td>
                   </tr>
                 ))}
@@ -1285,7 +1212,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               <div className="grid gap-4 p-6 text-sm text-slate-600 sm:grid-cols-2">
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                   <div className="font-semibold text-blue-800">必要字段</div>
-                  <p className="mt-2">客户名称、国家/地区必须填写。</p>
+                  <p className="mt-2">公司名称、客户名称、国家/地区必须填写。</p>
                   <p className="mt-1">电话、邮箱、官网网址、谷歌网址至少填写一项。</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 p-4">
@@ -1294,7 +1221,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                 </div>
                 <div className="rounded-xl border border-slate-200 p-4 sm:col-span-2">
                   <div className="font-semibold text-slate-900">支持字段</div>
-                  <p className="mt-2 leading-7">客户名称、国家/地区、区号、完整号码、邮箱、标签、分类、商店名称、商店地址、商店类型、商店网址、商店状态、官网网址、谷歌网址、商店分数、商品图片、搜索关键词、创建时间。</p>
+                  <p className="mt-2 leading-7">公司名称、客户名称、国家、电话号码、邮箱号、whatsapp号码、wechat号码、客户税号、客户阶段、客户等级、公司地址、客户官网、理货要求、备注、货代地址、其他地址及公开主页链接。</p>
                 </div>
               </div>
             </section>

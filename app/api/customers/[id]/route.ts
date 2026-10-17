@@ -14,6 +14,7 @@ const writable = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "address", "category", "notes",
   "facebook_url", "instagram_url", "linkedin_url", "tiktok_url", "other_public_urls",
+  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address",
 ];
 
 async function assertNoDuplicateIdentity(customerId: string, payload: Record<string, unknown>, current: Record<string, unknown>) {
@@ -97,13 +98,16 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json();
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
+    if (payload.manual_grade != null && !["S", "A", "B", "C", "D"].includes(String(payload.manual_grade))) {
+      throw new Error("客户等级只能选择 S、A、B、C、D");
+    }
     validateCustomerContactPayload(payload);
     const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country,phone,whatsapp,email,website,google_url").eq("id", id).single();
     if (customerError) throw customerError;
     const canEdit = account.role === "ADMIN" || customer.owner_id === user.id;
     if (!canEdit) return NextResponse.json({ error: "只能编辑归属自己的客户原始资料；跨用户数据仅供查看" }, { status: 403 });
     if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
-    if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
+    if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!(payload.country ?? customer.country)?.toString().trim()) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     await assertNoDuplicateIdentity(id, payload, customer);
     for (const key of ["phone", "whatsapp", "email"] as const) {

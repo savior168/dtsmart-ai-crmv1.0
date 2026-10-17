@@ -15,6 +15,7 @@ export type CustomerExportColumn =
   | "country"
   | "industry"
   | "ai_score"
+  | "manual_grade"
   | "status"
   | "followup_status"
   | "protection"
@@ -45,7 +46,7 @@ const STAGE_LABELS: Record<CustomerStatus, string> = {
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "意向客户",
-  DEAL: "成交客户",
+  DEAL: "已成交客户",
   RELEASED: "历史释放状态",
 };
 
@@ -79,6 +80,7 @@ export function customerListText(customer: Customer, key: CustomerExportColumn, 
   if (key === "country") return countryInfo(customer.country).name;
   if (key === "industry") return customer.industry || customer.category || "其他";
   if (key === "ai_score") return customer.ai_score == null ? "未筛选" : `${customer.ai_level || "-"} · ${customer.ai_score}`;
+  if (key === "manual_grade") return customer.manual_grade || "-";
   if (key === "status") return STAGE_LABELS[customer.status] || customer.status;
   if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[customer.followup_status as FollowupStage] || "待联系";
   if (key === "protection") return customerProtectionText(customer, now);
@@ -116,7 +118,7 @@ function ownerName(customer: Record<string, unknown>) {
 }
 
 const CUSTOMER_EXPORT_LABELS: Record<CustomerExportColumn, string> = {
-  company_name: "客户名称", contact_name: "联系人", country: "国家/地区", industry: "所属行业", ai_score: "AI评分",
+  company_name: "公司名称", contact_name: "客户名称", country: "国家/地区", industry: "所属行业", ai_score: "AI评分", manual_grade: "客户等级",
   status: "客户阶段", followup_status: "跟进状态", protection: "保护期剩余", last_contact_time: "最近跟进", owner: "归属人",
   phone: "电话号码", whatsapp: "WhatsApp", email: "邮箱", website_email: "官网邮箱", website_phone: "官网电话",
   verified_contacts: "已核验联系方式", website: "官网", google_url: "Google Maps", social: "社媒渠道", source: "数据来源", source_batch: "来源批次", updated_at: "更新时间",
@@ -249,6 +251,7 @@ function exportColumnText(customer: Record<string, unknown>, key: CustomerExport
   if (key === "country") return countryInfo(customer.country as string | null | undefined).name;
   if (key === "industry") return exportText(customer.industry || customer.category);
   if (key === "ai_score") return customer.ai_score == null ? "未筛选" : `${exportText(customer.ai_level || "-")} · ${exportText(customer.ai_score)}`;
+  if (key === "manual_grade") return exportText(customer.manual_grade);
   if (key === "status") return STAGE_LABELS[(customer.status as CustomerStatus) || "UNCLAIMED"] || exportText(customer.status);
   if (key === "followup_status") return FOLLOWUP_STAGE_LABELS[(customer.followup_status as FollowupStage) || "WAITING_CONTACT"] || "待联系";
   if (key === "protection") return customerProtectionText(customer as Customer);

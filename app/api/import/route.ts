@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 import { readableImportError, sanitizeImportRow } from "@/lib/import-safety";
+import { importedCustomerGrade, importedCustomerStage } from "@/lib/customers/import-profile";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -86,9 +87,12 @@ export async function POST(request: NextRequest) {
       if ("ai_score" in item) item.ai_score = bounded(item.ai_score, 0, 100);
       const current = identity(item);
       try {
-        if (!text(item.company_name)) throw new Error("客户名称为空");
+        if (!text(item.company_name)) throw new Error("公司名称为空");
+        if (!text(item.contact_name)) throw new Error("客户名称为空");
         if (!text(item.country)) throw new Error("国家/地区为空");
         if (![item.phone, item.email, item.website, item.google_url].some((value) => text(value))) throw new Error("缺少电话、邮箱、官网或 Google 地图联系方式");
+        const stage = importedCustomerStage(item.import_stage, publicPool ? "PUBLIC_POOL" : "PRIVATE", item.phone, item.email);
+        const grade = importedCustomerGrade(item.manual_grade, publicPool ? "PUBLIC_POOL" : "PRIVATE");
         const duplicateOf = current.lookupKeys.map((key) => seen.get(key)).find(Boolean);
         if (duplicateOf) {
           if (!duplicateOf.id) {
@@ -128,9 +132,12 @@ export async function POST(request: NextRequest) {
         delete item.ai_screening_done;
         delete item.website_email;
         delete item.website_phone;
+        delete item.import_stage;
+        if (grade) item.manual_grade = grade;
+        else delete item.manual_grade;
         accepted.push({ row: publicPool
           ? { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
-          : { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "CLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_IMPORT" }, fileName, rowNumber });
+          : { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: stage, followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_IMPORT" }, fileName, rowNumber });
       } catch (reason) {
         invalid += 1;
         const message = reason instanceof Error ? reason.message : "数据格式错误";

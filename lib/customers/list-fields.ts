@@ -3,10 +3,11 @@ import type { CustomerExportColumn } from "@/lib/customer-export";
 export type CustomerListColumn = CustomerExportColumn;
 
 export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: string }> = [
-  { key: "company_name", label: "客户名称" },
-  { key: "contact_name", label: "联系人" },
+  { key: "company_name", label: "公司名称" },
+  { key: "contact_name", label: "客户名称" },
   { key: "country", label: "国家/地区" },
   { key: "ai_score", label: "AI评分" },
+  { key: "manual_grade", label: "客户等级" },
   { key: "status", label: "客户阶段" },
   { key: "followup_status", label: "跟进状态" },
   { key: "protection", label: "保护期剩余" },
@@ -29,6 +30,7 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "company_name",
   "country",
   "ai_score",
+  "manual_grade",
   "phone",
   "email",
   "website",

@@ -8,7 +8,10 @@ export type Customer = {
   country: string | null;
   phone: string | null;
   whatsapp: string | null;
+  wechat?: string | null;
   email: string | null;
+  tax_number?: string | null;
+  manual_grade?: "S" | "A" | "B" | "C" | "D" | null;
   website: string | null;
   google_url: string | null;
   facebook_url?: string | null;
@@ -21,6 +24,9 @@ export type Customer = {
   store_score?: number | null;
   review_count?: number | null;
   address: string | null;
+  tally_requirements?: string | null;
+  forwarder_address?: string | null;
+  other_address?: string | null;
   industry: string | null;
   business_scope?: string | null;
   company_scale?: string | null;
@@ -61,7 +67,7 @@ export type Customer = {
 
 export const CUSTOMER_STATUSES: CustomerStatus[] = ["UNCLAIMED", "CLAIMED", "FOLLOWING", "DEAL", "RELEASED"];
 export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
-  UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "意向客户", DEAL: "已成交", RELEASED: "历史释放状态",
+  UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "意向客户", DEAL: "已成交客户", RELEASED: "历史释放状态",
 };
 
 export type FollowupStage = "WAITING_CONTACT" | "FOLLOWUP_REQUIRED" | "WAITING_REPLY" | "PAUSED" | "NO_FOLLOWUP" | "CONTACTED" | "FOLLOWING" | "WAITING_CONFIRMATION" | "WAITING_PAYMENT" | "COMPLETED";

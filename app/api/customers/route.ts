@@ -15,6 +15,7 @@ const manualWritableFields = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "facebook_url", "instagram_url", "linkedin_url",
   "tiktok_url", "other_public_urls", "address", "category", "notes",
+  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address",
 ] as const;
 
 // The customer list must not download the full CRM/AI payload for every row.
@@ -44,6 +45,7 @@ const customerListFields = [
   "created_by",
   "ai_score",
   "ai_level",
+  "manual_grade",
   "ai_screening_done",
   "ai_status",
   "status",
@@ -128,6 +130,10 @@ export async function GET(request: NextRequest) {
     const followupStatus = request.nextUrl.searchParams.get("followup_status");
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
+    const manualGrade = request.nextUrl.searchParams.get("manual_grade")?.toUpperCase() || "";
+    if (manualGrade && !["S", "A", "B", "C", "D", "UNMARKED"].includes(manualGrade)) {
+      return NextResponse.json({ error: "客户等级筛选无效" }, { status: 400 });
+    }
     const countries = [...new Set(request.nextUrl.searchParams.getAll("country").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean))];
     const fromDate = request.nextUrl.searchParams.get("from")?.trim() || "";
     const toDate = request.nextUrl.searchParams.get("to")?.trim() || "";
@@ -278,6 +284,8 @@ export async function GET(request: NextRequest) {
     else if (!followupSupported && followupStatus && followupStatus !== "WAITING_CONTACT") query = query.eq("id", "00000000-0000-0000-0000-000000000000");
     if (aiLevel?.toUpperCase() === "UNSCREENED") query = query.or('ai_level.is.null,ai_level.eq.""');
     else if (aiLevel && ["A", "B", "C", "D"].includes(aiLevel.toUpperCase())) query = query.eq("ai_level", aiLevel.toUpperCase());
+    if (manualGrade === "UNMARKED") query = query.is("manual_grade", null);
+    else if (manualGrade) query = query.eq("manual_grade", manualGrade);
     if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (industries.length === 1) query = query.eq("industry", industries[0]);
@@ -312,7 +320,7 @@ export async function GET(request: NextRequest) {
     // optional column in the base list query: legacy rows are rendered as
     // “待联系” by the client and the filter probe above safely handles
     // migrated databases without taking the whole customer list down.
-    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "source_batch", "ai_score", "status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
+    const allowedSort = new Set(["company_name", "contact_name", "phone", "email", "country", "industry", "source", "source_batch", "ai_score", "manual_grade", "status", "owner_id", "created_at", "updated_at", "last_contact_time", "website", "google_url", "website_email", "website_phone"]);
     const sortField = allowedSort.has(sort) ? sort : "updated_at";
     const from = (page - 1) * pageSize;
     const rangeEnd = from + pageSize - 1;
@@ -403,6 +411,10 @@ export async function POST(request: NextRequest) {
     }
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
+    if (!body.contact_name) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
+    if (body.manual_grade && !["S", "A", "B", "C", "D"].includes(body.manual_grade)) {
+      return NextResponse.json({ error: "客户等级只能选择 S、A、B、C、D" }, { status: 400 });
+    }
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
     const submittedKeys = customerLookupIdentityKeys(body);
@@ -528,6 +540,7 @@ export async function POST(request: NextRequest) {
     delete payload.ai_screening_done;
     delete payload.website_email;
     delete payload.website_phone;
+    if (publicPool) delete payload.manual_grade;
     let { data, error } = await admin.from("customers").insert(payload).select().single();
     if (error && /followup_status.*(column|schema cache)|column.*followup_status/i.test(error.message)) {
       const legacyPayload = { ...payload };

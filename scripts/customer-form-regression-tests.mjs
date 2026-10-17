@@ -18,7 +18,14 @@ const newCustomer = renderToStaticMarkup(createElement(CustomerForm, { onDone: n
 assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选择客户阶段");
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
 assert.match(newCustomer, /value="FOLLOWING"[^>]*>意向客户/, "新增客户可选择意向客户");
-assert.match(newCustomer, /value="DEAL"[^>]*>成交客户/, "新增客户可选择成交客户");
+assert.match(newCustomer, /value="DEAL"[^>]*>已成交客户/, "新增客户可选择已成交客户");
+for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "货代地址", "其他地址"]) {
+  assert.ok(newCustomer.includes(label), `新增客户表单应显示${label}`);
+}
+assert.ok(newCustomer.indexOf("客户等级") < newCustomer.indexOf("客户阶段"), "客户阶段应紧随客户等级");
+for (const grade of ["S", "A", "B", "C", "D"]) {
+  assert.match(newCustomer, new RegExp(`value="${grade}"[^>]*>${grade}<`), `客户等级应支持${grade}`);
+}
 assert.doesNotMatch(newCustomer, /意向佐证凭证/, "默认潜在客户不应要求意向凭证");
 assert.match(formSource, /const needsBothContacts = !customer && destination === "PRIVATE" && \["FOLLOWING", "DEAL"\]\.includes\(form\.status\)/, "新增意向或成交客户时电话与邮箱必须标为必填");
 assert.match(formSource, /stage === "FOLLOWING" && !stageFile/, "新增意向客户必须提交凭证");
@@ -51,7 +58,10 @@ for (const value of [existing.company_name, existing.phone, existing.whatsapp, e
   assert.ok(editCustomer.includes(value.replaceAll("&", "&amp;")), `编辑客户应回显原始字段：${value}`);
 }
 assert.doesNotMatch(editCustomer, /<select[^>]*value="FOLLOWING"/, "基本资料编辑不能绕过阶段变更留痕");
-assert.match(formSource, /const basicKeys=\["company_name","contact_name","country","phone","whatsapp","email","website","google_url","address","category","notes","facebook_url","instagram_url","tiktok_url","linkedin_url","other_public_urls"\]/, "编辑保存必须覆盖可回显的原始资料字段");
+const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
+for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "forwarder_address", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
+  assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
+}
 assert.match(formSource, /x-dtsmart-toast":"manual-error"/, "客户表单错误已在表单内展示时不应再弹全局重复错误toast");
 assert.match(taskRuntime, /toastMode === "manual-error" && !response\.ok/, "manual-error只抑制重复失败toast，不影响统一成功反馈");
 assert.match(editApi, /const writable = \[[\s\S]*"company_name", "contact_name", "country", "phone", "whatsapp", "email"/, "服务端应允许编辑对应原始字段");

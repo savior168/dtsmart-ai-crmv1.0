@@ -138,8 +138,8 @@ assert.equal(exportedHeaders.filter((header) => header.startsWith("其他公开�
 const sparseSheet = buildCustomerWorkbookSheets([{ id: "sparse", company_name: "无联系方式客户", status: "DEAL" }], {
   columns: ["company_name", "status"], includeAllContactChannels: true,
 })[0];
-assert.deepEqual(sparseSheet.rows[0], ["客户名称", "客户阶段"], "整批无数据的联系方式与渠道列不应导出");
-assert.equal(sparseSheet.rows[1][1], "成交客户", "客户阶段名称须与我的客户页面一致");
+assert.deepEqual(sparseSheet.rows[0], ["公司名称", "客户阶段"], "整批无数据的联系方式与渠道列不应导出");
+assert.equal(sparseSheet.rows[1][1], "已成交客户", "客户阶段名称须与我的客户页面一致");
 const domainOnlySheets = buildCustomerWorkbookSheets([
   { id: "domain-only", company_name: "仅域名客户", website: "example.org/contact", facebook_url: "javascript:alert(1)", other_public_urls: ["https://youtube.com/@main", "https://youtube.com/@support"] },
 ], { columns: ["company_name"], includeAllContactChannels: true });

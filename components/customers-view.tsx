@@ -53,7 +53,7 @@ const stageLabels: Record<CustomerStatus, string> = {
   CLAIMED: "潜在客户",
   FOLLOWING: "意向客户",
   QUOTE: "意向客户",
-  DEAL: "成交客户",
+  DEAL: "已成交客户",
   RELEASED: "历史释放状态",
 };
 const stageClass: Record<CustomerStatus, string> = {
@@ -128,6 +128,7 @@ export function CustomersView() {
   const [status, setStatus] = useState("");
   const [followupStatus, setFollowupStatus] = useState("");
   const [level, setLevel] = useState("");
+  const [manualGrade, setManualGrade] = useState("");
   const [target, setTarget] = useState("");
   const [scopeUserId, setScopeUserId] = useState("");
   const [defaultScopeUserId, setDefaultScopeUserId] = useState("");
@@ -205,6 +206,7 @@ export function CustomersView() {
     setStatus(params.get("status") || "");
     setFollowupStatus(params.get("followup_status") || "");
     setLevel(params.get("ai_level") || "");
+    setManualGrade(params.get("manual_grade") || "");
     setTarget(params.get("target") || "");
     setScopeUserId(params.get("user_id") || "");
     setAiFilter(params.get("ai_status") === "pending" ? "pending" : params.get("ai_status") === "failed" ? "failed" : params.get("ai_status") === "done" ? "done" : "all");
@@ -236,6 +238,7 @@ export function CustomersView() {
       search,
       status,
       ai_level: level,
+      manual_grade: manualGrade,
       target,
       followup_status: followupStatus,
       ai_status: aiFilter,
@@ -278,6 +281,7 @@ export function CustomersView() {
     sourceType,
     status,
     level,
+    manualGrade,
     target,
     followupStatus,
     aiFilter,
@@ -358,6 +362,7 @@ export function CustomersView() {
         sourceType ? { key: "sourceType", label: `数据来源：${sourceType === "AI_ACQUISITION" ? "AI获客" : sourceType === "IMPORT" ? "批量导入" : "手动新增"}` } : null,
         sourceBatches.length ? { key: "sourceBatches", label: `来源批次：已选 ${sourceBatches.length} 个` } : null,
         level ? { key: "level", label: `AI等级：${level === "UNSCREENED" ? "未筛选" : level}` } : null,
+        manualGrade ? { key: "manualGrade", label: `客户等级：${manualGrade === "UNMARKED" ? "未标记" : manualGrade}` } : null,
         status
           ? {
               key: "status",
@@ -374,7 +379,7 @@ export function CustomersView() {
         aiFilter !== "all" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "已分析"}` } : null,
         canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
-    [search, fromDate, toDate, reportUtc, countries, industries, sourceType, sourceBatches, level, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
+    [search, fromDate, toDate, reportUtc, countries, industries, sourceType, sourceBatches, level, manualGrade, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
   function clearFilter(key: string) {
     if (key === "search") setSearch("");
@@ -384,6 +389,7 @@ export function CustomersView() {
     if (key === "sourceBatches") setSourceBatches([]);
     if (key === "sourceType") { setSourceType(""); setSourceBatches([]); }
     if (key === "level") setLevel("");
+    if (key === "manualGrade") setManualGrade("");
     if (key === "status") setStatus("");
     if (key === "target") setTarget("");
     if (key === "followupStatus") setFollowupStatus("");
@@ -402,6 +408,7 @@ export function CustomersView() {
     setSourceType("");
     setStatus("");
     setLevel("");
+    setManualGrade("");
     setTarget("");
     setFollowupStatus("");
     setAiFilter("all");
@@ -455,6 +462,7 @@ export function CustomersView() {
     const params = new URLSearchParams({
       page: "1", pageSize: "1000", ids_only: "true", search, status,
       followup_status: followupStatus, ai_level: level, target, ai_status: aiFilter,
+      manual_grade: manualGrade,
       deleted: "false", sort, direction,
     });
     if (fromDate) params.set("from", fromDate);
@@ -514,6 +522,7 @@ export function CustomersView() {
     const selectedBatches = Array.from({ length: Math.ceil(selectedIds.length / 100) }, (_, index) => selectedIds.slice(index * 100, (index + 1) * 100));
     const params = new URLSearchParams({
       pageSize: "500", search, status, ai_level: level, target, export: "1",
+      manual_grade: manualGrade,
       followup_status: followupStatus, ai_status: aiFilter, deleted: "false", sort, direction,
     });
     if (fromDate) params.set("from", fromDate);
@@ -644,6 +653,21 @@ export function CustomersView() {
               <option value="UNSCREENED">未筛选</option>
               {["A", "B", "C", "D"].map((item) => (
                 <option key={item}>{item}</option>
+              ))}
+            </select>
+            <select
+              value={manualGrade}
+              onChange={(event) => {
+                setManualGrade(event.target.value);
+                setPage(1);
+              }}
+              className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
+              aria-label="客户等级"
+            >
+              <option value="">全部客户等级</option>
+              <option value="UNMARKED">未标记</option>
+              {["S", "A", "B", "C", "D"].map((grade) => (
+                <option key={grade} value={grade}>{grade}</option>
               ))}
             </select>
             <select
