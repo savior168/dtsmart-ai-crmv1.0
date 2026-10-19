@@ -76,6 +76,7 @@ type Payload = {
     warehouse_reference_number: string | null;
     stock_number: string;
     customer_short_name: string;
+    customer_name: string | null;
     destination_country: string | null;
     delivery_recipient: string | null;
     delivery_address: string | null;
@@ -489,7 +490,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="stock-recipient-heading">
               <h2 id="stock-recipient-heading" className="mb-3 text-sm font-semibold text-slate-900">客户与收货信息</h2>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm leading-5">
-                <div><dt className="text-xs text-slate-500">客户</dt><dd className="font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
+                <div><dt className="text-xs text-slate-500">客户名称</dt><dd className="font-medium text-slate-900">{o.customer_name || "未填写"}</dd></div>
+                <div><dt className="text-xs text-slate-500">公司名称</dt><dd className="font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
                 <div><dt className="text-xs text-slate-500">目的国家</dt><dd><CountryLabel value={o.destination_country}/></dd></div>
                 <div><dt className="text-xs text-slate-500">收件人</dt><dd className="font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>
                 <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">收货地址</dt><dd className="break-words text-slate-800">{o.delivery_address || "—"}</dd></div>

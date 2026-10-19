@@ -33,6 +33,7 @@ type StockExportData = {
   warehouse_reference_number?: string | null;
   quote_number: string;
   customer_short_name: string;
+  customer_name?: string | null;
   destination_country?: string | null;
   stocking_requirements?: string | null;
   status_note?: string | null;
@@ -233,7 +234,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     .map((line) => line.replace(/^\s*(?:\d+[.、)]|[⑴⑵⑶])\s*/, "").trim()).filter(Boolean);
   const values: Array<[string, unknown]> = [
     ["B3", stock.salesperson?.name || stock.salesperson?.email || ""], ["E3", stock.created_at.slice(0, 10)],
-    ["G3", stock.warehouse_reference_number || stock.order_number], ["H3", stock.customer_short_name], ["K3", /^[A-Z]{2}$/.test(stock.destination_country || "") ? new Intl.DisplayNames(["zh-CN"], { type: "region" }).of(stock.destination_country || "") || stock.destination_country : stock.destination_country || ""],
+    ["G3", stock.warehouse_reference_number || stock.order_number], ["H3", stock.customer_name?.trim() || "未填写"], ["K3", /^[A-Z]{2}$/.test(stock.destination_country || "") ? new Intl.DisplayNames(["zh-CN"], { type: "region" }).of(stock.destination_country || "") || stock.destination_country : stock.destination_country || ""],
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
     ["K4", stock.stocking_requirements?.trim() || "常规理货"],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],

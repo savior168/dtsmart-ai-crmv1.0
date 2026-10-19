@@ -163,7 +163,7 @@ assert.match(quotesView, /placeholder="搜索报价编号或公司简称"/, "历
 assert.match(quotesView, /\["报价编号","公司简称","状态"/, "历史报价列表必须将简称字段展示为公司简称");
 assert.doesNotMatch(quotesView, /客户简称/, "历史报价列表不得继续显示旧称客户简称");
 assert.match(read("components/quote-form.tsx"), /<Field label="公司简称">/, "历史报价编辑必须保留简称含义并使用公司称谓");
-assert.match(read("components/warehouse-dashboard.tsx"), /"公司简称"/, "仓库看板快照字段必须使用公司称谓");
+assert.match(read("components/warehouse-dashboard.tsx"), /"订单编号", "客户名称", "公司名称"/, "仓库看板必须优先展示客户对接人，并明确区分公司名称");
 for (const path of [
   "components/customers-view.tsx",
   "components/orders-view.tsx",

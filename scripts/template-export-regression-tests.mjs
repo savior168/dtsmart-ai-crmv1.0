@@ -48,6 +48,7 @@ const stockBuffer = await buildStockWorkbook({
   order_number: "ORDER-TEST-001",
   quote_number: "PI-TEST-001",
   customer_short_name: "Demo",
+  customer_name: "Jo",
   destination_country: "DE",
   stocking_requirements: "Pack",
   order_change_note: "1. Add 2 items\n2. Update delivery date\n3. New label",
@@ -144,6 +145,7 @@ assert.doesNotMatch(stockPreviewSource, /成本单价（人民币）|"理货要�
 assert.match(stockPreviewSource, /采购成本/, "备货预览须显示采购成本汇总");
 assert.match(stockPreviewSource, /text-\[\#986C47\]/, "整单和单项理货提醒须使用一致的柔和字体颜色");
 assert.ok(stock.C13.s, "备货产品行样式必须保留");
+assert.equal(stock.H3.v, "Jo", "备货 Excel 的客户名称应是PI关联的具体对接人，不得用公司或收件人代替");
 const stockTemplate = XLSX.readFile("assets/templates/Warehouse_Stock_Template.xlsx", { cellStyles: true }).Sheets["工作表1"];
 assert.deepEqual(stock["!merges"], stockTemplate["!merges"], "备货单须保留模板合并单元格");
 assert.deepEqual(stock["!cols"], stockTemplate["!cols"], "备货单须保留模板列宽");

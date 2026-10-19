@@ -7,6 +7,7 @@ import {
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { summarizeStockProgress } from "@/lib/stock-progress";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 
 export async function GET(
   _: NextRequest,
@@ -25,7 +26,7 @@ export async function GET(
     if (order.error) throw order.error;
     if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
     const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
-    const [items, stock, quote] = await Promise.all([
+    const [items, stock, quote, customerNames] = await Promise.all([
       supabase
         .from("sales_order_items")
         .select("*")
@@ -41,6 +42,7 @@ export async function GET(
         .select("stocking_requirements")
         .eq("id", order.data.quote_id)
         .maybeSingle(),
+      loadOrderCustomerNames([id]),
     ]);
     if (items.error) throw items.error;
     if (stock.error) throw stock.error;
@@ -61,7 +63,10 @@ export async function GET(
       ? order.data.prepared_by === account.id
       : order.data.sales_user_id === account.id || account.role === "ADMIN";
     return NextResponse.json({
-      order: account.role === "ORDER_CLERK" ? { ...order.data, customer: clerkCustomer?.data || null } : order.data,
+      order: { ...order.data, customer: {
+        ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
+        contact_name: customerNames.get(id) || null,
+      } },
       items: items.data || [],
       stock_order: stock.data ? { ...stock.data, progress: summarizeStockProgress(stock.data.status, stockItems?.data || []) } : null,
       receiving_progress: receivingProgress,

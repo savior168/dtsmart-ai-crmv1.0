@@ -22,7 +22,6 @@ import type { StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
 const CURRENT_PI_STATUSES = ["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"] as const;
-const HISTORICAL_PI_STATUSES: SalesOrderStatus[] = ["CONFIRMED", "STOCK_DRAFT", "READY"];
 type Row = {
   id: string;
   order_number: string;
@@ -32,6 +31,7 @@ type Row = {
   pi_revision: number;
   can_delete_draft: boolean;
   customer_short_name: string;
+  customer_name: string | null;
   destination_country: string | null;
   currency: string;
   total_amount: number;
@@ -54,7 +54,6 @@ export function OrdersView() {
   const [status, setStatus] = useState("");
   const [currency, setCurrency] = useState("");
   const [country, setCountry] = useState("");
-  const [type, setType] = useState("PI");
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [dateFrom, setDateFrom] = useState("");
@@ -75,11 +74,11 @@ export function OrdersView() {
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   async function exportSelected() {
-    if (exportBusy || !canExport || type !== "PI" || !selectedIds.length) return;
+    if (exportBusy || !canExport || !selectedIds.length) return;
     setExportBusy(true);
     setError("");
     try {
-      const params = new URLSearchParams({ export: "1", type, sort_by: sortBy, sort_dir: sortDir });
+      const params = new URLSearchParams({ export: "1", type: "PI", sort_by: sortBy, sort_dir: sortDir });
       if (q) params.set("q", q);
       if (status) params.set("status", status);
       if (currency) params.set("currency", currency);
@@ -138,12 +137,11 @@ export function OrdersView() {
   const load = useCallback(async (silent = false) => {
     const requestVersion = ++listRequestVersion.current;
     if (!silent) setLoading(true);
-    const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    const p = new URLSearchParams({ page: String(page), page_size: String(pageSize), type: "PI" });
     if (q) p.set("q", q);
     if (status) p.set("status", status);
     if (currency) p.set("currency", currency);
     if (country) p.set("country", country);
-    if (type) p.set("type", type);
     p.set("sort_by", sortBy);
     p.set("sort_dir", sortDir);
     if (dateFrom) p.set("date_from", dateFrom);
@@ -180,8 +178,8 @@ export function OrdersView() {
       setLoading(false); setData([]); setCount(0);
       setError("PI订单加载失败，请稍后重试");
     }
-  }, [page, pageSize, q, status, currency, country, type, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
-  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, type, dateFrom, dateTo, userId, creatorId]);
+  }, [page, pageSize, q, status, currency, country, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
+  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, dateFrom, dateTo, userId, creatorId]);
   const selectableIds = data.filter((row) => row.confirmation_method === "DIRECT_PI" && !["DRAFT", "CANCELLED"].includes(row.status)).map((row) => row.id);
   const pageSelection = selectableIds.slice(0, 50);
   const allPageSelected = pageSelection.length > 0 && pageSelection.every((id) => selectedIds.includes(id));
@@ -219,7 +217,7 @@ export function OrdersView() {
         <header>
           <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">PI订单</h1><div className="flex items-center gap-2">{canImport ? <Link href="/orders/import" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">导入PI订单</Link> : null}{canCreate ? <Link href="/orders/new" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">创建PI订单</Link> : null}</div></div>
           <p className="mt-1 text-sm text-slate-500">
-            先保存PI草稿，确认后才生成仓库可见的备货单；历史销售订单继续保留查询。
+            先保存PI草稿，确认后才生成仓库可见的备货单。
           </p>
         </header>
         <AppFilterBar>
@@ -231,7 +229,7 @@ export function OrdersView() {
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="搜索订单编号、PI号或公司名称"
+              placeholder="搜索客户名称、公司、PI/备货单号、电话或邮箱"
               className={`${appFieldClass} w-full pl-9`}
             />
           </label>
@@ -257,24 +255,12 @@ export function OrdersView() {
           <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }}/>
           <UserScopeSelect permission="orders.data_all" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>
           {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
-          <details className="relative text-sm">
-            <summary className="flex h-10 cursor-pointer items-center rounded-lg border bg-white px-3 text-slate-600">{HISTORICAL_PI_STATUSES.includes(status as SalesOrderStatus) ? `历史/异常：${SALES_ORDER_STATUS_LABELS[status as SalesOrderStatus]}` : "历史/异常筛选"}</summary>
-            <div className="absolute left-0 top-11 z-30 w-52 rounded-lg border bg-white p-2 shadow-lg">
-              <AppSelect value={HISTORICAL_PI_STATUSES.includes(status as SalesOrderStatus) ? status : ""} onChange={(e) => { setStatus(e.target.value); setType(e.target.value ? "" : "PI"); setPage(1); }} className={`${appFieldClass} w-full`} aria-label="按历史或异常PI状态筛选">
-                <option value="">不筛选</option>{HISTORICAL_PI_STATUSES.map((key) => <option key={key} value={key}>{SALES_ORDER_STATUS_LABELS[key]}</option>)}
-              </AppSelect>
-            </div>
-          </details>
-          <AppSelect value={type} onChange={(e) => { setType(e.target.value); setPage(1); }} className={appFieldClass} aria-label="按订单类型筛选">
-            <option value="PI">PI订单</option><option value="">包含历史销售订单</option>
-          </AppSelect>
           <button
             onClick={() => {
               setQ("");
               setStatus("");
               setCurrency("");
               setCountry("");
-              setType("PI");
               setSortBy("updated_at");
               setSortDir("desc");
               setDateFrom("");
@@ -288,7 +274,7 @@ export function OrdersView() {
             重置
           </button>
         </AppFilterBar>
-        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><RowActionMenu ariaLabel={`批量导出 PI，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy || type !== "PI" || selectedIds.length === 0} onClick={() => void exportSelected()}>{exportBusy ? "正在导出…" : "导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy || type !== "PI" || selectedIds.length === 0} onClick={() => window.open(`/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div> : null}
+        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><RowActionMenu ariaLabel={`批量导出 PI，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy || selectedIds.length === 0} onClick={() => void exportSelected()}>{exportBusy ? "正在导出…" : "导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy || selectedIds.length === 0} onClick={() => window.open(`/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div> : null}
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -302,12 +288,13 @@ export function OrdersView() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1650px] text-left text-sm">
+              <table className="w-full min-w-[1750px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
                   <tr>
-                    {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || type !== "PI" || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
+                    {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
                     <th className="px-4 py-3 font-medium">备货单号</th>
+                    <th className="min-w-[110px] px-4 py-3 font-medium">客户名称</th>
                     <SortHeader label="公司名称" column="customer_name"/>
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
@@ -335,6 +322,7 @@ export function OrdersView() {
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
                         </td>
                         <td className="px-4 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}>{stock.stock_number}</Link> : <span className="whitespace-nowrap text-slate-500">{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
+                        <td className="px-4 py-3 font-medium text-slate-900">{row.customer_name || <span className="font-normal text-slate-400">未填写</span>}</td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
                         <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">

@@ -32,6 +32,7 @@ type Payload = {
     quote_id: string;
     quote_number: string;
     customer_short_name: string;
+    customer?: { contact_name?: string | null; company_name?: string | null } | null;
     destination_country: string | null;
     currency: string;
     subtotal: number;
@@ -215,7 +216,7 @@ export function OrderDetailView({ id }: { id: string }) {
           ) : null}
           {directPi ? <>
             <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">公司名称 · 目的国家</p><p className="mt-2 text-lg font-semibold text-slate-900">{o.customer_short_name}</p><div className="mt-1 text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">客户名称</p><p className="mt-2 text-lg font-semibold text-slate-900">{o.customer?.contact_name?.trim() || "未填写"}</p><p className="mt-1 text-sm text-slate-600">公司名称：{o.customer_short_name}</p><div className="mt-1 text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><p className="text-xs text-blue-700">客户应付总额 · 含运费</p><p className="mt-2 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p><p className="mt-1 text-xs text-blue-700">其中运费 {o.currency} {Number(o.shipping_cost).toFixed(2)}</p></div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-2 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress} wide/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
@@ -225,7 +226,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <div><h2 className="font-semibold text-slate-800">付款与汇率</h2><p className="mt-2 text-slate-600">付款方式：{o.payment_method || "—"} · 1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p><p className="mt-1 text-slate-600">人民币总额（含运费）：¥{Number(o.total_cny).toFixed(2)}</p><details className="mt-2"><summary className="cursor-pointer text-blue-700">查看收款账户快照</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-slate-600">{o.payment_account_snapshot || "—"}</p></details></div>
             </div>
             <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>
-          </> : <div className="grid gap-4 p-5 md:grid-cols-4">{[["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
+          </> : <div className="grid gap-4 p-5 md:grid-cols-5">{[["客户名称", o.customer?.contact_name?.trim() || "未填写"], ["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span><Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link></div> : null}
           <div className="overflow-x-auto border-y">
             <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>

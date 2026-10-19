@@ -16,6 +16,8 @@ import { PI_EXECUTING_STATUSES, summarizeStockProgress } from "@/lib/stock-progr
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadOrderCustomerNames } from "@/lib/order-customer-name";
+import { documentSearchFilter, matchingCustomerIds, normalizeDocumentSearch } from "@/lib/document-search";
 
 const SORT_COLUMNS = {
   order_number: "warehouse_reference_number",
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";
+    const q = normalizeDocumentSearch(params.get("q"));
     if (status && status !== "ACTIVE" && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
     if (currency && !QUOTE_CURRENCY_CODES.has(currency)) throw new Error("付款币种无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
@@ -59,6 +62,7 @@ export async function GET(request: NextRequest) {
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const ownerId = await requestedOwnerId(request, account, "orders.data_all");
     const creatorId = await requestedPiCreatorId(request, account, "orders.data_all");
+    const customerIds = await matchingCustomerIds(q);
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
       let query = supabase
         .from("sales_orders")
@@ -80,10 +84,9 @@ export async function GET(request: NextRequest) {
       if (type === "PI") query = query.eq("confirmation_method", "DIRECT_PI");
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
-      const q = params.get("q")?.trim().replace(/[%_,()]/g, "");
-      if (q) query = query.or(
-        `warehouse_reference_number.ilike.%${q}%,order_number.ilike.%${q}%,quote_number.ilike.%${q}%,customer_short_name.ilike.%${q}%`,
-      );
+      if (q) query = query.or(documentSearchFilter(q,
+        ["warehouse_reference_number", "order_number", "quote_number", "customer_short_name", "delivery_phone", "delivery_email"],
+        "customer_id", customerIds));
       return query;
     };
     const { data, error, count } = await makeQuery(exporting ? 0 : (page - 1) * pageSize,
@@ -131,6 +134,7 @@ export async function GET(request: NextRequest) {
         return items;
       })).flat();
       if (details.length !== ids.length) throw new Error("部分PI已无权查看，请刷新筛选结果");
+      const customerNames = await loadOrderCustomerNames(ids);
       const clerkCustomers = account.role === "ORDER_CLERK" ? await createAdminClient().from("customers")
         .select("id,company_name,contact_name").in("id", [...new Set(details.map((item) => item.customer_id))]) : null;
       if (clerkCustomers?.error) throw clerkCustomers.error;
@@ -147,8 +151,9 @@ export async function GET(request: NextRequest) {
         const detail = orderById.get(row.id);
         const items = itemsByOrderId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("PI数据已更新，请刷新筛选结果");
+        const customer = account.role === "ORDER_CLERK" ? clerkCustomerById.get(detail.customer_id) || null : detail.customer;
         return { name: documentExportFilename(row.order_number, "PI订单", "xlsx", exportedAt),
-          data: buildDirectPiWorkbook({ ...detail, customer: account.role === "ORDER_CLERK" ? clerkCustomerById.get(detail.customer_id) || null : detail.customer,
+          data: buildDirectPiWorkbook({ ...detail, customer: { ...customer, contact_name: customerNames.get(detail.id) || null },
             order_number: row.warehouse_reference_number || row.order_number } as never, items as never) };
       });
       const zip = buildWorkbookZip(files);
@@ -162,7 +167,7 @@ export async function GET(request: NextRequest) {
     const creatorIds = [...new Set(rows.map((item) => item.prepared_by).filter(Boolean))] as string[];
     const orderIds = rows.map((item) => item.id);
     const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
-    const [owners, creators, stockOrders] = await Promise.all([
+    const [owners, creators, stockOrders, customerNames] = await Promise.all([
       ownerIds.length
         ? createAdminClient().from("users").select("id,name,email").in("id", ownerIds)
         : Promise.resolve({ data: [], error: null }),
@@ -172,6 +177,7 @@ export async function GET(request: NextRequest) {
       orderIds.length
         ? relatedClient.from("stock_orders").select("id,sales_order_id,stock_number,status").in("sales_order_id", orderIds)
         : Promise.resolve({ data: [], error: null }),
+      loadOrderCustomerNames(orderIds),
     ]);
     if (owners.error) throw owners.error;
     if (creators.error) throw creators.error;
@@ -190,6 +196,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: rows.map((item) => ({
         ...item,
+        customer_name: customerNames.get(item.id) || null,
         owner: ownerById.get(item.sales_user_id) || null,
         creator: item.prepared_by ? creatorById.get(item.prepared_by) || null : null,
         stock: stockByOrderId.get(item.id) || [],

@@ -8,6 +8,8 @@ import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-
 import { STOCK_EXECUTING_STATUSES, stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadOrderCustomerNames } from "@/lib/order-customer-name";
+import { documentSearchFilter, matchingCustomerIds, matchingOrderIds, normalizeDocumentSearch } from "@/lib/document-search";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 
 const SORT_COLUMNS = {
@@ -37,8 +39,10 @@ export async function GET(request: NextRequest) {
       const result = dashboard.data || { counts: {}, recent: [] };
       const recent = Array.isArray(result.recent) ? result.recent : [];
       const itemsByStockId = await loadStockProgressItems(supabase, recent.map((order: { id: string }) => order.id));
-      return NextResponse.json({ ...result, recent: recent.map((order: { id: string; status: string }) => ({
-        ...order, progress: summarizeStockProgress(order.status, itemsByStockId.get(order.id) || []),
+      const customerNames = await loadOrderCustomerNames(recent.map((order: { sales_order_id: string }) => order.sales_order_id));
+      return NextResponse.json({ ...result, recent: recent.map((order: { id: string; status: string; sales_order_id: string }) => ({
+        ...order, customer_name: customerNames.get(order.sales_order_id) || null,
+        progress: summarizeStockProgress(order.status, itemsByStockId.get(order.id) || []),
       })) }, {
         headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" },
       });
@@ -54,11 +58,13 @@ export async function GET(request: NextRequest) {
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";
+    const q = normalizeDocumentSearch(params.get("q"));
     if (status && status !== "ACTIVE" && !(status in STOCK_STATUS_LABELS)) throw new Error("备货状态无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (!(sortBy in SORT_COLUMNS) || !["asc", "desc"].includes(sortDir)) throw new Error("排序参数无效");
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
+    const matchingCustomerOrderIds = await matchingOrderIds(await matchingCustomerIds(q));
     const from = (page - 1) * pageSize;
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
       let query = supabase.from("stock_orders_with_pi_preparer")
@@ -73,8 +79,9 @@ export async function GET(request: NextRequest) {
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
-      const q = params.get("q")?.replace(/[%_,()]/g, "").trim();
-      if (q) query = query.or(`stock_number.ilike.%${q}%,warehouse_reference_number.ilike.%${q}%,order_number.ilike.%${q}%,customer_short_name.ilike.%${q}%`);
+      if (q) query = query.or(documentSearchFilter(q,
+        ["stock_number", "warehouse_reference_number", "order_number", "customer_short_name", "delivery_phone", "delivery_email"],
+        "sales_order_id", matchingCustomerOrderIds));
       return query;
     };
     const { data, error, count } = await makeQuery(exporting ? 0 : from, exporting ? 499 : from + pageSize - 1);
@@ -153,13 +160,15 @@ export async function GET(request: NextRequest) {
         if (!shippedByStockId.has(event.stock_order_id)) shippedByStockId.set(event.stock_order_id, event.created_at);
       }
       const exportedAt = new Date();
+      const customerNames = await loadOrderCustomerNames(rows.map((row) => row.sales_order_id));
       const files: Array<{ name: string; data: ArrayBuffer | Uint8Array }> = [];
       for (const row of rows) {
         const detail = detailById.get(row.id);
         const items = itemsByStockId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("备货数据已更新，请刷新筛选结果");
         files.push({ name: documentExportFilename(row.stock_number, "备货单", "xlsx", exportedAt),
-          data: await buildStockWorkbook({ ...detail, salesperson: detail.salesperson || salesOwnerById.get(detail.sales_user_id) || null,
+          data: await buildStockWorkbook({ ...detail, customer_name: customerNames.get(detail.sales_order_id) || null,
+            salesperson: detail.salesperson || salesOwnerById.get(detail.sales_user_id) || null,
             order_change_note: piNoteById.get(detail.sales_order_id) || null,
             shipped_at: shippedByStockId.get(row.id) || null,
             status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never) });
@@ -175,6 +184,7 @@ export async function GET(request: NextRequest) {
     const itemsByStockId = await loadStockProgressItems(supabase, visibleIds);
     const clerkOwnerIds = [...new Set((data || []).map((item) => item.sales_user_id).filter(Boolean))];
     const preparerIds = [...new Set((data || []).map((item) => item.pi_prepared_by).filter(Boolean))];
+    const customerNames = await loadOrderCustomerNames((data || []).map((item) => item.sales_order_id));
     const clerkOwners = clerkOwnerIds.length
       ? await createAdminClient().from("users").select("id,name,email").in("id", clerkOwnerIds)
       : { data: [], error: null };
@@ -186,6 +196,7 @@ export async function GET(request: NextRequest) {
     const clerkOwnerById = new Map((clerkOwners.data || []).map((owner) => [owner.id, owner]));
     const preparerById = new Map((preparers.data || []).map((user) => [user.id, user]));
     return NextResponse.json({ data: (data || []).map((item) => ({ ...item,
+      customer_name: customerNames.get(item.sales_order_id) || null,
       sales: clerkOwnerById.get(item.sales_user_id) || null,
       preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),

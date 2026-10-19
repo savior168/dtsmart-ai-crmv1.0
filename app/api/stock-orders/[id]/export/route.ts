@@ -5,6 +5,7 @@ import { buildStockWorkbook } from "@/lib/template-xlsx";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { documentExportFilename } from "@/lib/export-file-name";
 import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
+import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -19,12 +20,14 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     if (itemError) throw itemError;
     if (eventError) throw eventError;
     if(["DRAFT", "CANCELLED"].includes(order.status))throw new Error("草稿或已取消的备货单不能作为正式单据导出");
+    const customerNames = await loadOrderCustomerNames([order.sales_order_id]);
     const piNote = await createAdminClient().from("sales_orders").select("confirmation_note").eq("id", order.sales_order_id).single();
     if (piNote.error) throw piNote.error;
     const salesOwner = !order.salesperson && order.sales_user_id ? await createAdminClient().from("users")
       .select("name,email").eq("id", order.sales_user_id).maybeSingle() : null;
     if (salesOwner?.error) throw salesOwner.error;
-    const buffer = await buildStockWorkbook({ ...order, salesperson: order.salesperson || salesOwner?.data || null,
+    const buffer = await buildStockWorkbook({ ...order, customer_name: customerNames.get(order.sales_order_id) || null,
+      salesperson: order.salesperson || salesOwner?.data || null,
       order_change_note: piNote.data.confirmation_note,
       shipped_at: shippedEvents?.[0]?.created_at || null,
       status_label: stockProgressLabel(summarizeStockProgress(order.status, items || [])) } as never, (items || []) as never);

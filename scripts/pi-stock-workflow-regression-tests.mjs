@@ -85,7 +85,7 @@ const deliveryMigration = read("supabase/migrations/20261015202000_pi_required_d
 const piCustomersRoute = read("app/api/orders/pi-customers/route.ts");
 assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses"\)/, "PI客户选项应读取客户收货地址列表，但不改变客户归属边界");
 assert.match(piForm, /setAddress\(displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)\[0\] \|\| ""\)/, "PI 默认收货地址只能取客户第一条收货地址，不得误用公司地址");
-assert.match(piForm, /公司名称<Required \/>.*?forceSearch[\s\S]*?公司税号[\s\S]*?selectedCustomer\?\.tax_number[\s\S]*?readOnly[\s\S]*?客户名称<AppSelect.*?forceSearch/, "公司名称、只读公司税号和客户名称两个可搜索入口应关联同一客户");
+assert.match(piForm, /客户名称<Required \/><AppSelect.*?forceSearch[\s\S]*?公司名称<input[\s\S]*?selectedCustomer\?\.company_name[\s\S]*?公司税号<input[\s\S]*?selectedCustomer\?\.tax_number/, "PI应先选具体客户名称，再只读带出公司名称和税号");
 assert.match(piForm, /查看客户资料理货要求[\s\S]*?selectedCustomer\.tally_requirements[\s\S]*?复制理货要求/, "PI填写时应能只读查看并复制客户资料理货要求");
 assert.match(piForm, /if \(!customer\) \{\s*setRecipient\(""\);\s*setPhone\(""\);\s*setEmail\(""\);\s*setAddress\(""\);/, "清空客户选择时不能保留前一客户的收件人和联系方式");
 assert.match(piForm, /setRecipient\(customer\.contact_name\?\.trim\(\) \|\| ""\)/, "PI收件人仅默认带入客户名称，缺少时不得回退到公司名称");
@@ -97,7 +97,7 @@ assert.match(piForm, /document\.addEventListener\("click", interceptLink, true\)
 assert.match(piForm, /window\.addEventListener\("popstate", interceptBack\)/, "未保存PI遇到浏览器后退应提醒");
 assert.match(piForm, /当前 PI 内容尚未保存[\s\S]*放弃填写并离开/, "离开提示应明确说明未保存内容会丢失并允许取消");
 assert.match(piForm, /hasUnsavedChanges\.current = false;\s*window\.location\.assign\(`\/orders\/\$\{saved\.id\}`\)/, "成功保存后跳转详情不应再次提示未保存");
-assert.match(piForm, /aria-label="搜索并选择我的PI客户"[^>]*placeholderValue=""/, "未选择PI客户时应显示占位提示样式");
+assert.match(piForm, /aria-label="搜索客户名称并选择PI客户"[^>]*placeholderValue=""/, "未选择PI客户时应显示占位提示样式");
 assert.match(piForm, /aria-label="选择PI收款账户"[^>]*placeholderValue=""/, "未选择收款账户时应显示占位提示样式");
 assert.match(read("components/ui/app-select.tsx"), /isPlaceholder \? "text-slate-400" : "text-slate-700"/, "占位提示应为浅灰色，真实已选值应为正常深色");
 const statusRoute = read("app/api/stock-orders/[id]/status/route.ts");
@@ -149,7 +149,7 @@ assert.equal(validPiSellingPrice("10.01", "10"), true, "正利润产品可以保
 assert.match(createPiApi, /requireOwnedPiCustomer\(supabase, account\.id, input\.p_customer_id\)/, "PI创建API必须核对客户当前归属");
 assert.match(strictOwnerMigration, /customer\.owner_id is distinct from actor\.id/, "数据库创建函数必须对所有角色强制当前归属校验");
 assert.match(strictOwnerMigration, /c\.owner_id=target\.sales_user_id/, "PI提交前必须再次核对客户归属");
-assert.match(piForm, /forceSearch[\s\S]*请选择我的客户/, "PI客户下拉即使选项较少也必须可搜索");
+assert.match(piForm, /forceSearch[\s\S]*按客户名称查找/, "PI客户下拉即使选项较少也必须可搜索");
 assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
@@ -157,6 +157,20 @@ const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">
 assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与实际制单人");
 assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">所属销售员/, "PI列表所属销售员标题应完整显示在一行");
 assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
+assert.doesNotMatch(orderListView, /历史\/异常筛选|按订单类型筛选|包含历史销售订单/, "PI列表不应再提供冗余历史及单据类型筛选");
+assert.match(orderListView, /new URLSearchParams\(\{ page: String\(page\), page_size: String\(pageSize\), type: "PI" \}\)/, "PI列表移除类型选项后仍必须仅查询PI单据");
+assert.match(stockListView, /STOCK_FILTER_STATUSES = \["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED", "READY"\]/, "备货单单一状态筛选必须覆盖当前、异常与历史状态");
+assert.doesNotMatch(stockListView, /历史\/异常筛选|按历史或异常备货状态筛选/, "备货单不应重复设置历史异常筛选入口");
+for (const view of [orderListView, stockListView]) {
+  assert.match(view, /搜索客户名称、公司、PI\/备货单号、电话或邮箱/, "两张单据列表都应明确多字段搜索范围");
+}
+const documentSearch = read("lib/document-search.ts");
+assert.match(documentSearch, /\["company_name", "contact_name", "phone", "email"\]/, "搜索必须覆盖客户资料中的公司、对接人、电话和邮箱");
+assert.match(documentSearch, /MAX_MATCHES = 200[\s\S]*匹配的客户过多[\s\S]*匹配的单据过多/, "搜索过宽时须明确报错而非静默截断结果");
+for (const api of [orderListApi, stockListApi]) {
+  assert.match(api, /normalizeDocumentSearch\(params\.get\("q"\)\)/, "列表和导出须共用规范化搜索词");
+  assert.match(api, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"[\s\S]*"order_number"[\s\S]*"customer_short_name"[\s\S]*"delivery_phone"[\s\S]*"delivery_email"/, "单据搜索须覆盖PI号、备货单号、公司快照和收货联系方式");
+}
 assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
@@ -171,12 +185,20 @@ assert.match(batchPdfPage, /ids\.length > 50[\s\S]*new Set\(ids\)\.size !== ids\
 assert.match(batchPdfPage, /!payload\.can_export[\s\S]*"DRAFT", "CANCELLED"[\s\S]*confirmation_method !== "DIRECT_PI"/, "批量PDF必须逐张核对正式PI导出权限");
 assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.PI_EXECUTING_STATUSES\]\)/, "PI执行中筛选必须使用与列表状态一致的共享状态集合");
 assert.match(stockListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.STOCK_EXECUTING_STATUSES\]\)/, "备货执行中筛选必须使用与PI同步的共享状态集合");
+const contactLookup = read("lib/order-customer-name.ts");
+assert.match(contactLookup, /sales_orders[\s\S]*customer:customers\(contact_name\)/, "PI和备货单的客户名称必须来自关联客户的具体对接人");
+assert.doesNotMatch(contactLookup, /delivery_recipient|customer_short_name/, "客户名称不得错误回退为收件人或公司简称");
+assert.match(orderListApi, /customer_name: customerNames\.get\(item\.id\)/, "PI列表必须带出关联对接人");
+assert.match(stockListApi, /customer_name: customerNames\.get\(item\.sales_order_id\)/, "备货列表必须通过关联PI带出同一对接人");
+assert.match(orderListView, /客户名称[\s\S]*公司名称[\s\S]*row\.customer_name[\s\S]*row\.customer_short_name/, "PI列表必须优先显示对接人，再显示公司");
+assert.match(read("components/stock-orders-view.tsx"), /客户名称[\s\S]*公司名称[\s\S]*row\.customer_name[\s\S]*row\.customer_short_name/, "备货列表必须优先显示对接人，再显示公司");
+assert.match(read("components/order-print-preview.tsx"), /\[\["客户名称", stock\.order\.customer_name[\s\S]*\["公司名称", stock\.order\.customer_short_name/, "备货预览及PDF必须优先显示对接人");
 assert.match(orderListView, /<td className="px-4 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
 assert.match(progressCellView, /<div className="mt-2 grid grid-cols-5[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表应直接显示五个阶段的件数和百分比");
 assert.match(progressCellView, /title=\{detail\}[\s\S]*aria-label=\{detail\}/, "紧凑进度条仍须为鼠标悬停和辅助技术保留阶段详情");
-assert.match(orderListApi, /warehouse_reference_number\.ilike/, "PI列表必须能搜索销售与仓库共用的订单编号");
+assert.match(orderListApi, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"/, "PI列表必须能搜索销售与仓库共用的订单编号");
 for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockListApi]]) {
   assert.match(view, /date_from[\s\S]*date_to/, "列表创建日期区间必须传给接口");
   assert.match(api, /gte\("created_at"[\s\S]*lte\("created_at"/, "接口必须按创建日期区间筛选");
@@ -222,7 +244,7 @@ assert.match(piForm, /editLine\(index, "description_zh", value\)/, "PI输入的�
 assert.match(piInput, /!\[row\.item_name, row\.brand, row\.model, row\.quality, row\.description_zh\]\.every/, "服务端必须拒绝空的仓库中文描述");
 assert.doesNotMatch(piInput, /description_zh:[^\n]*join\(" \/ "\)/, "仓库中文描述不得自动拼接产品、品牌或型号");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
-assert.match(piForm, /"成本单价（人民币） \*", "销售单价（人民币） \*", `销售单价（\$\{currency \|\| "外币"\}） \*`, "数量 \*", "销售金额（人民币）", `销售金额（\$\{currency \|\| "外币"\}）`/, "PI录入列头必须按人民币单价、外币单价、数量、双币金额排列");
+assert.match(piForm, /"成本单价（CNY） \*", "销售单价（CNY） \*", `销售单价（\$\{currency \|\| "付款币种"\}） \*`, "数量 \*", "销售金额（CNY）", `销售金额（\$\{currency \|\| "付款币种"\}）`/, "PI录入列头须按CNY、付款币种、数量、双币金额排列");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
 assert.match(piForm, /产品总利润率：[\s\S]*totals\.totalProfitCny \/ totals\.subtotalCny \* 100/, "整单利润率必须按产品利润除以产品销售额计算");
 assert.match(piForm, /const defaultValidity = \(\) => \{ const date = new Date\(\); date\.setDate\(date\.getDate\(\) \+ 5\)/, "新建PI有效期默认当前日期后5天");
@@ -238,7 +260,7 @@ assert.match(piForm, /recalledDraft \? <div>[\s\S]*订单变更说明/, "订单�
 assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收件人[\s\S]*电话[\s\S]*邮箱[\s\S]*收货地址/, "收货信息四项应在宽屏同一行显示");
 assert.match(piForm, /function PiLineTextArea[\s\S]*scrollHeight[\s\S]*<PiLineTextArea label=/, "产品文本字段应自动增高以完整显示内容");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
-assert.match(piForm, /公司名称<Required\s*\/>[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息按录单业务顺序排列");
+assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*公司名称<input[\s\S]*公司税号<input[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息应先确认客户，再带出公司信息并填写交易信息");
 assert.match(piForm, /value=\{shippingInput\}[\s\S]*setShippingInput/, "运费应在费用汇总中由销售输入");
 assert.match(piForm, /<label htmlFor="pi-shipping"[\s\S]*aria-hidden="true"[^>]*>¥<\/span><input id="pi-shipping" aria-label="人民币运费"/, "人民币运费输入框应直观显示人民币符号");
 assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "创建PI共享校验必须覆盖产品、品牌、型号和质量");

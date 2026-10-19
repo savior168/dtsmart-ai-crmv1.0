@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -35,6 +36,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     }
     if (itemError) throw itemError;
     if (eventError) throw eventError;
+    const customerNames = await loadOrderCustomerNames([order.sales_order_id]);
     // The visible stock order establishes access before resolving its sales owner.
     // Warehouse RLS intentionally does not expose arbitrary users.
     const salesOwner = order.sales_user_id && !order.sales
@@ -71,7 +73,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const warehouseEditor = ["WAREHOUSE", "ADMIN"].includes(account.role);
     const recalledPi = order.status === "DRAFT" && Boolean(order.warehouse_reference_number);
     const transitions:Record<string,string[]>={WAITING:["PREPARING","SHORTAGE","CANCELLED"],PREPARING:["RECEIVED","SHORTAGE","CANCELLED"],RECEIVED:["SORTING","SHORTAGE","CANCELLED"],SORTING:["READY_TO_SHIP","SHORTAGE","CANCELLED"],READY_TO_SHIP:["SHIPPED","CANCELLED"],SHORTAGE:["PREPARING","CANCELLED"],DRAFT:[],SHIPPED:[],READY:[],CANCELLED:[]};
-    return NextResponse.json({ order: { ...order, sales: order.sales || salesOwner?.data || null }, items: items || [], events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_edit_procurement: warehouseEditor && hasPermission(account, "stock.procurement.edit") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), allowed_statuses:transitions[order.status]||[] });
+    return NextResponse.json({ order: { ...order, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: items || [], events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_edit_procurement: warehouseEditor && hasPermission(account, "stock.procurement.edit") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), allowed_statuses:transitions[order.status]||[] });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

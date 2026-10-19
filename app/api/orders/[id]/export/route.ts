@@ -5,6 +5,7 @@ import { buildQuoteWorkbook } from "@/lib/template-xlsx";
 import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
 import { documentExportFilename } from "@/lib/export-file-name";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 export async function GET(
   _: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -31,10 +32,14 @@ export async function GET(
     if (order.error) throw order.error;
     if (items.error) throw items.error;
     if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
+    const customerNames = await loadOrderCustomerNames([id]);
     const clerkCustomer = account.role === "ORDER_CLERK" ? await createAdminClient().from("customers")
       .select("company_name,contact_name,phone").eq("id", order.data.customer_id).maybeSingle() : null;
     if (clerkCustomer?.error) throw clerkCustomer.error;
-    const documentOrder = account.role === "ORDER_CLERK" ? { ...order.data, customer: clerkCustomer?.data || null } : order.data;
+    const documentOrder = { ...order.data, customer: {
+      ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
+      contact_name: customerNames.get(id) || null,
+    } };
     if (["DRAFT", "CANCELLED"].includes(order.data.status)) throw new Error("PI草稿或已取消订单不能作为正式PI导出");
     const businessNumber = order.data.confirmation_method === "DIRECT_PI"
       ? order.data.warehouse_reference_number || order.data.order_number
