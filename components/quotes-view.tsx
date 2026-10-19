@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, Search } from "lucide-react";
 import { QUOTE_STATUS_LABELS, type QuoteStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -15,9 +15,26 @@ type Payload = { data:QuoteRow[]; count:number; page:number; page_size:number; c
 
 export function QuotesView(){
   const router=useRouter();
+  const listRequestVersion=useRef(0);
   const [data,setData]=useState<Payload|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
   const [q,setQ]=useState(""); const [status,setStatus]=useState(""); const [userId,setUserId]=useState(""); const [page,setPage]=useState(1); const [pageSize,setPageSize]=useState(20);
-  const load=useCallback(async()=>{setLoading(true);setError("");const params=new URLSearchParams({page:String(page),page_size:String(pageSize)});if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);if(userId)params.set("user_id",userId);const response=await fetch(`/api/quotes?${params}`,{cache:"no-store"});const body=await response.json().catch(()=>({}));setLoading(false);if(!response.ok){setError(body.error||"报价列表加载失败");return}setData(body)},[page,pageSize,q,status,userId]);
+  const load=useCallback(async()=>{
+    const requestVersion=++listRequestVersion.current;
+    setLoading(true);setError("");
+    const params=new URLSearchParams({page:String(page),page_size:String(pageSize)});
+    if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);if(userId)params.set("user_id",userId);
+    try {
+      const response=await fetch(`/api/quotes?${params}`,{cache:"no-store"});
+      const body=await response.json().catch(()=>({}));
+      if(requestVersion!==listRequestVersion.current)return;
+      setLoading(false);
+      if(!response.ok){setData(null);setError(body.error||"报价列表加载失败");return}
+      setData(body);
+    } catch {
+      if(requestVersion!==listRequestVersion.current)return;
+      setLoading(false);setData(null);setError("报价列表加载失败，请稍后重试");
+    }
+  },[page,pageSize,q,status,userId]);
   useEffect(()=>{void load()},[load]);
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1660px]">
     <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">历史报价记录</h1><p className="mt-1 text-sm text-slate-500">保留旧报价业务记录供追溯；新业务请从PI订单直接创建并关联备货单。</p></div></header>

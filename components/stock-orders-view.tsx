@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle, Search, ShoppingCart } from "lucide-react";
 import { STOCK_STATUS_LABELS, type StockOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -26,6 +26,7 @@ const EXCEPTION_STOCK_STATUSES: StockOrderStatus[] = ["READY", "CANCELLED"];
 
 export function StockOrdersView() {
   const router=useRouter();
+  const listRequestVersion=useRef(0);
   const [data,setData]=useState<Payload|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -73,20 +74,28 @@ export function StockOrdersView() {
     finally{setSingleExportId(null)}
   }
   const load=useCallback(async(silent=false)=>{
+    const requestVersion=++listRequestVersion.current;
     if(!silent)setLoading(true); setError("");
     const params=new URLSearchParams({page:String(page),page_size:String(pageSize)});
     if(q.trim())params.set("q",q.trim()); if(status)params.set("status",status); if(country)params.set("country",country); if(userId)params.set("user_id",userId);
     if(creatorId)params.set("creator_id",creatorId);
     params.set("sort_by",sortBy); params.set("sort_dir",sortDir);
     if(dateFrom)params.set("date_from",dateFrom); if(dateTo)params.set("date_to",dateTo);
+    try {
     const response=await fetch(`/api/stock-orders?${params}`,{cache:"no-store"});
-    const body=await response.json().catch(()=>({})); setLoading(false);
+    const body=await response.json().catch(()=>({}));
+    if(requestVersion!==listRequestVersion.current)return;
+    setLoading(false);
     if(!response.ok){
       if(response.status===401){setData(null);setSelectedIds([]);setSessionExpired(true);setError("登录已失效，请重新登录后查看备货单");}
-      else {setSessionExpired(false);setError(body.error||"备货单加载失败");}
+      else {setData(null);setSessionExpired(false);setError(body.error||"备货单加载失败");}
       return;
     }
     setSessionExpired(false);setData(body);
+    } catch {
+      if(requestVersion!==listRequestVersion.current)return;
+      setLoading(false);setData(null);setError("备货单加载失败，请稍后重试");
+    }
   },[page,pageSize,q,status,country,userId,creatorId,dateFrom,dateTo,sortBy,sortDir]);
   useEffect(()=>{setSelectedIds([])},[q,status,country,userId,creatorId,dateFrom,dateTo]);
   const selectableIds=(data?.data||[]).filter(row=>!["DRAFT","CANCELLED"].includes(row.status)).map(row=>row.id);

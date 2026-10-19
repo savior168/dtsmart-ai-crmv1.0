@@ -158,6 +158,15 @@ assert.match(globalStyles, /\.crm-content table td \{[^}]*vertical-align:middle/
 assert.match(globalStyles, /td:last-child:has\([^}]*text-align:center/, "系统数据表操作单元格必须统一居中");
 assert.match(globalStyles, /td:last-child > button,[\s\S]*min-height:32px/, "系统数据表操作按钮必须统一使用适中的紧凑高度");
 const publicPool = read("components/customer-public-pool-view.tsx");
+for (const path of [
+  "components/customers-view.tsx",
+  "components/orders-view.tsx",
+  "components/stock-orders-view.tsx",
+  "components/quotes-view.tsx",
+  "components/ai-screening/results-view.tsx",
+]) {
+  assert.match(read(path), /requestVersion\s*!==\s*listRequestVersion\.current/, `${path} 必须忽略过期筛选请求的返回`);
+}
 assert.match(publicPool, /function changeTab\(value: Tab\) \{[\s\S]*?setAiStatus\("all"\)/, "公海页签切换必须清除不适用的 AI 分析状态条件");
 assert.match(publicPool, /\{tab !== "available" \? <select[\s\S]*?aria-label="AI分析状态"/, "待认领页不得显示必然为空的未分析或分析失败选项");
 assert.match(publicPool, /w-36[^>]*text-center[^>]*>操作/, "客户公海操作列必须预留一致宽度并居中");

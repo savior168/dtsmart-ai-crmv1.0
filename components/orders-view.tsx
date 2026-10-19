@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, LoaderCircle, Search } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -45,6 +45,7 @@ type Row = {
 };
 export function OrdersView() {
   const router = useRouter();
+  const listRequestVersion = useRef(0);
   const [data, setData] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -135,6 +136,7 @@ export function OrdersView() {
     }
   }
   const load = useCallback(async (silent = false) => {
+    const requestVersion = ++listRequestVersion.current;
     if (!silent) setLoading(true);
     const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (q) p.set("q", q);
@@ -148,14 +150,17 @@ export function OrdersView() {
     if (dateTo) p.set("date_to", dateTo);
     if (userId) p.set("user_id", userId);
     if (creatorId) p.set("creator_id", creatorId);
+    try {
     const r = await fetch(`/api/orders?${p}`, { cache: "no-store" });
     const b = await r.json().catch(() => ({}));
+    if (requestVersion !== listRequestVersion.current) return;
     setLoading(false);
     if (!r.ok) {
       if (r.status === 401) {
         setData([]); setCount(0); setSelectedIds([]); setCanExport(false); setSessionExpired(true);
         setError("登录已失效，请重新登录后查看PI订单");
       } else {
+        setData([]); setCount(0);
         setSessionExpired(false);
         setError(b.error || "加载失败");
       }
@@ -170,6 +175,11 @@ export function OrdersView() {
     setCanImport(Boolean(b.can_import));
     setCanExport(Boolean(b.can_export));
     setError("");
+    } catch {
+      if (requestVersion !== listRequestVersion.current) return;
+      setLoading(false); setData([]); setCount(0);
+      setError("PI订单加载失败，请稍后重试");
+    }
   }, [page, pageSize, q, status, currency, country, type, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
   useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, type, dateFrom, dateTo, userId, creatorId]);
   const selectableIds = data.filter((row) => row.confirmation_method === "DIRECT_PI" && !["DRAFT", "CANCELLED"].includes(row.status)).map((row) => row.id);

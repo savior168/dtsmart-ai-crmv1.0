@@ -161,6 +161,7 @@ export function CustomersView() {
   const [permissionOpen, setPermissionOpen] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
   const newRef = useRef<HTMLDivElement>(null);
+  const listRequestVersion = useRef(0);
   const orderedColumns = useMemo(() => {
     const byKey = new Map(columns.map((column) => [column.key, column]));
     const ordered = draft.map((key) => byKey.get(key)).filter((column): column is (typeof columns)[number] => Boolean(column));
@@ -230,6 +231,7 @@ export function CustomersView() {
   }, []);
   const load = useCallback(async () => {
     if (workspace !== "list" || !scopeReady) return;
+    const requestVersion = ++listRequestVersion.current;
     setLoading(true);
     setError("");
     const params = new URLSearchParams({
@@ -257,16 +259,18 @@ export function CustomersView() {
     try {
       const response = await fetch(`/api/customers?${params}`);
       const body = await response.json().catch(() => ({}));
+      if (requestVersion !== listRequestVersion.current) return;
       if (!response.ok) throw new Error(body.error || "获取客户列表失败");
       window.history.replaceState(null, "", `/customers?${params.toString()}`);
       setRows(Array.isArray(body.data) ? body.data : []);
       setCount(Number(body.count || 0));
     } catch (reason) {
+      if (requestVersion !== listRequestVersion.current) return;
       setRows([]);
       setCount(0);
       setError(reason instanceof Error ? reason.message : "获取客户列表失败");
     } finally {
-      setLoading(false);
+      if (requestVersion === listRequestVersion.current) setLoading(false);
     }
   }, [
     page,
