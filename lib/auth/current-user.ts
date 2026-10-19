@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, USER_ROLES, isOrderClerkForbiddenPermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, USER_ROLES, evaluatePermission, isOrderClerkForbiddenPermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 import { isTimedLockActive } from "@/lib/auth/lockout";
-import { canViewSubordinateData, isSubordinateDataPermission } from "@/lib/auth/supervisor-data-scope";
+import { canViewSubordinateData } from "@/lib/auth/supervisor-data-scope";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
@@ -141,15 +141,7 @@ export async function requirePermission(permission: string) {
 }
 
 export function hasPermission(account: CurrentAccount, permission: string) {
-  if (account.role === "ADMIN") return true;
-  if (account.role === "SUPERVISOR" && !canViewSubordinateData(account)
-    && isSubordinateDataPermission(permission)) return false;
-  if (account.role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(permission)) return false;
-  // Legacy grants and per-user overrides cannot revive an admin-only page or action.
-  const pagePermission = permissionPageCode(permission);
-  if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
-  if (!account.permissions.includes(permission)) return false;
-  return pagePermission === permission || account.permissions.includes(pagePermission);
+  return evaluatePermission(account, permission);
 }
 
 /**

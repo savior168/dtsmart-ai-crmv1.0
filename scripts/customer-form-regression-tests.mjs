@@ -12,6 +12,7 @@ const formSource = await readFile(new URL("../components/customer-form.tsx", imp
 const editApi = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
 const createApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 const detailSource = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
+const poolSource = await readFile(new URL("../components/customer-public-pool-view.tsx", import.meta.url), "utf8");
 const listSource = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
 const profileGrants = await readFile(new URL("../supabase/migrations/20261019010000_customer_profile_column_privileges.sql", import.meta.url), "utf8");
 const addressMigration = await readFile(new URL("../supabase/migrations/20261019035957_customer_address_lists.sql", import.meta.url), "utf8");
@@ -30,9 +31,10 @@ assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选�
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
 assert.match(newCustomer, /value="FOLLOWING"[^>]*>意向客户/, "新增客户可选择意向客户");
 assert.match(newCustomer, /value="DEAL"[^>]*>已成交客户/, "新增客户可选择已成交客户");
-for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "客户收货地址", "货代地址", "其他地址"]) {
+for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "客户收货地址", "货代地址"]) {
   assert.ok(newCustomer.includes(label), `新增客户表单应显示${label}`);
 }
+assert.doesNotMatch(newCustomer, />其他地址</, "客户表单不应再展示其他地址");
 assert.ok(newCustomer.indexOf("客户等级") < newCustomer.indexOf("客户阶段"), "客户阶段应紧随客户等级");
 for (const grade of ["S", "A", "B", "C", "D"]) {
   assert.match(newCustomer, new RegExp(`value="${grade}"[^>]*>${grade}<`), `客户等级应支持${grade}`);
@@ -98,17 +100,25 @@ assert.match(formSource, /const payload=editBasicOnly\?Object\.fromEntries\(edit
 assert.match(formSource, /destination==="PUBLIC_POOL"\?basicKeys\.filter\(\(key\)=>key!=="manual_grade"\)/, "公海编辑保存不得覆盖我的客户等级");
 const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
 assert.doesNotMatch(editableFields, /"category"/, "基础资料保存不得覆盖原始商家类别");
-for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "shipping_addresses", "forwarder_addresses", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
+for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "shipping_addresses", "forwarder_addresses", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
   assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
 }
+assert.doesNotMatch(editableFields, /"other_address"/, "编辑保存不应覆盖已隐藏的历史其他地址");
+assert.doesNotMatch(editCustomer, />其他地址</, "我的客户编辑不应展示其他地址");
+assert.doesNotMatch(publicPoolCustomer, />其他地址</, "公海客户编辑不应展示其他地址");
+assert.doesNotMatch(detailSource, /<Row label="其他地址">/, "客户详情不应展示已移除的其他地址");
+assert.match(detailSource, /onDirtyChange={setEditingDirty}/, "客户编辑必须监听未保存修改");
+assert.match(detailSource, /<ConfirmDialog open=\{Boolean\(pendingEditExit\)\}/, "关闭客户编辑时必须确认放弃修改");
+assert.match(poolSource, /CustomerForm destination="PUBLIC_POOL" onDirtyChange=\{setCreateDirty\}/, "公海新增客户也必须监听草稿变更");
+assert.match(poolSource, /<ConfirmDialog open=\{confirmCreateExit\}/, "公海新增客户有未保存修改时必须提示确认");
 assert.match(formSource, /x-dtsmart-toast":"manual-error"/, "客户表单错误已在表单内展示时不应再弹全局重复错误toast");
 assert.match(taskRuntime, /toastMode === "manual-error" && !response\.ok/, "manual-error只抑制重复失败toast，不影响统一成功反馈");
 assert.match(editApi, /const writable = \[[\s\S]*"company_name", "contact_name", "country", "phone", "whatsapp", "email"/, "服务端应允许编辑对应原始字段");
 const editableCustomerFields = editApi.match(/const writable = \[[\s\S]*?\];/)?.[0] || "";
 assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_score|review_count/,
   "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
-assert.match(detailSource, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
-assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入跟进留痕流程");
+assert.match(detailSource, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onDirtyChange=\{setEditingDirty\} onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
+assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onFollowup=\{\(\)=>exitEditing\("followup"\)\}/, "编辑窗口进入跟进留痕前也须检查未保存修改");
 assert.match(detailSource, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号[\s\S]*客户等级/, "客户详情前五项应与编辑表单顺序一致");
 assert.match(detailSource, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须读取完整收货地址列表并兼容旧字段");
 assert.match(detailSource, /displayAddressList\(customer\.forwarder_addresses, customer\.forwarder_address\)/, "详情须读取完整货代地址列表并兼容旧字段");

@@ -88,6 +88,7 @@ export async function GET(
         !(order.data.confirmation_method === "DIRECT_PI" && !["DRAFT", "WAITING_STOCK"].includes(order.data.status)) &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),
       can_export: hasPermission(account, "orders.export") && !["DRAFT", "CANCELLED"].includes(order.data.status),
+      can_preview: hasPermission(account, "orders.preview"),
     });
   } catch (error) {
     const message = sqlErrorMessage(error, "销售订单详情加载失败");

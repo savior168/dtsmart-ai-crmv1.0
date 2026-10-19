@@ -98,6 +98,7 @@ type Payload = {
   recalled_pi: boolean;
   can_view_pi: boolean;
   can_export: boolean;
+  can_preview: boolean;
   can_submit: boolean;
   can_update: boolean;
   can_edit_receiving: boolean;
@@ -445,7 +446,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
             >
               查看PI订单 {o.warehouse_reference_number || o.order_number}
             </Link> : null}
-            {o.status !== "CANCELLED" ? <Link href={`/stock-orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
+            {data.can_preview && o.status !== "CANCELLED" ? <Link href={`/stock-orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
             {data.can_export ? (
               <a
                 href={`/api/stock-orders/${id}/export`}

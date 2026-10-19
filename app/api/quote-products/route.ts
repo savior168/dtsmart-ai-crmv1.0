@@ -16,6 +16,11 @@ export async function GET(request:Request){
     if(products.error)throw products.error;if(settings.error)throw settings.error;if(rules.error)throw rules.error;
     const defaultRule:PricingRule={markup_percent:Number(settings.data.default_markup_percent),minimum_margin_percent:Number(settings.data.minimum_margin_percent),rounding_increment:Number(settings.data.rounding_increment)};
     const data=(products.data||[]).map(product=>{const prices=(product.prices||[]) as PriceTier[];const requestedQuantity=Math.max(quantity,Number(product.minimum_order_quantity)||1);const cost=completeCostCny(prices,requestedQuantity);const productRule=rules.data?.find(rule=>rule.product_id===product.id);const categoryRule=rules.data?.find(rule=>!rule.product_id&&rule.category_id===product.category_id);const selected=productRule||categoryRule;const rule:PricingRule=selected?{markup_percent:Number(selected.markup_percent),minimum_margin_percent:Number(selected.minimum_margin_percent),rounding_increment:Number(selected.rounding_increment)}:defaultRule;const calculated=cost===null?0:suggestedUsdPrice(cost,Number(settings.data.cny_per_usd),rule);const reference=Number(activeTier(prices.filter(price=>price.currency==="USD"),"SALE_REFERENCE",requestedQuantity)?.amount||0);return{...product,prices:undefined,total_cost_cny:cost,suggested_price_usd:cost===null?0:Math.max(calculated,reference),sale_reference_usd:reference||null,exchange_rate:Number(settings.data.cny_per_usd),pricing_rule:{...rule,scope:productRule?"PRODUCT":categoryRule?"CATEGORY":"GLOBAL",rule_id:selected?.id||null,source_note:settings.data.source_note},quantity:requestedQuantity}});
-    return NextResponse.json({data,quote_valid_days:Number(settings.data.quote_valid_days)});
+    // Sales may use the computed suggestion without learning the internal
+    // markup, minimum-margin, or rule-source settings behind that price.
+    const visibleData = hasPermission(account, "pricebooks.rules.view")
+      ? data
+      : data.map((product) => ({ ...product, pricing_rule: null }));
+    return NextResponse.json({data:visibleData,quote_valid_days:Number(settings.data.quote_valid_days)});
   }catch(error){const message=error instanceof Error?error.message:"可报价商品加载失败";return NextResponse.json({error:message},{status:authErrorStatus(message)||500})}
 }

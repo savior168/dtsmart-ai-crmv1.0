@@ -5,13 +5,13 @@ import { isProductFamily } from "@/lib/product-specifications";
 
 export async function GET(request: Request) {
   try {
-    const { account } = await requirePermission("products.view");
+    const { account } = await requirePermission("products.categories.view");
     const url = new URL(request.url);
     let query = createAdminClient().from("product_categories").select("id,code,name_zh,name_en,parent_id,sort_order,is_active,product_family");
     if (url.searchParams.get("active") !== "all") query = query.eq("is_active", true);
     const { data, error } = await query.order("sort_order").order("name_zh");
     if (error) throw error;
-    return NextResponse.json({ data: data || [], can_manage: hasPermission(account, "products.manage") });
+    return NextResponse.json({ data: data || [], can_manage: hasPermission(account, "products.categories.manage") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "商品分类加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 500 });
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { supabase, user } = await requirePermission("products.manage");
+    const { supabase, user } = await requirePermission("products.categories.manage");
     const body = await request.json();
     const name = String(body.name_zh || "").trim();
     if (!name) return NextResponse.json({ error: "中文名称为必填项" }, { status: 400 });

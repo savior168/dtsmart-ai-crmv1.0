@@ -104,7 +104,7 @@ function releaseNotice(status: CustomerStatus) {
 }
 function releaseNeedsAcknowledgement(status: CustomerStatus) { return status === "FOLLOWING" || status === "QUOTE"; }
 
-export function CustomersView() {
+export function CustomersView({ canCreate, canImport }: { canCreate: boolean; canImport: boolean }) {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<CustomerWorkspace>("list");
   const [protectionCount, setProtectionCount] = useState<number | null>(null);
@@ -760,7 +760,7 @@ export function CustomersView() {
             </div>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
-            <div ref={newRef} className="relative">
+            {(canCreate || canImport) && <div ref={newRef} className="relative">
               <button
                 onClick={() => setNewOpen((value) => !value)}
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
@@ -774,14 +774,14 @@ export function CustomersView() {
               </button>
               {newOpen && (
                 <div className="absolute left-0 top-11 z-40 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <Link
+                  {canCreate && <Link
                     href="/customers/new"
                     className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
                     <UserPlus size={20} className="mt-0.5 shrink-0 text-blue-600" />
                     <span><span className="block text-sm font-medium">手动新增</span><small className="text-slate-500">逐条录入客户资料</small></span>
-                  </Link>
-                  <Link
+                  </Link>}
+                  {canImport && <Link
                     href="/import?destination=private"
                     className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
@@ -789,8 +789,8 @@ export function CustomersView() {
                     <span><span className="block text-sm font-medium">批量导入</span><small className="text-slate-500">
                       导入后归属当前用户
                     </small></span>
-                  </Link>
-                  <a
+                  </Link>}
+                  {canImport && <a
                     href="/api/import/template"
                     className="flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-blue-50"
                   >
@@ -798,13 +798,13 @@ export function CustomersView() {
                     <span><span className="block text-sm font-medium">下载导入模板</span><small className="text-slate-500">
                       .xlsx · 含字段说明和示例数据
                     </small></span>
-                  </a>
-                  <div className="border-t px-3 py-2 text-xs text-slate-400">
+                  </a>}
+                  {canImport && <div className="border-t px-3 py-2 text-xs text-slate-400">
                     请使用系统最新模板，勿修改第一行字段名称
-                  </div>
+                  </div>}
                 </div>
               )}
-            </div>
+            </div>}
             {canExport && <button
               onClick={() => void exportData()}
               disabled={exporting}

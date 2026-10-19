@@ -5,7 +5,7 @@ import { isProductFamily } from "@/lib/product-specifications";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, user } = await requirePermission("products.manage");
+    const { supabase, user } = await requirePermission("products.categories.manage");
     const { id } = await context.params;
     const body = await request.json();
     const name = String(body.name_zh || "").trim();

@@ -199,6 +199,8 @@ export async function GET(request: NextRequest) {
       show_ai_usage: canViewAiUsage,
       show_ai_settings: canManageAiSettings,
       can_archive_tasks: hasPermission(account, "ai.tasks.delete"),
+      can_control_tasks: hasPermission(account, "ai.tasks.control"),
+      can_view_results: hasPermission(account, "ai.results.view"),
       show_historical_cost_summary: canViewHistoricalCost,
       historical_summary: canViewHistoricalCost ? {
         processed_customers: historicalCompleted,

@@ -200,7 +200,7 @@ export async function GET(request: NextRequest) {
       sales: clerkOwnerById.get(item.sales_user_id) || null,
       preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),
-      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: ["WAREHOUSE","ADMIN"].includes(account.role) && hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: account.role === "WAREHOUSE" || hasPermission(account, "stock.data_all") });
+      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: ["WAREHOUSE","ADMIN"].includes(account.role) && hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: account.role === "WAREHOUSE" || hasPermission(account, "stock.data_all") });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单列表加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

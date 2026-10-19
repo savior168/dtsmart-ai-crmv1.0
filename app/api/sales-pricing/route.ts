@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
   try {
-    const { account } = await requirePermission("pricebooks.view");
+    const { account } = await requirePermission("pricebooks.rules.view");
     const admin = createAdminClient();
     const [settings,rules,categories,products] = await Promise.all([
       admin.from("sales_pricing_settings").select("*").eq("id",true).single(),

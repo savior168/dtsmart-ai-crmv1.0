@@ -81,6 +81,7 @@ type Payload = {
   can_edit: boolean;
   can_cancel: boolean;
   can_export: boolean;
+  can_preview: boolean;
 };
 export function OrderDetailView({ id }: { id: string }) {
   const router = useRouter();
@@ -172,7 +173,7 @@ export function OrderDetailView({ id }: { id: string }) {
           </Link>
           <div className="flex flex-wrap gap-2">
             {directPi && data.stock_order && o.status !== "DRAFT" ? <button type="button" disabled={loading} onClick={() => void load()} className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm disabled:opacity-50"><RefreshCw size={15}/>刷新备货进度</button> : null}
-            {directPi && o.status !== "CANCELLED" ? <Link href={`/orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
+            {data.can_preview && directPi && o.status !== "CANCELLED" ? <Link href={`/orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
             {data.can_export ? (
               <a
                 href={`/api/orders/${id}/export`}

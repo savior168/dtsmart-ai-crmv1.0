@@ -13,7 +13,7 @@ const customerExport = await readFile(new URL("../lib/customer-export.ts", impor
 const customerApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 const customerDetail = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
 assert.match(customerDetail, /CustomerEditWorkflowSummary customer=\{customer\} canSalesOperate=\{data\.can_sales_operate\}/, "编辑客户应回显当前跟进状态");
-assert.match(customerDetail, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onChangeStage=\{data\.can_change_stage\?/, "有权限的用户才可在编辑表单变更客户阶段，公海编辑必须保持公海字段边界");
+assert.match(customerDetail, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onDirtyChange=\{setEditingDirty\} onChangeStage=\{data\.can_change_stage\?/, "有权限的用户才可在编辑表单变更客户阶段，公海编辑必须保持公海字段边界");
 assert.match(customerDetail, /客户阶段可在下方选择，仍需提交原因与必要凭证/, "编辑表单不能绕过阶段凭证和跟进留痕");
 assert.match(customerApi, /async function loadCustomerContacts[\s\S]*\.range\(offset, offset \+ 999\)[\s\S]*if \(error\) throw error/, "导出联系号码必须分页读取完整且读取失败时不能静默漏导");
 assert.match(customerApi, /loadCustomerContacts\(responseData\.map\(\(item\) => item\.id\)\)/, "客户列表和导出必须使用完整的已核验联系号码");

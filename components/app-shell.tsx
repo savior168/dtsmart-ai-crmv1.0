@@ -36,9 +36,9 @@ const menu = [
   {
     label: "商品中心", icon: PackageSearch, defaultHref: "/products", children: [
       { label: "商品资料", href: "/products", permission: "products.view" },
-      { label: "商品分类", href: "/products/categories", permission: "products.view" },
+      { label: "商品分类", href: "/products/categories", permission: "products.categories.view" },
       { label: "产品价格表", href: "/products/prices", permission: "pricebooks.view" },
-      { label: "销售报价设置", href: "/products/pricing", permission: "pricebooks.view" },
+      { label: "销售报价设置", href: "/products/pricing", permission: "pricebooks.rules.view" },
       { label: "导入报价表", href: "/products/import", permission: "pricebooks.import" },
     ],
   },

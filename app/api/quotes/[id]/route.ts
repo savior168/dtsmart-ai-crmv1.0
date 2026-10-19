@@ -20,7 +20,15 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (itemError) throw itemError;
     if (attachmentError) throw attachmentError;
     const writable = quote.owner_id === account.id || account.role === "ADMIN";
-    return NextResponse.json({ quote, items: items || [], attachments: attachments || [], sales_order: salesOrder || null, stock_order: stockOrder || null, can_edit: !quote.pi_direct && writable && hasPermission(account, "quotes.edit") && ["DRAFT","GENERATED"].includes(quote.status), can_attach: !quote.pi_direct && writable && hasPermission(account,"quotes.edit") && ["DRAFT","GENERATED","SENT"].includes(quote.status), can_revise:!quote.pi_direct&&writable&&hasPermission(account,"quotes.edit")&&["SENT","EXPIRED","CANCELLED"].includes(quote.status)&&!salesOrder, can_confirm: !quote.pi_direct && writable && hasPermission(account, "quotes.confirm") && ["GENERATED","SENT"].includes(quote.status), can_cancel: !quote.pi_direct && writable && hasPermission(account, "quotes.cancel") && !["CONFIRMED","CANCELLED","SUPERSEDED"].includes(quote.status), can_delete: !quote.pi_direct && writable && hasPermission(account,"quotes.cancel") && quote.status==="DRAFT" });
+    const canViewRules = hasPermission(account, "pricebooks.rules.view");
+    const canViewCost = hasPermission(account, "pricebooks.cost.total.view");
+    const visibleItems = (items || []).map((item) => ({
+      ...item,
+      pricing_rule_snapshot: canViewRules ? item.pricing_rule_snapshot : null,
+      unit_cost_cny: canViewCost ? item.unit_cost_cny : null,
+      procurement_cost: canViewCost ? item.procurement_cost : null,
+    }));
+    return NextResponse.json({ quote, items: visibleItems, attachments: attachments || [], sales_order: salesOrder || null, stock_order: stockOrder || null, can_edit: !quote.pi_direct && writable && hasPermission(account, "quotes.edit") && ["DRAFT","GENERATED"].includes(quote.status), can_attach: !quote.pi_direct && writable && hasPermission(account,"quotes.edit") && ["DRAFT","GENERATED","SENT"].includes(quote.status), can_revise:!quote.pi_direct&&writable&&hasPermission(account,"quotes.edit")&&["SENT","EXPIRED","CANCELLED"].includes(quote.status)&&!salesOrder, can_confirm: !quote.pi_direct && writable && hasPermission(account, "quotes.confirm") && ["GENERATED","SENT"].includes(quote.status), can_cancel: !quote.pi_direct && writable && hasPermission(account, "quotes.cancel") && !["CONFIRMED","CANCELLED","SUPERSEDED"].includes(quote.status), can_delete: !quote.pi_direct && writable && hasPermission(account,"quotes.cancel") && quote.status==="DRAFT" });
   } catch (error) {
     const message = sqlErrorMessage(error, "报价详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

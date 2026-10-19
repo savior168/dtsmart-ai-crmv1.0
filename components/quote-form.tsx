@@ -72,7 +72,7 @@ type Attachment = {
 };
 type QuoteProduct = {
   id:string;sku:string;supplier_code:string|null;name_zh:string;name_en:string|null;brand:string|null;model:string|null;quality:string|null;color:string|null;specifications:Record<string,string>|null;category:{product_family:ProductFamily}|null;description_en:string|null;unit:string;minimum_order_quantity:number;
-  total_cost_cny:number|null;suggested_price_usd:number;sale_reference_usd:number|null;exchange_rate:number;pricing_rule:Record<string,unknown>;quantity:number;
+  total_cost_cny:number|null;suggested_price_usd:number;sale_reference_usd:number|null;exchange_rate:number;pricing_rule:Record<string,unknown>|null;quantity:number;
 };
 type Detail = {
   quote: QuoteData;

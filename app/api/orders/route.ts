@@ -216,6 +216,7 @@ export async function GET(request: NextRequest) {
       can_filter_creator: ["ADMIN", "ORDER_CLERK"].includes(account.role) && hasPermission(account, "orders.data_all"),
       can_view_stock: hasPermission(account, "stock.view"),
       can_export: hasPermission(account, "orders.export"),
+      can_preview: hasPermission(account, "orders.preview"),
       can_create: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN" || account.role === "ORDER_CLERK") && hasPermission(account, "orders.create"),
       can_import: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN") && hasPermission(account, "orders.import"),
     });

@@ -1,3 +1,5 @@
+import { canViewSubordinateData, isSubordinateDataPermission } from "./supervisor-data-scope.ts";
+
 export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE"] as const;
 export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "DEPARTED", "LOCKED"] as const;
 
@@ -72,8 +74,11 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "followups.export", label: "导出跟进记录", group: "客户中心", description: "导出当前筛选范围内的跟进记录", kind: "ACTION" },
 
   { code: "products.view", label: "商品资料", group: "商品中心", description: "进入商品资料并搜索可报价SKU", kind: "PAGE" },
+  { code: "products.categories.view", label: "商品分类", group: "商品中心", description: "进入商品分类页面并查看分类状态", kind: "PAGE" },
+  { code: "products.categories.manage", label: "维护商品分类", group: "商品中心", description: "新增、编辑、启用或停用商品分类", kind: "ACTION", core: true },
   { code: "products.manage", label: "维护商品资料", group: "商品中心", description: "新增、编辑、启用或停用商品主档", kind: "ACTION", core: true },
   { code: "pricebooks.view", label: "产品价格表", group: "商品中心", description: "进入产品价格表并查看有效销售参考价", kind: "PAGE" },
+  { code: "pricebooks.rules.view", label: "销售报价设置", group: "商品中心", description: "查看内部报价汇率、加价率和最低毛利规则", kind: "PAGE", core: true },
   { code: "pricebooks.sales.view", label: "查看销售参考价", group: "商品中心", description: "查看已发布美元销售参考价；不包含采购成本和利润底线", kind: "DATA" },
   { code: "pricebooks.cost.total.view", label: "查看完整成本合计", group: "商品中心", description: "仅查看采购、包装和其他费用合计，不显示成本拆分和来源", kind: "DATA" },
   { code: "pricebooks.cost.view", label: "查看采购成本", group: "商品中心", description: "查看人民币采购价、包装费、其他成本及其来源；销售员默认不可见", kind: "DATA" },
@@ -91,6 +96,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "quotes.cancel", label: "取消本人报价", group: "销售管理", description: "取消本人未确认的报价单", kind: "ACTION" },
 
   { code: "orders.view", label: "PI订单", group: "销售管理", description: "查看PI订单和历史销售订单", kind: "PAGE" },
+  { code: "orders.preview", label: "预览PI单据", group: "销售管理", description: "打开PI单据预览页面；正式单据的导出仍需导出权限", kind: "ACTION" },
   { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "销售员和主管为本人客户创建PI；跟单员可为任意在职销售员或主管的客户创建并提交PI", kind: "ACTION" },
   { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员可查看全部；主管还需单独开启下属数据开关，且仅能只读查看直属下属订单", kind: "DATA" },
@@ -100,6 +106,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
   { code: "stock.view", label: "备货单", group: "采购管理", description: "查看允许范围内的采购备货单", kind: "PAGE" },
+  { code: "stock.preview", label: "预览备货单", group: "采购管理", description: "打开备货单预览页面；正式单据的导出仍需导出权限", kind: "ACTION" },
   { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
   { code: "stock.procurement.edit", label: "确认实际采购价", group: "采购管理", description: "指定采购人员核实并维护备货单实际采购单价；可与备货状态权限分别授权", kind: "ACTION" },
@@ -151,7 +158,9 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("ai.acquisition.")) return "ai.acquisition.view";
   if (code.startsWith("ai.")) return "ai.tasks.view";
   if (code.startsWith("followups.")) return "followups.view";
+  if (code.startsWith("products.categories.")) return "products.categories.view";
   if (code.startsWith("products.")) return "products.view";
+  if (code.startsWith("pricebooks.rules.")) return "pricebooks.rules.view";
   if (code.startsWith("pricebooks.")) return "pricebooks.view";
   if (code.startsWith("quotes.")) return "quotes.view";
   if (code.startsWith("orders.")) return "orders.view";
@@ -167,6 +176,24 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("system.notifications.")) return "system.notifications.view";
   if (code.startsWith("system.security.")) return "system.security.view";
   return code;
+}
+
+export type PermissionAccount = {
+  role: UserRole;
+  permissions: string[];
+  supervisor_can_view_subordinates?: boolean;
+};
+
+/** The same decision is used by server handlers and the role regression matrix. */
+export function evaluatePermission(account: PermissionAccount, permission: string) {
+  if (account.role === "ADMIN") return true;
+  if (account.role === "SUPERVISOR" && !canViewSubordinateData(account)
+    && isSubordinateDataPermission(permission)) return false;
+  if (account.role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(permission)) return false;
+  const pagePermission = permissionPageCode(permission);
+  if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
+  if (!account.permissions.includes(permission)) return false;
+  return pagePermission === permission || account.permissions.includes(pagePermission);
 }
 
 export type UserProfile = {

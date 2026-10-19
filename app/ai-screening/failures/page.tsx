@@ -1,2 +1,3 @@
 import { FailuresView } from "@/components/ai-screening/failures-view";
-export default function AiFailuresPage(){return <FailuresView/>}
+import { protectPage } from "@/lib/auth/page-access";
+export default async function AiFailuresPage(){await protectPage("ai.results.view");return <FailuresView/>}

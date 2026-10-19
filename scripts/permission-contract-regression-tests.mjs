@@ -51,6 +51,34 @@ for (const name of ["set_notification_delivery_policy", "publish_system_announce
 }
 
 const roleApi = read("app/api/admin/roles/route.ts");
+for (const [prefix, page, batchPage, listApi, detailApi, listUi, detailUi] of [
+  ["orders", "app/orders/[id]/preview/page.tsx", "app/orders/batch-preview/page.tsx", "app/api/orders/route.ts", "app/api/orders/[id]/route.ts", "components/orders-view.tsx", "components/order-detail-view.tsx"],
+  ["stock", "app/stock-orders/[id]/preview/page.tsx", "app/stock-orders/batch-preview/page.tsx", "app/api/stock-orders/route.ts", "app/api/stock-orders/[id]/route.ts", "components/stock-orders-view.tsx", "components/stock-order-detail-view.tsx"],
+]) {
+  assert.match(permissionCatalog, new RegExp(`code: "${prefix}\\.preview"`), `${prefix} 预览必须有独立权限`);
+  assert.match(read(page), new RegExp(`protectPage\\(mode === "pdf" \\? "${prefix}\\.export" : "${prefix}\\.preview"\\)`), `${prefix} 普通预览与PDF导出应分别由服务端校验`);
+  assert.match(read(batchPage), new RegExp(`protectPage\\("${prefix}\\.export"\\)`), `${prefix} 批量PDF必须服务端校验导出权限`);
+  for (const api of [listApi, detailApi]) assert.match(read(api), new RegExp(`can_preview: hasPermission\\(account, "${prefix}\\.preview"\\)`), `${api} 必须返回预览权限`);
+  for (const ui of [listUi, detailUi]) assert.match(read(ui), /can_preview|canPreview/, `${ui} 必须按权限显示预览入口`);
+}
+assert.match(read("app/products/pricing/page.tsx"), /protectPage\("pricebooks\.rules\.view"\)/, "内部报价规则页面必须独立校验管理员权限");
+assert.match(read("app/api/sales-pricing/route.ts"), /export async function GET[\s\S]*requirePermission\("pricebooks\.rules\.view"\)/, "读取报价毛利规则的接口不得使用普通价格表权限");
+assert.match(read("app/api/quote-products/route.ts"), /hasPermission\(account, "pricebooks\.rules\.view"\)[\s\S]*pricing_rule: null/, "普通报价商品搜索不得泄露内部加价和最低毛利规则");
+assert.match(read("app/api/quotes/[id]/route.ts"), /canViewRules = hasPermission\(account, "pricebooks\.rules\.view"\)[\s\S]*pricing_rule_snapshot: canViewRules \? item\.pricing_rule_snapshot : null/, "历史报价明细不得向无权用户返回内部规则快照");
+assert.match(read("app/api/quotes/[id]/route.ts"), /canViewCost = hasPermission\(account, "pricebooks\.cost\.total\.view"\)[\s\S]*unit_cost_cny: canViewCost \? item\.unit_cost_cny : null/, "报价查看权限不能绕过成本数据权限");
+assert.match(sidebar, /href: "\/products\/pricing", permission: "pricebooks\.rules\.view"/, "内部报价规则菜单不能以普通价格表权限显示");
+assert.match(sidebar, /href: "\/products\/categories", permission: "products\.categories\.view"/, "商品分类菜单须有独立页面权限");
+assert.match(read("app/products/categories/page.tsx"), /protectPage\("products\.categories\.view"\)/, "商品分类页面须校验自身权限");
+assert.match(read("app/api/product-categories/route.ts"), /export async function GET[\s\S]*requirePermission\("products\.categories\.view"\)[\s\S]*can_manage: hasPermission\(account, "products\.categories\.manage"\)/, "商品分类读取及维护按钮须由独立权限控制");
+assert.match(read("app/api/product-categories/route.ts"), /export async function POST[\s\S]*requirePermission\("products\.categories\.manage"\)/, "新增分类接口须校验分类维护权限");
+assert.match(read("app/api/product-categories/[id]/route.ts"), /requirePermission\("products\.categories\.manage"\)/, "编辑分类接口须校验分类维护权限");
+assert.match(read("app/customers/new/layout.tsx"), /protectPage\("customers\.create"\)/, "手动新增客户页面须校验新增权限");
+for (const page of ["app/ai-screening/results/page.tsx", "app/ai-screening/failures/page.tsx", "app/ai-screening/tasks/[id]/report/page.tsx"]) {
+  assert.match(read(page), /protectPage\("ai\.results\.view"\)/, `${page} 须校验AI结果权限`);
+}
+assert.match(read("app/ai-screening/new/page.tsx"), /protectPage\("ai\.tasks\.create"\)/, "AI筛选新建页须校验创建权限");
+assert.match(read("components/customers-view.tsx"), /canCreate && <Link[\s\S]*href="\/customers\/new"[\s\S]*canImport && <Link[\s\S]*href="\/import\?destination=private"/, "我的客户新增和导入入口须分别遵循有效权限");
+assert.match(read("app/api/ai/tasks/route.ts"), /can_control_tasks: hasPermission\(account, "ai\.tasks\.control"\)[\s\S]*can_view_results: hasPermission\(account, "ai\.results\.view"\)/, "AI任务列表需返回控制和结果权限供前端隐藏对应入口");
 assert.match(read("lib/auth/current-user.ts"), /permissions = permissions\.filter\([\s\S]*role === "ORDER_CLERK" && isOrderClerkForbiddenPermission\(code\)/, "跟单员的历史授权不能出现在会话权限和菜单中");
 assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");
 assert.match(roleApi, /请先开启所属页面权限，再开启数据范围或功能按钮/, "服务端必须拒绝父页面关闭时直接开启子权限");
@@ -69,6 +97,8 @@ assert.match(importView, /disabled=\{!canCreate\}/, "未授权导入时模板下
 assert.match(importView, /disabled=\{!canCreate \|\| busy \|\| !previewReady\}/, "未授权或预检未成功时提交按钮必须禁用");
 const templateApi = read("app/api/import/template/route.ts");
 assert.match(templateApi, /requirePermission\("imports\.create"\)/, "导入模板接口必须服务端校验执行权限");
+assert.match(templateApi, /readFile\(path\.join\(process\.cwd\(\), "assets", "templates", "Customer_Import_Template\.xlsx"\)\)/, "客户导入模板必须从非公开目录由授权接口返回");
+assert.ok(!existsSync(resolve("public/templates/客户导入模板.xlsx")), "公开静态目录不能保留绕过授权的客户导入模板");
 
 const evidencePage = "app/(customer-evidence)/ai-screening/customers/[customerId]/evidence/page.tsx";
 assert.ok(existsSync(resolve(process.cwd(), evidencePage)), "客户AI分析依据必须位于独立权限布局");
@@ -93,7 +123,8 @@ const rawAiReadBoundary = read("supabase/migrations/202610100003_ai_raw_admin_re
 for (const table of ["tasks", "task_items", "results", "evidence"]) {
   assert.match(rawAiReadBoundary, new RegExp(`on public\\.ai_screening_${table} as restrictive[\\s\\S]*?for select to authenticated[\\s\\S]*?using \\(public\\.current_user_is_admin\\(\\)\\)`), `AI ${table} 原始数据必须在数据库 RLS 中仅允许管理员读取`);
 }
-assert.match(read("lib/auth/current-user.ts"), /CORE_PERMISSION_CODES\.has\(permission\) \|\| CORE_PERMISSION_CODES\.has\(pagePermission\)/, "旧权限授权不得绕过核心页面及子功能");
+assert.match(read("lib/auth/permissions.ts"), /CORE_PERMISSION_CODES\.has\(permission\) \|\| CORE_PERMISSION_CODES\.has\(pagePermission\)/, "旧权限授权不得绕过核心页面及子功能");
+assert.match(read("lib/auth/current-user.ts"), /return evaluatePermission\(account, permission\)/, "服务端权限判定须复用角色矩阵的同一规则");
 assert.match(customerCrm, /if \(!data\.can_view_ai_evidence\) return/, "普通角色AI分析页签只展示业务摘要");
 
 console.log("Permission contract regression tests passed.");

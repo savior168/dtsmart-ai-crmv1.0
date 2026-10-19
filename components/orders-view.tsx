@@ -65,6 +65,7 @@ export function OrdersView() {
   const [canCreate, setCanCreate] = useState(false);
   const [canImport, setCanImport] = useState(false);
   const [canExport, setCanExport] = useState(false);
+  const [canPreview, setCanPreview] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [singleExportId, setSingleExportId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -91,7 +92,7 @@ export function OrdersView() {
       await downloadFilteredExport(`/api/orders?${params}`, batchExportFilename("PI订单", "zip"));
     } catch (cause) {
       if (cause instanceof Error && ["UNAUTHORIZED", "SESSION_REVOKED"].includes(cause.message)) {
-        setData([]); setCount(0); setSelectedIds([]); setCanExport(false); setSessionExpired(true);
+        setData([]); setCount(0); setSelectedIds([]); setCanExport(false); setCanPreview(false); setSessionExpired(true);
         setError("登录已失效，请重新登录后再导出PI订单");
       } else setError(cause instanceof Error ? cause.message : "PI订单导出失败");
     } finally {
@@ -172,6 +173,7 @@ export function OrdersView() {
     setCanCreate(Boolean(b.can_create));
     setCanImport(Boolean(b.can_import));
     setCanExport(Boolean(b.can_export));
+    setCanPreview(Boolean(b.can_preview));
     setError("");
     } catch {
       if (requestVersion !== listRequestVersion.current) return;
@@ -342,7 +344,7 @@ export function OrdersView() {
                           <div className="flex items-center gap-2">
                             <Link href={`/orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">查看详情</Link>
                             <RowActionMenu ariaLabel={`订单 ${row.warehouse_reference_number || row.order_number} 的更多操作`} label="更多">
-                              {row.confirmation_method === "DIRECT_PI" ? <RowActionItem onClick={() => router.push(`/orders/${row.id}/preview`)}>预览{row.status === "DRAFT" ? "草稿" : " / 打印"}</RowActionItem> : null}
+                              {canPreview && row.confirmation_method === "DIRECT_PI" ? <RowActionItem onClick={() => router.push(`/orders/${row.id}/preview`)}>预览{row.status === "DRAFT" ? "草稿" : " / 打印"}</RowActionItem> : null}
                               {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <><RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "导出中…" : "导出 Excel"}</RowActionItem><RowActionItem onClick={() => window.open(`/orders/${row.id}/preview?export=pdf`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></> : null}
                               {row.can_delete_draft ? <RowActionItem tone="danger" onClick={() => setDeleting(row)}>删除草稿</RowActionItem> : null}
                             </RowActionMenu>
