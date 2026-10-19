@@ -582,6 +582,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
   function changeTab(value: Tab) {
     setTab(value);
     setError("");
+    setAiStatus("all");
     setSelected(new Set());
     setCreatedFrom("");
     setCreatedTo("");
@@ -847,7 +848,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
                   <option value="invalid">无效目标</option>
                   <option value="review">待复核</option>
                 </select>
-                <select
+                {tab !== "available" ? <select
                   value={aiStatus}
                   onChange={(event) => setAiStatus(event.target.value as "all" | "done" | "pending" | "failed")}
                   className={`${appFieldClass} w-36 shrink-0`}
@@ -857,7 +858,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
                   <option value="done">已分析</option>
                   <option value="pending">未分析</option>
                   <option value="failed">分析失败</option>
-                </select>
+                </select> : null}
                 {tab === "claimed" && role === "ADMIN" ? <select
                   value={customerStatus}
                   onChange={(event) => setCustomerStatus(event.target.value)}

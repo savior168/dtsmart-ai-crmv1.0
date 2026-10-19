@@ -158,6 +158,8 @@ assert.match(globalStyles, /\.crm-content table td \{[^}]*vertical-align:middle/
 assert.match(globalStyles, /td:last-child:has\([^}]*text-align:center/, "系统数据表操作单元格必须统一居中");
 assert.match(globalStyles, /td:last-child > button,[\s\S]*min-height:32px/, "系统数据表操作按钮必须统一使用适中的紧凑高度");
 const publicPool = read("components/customer-public-pool-view.tsx");
+assert.match(publicPool, /function changeTab\(value: Tab\) \{[\s\S]*?setAiStatus\("all"\)/, "公海页签切换必须清除不适用的 AI 分析状态条件");
+assert.match(publicPool, /\{tab !== "available" \? <select[\s\S]*?aria-label="AI分析状态"/, "待认领页不得显示必然为空的未分析或分析失败选项");
 assert.match(publicPool, /w-36[^>]*text-center[^>]*>操作/, "客户公海操作列必须预留一致宽度并居中");
 assert.match(publicPool, /grid h-8 w-8 shrink-0 place-items-center/, "客户公海详情操作必须使用紧凑的等宽图标按钮");
 assert.match(publicPool, /aria-label=\{`查看\$\{row\.company_name\}详情`}/, "客户公海详情图标必须保留可访问名称");
