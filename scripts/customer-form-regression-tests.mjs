@@ -11,6 +11,8 @@ const formSource = await readFile(new URL("../components/customer-form.tsx", imp
 const editApi = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
 const createApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 const detailSource = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
+const listSource = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
+const profileGrants = await readFile(new URL("../supabase/migrations/20261019010000_customer_profile_column_privileges.sql", import.meta.url), "utf8");
 const taskRuntime = await readFile(new URL("../components/task-runtime.tsx", import.meta.url), "utf8");
 const noop = () => undefined;
 
@@ -19,7 +21,7 @@ assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选�
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
 assert.match(newCustomer, /value="FOLLOWING"[^>]*>意向客户/, "新增客户可选择意向客户");
 assert.match(newCustomer, /value="DEAL"[^>]*>已成交客户/, "新增客户可选择已成交客户");
-for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "货代地址", "其他地址"]) {
+for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "客户收货地址", "货代地址", "其他地址"]) {
   assert.ok(newCustomer.includes(label), `新增客户表单应显示${label}`);
 }
 assert.ok(newCustomer.indexOf("客户等级") < newCustomer.indexOf("客户阶段"), "客户阶段应紧随客户等级");
@@ -59,7 +61,7 @@ for (const value of [existing.company_name, existing.phone, existing.whatsapp, e
 }
 assert.doesNotMatch(editCustomer, /<select[^>]*value="FOLLOWING"/, "基本资料编辑不能绕过阶段变更留痕");
 const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
-for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "forwarder_address", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
+for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
   assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
 }
 assert.match(formSource, /x-dtsmart-toast":"manual-error"/, "客户表单错误已在表单内展示时不应再弹全局重复错误toast");
@@ -69,4 +71,10 @@ const editableCustomerFields = editApi.match(/const writable = \[[\s\S]*?\];/)?.
 assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_score|review_count/,
   "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
 assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onStage=.*setStageOpen\(true\)[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入阶段变更和跟进留痕流程");
+assert.match(listSource, /\.xlsx · 含字段说明和示例数据/, "客户列表的下载模板格式应与实际 xlsx 文件一致");
+for (const field of ["manual_grade", "wechat", "tax_number", "tally_requirements", "forwarder_address", "other_address", "shipping_address"]) {
+  assert.match(profileGrants, new RegExp(`\\b${field}\\b`), `客户资料新字段 ${field} 应有显式列授权`);
+}
+assert.doesNotMatch(profileGrants, /grant\s+select\s+on\s+(?:table\s+)?public\.customers/i, "不得为修复客户列表而授予整表读取权限");
+assert.match(profileGrants, /company_scale_evidence.*SELECT/, "权限迁移须验证敏感 AI 证据列仍不可读取");
 console.log("手动新增与编辑客户表单回显、必填和工作流边界回归测试通过。");

@@ -48,6 +48,7 @@ export function OrdersView() {
   const [data, setData] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [currency, setCurrency] = useState("");
@@ -89,7 +90,10 @@ export function OrdersView() {
       selectedIds.forEach((id) => params.append("id", id));
       await downloadFilteredExport(`/api/orders?${params}`, batchExportFilename("PI订单", "zip"));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "PI订单导出失败");
+      if (cause instanceof Error && ["UNAUTHORIZED", "SESSION_REVOKED"].includes(cause.message)) {
+        setData([]); setCount(0); setSelectedIds([]); setCanExport(false); setSessionExpired(true);
+        setError("登录已失效，请重新登录后再导出PI订单");
+      } else setError(cause instanceof Error ? cause.message : "PI订单导出失败");
     } finally {
       setExportBusy(false);
     }
@@ -101,7 +105,10 @@ export function OrdersView() {
     try {
       await downloadFilteredExport(`/api/orders/${row.id}/export`, documentExportFilename(row.order_number, "PI订单", "xlsx"));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "PI订单导出失败，请稍后重试");
+      if (cause instanceof Error && ["UNAUTHORIZED", "SESSION_REVOKED"].includes(cause.message)) {
+        setData([]); setCount(0); setSelectedIds([]); setCanExport(false); setSessionExpired(true);
+        setError("登录已失效，请重新登录后再导出PI订单");
+      } else setError(cause instanceof Error ? cause.message : "PI订单导出失败，请稍后重试");
     } finally {
       setSingleExportId(null);
     }
@@ -145,9 +152,16 @@ export function OrdersView() {
     const b = await r.json().catch(() => ({}));
     setLoading(false);
     if (!r.ok) {
-      setError(b.error || "加载失败");
+      if (r.status === 401) {
+        setData([]); setCount(0); setSelectedIds([]); setCanExport(false); setSessionExpired(true);
+        setError("登录已失效，请重新登录后查看PI订单");
+      } else {
+        setSessionExpired(false);
+        setError(b.error || "加载失败");
+      }
       return;
     }
+    setSessionExpired(false);
     setData(b.data || []);
     setCount(Number(b.count || 0));
     setCanFilterCreator(Boolean(b.can_filter_creator));
@@ -268,6 +282,7 @@ export function OrdersView() {
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
+            {sessionExpired ? <Link href="/login?next=%2Forders" className="ml-2 font-semibold underline">前往登录</Link> : null}
           </p>
         ) : null}
         <section className="mt-4 overflow-hidden rounded-xl border bg-white">

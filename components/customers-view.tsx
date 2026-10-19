@@ -792,7 +792,7 @@ export function CustomersView() {
                   >
                     <Download size={20} className="mt-0.5 shrink-0 text-blue-600" />
                     <span><span className="block text-sm font-medium">下载导入模板</span><small className="text-slate-500">
-                      .csv · 含字段说明和示例数据
+                      .xlsx · 含字段说明和示例数据
                     </small></span>
                   </a>
                   <div className="border-t px-3 py-2 text-xs text-slate-400">

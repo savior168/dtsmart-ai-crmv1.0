@@ -29,6 +29,7 @@ export function StockOrdersView() {
   const [data,setData]=useState<Payload|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
+  const [sessionExpired,setSessionExpired]=useState(false);
   const [q,setQ]=useState("");
   const [status,setStatus]=useState("");
   const [country,setCountry]=useState("");
@@ -53,14 +54,22 @@ export function StockOrdersView() {
       if(dateFrom)params.set("date_from",dateFrom);if(dateTo)params.set("date_to",dateTo);
       selectedIds.forEach(id=>params.append("id",id));
       await downloadFilteredExport(`/api/stock-orders?${params}`,batchExportFilename("备货单","zip"));
-    } catch(cause) {setError(cause instanceof Error?cause.message:"备货单导出失败")}
+    } catch(cause) {
+      if(cause instanceof Error && ["UNAUTHORIZED","SESSION_REVOKED"].includes(cause.message)) {
+        setData(null);setSelectedIds([]);setSessionExpired(true);setError("登录已失效，请重新登录后再导出备货单");
+      } else setError(cause instanceof Error?cause.message:"备货单导出失败");
+    }
     finally {setExportBusy(false)}
   }
   async function exportOne(row:Row) {
     if(singleExportId)return;
     setSingleExportId(row.id);setError("");
     try {await downloadFilteredExport(`/api/stock-orders/${row.id}/export`,documentExportFilename(row.stock_number,"备货单","xlsx"))}
-    catch(cause){setError(cause instanceof Error?cause.message:"备货单导出失败，请稍后重试")}
+    catch(cause){
+      if(cause instanceof Error && ["UNAUTHORIZED","SESSION_REVOKED"].includes(cause.message)) {
+        setData(null);setSelectedIds([]);setSessionExpired(true);setError("登录已失效，请重新登录后再导出备货单");
+      } else setError(cause instanceof Error?cause.message:"备货单导出失败，请稍后重试");
+    }
     finally{setSingleExportId(null)}
   }
   const load=useCallback(async(silent=false)=>{
@@ -72,7 +81,12 @@ export function StockOrdersView() {
     if(dateFrom)params.set("date_from",dateFrom); if(dateTo)params.set("date_to",dateTo);
     const response=await fetch(`/api/stock-orders?${params}`,{cache:"no-store"});
     const body=await response.json().catch(()=>({})); setLoading(false);
-    if(!response.ok){setError(body.error||"备货单加载失败");return} setData(body);
+    if(!response.ok){
+      if(response.status===401){setData(null);setSelectedIds([]);setSessionExpired(true);setError("登录已失效，请重新登录后查看备货单");}
+      else {setSessionExpired(false);setError(body.error||"备货单加载失败");}
+      return;
+    }
+    setSessionExpired(false);setData(body);
   },[page,pageSize,q,status,country,userId,creatorId,dateFrom,dateTo,sortBy,sortDir]);
   useEffect(()=>{setSelectedIds([])},[q,status,country,userId,creatorId,dateFrom,dateTo]);
   const selectableIds=(data?.data||[]).filter(row=>!["DRAFT","CANCELLED"].includes(row.status)).map(row=>row.id);
@@ -99,7 +113,7 @@ export function StockOrdersView() {
       <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("updated_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
     </AppFilterBar>
     {data?.can_export?<div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式备货单；可跨页选择，最多50张</span><RowActionMenu ariaLabel={`批量导出备货单，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>void exportSelected()}>{exportBusy?"正在导出…":"导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>window.open(`/stock-orders/batch-preview?${selectedIds.map(id=>`id=${encodeURIComponent(id)}`).join("&")}`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div>:null}
-    {error?<div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
+    {error?<div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}{sessionExpired?<Link href="/login?next=%2Fstock-orders" className="ml-2 font-semibold underline">前往登录</Link>:null}</div>:null}
     <section className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
       <div className="overflow-x-auto"><table className="w-full min-w-[1650px] text-left text-sm">
         <thead className="bg-slate-50 text-xs text-slate-600"><tr>

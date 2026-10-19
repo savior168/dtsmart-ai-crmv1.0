@@ -115,6 +115,13 @@ assert.match(orderListView, /hover:bg-slate-50 xl:ml-auto/, "PI重置按钮应�
 const progressCellView = read("components/stock-progress-cell.tsx");
 const stockListApi = read("app/api/stock-orders/route.ts");
 const stockListView = read("components/stock-orders-view.tsx");
+for (const [view, title] of [[orderListView, "PI"], [stockListView, "备货单"]]) {
+  assert.match(view, /response\.status===401|r\.status === 401/, `${title}列表必须识别登录失效`);
+  assert.match(view, /setSelectedIds\(\[\]\)/, `${title}列表登录失效时必须清除旧选择`);
+  assert.match(view, /sessionExpired\s*\?\s*<Link href="\/login\?next=/, `${title}列表必须提供重新登录入口`);
+}
+assert.match(stockListView, /setData\(null\);setSelectedIds\(\[\]\);setSessionExpired\(true\)/, "备货单登录失效时不能继续展示缓存数据");
+assert.match(orderListView, /setData\(\[\]\); setCount\(0\); setSelectedIds\(\[\]\); setCanExport\(false\); setSessionExpired\(true\)/, "PI登录失效时不能继续展示缓存数据");
 const draftDeleteMigration = read("supabase/migrations/20261014072238_pi_never_submitted_draft_delete.sql");
 const piCustomersApi = read("app/api/orders/pi-customers/route.ts");
 const strictOwnerMigration = read("supabase/migrations/20261014120000_pi_strict_customer_owner.sql");
