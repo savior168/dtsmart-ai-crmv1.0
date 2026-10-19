@@ -702,7 +702,7 @@ export function QuoteForm({
                 ))}
               </select>
             </Field>
-            <Field label="客户简称">
+            <Field label="公司简称">
               <input
                 disabled={readonly}
                 value={form.customer_short_name}

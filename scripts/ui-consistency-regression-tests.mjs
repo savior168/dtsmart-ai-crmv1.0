@@ -158,6 +158,12 @@ assert.match(globalStyles, /\.crm-content table td \{[^}]*vertical-align:middle/
 assert.match(globalStyles, /td:last-child:has\([^}]*text-align:center/, "系统数据表操作单元格必须统一居中");
 assert.match(globalStyles, /td:last-child > button,[\s\S]*min-height:32px/, "系统数据表操作按钮必须统一使用适中的紧凑高度");
 const publicPool = read("components/customer-public-pool-view.tsx");
+const quotesView = read("components/quotes-view.tsx");
+assert.match(quotesView, /placeholder="搜索报价编号或公司简称"/, "历史报价搜索提示必须准确说明按公司简称检索");
+assert.match(quotesView, /\["报价编号","公司简称","状态"/, "历史报价列表必须将简称字段展示为公司简称");
+assert.doesNotMatch(quotesView, /客户简称/, "历史报价列表不得继续显示旧称客户简称");
+assert.match(read("components/quote-form.tsx"), /<Field label="公司简称">/, "历史报价编辑必须保留简称含义并使用公司称谓");
+assert.match(read("components/warehouse-dashboard.tsx"), /"公司简称"/, "仓库看板快照字段必须使用公司称谓");
 for (const path of [
   "components/customers-view.tsx",
   "components/orders-view.tsx",
