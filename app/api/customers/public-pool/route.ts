@@ -57,13 +57,14 @@ export async function GET(request: NextRequest) {
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
     // Everyone can audit who claimed a customer; only the owner, their direct
     // supervisor, and admins may see private customer/workflow details.
-    const directReports = account.role === "SUPERVISOR"
+    const directReports = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
       ? await admin.from("users").select("id").eq("manager_id", account.id).eq("status", "ACTIVE")
       : { data: [], error: null };
     if (directReports.error) throw directReports.error;
     if (params.get("counts") === "1") {
       const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
-      const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
+      const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null)
+        .eq("ai_screening_done", true).gte("ai_score", 60);
       const claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
       const pendingQuery = baseCount().eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
       const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner:users!customer_protection_renewal_requests_owner_id_fkey(manager_id)").eq("status", "PENDING");
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
       const [available, claimed, pending, renewals, history] = await Promise.all([availableQuery, claimedQuery, pendingQuery, renewalQuery, historyQuery]);
       const failure = [available.error, claimed.error, pending.error, renewals.error, history.error].find(Boolean);
       if (failure) throw failure;
-      const renewalRows = account.role === "SUPERVISOR"
+      const renewalRows = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
         ? (renewals.data || []).filter((item) => {
             const owner = Array.isArray(item.owner) ? item.owner[0] : item.owner;
             return owner?.manager_id === account.id;
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
         claimed: claimed.count || 0,
         pending: account.role === "ADMIN" ? pending.count || 0 : 0,
         history: account.role === "ADMIN" ? history.count || 0 : 0,
-        renewals: ["ADMIN", "SUPERVISOR"].includes(account.role) ? renewalRows.length : 0,
+        renewals: account.role === "ADMIN" || (account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates) ? renewalRows.length : 0,
       }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
     }
     const allowed = new Set(["available", "claimed", "pending"]);
@@ -105,7 +106,8 @@ export async function GET(request: NextRequest) {
       const optionRows: Array<{ id: string; country:string | null; industry: string | null; category: string | null; ai_screening_done: boolean | null; owner_id: string | null; source: string | null; source_batch: string | null }> = [];
       for (let offset = 0; offset < 20000; offset += 1000) {
         let optionQuery = admin.from("customers").select("id,country,industry,category,ai_screening_done,owner_id,source,source_batch").is("deleted_at", null);
-        if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
+        if (tab === "available") optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null)
+          .eq("ai_screening_done", true).gte("ai_score", 60);
         if (tab === "claimed") {
           optionQuery = optionQuery.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
         }
@@ -215,7 +217,8 @@ export async function GET(request: NextRequest) {
       { count: "exact" },
     ).is("deleted_at", null);
     if (selectedIds.length) query = query.in("id", selectedIds);
-    if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null);
+    if (tab === "available") query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null)
+      .eq("ai_screening_done", true).gte("ai_score", 60);
     if (tab === "claimed") {
       query = query.eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
     }
@@ -334,7 +337,7 @@ export async function GET(request: NextRequest) {
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
     const verifiedContactsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of verifiedContactsData) verifiedContactsByCustomer.set(item.customer_id, [...(verifiedContactsByCustomer.get(item.customer_id) || []), item]);
-    const directReportIds = new Set(account.role === "SUPERVISOR" ? (directReports.data || []).map((item) => item.id) : []);
+    const directReportIds = new Set(account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates ? (directReports.data || []).map((item) => item.id) : []);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const teamRead = account.role === "ADMIN" || directReportIds.has(String(row.owner_id || ""));

@@ -34,7 +34,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (profileResult.error) throw profileResult.error;
     const customer = customerResult.data;
     const isOwner = customer.owner_id === user.id;
-    const directReport = account.role === "SUPERVISOR" && customer.owner_id
+    const directReport = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && customer.owner_id
       ? await admin.from("users").select("id").eq("id", customer.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
       : { data: null };
     const canReadAll = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(customer.owner_id)) || Boolean(directReport.data);
@@ -95,7 +95,11 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const historyUsersById = new Map((historyUsersResult.data || []).map((item) => [item.id, item]));
     const claims = (claimsResult.data || []).map((item) => ({ ...item, actor: historyUsersById.get(item.user_id) || null, source_owner: item.source_owner_id ? historyUsersById.get(item.source_owner_id) || null : null }));
     const currentOwner = customer.owner_id ? historyUsersById.get(customer.owner_id) || null : null;
-    const usersResult = ["ADMIN", "SUPERVISOR"].includes(profileResult.data.role) ? await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name") : { data: [], error: null };
+    const usersResult = account.role === "ADMIN"
+      ? await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name")
+      : account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
+        ? await admin.from("users").select("id,name,email,role").eq("status", "ACTIVE").or(`id.eq.${account.id},manager_id.eq.${account.id}`).order("name")
+        : { data: [], error: null };
     const latestProtection = (protectionResult.data || [])[0] || null;
     const activeProtection = latestProtection?.status === "ACTIVE" && (!latestProtection.expire_date || new Date(latestProtection.expire_date).getTime() > Date.now()) ? latestProtection : null;
     const latestClaim = claims.find((item) => ["CLAIM", "TRANSFER", "RELEASE"].includes(String(item.action)));

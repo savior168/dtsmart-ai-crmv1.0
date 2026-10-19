@@ -8,6 +8,7 @@ import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements"
 import { exportOfficialWebsiteText, legacyWebsiteExportPatch } from "@/lib/customers/export-public-channels";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
+import { normalizeAddressPayload } from "@/lib/customers/address-list";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
 // ownership or workflow transitions. Those fields belong to dedicated flows.
@@ -15,7 +16,7 @@ const manualWritableFields = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "facebook_url", "instagram_url", "linkedin_url",
   "tiktok_url", "other_public_urls", "address", "category", "notes",
-  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address", "shipping_address",
+  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address", "shipping_address", "shipping_addresses", "forwarder_addresses",
 ] as const;
 
 // The customer list must not download the full CRM/AI payload for every row.
@@ -398,6 +399,7 @@ export async function POST(request: NextRequest) {
     const { supabase, user, account } = await requirePermission("customers.create");
     const admin = createAdminClient();
     const body = await request.json();
+    normalizeAddressPayload(body);
     validateManualContactInput(body);
     const publicPool = body.destination === "PUBLIC_POOL";
     const requestedStage = publicPool ? "UNCLAIMED" : String(body.status || "CLAIMED").toUpperCase();

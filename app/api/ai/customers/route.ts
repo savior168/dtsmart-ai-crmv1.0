@@ -35,6 +35,11 @@ export async function GET(request: NextRequest) {
     const screeningTaskIds = params.getAll("screening_task_id").map((value) => value.trim()).filter(Boolean);
     const from = params.get("date_from")?.trim() || "";
     const to = params.get("date_to")?.trim() || "";
+    if ([from, to].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) || (from && to && from > to)) {
+      return NextResponse.json({ error: "创建日期范围无效" }, { status: 400 });
+    }
+    const fromTimestamp = from ? Date.parse(`${from}T00:00:00.000+08:00`) : null;
+    const toTimestamp = to ? Date.parse(`${to}T23:59:59.999+08:00`) : null;
     const idsOnly = params.get("ids") === "all";
     const reverify = params.get("analysis_selection_mode") === "REVERIFY";
     const admin = createAdminClient();
@@ -56,8 +61,9 @@ export async function GET(request: NextRequest) {
       if (sourceChannel && sourceKind(row) !== sourceChannel) return false;
       if (sourceBatches.length && !sourceBatches.includes(batchFilterKey(row))) return false;
       if (screeningTaskIds.length && !screeningTaskIds.some((taskId) => tasksByCustomer.get(row.id)?.has(taskId))) return false;
-      if (from && String(row.created_at || "") < `${from}T00:00:00`) return false;
-      if (to && String(row.created_at || "") > `${to}T23:59:59.999`) return false;
+      const createdAt = Date.parse(String(row.created_at || ""));
+      if (fromTimestamp !== null && !(createdAt >= fromTimestamp)) return false;
+      if (toTimestamp !== null && !(createdAt <= toTimestamp)) return false;
       return true;
     };
 

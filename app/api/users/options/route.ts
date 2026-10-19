@@ -19,7 +19,9 @@ export async function GET(request: Request) {
       || !["ADMIN", "ORDER_CLERK"].includes(profile.role))) throw new Error("FORBIDDEN");
     let query = createAdminClient().from("users").select("id,name,email,role,status");
     if (!creatorOptions) query = query.eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
-    if (profile.role === "SUPERVISOR") query = query.or(`id.eq.${profile.id},manager_id.eq.${profile.id}`);
+    if (profile.role === "SUPERVISOR") query = profile.supervisor_can_view_subordinates
+      ? query.or(`id.eq.${profile.id},manager_id.eq.${profile.id}`)
+      : query.eq("id", profile.id);
     const { data, error } = await query.order("name");
     if (error) throw error;
     return NextResponse.json({ profile, users: data || [], can_select_owner: true });

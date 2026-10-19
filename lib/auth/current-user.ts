@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, isOrderClerkForbiddenPermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, USER_ROLES, isOrderClerkForbiddenPermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { isTimedLockActive } from "@/lib/auth/lockout";
+import { canViewSubordinateData, isSubordinateDataPermission } from "@/lib/auth/supervisor-data-scope";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
@@ -14,7 +16,7 @@ function isTransientReadError(error: unknown) {
 
 async function readCurrentAccount(admin: ReturnType<typeof createAdminClient>, userId: string) {
   const read = () => admin.from("users")
-    .select("id,name,email,role,status,must_change_password,force_logout_at,manager_id")
+    .select("id,name,email,role,status,must_change_password,force_logout_at,locked_until,manager_id,supervisor_can_view_subordinates")
     .eq("id", userId)
     .maybeSingle();
   let result = await read();
@@ -42,7 +44,9 @@ export type CurrentAccount = {
   status: AccountStatus;
   must_change_password: boolean;
   force_logout_at: string | null;
+  locked_until: string | null;
   manager_id: string | null;
+  supervisor_can_view_subordinates: boolean;
   permissions: string[];
 };
 
@@ -66,6 +70,15 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
   if (accountError && isTransientReadError(accountError)) throw new Error("AUTHORIZATION_UNAVAILABLE");
   if (accountError || !data) throw new Error("ACCOUNT_NOT_FOUND");
   const role = normalizeRole(data.role);
+  if (!USER_ROLES.includes(role as never)) {
+    // A syntactically valid role code is not an authorization decision. Check
+    // the live registry on every request so disabling a custom role takes
+    // effect immediately, even when role permissions are cached.
+    const definition = await admin.from("app_role_definitions")
+      .select("enabled,assignment_enabled").eq("code", role).maybeSingle();
+    if (definition.error) throw new Error("AUTHORIZATION_UNAVAILABLE");
+    if (!definition.data?.enabled || !definition.data.assignment_enabled) throw new Error("UNKNOWN_ROLE");
+  }
   const cachedPermissions = permissionCache.get(role);
   let rolePermissions = cachedPermissions && cachedPermissions.expires > Date.now() ? cachedPermissions.values : [];
   if (!rolePermissions.length && role !== "ADMIN") {
@@ -97,10 +110,15 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     status: normalizeStatus(data.status),
     must_change_password: Boolean(data.must_change_password),
     force_logout_at: data.force_logout_at ? String(data.force_logout_at) : null,
+    locked_until: data.locked_until ? String(data.locked_until) : null,
     manager_id: data.manager_id ? String(data.manager_id) : null,
+    supervisor_can_view_subordinates: role === "SUPERVISOR" && data.supervisor_can_view_subordinates === true,
     permissions,
   };
   if (account.status !== "ACTIVE") throw new Error(`ACCOUNT_${account.status}`);
+  // The password-login route is not the only way to obtain a Supabase token.
+  // Enforce temporary lockout on every application request as well.
+  if (isTimedLockActive(account.locked_until)) throw new Error("ACCOUNT_LOCKED");
   const issuedAt = Number.isFinite(Number(claims.iat)) ? Number(claims.iat) * 1000 : 0;
   if (account.force_logout_at && issuedAt && Date.parse(account.force_logout_at) > issuedAt) {
     await supabase.auth.signOut().catch(() => undefined);
@@ -124,6 +142,8 @@ export async function requirePermission(permission: string) {
 
 export function hasPermission(account: CurrentAccount, permission: string) {
   if (account.role === "ADMIN") return true;
+  if (account.role === "SUPERVISOR" && !canViewSubordinateData(account)
+    && isSubordinateDataPermission(permission)) return false;
   if (account.role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(permission)) return false;
   // Legacy grants and per-user overrides cannot revive an admin-only page or action.
   const pagePermission = permissionPageCode(permission);
@@ -164,7 +184,7 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
   // 主管仅能读本人和直属下级；权限判断必须在服务端执行，不能只依赖
   // 下拉选项的前端限制。暂不提供“全员”或跨主管聚合范围。
   if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
-  if (account.role !== "SUPERVISOR") return account.id;
+  if (!canViewSubordinateData(account)) return account.id;
   const { data, error } = await createAdminClient().from("users").select("id").eq("id", requested).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("FORBIDDEN");
@@ -192,7 +212,7 @@ export function clearPermissionCache(role?: UserRole) {
 
 export function authErrorStatus(message: string) {
   if (message === "UNAUTHORIZED" || message === "SESSION_REVOKED") return 401;
-  if (message === "FORBIDDEN") return 403;
+  if (message === "FORBIDDEN" || message === "UNKNOWN_ROLE") return 403;
   if (message === "AUTHORIZATION_UNAVAILABLE") return 503;
   if (message.startsWith("ACCOUNT_") || message === "PASSWORD_CHANGE_REQUIRED") return 423;
   return 400;

@@ -38,9 +38,9 @@ export function normalizeReportCountries(rows: ReportCountRow[]): ReportCountRow
 }
 
 export async function loadSalesReport(supabase: Client, authUserId: string, from: string, to: string, requestedUserId?: string | null) {
-  const { data: profile, error: profileError } = await supabase.from("users").select("id,name,email,role").eq("id", authUserId).single();
+  const { data: profile, error: profileError } = await supabase.from("users").select("id,name,email,role,supervisor_can_view_subordinates").eq("id", authUserId).single();
   if (profileError) throw profileError;
-  const canViewAll = profile.role === "ADMIN" || profile.role === "SUPERVISOR";
+  const canViewAll = profile.role === "ADMIN" || (profile.role === "SUPERVISOR" && profile.supervisor_can_view_subordinates === true);
   const reportScope = canViewAll ? requestedUserId || null : authUserId;
   const [performance, detail] = await Promise.all([
     supabase.rpc("sales_performance_report", { p_from: from, p_to: to }),

@@ -1,7 +1,8 @@
 export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE"] as const;
 export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "DEPARTED", "LOCKED"] as const;
 
-export type UserRole = (typeof USER_ROLES)[number];
+export type BuiltinUserRole = (typeof USER_ROLES)[number];
+export type UserRole = BuiltinUserRole | (string & {});
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
 export type PermissionGroup = "工作台" | "客户中心" | "AI获客与筛选" | "商品中心" | "销售管理" | "采购管理" | "PI财务设置" | "报表中心" | "站内通知" | "系统管理";
@@ -92,7 +93,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.view", label: "PI订单", group: "销售管理", description: "查看PI订单和历史销售订单", kind: "PAGE" },
   { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "销售员和主管为本人客户创建PI；跟单员可为任意在职销售员或主管的客户创建并提交PI", kind: "ACTION" },
   { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
-  { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "主管只读查看全部销售订单", kind: "DATA" },
+  { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员可查看全部；主管还需单独开启下属数据开关，且仅能只读查看直属下属订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
   { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅归属销售员或系统管理员可删除从未提交仓库的PI草稿；已提交历史不可删除", kind: "ACTION" },
   { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
@@ -192,7 +193,7 @@ export function canAccessCustomer(
   return customer.owner_id === profile.id || customer.status === "UNCLAIMED" || customer.status === "RELEASED";
 }
 
-export const ROLE_LABELS: Record<UserRole, string> = {
+export const ROLE_LABELS: Record<BuiltinUserRole, string> & Record<string, string> = {
   ADMIN: "系统管理员",
   SUPERVISOR: "主管",
   SALES: "销售员",
@@ -217,9 +218,10 @@ export const STATUS_LABELS: Record<AccountStatus, string> = {
 };
 
 export function normalizeRole(value: unknown): UserRole {
-  const role = String(value || "SALES").toUpperCase();
+  const role = String(value || "").toUpperCase();
   if (role === "MANAGER") return "SUPERVISOR";
-  return USER_ROLES.includes(role as UserRole) ? role as UserRole : "SALES";
+  if (/^[A-Z][A-Z0-9_]{1,39}$/.test(role)) return role;
+  throw new Error("UNKNOWN_ROLE");
 }
 
 export function normalizeStatus(value: unknown): AccountStatus {

@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
     const countries = [...new Set(params.getAll("country").map((value) => value.trim()).filter(Boolean))];
     const industries = [...new Set(params.getAll("industry").map((value) => value.trim()).filter(Boolean))];
     const level = params.get("level") || "";
+    if (level && !["A", "B", "C", "D"].includes(level)) {
+      return NextResponse.json({ error: "无效的AI等级筛选条件" }, { status: 400 });
+    }
     const taskSearch = (params.get("task_search")?.trim() || "").replace(/[%_,()]/g, " ");
     const taskCostMode = params.get("task_cost_mode") || "";
     const taskCountries = [...new Set(params.getAll("task_country").map((value) => value.trim()).filter(Boolean))];

@@ -21,6 +21,14 @@ const offenders = sourceFiles.filter((path) => nativeDialog.test(readFileSync(pa
 assert.deepEqual(offenders, [], `禁止使用浏览器原生弹框：${offenders.join(", ")}`);
 
 const read = (path) => readFileSync(resolve(root, path), "utf8");
+const screeningResults = read("components/ai-screening/results-view.tsx");
+const screeningResultsRoute = read("app/api/ai/results/route.ts");
+assert.doesNotMatch(screeningResults, /<option value="REVIEW">需人工复核<\/option>/, "仅展示已完成分析的结果列表不得提供永远无匹配结果的复核状态选项");
+assert.match(screeningResultsRoute, /dashboardBusinessDateKey\(new Date\(\)\)[\s\S]*todayStart[\s\S]*todayEnd[\s\S]*query\.gte\("completed_at", todayStart\)\.lt\("completed_at", todayEnd\)/, "今日分析结果必须按北京时间完整自然日过滤，且与统计使用相同边界");
+assert.match(screeningResultsRoute, /if \(grade && !\["A", "B", "C", "D"\]\.includes\(grade\)\)[\s\S]*status: 400/, "筛选值不受支持时必须明确报错，不能静默忽略条件");
+assert.match(read("app/api/ai/tasks/route.ts"), /if \(from\) query = query\.gte\("created_at", `\$\{from\}T00:00:00\.000\+08:00`\)[\s\S]*if \(to\) query = query\.lte\("created_at", `\$\{to\}T23:59:59\.999\+08:00`\)/, "AI筛选任务的创建日期必须按北京时间筛选");
+assert.match(read("app/api/ai/customers/route.ts"), /fromTimestamp = from \? Date\.parse\(`\$\{from\}T00:00:00\.000\+08:00`\)[\s\S]*toTimestamp = to \? Date\.parse\(`\$\{to\}T23:59:59\.999\+08:00`\)[\s\S]*createdAt = Date\.parse/, "AI待筛选客户的创建日期必须按真实时间戳与北京时间区间比较");
+assert.match(read("app/api/admin/customer-assignments/route.ts"), /dateFrom\) query = query\.gte\("created_at", `\$\{dateFrom\}T00:00:00\.000\+08:00`\)[\s\S]*dateTo\) query = query\.lte\("created_at", `\$\{dateTo\}T23:59:59\.999\+08:00`\)/, "客户分配历史的日期筛选必须按北京时间匹配界面显示的日期");
 assert.match(read("components/ui/app-pagination.tsx"), /STANDARD_PAGE_SIZES = \[10, 20, 50, 100, 300, 500\]/, "通用列表分页必须统一为六档");
 assert.match(read("components/ai-screening/ui.tsx"), /pageSizes = \[10, 20, 50, 100, 300, 500\]/, "AI筛选分页必须使用相同六档");
 for (const path of [

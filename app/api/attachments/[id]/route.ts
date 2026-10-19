@@ -12,7 +12,7 @@ async function access(id: string) {
   async function canReadOwner(ownerId: string | null | undefined) {
     if (!ownerId) return false;
     if (ownerId === account.id || account.role === "ADMIN") return true;
-    if (account.role !== "SUPERVISOR") return false;
+    if (account.role !== "SUPERVISOR" || !account.supervisor_can_view_subordinates) return false;
     const direct = await admin.from("users").select("id").eq("id", ownerId).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
     return Boolean(direct.data);
   }

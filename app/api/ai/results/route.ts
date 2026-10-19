@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
+import { dashboardBusinessDateKey } from "@/lib/dashboard-date-range";
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,6 +17,14 @@ export async function GET(request: NextRequest) {
     const evidence = params.get("evidence") || "";
     const search = params.get("search")?.trim() || "";
     const returnAll = params.get("all") === "true";
+    if (grade && !["A", "B", "C", "D"].includes(grade)) return NextResponse.json({ error: "无效的AI等级筛选条件" }, { status: 400 });
+    if (target && !["VALID", "INVALID"].includes(target)) return NextResponse.json({ error: "无效的目标判断筛选条件" }, { status: 400 });
+    if (evidence && !["SUFFICIENT", "NORMAL", "INSUFFICIENT"].includes(evidence)) return NextResponse.json({ error: "无效的证据完整度筛选条件" }, { status: 400 });
+    const businessDate = dashboardBusinessDateKey(new Date());
+    const todayStart = `${businessDate}T00:00:00.000+08:00`;
+    const tomorrow = new Date(`${businessDate}T00:00:00.000Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const todayEnd = `${tomorrow.toISOString().slice(0, 10)}T00:00:00.000+08:00`;
     let scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     if (taskId) {
@@ -49,9 +58,9 @@ export async function GET(request: NextRequest) {
       query = query.in("target_decision", ["VALID", "INVALID"]).not("score", "is", null).not("grade", "is", null).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
       if (scopeUserId) query = query.eq("task.user_id", scopeUserId);
       if (taskId) query = query.eq("task_id", taskId);
-      if (today) query = query.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+      if (today) query = query.gte("completed_at", todayStart).lt("completed_at", todayEnd);
       if (grade) query = query.eq("grade", grade);
-      if (["VALID", "INVALID", "REVIEW"].includes(target)) query = query.eq("target_decision", target);
+      if (target) query = query.eq("target_decision", target);
       if (evidence) query = query.eq("evidence_sufficiency", evidence);
       if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
       return query.order("completed_at", { ascending: false });
@@ -80,7 +89,7 @@ export async function GET(request: NextRequest) {
       summaryQuery = summaryQuery.in("target_decision", ["VALID", "INVALID"]).not("score", "is", null).not("grade", "is", null).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
       if (scopeUserId) summaryQuery = summaryQuery.eq("task.user_id", scopeUserId);
       if (taskId) summaryQuery = summaryQuery.eq("task_id", taskId);
-      if (today) summaryQuery = summaryQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+      if (today) summaryQuery = summaryQuery.gte("completed_at", todayStart).lt("completed_at", todayEnd);
       const summaryRows = await summaryQuery.range(offset, offset + 999);
       if (summaryRows.error) throw summaryRows.error;
       const rows = summaryRows.data || [];
@@ -106,7 +115,7 @@ export async function GET(request: NextRequest) {
     let failedQuery = admin.from("ai_screening_task_items").select("id,task:ai_screening_tasks!inner(user_id)", { count: "exact", head: true }).eq("status", "FAILED");
     if (scopeUserId) failedQuery = failedQuery.eq("task.user_id", scopeUserId);
     if (taskId) failedQuery = failedQuery.eq("task_id", taskId);
-    if (today) failedQuery = failedQuery.gte("completed_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    if (today) failedQuery = failedQuery.gte("completed_at", todayStart).lt("completed_at", todayEnd);
     const failed = await failedQuery;
     if (failed.error) throw failed.error;
     summary.failed = failed.count || 0;

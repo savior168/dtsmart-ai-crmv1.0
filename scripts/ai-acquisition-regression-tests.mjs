@@ -529,6 +529,8 @@ assert.match(usageRoute,/ai_acquisition_candidates[\s\S]*created_at,processed_at
 assert.match(usageRoute,/total_cost_usd: actualCostUsd\(costs\)[\s\S]*dailyByDate[\s\S]*isActuallyIncurredCost\(cost\)[\s\S]*daily/,"AI获客汇总和每日趋势必须仅使用真实已发生费用台账");
 const customerResults=fs.readFileSync(new URL("../components/ai-acquisition/customer-results.tsx",import.meta.url),"utf8");
 const customerResultsRoute=fs.readFileSync(new URL("../app/api/ai-acquisition/customers/route.ts",import.meta.url),"utf8");
+assert.match(customerResults,/<select aria-label="按AI等级筛选"[\s\S]*?\["A","B","C","D"\]\.map\(\(item\)=><option key=\{item\} value=\{item\}>\{item\}级<\/option>\)/,"AI获客等级筛选必须提交 A/B/C/D 值，而不是把 D级 等展示文字提交给接口");
+assert.match(customerResultsRoute,/if \(level && !\["A", "B", "C", "D"\]\.includes\(level\)\)[\s\S]*status: 400[\s\S]*if \(\["A", "B", "C", "D"\]\.includes\(level\)\) query = query\.eq\("effective_level", level\)/,"无效等级值不得静默忽略，合法等级须按实际展示的有效等级筛选");
 const customerResultsPage=fs.readFileSync(new URL("../app/ai-acquisition/customers/page.tsx",import.meta.url),"utf8");
 const acquisitionTaskDetail=fs.readFileSync(new URL("../components/ai-acquisition/task-detail.tsx",import.meta.url),"utf8");
 const acquisitionTaskCenter=fs.readFileSync(new URL("../components/ai-acquisition/task-center.tsx",import.meta.url),"utf8");

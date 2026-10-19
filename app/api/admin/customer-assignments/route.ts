@@ -32,8 +32,11 @@ export async function GET(request: NextRequest) {
       if (sourceUserId) query = query.eq("source_user_id", sourceUserId);
       if (targetUserId) query = query.eq("target_user_id", targetUserId);
       if (createdBy) query = query.eq("created_by", createdBy);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) query = query.gte("created_at", `${dateFrom}T00:00:00.000Z`);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
+      if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) || (dateFrom && dateTo && dateFrom > dateTo)) {
+        return NextResponse.json({ error: "分配日期范围无效" }, { status: 400 });
+      }
+      if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00.000+08:00`);
+      if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
       const result = await query.range(0, 9999);
       if (result.error) throw result.error;
       const batches = result.data || [];

@@ -18,6 +18,7 @@ const poolDeleteApi = read("app/api/customers/public-pool/delete/route.ts");
 const permanentDelete = read("lib/customers/soft-delete.ts");
 const deleteIndexes = read("supabase/migrations/202610100002_customer_delete_lookup_indexes.sql");
 const userApi = read("app/api/admin/users/route.ts");
+const userDeleteGuard = read("supabase/migrations/20261019021000_user_history_delete_guard.sql");
 const orderApi = read("app/api/orders/route.ts");
 const sidebar = read("components/app-shell.tsx");
 const managerRules = read("supabase/migrations/202609020003_user_manager_rules.sql");
@@ -26,6 +27,8 @@ const manualStatusRules = read("supabase/migrations/202609030002_restore_single_
 const ownershipIntegrity = read("supabase/migrations/202609030003_customer_ownership_integrity.sql");
 const stageReleaseBoundary = read("supabase/migrations/202609030004_customer_stage_release_boundary.sql");
 const claimStageBoundary = read("supabase/migrations/202609300002_claim_stage_boundary.sql");
+const lowScoreClaimGuard = read("supabase/migrations/20261019073000_screened_low_score_claim_guard.sql");
+const claimApi = read("app/api/customers/public-pool/claim/route.ts");
 const importApi = read("app/api/import/route.ts");
 const importSafety = read("lib/import-safety.ts");
 const importPage = read("app/import/page.tsx");
@@ -67,6 +70,9 @@ assert.match(manualStatusRules, /drop trigger if exists attachments_promote_evid
 assert.match(migration, /lower\(trim\(coalesce\(name,''\)\)\)='eva'/i, "销售员默认上级应优先 Eva");
 assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入审计日志");
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
+assert.equal((poolApi.match(/\.eq\("ai_screening_done", true\)\.gte\("ai_score", 60\)/g) || []).length, 3, "待认领数量、筛选选项和列表/导出必须统一只包含已完成筛选且达到 60 分的客户");
+assert.match(claimApi, /ai_screening_done !== true \|\| customer\.data\.ai_score === null \|\| customer\.data\.ai_score < 60/, "认领接口必须拒绝未筛选和低分客户");
+assert.match(lowScoreClaimGuard, /before update on public\.customers[\s\S]*SELF_CLAIM[\s\S]*reject_low_score_self_claim/, "数据库必须阻止绕过接口的低分自认领");
 assert.match(read("lib/auth/permissions.ts"), /code: "customers\.pool\.export"[^\n]*kind: "ACTION"/, "客户公海导出必须有独立可授权权限");
 assert.match(poolApi, /exportMode && !hasPermission\(account, "customers\.pool\.export"\)/, "公海导出服务端必须检查独立权限");
 assert.match(poolApi, /exportMode && account\.role === "ADMIN" \? "\*" :/, "被授权的普通用户导出不得读取完整客户主档");
@@ -85,7 +91,8 @@ assert.match(poolView, /includeAllContactChannels: true/, "公海与我的客户
 assert.match(poolApi, /contact_name: full[\s\S]*website_phone: full[\s\S]*website_email: full/, "公海扩展联系人字段也必须在接口层完整脱敏");
 assert.match(poolApi, /optionalProbe[\s\S]*hasOptionalFields[\s\S]*optionalSelect/, "客户公海必须兼容尚未补齐可选联系字段的旧生产库");
 assert.match(poolApi, /tab === "available" \|\| own \|\| teamRead/, "未认领公海客户应可查看基础详情；已认领完整详情只限归属人、直属主管或系统管理员");
-assert.match(userApi, /historyCount > 0/, "存在业务历史的账号不得物理删除");
+assert.match(userApi, /rpc\("user_has_business_history"[\s\S]*if \(hasHistory\)/, "删除前须通过数据库完整核验用户历史");
+assert.match(userDeleteGuard, /before delete on public\.users[\s\S]*prevent_business_user_delete/, "数据库层必须阻止删除有历史用户");
 assert.match(userApi, /action === "CREATE"/, "系统管理员应能新增用户");
 assert.match(userApi, /action === "UPDATE_MANAGER"/, "系统管理员应能修改销售直属上级");
 assert.match(managerRules, /update public\.users set manager_id=null where role='SUPERVISOR'/, "主管默认必须没有上级");

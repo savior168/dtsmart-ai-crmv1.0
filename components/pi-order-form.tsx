@@ -14,8 +14,9 @@ import { calculatePiFees, type PiFeeSource } from "@/lib/pi-fees";
 import { PI_PAYMENT_CHANNELS, type PiPaymentChannel } from "@/lib/pi-payment-channel";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
+import { displayAddressList } from "@/lib/customers/address-list";
 
-type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null };
+type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null };
 type Salesperson = { id: string; name: string | null };
 type Account = { id: string; label: string; currency: string; instructions: string; payment_channel: PiPaymentChannel; active?: boolean };
 type ExchangeRate = { currency: string; business_cny: number | null; source: string; reference_date: string | null };
@@ -96,6 +97,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const effectiveRate = paymentPerCny(cnyPerPayment);
   const shippingCny = Number(shippingInput);
   const selectedCustomer = customers.find((item) => item.id === customerId);
+  const selectedShippingAddresses = displayAddressList(selectedCustomer?.shipping_addresses, selectedCustomer?.shipping_address);
   const totals = useMemo(() => {
     const subtotalCny = roundMoney(items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price_cny || 0)), 0));
     const subtotalPayment = roundMoney(items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price_payment || 0)), 0));
@@ -199,7 +201,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       const exact = initialCustomerId ? listed.find((item) => item.id === initialCustomerId) : null;
       setCustomers(listed);
       if (initialCustomerId && !exact && !draftOrderId && !clerk) { setCustomerId(""); setError("该客户当前不归属您，不能为其创建PI订单"); }
-      if (exact) { setRecipient(exact.contact_name?.trim() || ""); setPhone(exact.phone || ""); setEmail(exact.email || ""); setAddress(exact.shipping_address || ""); }
+      if (exact) { setRecipient(exact.contact_name?.trim() || ""); setPhone(exact.phone || ""); setEmail(exact.email || ""); setAddress(displayAddressList(exact.shipping_addresses, exact.shipping_address)[0] || ""); }
       setAccounts(accountBody.data || []);
       if (ratesResponse.ok) {
         setExchangeRates(ratesBody.rates || []);
@@ -304,7 +306,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     setRecipient(customer.contact_name?.trim() || "");
     setPhone(customer.phone || "");
     setEmail(customer.email || "");
-    setAddress(customer.shipping_address || "");
+    setAddress(displayAddressList(customer.shipping_addresses, customer.shipping_address)[0] || "");
   }
   async function chooseSalesperson(id: string) {
     if (id === salesUserId) return;
@@ -520,7 +522,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <label className="text-sm">收件人<Required /><input className={field} required maxLength={200} value={recipient} onChange={(event) => setRecipient(event.target.value)} /></label>
       <label className="text-sm">电话<Required /><input className={field} required maxLength={100} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
       <label className="text-sm">邮箱<Required /><input className={field} type="email" required maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-      <label className="text-sm">收货地址<Required /><input className={field} required maxLength={1000} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
+      <div className="text-sm"><label>收货地址<Required /><input className={field} required maxLength={1000} value={address} onChange={(event) => setAddress(event.target.value)} /></label>{selectedShippingAddresses.length > 1 ? <AppSelect aria-label="选择客户收货地址" value={selectedShippingAddresses.includes(address) ? address : ""} onChange={(event) => { if (event.target.value) { markUnsaved(); setAddress(event.target.value); } }} className={`${field} mt-2`}><option value="">自定义收货地址</option>{selectedShippingAddresses.map((item, index) => <option key={`${index}-${item}`} value={item}>{`客户收货地址${index + 1} · ${item}`}</option>)}</AppSelect> : null}</div>
     </div></section>
     <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">人民币或付款币种销售单价任选一种录入；另一种自动换算，成本和利润按人民币计算。表格可横向滚动。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
       <label className="mb-4 flex w-fit cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={showDualCurrencyPrices && currency !== "CNY"} disabled={currency === "CNY"} onChange={(event) => { markUnsaved(); setShowDualCurrencyPrices(event.target.checked); }} />预览、打印及导出 PI 时同时显示人民币和{currency || "付款币种"}销售单价{currency === "CNY" ? "（付款币种已是人民币）" : ""}</label>

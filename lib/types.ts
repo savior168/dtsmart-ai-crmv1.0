@@ -27,6 +27,8 @@ export type Customer = {
   tally_requirements?: string | null;
   forwarder_address?: string | null;
   shipping_address?: string | null;
+  forwarder_addresses?: string[] | null;
+  shipping_addresses?: string[] | null;
   other_address?: string | null;
   industry: string | null;
   business_scope?: string | null;

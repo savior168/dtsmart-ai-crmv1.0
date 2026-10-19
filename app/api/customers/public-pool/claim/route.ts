@@ -11,11 +11,14 @@ export async function POST(request: NextRequest) {
     if (!customerId) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
     const stage = String(form.get("stage") || "CLAIMED").toUpperCase();
     if (!["CLAIMED", "FOLLOWING", "DEAL"].includes(stage)) return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
+    const customer = await supabase.from("customers").select("phone,email,ai_screening_done,ai_score").eq("id", customerId)
+      .is("deleted_at", null).maybeSingle();
+    if (customer.error) throw customer.error;
+    if (!customer.data) return NextResponse.json({ error: "客户不存在或无权认领" }, { status: 404 });
+    if (customer.data.ai_screening_done !== true || customer.data.ai_score === null || customer.data.ai_score < 60) {
+      return NextResponse.json({ error: "客户须完成 AI 分析且评分达到 60 分后才能认领" }, { status: 409 });
+    }
     if (["FOLLOWING", "DEAL"].includes(stage)) {
-      const customer = await supabase.from("customers").select("phone,email").eq("id", customerId)
-        .is("deleted_at", null).maybeSingle();
-      if (customer.error) throw customer.error;
-      if (!customer.data) return NextResponse.json({ error: "客户不存在或无权认领" }, { status: 404 });
       if (!String(customer.data.phone || "").trim() || !String(customer.data.email || "").trim()) {
         return NextResponse.json({ error: "意向客户和成交客户必须同时具备联系电话和邮箱，请先补全客户资料" }, { status: 400 });
       }

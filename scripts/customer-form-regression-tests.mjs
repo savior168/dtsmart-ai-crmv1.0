@@ -7,12 +7,14 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
 const { CustomerForm, PotentialDuplicateCandidate } = await jiti.import(resolve("components/customer-form.tsx"));
+const { displayAddressList, normalizeAddressPayload } = await jiti.import(resolve("lib/customers/address-list.ts"));
 const formSource = await readFile(new URL("../components/customer-form.tsx", import.meta.url), "utf8");
 const editApi = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
 const createApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 const detailSource = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
 const listSource = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
 const profileGrants = await readFile(new URL("../supabase/migrations/20261019010000_customer_profile_column_privileges.sql", import.meta.url), "utf8");
+const addressMigration = await readFile(new URL("../supabase/migrations/20261019035957_customer_address_lists.sql", import.meta.url), "utf8");
 const taskRuntime = await readFile(new URL("../components/task-runtime.tsx", import.meta.url), "utf8");
 const noop = () => undefined;
 
@@ -22,6 +24,7 @@ for (const [before, after] of [["客户名称", "国家/地区"], ["国家/地�
 }
 assert.match(newCustomer, />官网<\/span>/, "客户表单官网字段应简洁显示为官网");
 assert.match(newCustomer, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号/, "新增与编辑表单的前四项顺序应一致");
+assert.doesNotMatch(newCustomer, /客户类型|原始商家类别/, "AI原始分类不得作为客户手工编辑字段");
 assert.match(newCustomer, /理货要求<\/span><textarea[^>]*rows="5"[\s\S]*备注<\/span><textarea[^>]*rows="5"/, "理货要求与备注应同排使用多行输入框");
 assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选择客户阶段");
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
@@ -67,24 +70,35 @@ for (const value of [existing.company_name, existing.phone, existing.whatsapp, e
 }
 assert.doesNotMatch(editCustomer, /<span[^>]*>(客户类型|原始商家类别)<\/span>|value="维修商"/, "我的客户编辑不得把原始采集类别误当成可编辑客户类型");
 const aiAnalyzedCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: "手机维修店", ai_screening_done: true }, onDone: noop, onCancel: noop, editBasicOnly: true }));
-assert.match(aiAnalyzedCustomer, /所属行业<\/span><input[^>]*readOnly=""[^>]*value="手机维修店"/, "我的客户编辑应只读回显AI核验所属行业");
+assert.doesNotMatch(aiAnalyzedCustomer, /所属行业|value="手机维修店"/, "我的客户编辑不应回显只读行业字段");
 assert.match(editCustomer, /客户等级[\s\S]*客户阶段/, "编辑客户时阶段应紧随客户等级");
 assert.match(editCustomer, /<select[^>]*aria-label="变更客户阶段"[^>]*disabled=""/, "无阶段变更权限时不得操作阶段选择");
 const editableStageCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: existing, onDone: noop, onCancel: noop, onChangeStage: noop, editBasicOnly: true }));
 assert.doesNotMatch(editableStageCustomer, /<select[^>]*aria-label="变更客户阶段"[^>]*disabled=""/, "有阶段变更权限时应能从编辑窗口发起留痕流程");
 const publicPoolCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: "手机维修", ai_screening_done: true }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
-assert.match(publicPoolCustomer, /所属行业<\/span><input[^>]*readOnly=""[^>]*value="手机维修"/, "公海编辑应展示只读的AI核验所属行业");
-assert.match(publicPoolCustomer, /AI核验结果，仅可通过AI筛选任务更新/, "公海编辑应说明行业结果来源与修改边界");
+assert.doesNotMatch(publicPoolCustomer, /所属行业|value="手机维修"/, "公海编辑也不应回显行业字段");
 assert.doesNotMatch(publicPoolCustomer, /<span[^>]*>(客户类型|原始商家类别)<\/span>|value="维修商"/, "公海编辑不得把原始采集类别放进资料编辑表单");
 assert.doesNotMatch(publicPoolCustomer, /客户等级|变更客户阶段/, "公海编辑不得显示我的客户等级和阶段操作");
 const unverifiedPublicCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: null, ai_screening_done: false, category: "electronics_store | cell_phone_store" }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
-assert.match(unverifiedPublicCustomer, /所属行业<\/span><input[^>]*value="手机零售、电子产品零售"/, "未核验公海客户应展示原始类别映射的行业");
-assert.match(unverifiedPublicCustomer, /尚未经AI核验/, "未核验行业不得冒充AI结论");
+assert.doesNotMatch(unverifiedPublicCustomer, /所属行业|手机零售、电子产品零售|尚未经AI核验/, "未核验公海客户也不应回显行业");
+assert.match(editCustomer, /aria-label="客户收货地址1"/, "客户收货地址初始应显示第一条输入框");
+assert.match(publicPoolCustomer, /aria-label="货代地址1"/, "公海编辑应复用货代地址列表");
+assert.match(editCustomer, /\+ 添加客户收货地址[\s\S]*\+ 添加货代地址/, "两种地址都应可追加");
+const multiAddressCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, shipping_addresses: ["收货地址甲", "收货地址乙"], forwarder_addresses: ["货代地址甲", "货代地址乙"] }, onDone: noop, onCancel: noop, editBasicOnly: true }));
+for (const label of ["客户收货地址1", "客户收货地址2", "货代地址1", "货代地址2", "删除客户收货地址1", "删除货代地址2"]) assert.ok(multiAddressCustomer.includes(label), `${label}应回显且可维护`);
+assert.deepEqual(displayAddressList([], "旧收货地址"), ["旧收货地址"], "历史单地址应回显为第一条");
+const addresses = { shipping_addresses: [" 收货地址乙 ", "", "收货地址丙"], forwarder_addresses: ["货代地址甲"] };
+normalizeAddressPayload(addresses);
+assert.deepEqual(addresses.shipping_addresses, ["收货地址乙", "收货地址丙"], "空地址应移除并按序重新编号");
+assert.equal(addresses.shipping_address, "收货地址乙", "PI兼容字段应同步为首条收货地址");
+assert.equal(addresses.forwarder_address, "货代地址甲", "旧货代地址字段应同步为首条");
+assert.throws(() => normalizeAddressPayload({ shipping_addresses: Array(11).fill("地址") }), /最多可填写 10 条/);
+assert.throws(() => normalizeAddressPayload({ shipping_addresses: ["重复", "重复"] }), /不能重复/);
 assert.match(formSource, /const payload=editBasicOnly\?Object\.fromEntries\(editableKeys/, "编辑基本资料不得在 PATCH 中直接改阶段");
 assert.match(formSource, /destination==="PUBLIC_POOL"\?basicKeys\.filter\(\(key\)=>key!=="manual_grade"\)/, "公海编辑保存不得覆盖我的客户等级");
 const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
 assert.doesNotMatch(editableFields, /"category"/, "基础资料保存不得覆盖原始商家类别");
-for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
+for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "shipping_addresses", "forwarder_addresses", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
   assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
 }
 assert.match(formSource, /x-dtsmart-toast":"manual-error"/, "客户表单错误已在表单内展示时不应再弹全局重复错误toast");
@@ -95,6 +109,13 @@ assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_scor
   "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
 assert.match(detailSource, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
 assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入跟进留痕流程");
+assert.match(detailSource, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号[\s\S]*客户等级/, "客户详情前五项应与编辑表单顺序一致");
+assert.match(detailSource, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须读取完整收货地址列表并兼容旧字段");
+assert.match(detailSource, /displayAddressList\(customer\.forwarder_addresses, customer\.forwarder_address\)/, "详情须读取完整货代地址列表并兼容旧字段");
+assert.match(detailSource, /客户收货地址\$\{index \+ 1\}[\s\S]*货代地址\$\{index \+ 1\}/, "两种地址须逐行编号回显");
+assert.match(addressMigration, /new\.shipping_address := nullif\(btrim\(new\.shipping_addresses\[1\]\)/, "数据库须同步首条收货地址供PI默认使用");
+assert.match(addressMigration, /new\.forwarder_address := nullif\(btrim\(new\.forwarder_addresses\[1\]\)/, "数据库须同步首条货代地址至旧字段");
+assert.match(addressMigration, /grant select \(shipping_addresses, forwarder_addresses\)/, "新地址字段须有显式列授权");
 assert.match(detailSource, /\{\["FOLLOWING","DEAL"\]\.includes\(stageForm\.status\)\?<div><label[\s\S]*上传真实凭证（必传）/, "意向及成交阶段才应展示必传凭证入口");
 assert.match(listSource, /\.xlsx · 含字段说明和示例数据/, "客户列表的下载模板格式应与实际 xlsx 文件一致");
 for (const field of ["manual_grade", "wechat", "tax_number", "tally_requirements", "forwarder_address", "other_address", "shipping_address"]) {

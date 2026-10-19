@@ -181,7 +181,7 @@ const tabLabels: Record<Tab, string> = {
   history: "分配记录",
 };
 const tabDescriptions: Record<Tab, string> = {
-  available: "无归属，可提交真实联系凭证认领",
+  available: "已完成 AI 分析且评分达到 60 分，可提交真实联系凭证认领",
   claimed: "查询客户当前归属",
   pending: "到期且有业务记录或账号停用的数据",
   renewals: "审核销售员第三次及后续续期申请",
@@ -767,7 +767,7 @@ export function CustomerPublicPoolView({ initialRole = "SALES", initialCanExport
             label="客户公海分类"
           />
         </div>
-        {tab === "available" ? <p className="mt-3 text-xs text-slate-500">AI 评分达到 60 分仍须核实行业、经营证据与联系方式。</p> : null}
+        {tab === "available" ? <p className="mt-3 text-xs text-slate-500">这里只展示已完成 AI 分析且评分达到 60 分的无归属客户；认领前仍须核实行业、经营证据与联系方式。未评分客户请到 <Link href="/ai-screening" className="font-medium text-blue-600 hover:underline">AI 筛选中心</Link>，未达标客户保留在对应筛选任务的结果报告中，可复核但不能直接认领。</p> : null}
         {tab === "claimed" ? <p className="mt-3 text-xs text-slate-500">显示全系统当前归属；他人客户的联系方式和跟进详情仅归属人及授权管理者可见。</p> : null}
         {["available", "claimed", "pending"].includes(tab) ? (
           <>

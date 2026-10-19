@@ -6,7 +6,7 @@ export type AiOwnerOption = { id: string; name: string | null; email: string; ro
 export async function canReadAiOwner(account: CurrentAccount, ownerId: string | null | undefined) {
   if (!ownerId) return false;
   if (ownerId === account.id || account.role === "ADMIN") return true;
-  if (account.role !== "SUPERVISOR") return false;
+  if (account.role !== "SUPERVISOR" || !account.supervisor_can_view_subordinates) return false;
   const directReport = await createAdminClient().from("users").select("id").eq("id", ownerId).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
   if (directReport.error) throw directReport.error;
   return Boolean(directReport.data);
@@ -29,7 +29,7 @@ export async function resolveAiOwnerScope(account: CurrentAccount, requestedOwne
     return { ownerIds: [requested], options, selectedOwnerId: requested, canSelectOwner: true, scopeLabel: "指定用户待筛选客户", allScopeLabel: "系统全部待筛选客户" };
   }
 
-  if (account.role === "SUPERVISOR") {
+  if (account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates) {
     const users = await admin.from("users").select("id,name,email,role").eq("status", "ACTIVE").or(`id.eq.${account.id},manager_id.eq.${account.id}`).in("role", ["SUPERVISOR", "SALES"]).order("name");
     if (users.error) throw users.error;
     const options = (users.data || []) as AiOwnerOption[];

@@ -82,7 +82,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
     if (!customer.data) throw new Error("CUSTOMER_NOT_FOUND");
     const canViewCustomerEvidence = hasPermission(account, "customers.ai_evidence_view");
     const canReadAiResults = hasPermission(account, "ai.results.view");
-    const isDirectReport = account.role === "SUPERVISOR" && customer.data.owner_id
+    const isDirectReport = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && customer.data.owner_id
       ? await canReadAiOwner(account, customer.data.owner_id)
       : false;
     const canReadOwnedCustomer = canViewCustomerEvidence && canReadCustomerAiEvidence({

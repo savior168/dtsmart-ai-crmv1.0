@@ -18,13 +18,14 @@ const customerEditApi = await readFile(resolve("app/api/customers/[id]/route.ts"
 const piCustomerApi = await readFile(resolve("app/api/orders/pi-customers/route.ts"), "utf8");
 const piForm = await readFile(resolve("components/pi-order-form.tsx"), "utf8");
 assert.match(customerForm, /shipping_address:customer\?\.shipping_address\|\|""/, "编辑客户须回填客户收货地址");
-assert.match(customerForm, /input\("shipping_address","客户收货地址"\)/, "手动新增及编辑须显示客户收货地址");
+assert.match(customerForm, /<AddressListEditor label="客户收货地址"/, "手动新增及编辑须显示客户收货地址列表");
 assert.match(customerForm, /"address","shipping_address","forwarder_address"/, "编辑资料须提交客户收货地址");
-assert.match(customerDetail, /<Row label="客户收货地址">\{value\(customer\.shipping_address\)\}/, "详情须显示客户收货地址");
+assert.match(customerDetail, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须显示客户收货地址列表");
 assert.match(customerCreateApi, /"other_address", "shipping_address"/, "手动新增 API 须保存客户收货地址");
 assert.match(customerEditApi, /"other_address", "shipping_address"/, "编辑 API 须保存客户收货地址");
-assert.match(piCustomerApi, /address,shipping_address"\)/, "PI客户选项须读取客户收货地址");
-assert.match(piForm, /setAddress\(customer\.shipping_address \|\| ""\)/, "PI须默认带入客户收货地址");
+assert.match(piCustomerApi, /address,shipping_address,shipping_addresses"\)/, "PI客户选项须读取全部客户收货地址");
+assert.match(piForm, /setAddress\(displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)\[0\] \|\| ""\)/, "PI须默认带入首条客户收货地址");
+assert.match(piForm, /aria-label="选择客户收货地址"/, "多条客户收货地址时 PI 应可选择实际配送地址");
 assert.match(customerListApi, /manualGrade === "UNMARKED"\) query = query\.is\("manual_grade", null\)/, "客户等级筛选须覆盖未标记客户");
 assert.match(customerListApi, /"ai_score", "manual_grade", "status"/, "客户等级应可排序");
 assert.match(customersView, /aria-label="客户等级"/, "我的客户应提供客户等级筛选");

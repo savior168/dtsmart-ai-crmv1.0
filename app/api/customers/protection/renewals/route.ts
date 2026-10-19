@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("customers.renew.review");
     if (!["SUPERVISOR", "ADMIN"].includes(account.role)) throw new Error("FORBIDDEN");
+    if (account.role === "SUPERVISOR" && !account.supervisor_can_view_subordinates) throw new Error("FORBIDDEN");
     const admin = createAdminClient();
     const status = request.nextUrl.searchParams.get("status") || "PENDING";
     let query = admin.from("customer_protection_renewal_requests").select(
@@ -29,7 +30,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { supabase } = await requirePermission("customers.renew.review");
+    const { supabase, account } = await requirePermission("customers.renew.review");
+    if (account.role === "SUPERVISOR" && !account.supervisor_can_view_subordinates) throw new Error("FORBIDDEN");
     const body = await request.json();
     const result = await supabase.rpc("review_customer_protection_renewal", {
       p_request_id: String(body.request_id || ""),

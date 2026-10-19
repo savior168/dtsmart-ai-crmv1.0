@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
     const selectionMode = params.get("selection_mode") || "";
     const from = params.get("date_from") || "";
     const to = params.get("date_to") || "";
+    if ([from, to].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) || (from && to && from > to)) {
+      return NextResponse.json({ error: "创建日期范围无效" }, { status: 400 });
+    }
     const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
     const admin = createAdminClient();
     const acquisitionChildIds = new Set<string>();
@@ -37,8 +40,8 @@ export async function GET(request: NextRequest) {
     else if (status) query = query.eq("status", status);
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
     if (selectionMode) query = query.eq("selection_mode", selectionMode);
-    if (from) query = query.gte("created_at", `${from}T00:00:00`);
-    if (to) query = query.lte("created_at", `${to}T23:59:59.999`);
+    if (from) query = query.gte("created_at", `${from}T00:00:00.000+08:00`);
+    if (to) query = query.lte("created_at", `${to}T23:59:59.999+08:00`);
     const result = await query.order("updated_at", { ascending: false }).order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;
     const ownerIds = Array.from(new Set((result.data || []).map((task) => String(task.user_id || "")).filter(Boolean)));

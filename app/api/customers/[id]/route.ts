@@ -6,6 +6,7 @@ import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/imp
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { normalizeAddressPayload } from "@/lib/customers/address-list";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -14,7 +15,7 @@ const writable = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "address", "category", "notes",
   "facebook_url", "instagram_url", "linkedin_url", "tiktok_url", "other_public_urls",
-  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address", "shipping_address",
+  "wechat", "tax_number", "manual_grade", "tally_requirements", "forwarder_address", "other_address", "shipping_address", "shipping_addresses", "forwarder_addresses",
 ];
 
 async function assertNoDuplicateIdentity(customerId: string, payload: Record<string, unknown>, current: Record<string, unknown>) {
@@ -72,7 +73,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const { data, error } = await admin.from("customers").select("*").eq("id", id).is("deleted_at", null).single();
     if (error) throw error;
     const publicUnclaimed = !data.owner_id && data.acquisition_scope === "PUBLIC_POOL" && data.pool_status === "AVAILABLE" && data.status === "UNCLAIMED";
-    const directReport = account.role === "SUPERVISOR" && data.owner_id
+    const directReport = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && data.owner_id
       ? await admin.from("users").select("id").eq("id", data.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
       : { data: null };
     const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || Boolean(directReport.data) || (account.role !== "ORDER_CLERK" && publicUnclaimed);
@@ -97,6 +98,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { supabase, user, account } = await requirePermission("customers.edit");
     const { id } = await context.params;
     const body = await request.json();
+    normalizeAddressPayload(body);
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
     if (payload.manual_grade != null && !["S", "A", "B", "C", "D"].includes(String(payload.manual_grade))) {
       throw new Error("客户等级只能选择 S、A、B、C、D");

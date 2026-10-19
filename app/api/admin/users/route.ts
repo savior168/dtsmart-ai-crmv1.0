@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, authErrorStatus } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ACCOUNT_STATUSES, USER_ROLES, normalizeRole } from "@/lib/auth/permissions";
+import { ACCOUNT_STATUSES } from "@/lib/auth/permissions";
+import { readRoleDefinitions, resolveAssignableRole } from "@/lib/auth/role-registry";
+import { canApplyLifecycleAction, canSetTimedLock, canUnlockAccount, effectiveAccountStatus } from "@/lib/auth/lockout";
 import { isUsername, listAuthUsers } from "@/lib/auth/identifiers";
 
 function temporaryPassword() {
@@ -11,8 +13,9 @@ function temporaryPassword() {
 }
 
 async function activeAdminCount() {
+  const now = new Date().toISOString();
   const { count, error } = await createAdminClient().from("users")
-    .select("id", { count: "exact", head: true }).eq("role", "ADMIN").eq("status", "ACTIVE");
+    .select("id", { count: "exact", head: true }).eq("role", "ADMIN").eq("status", "ACTIVE").or(`locked_until.is.null,locked_until.lte.${now}`);
   if (error) throw error;
   return count || 0;
 }
@@ -33,16 +36,20 @@ export async function GET(request: NextRequest) {
     const status = params.get("status")?.trim().toUpperCase() || "";
     const role = params.get("role")?.trim().toUpperCase() || "";
     const admin = createAdminClient();
-    let query = admin.from("users").select("id,name,email,role,status,created_at,reviewed_at,review_reason,last_login_at,must_change_password,locked_until,manager_id,departed_at", { count: "exact" });
+    let query = admin.from("users").select("id,name,email,role,status,created_at,reviewed_at,review_reason,last_login_at,must_change_password,failed_login_attempts,locked_until,manager_id,departed_at", { count: "exact" });
     if (search) query = query.or(`name.ilike.%${search.replace(/[%,()]/g, " ")}%,email.ilike.%${search.replace(/[%,()]/g, " ")}%`);
-    if (ACCOUNT_STATUSES.includes(status as never)) query = query.eq("status", status);
-    if (USER_ROLES.includes(role as never)) query = query.eq("role", role);
+    const now = new Date().toISOString();
+    if (status === "LOCKED") query = query.or(`status.eq.LOCKED,and(status.eq.ACTIVE,locked_until.gt.${now})`);
+    else if (status === "ACTIVE") query = query.eq("status", "ACTIVE").or(`locked_until.is.null,locked_until.lte.${now}`);
+    else if (ACCOUNT_STATUSES.includes(status as never)) query = query.eq("status", status);
+    if (/^[A-Z][A-Z0-9_]{1,39}$/.test(role)) query = query.eq("role", role);
     const from = (page - 1) * pageSize;
     const { data, count, error } = await query.order("created_at", { ascending: false }).range(from, from + pageSize - 1);
     if (error) throw error;
     const supervisors = await admin.from("users").select("id,name,email,role").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").order("role").order("name");
     if (supervisors.error) throw supervisors.error;
-    return NextResponse.json({ data: data || [], count: count || 0, page, pageSize, supervisors: supervisors.data || [] });
+    const roles = await readRoleDefinitions(admin);
+    return NextResponse.json({ data: (data || []).map(item => ({ ...item, status: effectiveAccountStatus(item.status, item.locked_until) })), count: count || 0, page, pageSize, supervisors: supervisors.data || [], roles: roles.data });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户列表加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
@@ -58,8 +65,9 @@ export async function PATCH(request: NextRequest) {
     const reason = String(body.reason || "").trim();
     if (!id) return NextResponse.json({ error: "缺少用户ID" }, { status: 400 });
     const admin = createAdminClient();
-    const { data: target, error: targetError } = await admin.from("users").select("id,name,email,role,status,manager_id").eq("id", id).maybeSingle();
+    const { data: target, error: targetError } = await admin.from("users").select("id,name,email,role,status,manager_id,locked_until").eq("id", id).maybeSingle();
     if (targetError || !target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+    if (!canApplyLifecycleAction(target.status, action)) return NextResponse.json({ error: "账号当前状态不支持该操作，请刷新列表" }, { status: 409 });
     const update: Record<string, unknown> = { reviewed_by: user.id, reviewed_at: new Date().toISOString() };
     if (action === "APPROVE" || action === "ACTIVATE") Object.assign(update, { status: "ACTIVE", review_reason: reason || null, locked_until: null, failed_login_attempts: 0 });
     else if (action === "REJECT") {
@@ -74,14 +82,41 @@ export async function PATCH(request: NextRequest) {
       if (!reason) return NextResponse.json({ error: "请填写离职原因" }, { status: 400 });
       await protectLastAdmin(target, undefined, "DEPARTED");
       Object.assign(update, { status: "DEPARTED", departed_at: new Date().toISOString(), review_reason: reason, force_logout_at: new Date().toISOString() });
-    } else if (action === "UNLOCK") Object.assign(update, { status: "ACTIVE", locked_until: null, failed_login_attempts: 0, review_reason: reason || null });
+    } else if (action === "LOCK") {
+      const minutes = Number(body.lock_minutes);
+      if (!canSetTimedLock(target.status)) return NextResponse.json({ error: "只能锁定已启用账号；停用和离职是独立状态" }, { status: 400 });
+      if (!reason || !Number.isInteger(minutes) || minutes < 1 || minutes > 43200) return NextResponse.json({ error: "请填写锁定原因及 1 至 43200 分钟的整数时长" }, { status: 400 });
+      const alreadyLocked = canUnlockAccount(target.status, target.locked_until);
+      if (target.role === "ADMIN" && !alreadyLocked) {
+        const now = new Date().toISOString();
+        const { count, error: countError } = await admin.from("users").select("id", { count: "exact", head: true })
+          .eq("role", "ADMIN").eq("status", "ACTIVE").or(`locked_until.is.null,locked_until.lte.${now}`);
+        if (countError) throw countError;
+        if ((count || 0) <= 1) return NextResponse.json({ error: "至少保留一名未锁定且已启用的系统管理员" }, { status: 409 });
+      }
+      Object.assign(update, { status: "ACTIVE", locked_until: new Date(Date.now() + minutes * 60000).toISOString(), failed_login_attempts: 0, force_logout_at: new Date().toISOString(), review_reason: reason });
+    } else if (action === "UNLOCK") {
+      if (!reason) return NextResponse.json({ error: "请填写提前解锁原因" }, { status: 400 });
+      if (!canUnlockAccount(target.status, target.locked_until)) return NextResponse.json({ error: "账号当前未锁定" }, { status: 409 });
+      Object.assign(update, { status: "ACTIVE", locked_until: null, failed_login_attempts: 0, review_reason: reason });
+    }
     else if (action === "UPDATE_ROLE") {
       if (id === user.id) return NextResponse.json({ error: "不能在用户管理中修改当前登录账号的角色" }, { status: 400 });
-      const requestedRole = String(body.role || "").toUpperCase();
-      if (!USER_ROLES.includes(requestedRole as never)) return NextResponse.json({ error: "角色无效" }, { status: 400 });
-      const role = normalizeRole(requestedRole);
+      const role = await resolveAssignableRole(admin, body.role);
+      if (!role) return NextResponse.json({ error: "角色不存在、已停用或尚未通过权限安全验证" }, { status: 400 });
       await protectLastAdmin(target, role, undefined);
-      Object.assign(update, { role, manager_id: role === "SALES" ? target.manager_id : null, review_reason: reason || null });
+      let managerId: string | null = null;
+      if (role === "SALES") {
+        managerId = String(body.manager_id || target.manager_id || "");
+        if (!managerId || managerId === target.id) return NextResponse.json({ error: "销售员必须选择其他已启用的主管或系统管理员作为上级" }, { status: 400 });
+        const { data: manager, error: managerError } = await admin.from("users").select("id,role,status,locked_until").eq("id", managerId).maybeSingle();
+        if (managerError) throw managerError;
+        if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE" || (manager.locked_until && Date.parse(manager.locked_until) > Date.now())) {
+          return NextResponse.json({ error: "请选择未锁定且已启用的主管或系统管理员作为上级" }, { status: 400 });
+        }
+      }
+      Object.assign(update, { role, manager_id: managerId, force_logout_at: new Date().toISOString(), review_reason: reason || null });
+      if (role !== target.role) update.supervisor_can_view_subordinates = false;
     } else if (action === "UPDATE_MANAGER") {
       const managerId = String(body.manager_id || "");
       if (!managerId) {
@@ -95,7 +130,7 @@ export async function PATCH(request: NextRequest) {
       }
     } else if (action === "FORCE_LOGOUT") Object.assign(update, { force_logout_at: new Date().toISOString(), review_reason: reason || "管理员强制退出" });
     else return NextResponse.json({ error: "不支持的操作" }, { status: 400 });
-    if (id === user.id && ["REJECT", "DISABLE", "DEPART", "FORCE_LOGOUT"].includes(action)) return NextResponse.json({ error: "不能对当前登录账号执行该操作" }, { status: 400 });
+    if (id === user.id && ["REJECT", "DISABLE", "DEPART", "LOCK", "FORCE_LOGOUT"].includes(action)) return NextResponse.json({ error: "不能对当前登录账号执行该操作" }, { status: 400 });
     const { error } = await admin.from("users").update(update).eq("id", id);
     if (error) throw error;
     if (["APPROVE", "REJECT"].includes(action)) {
@@ -117,6 +152,8 @@ export async function PATCH(request: NextRequest) {
         next_status: update.status,
         previous_manager_id: target.manager_id,
         next_manager_id: update.manager_id,
+        previous_locked_until: target.locked_until,
+        next_locked_until: update.locked_until,
       },
     });
     return NextResponse.json({ ok: true, message: "账号状态已更新" });
@@ -134,12 +171,12 @@ export async function POST(request: NextRequest) {
     if (action === "CREATE") {
       const name = String(body.name || "").trim();
       const email = String(body.email || "").trim().toLowerCase();
-      const requestedRole = String(body.role || "SALES").toUpperCase();
+      const requestedRole = body.role || "SALES";
       if (!isUsername(name) || !/^\S+@\S+\.\S+$/.test(email)) return NextResponse.json({ error: "用户名需为 1-15 位中文、字母、数字、下划线或短横线，并填写有效邮箱" }, { status: 400 });
-      if (!USER_ROLES.includes(requestedRole as never)) return NextResponse.json({ error: "角色无效" }, { status: 400 });
-      const role = normalizeRole(requestedRole);
       const managerId = String(body.manager_id || "");
       const admin = createAdminClient();
+      const role = await resolveAssignableRole(admin, requestedRole);
+      if (!role) return NextResponse.json({ error: "角色不存在、已停用或尚未通过权限安全验证" }, { status: 400 });
       const normalizedName = name.toLowerCase();
       const authUsers = await listAuthUsers();
       if (authUsers.some((item) => String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalizedName)) {
@@ -215,19 +252,10 @@ export async function DELETE(request: NextRequest) {
     const { data: target } = await admin.from("users").select("id,name,email,role,status").eq("id", id).maybeSingle();
     if (!target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     await protectLastAdmin(target, undefined, "DEPARTED");
-    const checks = await Promise.all([
-      admin.from("customers").select("id", { count: "exact", head: true }).or(`owner_id.eq.${id},created_by.eq.${id}`),
-      admin.from("followups").select("id", { count: "exact", head: true }).eq("user_id", id),
-      admin.from("quotes").select("id", { count: "exact", head: true }).or(`owner_id.eq.${id},created_by.eq.${id}`),
-      admin.from("sales_orders").select("id", { count: "exact", head: true }).eq("sales_user_id", id),
-      admin.from("customer_claims").select("id", { count: "exact", head: true }).eq("user_id", id),
-      admin.from("customer_protection").select("id", { count: "exact", head: true }).eq("owner_id", id),
-      admin.from("attachments").select("id", { count: "exact", head: true }).eq("uploaded_by", id),
-      admin.from("audit_logs").select("id", { count: "exact", head: true }).eq("user_id", id),
-    ]);
-    const historyCount = checks.reduce((sum, item) => sum + Number(item.count || 0), 0);
-    if (checks.some((item) => item.error)) throw checks.find((item) => item.error)?.error;
-    if (historyCount > 0) return NextResponse.json({ error: `该账号已有 ${historyCount} 条业务或审计记录，不能物理删除。请先标记离职并完成客户交接，系统将保留历史身份用于追溯。` }, { status: 409 });
+    const { data: hasHistory, error: historyError } = await admin.rpc("user_has_business_history", { p_user_id: id });
+    if (historyError) throw historyError;
+    if (typeof hasHistory !== "boolean") throw new Error("无法核验用户业务历史，已取消删除");
+    if (hasHistory) return NextResponse.json({ error: "该账号已有业务或审计记录，不能物理删除。请先标记离职并完成客户交接，系统将保留历史身份用于追溯。" }, { status: 409 });
     const { error: deleteError } = await admin.auth.admin.deleteUser(id);
     if (deleteError) throw deleteError;
     await admin.from("audit_logs").insert({ user_id: user.id, action: "ADMIN_USER_DELETE", target_type: "user", target_id: id, content: { target_name: target.name, target_email: target.email, reason } });
