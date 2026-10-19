@@ -17,7 +17,7 @@ import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
-import { documentSearchFilter, matchingCustomerIds, normalizeDocumentSearch } from "@/lib/document-search";
+import { documentSearchFilter, matchingCustomerIds, matchingPiIdsByStockNumber, normalizeDocumentSearch } from "@/lib/document-search";
 
 const SORT_COLUMNS = {
   order_number: "warehouse_reference_number",
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
     const ownerId = await requestedOwnerId(request, account, "orders.data_all");
     const creatorId = await requestedPiCreatorId(request, account, "orders.data_all");
-    const customerIds = await matchingCustomerIds(q);
+    const [customerIds, stockOrderPiIds] = await Promise.all([matchingCustomerIds(q), matchingPiIdsByStockNumber(q)]);
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
       let query = supabase
         .from("sales_orders")
@@ -84,9 +84,12 @@ export async function GET(request: NextRequest) {
       if (type === "PI") query = query.eq("confirmation_method", "DIRECT_PI");
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);
       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999+08:00`);
-      if (q) query = query.or(documentSearchFilter(q,
-        ["warehouse_reference_number", "order_number", "quote_number", "customer_short_name", "delivery_phone", "delivery_email"],
-        "customer_id", customerIds));
+      if (q) {
+        const filter = documentSearchFilter(q,
+          ["warehouse_reference_number", "order_number", "quote_number", "customer_short_name", "delivery_phone", "delivery_email"],
+          "customer_id", customerIds);
+        query = query.or(stockOrderPiIds.length ? `${filter},id.in.(${stockOrderPiIds.join(",")})` : filter);
+      }
       return query;
     };
     const { data, error, count } = await makeQuery(exporting ? 0 : (page - 1) * pageSize,

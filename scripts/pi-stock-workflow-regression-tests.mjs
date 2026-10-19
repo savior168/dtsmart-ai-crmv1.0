@@ -167,6 +167,8 @@ for (const view of [orderListView, stockListView]) {
 const documentSearch = read("lib/document-search.ts");
 assert.match(documentSearch, /\["company_name", "contact_name", "phone", "email"\]/, "搜索必须覆盖客户资料中的公司、对接人、电话和邮箱");
 assert.match(documentSearch, /MAX_MATCHES = 200[\s\S]*匹配的客户过多[\s\S]*匹配的单据过多/, "搜索过宽时须明确报错而非静默截断结果");
+assert.match(documentSearch, /matchingPiIdsByStockNumber[\s\S]*\.from\("stock_orders"\)[\s\S]*\.ilike\("stock_number"/, "PI列表按备货单号搜索时必须反查关联PI");
+assert.match(orderListApi, /matchingPiIdsByStockNumber\(q\)[\s\S]*id\.in\.\(\$\{stockOrderPiIds\.join/, "匹配备货单号的PI也应进入同一列表筛选结果");
 for (const api of [orderListApi, stockListApi]) {
   assert.match(api, /normalizeDocumentSearch\(params\.get\("q"\)\)/, "列表和导出须共用规范化搜索词");
   assert.match(api, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"[\s\S]*"order_number"[\s\S]*"customer_short_name"[\s\S]*"delivery_phone"[\s\S]*"delivery_email"/, "单据搜索须覆盖PI号、备货单号、公司快照和收货联系方式");

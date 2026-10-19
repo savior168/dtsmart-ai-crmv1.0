@@ -25,6 +25,16 @@ export async function matchingOrderIds(customerIds: string[]): Promise<string[]>
   return (data || []).map(({ id }) => id);
 }
 
+export async function matchingPiIdsByStockNumber(term: string): Promise<string[]> {
+  if (!term) return [];
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("stock_orders").select("sales_order_id")
+    .ilike("stock_number", `%${term}%`).range(0, MAX_MATCHES);
+  if (error) throw error;
+  if ((data || []).length > MAX_MATCHES) throw new Error("匹配的备货单过多，请输入更具体的搜索内容");
+  return [...new Set((data || []).map(({ sales_order_id }) => sales_order_id).filter(Boolean))];
+}
+
 export function normalizeDocumentSearch(value: string | null): string {
   const term = (value || "").trim().replace(/[%_*(),\\"]/g, "");
   if (term.length > 120) throw new Error("搜索内容不能超过120个字符");
