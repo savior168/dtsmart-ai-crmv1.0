@@ -31,4 +31,23 @@ for (const item of PERMISSION_CATALOG) {
   const page = permissionPageCode(item.code);
   assert.ok(PERMISSION_CATALOG.some((candidate) => candidate.code === page && candidate.kind === "PAGE"), `${item.code} 缺少归属页面`);
 }
-console.log(`Permission matrix passed: ${cases.length} role/action cases and ${PERMISSION_CATALOG.length} catalog entries.`);
+for (const item of PERMISSION_CATALOG) {
+  const page = permissionPageCode(item.code);
+  for (const role of ["SALES", "SUPERVISOR", "ORDER_CLERK", "WAREHOUSE"]) {
+    const granted = account(role, [item.code, page], { supervisor_can_view_subordinates: true });
+    if (item.core || PERMISSION_CATALOG.some((candidate) => candidate.code === page && candidate.core)) {
+      assert.equal(evaluatePermission(granted, item.code), false, `${role} 不得获得管理员专属权限 ${item.code}`);
+    }
+    if (role === "ORDER_CLERK" && (item.code.startsWith("customers.") && !["customers.view", "customers.data_all"].includes(item.code)
+      || item.code.startsWith("stock.") && !["stock.view", "stock.data_all"].includes(item.code)
+      || item.code.startsWith("quotes.")
+      || ["orders.cancel", "orders.delete_draft", "orders.import"].includes(item.code))) {
+      assert.equal(evaluatePermission(granted, item.code), false, `跟单员不得获得 ${item.code}`);
+    }
+    if (item.code !== page) {
+      assert.equal(evaluatePermission(account(role, [item.code], { supervisor_can_view_subordinates: true }), item.code), false,
+        `${role} 关闭所属页面后不得使用 ${item.code}`);
+    }
+  }
+}
+console.log(`Permission matrix passed: ${cases.length} focused cases plus ${PERMISSION_CATALOG.length} catalog entries across four non-admin roles.`);
