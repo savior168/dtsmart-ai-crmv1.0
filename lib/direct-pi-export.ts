@@ -203,7 +203,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const document = createPiDocumentModel(order, items);
   const issueDate = document.issueDate;
   const feeRows = [
-    ["LAST BALANCE:", document.lastBalance],
+    ["UNPAID BALANCE:", document.lastBalance],
     ["OTHER CHARGES:", document.otherCharge],
     ["DISCOUNT:", -document.discount],
     [`PAYPAL FEE (${document.paypalFeePercent}%):`, document.paypalFee],

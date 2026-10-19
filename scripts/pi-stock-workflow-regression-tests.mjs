@@ -271,6 +271,9 @@ assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sq
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
 assert.match(piForm, /订单编号<Required \/>/, "创建PI应统一显示订单编号并以红星标出必填");
 assert.match(piForm, /PI有效期[\s\S]*客户及收货信息[\s\S]*PI产品明细[\s\S]*PI费用汇总[\s\S]*pi-shipping/, "运费输入应位于PI费用汇总区");
+assert.match(piForm, /"last_balance", "未付尾款"[\s\S]*"discount", "折扣（扣减）"[\s\S]*"other", "其他费用"/, "PI费用项目应使用准确名称");
+assert.match(piForm, /key === "discount" \? "−" : "\+"/, "PI费用项目应明确标出加收与扣减方向");
+assert.match(read("components/order-print-preview.tsx"), /"UNPAID BALANCE:"/, "PI预览应以未付尾款命名");
 
 for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /unit_price|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润");
@@ -423,7 +426,7 @@ assert.equal(feeModel.totalAmount, 25830);
 const feeBook = XLSX.read(buildDirectPiWorkbook(feeOrder, [itemFixture]), { type: "array", cellFormula: true });
 const feeSheet = feeBook.Sheets[feeBook.SheetNames[0]];
 assert.deepEqual(["G30", "G31", "G32", "G33", "G34"].map((address) => feeSheet[address].v),
-  ["LAST BALANCE:", "OTHER CHARGES:", "DISCOUNT:", "PAYPAL FEE (5%):", "TOTAL AMOUNT:"],
+  ["UNPAID BALANCE:", "OTHER CHARGES:", "DISCOUNT:", "PAYPAL FEE (5%):", "TOTAL AMOUNT:"],
   "PI Excel须与预览按相同顺序列出附加费用和PayPal百分比");
 assert.deepEqual(["K30", "K31", "K32", "K33", "K34"].map((address) => feeSheet[address].v),
   [2000, 1000, -400, 1230, 25830]);

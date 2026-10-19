@@ -41,7 +41,7 @@ export function calculatePiFees(
   const grossCny = roundMoney(subtotalCny + shippingCny + lastBalance.cny + other.cny);
   const grossPayment = roundMoney(subtotalPayment + shippingPayment + lastBalance.payment + other.payment);
   if (discount.cny > grossCny || discount.payment > grossPayment) {
-    throw new Error("折扣不得超过产品、运费、上期余额和其他费用之和");
+    throw new Error("折扣不得超过产品、运费、未付尾款和其他费用之和");
   }
   const baseCny = roundMoney(grossCny - discount.cny);
   const basePayment = roundMoney(grossPayment - discount.payment);

@@ -72,7 +72,7 @@ export function OrderPrintPreview({kind,id,initialPayload,embedded=false}:{kind:
     ? "已撤回，待重新提交" : stockProgressLabel(summarizeStockProgress(stock.order.status,stock.items)) : "";
   const piDocument=pi?createPiDocumentModel(pi.order,pi.items):null;
   const piFeeRows=piDocument ? [
-    ["LAST BALANCE:", piDocument.lastBalance],
+    ["UNPAID BALANCE:", piDocument.lastBalance],
     ["OTHER CHARGES:", piDocument.otherCharge],
     ["DISCOUNT:", -piDocument.discount],
     [`PAYPAL FEE (${piDocument.paypalFeePercent}%):`, piDocument.paypalFee],
