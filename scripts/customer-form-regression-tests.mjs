@@ -62,9 +62,12 @@ const existing = {
   category: "维修商", address: "测试地址", notes: "已有备注", website: "https://example.com", google_url: "https://maps.google.com/?cid=123",
 };
 const editCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: existing, onDone: noop, onCancel: noop, editBasicOnly: true }));
-for (const value of [existing.company_name, existing.phone, existing.whatsapp, existing.email, existing.contact_name, existing.category, existing.address, existing.notes, existing.website, existing.google_url]) {
+for (const value of [existing.company_name, existing.phone, existing.whatsapp, existing.email, existing.contact_name, existing.address, existing.notes, existing.website, existing.google_url]) {
   assert.ok(editCustomer.includes(value.replaceAll("&", "&amp;")), `编辑客户应回显原始字段：${value}`);
 }
+assert.doesNotMatch(editCustomer, /<span[^>]*>(客户类型|原始商家类别)<\/span>|value="维修商"/, "我的客户编辑不得把原始采集类别误当成可编辑客户类型");
+const aiAnalyzedCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: "手机维修店", ai_screening_done: true }, onDone: noop, onCancel: noop, editBasicOnly: true }));
+assert.match(aiAnalyzedCustomer, /所属行业<\/span><input[^>]*readOnly=""[^>]*value="手机维修店"/, "我的客户编辑应只读回显AI核验所属行业");
 assert.match(editCustomer, /客户等级[\s\S]*客户阶段/, "编辑客户时阶段应紧随客户等级");
 assert.match(editCustomer, /<select[^>]*aria-label="变更客户阶段"[^>]*disabled=""/, "无阶段变更权限时不得操作阶段选择");
 const editableStageCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: existing, onDone: noop, onCancel: noop, onChangeStage: noop, editBasicOnly: true }));
@@ -72,7 +75,7 @@ assert.doesNotMatch(editableStageCustomer, /<select[^>]*aria-label="变更客户
 const publicPoolCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: "手机维修", ai_screening_done: true }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
 assert.match(publicPoolCustomer, /所属行业<\/span><input[^>]*readOnly=""[^>]*value="手机维修"/, "公海编辑应展示只读的AI核验所属行业");
 assert.match(publicPoolCustomer, /AI核验结果，仅可通过AI筛选任务更新/, "公海编辑应说明行业结果来源与修改边界");
-assert.match(publicPoolCustomer, /原始商家类别/, "公海编辑应保留可维护的原始类别");
+assert.doesNotMatch(publicPoolCustomer, /<span[^>]*>(客户类型|原始商家类别)<\/span>|value="维修商"/, "公海编辑不得把原始采集类别放进资料编辑表单");
 assert.doesNotMatch(publicPoolCustomer, /客户等级|变更客户阶段/, "公海编辑不得显示我的客户等级和阶段操作");
 const unverifiedPublicCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: null, ai_screening_done: false, category: "electronics_store | cell_phone_store" }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
 assert.match(unverifiedPublicCustomer, /所属行业<\/span><input[^>]*value="手机零售、电子产品零售"/, "未核验公海客户应展示原始类别映射的行业");
@@ -80,6 +83,7 @@ assert.match(unverifiedPublicCustomer, /尚未经AI核验/, "未核验行业不�
 assert.match(formSource, /const payload=editBasicOnly\?Object\.fromEntries\(editableKeys/, "编辑基本资料不得在 PATCH 中直接改阶段");
 assert.match(formSource, /destination==="PUBLIC_POOL"\?basicKeys\.filter\(\(key\)=>key!=="manual_grade"\)/, "公海编辑保存不得覆盖我的客户等级");
 const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
+assert.doesNotMatch(editableFields, /"category"/, "基础资料保存不得覆盖原始商家类别");
 for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
   assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
 }
