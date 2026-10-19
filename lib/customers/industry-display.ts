@@ -19,7 +19,7 @@ const rawCategoryRules: Array<[RegExp, string]> = [
 export function customerIndustryLabels(customer: IndustryCustomer) {
   const verified = String(customer.industry || "").trim();
   if (customer.ai_screening_done && verified) return { labels: [verified], verified: true };
-  const category = String(customer.category || "").trim();
+  const category = String(customer.category || "").trim().replace(/[_-]+/g, " ");
   const labels = rawCategoryRules.filter(([pattern]) => pattern.test(category)).map(([, label]) => label);
   return { labels: Array.from(new Set(labels)).slice(0, 3), verified: false };
 }

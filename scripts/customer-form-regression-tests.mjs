@@ -17,6 +17,12 @@ const taskRuntime = await readFile(new URL("../components/task-runtime.tsx", imp
 const noop = () => undefined;
 
 const newCustomer = renderToStaticMarkup(createElement(CustomerForm, { onDone: noop, onCancel: noop }));
+for (const [before, after] of [["客户名称", "国家/地区"], ["国家/地区", "公司名称"], ["公司名称", "公司税号"]]) {
+  assert.ok(newCustomer.indexOf(before) < newCustomer.indexOf(after), `${before}应排在${after}之前`);
+}
+assert.match(newCustomer, />官网<\/span>/, "客户表单官网字段应简洁显示为官网");
+assert.match(newCustomer, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号/, "新增与编辑表单的前四项顺序应一致");
+assert.match(newCustomer, /理货要求<\/span><textarea[^>]*rows="5"[\s\S]*备注<\/span><textarea[^>]*rows="5"/, "理货要求与备注应同排使用多行输入框");
 assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选择客户阶段");
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
 assert.match(newCustomer, /value="FOLLOWING"[^>]*>意向客户/, "新增客户可选择意向客户");
@@ -59,7 +65,20 @@ const editCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer
 for (const value of [existing.company_name, existing.phone, existing.whatsapp, existing.email, existing.contact_name, existing.category, existing.address, existing.notes, existing.website, existing.google_url]) {
   assert.ok(editCustomer.includes(value.replaceAll("&", "&amp;")), `编辑客户应回显原始字段：${value}`);
 }
-assert.doesNotMatch(editCustomer, /<select[^>]*value="FOLLOWING"/, "基本资料编辑不能绕过阶段变更留痕");
+assert.match(editCustomer, /客户等级[\s\S]*客户阶段/, "编辑客户时阶段应紧随客户等级");
+assert.match(editCustomer, /<select[^>]*aria-label="变更客户阶段"[^>]*disabled=""/, "无阶段变更权限时不得操作阶段选择");
+const editableStageCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: existing, onDone: noop, onCancel: noop, onChangeStage: noop, editBasicOnly: true }));
+assert.doesNotMatch(editableStageCustomer, /<select[^>]*aria-label="变更客户阶段"[^>]*disabled=""/, "有阶段变更权限时应能从编辑窗口发起留痕流程");
+const publicPoolCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: "手机维修", ai_screening_done: true }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
+assert.match(publicPoolCustomer, /所属行业<\/span><input[^>]*readOnly=""[^>]*value="手机维修"/, "公海编辑应展示只读的AI核验所属行业");
+assert.match(publicPoolCustomer, /AI核验结果，仅可通过AI筛选任务更新/, "公海编辑应说明行业结果来源与修改边界");
+assert.match(publicPoolCustomer, /原始商家类别/, "公海编辑应保留可维护的原始类别");
+assert.doesNotMatch(publicPoolCustomer, /客户等级|变更客户阶段/, "公海编辑不得显示我的客户等级和阶段操作");
+const unverifiedPublicCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: null, ai_screening_done: false, category: "electronics_store | cell_phone_store" }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
+assert.match(unverifiedPublicCustomer, /所属行业<\/span><input[^>]*value="手机零售、电子产品零售"/, "未核验公海客户应展示原始类别映射的行业");
+assert.match(unverifiedPublicCustomer, /尚未经AI核验/, "未核验行业不得冒充AI结论");
+assert.match(formSource, /const payload=editBasicOnly\?Object\.fromEntries\(editableKeys/, "编辑基本资料不得在 PATCH 中直接改阶段");
+assert.match(formSource, /destination==="PUBLIC_POOL"\?basicKeys\.filter\(\(key\)=>key!=="manual_grade"\)/, "公海编辑保存不得覆盖我的客户等级");
 const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
 for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "other_address", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
   assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
@@ -70,7 +89,9 @@ assert.match(editApi, /const writable = \[[\s\S]*"company_name", "contact_name",
 const editableCustomerFields = editApi.match(/const writable = \[[\s\S]*?\];/)?.[0] || "";
 assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_score|review_count/,
   "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
-assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onStage=.*setStageOpen\(true\)[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入阶段变更和跟进留痕流程");
+assert.match(detailSource, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
+assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onFollowup=.*setTab\("跟进记录"\)/, "编辑窗口应能进入跟进留痕流程");
+assert.match(detailSource, /\{\["FOLLOWING","DEAL"\]\.includes\(stageForm\.status\)\?<div><label[\s\S]*上传真实凭证（必传）/, "意向及成交阶段才应展示必传凭证入口");
 assert.match(listSource, /\.xlsx · 含字段说明和示例数据/, "客户列表的下载模板格式应与实际 xlsx 文件一致");
 for (const field of ["manual_grade", "wechat", "tax_number", "tally_requirements", "forwarder_address", "other_address", "shipping_address"]) {
   assert.match(profileGrants, new RegExp(`\\b${field}\\b`), `客户资料新字段 ${field} 应有显式列授权`);

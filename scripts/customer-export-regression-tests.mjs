@@ -12,8 +12,9 @@ const { exportOfficialWebsiteText, exportPublicChannelForUrl, legacyWebsiteExpor
 const customerExport = await readFile(new URL("../lib/customer-export.ts", import.meta.url), "utf8");
 const customerApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
 const customerDetail = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
-assert.match(customerDetail, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*canChangeStage=\{data\.can_change_stage\}[\s\S]*canSalesOperate=\{data\.can_sales_operate\}/, "编辑客户应回显当前阶段和跟进状态，并只为有权限的用户提供对应流程入口");
-assert.match(customerDetail, /阶段变更需填写原因及必要凭证；跟进状态通过真实跟进记录更新/, "编辑表单不能绕过阶段凭证和跟进留痕");
+assert.match(customerDetail, /CustomerEditWorkflowSummary customer=\{customer\} canSalesOperate=\{data\.can_sales_operate\}/, "编辑客户应回显当前跟进状态");
+assert.match(customerDetail, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onChangeStage=\{data\.can_change_stage\?/, "有权限的用户才可在编辑表单变更客户阶段，公海编辑必须保持公海字段边界");
+assert.match(customerDetail, /客户阶段可在下方选择，仍需提交原因与必要凭证/, "编辑表单不能绕过阶段凭证和跟进留痕");
 assert.match(customerApi, /async function loadCustomerContacts[\s\S]*\.range\(offset, offset \+ 999\)[\s\S]*if \(error\) throw error/, "导出联系号码必须分页读取完整且读取失败时不能静默漏导");
 assert.match(customerApi, /loadCustomerContacts\(responseData\.map\(\(item\) => item\.id\)\)/, "客户列表和导出必须使用完整的已核验联系号码");
 assert.match(customerExport, /name: "AI分析依据"/, "导出必须保留AI依据页");
