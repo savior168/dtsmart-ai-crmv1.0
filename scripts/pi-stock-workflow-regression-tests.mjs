@@ -259,7 +259,7 @@ assert.match(piFeeMigration, /update public\.quote_items qi set[\s\S]*unit_price
 assert.doesNotMatch(piFeeMigration, /update public\.(?:quote_items|sales_order_items) (?:qi|soi) set\s+[^;]*?\bamount\s*=/, "产品行金额是数据库生成列，不能直接赋值");
 assert.match(piForm, /countryInfo\(selectedCustomer\.country\)\.name/, "目的国家只显示中文名称而不附加国家代码");
 assert.match(piForm, /recalledDraft \? <div>[\s\S]*订单变更说明/, "订单变更说明只在撤回后编辑PI时显示");
-assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收件人[\s\S]*电话[\s\S]*邮箱[\s\S]*收货地址/, "收货信息四项应在宽屏同一行显示");
+assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收件人[\s\S]*电话[\s\S]*邮箱[\s\S]*<PiDeliveryAddressField/, "收货信息四项应在宽屏同一行显示");
 assert.match(piForm, /function PiLineTextArea[\s\S]*scrollHeight[\s\S]*<PiLineTextArea label=/, "产品文本字段应自动增高以完整显示内容");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
 assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*公司名称<input[\s\S]*公司税号<input[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息应先确认客户，再带出公司信息并填写交易信息");

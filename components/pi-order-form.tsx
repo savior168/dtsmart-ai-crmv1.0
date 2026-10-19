@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppDialog, ConfirmDialog } from "@/components/ui/app-dialog";
@@ -31,6 +31,44 @@ const defaultValidity = () => { const date = new Date(); date.setDate(date.getDa
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
 const importHeaders = ["产品", "品牌", "型号", "质量", "产品描述", "产品质量/描述中文（展示给后端）", "成本（RMB）", "售价（RMB）", "数量", "理货要求", "备注"];
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
+export function PiDeliveryAddressField({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeEscape);
+    };
+  }, [open]);
+  return <div className="text-sm">
+    <label htmlFor="pi-delivery-address">收货地址<Required /></label>
+    <div ref={containerRef} className="relative mt-1">
+      <input id="pi-delivery-address" className={`${field} ${options.length ? "pr-11" : ""}`} required maxLength={1000}
+        value={value} onChange={(event) => onChange(event.target.value)} placeholder="输入或选择收货地址" />
+      {options.length > 0 ? <button type="button" aria-label="选择客户收货地址" aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg border-l border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-700">
+        <ChevronDown size={16} className={open ? "rotate-180" : ""} />
+      </button> : null}
+      {open && options.length > 0 ? <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+        {options.map((item, index) => <button type="button" key={`${index}-${item}`} onClick={() => { onChange(item); setOpen(false); }}
+          className={`block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-blue-50 ${value === item ? "bg-blue-50 text-blue-800" : "text-slate-700"}`}>
+          <span className="block text-xs text-slate-500">客户收货地址{index + 1}</span>
+          <span className="block break-words">{item}</span>
+        </button>)}
+      </div> : null}
+    </div>
+  </div>;
+}
 function PiLineTextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -522,7 +560,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <label className="text-sm">收件人<Required /><input className={field} required maxLength={200} value={recipient} onChange={(event) => setRecipient(event.target.value)} /></label>
       <label className="text-sm">电话<Required /><input className={field} required maxLength={100} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
       <label className="text-sm">邮箱<Required /><input className={field} type="email" required maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-      <div className="text-sm"><label>收货地址<Required /><input className={field} required maxLength={1000} value={address} onChange={(event) => setAddress(event.target.value)} /></label>{selectedShippingAddresses.length > 1 ? <AppSelect aria-label="选择客户收货地址" value={selectedShippingAddresses.includes(address) ? address : ""} onChange={(event) => { if (event.target.value) { markUnsaved(); setAddress(event.target.value); } }} className={`${field} mt-2`}><option value="">自定义收货地址</option>{selectedShippingAddresses.map((item, index) => <option key={`${index}-${item}`} value={item}>{`客户收货地址${index + 1} · ${item}`}</option>)}</AppSelect> : null}</div>
+      <PiDeliveryAddressField value={address} options={selectedShippingAddresses} onChange={(value) => { markUnsaved(); setAddress(value); }} />
     </div></section>
     <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">销售单价可任选 CNY 或{currency ? ` ${currency}` : "付款币种"}录入，另一币种自动换算；成本和利润按 CNY 核算。表格可横向滚动。</p></div><div className="flex flex-wrap items-center gap-2">{currency !== "CNY" ? <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors ${showDualCurrencyPrices ? "border-blue-400 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} title="控制PI预览、打印和导出单据的销售单价展示；录入表格始终保留两个币种"><input type="checkbox" className="accent-blue-600" checked={showDualCurrencyPrices} onChange={(event) => { markUnsaved(); setShowDualCurrencyPrices(event.target.checked); }} />单价双币种（CNY / {currency || "付款币种"}）</label> : null}<button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
       <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[2050px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端） *", "成本单价（CNY） *", "销售单价（CNY） *", `销售单价（${currency || "付款币种"}） *`, "数量 *", "销售金额（CNY）", `销售金额（${currency || "付款币种"}）`, "总利润（CNY）", "利润率", "理货要求", "仓库备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head.endsWith(" *") ? <>{head.slice(0, -2)}<Required /></> : head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className="border-t border-slate-100 align-middle">
