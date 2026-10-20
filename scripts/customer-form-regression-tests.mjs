@@ -7,6 +7,7 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
 const { CustomerForm, PotentialDuplicateCandidate } = await jiti.import(resolve("components/customer-form.tsx"));
+const { CUSTOMER_LIST_DEFAULT_COLUMNS, migrateMyCustomerDefaultColumns, normalizeCustomerListColumns } = await jiti.import(resolve("lib/customers/list-fields.ts"));
 const { displayAddressList, normalizeAddressPayload } = await jiti.import(resolve("lib/customers/address-list.ts"));
 const formSource = await readFile(new URL("../components/customer-form.tsx", import.meta.url), "utf8");
 const editApi = await readFile(new URL("../app/api/customers/[id]/route.ts", import.meta.url), "utf8");
@@ -14,6 +15,10 @@ const createApi = await readFile(new URL("../app/api/customers/route.ts", import
 const detailSource = await readFile(new URL("../components/customer-crm-detail-view.tsx", import.meta.url), "utf8");
 const poolSource = await readFile(new URL("../components/customer-public-pool-view.tsx", import.meta.url), "utf8");
 const listSource = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
+const followupApiSource = await readFile(new URL("../app/api/followups/route.ts", import.meta.url), "utf8");
+const followupViewSource = await readFile(new URL("../components/followups-view.tsx", import.meta.url), "utf8");
+const dashboardApiSource = await readFile(new URL("../app/api/dashboard/stats/route.ts", import.meta.url), "utf8");
+const dashboardViewSource = await readFile(new URL("../components/crm-dashboard.tsx", import.meta.url), "utf8");
 const profileGrants = await readFile(new URL("../supabase/migrations/20261019010000_customer_profile_column_privileges.sql", import.meta.url), "utf8");
 const addressMigration = await readFile(new URL("../supabase/migrations/20261019035957_customer_address_lists.sql", import.meta.url), "utf8");
 const taskRuntime = await readFile(new URL("../components/task-runtime.tsx", import.meta.url), "utf8");
@@ -136,4 +141,15 @@ for (const field of ["manual_grade", "wechat", "tax_number", "tally_requirements
 }
 assert.doesNotMatch(profileGrants, /grant\s+select\s+on\s+(?:table\s+)?public\.customers/i, "不得为修复客户列表而授予整表读取权限");
 assert.match(profileGrants, /company_scale_evidence.*SELECT/, "权限迁移须验证敏感 AI 证据列仍不可读取");
+assert.deepEqual(CUSTOMER_LIST_DEFAULT_COLUMNS.slice(0, 3), ["contact_name", "company_name", "country"], "我的客户应先显示对接人，再显示公司和国家");
+const previousDefault = CUSTOMER_LIST_DEFAULT_COLUMNS.filter((key) => key !== "contact_name");
+assert.deepEqual(normalizeCustomerListColumns(migrateMyCustomerDefaultColumns(previousDefault)).slice(0, 3), ["contact_name", "company_name", "country"], "旧版默认列顺序应自动升级");
+assert.deepEqual(migrateMyCustomerDefaultColumns(["company_name", "phone", "country"]), ["company_name", "phone", "country"], "用户主动配置的列顺序不可覆盖");
+assert.match(followupApiSource, /customer_followup_queue[\s\S]*\.select\("[^"]*company_name,contact_name,country/, "跟进待办接口应读取已有的对接人字段");
+assert.match(followupApiSource, /customer_followup_history[\s\S]*\.select\("[^"]*company_name,contact_name,country/, "历史跟进接口也应读取对接人字段");
+assert.match(followupViewSource, /客户名称 \/ 公司名称/, "跟进列表应明确显示对接人与企业主体");
+assert.match(followupViewSource, /item\.customer\?\.contact_name\|\|"—"[\s\S]*item\.customer\?\.company_name\|\|"—"/, "跟进列表应按对接人在前、公司在后的顺序显示，空值不冒用公司名");
+assert.match(dashboardApiSource, /customer_followup_queue[\s\S]*\.select\("[^"]*company_name,contact_name,phone/, "工作台待跟进数据应读取对接人字段");
+assert.match(dashboardViewSource, /客户名称 \/ 公司名称[\s\S]*item\.customer_name \|\| "—"[\s\S]*item\.company_name \|\| "—"/, "工作台待跟进应对接人在前、公司在后");
+assert.match(poolSource, /tab === "claimed" && !row\.contact_masked && row\.contact_name/, "公海已认领记录仅在未隐藏联系人时展示对接人");
 console.log("手动新增与编辑客户表单回显、必填和工作流边界回归测试通过。");

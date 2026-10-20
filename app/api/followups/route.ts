@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
     if (scope === "history") {
       let query = followupReader.from("customer_followup_history")
-        .select("id,customer_id,user_id,type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,actor_name,actor_email", { count: "exact" });
+        .select("id,customer_id,user_id,type,content,next_follow_date,created_at,company_name,contact_name,country,ai_level,ai_score,status,actor_name,actor_email", { count: "exact" });
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
       if (stage) query = query.eq("status", stage);
       if (countries.length) query = query.in("country", countryFilterRawValues(countries));
@@ -33,13 +33,13 @@ export async function GET(request: Request) {
       const { data, error, count } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
       if (error) throw error;
       return NextResponse.json({
-        data: (data || []).map((row) => ({ ...row, user: { name: row.actor_name, email: row.actor_email }, customer: { company_name: row.company_name, country: row.country, ai_level: row.ai_level, ai_score: row.ai_score, status: row.status } })),
+        data: (data || []).map((row) => ({ ...row, user: { name: row.actor_name, email: row.actor_email }, customer: { company_name: row.company_name, contact_name: row.contact_name, country: row.country, ai_level: row.ai_level, ai_score: row.ai_score, status: row.status } })),
         count: count || 0, page, page_size: pageSize, scope, can_export: hasPermission(account, "followups.export"), profile: { id: account.id, role: account.role },
       });
     }
 
     let query = followupReader.from("customer_followup_queue")
-      .select("id,customer_id,owner_id,type,content,next_follow_date,created_at,company_name,country,ai_level,ai_score,status,owner_name,owner_email", { count: "exact" });
+      .select("id,customer_id,owner_id,type,content,next_follow_date,created_at,company_name,contact_name,country,ai_level,ai_score,status,owner_name,owner_email", { count: "exact" });
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
     if (stage) query = query.eq("status", stage);
     if (countries.length) query = query.in("country", countryFilterRawValues(countries));
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     const { data, error, count } = await query.order(scope === "unscheduled" ? "company_name" : "next_follow_date", { ascending: true }).order("id", { ascending: true }).range((page - 1) * pageSize, page * pageSize - 1);
     if (error) throw error;
     return NextResponse.json({
-      data: (data || []).map((row) => ({ ...row, user_id: row.owner_id, user: { name: row.owner_name, email: row.owner_email }, customer: { company_name: row.company_name, country: row.country, ai_level: row.ai_level, ai_score: row.ai_score, status: row.status } })),
+      data: (data || []).map((row) => ({ ...row, user_id: row.owner_id, user: { name: row.owner_name, email: row.owner_email }, customer: { company_name: row.company_name, contact_name: row.contact_name, country: row.country, ai_level: row.ai_level, ai_score: row.ai_score, status: row.status } })),
       count: count || 0, page, page_size: pageSize, scope, can_export: hasPermission(account, "followups.export"), profile: { id: account.id, role: account.role },
     });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "跟进任务加载失败" }, { status: 400 }); }

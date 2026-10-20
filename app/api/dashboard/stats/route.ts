@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
     if (aiLevel) validCustomersQuery = validCustomersQuery.eq("ai_level", aiLevel);
     const followupDay = followupDayBounds(now);
     let todayFollowupsQuery = followupReader.from("customer_followup_queue")
-      .select("id,customer_id,company_name,phone,email,country,ai_level,created_at,next_follow_date,type,status", { count: "exact" })
+      .select("id,customer_id,company_name,contact_name,phone,email,country,ai_level,created_at,next_follow_date,type,status", { count: "exact" })
       .gte("next_follow_date", followupDay.start).lt("next_follow_date", followupDay.end)
       .order("next_follow_date", { ascending: true }).order("customer_id", { ascending: true }).limit(5);
     if (scopeUserId) todayFollowupsQuery = todayFollowupsQuery.eq("owner_id", scopeUserId);
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     if (todayFollowupsResult.error) throw new Error(todayFollowupsResult.error.message);
     if (systemCustomersResult?.error) throw new Error(systemCustomersResult.error.message);
     const todayFollowups = (todayFollowupsResult.data || []).map((row) => ({
-      id: row.id, customer_id: row.customer_id, customer_name: row.company_name,
+      id: row.id, customer_id: row.customer_id, customer_name: row.contact_name, company_name: row.company_name,
       phone: row.phone, email: row.email, country: row.country, ai_level: row.ai_level,
       last_followup: row.created_at, followup_time: row.next_follow_date, type: row.type, status: row.status,
     }));

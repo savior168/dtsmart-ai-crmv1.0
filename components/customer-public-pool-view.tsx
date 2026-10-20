@@ -245,6 +245,7 @@ function poolFieldsForTab(value: "available" | "claimed" | "pending", saved?: un
 }
 
 function fieldLabel(field: CustomerListColumn, tab: Tab) {
+  if (tab === "claimed" && field === "company_name") return "客户名称 / 公司名称";
   if (tab === "available" && field === "phone") return "联系号码";
   return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
 }
@@ -319,10 +320,10 @@ function poolText(row: PoolRow, key: CustomerListColumn) {
 }
 
 // Keep the exact same score thresholds and visual language as “我的客户”.
-function PoolValue({ row, field, showSupplements }: { row: PoolRow; field: CustomerListColumn; showSupplements?: (row: PoolRow) => void }) {
+function PoolValue({ row, field, tab, showSupplements }: { row: PoolRow; field: CustomerListColumn; tab: Tab; showSupplements?: (row: PoolRow) => void }) {
   if (field === "company_name") {
     const industry = customerIndustryDisplay(row);
-    return <span className="block min-w-0"><span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span><small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.last_release ? <small className="mt-1 inline-flex max-w-full cursor-help items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-800 ring-1 ring-amber-100" title={`最近一次释放\n释放人：${row.last_release.by}\n释放时间：${formatDate(row.last_release.at)}\n释放原因：${row.last_release.reason}`}>曾被释放 · {new Date(row.last_release.at).toLocaleDateString("zh-CN")}</small> : null}{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
+    return <span className="block min-w-0">{tab === "claimed" && !row.contact_masked && row.contact_name ? <><span className="block truncate font-medium text-blue-700">{row.contact_name}</span><small className="block truncate text-xs font-normal text-slate-600">{displayCustomerName(row.company_name)}</small></> : <span className="block truncate font-medium text-blue-700">{displayCustomerName(row.company_name)}</span>}<small className={`mt-0.5 block truncate text-xs font-normal ${industry.verified ? "text-emerald-600" : "text-slate-500"}`} title={industry.title}>{industry.verified ? "AI核验：" : "原始类别："}{industry.text}</small>{row.last_release ? <small className="mt-1 inline-flex max-w-full cursor-help items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-800 ring-1 ring-amber-100" title={`最近一次释放\n释放人：${row.last_release.by}\n释放时间：${formatDate(row.last_release.at)}\n释放原因：${row.last_release.reason}`}>曾被释放 · {new Date(row.last_release.at).toLocaleDateString("zh-CN")}</small> : null}{row.my_supplements?.length ? <button type="button" onClick={(event) => { event.stopPropagation(); showSupplements?.(row); }} className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-xs font-normal text-blue-700 transition hover:bg-blue-100 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-200" title="查看仅自己可见的补充资料">我的补充 {row.my_supplements.length} 项</button> : null}</span>;
   }
   if (field === "country") return <CountryLabel value={row.country}/>;
   if (field === "ai_score") return <span className="inline-flex items-center gap-1"><CustomerScoreBadge score={row.ai_score} level={row.ai_level}/>{row.ai_score_source==="MANUAL_REVIEW"?<small className="text-blue-700">人工复核</small>:null}</span>;
@@ -1092,7 +1093,7 @@ function PoolTable({
                   />
                 </td>
               ) : null}
-              {fields.map((field) => <td key={field} className={`overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
+              {fields.map((field) => <td key={field} className={`overflow-hidden px-3 py-4 align-middle ${field === "company_name" ? `sticky ${selectable ? "left-12" : "left-0"} z-10 bg-white font-medium group-hover:bg-blue-50` : ""}`}><PoolValue row={row} field={field} tab={tab} showSupplements={showSupplements}/>{field === "company_name" && row.contact_masked ? <small className="mt-1 block text-amber-600">敏感信息已隐藏</small> : null}</td>)}
               <td className="sticky right-0 z-20 align-middle bg-white px-3 py-4 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                 <div className="flex items-center justify-center gap-2 whitespace-nowrap">
                 {row.can_open_customer ? <Link href={`/customers/${row.id}?from=pool`} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" title={`查看${row.company_name}详情`} aria-label={`查看${row.company_name}详情`}><Eye size={14}/></Link> : null}

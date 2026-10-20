@@ -27,6 +27,7 @@ export const CUSTOMER_LIST_COLUMNS: Array<{ key: CustomerListColumn; label: stri
 ];
 
 export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
+  "contact_name",
   "company_name",
   "country",
   "ai_score",
@@ -42,6 +43,17 @@ export const CUSTOMER_LIST_DEFAULT_COLUMNS: CustomerListColumn[] = [
   "source",
   "updated_at",
 ];
+
+const PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS: CustomerListColumn[] =
+  CUSTOMER_LIST_DEFAULT_COLUMNS.filter((key) => key !== "contact_name");
+
+export function migrateMyCustomerDefaultColumns(saved: unknown): unknown {
+  if (Array.isArray(saved) && saved.length === PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS.length
+    && saved.every((key, index) => key === PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS[index])) {
+    return CUSTOMER_LIST_DEFAULT_COLUMNS;
+  }
+  return saved;
+}
 
 export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v15";
 

@@ -39,6 +39,7 @@ import {
   CUSTOMER_LIST_COLUMN_STORAGE_KEY,
   CUSTOMER_LIST_DEFAULT_COLUMNS,
   customerListSortField,
+  migrateMyCustomerDefaultColumns,
   normalizeCustomerListColumns,
 } from "@/lib/customers/list-fields";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
@@ -68,6 +69,7 @@ type ColumnKey = CustomerExportColumn;
 const columns = CUSTOMER_LIST_COLUMNS;
 const defaults = CUSTOMER_LIST_DEFAULT_COLUMNS;
 const listColumnWidth: Partial<Record<ColumnKey, string>> = {
+  contact_name: "w-44",
   company_name: "w-48",
   ai_score: "w-20",
   industry: "w-36",
@@ -184,7 +186,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
         localStorage.getItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY) || localStorage.getItem("customer-columns-v5") || "null",
       );
       if (Array.isArray(saved) && saved.length) {
-        const normalized = normalizeCustomerListColumns(saved);
+        const normalized = normalizeCustomerListColumns(migrateMyCustomerDefaultColumns(saved));
         setFields(normalized);
         setDraft(normalized);
         localStorage.setItem(CUSTOMER_LIST_COLUMN_STORAGE_KEY, JSON.stringify(normalized));
@@ -965,7 +967,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                   {fields.map((key) => (
                     <th
                       key={key}
-                      className={`${key === "company_name" ? "sticky left-12 z-30 bg-[#eef5fb]" : ""} ${listColumnWidth[key] || "w-32"} px-3 py-3`}
+                      className={`${key === fields[0] ? "sticky left-12 z-30 bg-[#eef5fb]" : ""} ${listColumnWidth[key] || "w-32"} px-3 py-3`}
                     >
                       <button
                         type="button"
@@ -1017,7 +1019,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                     {fields.map((key) => (
                       <td
                         key={key}
-                        className={`${key === "company_name" ? "sticky left-12 z-10 bg-white" : ""} overflow-hidden px-3 py-3 align-middle`}
+                        className={`${key === fields[0] ? "sticky left-12 z-10 bg-white" : ""} overflow-hidden px-3 py-3 align-middle`}
                         title={
                           key === "company_name" ? displayCustomerName(row.company_name) : undefined
                         }
@@ -1029,6 +1031,8 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                               {customerIndustryDisplay(row).verified ? "AI核验：" : "原始类别："}{customerIndustryDisplay(row).text}
                             </small>
                           </span>
+                        ) : key === "contact_name" ? (
+                          <span className="block truncate font-medium text-blue-700" title={row.contact_name || "未填写客户名称"}>{row.contact_name || "—"}</span>
                         ) : key === "country" ? (
                           <CountryLabel value={row.country} />
                         ) : key === "ai_score" ? (
