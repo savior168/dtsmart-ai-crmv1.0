@@ -543,7 +543,7 @@ assert.match(customerResults,/const active=tabs\.find\([\s\S]*\?\?tabs\[2\]/,"�
 assert.match(customerResults,/const value=summary\[item\.value\]/,"今日获客标签必须显示今日数据，不能误用待复核数量");
 assert.match(customerResults,/本周成功入池[\s\S]*全部有效入池结果[\s\S]*待人工复核[\s\S]*客户详情[\s\S]*复核判定/,"任务中心客户结果卡必须落到可处理的统一客户清单，并明确结果记录可能跨任务重复");
 assert.match(customerResults,/initialTaskId[\s\S]*params\.set\("task_id",taskId\)[\s\S]*清除当前任务/,"获客结果页必须支持按来源任务精确筛选并提供可撤销的筛选状态");
-assert.match(customerResults,/flex-nowrap[\s\S]*overflow-x-auto[\s\S]*任务名称或编号[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*TODAY:"今日",WEEK:"本周",MONTH:"本月"/,"客户结果必须把任务、客户和快捷日期筛选合并为不越界的紧凑单行工具栏");
+assert.match(customerResults,/flex-nowrap[\s\S]*overflow-x-auto[\s\S]*任务名称或编号[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*CompactDateRange label="获客日期"[\s\S]*value:"TODAY",label:"今日"/,"客户结果必须把任务、客户和快捷日期筛选合并为不越界的紧凑单行工具栏");
 assert.match(customerResults,/CustomerPublicChannels customer=\{row\}/,"获客结果、客户公海和我的客户必须共用Google Maps与官方社媒的公开渠道组件");
 assert.match(customerResultsPage,/scope === "today" \? today : scope === "week" \? monday\.toISOString\(\)\.slice\(0, 10\) : ""[\s\S]*initialEndDate=\{scope === "week" \? today : ""\}/,"从本周获客进入客户结果必须把北京时间本周范围同步到获客日期控件");
 assert.match(customerResultsPage,/initialTaskId=\{query\.task_id \|\| ""\}/,"任务详情跳转客户结果时必须保留精确任务筛选");
