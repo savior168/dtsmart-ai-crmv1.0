@@ -254,6 +254,10 @@ assert.match(order, /can_delete_draft:[\s\S]*!stock\.data[\s\S]*export async fun
 assert.match(order, /can_view_stock: hasPermission\(account, "stock\.view"\)/, "PI详情必须把备货查看权限传给前端");
 assert.match(orderDetailView, /data\.can_view_stock && data\.stock_order[\s\S]*查看备货单/, "无备货查看权限时不得显示跳转入口，且只读入口不得暗示可编辑");
 assert.doesNotMatch(orderDetailView, /查看\/完善备货单/, "PI详情不得把只读查看误写为完善备货单");
+for (const page of ["app/orders/new/page.tsx", "app/orders/[id]/edit/page.tsx", "app/orders/import/[id]/page.tsx"]) {
+  assert.match(read(page), /initialIsClerk=\{account\.role === "ORDER_CLERK"\}/, "PI表单入口必须在服务端确定跟单员角色，避免页面闪动");
+}
+assert.match(read("components/pi-order-form.tsx"), /useState\(initialIsClerk\)/, "PI表单首屏应直接展示跟单员专用的销售员选择栏");
 assert.match(orderListApi, /can_delete_draft:[\s\S]*hasPermission\(account, "orders\.delete_draft"\)[\s\S]*!stockByOrderId\.has\(item\.id\)/, "PI列表删除入口也必须按权限、归属及未生成备货单判断");
 assert.match(orderListView, /row\.can_delete_draft[\s\S]*删除草稿[\s\S]*<ConfirmDialog[\s\S]*deleteDraft\(\)/, "PI列表应提供未提交草稿的确认删除操作");
 assert.match(draftDeleteMigration, /target\.confirmed_at is not null[\s\S]*stock_orders[\s\S]*PI_SUBMIT[\s\S]*PI_RECALL[\s\S]*PI_DRAFT_DELETE/, "数据库必须阻止删除已提交或撤回草稿并保留删除审计");

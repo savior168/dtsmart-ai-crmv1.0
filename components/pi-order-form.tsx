@@ -79,12 +79,12 @@ function PiLineTextArea({ label, value, onChange }: { label: string; value: stri
   return <textarea ref={ref} aria-label={label} rows={1} className="min-h-9 w-full min-w-28 resize-y rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs leading-5 focus:border-blue-500 focus:outline-none" value={value} onChange={(event) => onChange(event.target.value.replace(/\s*\n+\s*/g, " "))} />;
 }
 
-export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftId }: { initialCustomerId?: string; draftOrderId?: string; importDraftId?: string }) {
+export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftId, initialIsClerk }: { initialCustomerId?: string; draftOrderId?: string; importDraftId?: string; initialIsClerk: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const customerScopeRequest = useRef(0);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [salespeople, setSalespeople] = useState<Salesperson[]>([]);
-  const [isClerk, setIsClerk] = useState(false);
+  const [isClerk, setIsClerk] = useState(initialIsClerk);
   const [salesUserId, setSalesUserId] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
