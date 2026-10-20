@@ -28,8 +28,7 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
     if (existsSync(resolve(process.cwd(), layout))) guards.push(read(layout));
   }
   const guarded = guards.some((source) => source.includes(`protectPage("${permission}")`)
-    || source.includes(`requirePermission("${permission}")`)
-    || (["system.users.view", "system.notifications.view"].includes(permission) && source.includes("requireAdmin()")));
+    || source.includes(`requirePermission("${permission}")`));
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
 }
 assert.match(read("app/api/pi-exchange-rates/route.ts"), /account\.role === "ADMIN"[\s\S]*rates\.map\(\(\{ currency, label, business_cny \}\)/, "销售读取业务汇率不能泄露管理员的参考来源、手工值和调整规则");
