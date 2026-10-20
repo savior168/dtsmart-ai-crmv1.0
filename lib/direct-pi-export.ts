@@ -203,11 +203,11 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const document = createPiDocumentModel(order, items);
   const issueDate = document.issueDate;
   const feeRows = [
-    ["UNPAID BALANCE:", document.lastBalance],
-    ["OTHER CHARGES:", document.otherCharge],
-    ["DISCOUNT:", -document.discount],
-    [`PAYPAL FEE (${document.paypalFeePercent}%):`, document.paypalFee],
-  ].filter(([, amount]) => Number(amount) !== 0) as Array<[string, number]>;
+    ["UNPAID BALANCE:", document.lastBalance, document.lastBalanceCny],
+    ["OTHER CHARGES:", document.otherCharge, document.otherChargeCny],
+    ["DISCOUNT:", -document.discount, -document.discountCny],
+    [`PAYPAL FEE (${document.paypalFeePercent}%):`, document.paypalFee, document.paypalFeeCny],
+  ].filter(([, amount]) => Number(amount) !== 0) as Array<[string, number, number]>;
   const lastItemRow = 18 + Math.max(9, items.length);
   const subtotalRow = lastItemRow + 1;
   const shippingRow = subtotalRow + 1;
@@ -218,12 +218,12 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const signatureName = signatureHeader + 1;
   const signatureDate = signatureName + 1;
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
-  sheet["!ref"] = `A1:${showDualCurrencyPrices ? "L" : "K"}${signatureDate}`;
+  sheet["!ref"] = `A1:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
   sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
-  if (showDualCurrencyPrices) sheet["!cols"].push({ wch: 1, hidden: true });
+  if (showDualCurrencyPrices) sheet["!cols"].push({ wch: 1, hidden: true }, { wch: 1, hidden: true });
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? (showDualCurrencyPrices ? 34 : 24) : 19) : index >= 1 && index <= 8 ? 16 : index === 9 || index === 10 ? 6 : 18,
+    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? (showDualCurrencyPrices ? 34 : 24) : 19) : showDualCurrencyPrices && index >= subtotalRow - 1 && index <= totalRow - 1 ? 34 : index >= 1 && index <= 8 ? 16 : index === 9 || index === 10 ? 6 : 18,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
@@ -260,7 +260,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const headings: Array<[string, string, string?]> = [
     ["A", "No."], ["B", "Items", "B18:C18"], ["D", "Brand"], ["E", "Models"], ["F", "Quality"],
     ["G", "Description", "G18:H18"], ["I", showDualCurrencyPrices ? `Unit Price\n(CNY / ${currency})` : `Unit Price\n(${currency})`],
-    ["J", "Quantity"], ["K", `Amount\n(${currency})`],
+    ["J", "Quantity"], ["K", showDualCurrencyPrices ? `Amount\n(CNY / ${currency})` : `Amount\n(${currency})`],
   ];
   for (const [column, label, range] of headings) {
     set(sheet, `${column}18`, label, column === "I" || column === "K" ? { ...heading, alignment: { horizontal: "right", vertical: "center", wrapText: true } } : heading);
@@ -277,20 +277,28 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
       column === "I" ? showDualCurrencyPrices ? { ...moneyStyle(currency), alignment: { horizontal: "right", vertical: "center", wrapText: true } } : moneyStyle(currency) : boxed);
     if (item) {
       if (showDualCurrencyPrices) set(sheet, `L${row}`, Number(item.unit_price));
-      calculated(sheet, `K${row}`, `${showDualCurrencyPrices ? "L" : "I"}${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
+      if (showDualCurrencyPrices) {
+        calculated(sheet, `M${row}`, `L${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
+        set(sheet, `K${row}`, `CNY ¥${roundMoney(Number(item.unit_price_cny) * Number(item.quantity)).toFixed(2)}\n${currency} ${roundMoney(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}`, { ...moneyStyle(currency), alignment: { horizontal: "right", vertical: "center", wrapText: true } });
+      } else calculated(sheet, `K${row}`, `I${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
     } else { set(sheet, `K${row}`, "", boxed); }
     merge(sheet, `B${row}:C${row}`); merge(sheet, `G${row}:H${row}`);
   }
-  const totalRows: Array<[number, string, number | string, number]> = [
-    [subtotalRow, "SUBTOTAL:", items.reduce((sum, item) => sum + Number(item.quantity), 0), Number(order.subtotal)],
-    [shippingRow, "SHIPPING COST:", "", Number(order.shipping_cost)],
-    ...feeRows.map(([label, amount], index): [number, string, string, number] => [shippingRow + index + 1, label, "", amount]),
-    [totalRow, "TOTAL AMOUNT:", "", Number(order.total_amount)],
+  const totalRows: Array<[number, string, number | string, number, number]> = [
+    [subtotalRow, "SUBTOTAL:", items.reduce((sum, item) => sum + Number(item.quantity), 0), Number(order.subtotal), Number(order.subtotal_cny)],
+    [shippingRow, "SHIPPING COST:", "", Number(order.shipping_cost), Number(order.shipping_cny)],
+    ...feeRows.map(([label, amount, amountCny], index): [number, string, string, number, number] => [shippingRow + index + 1, label, "", amount, amountCny]),
+    [totalRow, "TOTAL AMOUNT:", "", Number(order.total_amount), Number(order.total_cny)],
   ];
-  for (const [row, label, quantity, paid] of totalRows) {
+  for (const [row, label, quantity, paid, cny] of totalRows) {
     set(sheet, `G${row}`, label, { ...boxed, font: { name: "Arial", sz: 10, bold: true } }); merge(sheet, `G${row}:I${row}`);
     set(sheet, `J${row}`, quantity, boxed);
-    if (row === subtotalRow) {
+    if (showDualCurrencyPrices) {
+      if (row === subtotalRow) calculated(sheet, `M${row}`, `SUM(M19:M${18 + items.length})`, paid, moneyStyle(currency));
+      else if (row === totalRow) calculated(sheet, `M${row}`, `SUM(M${subtotalRow}:M${totalRow - 1})`, paid, moneyStyle(currency, true));
+      else set(sheet, `M${row}`, paid, moneyStyle(currency));
+      set(sheet, `K${row}`, `CNY ¥${cny.toFixed(2)}\n${currency} ${paid.toFixed(2)}`, { ...moneyStyle(currency, row === totalRow), alignment: { horizontal: "right", vertical: "center", wrapText: true } });
+    } else if (row === subtotalRow) {
       calculated(sheet, `K${row}`, `SUM(K19:K${18 + items.length})`, paid, moneyStyle(currency));
     } else if (row === totalRow) {
       calculated(sheet, `K${row}`, `SUM(K${subtotalRow}:K${totalRow - 1})`, paid, moneyStyle(currency, true));

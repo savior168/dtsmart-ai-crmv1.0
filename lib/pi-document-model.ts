@@ -21,13 +21,20 @@ export type PiDocumentOrder = {
   delivery_email?: string | null;
   delivery_address?: string | null;
   subtotal: number;
+  subtotal_cny?: number | null;
   shipping_cost: number;
+  shipping_cny?: number | null;
   total_amount: number;
+  total_cny?: number | null;
   last_balance_amount?: number | null;
+  last_balance_cny?: number | null;
   discount_amount?: number | null;
+  discount_cny?: number | null;
   other_charge_amount?: number | null;
+  other_charge_cny?: number | null;
   paypal_fee_percent?: number | null;
   paypal_fee_amount?: number | null;
+  paypal_fee_cny?: number | null;
 };
 
 export type PiDocumentItem = {
@@ -71,13 +78,20 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     currency: order.currency,
     showDualCurrencyPrices: order.show_dual_currency_prices === true && order.currency !== "CNY",
     subtotal: Number(order.subtotal),
+    subtotalCny: Number(order.subtotal_cny || 0),
     shippingCost: Number(order.shipping_cost),
+    shippingCostCny: Number(order.shipping_cny || 0),
     lastBalance: Number(order.last_balance_amount || 0),
+    lastBalanceCny: Number(order.last_balance_cny || 0),
     discount: Number(order.discount_amount || 0),
+    discountCny: Number(order.discount_cny || 0),
     otherCharge: Number(order.other_charge_amount || 0),
+    otherChargeCny: Number(order.other_charge_cny || 0),
     paypalFeePercent: Number(order.paypal_fee_percent || 0),
     paypalFee: Number(order.paypal_fee_amount || 0),
+    paypalFeeCny: Number(order.paypal_fee_cny || 0),
     totalAmount: Number(order.total_amount),
+    totalAmountCny: Number(order.total_cny || 0),
     totalQuantity: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
     items: items.map((item, index) => ({
       lineNumber: index + 1,
@@ -90,6 +104,7 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
       unitPrice: Number(item.unit_price),
       unitPriceCny: Number(item.unit_price_cny ?? 0),
       amount: Math.round((Number(item.unit_price) * Number(item.quantity) + Number.EPSILON) * 100) / 100,
+      amountCny: Math.round((Number(item.unit_price_cny ?? 0) * Number(item.quantity) + Number.EPSILON) * 100) / 100,
     })),
   };
 }

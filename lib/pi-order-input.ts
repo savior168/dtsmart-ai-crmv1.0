@@ -23,8 +23,8 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
       ? Number(linkedPiUnitPrices(String(row.unit_price_cny), "CNY", rate).payment)
       : Number(row.unit_price_payment);
     const estimatedCostCny = Number(row.estimated_unit_cost_cny);
-    if (![row.item_name, row.brand, row.model, row.quality, row.description_zh].every((value) => String(value || "").trim()) || !validPiQuantity(row.quantity) || !validPiMoney(row.unit_price_cny) || !validPiMoney(unitPricePayment) || !validPiMoney(row.estimated_unit_cost_cny)) {
-      throw new Error("每条产品都需填写产品、品牌、型号、质量、产品质量/描述中文、正整数数量，以及最多两位小数的非负人民币成本和售价");
+    if (![row.item_name, row.brand, row.model, row.quality].every((value) => String(value || "").trim()) || !validPiQuantity(row.quantity) || !validPiMoney(row.unit_price_cny) || !validPiMoney(unitPricePayment) || !validPiMoney(row.estimated_unit_cost_cny)) {
+      throw new Error("每条产品都需填写产品、品牌、型号、质量、正整数数量，以及最多两位小数的非负人民币成本和售价");
     }
     if (priceSource !== "CNY" && priceSource !== "PAYMENT") throw new Error("产品销售单价的录入币种不正确");
     const expected = Number(priceSource === "CNY"
@@ -39,7 +39,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
       model: String(row.model || "").trim().slice(0, 160),
       quality: String(row.quality || "").trim().slice(0, 160),
       description: String(row.description || "").trim().slice(0, 1000),
-      description_zh: String(row.description_zh).trim().slice(0, 1000),
+      description_zh: String(row.description_zh || "").trim().slice(0, 1000),
       quantity, unit_price_cny: unitPriceCny, unit_price_payment: unitPricePayment, unit_price_source: priceSource,
       estimated_unit_cost_cny: estimatedCostCny,
       preparation_requirement: String(row.preparation_requirement || "").trim().slice(0, 1000),

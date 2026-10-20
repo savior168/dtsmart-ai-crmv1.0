@@ -29,7 +29,7 @@ const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100)
 const normalizeCustomerName = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
 const defaultValidity = () => { const date = new Date(); date.setDate(date.getDate() + 5); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
-const importHeaders = ["产品", "品牌", "型号", "质量", "产品描述", "产品质量/描述中文（展示给后端）", "成本（RMB）", "售价（RMB）", "数量", "理货要求", "备注"];
+const importHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "仓库备注"];
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
 export function PiDeliveryAddressField({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -416,10 +416,14 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     updateRate(String(exchangeRates.find((item) => item.currency === nextCurrency)?.business_cny || ""), true);
   }
   function importRows(rows: unknown[][]) {
+    if (!currency || !Number.isFinite(effectiveRate) || effectiveRate <= 0) throw new Error("请先选择付款币种并填写有效汇率，再导入产品明细");
     const cells = rows.map((row) => row.map((value) => String(value ?? "").trim())).filter((row) => row.some(Boolean));
     const legacy = cells[0]?.[0] === "产品名称";
-    const withChineseDescription = legacy || cells[0]?.[5] === importHeaders[5] || cells[0]?.length >= importHeaders.length;
-    if (cells[0]?.[0] === importHeaders[0] || legacy) cells.shift();
+    const modernHeader = cells[0]?.[0] === importHeaders[0] && cells[0]?.[9] === importHeaders[9];
+    const modernTemplate = modernHeader || (!legacy && cells[0]?.[0] !== "产品" && cells[0]?.length >= 14);
+    const oldTemplate = cells[0]?.[0] === "产品";
+    const withChineseDescription = legacy || modernTemplate || oldTemplate || cells[0]?.[5]?.startsWith("产品质量/描述中文") || cells[0]?.length >= 11;
+    if (modernHeader || oldTemplate || legacy) cells.shift();
     if (!cells.length || cells.length > 500) throw new Error("请导入1至500条产品明细");
     const imported = cells.map((row, index) => {
       const quantityIndex = legacy ? 6 : withChineseDescription ? 8 : 7;
@@ -428,26 +432,25 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       const quantity = Number(row[quantityIndex]);
       const unitPrice = Number(row[priceIndex]);
       const cost = Number(row[costIndex]);
-      if (!withChineseDescription || !row[5]?.trim()) throw new Error(`第${index + 1}行缺少产品质量/描述中文（展示给后端），请使用新版模板填写`);
       if (!row[0] || !row[1] || !row[2] || !row[3] || !validPiQuantity(row[quantityIndex]) || !validPiMoney(row[priceIndex]) || !validPiMoney(row[costIndex])) {
         throw new Error(`第${index + 1}行须填写产品、品牌、型号、质量、整数数量、人民币成本和售价（金额最多两位小数）`);
       }
       if (!validPiSellingPrice(row[priceIndex], row[costIndex])) throw new Error(`第${index + 1}行人民币售价必须高于成本价`);
       return { ...newLine(), item_name: row[0], brand: row[1] || "", model: row[2] || "", quality: row[3] || "",
-        description: row[4] || "", description_zh: row[5], quantity: String(quantity), unit_price_cny: String(unitPrice),
-        unit_price_payment: effectiveRate > 0 ? roundMoney(unitPrice * effectiveRate).toFixed(2) : "", unit_price_source: "CNY" as const,
-        estimated_unit_cost_cny: String(cost), preparation_requirement: row[legacy ? 9 : withChineseDescription ? 9 : 8] || "", internal_note: legacy ? "" : row[withChineseDescription ? 10 : 9] || "" };
+        description: row[4] || "", description_zh: withChineseDescription ? row[5] || "" : "", quantity: String(quantity), unit_price_cny: String(unitPrice),
+        unit_price_payment: roundMoney(unitPrice * effectiveRate).toFixed(2), unit_price_source: "CNY" as const,
+        estimated_unit_cost_cny: String(cost), preparation_requirement: row[modernTemplate ? 12 : legacy ? 9 : withChineseDescription ? 9 : 8] || "", internal_note: legacy ? "" : row[modernTemplate ? 13 : withChineseDescription ? 10 : 9] || "" };
     });
     if (items.filter((item) => item.item_name.trim()).length + imported.length > 500) throw new Error("每张PI最多500条产品，请分批处理");
     setItems((current) => [...current.filter((item) => item.item_name.trim()), ...imported]);
     markUnsaved();
     setError("");
   }
-  async function downloadTemplate() {
-    const XLSX = await import("xlsx");
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([importHeaders]), "PI产品明细");
-    XLSX.writeFile(book, "PI产品明细导入模板.xlsx");
+  function downloadTemplate() {
+    const link = document.createElement("a");
+    link.href = "/templates/pi-line-import-template.xlsx";
+    link.download = "PI产品明细导入模板.xlsx";
+    link.click();
   }
   async function importExcel(file?: File) {
     if (!file) return;
@@ -485,9 +488,9 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       setError("请填写收件人、电话、邮箱和收货地址；这四项是PI收货必填信息"); return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError("请输入有效的收货邮箱地址"); return; }
-    const invalidRow = items.findIndex((item) => !item.item_name.trim() || !item.brand.trim() || !item.model.trim() || !item.quality.trim() || !item.description_zh.trim() || !validPiQuantity(item.quantity) || !validPiMoney(item.unit_price_cny) || !validPiMoney(item.unit_price_payment) || !validPiMoney(item.estimated_unit_cost_cny));
+    const invalidRow = items.findIndex((item) => !item.item_name.trim() || !item.brand.trim() || !item.model.trim() || !item.quality.trim() || !validPiQuantity(item.quantity) || !validPiMoney(item.unit_price_cny) || !validPiMoney(item.unit_price_payment) || !validPiMoney(item.estimated_unit_cost_cny));
     if (invalidRow >= 0) {
-      setError(`第${invalidRow + 1}行请填写产品、品牌、型号、质量、产品质量/描述中文、正整数数量，以及最多两位小数的非负人民币成本和售价`); return;
+      setError(`第${invalidRow + 1}行请填写产品、品牌、型号、质量、正整数数量，以及最多两位小数的非负人民币成本和售价`); return;
     }
     const losingRow = items.findIndex((item) => !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny));
     if (losingRow >= 0) { setError(`第${losingRow + 1}行售价必须高于成本价，请调整后再保存`); return; }
@@ -562,8 +565,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <label className="text-sm">邮箱<Required /><input className={field} type="email" required maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
       <PiDeliveryAddressField value={address} options={selectedShippingAddresses} onChange={(value) => { markUnsaved(); setAddress(value); }} />
     </div></section>
-    <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">销售单价可任选 CNY 或{currency ? ` ${currency}` : "付款币种"}录入，另一币种自动换算；成本和利润按 CNY 核算。表格可横向滚动。</p>{currency !== "CNY" ? <label className={`mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${showDualCurrencyPrices ? "border-blue-400 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} title="勾选后，PI预览、打印、PDF 和 Excel 的单价同时显示人民币及付款币种；录入表格始终显示两种币种"><input type="checkbox" className="accent-blue-600" checked={showDualCurrencyPrices} onChange={(event) => { markUnsaved(); setShowDualCurrencyPrices(event.target.checked); }} />单据单价显示人民币 + {currency || "付款币种"}<span className="font-normal text-slate-500">（默认仅显示{currency || "付款币种"}）</span></label> : null}</div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[2050px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端） *", "成本单价（CNY） *", "销售单价（CNY） *", `销售单价（${currency || "付款币种"}） *`, "数量 *", "销售金额（CNY）", `销售金额（${currency || "付款币种"}）`, "总利润（CNY）", "利润率", "理货要求", "仓库备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head.endsWith(" *") ? <>{head.slice(0, -2)}<Required /></> : head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className="border-t border-slate-100 align-middle">
+    <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">销售单价可任选 CNY 或{currency ? ` ${currency}` : "付款币种"}录入，另一币种自动换算；成本和利润按 CNY 核算。表格可横向滚动。</p>{currency !== "CNY" ? <label className={`mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${showDualCurrencyPrices ? "border-blue-400 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} title="勾选后，PI预览、打印、PDF 和 Excel 的单价、产品金额及费用汇总同时显示人民币及付款币种；录入表格始终显示两种币种"><input type="checkbox" className="accent-blue-600" checked={showDualCurrencyPrices} onChange={(event) => { markUnsaved(); setShowDualCurrencyPrices(event.target.checked); }} />单据价格显示人民币 + {currency || "付款币种"}<span className="font-normal text-slate-500">（默认仅显示{currency || "付款币种"}）</span></label> : null}</div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[2050px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", `销售单价（${currency || "付款币种"}） *`, "数量 *", "销售金额（CNY）", `销售金额（${currency || "付款币种"}）`, "总利润（CNY）", "利润率", "理货要求", "仓库备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head.endsWith(" *") ? <>{head.slice(0, -2)}<Required /></> : head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className="border-t border-slate-100 align-middle">
         <td className="px-2 py-1.5">{index + 1}</td>
         {(["item_name", "brand", "model", "quality", "description"] as const).map((key) => <td key={key} className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行${({ item_name: "产品类型", brand: "产品品牌", model: "产品型号", quality: "产品质量", description: "产品描述" } as const)[key]}`} value={item[key]} onChange={(value) => editLine(index, key, value)} /></td>)}
         <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行产品质量/描述中文（展示给后端）`} value={item.description_zh} onChange={(value) => editLine(index, "description_zh", value)} /></td>
