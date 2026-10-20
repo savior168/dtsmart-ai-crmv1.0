@@ -29,6 +29,7 @@ const stageReleaseBoundary = read("supabase/migrations/202609030004_customer_sta
 const claimStageBoundary = read("supabase/migrations/202609300002_claim_stage_boundary.sql");
 const lowScoreClaimGuard = read("supabase/migrations/20261019073000_screened_low_score_claim_guard.sql");
 const claimApi = read("app/api/customers/public-pool/claim/route.ts");
+const claimEligibility = read("supabase/migrations/20261020031113_public_pool_claim_eligibility.sql");
 const importApi = read("app/api/import/route.ts");
 const importSafety = read("lib/import-safety.ts");
 const importPage = read("app/import/page.tsx");
@@ -72,6 +73,9 @@ assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入�
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
 assert.equal((poolApi.match(/\.eq\("ai_screening_done", true\)\.gte\("ai_score", 60\)/g) || []).length, 3, "待认领数量、筛选选项和列表/导出必须统一只包含已完成筛选且达到 60 分的客户");
 assert.match(claimApi, /ai_screening_done !== true \|\| customer\.data\.ai_score === null \|\| customer\.data\.ai_score < 60/, "认领接口必须拒绝未筛选和低分客户");
+assert.match(claimApi, /createAdminClient\(\)\.from\("customers"\)[\s\S]*\.eq\("acquisition_scope", "PUBLIC_POOL"\)\.eq\("pool_status", "AVAILABLE"\)[\s\S]*\.eq\("status", "UNCLAIMED"\)\.is\("owner_id", null\)/, "公海可认领客户须通过受限服务端查询核验，不能被销售员主档RLS误判为不存在");
+assert.match(claimEligibility, /revoke all on function public\.claim_public_customer\(uuid,text,text,text,text,text,text,bigint\)/, "废弃的无阶段认领RPC不得继续对客户端开放");
+assert.match(claimEligibility, /current_user_has_business_permission\(''customers\.claim''\)/, "新认领RPC须核验数据库中的实际认领权限");
 assert.match(lowScoreClaimGuard, /before update on public\.customers[\s\S]*SELF_CLAIM[\s\S]*reject_low_score_self_claim/, "数据库必须阻止绕过接口的低分自认领");
 assert.match(read("lib/auth/permissions.ts"), /code: "customers\.pool\.export"[^\n]*kind: "ACTION"/, "客户公海导出必须有独立可授权权限");
 assert.match(poolApi, /exportMode && !hasPermission\(account, "customers\.pool\.export"\)/, "公海导出服务端必须检查独立权限");

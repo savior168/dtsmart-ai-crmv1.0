@@ -198,8 +198,8 @@ export function OrdersView() {
     setSortBy(key);
     setPage(1);
   }
-  function SortHeader({ label, column }: { label: string; column: string }) {
-    return <th aria-sort={sortBy === column ? sortDir === "asc" ? "ascending" : "descending" : "none"} className="px-4 py-3 font-medium">
+  function SortHeader({ label, column, className = "" }: { label: string; column: string; className?: string }) {
+    return <th aria-sort={sortBy === column ? sortDir === "asc" ? "ascending" : "descending" : "none"} className={`px-4 py-3 font-medium ${className}`}>
       <button type="button" onClick={() => toggleSort(column)} className="inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700">{label}{sortBy === column ? sortDir === "asc" ? <ArrowUp size={13}/> : <ArrowDown size={13}/> : <ArrowUpDown size={13} className="text-slate-400"/>}</button>
     </th>;
   }
@@ -295,12 +295,12 @@ export function OrdersView() {
                   <tr>
                     {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
-                    <th className="px-4 py-3 font-medium">备货单号</th>
+                    <th className="w-[144px] min-w-[144px] px-3 py-3 font-medium">备货单号</th>
                     <th className="min-w-[110px] px-4 py-3 font-medium">客户名称</th>
                     <SortHeader label="公司名称" column="customer_name"/>
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
-                    <SortHeader label="状态" column="status"/>
+                    <SortHeader label="状态" column="status" className="min-w-[150px] whitespace-nowrap"/>
                     <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th>
@@ -323,14 +323,14 @@ export function OrdersView() {
                           {row.confirmation_method === "DIRECT_PI" ? row.warehouse_reference_number || "—" : row.order_number}
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
                         </td>
-                        <td className="px-4 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}>{stock.stock_number}</Link> : <span className="whitespace-nowrap text-slate-500">{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
+                        <td className="max-w-[144px] px-3 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block truncate font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={`${stock.stock_number} · ${row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}`}>{stock.stock_number}</Link> : <span className="block truncate text-slate-500" title={stock.stock_number}>{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">{row.customer_name || <span className="font-normal text-slate-400">未填写</span>}</td>
                         <td className="px-4 py-3">{row.customer_short_name}</td>
                         <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3"><AppStatusBadge status={row.status} tone={row.confirmation_method === "DIRECT_PI" && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? "violet" : undefined}>{statusLabel}</AppStatusBadge></td>
+                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status} tone={row.confirmation_method === "DIRECT_PI" && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? "violet" : undefined}>{statusLabel}</AppStatusBadge></td>
                         <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>

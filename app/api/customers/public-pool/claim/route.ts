@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { uploadWorkflowEvidence, validateWorkflowEvidence } from "@/lib/customer-workflow-evidence";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
   let uploaded: Awaited<ReturnType<typeof uploadWorkflowEvidence>> | null = null;
@@ -11,8 +12,12 @@ export async function POST(request: NextRequest) {
     if (!customerId) return NextResponse.json({ error: "缺少客户ID" }, { status: 400 });
     const stage = String(form.get("stage") || "CLAIMED").toUpperCase();
     if (!["CLAIMED", "FOLLOWING", "DEAL"].includes(stage)) return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
-    const customer = await supabase.from("customers").select("phone,email,ai_screening_done,ai_score").eq("id", customerId)
-      .is("deleted_at", null).maybeSingle();
+    // The public-pool list uses a narrowly scoped server query: an unowned
+    // customer is intentionally invisible through the salesperson's customer
+    // RLS. Check the same claimable scope here; the RPC locks and rechecks it.
+    const customer = await createAdminClient().from("customers").select("phone,email,ai_screening_done,ai_score")
+      .eq("id", customerId).eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE")
+      .eq("status", "UNCLAIMED").is("owner_id", null).is("deleted_at", null).maybeSingle();
     if (customer.error) throw customer.error;
     if (!customer.data) return NextResponse.json({ error: "客户不存在或无权认领" }, { status: 404 });
     if (customer.data.ai_screening_done !== true || customer.data.ai_score === null || customer.data.ai_score < 60) {
