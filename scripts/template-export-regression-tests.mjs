@@ -4,6 +4,11 @@ import XLSX from "xlsx";
 import { buildQuoteWorkbook, buildStockWorkbook } from "../lib/template-xlsx.ts";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "../lib/batch-xlsx-zip.ts";
 
+const quoteTemplateRoute = readFileSync("app/api/quotes/template/route.ts", "utf8");
+const quoteForm = readFileSync("components/quote-form.tsx", "utf8");
+assert.match(quoteTemplateRoute, /item_name: "示例产品（请替换）"/, "报价导入模板必须含一条填写示例");
+assert.match(quoteForm, /!== "示例产品（请替换）"/, "报价示例不得作为真实明细导入");
+
 const items = Array.from({ length: 12 }, (_, index) => ({
   item_name: `Screen ${index + 1}`,
   product_type_snapshot: "屏幕",

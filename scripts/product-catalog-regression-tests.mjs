@@ -283,6 +283,9 @@ const priceWorkbook = (entries) => {
   return XLSX.write(book, { type: "buffer", bookType: "xlsx" });
 };
 const priceRows = parseProductPriceImport(priceWorkbook([["ZK-2609-000001", "采购价", 82, 1, "2026-09-28", "供应商报价 / A12"], ["ZK-2609-000001", "包装费", 0, 1, "2026-09-28", "采购确认无包装费"]]), "2026-09-28");
+const priceExample = ["ZK-0000-000000", "采购价", 12.34, 1, "2026-09-28", "示例数据，请替换系统SKU和价格来源；此行不会导入"];
+assert.equal(parseProductPriceImport(priceWorkbook([priceExample, ["ZK-2609-000001", "采购价", 82, 1, "2026-09-28", "供应商报价 / A12"]]), "2026-09-28").length, 1, "模板示例行不得成为真实价格变更");
+assert.throws(() => parseProductPriceImport(priceWorkbook([priceExample]), "2026-09-28"), /没有有效数据行/, "仅上传模板示例不得产生调价记录");
 assert.equal(priceRows.length, 2, "不同价格项目可以同批更新");
 assert.equal(priceRows[1].amount, 0, "明确填写的 0 价格应保留");
 assert.throws(() => parseProductPriceImport(priceWorkbook([["1191", "采购价", 82, 1, "2026-09-28", "来源"]]), "2026-09-28"), /系统 SKU/, "供应商身份编号不能用于商品调价");

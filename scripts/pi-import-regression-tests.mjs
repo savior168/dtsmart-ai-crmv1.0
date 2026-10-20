@@ -54,7 +54,11 @@ exampleSheet.J19 = { t: "n", v: 1.5 };
 assert.throws(() => parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })), /整数数量/);
 
 const wholeTemplate = XLSX.readFile("assets/templates/PI_Whole_Order_Import_Template.xlsx", { cellFormula: true });
-assert.deepEqual(wholeTemplate.SheetNames, ["PI基本信息", "PI产品明细"]);
+assert.deepEqual(wholeTemplate.SheetNames, ["PI基本信息", "PI产品明细", "填写示例"]);
+const wholeExample = wholeTemplate.Sheets["填写示例"];
+assert.match(String(wholeExample.A1.v), /不会导入/);
+assert.equal(wholeExample.B6.v, "PI-EXAMPLE-001");
+assert.equal(wholeExample.A30.v, "手机屏幕");
 const basic = wholeTemplate.Sheets["PI基本信息"];
 const lines = wholeTemplate.Sheets["PI产品明细"];
 assert.equal(lines.E1.v, "产品描述", "产品描述应选填");

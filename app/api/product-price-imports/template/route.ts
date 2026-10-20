@@ -9,7 +9,10 @@ export async function GET() {
   try {
     await requirePermission("pricebooks.import");
     const workbook = XLSX.utils.book_new();
-    const sheet = XLSX.utils.aoa_to_sheet([[...PRICE_IMPORT_HEADERS]]);
+    const sheet = XLSX.utils.aoa_to_sheet([
+      [...PRICE_IMPORT_HEADERS],
+      ["ZK-0000-000000", "采购价", 12.34, 1, new Date().toISOString().slice(0, 10), "示例数据，请替换系统SKU和价格来源；此行不会导入"],
+    ]);
     sheet["!cols"] = [18, 22, 14, 14, 18, 60].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(workbook, sheet, "价格更新");
     const body = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });

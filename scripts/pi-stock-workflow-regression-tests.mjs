@@ -84,7 +84,7 @@ const lineTemplateArchive = XLSX.CFB.read(lineTemplateBytes, { type: "buffer" })
 const lineTemplateStyles = Buffer.from(XLSX.CFB.find(lineTemplateArchive, "/xl/styles.xml").content).toString("utf8");
 assert.match(lineTemplateStyles, /(?:DC2626|dc2626)/, "PI产品导入模板必填表头须使用红色标识");
 const lineTemplateBook = XLSX.read(lineTemplateBytes, { type: "buffer", cellFormula: true });
-assert.deepEqual(lineTemplateBook.SheetNames.slice(1), ["填写说明"], "产品模板须提供独立说明页且导入器只读第一张明细页");
+assert.deepEqual(lineTemplateBook.SheetNames.slice(1), ["填写说明", "填写示例"], "产品模板须提供独立说明和示例页且导入器只读第一张明细页");
 const lineHelp = XLSX.utils.sheet_to_json(lineTemplateBook.Sheets["填写说明"], { header: 1, defval: "" });
 assert.match(lineHelp[3][1], /产品描述、产品质量\/描述中文/, "选填描述须在模板中明确说明");
 assert.match(lineHelp[4][1], /销售金额＝人民币销售单价×数量/, "自动计算列须在模板中说明");

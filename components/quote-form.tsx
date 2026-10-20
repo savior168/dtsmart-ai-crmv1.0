@@ -428,7 +428,7 @@ export function QuoteForm({
       const imported = rows
         .slice(headerIndex + 1)
         .filter(
-          (row) => Array.isArray(row) && String(row[indices.item] ?? "").trim(),
+          (row) => Array.isArray(row) && String(row[indices.item] ?? "").trim() && String(row[indices.item] ?? "").trim() !== "示例产品（请替换）",
         )
         .map((row, line) => ({
           ...emptyItem(),

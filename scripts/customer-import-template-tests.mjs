@@ -30,7 +30,11 @@ assert.match(customerListApi, /manualGrade === "UNMARKED"\) query = query\.is\("
 assert.match(customerListApi, /"ai_score", "manual_grade", "status"/, "客户等级应可排序");
 assert.match(customersView, /aria-label="客户等级"/, "我的客户应提供客户等级筛选");
 const workbook = XLSX.read(binary, { type: "buffer" });
-assert.deepEqual(workbook.SheetNames, ["客户导入模板", "填写说明"]);
+assert.deepEqual(workbook.SheetNames, ["客户导入模板", "填写说明", "填写示例"]);
+const exampleRows = XLSX.utils.sheet_to_json(workbook.Sheets["填写示例"], { header: 1, defval: "" });
+assert.match(exampleRows[0][0], /不会导入/);
+assert.equal(exampleRows[4][0], "示例联系人");
+assert.equal(exampleRows[4][8], "", "公海与我的客户共用的示例不得预设客户阶段");
 const help = XLSX.utils.sheet_to_json(workbook.Sheets["填写说明"], { header: 1, defval: "" });
 assert.match(help[3][1], /电话号码、邮箱、客户官网、谷歌商家链接四项中至少填写一项/);
 assert.match(help[4][1], /意向客户和已成交客户必须同时填写电话和邮箱/);

@@ -20,8 +20,8 @@ export async function GET() {
       owner: null,
       customer: null,
     }, [{
-      line_number: 1, item_name: "", brand: "", model: "", quality: "", description: "",
-      description_zh: null, quantity: 0, unit_price: 0, procurement_cost: 0, preparation_requirement: null,
+      line_number: 1, item_name: "示例产品（请替换）", brand: "示例品牌", model: "DEMO-001", quality: "全新", description: "示例行，导入前请替换",
+      description_zh: null, quantity: 1, unit_price: 12, procurement_cost: 0, preparation_requirement: null,
     }]);
     return new NextResponse(new Uint8Array(buffer), { headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -58,6 +58,9 @@ export function parseProductPriceImport(buffer: Buffer, today = new Date().toISO
   for (let index = 1; index <= range.e.r; index += 1) {
     const cells = PRICE_IMPORT_HEADERS.map((_, column) => sheet[XLSX.utils.encode_cell({ r: index, c: column })]);
     if (cells.every((cell) => cell?.v === undefined || String(cell.v).trim() === "")) continue;
+    // The bundled example is intentionally never submitted as a real price change.
+    if (String(cells[0]?.v ?? "").trim().toUpperCase() === "ZK-0000-000000"
+      && String(cells[5]?.v ?? "").trim() === "示例数据，请替换系统SKU和价格来源；此行不会导入") continue;
     const line = index + 1;
     if (cells.some((cell) => Boolean(cell?.f))) throw new Error(`第 ${line} 行包含公式；请粘贴核准后的实际值`);
     const sku = String(cells[0]?.v ?? "").trim().toUpperCase();
