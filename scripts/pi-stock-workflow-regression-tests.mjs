@@ -360,21 +360,21 @@ const drawingXml = Buffer.from(XLSX.CFB.find(archive, "/xl/drawings/drawing1.xml
 const logoLeft = Number(drawingXml.match(/<xdr:colOff>(\d+)<\/xdr:colOff>/)?.[1]);
 const logoTop = Number(drawingXml.match(/<xdr:rowOff>(\d+)<\/xdr:rowOff>/)?.[1]);
 const logoWidth = Number(drawingXml.match(/<xdr:ext cx="(\d+)"/)?.[1]);
-assert.equal(logoWidth / 9525, 100, "PI Excel Logo应完整显示且不挤占公司信息");
-assert.ok(logoLeft / 9525 >= 10 && (logoLeft + logoWidth) / 9525 <= 145, "Logo不得超出页眉左侧 A:C 并遮挡公司文字");
+assert.equal(logoWidth / 9525, 90, "PI Excel Logo应完整显示且不挤占公司信息");
+assert.ok(logoLeft / 9525 >= 8 && (logoLeft + logoWidth) / 9525 <= 115, "Logo不得超出页眉左侧 A:B 并遮挡公司文字");
 assert.ok(logoTop / 9525 >= 10 && (logoTop + logoWidth) / 9525 <= 150, "Logo须在页眉模块内垂直居中");
 assert.match(Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8"), /<drawing r:id=/, "工作表必须用有效的XML命名空间引用企业Logo");
 const book = XLSX.read(workbook, { type: "array", cellFormula: true, cellStyles: true });
 const sheet = book.Sheets[book.SheetNames[0]];
 assert.ok((sheet["!cols"]?.[10]?.wpx || 0) >= 95, "PI金额列应能完整显示币种和四位数金额，不得截断或显示井号");
 const sheetXml = Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8");
-for (const address of ["D4", "D6", "D7", "D8", "D9", "G13"]) {
+for (const address of ["C4", "C6", "C7", "C8", "C9", "G13"]) {
   assert.doesNotMatch(sheetXml, new RegExp(`<c r="${address}"[^>]*>[\\s\\S]*?<b\\/>[\\s\\S]*?<\\/c>`), `${address} 的属性名称和内容均不应加粗`);
 }
 assert.match(sheetXml, /<sheetView showGridLines="0"/, "客户PI需隐藏Excel默认网格线，仅展示单据边框");
 assert.deepEqual(sheet["!rows"].slice(1, 9).map((row) => row.hpt), [18,18,24,24,20,18,18,18], "Excel页眉应给公司地址足够行高并与右侧信息模块等高");
 assert.equal(sheet["!rows"][9].hpt + sheet["!rows"][10].hpt, 12, "页眉与收货信息之间不得留下两行正常高度的空白");
-for (const address of ["A2", "C9", "D2", "F9", "C19"]) {
+for (const address of ["A2", "C9", "C2", "F9", "C19"]) {
   assert.match(sheetXml, new RegExp(`<c r="${address}" s="\\d+"`), `${address} 须保留模块或合并单元格边框样式`);
 }
 assert.equal(sheet["!rows"][18].hpt, 24, "PI产品数据行应保持紧凑且可读");
@@ -388,8 +388,8 @@ assert.equal(businessNumberBook.Sheets[businessNumberBook.SheetNames[0]].J2.v, "
 assert.equal(sheet.J4.v, "2026-10-17", "PI导出有效期应与预览使用同一日期值");
 assert.ok(sheet["!rows"].some((row) => row.hpt >= 90), "收款信息须预留足够高度，不得被单元格裁切");
 assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).deliveryTaxNumber, "GB123456", "页面预览与Excel应复用同一个公司税号值");
-assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
-assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
+assert.match(sheet.C4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
+assert.match(sheet.C6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
 assert.match(read("components/order-print-preview.tsx"), /<p>Address: \{piDocument!\.companyAddress\}<\/p>/, "PI 预览企业地址属性名和值均使用常规字重");
 assert.match(read("components/order-print-preview.tsx"), /<p>Official Website: \{piDocument!\.website\}<\/p>/, "PI 预览官网属性名和值均使用常规字重");
 assert.equal(sheet.G6.v, "PAYMENT / METHOD:", "客户PI页眉付款标签只显示栏目名称");
@@ -435,6 +435,10 @@ assert.equal(dualModel.items[0].unitPriceCny, 100, "预览中的人民币单价�
 assert.equal(dualModel.items[0].amountCny, 100, "预览中的人民币行金额须由人民币单价乘数量计算");
 const dualBook = XLSX.read(buildDirectPiWorkbook(dualOrder, [itemFixture]), { type: "array", cellFormula: true, cellStyles: true });
 const dualSheet = dualBook.Sheets[dualBook.SheetNames[0]];
+assert.equal(dualSheet.H2.v, "COMMERCIAL INVOICE", "双币种PI右侧单据信息应与扩宽后的公司信息保持平衡");
+assert.equal(dualSheet.K2.v, "PI-TEST", "双币种PI编号应位于独立的右侧值栏");
+assert.equal(dualSheet.K6.v, "NAIRA/RMB (NGN)", "双币种PI付款方式应位于独立的右侧值栏");
+assert.match(dualSheet.C4.v, /^Address: /, "双币种PI公司信息应从Logo右侧开始且保持可读");
 assert.deepEqual([dualSheet.I18.v, dualSheet.J18.v, dualSheet.K18.v, dualSheet.L18.v, dualSheet.M18.v],
   ["Unit Price (CNY)", "Unit Price (NGN)", "Quantity", "Amount (CNY)", "Amount (NGN)"], "双币种单价与金额须独立成列");
 assert.deepEqual([dualSheet.I19.v, dualSheet.J19.v, dualSheet.K19.v], [100, 20000, 1]);

@@ -157,18 +157,20 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   if (workbook.SheetNames.includes("PI基本信息") || workbook.SheetNames.includes("PI产品明细")) return parseSystemPiWorkbook(workbook);
   const sheetName = workbook.SheetNames.find((name) => {
     const sheet = workbook.Sheets[name];
-    return /COMMERCIAL INVOICE/i.test(cellText(sheet, "G2")) && /^no\.?$/i.test(cellText(sheet, "A18"));
+    return /COMMERCIAL INVOICE/i.test(cellText(sheet, "G2") || cellText(sheet, "H2")) && /^no\.?$/i.test(cellText(sheet, "A18"));
   });
   if (!sheetName) throw new Error("未找到与客户PI模板一致的工作表，请检查COMMERCIAL INVOICE及产品表头");
   const sheet = workbook.Sheets[sheetName];
   const dualCurrencyColumns = /^Unit Price \(CNY\)$/i.test(cellText(sheet, "I18")) && /^Amount \(CNY\)$/i.test(cellText(sheet, "L18"));
-  const warehouse_reference_number = cellText(sheet, "J2");
+  const invoiceValueColumn = /COMMERCIAL INVOICE/i.test(cellText(sheet, "H2")) ? "K" : "J";
+  const invoiceLabelColumn = invoiceValueColumn === "K" ? "H" : "G";
+  const warehouse_reference_number = cellText(sheet, `${invoiceValueColumn}2`);
   if (!warehouse_reference_number || warehouse_reference_number.length > 80) throw new Error("PI订单编号不能为空且不得超过80字");
-  // J6 is the explicit import currency; formula-cached header text may be stale until Excel recalculates.
-  const currencyCandidates = [cellText(sheet, "J6"), cellText(sheet, "G6").match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, dualCurrencyColumns ? "J18" : "I18").match(/\(([A-Z]{3})\)/)?.[1]];
+  // The invoice value cell is the explicit import currency; older dual-currency exports used J6.
+  const currencyCandidates = [cellText(sheet, `${invoiceValueColumn}6`), cellText(sheet, `${invoiceLabelColumn}6`).match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, dualCurrencyColumns ? "J18" : "I18").match(/\(([A-Z]{3})\)/)?.[1]];
   const currency = currencyCandidates.find((value) => value && QUOTE_CURRENCY_CODES.has(value)) || "";
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
-  const paymentText = cellText(sheet, "J6");
+  const paymentText = cellText(sheet, `${invoiceValueColumn}6`);
   const paymentMethod = paymentText === currency ? "" : paymentText.replace(new RegExp(`\\s*\\(${currency}\\)\\s*$`, "i"), "").trim();
   const items: ImportedPiItem[] = [];
   let subtotalRow = 0;
@@ -221,7 +223,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   if (!Number.isFinite(shipping_payment) || shipping_payment < 0) throw new Error("客户PI运费不正确");
   return { sheet_name: sheetName, payment_account_instructions: paymentAccountInstructions, document: {
     warehouse_reference_number, currency, payment_method: paymentMethod,
-    delivery_date: dateValue(sheet.J8?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: recipient,
+    delivery_date: dateValue(sheet[`${invoiceValueColumn}8`]?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: recipient,
     delivery_phone: phone, delivery_company: deliveryValue("Company"),
     delivery_email: deliveryValue("Email"), delivery_address: afterLabel(cellText(sheet, "G13")),
     items, subtotal_payment, shipping_payment: money(shipping_payment), total_payment: money(subtotal_payment + shipping_payment),

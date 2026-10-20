@@ -7,7 +7,7 @@ import { createPiDocumentModel } from "./pi-document-model.ts";
 const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
 
-/** Preserve the supplied corporate logo at the same 108px size as the preview. */
+/** Preserve the supplied corporate logo in the customer-facing header. */
 function addPiLogo(workbook: Uint8Array): Buffer {
   const template = Zip.CFB.read(readFileSync(path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx")), { type: "buffer" });
   const output = Zip.CFB.read(Buffer.from(workbook), { type: "buffer" });
@@ -17,10 +17,9 @@ function addPiLogo(workbook: Uint8Array): Buffer {
     let bytes = Buffer.from(original.content);
     if (part.endsWith("drawing1.xml")) {
       const drawingXml = bytes.toString("utf8")
-        // A:C is about 140px wide. Centre the logo within the taller
-        // A2:C9 header block; offsets and extents are in EMUs.
-        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>114300</xdr:rowOff></xdr:from>")
-        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="952500" cy="952500" />');
+        // Keep the logo inside A:B, leaving C onward for legible seller details.
+        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>76200</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>152400</xdr:rowOff></xdr:from>")
+        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="857250" cy="857250" />');
       bytes = Buffer.from(drawingXml, "utf8");
     }
     Zip.CFB.utils.cfb_add(output, part, bytes);
@@ -212,23 +211,28 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
-  set(sheet, "I1", "DCN: E-S-002 Rev.05", { ...base, alignment: { horizontal: "right" } }); merge(sheet, "I1:K1");
-  set(sheet, "D2", document.companyName, { ...base, font: { name: "Arial", sz: 10, bold: true }, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D2:F3");
+  const sellerEnd = showDualCurrencyPrices ? "G" : "F";
+  const invoiceStart = showDualCurrencyPrices ? "H" : "G";
+  const invoiceLabelEnd = showDualCurrencyPrices ? "J" : "I";
+  const invoiceValueStart = showDualCurrencyPrices ? "K" : "J";
+  const invoiceEnd = showDualCurrencyPrices ? "M" : "K";
+  set(sheet, showDualCurrencyPrices ? "K1" : "I1", "DCN: E-S-002 Rev.05", { ...base, alignment: { horizontal: "right" } }); merge(sheet, `${showDualCurrencyPrices ? "K" : "I"}1:${invoiceEnd}1`);
+  set(sheet, "C2", document.companyName, { ...base, font: { name: "Arial", sz: 11, bold: true }, alignment: { vertical: "center", wrapText: true } }); merge(sheet, `C2:${sellerEnd}3`);
   const green: CellStyle = { ...boxed, fill: { fgColor: { rgb: "70AD47" } }, font: { name: "Arial", sz: 10, bold: true, underline: true } };
-  set(sheet, "G2", "COMMERCIAL INVOICE", green); merge(sheet, "G2:I3");
-  set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 11 } }); merge(sheet, `J2:${showDualCurrencyPrices ? "M" : "K"}3`);
-  const companyLine: CellStyle = { ...base, font: { name: "Arial", sz: 8 }, alignment: { vertical: "center", wrapText: true } };
-  set(sheet, "D4", `Address: ${document.companyAddress}`, { ...companyLine, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
-  set(sheet, "G4", "QUOTATION VALID", boxed); merge(sheet, "G4:I5");
-  set(sheet, "J4", document.quotationValidUntil, boxed); merge(sheet, `J4:${showDualCurrencyPrices ? "M" : "K"}5`);
-  set(sheet, "D6", `Official Website: ${document.website}`, companyLine); merge(sheet, "D6:F6");
-  set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
-  set(sheet, "J6", document.paymentMethod, boxed); merge(sheet, `J6:${showDualCurrencyPrices ? "M" : "K"}7`);
-  set(sheet, "D7", `Sales Manager: ${document.salesManager}`, companyLine); merge(sheet, "D7:F7");
-  set(sheet, "D8", `Contact No: ${document.contactPhone}`, companyLine); merge(sheet, "D8:F8");
-  set(sheet, "G8", "DELIVERY DATE", boxed); merge(sheet, "G8:I9");
-  set(sheet, "J8", document.deliveryDate, boxed); merge(sheet, `J8:${showDualCurrencyPrices ? "M" : "K"}9`);
-  set(sheet, "D9", `Email: ${document.contactEmail}`, companyLine); merge(sheet, "D9:F9");
+  set(sheet, `${invoiceStart}2`, "COMMERCIAL INVOICE", green); merge(sheet, `${invoiceStart}2:${invoiceLabelEnd}3`);
+  set(sheet, `${invoiceValueStart}2`, document.orderNumber, { ...green, font: { name: "Arial", sz: 11 } }); merge(sheet, `${invoiceValueStart}2:${invoiceEnd}3`);
+  const companyLine: CellStyle = { ...base, font: { name: "Arial", sz: 9 }, alignment: { vertical: "center", wrapText: true } };
+  set(sheet, "C4", `Address: ${document.companyAddress}`, companyLine); merge(sheet, `C4:${sellerEnd}5`);
+  set(sheet, `${invoiceStart}4`, "QUOTATION VALID", boxed); merge(sheet, `${invoiceStart}4:${invoiceLabelEnd}5`);
+  set(sheet, `${invoiceValueStart}4`, document.quotationValidUntil, boxed); merge(sheet, `${invoiceValueStart}4:${invoiceEnd}5`);
+  set(sheet, "C6", `Official Website: ${document.website}`, companyLine); merge(sheet, `C6:${sellerEnd}6`);
+  set(sheet, `${invoiceStart}6`, "PAYMENT / METHOD:", boxed); merge(sheet, `${invoiceStart}6:${invoiceLabelEnd}7`);
+  set(sheet, `${invoiceValueStart}6`, document.paymentMethod, boxed); merge(sheet, `${invoiceValueStart}6:${invoiceEnd}7`);
+  set(sheet, "C7", `Sales Manager: ${document.salesManager}`, companyLine); merge(sheet, `C7:${sellerEnd}7`);
+  set(sheet, "C8", `Contact No: ${document.contactPhone}`, companyLine); merge(sheet, `C8:${sellerEnd}8`);
+  set(sheet, `${invoiceStart}8`, "DELIVERY DATE", boxed); merge(sheet, `${invoiceStart}8:${invoiceLabelEnd}9`);
+  set(sheet, `${invoiceValueStart}8`, document.deliveryDate, boxed); merge(sheet, `${invoiceValueStart}8:${invoiceEnd}9`);
+  set(sheet, "C9", `Email: ${document.contactEmail}`, companyLine); merge(sheet, `C9:${sellerEnd}9`);
   set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, `A12:${showDualCurrencyPrices ? "M" : "K"}12`);
   const delivery = [
     `Company: ${document.deliveryCompany}`,
@@ -305,7 +309,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, `G${signatureName}`, document.deliveryCompany, center); merge(sheet, `G${signatureName}:${showDualCurrencyPrices ? "M" : "K"}${signatureName}`);
   set(sheet, `A${signatureDate}`, issueDate, center); merge(sheet, `A${signatureDate}:F${signatureDate}`);
   set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`);
-  outline(sheet, "A2:F9");
+  outline(sheet, `A2:${sellerEnd}9`);
   outline(sheet, `A12:${showDualCurrencyPrices ? "M" : "K"}16`);
   outline(sheet, "A13:F16");
   outline(sheet, `G13:${showDualCurrencyPrices ? "M" : "K"}16`);
