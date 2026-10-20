@@ -11,6 +11,9 @@ export function CompactDateRange({
   fromLabel = "开始日期",
   toLabel = "结束日期",
   className = "",
+  presets,
+  selectedPreset = "",
+  onPresetChange,
 }: {
   from: string;
   to: string;
@@ -20,6 +23,9 @@ export function CompactDateRange({
   fromLabel?: string;
   toLabel?: string;
   className?: string;
+  presets?: ReadonlyArray<{ value: string; label: string; title?: string }>;
+  selectedPreset?: string;
+  onPresetChange?: (value: string) => void;
 }) {
   return (
     <fieldset
@@ -46,6 +52,13 @@ export function CompactDateRange({
         onChange={(event) => onToChange(event.target.value)}
         className="h-full min-w-0 w-[122px] border-0 bg-transparent px-2 text-sm outline-none"
       />
+      {presets?.length && onPresetChange ? <>
+        <span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-200" />
+        <select aria-label={`${label}快捷范围`} value={selectedPreset} onChange={(event) => onPresetChange(event.target.value)} className="h-full max-w-[100px] shrink-0 border-0 bg-transparent px-2 text-xs font-medium text-blue-700 outline-none">
+          <option value="">自定义</option>
+          {presets.map((preset) => <option key={preset.value} value={preset.value} title={preset.title}>{preset.label}</option>)}
+        </select>
+      </> : null}
     </fieldset>
   );
 }
