@@ -19,8 +19,8 @@ function addPiLogo(workbook: Uint8Array): Buffer {
       const drawingXml = bytes.toString("utf8")
         // A:C is about 140px wide. Centre the logo within the taller
         // A2:C9 header block; offsets and extents are in EMUs.
-        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>38100</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>371475</xdr:rowOff></xdr:from>")
-        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="1257300" cy="1257300" />');
+        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>114300</xdr:rowOff></xdr:from>")
+        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="952500" cy="952500" />');
       bytes = Buffer.from(drawingXml, "utf8");
     }
     Zip.CFB.utils.cfb_add(output, part, bytes);
@@ -202,33 +202,34 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
   sheet["!ref"] = `A1:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
-  sheet["!cols"] = [6, 7, 7, 10, 13, 15, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
-  if (showDualCurrencyPrices) sheet["!cols"].push({ wch: 1, hidden: true }, { wch: 1, hidden: true });
+  sheet["!cols"] = (showDualCurrencyPrices
+    ? [6, 7, 7, 10, 13, 15, 9, 8, 13, 13, 8, 15, 15]
+    : [6, 7, 7, 10, 13, 15, 9, 8, 13, 8, 16]).map((wch) => ({ wch }));
   const paymentLineCount = order.payment_account_snapshot!.trim().split(/\r?\n/)
     .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 95)), 0);
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(90, paymentLineCount * 18 + 12) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? (showDualCurrencyPrices ? 34 : 24) : 19) : showDualCurrencyPrices && index >= subtotalRow - 1 && index <= totalRow - 1 ? 34 : index === 1 || index === 2 ? 18 : index === 3 || index === 4 ? 24 : index === 5 ? 20 : index >= 6 && index <= 8 ? 18 : index === 9 || index === 10 ? 6 : 18,
+    hpt: index === paymentBody - 1 ? Math.max(90, paymentLineCount * 18 + 12) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : index === 1 || index === 2 ? 18 : index === 3 || index === 4 ? 24 : index === 5 ? 20 : index >= 6 && index <= 8 ? 18 : index === 9 || index === 10 ? 6 : 21,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
   set(sheet, "I1", "DCN: E-S-002 Rev.05", { ...base, alignment: { horizontal: "right" } }); merge(sheet, "I1:K1");
-  set(sheet, "D2", document.companyName, { ...base, font: { name: "Arial", sz: 12, bold: true } }); merge(sheet, "D2:F3");
+  set(sheet, "D2", document.companyName, { ...base, font: { name: "Arial", sz: 10, bold: true }, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D2:F3");
   const green: CellStyle = { ...boxed, fill: { fgColor: { rgb: "70AD47" } }, font: { name: "Arial", sz: 10, bold: true, underline: true } };
   set(sheet, "G2", "COMMERCIAL INVOICE", green); merge(sheet, "G2:I3");
-  set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 11 } }); merge(sheet, "J2:K3");
+  set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 11 } }); merge(sheet, `J2:${showDualCurrencyPrices ? "M" : "K"}3`);
   const companyLine: CellStyle = { ...base, font: { name: "Arial", sz: 8 }, alignment: { vertical: "center", wrapText: true } };
   set(sheet, "D4", `Address: ${document.companyAddress}`, { ...companyLine, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
   set(sheet, "G4", "QUOTATION VALID", boxed); merge(sheet, "G4:I5");
-  set(sheet, "J4", document.quotationValidUntil, boxed); merge(sheet, "J4:K5");
+  set(sheet, "J4", document.quotationValidUntil, boxed); merge(sheet, `J4:${showDualCurrencyPrices ? "M" : "K"}5`);
   set(sheet, "D6", `Official Website: ${document.website}`, companyLine); merge(sheet, "D6:F6");
   set(sheet, "G6", "PAYMENT / METHOD:", boxed); merge(sheet, "G6:I7");
-  set(sheet, "J6", document.paymentMethod, boxed); merge(sheet, "J6:K7");
+  set(sheet, "J6", document.paymentMethod, boxed); merge(sheet, `J6:${showDualCurrencyPrices ? "M" : "K"}7`);
   set(sheet, "D7", `Sales Manager: ${document.salesManager}`, companyLine); merge(sheet, "D7:F7");
   set(sheet, "D8", `Contact No: ${document.contactPhone}`, companyLine); merge(sheet, "D8:F8");
   set(sheet, "G8", "DELIVERY DATE", boxed); merge(sheet, "G8:I9");
-  set(sheet, "J8", document.deliveryDate, boxed); merge(sheet, "J8:K9");
+  set(sheet, "J8", document.deliveryDate, boxed); merge(sheet, `J8:${showDualCurrencyPrices ? "M" : "K"}9`);
   set(sheet, "D9", `Email: ${document.contactEmail}`, companyLine); merge(sheet, "D9:F9");
-  set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, "A12:K12");
+  set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, `A12:${showDualCurrencyPrices ? "M" : "K"}12`);
   const delivery = [
     `Company: ${document.deliveryCompany}`,
     ...(document.deliveryTaxNumber ? [`Tax No.: ${document.deliveryTaxNumber}`] : []),
@@ -240,17 +241,19 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     set(sheet, `A${row}`, value.trim(), { ...base, alignment: { vertical: "center", wrapText: true } });
     merge(sheet, `A${row}:F${row}`);
   }
-  set(sheet, "G13", `Delivery address: ${document.deliveryAddress}`, { ...base, alignment: { wrapText: true, vertical: "center" } }); merge(sheet, "G13:K16");
+  set(sheet, "G13", `Delivery address: ${document.deliveryAddress}`, { ...base, alignment: { wrapText: true, vertical: "center" } }); merge(sheet, `G13:${showDualCurrencyPrices ? "M" : "K"}16`);
   set(sheet, "F17", "Thanks your business!", { ...center, font: { name: "Arial", sz: 15, bold: true, italic: true, color: { rgb: "0070C0" } } }); merge(sheet, "F17:H17");
 
   const heading: CellStyle = { ...boxed, font: { name: "Arial", sz: 10, bold: true }, fill: { fgColor: { rgb: "E2EFDA" } } };
   const headings: Array<[string, string, string?]> = [
     ["A", "No."], ["B", "Items", "B18:C18"], ["D", "Brand"], ["E", "Models"], ["F", "Quality"],
-    ["G", "Description", "G18:H18"], ["I", showDualCurrencyPrices ? `Unit Price\n(CNY / ${currency})` : `Unit Price\n(${currency})`],
-    ["J", "Quantity"], ["K", showDualCurrencyPrices ? `Amount\n(CNY / ${currency})` : `Amount\n(${currency})`],
+    ["G", "Description", "G18:H18"],
+    ...(showDualCurrencyPrices
+      ? [["I", "Unit Price (CNY)"], ["J", `Unit Price (${currency})`], ["K", "Quantity"], ["L", "Amount (CNY)"], ["M", `Amount (${currency})`]] as Array<[string, string]>
+      : [["I", `Unit Price\n(${currency})`], ["J", "Quantity"], ["K", `Amount\n(${currency})`]] as Array<[string, string]>),
   ];
   for (const [column, label, range] of headings) {
-    set(sheet, `${column}18`, label, column === "I" || column === "K" ? { ...heading, alignment: { horizontal: "right", vertical: "center", wrapText: true } } : heading);
+    set(sheet, `${column}18`, label, ["I", "J", "K", "L", "M"].includes(column) && label !== "Quantity" ? { ...heading, alignment: { horizontal: "right", vertical: "center", wrapText: true } } : heading);
     if (range) merge(sheet, range);
   }
   for (let index = 0; index < Math.max(9, items.length); index += 1) {
@@ -258,17 +261,17 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     const item = items[index];
     const values: Array<[string, string | number]> = item ? [
       ["A", index + 1], ["B", item.item_name], ["D", item.brand || ""], ["E", item.model || ""],
-      ["F", item.quality || ""], ["G", item.description || ""], ["I", showDualCurrencyPrices ? `CNY ¥${Number(item.unit_price_cny).toFixed(2)}\n${currency} ${Number(item.unit_price).toFixed(2)}` : Number(item.unit_price)], ["J", Number(item.quantity)],
-    ] : [["A", ""], ["B", ""], ["D", ""], ["E", ""], ["F", ""], ["G", ""], ["I", ""], ["J", ""]];
+      ["F", item.quality || ""], ["G", item.description || ""], ["I", showDualCurrencyPrices ? Number(item.unit_price_cny) : Number(item.unit_price)],
+      ...(showDualCurrencyPrices ? [["J", Number(item.unit_price)], ["K", Number(item.quantity)]] as Array<[string, number]> : [["J", Number(item.quantity)]] as Array<[string, number]>),
+    ] : [["A", ""], ["B", ""], ["D", ""], ["E", ""], ["F", ""], ["G", ""], ["I", ""], ["J", ""], ...(showDualCurrencyPrices ? [["K", ""]] as Array<[string, string]> : [])];
     for (const [column, value] of values) set(sheet, `${column}${row}`, value,
-      column === "I" ? showDualCurrencyPrices ? { ...moneyStyle(currency), alignment: { horizontal: "right", vertical: "center", wrapText: true } } : moneyStyle(currency) : boxed);
+      column === "I" ? moneyStyle(showDualCurrencyPrices ? "CNY" : currency) : showDualCurrencyPrices && column === "J" ? moneyStyle(currency) : boxed);
     if (item) {
-      if (showDualCurrencyPrices) set(sheet, `L${row}`, Number(item.unit_price));
       if (showDualCurrencyPrices) {
-        calculated(sheet, `M${row}`, `L${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
-        set(sheet, `K${row}`, `CNY ¥${roundMoney(Number(item.unit_price_cny) * Number(item.quantity)).toFixed(2)}\n${currency} ${roundMoney(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}`, { ...moneyStyle(currency), alignment: { horizontal: "right", vertical: "center", wrapText: true } });
+        calculated(sheet, `L${row}`, `I${row}*K${row}`, roundMoney(Number(item.unit_price_cny) * Number(item.quantity)), moneyStyle("CNY"));
+        calculated(sheet, `M${row}`, `J${row}*K${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
       } else calculated(sheet, `K${row}`, `I${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
-    } else { set(sheet, `K${row}`, "", boxed); }
+    } else { for (const column of showDualCurrencyPrices ? ["L", "M"] : ["K"]) set(sheet, `${column}${row}`, "", boxed); }
     merge(sheet, `B${row}:C${row}`); merge(sheet, `G${row}:H${row}`);
   }
   const totalRows: Array<[number, string, number | string, number, number]> = [
@@ -278,13 +281,14 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     [totalRow, "TOTAL AMOUNT:", "", Number(order.total_amount), Number(order.total_cny)],
   ];
   for (const [row, label, quantity, paid, cny] of totalRows) {
-    set(sheet, `G${row}`, label, { ...boxed, font: { name: "Arial", sz: 10, bold: true } }); merge(sheet, `G${row}:I${row}`);
-    set(sheet, `J${row}`, quantity, boxed);
+    set(sheet, `G${row}`, label, { ...boxed, font: { name: "Arial", sz: 10, bold: true } }); merge(sheet, `G${row}:${showDualCurrencyPrices ? "J" : "I"}${row}`);
+    set(sheet, `${showDualCurrencyPrices ? "K" : "J"}${row}`, quantity, boxed);
     if (showDualCurrencyPrices) {
-      if (row === subtotalRow) calculated(sheet, `M${row}`, `SUM(M19:M${18 + items.length})`, paid, moneyStyle(currency));
-      else if (row === totalRow) calculated(sheet, `M${row}`, `SUM(M${subtotalRow}:M${totalRow - 1})`, paid, moneyStyle(currency, true));
-      else set(sheet, `M${row}`, paid, moneyStyle(currency));
-      set(sheet, `K${row}`, `CNY ¥${cny.toFixed(2)}\n${currency} ${paid.toFixed(2)}`, { ...moneyStyle(currency, row === totalRow), alignment: { horizontal: "right", vertical: "center", wrapText: true } });
+      for (const [column, amount, code] of [["L", cny, "CNY"], ["M", paid, currency]] as const) {
+        if (row === subtotalRow) calculated(sheet, `${column}${row}`, `SUM(${column}19:${column}${18 + items.length})`, amount, moneyStyle(code));
+        else if (row === totalRow) calculated(sheet, `${column}${row}`, `SUM(${column}${subtotalRow}:${column}${totalRow - 1})`, amount, moneyStyle(code, true));
+        else set(sheet, `${column}${row}`, amount, moneyStyle(code));
+      }
     } else if (row === subtotalRow) {
       calculated(sheet, `K${row}`, `SUM(K19:K${18 + items.length})`, paid, moneyStyle(currency));
     } else if (row === totalRow) {
@@ -293,20 +297,20 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
       set(sheet, `K${row}`, paid, moneyStyle(currency));
     }
   }
-  set(sheet, `A${paymentHeader}`, "**PAYMENT INFORMATION**", { ...boxed, font: { name: "Arial", sz: 11, bold: true }, fill: { fgColor: { rgb: "F1F5F9" } } }); merge(sheet, `A${paymentHeader}:K${paymentHeader}`);
-  set(sheet, `A${paymentBody}`, order.payment_account_snapshot.trim(), { ...base, border: { top: border, bottom: border, left: border, right: border }, font: { name: "Arial", sz: 10, bold: true, color: { rgb: blue } }, alignment: { wrapText: true, vertical: "top" } }); merge(sheet, `A${paymentBody}:K${paymentBody}`);
+  set(sheet, `A${paymentHeader}`, "**PAYMENT INFORMATION**", { ...boxed, font: { name: "Arial", sz: 11, bold: true }, fill: { fgColor: { rgb: "F1F5F9" } } }); merge(sheet, `A${paymentHeader}:${showDualCurrencyPrices ? "M" : "K"}${paymentHeader}`);
+  set(sheet, `A${paymentBody}`, order.payment_account_snapshot.trim(), { ...base, border: { top: border, bottom: border, left: border, right: border }, font: { name: "Arial", sz: 10, bold: true, color: { rgb: blue } }, alignment: { wrapText: true, vertical: "top" } }); merge(sheet, `A${paymentBody}:${showDualCurrencyPrices ? "M" : "K"}${paymentBody}`);
   set(sheet, `A${signatureHeader}`, "Signature By Supplier:", center); merge(sheet, `A${signatureHeader}:F${signatureHeader}`);
-  set(sheet, `G${signatureHeader}`, "Signature By Buyer:", center); merge(sheet, `G${signatureHeader}:K${signatureHeader}`);
+  set(sheet, `G${signatureHeader}`, "Signature By Buyer:", center); merge(sheet, `G${signatureHeader}:${showDualCurrencyPrices ? "M" : "K"}${signatureHeader}`);
   set(sheet, `A${signatureName}`, "DT-SMART", center); merge(sheet, `A${signatureName}:F${signatureName}`);
-  set(sheet, `G${signatureName}`, document.deliveryCompany, center); merge(sheet, `G${signatureName}:K${signatureName}`);
+  set(sheet, `G${signatureName}`, document.deliveryCompany, center); merge(sheet, `G${signatureName}:${showDualCurrencyPrices ? "M" : "K"}${signatureName}`);
   set(sheet, `A${signatureDate}`, issueDate, center); merge(sheet, `A${signatureDate}:F${signatureDate}`);
-  set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:K${signatureDate}`);
+  set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`);
   outline(sheet, "A2:F9");
-  outline(sheet, "A12:K16");
+  outline(sheet, `A12:${showDualCurrencyPrices ? "M" : "K"}16`);
   outline(sheet, "A13:F16");
-  outline(sheet, "G13:K16");
-  outline(sheet, "A18:K18");
-  outline(sheet, `A19:K${totalRow}`);
+  outline(sheet, `G13:${showDualCurrencyPrices ? "M" : "K"}16`);
+  outline(sheet, `A18:${showDualCurrencyPrices ? "M" : "K"}18`);
+  outline(sheet, `A19:${showDualCurrencyPrices ? "M" : "K"}${totalRow}`);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "PI");
   return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);
