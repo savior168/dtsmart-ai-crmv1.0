@@ -59,11 +59,15 @@ export async function GET(
     const clerkCustomer = account.role === "ORDER_CLERK" ? await relatedClient.from("customers")
       .select("company_name,contact_name,tax_number").eq("id", order.data.customer_id).maybeSingle() : null;
     if (clerkCustomer?.error) throw clerkCustomer.error;
+    const clerkOwner = account.role === "ORDER_CLERK" && !order.data.owner && order.data.sales_user_id
+      ? await relatedClient.from("users").select("name,email").eq("id", order.data.sales_user_id).maybeSingle()
+      : null;
+    if (clerkOwner?.error) throw clerkOwner.error;
     const writable = account.role === "ORDER_CLERK"
       ? order.data.prepared_by === account.id
       : order.data.sales_user_id === account.id || account.role === "ADMIN";
     return NextResponse.json({
-      order: { ...order.data, customer: {
+      order: { ...order.data, owner: clerkOwner?.data || order.data.owner, customer: {
         ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
         contact_name: customerNames.get(id) || null,
       } },

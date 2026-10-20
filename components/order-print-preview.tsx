@@ -117,7 +117,7 @@ export function OrderPrintPreview({kind,id,initialPayload,embedded=false}:{kind:
       {pi?<>
         <header className={`grid min-h-[154px] overflow-hidden border border-slate-600 ${piDocument!.showDualCurrencyPrices ? "grid-cols-[48%_52%]" : "grid-cols-[52%_48%]"}`}>
           <div className="flex min-w-0 items-center gap-4 border-r border-slate-600 px-4 py-3">
-            <Image src="/api/pi-logo" alt="DT-Smart logo" width={96} height={96} unoptimized className="h-24 w-24 shrink-0 object-contain"/>
+            <Image src="/api/pi-logo" alt="DT-Smart logo" width={136} height={136} unoptimized className="h-[136px] w-[136px] shrink-0 object-contain"/>
             <div className="min-w-0 text-[11px] leading-[18px]"><h1 className="mb-1 text-[15px] font-bold leading-5">{piDocument!.companyName}</h1><p>Address: {piDocument!.companyAddress}</p><p>Official Website: {piDocument!.website}</p><p>Sales Manager: {piDocument!.salesManager}</p><p>Contact No: {piDocument!.contactPhone}</p><p>Email: {piDocument!.contactEmail}</p></div>
           </div>
           <div className={`grid min-w-0 grid-rows-[38px_repeat(3,minmax(0,1fr))] text-center text-[11px] ${piDocument!.showDualCurrencyPrices ? "grid-cols-[47%_53%]" : "grid-cols-2"}`}>
