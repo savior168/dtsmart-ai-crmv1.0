@@ -92,6 +92,7 @@ type Payload = {
 };
 
 function PiInfoCards({ order: o }: { order: Payload["order"] }) {
+  const [accountOpen, setAccountOpen] = useState(false);
   const currentForwarder = o.customer?.forwarder_contact_entries?.find((entry) => entry.address === o.forwarder_address);
   const feeRows = ([
     ["产品小计", Number(o.subtotal)],
@@ -102,7 +103,7 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
     ["PayPal 手续费（加收）", Number(o.paypal_fee_amount || 0)],
   ] as Array<[string, number]>).filter(([label, amount]) => label === "产品小计" || amount !== 0);
   const card = "min-w-0 rounded-lg border border-slate-200 bg-white p-4";
-  return <div className="grid items-stretch gap-3 border-t px-5 py-4 text-sm md:grid-cols-2 xl:grid-cols-4">
+  return <><div className="grid items-stretch gap-3 border-t px-5 py-4 text-sm md:grid-cols-2 xl:grid-cols-4">
     <section className={card}><h3 className="mb-3 font-semibold text-slate-800">客户收货信息</h3><div className="space-y-1.5 text-slate-600">
       <p>收货人：{o.delivery_recipient || "—"}</p><p>电话：{o.delivery_phone || "—"}</p>
       <p className="break-all">邮箱：{o.delivery_email || "—"}</p><p className="break-words">收货地址：{o.delivery_address || "—"}</p>
@@ -114,18 +115,19 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
       {currentForwarder ? <p className="text-xs text-slate-400">联系人和电话来自客户当前资料</p> : null}
     </div></section>
     <section className={card}><h3 className="mb-3 font-semibold text-slate-800">付款与汇率</h3><div className="space-y-1.5 text-slate-600">
+      <p className="text-lg font-semibold text-blue-700 tabular-nums">{o.currency} {Number(o.total_amount).toFixed(2)}</p>
       <p>付款方式：{o.payment_method || "—"}</p>
       <p>汇率：1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p>
       <p>人民币总额：¥{Number(o.total_cny).toFixed(2)}</p>
       <p>价格展示：{o.show_dual_currency_prices === true ? `CNY / ${o.currency} 双币种` : `仅 ${o.currency}`}</p>
-      {o.payment_account_snapshot ? <details className="pt-1"><summary className="cursor-pointer text-blue-700">查看收款账户</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-2 text-xs">{o.payment_account_snapshot}</p></details> : null}
+      {o.payment_account_snapshot ? <button type="button" onClick={() => setAccountOpen(true)} className="pt-1 text-left font-medium text-blue-700 hover:underline">查看收款账户</button> : null}
     </div></section>
     <section className={card}><h3 className="mb-3 font-semibold text-slate-800">费用明细 · {o.currency}</h3>
       <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 text-slate-600 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}
         <dt className="border-t border-slate-200 pt-2 font-semibold text-slate-800">客户应付总额</dt><dd className="border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd>
       </dl>
     </section>
-  </div>;
+  </div><AppDialog open={accountOpen} onClose={() => setAccountOpen(false)} title="本单收款账户快照"><p className="whitespace-pre-wrap break-all text-sm leading-6 text-slate-700">{o.payment_account_snapshot || "—"}</p></AppDialog></>;
 }
 export function OrderDetailView({ id }: { id: string }) {
   const router = useRouter();
