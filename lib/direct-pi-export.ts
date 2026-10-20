@@ -8,7 +8,7 @@ const nodeRequire = createRequire(import.meta.url);
 const Zip = nodeRequire("xlsx") as typeof import("xlsx");
 
 /** Preserve the supplied corporate logo at the same 108px size as the preview. */
-function addPiLogo(workbook: Uint8Array, document: ReturnType<typeof createPiDocumentModel>): Buffer {
+function addPiLogo(workbook: Uint8Array): Buffer {
   const template = Zip.CFB.read(readFileSync(path.join(process.cwd(), "assets", "templates", "DT-Smart_PI_Template.xlsx")), { type: "buffer" });
   const output = Zip.CFB.read(Buffer.from(workbook), { type: "buffer" });
   for (const part of ["/xl/drawings/drawing1.xml", "/xl/drawings/_rels/drawing1.xml.rels", "/xl/media/image.png", "/xl/worksheets/_rels/sheet1.xml.rels"]) {
@@ -17,10 +17,10 @@ function addPiLogo(workbook: Uint8Array, document: ReturnType<typeof createPiDoc
     let bytes = Buffer.from(original.content);
     if (part.endsWith("drawing1.xml")) {
       const drawingXml = bytes.toString("utf8")
-        // A:C is about 134px wide. Centre the logo horizontally and within
-        // the 170px-high header (rows 2:9); offsets and extents are in EMUs.
-        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>114300</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>295275</xdr:rowOff></xdr:from>")
-        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="1028700" cy="1028700" />');
+        // A:C is about 140px wide. Centre the logo within the taller
+        // A2:C9 header block; offsets and extents are in EMUs.
+        .replace(/<xdr:from>[\s\S]*?<\/xdr:from>/, "<xdr:from><xdr:col>0</xdr:col><xdr:colOff>38100</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>371475</xdr:rowOff></xdr:from>")
+        .replace(/<xdr:ext cx="\d+" cy="\d+"\s*\/>/, '<xdr:ext cx="1257300" cy="1257300" />');
       bytes = Buffer.from(drawingXml, "utf8");
     }
     Zip.CFB.utils.cfb_add(output, part, bytes);
@@ -29,24 +29,6 @@ function addPiLogo(workbook: Uint8Array, document: ReturnType<typeof createPiDoc
   const contentTypes = Zip.CFB.find(output, "/[Content_Types].xml");
   if (!worksheet?.content || !contentTypes?.content) throw new Error("PI工作簿结构不完整");
   let xml = Buffer.from(worksheet.content).toString("utf8");
-  const richLabels: Array<[string, string, string]> = [
-    ["D4", "Address:", document.companyAddress],
-    ["D6", "Official Website:", document.website],
-    ["D7", "Sales Manager:", document.salesManager],
-    ["D8", "Contact No:", document.contactPhone],
-    ["D9", "Email:", document.contactEmail],
-    ["A13", "Company:", document.deliveryCompany],
-    ["A14", "TEL:", document.deliveryPhone],
-    ["A15", "To:", document.recipient],
-    ["A16", "Email:", document.deliveryEmail],
-    ["G13", "Delivery address:", document.deliveryAddress],
-  ];
-  const escapeXml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-  for (const [address, label, value] of richLabels) {
-    const cell = new RegExp(`<c r="${address}"([^>]*)>[\\s\\S]*?<\\/c>`);
-    if (!cell.test(xml)) throw new Error(`PI工作簿缺少文本单元格 ${address}`);
-    xml = xml.replace(cell, (_match, attributes: string) => `<c r="${address}"${attributes.replace(/ t="[^"]+"/, "")} t="inlineStr"><is><r><rPr><b/></rPr><t>${escapeXml(label)}</t></r><r><rPr><b val="0"/></rPr><t xml:space="preserve">${value ? ` ${escapeXml(value)}` : ""}</t></r></is></c>`);
-  }
   if (/<(?:\w+:)?drawing\b/.test(xml)) throw new Error("PI工作簿已包含图像，不能重复插入");
   xml = xml.replace(/<sheetView workbookViewId="0"\s*\/>/, '<sheetView showGridLines="0" workbookViewId="0"/>');
   const originalSheet = Zip.CFB.find(template, "/xl/worksheets/sheet1.xml");
@@ -73,7 +55,7 @@ type DirectPiOrder = {
   seller_contact_phone: string | null;
   seller_contact_email: string | null;
   customer_short_name: string;
-  customer?: { company_name?: string | null; contact_name?: string | null } | null;
+  customer?: { company_name?: string | null; contact_name?: string | null; tax_number?: string | null } | null;
   delivery_recipient: string | null;
   delivery_phone: string | null;
   delivery_email: string | null;
@@ -220,10 +202,12 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const sheet = XLSX.utils.aoa_to_sheet([[""]]);
   sheet["!ref"] = `A1:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
-  sheet["!cols"] = [5, 6, 6, 9, 12, 14, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
+  sheet["!cols"] = [6, 7, 7, 10, 13, 15, 9, 8, 13, 8, 16].map((wch) => ({ wch }));
   if (showDualCurrencyPrices) sheet["!cols"].push({ wch: 1, hidden: true }, { wch: 1, hidden: true });
+  const paymentLineCount = order.payment_account_snapshot!.trim().split(/\r?\n/)
+    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 95)), 0);
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(72, order.payment_account_snapshot!.split(/\r?\n/).length * 14) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? (showDualCurrencyPrices ? 34 : 24) : 19) : showDualCurrencyPrices && index >= subtotalRow - 1 && index <= totalRow - 1 ? 34 : index >= 1 && index <= 8 ? 16 : index === 9 || index === 10 ? 6 : 18,
+    hpt: index === paymentBody - 1 ? Math.max(90, paymentLineCount * 18 + 12) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? (showDualCurrencyPrices ? 34 : 24) : 19) : showDualCurrencyPrices && index >= subtotalRow - 1 && index <= totalRow - 1 ? 34 : index === 1 || index === 2 ? 18 : index === 3 || index === 4 ? 24 : index === 5 ? 20 : index >= 6 && index <= 8 ? 18 : index === 9 || index === 10 ? 6 : 18,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 
@@ -232,7 +216,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   const green: CellStyle = { ...boxed, fill: { fgColor: { rgb: "70AD47" } }, font: { name: "Arial", sz: 10, bold: true, underline: true } };
   set(sheet, "G2", "COMMERCIAL INVOICE", green); merge(sheet, "G2:I3");
   set(sheet, "J2", document.orderNumber, { ...green, font: { name: "Arial", sz: 11 } }); merge(sheet, "J2:K3");
-  const companyLine: CellStyle = { ...base, font: { name: "Arial", sz: 9 } };
+  const companyLine: CellStyle = { ...base, font: { name: "Arial", sz: 8 }, alignment: { vertical: "center", wrapText: true } };
   set(sheet, "D4", `Address: ${document.companyAddress}`, { ...companyLine, alignment: { vertical: "center", wrapText: true } }); merge(sheet, "D4:F5");
   set(sheet, "G4", "QUOTATION VALID", boxed); merge(sheet, "G4:I5");
   set(sheet, "J4", document.quotationValidUntil, boxed); merge(sheet, "J4:K5");
@@ -245,12 +229,15 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, "J8", document.deliveryDate, boxed); merge(sheet, "J8:K9");
   set(sheet, "D9", `Email: ${document.contactEmail}`, companyLine); merge(sheet, "D9:F9");
   set(sheet, "A12", "Delivery Info  ⚠ To ensure that you receive the product safely, please confirm the accuracy of the shipping information.", { ...base, font: { name: "Arial", sz: 10, bold: true, color: { rgb: "E00000" } } }); merge(sheet, "A12:K12");
-  const delivery: Array<[number, string, string]> = [
-    [13, "Company:", document.deliveryCompany], [14, "TEL:", document.deliveryPhone],
-    [15, "To:", document.recipient], [16, "Email:", document.deliveryEmail],
+  const delivery = [
+    `Company: ${document.deliveryCompany}`,
+    ...(document.deliveryTaxNumber ? [`Tax No.: ${document.deliveryTaxNumber}`] : []),
+    `To: ${document.recipient} · TEL: ${document.deliveryPhone}`,
+    `Email: ${document.deliveryEmail}`,
   ];
-  for (const [row, label, value] of delivery) {
-    set(sheet, `A${row}`, `${label} ${value}`.trim(), { ...base, alignment: { vertical: "center", wrapText: true } });
+  for (const [index, value] of delivery.entries()) {
+    const row = 13 + index;
+    set(sheet, `A${row}`, value.trim(), { ...base, alignment: { vertical: "center", wrapText: true } });
     merge(sheet, `A${row}:F${row}`);
   }
   set(sheet, "G13", `Delivery address: ${document.deliveryAddress}`, { ...base, alignment: { wrapText: true, vertical: "center" } }); merge(sheet, "G13:K16");
@@ -307,7 +294,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     }
   }
   set(sheet, `A${paymentHeader}`, "**PAYMENT INFORMATION**", { ...boxed, font: { name: "Arial", sz: 11, bold: true }, fill: { fgColor: { rgb: "F1F5F9" } } }); merge(sheet, `A${paymentHeader}:K${paymentHeader}`);
-  set(sheet, `A${paymentBody}`, order.payment_account_snapshot.trim(), { ...base, border: { top: border, bottom: border, left: border, right: border }, font: { name: "Arial", sz: 12, bold: true, color: { rgb: blue } }, alignment: { wrapText: true, vertical: "top" } }); merge(sheet, `A${paymentBody}:K${paymentBody}`);
+  set(sheet, `A${paymentBody}`, order.payment_account_snapshot.trim(), { ...base, border: { top: border, bottom: border, left: border, right: border }, font: { name: "Arial", sz: 10, bold: true, color: { rgb: blue } }, alignment: { wrapText: true, vertical: "top" } }); merge(sheet, `A${paymentBody}:K${paymentBody}`);
   set(sheet, `A${signatureHeader}`, "Signature By Supplier:", center); merge(sheet, `A${signatureHeader}:F${signatureHeader}`);
   set(sheet, `G${signatureHeader}`, "Signature By Buyer:", center); merge(sheet, `G${signatureHeader}:K${signatureHeader}`);
   set(sheet, `A${signatureName}`, "DT-SMART", center); merge(sheet, `A${signatureName}:F${signatureName}`);
@@ -322,5 +309,5 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   outline(sheet, `A19:K${totalRow}`);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "PI");
-  return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array, document);
+  return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);
 }

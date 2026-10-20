@@ -9,7 +9,7 @@ export type PiDocumentOrder = {
   currency: string;
   show_dual_currency_prices?: boolean | null;
   customer_short_name: string;
-  customer?: { company_name?: string | null; contact_name?: string | null } | null;
+  customer?: { company_name?: string | null; contact_name?: string | null; tax_number?: string | null } | null;
   seller_company_name?: string | null;
   seller_company_address?: string | null;
   seller_website?: string | null;
@@ -72,6 +72,7 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     recipient: order.customer?.contact_name?.trim() || "",
     deliveryPhone: order.delivery_phone || "—",
     deliveryCompany: order.customer?.company_name?.trim() || order.customer_short_name || "",
+    deliveryTaxNumber: order.customer?.tax_number?.trim() || "",
     deliveryEmail: order.delivery_email || "—",
     deliveryAddress: order.delivery_address || "—",
     issueDate,

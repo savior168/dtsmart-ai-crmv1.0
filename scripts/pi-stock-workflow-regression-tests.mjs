@@ -338,7 +338,7 @@ const orderFixture = {
   order_number: "PI-TEST", created_at: "2026-10-12T00:00:00Z", confirmed_at: "2026-10-13T00:00:00Z", pi_valid_until: "2026-10-17",
   seller_company_name: "DT-Smart", seller_company_address: "Shenzhen", seller_website: "https://www.dt-smart.com/",
   seller_contact_name: "Eva", seller_contact_phone: "+86 100000", seller_contact_email: "eva@example.com",
-  customer_short_name: "Buyer", customer: { company_name: "Buyer Ltd", contact_name: "Jo" }, delivery_recipient: "Shipping Agent", delivery_phone: "+44 123",
+  customer_short_name: "Buyer", customer: { company_name: "Buyer Ltd", contact_name: "Jo", tax_number: "GB123456" }, delivery_recipient: "Shipping Agent", delivery_phone: "+44 123",
   delivery_email: "jo@example.com", delivery_address: "London", delivery_date: "2026-10-25",
   currency: "NGN", fx_rate_cny_to_payment: 200, payment_method: "NAIRA/RMB",
   subtotal_cny: 100, shipping_cny: 10, total_cny: 110, subtotal: 20000, shipping_cost: 2000, total_amount: 22000,
@@ -356,19 +356,19 @@ const drawingXml = Buffer.from(XLSX.CFB.find(archive, "/xl/drawings/drawing1.xml
 const logoLeft = Number(drawingXml.match(/<xdr:colOff>(\d+)<\/xdr:colOff>/)?.[1]);
 const logoTop = Number(drawingXml.match(/<xdr:rowOff>(\d+)<\/xdr:rowOff>/)?.[1]);
 const logoWidth = Number(drawingXml.match(/<xdr:ext cx="(\d+)"/)?.[1]);
-assert.equal(logoWidth / 9525, 108, "PI Excel Logo应与页面预览的108px尺寸一致");
-assert.ok(logoLeft / 9525 >= 10 && (logoLeft + logoWidth) / 9525 <= 134, "Logo不得超出页眉左侧 A:C 并遮挡公司文字");
-assert.ok(logoTop / 9525 >= 20 && (logoTop + logoWidth) / 9525 <= 171, "Logo须在紧凑页眉内垂直居中");
+assert.equal(logoWidth / 9525, 132, "PI Excel Logo应在更高页眉中保持醒目且完整");
+assert.ok(logoLeft / 9525 >= 4 && (logoLeft + logoWidth) / 9525 <= 145, "Logo不得超出页眉左侧 A:C 并遮挡公司文字");
+assert.ok(logoTop / 9525 >= 35 && (logoTop + logoWidth) / 9525 <= 211, "Logo须在页眉模块内垂直居中");
 assert.match(Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8"), /<drawing r:id=/, "工作表必须用有效的XML命名空间引用企业Logo");
 const book = XLSX.read(workbook, { type: "array", cellFormula: true, cellStyles: true });
 const sheet = book.Sheets[book.SheetNames[0]];
 assert.ok((sheet["!cols"]?.[10]?.wpx || 0) >= 95, "PI金额列应能完整显示币种和四位数金额，不得截断或显示井号");
 const sheetXml = Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8");
-for (const [address, label] of [["D4", "Address:"], ["D6", "Official Website:"], ["D7", "Sales Manager:"], ["D8", "Contact No:"], ["D9", "Email:"], ["G13", "Delivery address:"]]) {
-  assert.match(sheetXml, new RegExp(`<c r="${address}"[^>]*t="inlineStr">[\\s\\S]*?<b\\/>[\\s\\S]*?<t>${label}</t>[\\s\\S]*?<b val="0"\\/>`), `${address} 应仅将 PI 属性名加粗`);
+for (const address of ["D4", "D6", "D7", "D8", "D9", "G13"]) {
+  assert.doesNotMatch(sheetXml, new RegExp(`<c r="${address}"[^>]*>[\\s\\S]*?<b\\/>[\\s\\S]*?<\\/c>`), `${address} 的属性名称和内容均不应加粗`);
 }
 assert.match(sheetXml, /<sheetView showGridLines="0"/, "客户PI需隐藏Excel默认网格线，仅展示单据边框");
-for (let row = 2; row <= 9; row += 1) assert.equal(sheet["!rows"][row - 1].hpt, 16, "Excel页眉行高须接近页面预览比例");
+assert.deepEqual(sheet["!rows"].slice(1, 9).map((row) => row.hpt), [18,18,24,24,20,18,18,18], "Excel页眉应给公司地址足够行高并与右侧信息模块等高");
 assert.equal(sheet["!rows"][9].hpt + sheet["!rows"][10].hpt, 12, "页眉与收货信息之间不得留下两行正常高度的空白");
 for (const address of ["A2", "C9", "D2", "F9", "C19"]) {
   assert.match(sheetXml, new RegExp(`<c r="${address}" s="\\d+"`), `${address} 须保留模块或合并单元格边框样式`);
@@ -382,23 +382,31 @@ const businessNumberWorkbook = buildDirectPiWorkbook(businessNumberOrder, [itemF
 const businessNumberBook = XLSX.read(businessNumberWorkbook, { type: "array" });
 assert.equal(businessNumberBook.Sheets[businessNumberBook.SheetNames[0]].J2.v, "D60058756", "PI Excel应与预览使用同一业务订单编号");
 assert.equal(sheet.J4.v, "2026-10-17", "PI导出有效期应与预览使用同一日期值");
+assert.ok(sheet["!rows"].some((row) => row.hpt >= 90), "收款信息须预留足够高度，不得被单元格裁切");
+assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).deliveryTaxNumber, "GB123456", "页面预览与Excel应复用同一个公司税号值");
 assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
 assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
-assert.match(read("components/order-print-preview.tsx"), /<b>Address:<\/b> \{piDocument!\.companyAddress/, "PI 预览企业地址属性名应加粗、值保持常规字重");
-assert.match(read("components/order-print-preview.tsx"), /<b>Official Website:<\/b> \{piDocument!\.website/, "PI 预览官网属性名应加粗、值保持常规字重");
+assert.match(read("components/order-print-preview.tsx"), /<p>Address: \{piDocument!\.companyAddress\}<\/p>/, "PI 预览企业地址属性名和值均使用常规字重");
+assert.match(read("components/order-print-preview.tsx"), /<p>Official Website: \{piDocument!\.website\}<\/p>/, "PI 预览官网属性名和值均使用常规字重");
 assert.equal(sheet.G6.v, "PAYMENT / METHOD:", "客户PI页眉付款标签只显示栏目名称");
 assert.equal(sheet.J6.v, "NAIRA/RMB (NGN)", "客户PI页眉付款栏须紧邻显示付款渠道及本单币种");
 assert.match(read("components/order-print-preview.tsx"), /PAYMENT \/ METHOD:<\/span><span[^>]*>\{piDocument!\.paymentMethod\}/, "PI预览付款栏须复用Excel字段模型");
-assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["Company: Buyer Ltd", "TEL: +44 123", "To: Jo", "Email: jo@example.com"], "PI Excel 应将 Company 与 To 的位置互换且值保持准确");
+assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["Company: Buyer Ltd", "Tax No.: GB123456", "To: Jo · TEL: +44 123", "Email: jo@example.com"], "PI Excel 应按公司、税号、联系人/电话和邮箱紧凑排列");
 const emptyContactOrder = { ...orderFixture, customer: { company_name: "Buyer Ltd", contact_name: null } };
 assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).recipient, "", "客户名称为空时 PI 预览的 To 必须留空，不得回退到收件人或公司名称");
 const emptyContactWorkbook = buildDirectPiWorkbook(emptyContactOrder, [itemFixture]);
 const emptyContactBook = XLSX.read(emptyContactWorkbook, { type: "array" });
 const emptyContactSheet = emptyContactBook.Sheets[emptyContactBook.SheetNames[0]];
-assert.equal(emptyContactSheet.A15.v, "To:", "客户名称为空时 PI Excel 的 To 也必须留空");
+assert.equal(emptyContactSheet.A14.v, "To:  · TEL: +44 123", "客户名称为空时 PI Excel 的 To 也必须留空，且无税号时不出现税号行");
 assert.equal(emptyContactSheet.A13.v, "Company: Buyer Ltd", "PI Excel 的 Company 始终取公司名称");
-assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name\)/, "单张预览必须读取客户名称");
-assert.match(read("app/api/orders/route.ts"), /customer:customers\(company_name,contact_name\)/, "批量预览必须读取客户名称");
+assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).deliveryTaxNumber, "", "客户未维护税号时不可捏造或展示占位税号");
+const longPaymentOrder = { ...orderFixture, payment_account_snapshot: Array.from({ length: 8 }, (_, index) => `Account line ${index + 1}: ${"X".repeat(105)}`).join("\n") };
+const longPaymentSheet = XLSX.read(buildDirectPiWorkbook(longPaymentOrder, [itemFixture]), { type: "array", cellStyles: true }).Sheets.PI;
+assert.ok(longPaymentSheet["!rows"].some((row) => row.hpt >= 8 * 2 * 18 + 12), "多行长收款信息须按折行后总行数扩展行高");
+assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "单张预览必须读取客户名称和公司税号");
+assert.match(read("app/api/orders/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "批量预览必须读取客户名称和公司税号");
+assert.match(read("app/api/orders/[id]/export/route.ts"), /customer:customers\(company_name,contact_name,tax_number,phone\)/, "单张 Excel 导出必须读取公司税号");
+assert.match(read("components/order-print-preview.tsx"), /Tax No\.: \{piDocument!\.deliveryTaxNumber\}/, "PI 预览和 PDF 必须显示已维护的公司税号");
 assert.match(read("components/order-print-preview.tsx"), /@page\{size:A4 \$\{kind === "pi" \? "portrait" : "landscape"\}/, "PI打印须竖向而备货单宽表仍横向");
 assert.match(read("components/order-print-preview.tsx"), /另存为 PDF[\s\S]*导出 PDF/, "PI和备货单应提供PDF导出入口并明确使用打印窗口保存PDF");
 assert.match(read("components/order-print-preview.tsx"), /const beforePrint=\(\)=>\{[\s\S]*setPrintTime/, "打印前应记录实际打印时间");
