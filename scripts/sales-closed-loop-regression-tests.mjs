@@ -36,7 +36,7 @@ const attachmentDetail = read("app/api/attachments/[id]/route.ts");
 assert.match(attachmentDetail, /报价发送后附件作为业务凭证保留，不能删除/, "已发送报价的附件必须作为业务凭证保留");
 const stockApi = read("app/api/stock-orders/[id]/route.ts");
 assert.match(stockApi, /const warehouseEditor = \["WAREHOUSE", "ADMIN"\]\.includes\(account\.role\)[\s\S]*can_update: warehouseEditor/, "备货状态只能由仓库员或系统管理员更新");
-assert.doesNotMatch(stockApi, /unit_price|total_amount|phone|email,address/, "仓库接口不得返回销售价格、客户联系方式或利润数据");
+assert.doesNotMatch(stockApi, /unit_price|total_amount|customer:customers|delivery_phone|delivery_email/, "仓库接口不得返回销售价格或客户私人联系方式；本单货代收货电话仍可用于交接");
 assert.match(stockApi, /procurement_cost_confirmed[\s\S]*can_edit_procurement: warehouseEditor[\s\S]*stock\.procurement\.edit/, "采购核价状态和独立权限必须由服务端返回");
 assert.doesNotMatch(read("app/api/stock-orders/[id]/draft/route.ts"), /procurement_cost:/, "销售员保存备货草稿不能传入采购价");
 assert.match(read("app/api/stock-orders/[id]/procurement/route.ts"), /requirePermission\("stock\.procurement\.edit"\)[\s\S]*\["WAREHOUSE", "ADMIN"\][\s\S]*save_stock_order_procurement_costs/, "采购核价仅可由有权限的采购仓库角色或管理员执行");

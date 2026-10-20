@@ -81,6 +81,8 @@ type Payload = {
     delivery_recipient: string | null;
     delivery_address: string | null;
     forwarder_address: string | null;
+    forwarder_recipient: string | null;
+    forwarder_phone: string | null;
     status: StockOrderStatus;
     stocking_requirements: string | null;
     status_note: string | null;
@@ -497,7 +499,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 <div><dt className="text-xs text-slate-500">目的国家</dt><dd><CountryLabel value={o.destination_country}/></dd></div>
                 <div><dt className="text-xs text-slate-500">收货人</dt><dd className="font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>
                 <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">收货地址</dt><dd className="break-words text-slate-800">{o.delivery_address || "—"}</dd></div>
-                <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">本单货代地址</dt><dd className="break-words text-slate-800">{o.forwarder_address || "未填写"}</dd></div>
+                <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">本单货代收货信息</dt><dd className="break-words text-slate-800">{o.forwarder_address ? `${o.forwarder_recipient || "收货人未填写"} · ${o.forwarder_phone || "电话未填写"} · ${o.forwarder_address}` : "未填写"}</dd></div>
               </dl>
             </section>
           </div>

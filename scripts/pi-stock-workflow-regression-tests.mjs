@@ -80,7 +80,7 @@ assert.match(orderDetailView, /xl:grid-cols-4[\s\S]*客户收货信息[\s\S]*货
 assert.match(orderDetailView, /价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应只显示一次订单保存的双币种选项");
 assert.match(orderDetailView, /\.filter\(\(\[label, amount\]\) => label === "产品小计" \|\| amount !== 0\)/, "PI详情应隐藏金额为零的附加费用");
 for (const fee of ["subtotal", "shipping_cost", "last_balance_amount", "other_charge_amount", "discount_amount", "paypal_fee_amount", "total_amount"]) assert.match(orderDetailView, new RegExp(`o\\.${fee}`), `PI详情费用明细应包含 ${fee}`);
-assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number,forwarder_contact_entries\)/, "PI详情客户资料只能来自当前可查看订单关联客户");
+assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "PI详情客户资料只能来自当前可查看订单关联客户");
 const stockDraftApi = read("app/api/stock-orders/[id]/draft/route.ts");
 const stockSubmitApi = read("app/api/stock-orders/[id]/submit/route.ts");
 const customerPi = read("lib/direct-pi-export.ts");
@@ -445,7 +445,9 @@ assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).deliveryTax
 const longPaymentOrder = { ...orderFixture, payment_account_snapshot: Array.from({ length: 8 }, (_, index) => `Account line ${index + 1}: ${"X".repeat(105)}`).join("\n") };
 const longPaymentSheet = XLSX.read(buildDirectPiWorkbook(longPaymentOrder, [itemFixture]), { type: "array", cellStyles: true }).Sheets.PI;
 assert.ok(longPaymentSheet["!rows"].some((row) => row.hpt >= 8 * 2 * 13 + 8), "多行长收款信息须按折行后总行数扩展行高");
-assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number,forwarder_contact_entries\)/, "单张预览必须读取客户名称、公司税号和货代收货信息");
+assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "单张预览必须读取关联客户名称和公司税号");
+assert.match(read("components/order-detail-view.tsx"), /o\.forwarder_recipient[\s\S]*o\.forwarder_phone[\s\S]*o\.forwarder_address/, "PI详情须读取本单货代收货快照");
+assert.match(read("supabase/migrations/20261020102810_pi_forwarder_contact_snapshot.sql"), /before insert or update of forwarder_address, customer_id[\s\S]*snapshot_pi_forwarder_contact/, "PI货代收货联系人必须在选址时固定为历史快照");
 assert.match(read("app/api/orders/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "批量预览必须读取客户名称和公司税号");
 assert.match(read("app/api/orders/[id]/export/route.ts"), /customer:customers\(company_name,contact_name,tax_number,phone\)/, "单张 Excel 导出必须读取公司税号");
 assert.match(read("components/order-print-preview.tsx"), /Tax No\.: \{piDocument!\.deliveryTaxNumber\}/, "PI 预览和 PDF 必须显示已维护的公司税号");

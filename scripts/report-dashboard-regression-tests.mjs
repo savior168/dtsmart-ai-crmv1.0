@@ -66,7 +66,9 @@ assert.match(operationsOverview, /!report \? <div className="grid gap-4 lg:grid-
 assert.match(dashboardApi, /\["SALES", "SUPERVISOR"\]\.includes\(account\.role\) && hasPermission\(account, "stock\.view"\)/, "只有有备货查看权限的销售员和主管才展示PI备货进度");
 assert.match(dashboardApi, /requestedOwnerId\(request, account, "stock\.data_all"\)[\s\S]*stock_orders_with_pi_preparer[\s\S]*\.eq\("sales_user_id", stockOwnerId\)/, "PI备货动态必须按备货数据权限限制归属范围");
 assert.match(dashboardApi, /loadStockProgressItems\(supabase,[\s\S]*summarizeStockProgress\(row\.status/, "PI备货动态须从可见实物明细计算真实进度");
-assert.match(dashboard, /stockProgress \? "order-1" : "order-2"/, "PI备货进度应在左侧优先显示");
+assert.match(dashboard, /stockProgress\) return <article className=\{`\$\{panelClass\} order-1 self-start overflow-hidden`\}/, "PI备货速览应在左侧紧凑展示");
+assert.match(dashboardApi, /\.order\("pi_updated_at", \{ ascending: false \}\)/, "PI备货速览须按PI最近更新时间倒序展示");
+assert.match(dashboard, /progress\.buckets\[bucket\.key\][\s\S]*part\.percent >= 17/, "备货进度条须显示可容纳的件数与占比");
 assert.match(dashboard, /activity_mode === "STOCK_PROGRESS" \? "order-2" : "order-1"/, "今日待跟进应与PI进度对调顺序");
 assert.match(operationsPermissions, /on conflict \(role_code, permission_code\) do nothing/i, "迁移不得覆盖管理员显式关闭的角色权限");
 assert.match(read("app/reports/page.tsx"), /account\.role === "WAREHOUSE"[\s\S]*OperationsOverview/, "仓库员不得读取销售业绩报表");

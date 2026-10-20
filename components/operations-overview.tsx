@@ -107,7 +107,7 @@ export function OperationsOverview({ role, userId, canViewOrders, canFilterCreat
   const shortage = results.shortage?.count || 0;
   const shippedRate = stockTotal ? Math.round(shipped / stockTotal * 100) : 0;
   const shortageRate = stockTotal ? Math.round(shortage / stockTotal * 100) : 0;
-  return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1400px] space-y-5">
+  return <main className="crm-data-interactions p-4 lg:p-6"><div className="mx-auto max-w-[1400px] space-y-5">
     <header className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-bold">{report ? warehouse ? "备货业务报表" : "PI 跟单报表" : warehouse ? "采购备货工作台" : "PI 跟单工作台"}</h1><p className="mt-1 text-sm text-slate-600">{report ? "按创建日期回看权限范围内的单据规模与当前状态分布；不包含销售金额或利润。" : warehouse ? "优先处理接单、采购、理货和异常；不展示客户联系方式、销售价格和利润。" : "优先处理本人待提交草稿及待接单、执行中、异常备货；查看范围不代表可修改他人单据。"}</p></div><button type="button" onClick={() => void load()} className="rounded-lg border bg-white px-4 py-2 text-sm hover:border-blue-300">刷新</button></header>
     {report ? <section className="flex flex-wrap items-end gap-3 rounded-xl border bg-white p-4 text-sm"><label>创建开始日期<input className="mt-1 block rounded border px-3 py-2" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label>创建结束日期<input className="mt-1 block rounded border px-3 py-2" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label><span className="pb-2 text-slate-500">按单据创建日期筛选，显示这些单据的当前状态；点击数字进入相同筛选范围。</span></section> : null}
     {error ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}

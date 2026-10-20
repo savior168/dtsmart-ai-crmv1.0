@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
           if ((next.data || []).length < 1000) break;
         }
         const piNotes = await createAdminClient().from("sales_orders")
-          .select("id,confirmation_note").in("id", (details.data || []).map((item) => item.sales_order_id));
+          .select("id,confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone").in("id", (details.data || []).map((item) => item.sales_order_id));
         if (piNotes.error) throw piNotes.error;
         const ownerIds = [...new Set((details.data || []).map((item) => item.sales_user_id).filter(Boolean))];
         const salesOwners = ownerIds.length ? await createAdminClient().from("users")
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
       });
       const details = batches.flatMap((batch) => batch.details);
       if (details.length !== ids.length) throw new Error("部分备货单已无权查看，请刷新筛选结果");
-      const piNoteById = new Map(batches.flatMap((batch) => batch.piNotes).map((item) => [item.id, item.confirmation_note]));
+      const piNoteById = new Map(batches.flatMap((batch) => batch.piNotes).map((item) => [item.id, item]));
       const salesOwnerById = new Map(batches.flatMap((batch) => batch.salesOwners).map((item) => [item.id, item]));
       const detailById = new Map(details.map((item) => [item.id, item]));
       const itemsByStockId = new Map<string, typeof batches[number]["items"]>();
@@ -169,7 +169,10 @@ export async function GET(request: NextRequest) {
         files.push({ name: documentExportFilename(row.stock_number, "备货单", "xlsx", exportedAt),
           data: await buildStockWorkbook({ ...detail, customer_name: customerNames.get(detail.sales_order_id) || null,
             salesperson: detail.salesperson || salesOwnerById.get(detail.sales_user_id) || null,
-            order_change_note: piNoteById.get(detail.sales_order_id) || null,
+            order_change_note: piNoteById.get(detail.sales_order_id)?.confirmation_note || null,
+            forwarder_address: piNoteById.get(detail.sales_order_id)?.forwarder_address || null,
+            forwarder_recipient: piNoteById.get(detail.sales_order_id)?.forwarder_recipient || null,
+            forwarder_phone: piNoteById.get(detail.sales_order_id)?.forwarder_phone || null,
             shipped_at: shippedByStockId.get(row.id) || null,
             status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never) });
       }

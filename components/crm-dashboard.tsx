@@ -30,6 +30,7 @@ import { UserScopeSelect } from "@/components/user-scope-select";
 import { CountryLabel } from "@/components/country-label";
 import { countryInfo } from "@/lib/countries";
 import { dashboardDatePresetRange, dashboardDefaultDateRange, type DashboardDatePreset } from "@/lib/dashboard-date-range";
+import { STOCK_BUCKETS, type StockProgress } from "@/lib/stock-progress";
 
 function Link(props: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={false} {...props} />;
@@ -40,7 +41,7 @@ type FunnelRow = { label: string; value: number; percentage: number };
 type CountryRow = { name: string; count: number; percentage: number };
 type ProtectionRow = { id: string; customer_id: string; customer_name: string; country: string | null; expires_at: string; days: number };
 type FollowupRow = { id: string; customer_id: string; customer_name: string | null; company_name: string; phone: string | null; email: string | null; country: string | null; ai_level: string | null; last_followup: string | null; followup_time: string | null; type: string; status: string; protection_days: number | null };
-type ActivityRow = { id: string; action: string; text: string; created_at: string; href?: string };
+type ActivityRow = { id: string; action: string; text: string; created_at: string; href?: string; stock_href?: string; pi_number?: string; customer_name?: string; company_name?: string; status_label?: string; progress?: StockProgress };
 type DashboardData = {
   range: { from: string; to: string };
   filters: { countries: Array<{ value: string; label: string; count: number }> };
@@ -114,12 +115,16 @@ function DashboardHeader({ title, href }: { title: string; href: string }) {
 
 function RecentActivityPanel({ data }: { data: DashboardData }) {
   const stockProgress = data.activity_mode === "STOCK_PROGRESS";
-  return <article className={`${panelClass} min-h-[310px] ${stockProgress ? "order-1" : "order-2"}`}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">{stockProgress ? "近期已提交 PI 的备货进度" : "最近动态"}</h3><Link href={stockProgress ? "/stock-orders" : "/customers"} className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="space-y-0 px-4">{data.activities.length ? data.activities.map((item, index) => {
-    const Icon = stockProgress ? FileText : item.action.includes("AI") ? Sparkles : item.action.includes("FOLLOWUP") ? UsersRound : item.action.includes("STAGE") ? FileText : index % 2 ? CalendarDays : UserRoundPlus;
-    const colors = stockProgress ? "bg-blue-600" : item.action.includes("AI") ? "bg-violet-500" : item.action.includes("FOLLOWUP") ? "bg-emerald-500" : item.action.includes("STAGE") ? "bg-orange-500" : "bg-blue-500";
+  if (stockProgress) return <article className={`${panelClass} order-1 self-start overflow-hidden`}><div className="flex h-12 items-center justify-between border-b border-slate-100 px-4"><h3 className="text-[15px] font-semibold">我的 PI 备货速览</h3><Link href="/orders?type=PI&status=ACTIVE" className="text-xs font-medium text-blue-600">查看全部 PI</Link></div><div className="divide-y divide-slate-100 px-4">{data.activities.length ? data.activities.map((item) => {
+    const progress = item.progress;
+    return <div key={item.id} className="py-3 text-xs"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><Link href={item.href || "/orders"} className="font-semibold text-blue-700 hover:underline">PI {item.pi_number || "未编号"}</Link><span className="min-w-0 truncate font-medium text-slate-800" title={[item.customer_name, item.company_name].filter(Boolean).join(" · ")}>{item.customer_name || item.company_name || "客户未命名"}{item.customer_name && item.company_name ? ` · ${item.company_name}` : ""}</span><span className="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700">{item.status_label}</span><time className="ml-auto shrink-0 text-slate-400" title="PI 最近更新时间">{relativeTime(item.created_at)}</time></div>{progress && progress.ordered_units > 0 ? <div className="mt-2 flex h-6 overflow-hidden rounded-md bg-slate-100" role="img" aria-label={`共 ${progress.ordered_units} 件；${STOCK_BUCKETS.map((bucket) => `${bucket.label} ${progress.buckets[bucket.key].units} 件 ${progress.buckets[bucket.key].percent}%`).join("；")}`}>{STOCK_BUCKETS.map((bucket) => { const part = progress.buckets[bucket.key]; return part.units > 0 ? <span key={bucket.key} style={{ width: `${part.percent}%` }} title={`${bucket.label}：${part.units}/${progress.ordered_units} 件（${part.percent}%）`} className={`flex shrink-0 items-center justify-center overflow-hidden whitespace-nowrap text-[10px] font-semibold text-white ${bucket.color}`}>{part.percent >= 17 ? `${bucket.shortLabel} ${part.units}件·${part.percent}%` : ""}</span> : null; })}</div> : <p className="mt-2 text-slate-500">暂无产品数量</p>}<div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-500"><span>共 {progress?.ordered_units || 0} 件 · 回货 {progress?.received_units || 0} · 已理货 {progress?.prepared_units || 0} · 交货代 {progress?.shipped_units || 0}</span>{item.stock_href ? <Link href={item.stock_href} className="shrink-0 text-blue-600 hover:underline">备货详情</Link> : null}</div></div>;
+  }) : <p className="py-7 text-center text-sm text-slate-400">所选期间暂无已提交 PI 的备货进度</p>}</div></article>;
+  return <article className={`${panelClass} min-h-[310px] order-2`}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">最近动态</h3><Link href="/customers" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="space-y-0 px-4">{data.activities.length ? data.activities.map((item, index) => {
+    const Icon = item.action.includes("AI") ? Sparkles : item.action.includes("FOLLOWUP") ? UsersRound : item.action.includes("STAGE") ? FileText : index % 2 ? CalendarDays : UserRoundPlus;
+    const colors = item.action.includes("AI") ? "bg-violet-500" : item.action.includes("FOLLOWUP") ? "bg-emerald-500" : item.action.includes("STAGE") ? "bg-orange-500" : "bg-blue-500";
     const content = <><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-white ${colors}`}><Icon size={15} /></span><p className="min-w-0 flex-1 text-slate-700">{item.text}</p><time className="shrink-0 text-slate-400">{relativeTime(item.created_at)}</time></>;
     return item.href ? <Link key={item.id} href={item.href} className="flex items-center gap-3 border-t border-slate-100 py-3 text-xs hover:bg-blue-50 hover:text-blue-700">{content}</Link> : <div key={item.id} className="flex items-center gap-3 py-3 text-xs">{content}</div>;
-  }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>{stockProgress ? "所选期间暂无已提交仓库的 PI 进度" : "暂无最近动态"}</p></div></div>}</div></article>;
+  }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>暂无最近动态</p></div></div>}</div></article>;
 }
 
 export function CrmDashboard({ canCreateAcquisition = false, canImportCustomers = false, canCreateAiScreening = false, canCreateOrder = false }: { canCreateAcquisition?: boolean; canImportCustomers?: boolean; canCreateAiScreening?: boolean; canCreateOrder?: boolean }) {
@@ -186,7 +191,7 @@ export function CrmDashboard({ canCreateAcquisition = false, canImportCustomers 
   ) || [];
 
   return (
-    <main className="dashboard-page min-h-[calc(100vh-64px)] bg-[#f8fafc] px-4 py-4 xl:px-5">
+    <main className="dashboard-page crm-data-interactions min-h-[calc(100vh-64px)] bg-[#f8fafc] px-4 py-4 xl:px-5">
       <div className="mx-auto max-w-[1660px]">
         <section className="mb-4 flex flex-wrap items-center gap-3">
           <CompactDateRange label="统计日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setDatePreset("CUSTOM"); }} onToChange={(value) => { setTo(value); setDatePreset("CUSTOM"); }} presets={[{ value: "WEEK", label: "本周" }, { value: "MONTH", label: "本月" }, { value: "QUARTER", label: "本季度" }, { value: "YEAR", label: "本年度" }]} selectedPreset={datePreset === "CUSTOM" ? "" : datePreset} onPresetChange={(value) => { if (value) applyDatePreset(value as DashboardDatePreset); else setDatePreset("CUSTOM"); }} className="shadow-sm"/>

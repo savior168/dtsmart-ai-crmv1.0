@@ -46,6 +46,8 @@ type StockExportData = {
   delivery_email?: string | null;
   delivery_address?: string | null;
   forwarder_address?: string | null;
+  forwarder_recipient?: string | null;
+  forwarder_phone?: string | null;
   created_at: string;
   salesperson?: { name?: string | null; email?: string | null } | null;
 };
@@ -239,7 +241,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
     ["K4", stock.stocking_requirements?.trim() || "常规理货"],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
-    ["D9", [`收货人：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`, `本单货代地址：${stock.forwarder_address || "未填写"}`].join("\n")],
+    ["D9", [`收货人：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`, `本单货代收货信息：${stock.forwarder_address ? `${stock.forwarder_recipient || "收货人未填写"} · ${stock.forwarder_phone || "电话未填写"} · ${stock.forwarder_address}` : "未填写"}`].join("\n")],
     ["B9", "＊收货人（姓名/电话）\n＊详细收货地址："],
     ["B10", stock.status_label ? `备货状态：${stock.status_label}` : ""],
   ];

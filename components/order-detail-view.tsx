@@ -32,7 +32,7 @@ type Payload = {
     quote_id: string;
     quote_number: string;
     customer_short_name: string;
-    customer?: { contact_name?: string | null; company_name?: string | null; tax_number?: string | null; forwarder_contact_entries?: Array<{ address: string; recipient: string; phone: string }> | null } | null;
+    customer?: { contact_name?: string | null; company_name?: string | null; tax_number?: string | null } | null;
     destination_country: string | null;
     currency: string;
     show_dual_currency_prices: boolean | null;
@@ -53,6 +53,8 @@ type Payload = {
     delivery_email: string | null;
     delivery_address: string | null;
     forwarder_address: string | null;
+    forwarder_recipient: string | null;
+    forwarder_phone: string | null;
     payment_method: string | null;
     delivery_date: string | null;
     confirmation_method: string | null;
@@ -93,7 +95,6 @@ type Payload = {
 
 function PiInfoCards({ order: o }: { order: Payload["order"] }) {
   const [accountOpen, setAccountOpen] = useState(false);
-  const currentForwarder = o.customer?.forwarder_contact_entries?.find((entry) => entry.address === o.forwarder_address);
   const feeRows = ([
     ["产品小计", Number(o.subtotal)],
     ["运费", Number(o.shipping_cost)],
@@ -110,9 +111,8 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
       {o.delivery_date ? <p>预计交付日期：{o.delivery_date}</p> : null}
     </div></section>
     <section className={card}><h3 className="mb-3 font-semibold text-slate-800">货代收货信息</h3><div className="space-y-1.5 text-slate-600">
-      {currentForwarder ? <><p>收货人：{currentForwarder.recipient}</p><p>电话：{currentForwarder.phone}</p></> : null}
+      <p>收货人：{o.forwarder_recipient || "未填写"}</p><p>电话：{o.forwarder_phone || "未填写"}</p>
       <p className="break-words">收货地址：{o.forwarder_address || "未填写"}</p>
-      {currentForwarder ? <p className="text-xs text-slate-400">联系人和电话来自客户当前资料</p> : null}
     </div></section>
     <section className={card}><h3 className="mb-3 font-semibold text-slate-800">付款与汇率</h3><div className="space-y-1.5 text-slate-600">
       <p className="text-lg font-semibold text-blue-700 tabular-nums">{o.currency} {Number(o.total_amount).toFixed(2)}</p>

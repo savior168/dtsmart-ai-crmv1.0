@@ -21,7 +21,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     if (eventError) throw eventError;
     if(["DRAFT", "CANCELLED"].includes(order.status))throw new Error("草稿或已取消的备货单不能作为正式单据导出");
     const customerNames = await loadOrderCustomerNames([order.sales_order_id]);
-    const piNote = await createAdminClient().from("sales_orders").select("confirmation_note,forwarder_address").eq("id", order.sales_order_id).single();
+    const piNote = await createAdminClient().from("sales_orders").select("confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone").eq("id", order.sales_order_id).single();
     if (piNote.error) throw piNote.error;
     const salesOwner = !order.salesperson && order.sales_user_id ? await createAdminClient().from("users")
       .select("name,email").eq("id", order.sales_user_id).maybeSingle() : null;
@@ -30,6 +30,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       salesperson: order.salesperson || salesOwner?.data || null,
       order_change_note: piNote.data.confirmation_note,
       forwarder_address: piNote.data.forwarder_address,
+      forwarder_recipient: piNote.data.forwarder_recipient,
+      forwarder_phone: piNote.data.forwarder_phone,
       shipped_at: shippedEvents?.[0]?.created_at || null,
       status_label: stockProgressLabel(summarizeStockProgress(order.status, items || [])) } as never, (items || []) as never);
     return new NextResponse(new Uint8Array(buffer), {
