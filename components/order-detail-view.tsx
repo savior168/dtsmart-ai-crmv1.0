@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileDown, LoaderCircle, RefreshCw, Save, Trash2, XCircle } from "lucide-react";
+import { ArrowLeft, ChevronDown, FileDown, LoaderCircle, RefreshCw, Save, Trash2, XCircle } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppStatusBadge } from "@/components/ui/app-list";
@@ -32,11 +32,16 @@ type Payload = {
     quote_id: string;
     quote_number: string;
     customer_short_name: string;
-    customer?: { contact_name?: string | null; company_name?: string | null } | null;
+    customer?: { contact_name?: string | null; company_name?: string | null; tax_number?: string | null } | null;
     destination_country: string | null;
     currency: string;
+    show_dual_currency_prices: boolean | null;
     subtotal: number;
     shipping_cost: number;
+    last_balance_amount: number | null;
+    other_charge_amount: number | null;
+    discount_amount: number | null;
+    paypal_fee_amount: number | null;
     total_amount: number;
     fx_rate_cny_to_payment: number | null;
     subtotal_cny: number | null;
@@ -85,6 +90,42 @@ type Payload = {
   can_preview: boolean;
   can_view_stock: boolean;
 };
+
+function PiInfoCards({ order: o }: { order: Payload["order"] }) {
+  const feeRows: Array<[string, number]> = [
+    ["产品小计", Number(o.subtotal)],
+    ["运费", Number(o.shipping_cost)],
+    ["未付尾款（加收）", Number(o.last_balance_amount || 0)],
+    ["其他费用（加收）", Number(o.other_charge_amount || 0)],
+    ["折扣（扣减）", -Number(o.discount_amount || 0)],
+    ["PayPal 手续费（加收）", Number(o.paypal_fee_amount || 0)],
+  ];
+  return <div className="grid items-stretch gap-4 border-t px-5 py-4 text-sm lg:grid-cols-2">
+    <details open className="group min-w-0 rounded-lg border border-slate-200 bg-slate-50 open:bg-white">
+      <summary className="flex min-h-[76px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0"><span className="block font-semibold text-slate-800">订单与收货信息</span><span className="mt-1 block text-xs text-slate-500">收货人：{o.delivery_recipient || "未填写"} · 货代地址：{o.forwarder_address ? "已选择" : "未填写"}</span></span>
+        <ChevronDown size={16} className="shrink-0 text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="grid gap-3 border-t border-slate-200 p-4">
+        <div className="min-w-0 space-y-1 text-slate-600"><h3 className="font-medium text-slate-800">客户收货信息</h3><p>收货人：{o.delivery_recipient || "—"}</p><p>电话：{o.delivery_phone || "—"}</p><p className="break-all">邮箱：{o.delivery_email || "—"}</p><p className="break-words">收货地址：{o.delivery_address || "—"}</p></div>
+        <div className="min-w-0 space-y-1 text-slate-600"><h3 className="font-medium text-slate-800">货代收货信息</h3><p className="break-words">本单货代地址：{o.forwarder_address || "未填写"}</p><p>确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"}</p><p>预计交付日期：{o.delivery_date || "—"}</p></div>
+      </div>
+    </details>
+    <details open className="group min-w-0 rounded-lg border border-slate-200 bg-slate-50 open:bg-white">
+      <summary className="flex min-h-[76px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0"><span className="block font-semibold text-slate-800">付款与汇率</span><span className="mt-1 block text-xs text-slate-500">{o.currency} {Number(o.total_amount).toFixed(2)} · 双币种价格展示：{o.show_dual_currency_prices === true ? "已开启" : "未开启"}</span></span>
+        <ChevronDown size={16} className="shrink-0 text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="space-y-1 border-t border-slate-200 p-4 text-slate-600">
+        <p>付款方式：{o.payment_method || "—"} · 1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p>
+        <p>人民币总额（含各项费用）：¥{Number(o.total_cny).toFixed(2)}</p>
+        <p>双币种价格展示：{o.show_dual_currency_prices === true ? `已开启（CNY / ${o.currency}）` : `未开启（仅 ${o.currency}）`}</p>
+        <div className="pt-2"><h3 className="font-medium text-slate-800">费用明细 · {o.currency}</h3><dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}<dt className="border-t border-slate-200 pt-1 font-semibold text-slate-800">客户应付总额</dt><dd className="border-t border-slate-200 pt-1 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd></dl></div>
+        <details className="pt-2"><summary className="cursor-pointer text-blue-700">查看收款账户快照</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-slate-600">{o.payment_account_snapshot || "—"}</p></details>
+      </div>
+    </details>
+  </div>;
+}
 export function OrderDetailView({ id }: { id: string }) {
   const router = useRouter();
   const [data, setData] = useState<Payload | null>(null);
@@ -219,15 +260,12 @@ export function OrderDetailView({ id }: { id: string }) {
           ) : null}
           {directPi ? <>
             <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">客户名称</p><p className="mt-2 text-lg font-semibold text-slate-900">{o.customer?.contact_name?.trim() || "未填写"}</p><p className="mt-1 text-sm text-slate-600">公司名称：{o.customer_short_name}</p><div className="mt-1 text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><p className="text-xs text-blue-700">客户应付总额 · 含运费</p><p className="mt-2 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p><p className="mt-1 text-xs text-blue-700">其中运费 {o.currency} {Number(o.shipping_cost).toFixed(2)}</p></div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">客户名称</p><p className="mt-2 text-lg font-semibold text-slate-900">{o.customer?.contact_name?.trim() || "未填写"}</p><p className="mt-1 text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="mt-1 break-words text-sm text-slate-600">公司税号：{o.customer?.tax_number?.trim() || "未填写"}</p><div className="mt-1 text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-2 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p><p className="mt-1 text-xs text-blue-700">展开下方“付款与汇率”查看费用明细</p></div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-2 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress} wide/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
             </div>
-            <div className="grid gap-4 border-t px-5 py-4 text-sm lg:grid-cols-2">
-              <div><h2 className="font-semibold text-slate-800">订单与收货信息</h2><p className="mt-2 text-slate-600">确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"} · 收货人：{o.delivery_recipient || "—"}</p><p className="mt-1 text-slate-600">电话：{o.delivery_phone || "—"} · 邮箱：{o.delivery_email || "—"}</p><p className="mt-1 break-words text-slate-600">收货地址：{o.delivery_address || "—"}</p><p className="mt-1 break-words text-slate-600">本单货代地址：{o.forwarder_address || "未填写"}</p><p className="mt-1 text-slate-600">预计交付日期：{o.delivery_date || "—"}</p></div>
-              <div><h2 className="font-semibold text-slate-800">付款与汇率</h2><p className="mt-2 text-slate-600">付款方式：{o.payment_method || "—"} · 1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p><p className="mt-1 text-slate-600">人民币总额（含运费）：¥{Number(o.total_cny).toFixed(2)}</p><details className="mt-2"><summary className="cursor-pointer text-blue-700">查看收款账户快照</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-slate-600">{o.payment_account_snapshot || "—"}</p></details></div>
-            </div>
+            <PiInfoCards order={o} />
             <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>
           </> : <div className="grid gap-4 p-5 md:grid-cols-5">{[["客户名称", o.customer?.contact_name?.trim() || "未填写"], ["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span>{data.can_view_stock ? <Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link> : null}</div> : null}
@@ -278,8 +316,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <tfoot>
                 <tr className="border-t bg-blue-50">
                   <td colSpan={directPi ? 11 : 8} className="px-3 py-3 text-right">
-                    订单总额（含运费 {o.currency}{" "}
-                    {Number(o.shipping_cost).toFixed(2)}）
+                    订单总额（含运费及各项费用）
                   </td>
                   <td className="px-3 py-3 font-bold text-blue-700">
                     {o.currency} {Number(o.total_amount).toFixed(2)}

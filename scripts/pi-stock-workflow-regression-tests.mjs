@@ -75,6 +75,11 @@ assert.match(read("app/api/stock-orders/[id]/export/route.ts"), /salesperson: or
 assert.match(read("app/api/stock-orders/route.ts"), /salesperson: detail\.salesperson \|\| salesOwnerById\.get\(detail\.sales_user_id\) \|\| null/, "批量备货导出须补齐销售员姓名");
 assert.match(read("components/ui/app-pagination.tsx"), /STANDARD_PAGE_SIZES = \[10, 20, 50, 100, 300, 500\]/, "全站列表分页选项应使用20而非30");
 const orderDetailView = read("components/order-detail-view.tsx");
+assert.match(orderDetailView, /公司税号：\{o\.customer\?\.tax_number\?\.trim\(\) \|\| "未填写"\}/, "PI详情应显示客户公司税号及空值状态");
+assert.match(orderDetailView, /grid items-stretch gap-4[\s\S]*?<details open className="group[\s\S]*?订单与收货信息[\s\S]*?客户收货信息[\s\S]*?收货人：\{o\.delivery_recipient[\s\S]*?货代收货信息[\s\S]*?本单货代地址：\{o\.forwarder_address[\s\S]*?<details open className="group[\s\S]*?付款与汇率/, "PI详情两栏应等高折叠展示客户收货、货代及付款信息");
+assert.match(orderDetailView, /双币种价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应以订单保存的选项显示双币种价格状态");
+for (const fee of ["subtotal", "shipping_cost", "last_balance_amount", "other_charge_amount", "discount_amount", "paypal_fee_amount", "total_amount"]) assert.match(orderDetailView, new RegExp(`o\\.${fee}`), `PI详情费用明细应包含 ${fee}`);
+assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "PI详情税号只能来自当前可查看订单关联客户");
 const stockDraftApi = read("app/api/stock-orders/[id]/draft/route.ts");
 const stockSubmitApi = read("app/api/stock-orders/[id]/submit/route.ts");
 const customerPi = read("lib/direct-pi-export.ts");
@@ -379,6 +384,8 @@ assert.match(Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").con
 const book = XLSX.read(workbook, { type: "array", cellFormula: true, cellStyles: true });
 const sheet = book.Sheets[book.SheetNames[0]];
 assert.ok((sheet["!cols"] || []).slice(0, 3).reduce((width, column) => width + (column.wpx || 0), 0) >= 144, `页眉Logo应完整位于A:C预留空间内：${JSON.stringify(sheet["!cols"]?.slice(0, 3))}`);
+const logoToCompanyGap = sheet["!cols"].slice(0, 3).reduce((width, column) => width + column.wpx, 0) - (logoLeft + logoWidth) / 9525;
+assert.ok(logoToCompanyGap >= 8 && logoToCompanyGap <= 12, `Logo右侧留白应接近左侧的8像素：${logoToCompanyGap}`);
 assert.ok((sheet["!cols"]?.[10]?.wpx || 0) >= 95, "PI金额列应能完整显示币种和四位数金额，不得截断或显示井号");
 const sheetXml = Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8");
 for (const address of ["D4", "D6", "D7", "D8", "D9", "G13"]) {
@@ -400,6 +407,21 @@ const businessNumberBook = XLSX.read(businessNumberWorkbook, { type: "array" });
 assert.equal(businessNumberBook.Sheets[businessNumberBook.SheetNames[0]].J2.v, "D60058756", "PI Excel应与预览使用同一业务订单编号");
 assert.equal(sheet.J4.v, "2026-10-17", "PI导出有效期应与预览使用同一日期值");
 assert.ok(sheet["!rows"].some((row) => row.hpt >= 80), "收款信息须预留足够高度，不得被单元格裁切");
+function assertSignatureOutline(workbookArchive, workbookSheet, rightColumn) {
+  const headerAddress = Object.keys(workbookSheet).find((address) => workbookSheet[address]?.v === "Signature By Supplier:");
+  assert.ok(headerAddress, "PI签名区应存在供应商签名标签");
+  const headerRow = XLSX.utils.decode_cell(headerAddress).r + 1;
+  const worksheetXml = Buffer.from(XLSX.CFB.find(workbookArchive, "/xl/worksheets/sheet1.xml").content).toString("utf8");
+  const stylesXml = Buffer.from(XLSX.CFB.find(workbookArchive, "/xl/styles.xml").content).toString("utf8");
+  const cellXfs = [...stylesXml.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1].matchAll(/<xf\b[^>]*>/g) || []].map((match) => match[0]);
+  const borders = [...stylesXml.match(/<borders\b[^>]*>([\s\S]*?)<\/borders>/)?.[1].matchAll(/<border\b[^>]*>[\s\S]*?<\/border>/g) || []].map((match) => match[0]);
+  for (const [address, edge] of [[`A${headerRow}`, "top"], [`A${headerRow + 2}`, "bottom"], [`A${headerRow + 1}`, "left"], [`${rightColumn}${headerRow + 1}`, "right"]]) {
+    const styleId = Number(worksheetXml.match(new RegExp(`<c r="${address}" s="(\\d+)"`))?.[1]);
+    const borderId = Number(cellXfs[styleId]?.match(/borderId="(\d+)"/)?.[1]);
+    assert.match(borders[borderId] || "", new RegExp(`<${edge} style="thin"`), `签名区外边框 ${address} ${edge} 应完整`);
+  }
+}
+assertSignatureOutline(archive, sheet, "K");
 assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).deliveryTaxNumber, "GB123456", "页面预览与Excel应复用同一个公司税号值");
 assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
 assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
@@ -446,8 +468,10 @@ const dualModel = createPiDocumentModel(dualOrder, [itemFixture]);
 assert.equal(dualModel.showDualCurrencyPrices, true, "勾选后预览模型须启用双币种销售单价");
 assert.equal(dualModel.items[0].unitPriceCny, 100, "预览中的人民币单价须来自订单行快照");
 assert.equal(dualModel.items[0].amountCny, 100, "预览中的人民币行金额须由人民币单价乘数量计算");
-const dualBook = XLSX.read(buildDirectPiWorkbook(dualOrder, [itemFixture]), { type: "array", cellFormula: true, cellStyles: true });
+const dualWorkbook = buildDirectPiWorkbook(dualOrder, [itemFixture]);
+const dualBook = XLSX.read(dualWorkbook, { type: "array", cellFormula: true, cellStyles: true });
 const dualSheet = dualBook.Sheets[dualBook.SheetNames[0]];
+assertSignatureOutline(XLSX.CFB.read(Buffer.from(dualWorkbook), { type: "buffer" }), dualSheet, "M");
 assert.equal(dualSheet.H2.v, "COMMERCIAL INVOICE", "双币种PI右侧单据信息应与扩宽后的公司信息保持平衡");
 assert.equal(dualSheet.K2.v, "PI-TEST", "双币种PI编号应位于独立的右侧值栏");
 assert.equal(dualSheet.K6.v, "NAIRA/RMB (NGN)", "双币种PI付款方式应位于独立的右侧值栏");

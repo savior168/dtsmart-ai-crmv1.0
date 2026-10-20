@@ -202,8 +202,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   sheet["!ref"] = `A1:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
   sheet["!cols"] = (showDualCurrencyPrices
-    ? [6, 7, 11, 12, 15, 17, 9, 8, 17, 17, 8, 15, 15]
-    : [6, 7, 11, 12, 15, 17, 9, 8, 13, 8, 16]).map((wch) => ({ wch }));
+    ? [6, 7, 10, 12, 15, 17, 9, 8, 17, 17, 8, 15, 15]
+    : [6, 7, 10, 12, 15, 17, 9, 8, 13, 8, 16]).map((wch) => ({ wch }));
   const paymentLineCount = order.payment_account_snapshot!.trim().split(/\r?\n/)
     .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 95)), 0);
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
@@ -309,6 +309,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, `G${signatureName}`, document.deliveryCompany, center); merge(sheet, `G${signatureName}:${showDualCurrencyPrices ? "M" : "K"}${signatureName}`);
   set(sheet, `A${signatureDate}`, issueDate, center); merge(sheet, `A${signatureDate}:F${signatureDate}`);
   set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`);
+  outline(sheet, `A${signatureHeader}:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`);
   outline(sheet, `A2:${sellerEnd}9`);
   outline(sheet, `A12:${showDualCurrencyPrices ? "M" : "K"}16`);
   outline(sheet, "A13:F16");
