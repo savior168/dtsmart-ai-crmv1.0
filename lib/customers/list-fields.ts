@@ -48,11 +48,15 @@ const PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS: CustomerListColumn[] =
   CUSTOMER_LIST_DEFAULT_COLUMNS.filter((key) => key !== "contact_name");
 
 export function migrateMyCustomerDefaultColumns(saved: unknown): unknown {
-  if (Array.isArray(saved) && saved.length === PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS.length
+  if (!Array.isArray(saved)) return saved;
+  if (saved.length === PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS.length
     && saved.every((key, index) => key === PREVIOUS_MY_CUSTOMER_DEFAULT_COLUMNS[index])) {
     return CUSTOMER_LIST_DEFAULT_COLUMNS;
   }
-  return saved;
+  // Existing accounts can have a saved column preference that predates the
+  // contact-first layout. Keep every other choice/order, but always surface
+  // the customer contact before the company in this owned-customer list.
+  return ["contact_name", ...saved.filter((key) => key !== "contact_name")];
 }
 
 export const CUSTOMER_LIST_COLUMN_STORAGE_KEY = "customer-columns-v15";

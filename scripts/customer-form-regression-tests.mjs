@@ -144,7 +144,8 @@ assert.match(profileGrants, /company_scale_evidence.*SELECT/, "权限迁移须�
 assert.deepEqual(CUSTOMER_LIST_DEFAULT_COLUMNS.slice(0, 3), ["contact_name", "company_name", "country"], "我的客户应先显示对接人，再显示公司和国家");
 const previousDefault = CUSTOMER_LIST_DEFAULT_COLUMNS.filter((key) => key !== "contact_name");
 assert.deepEqual(normalizeCustomerListColumns(migrateMyCustomerDefaultColumns(previousDefault)).slice(0, 3), ["contact_name", "company_name", "country"], "旧版默认列顺序应自动升级");
-assert.deepEqual(migrateMyCustomerDefaultColumns(["company_name", "phone", "country"]), ["company_name", "phone", "country"], "用户主动配置的列顺序不可覆盖");
+assert.deepEqual(migrateMyCustomerDefaultColumns(["company_name", "phone", "country"]), ["contact_name", "company_name", "phone", "country"], "旧账号应补全客户名称，同时保留其他字段的顺序");
+assert.deepEqual(migrateMyCustomerDefaultColumns(["company_name", "contact_name", "phone"]), ["contact_name", "company_name", "phone"], "客户名称已有设置时应移动到最前且不重复");
 assert.match(followupApiSource, /customer_followup_queue[\s\S]*\.select\("[^"]*company_name,contact_name,country/, "跟进待办接口应读取已有的对接人字段");
 assert.match(followupApiSource, /customer_followup_history[\s\S]*\.select\("[^"]*company_name,contact_name,country/, "历史跟进接口也应读取对接人字段");
 assert.match(followupViewSource, /客户名称 \/ 公司名称/, "跟进列表应明确显示对接人与企业主体");
