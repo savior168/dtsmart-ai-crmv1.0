@@ -1,3 +1,3 @@
 import { UserAccessManagementPanel } from "@/components/admin-settings-panels";
-import { requireAdmin } from "@/lib/auth/current-user";
-export default async function UsersSettingsPage() { await requireAdmin(); return <UserAccessManagementPanel />; }
+import { protectPage } from "@/lib/auth/page-access";
+export default async function UsersSettingsPage() { await protectPage("system.users.view"); return <UserAccessManagementPanel />; }

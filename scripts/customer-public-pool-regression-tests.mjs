@@ -198,7 +198,7 @@ assert.match(importSafety, /IMPORTABLE_CUSTOMER_FIELDS[\s\S]*sanitizeImportRow/,
 assert.match(importSafety, /typeof value === "object"[\s\S]*"message", "details", "hint", "error"/, "导入接口必须读取结构化数据库错误而不是显示 object Object");
 assert.match(importView, /suspected_duplicate, suspected_candidates, preflight_candidates, \.\.\.item/, "确认导入前必须剔除疑似重复预检的页面临时字段");
 assert.match(importView, /readableImportError\(body\.error/, "导入页面必须把结构化错误转换为可读原因");
-assert.match(importPage, /destination === "public"[\s\S]*requireAdmin\(\)/, "公海导入页面本身必须仅系统管理员可进入");
+assert.match(importPage, /destination === "public" && account\.role !== "ADMIN"\) redirect\("\/access-denied\?permission=imports\.create"\)/, "公海导入页面本身必须仅系统管理员可进入");
 assert.match(importView, /destination[\s\S]*导入到客户公海[\s\S]*导入到我的客户/, "共用导入页必须清楚显示实际导入目标");
 assert.match(closedLoop, /old\.origin_source[\s\S]*new\.origin_source[\s\S]*客户原始来源由系统保留，不能修改/, "系统获客来源标记必须不可被前端篡改");
 assert.match(ownershipIntegrity, /revoke insert, update, delete on table public\.customers from authenticated/, "客户归属字段不得允许前端直写绕过认领流程");

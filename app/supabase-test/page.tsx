@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CheckCircle2, Database, XCircle } from "lucide-react";
-import { requireAdmin } from "@/lib/auth/current-user";
+import { protectPage } from "@/lib/auth/page-access";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ async function checkConnection() {
 }
 
 export default async function SupabaseTestPage() {
-  await requireAdmin();
+  await protectPage("system.users.view");
   const connected = await checkConnection();
 
   return (

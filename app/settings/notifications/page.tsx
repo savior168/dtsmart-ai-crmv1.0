@@ -1,7 +1,7 @@
 import { NotificationAdminPanel } from "@/components/notification-admin-panel";
-import { requireAdmin } from "@/lib/auth/current-user";
+import { protectPage } from "@/lib/auth/page-access";
 
 export default async function NotificationSettingsPage() {
-  await requireAdmin();
+  await protectPage("system.notifications.view");
   return <NotificationAdminPanel />;
 }

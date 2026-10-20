@@ -7,7 +7,15 @@ const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 const permissionCatalog = read("lib/auth/permissions.ts");
 assert.match(permissionCatalog, /export function normalizeRole[\s\S]*throw new Error\("UNKNOWN_ROLE"\)/, "未知角色必须拒绝登录，不能默认为销售员");
 const sidebar = read("components/app-shell.tsx");
-assert.match(read("app/supabase-test/page.tsx"), /export default async function SupabaseTestPage\(\) \{\s*await requireAdmin\(\)/, "数据库连接诊断页不能匿名访问");
+assert.match(read("app/supabase-test/page.tsx"), /export default async function SupabaseTestPage\(\) \{\s*await protectPage\("system\.users\.view"\)/, "数据库连接诊断页必须有管理员页面守卫");
+for (const [page, permission] of [
+  ["app/settings/users/page.tsx", "system.users.view"],
+  ["app/settings/roles/page.tsx", "system.roles.view"],
+  ["app/settings/notifications/page.tsx", "system.notifications.view"],
+]) {
+  assert.ok(read(page).includes(`await protectPage("${permission}")`), `${page} 必须将非管理员导航到无权限页`);
+}
+assert.match(read("app/import/page.tsx"), /params\.destination === "public" && account\.role !== "ADMIN"\) redirect\("\/access-denied\?permission=imports\.create"\)/, "公海导入页面必须拒绝非管理员且明确显示无权限");
 const catalogCodes = new Set([...permissionCatalog.matchAll(/code: "([^"]+)"/g)].map((match) => match[1]));
 for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*permission: "([^"]+)"/g)) {
   assert.ok(catalogCodes.has(permission), `${href} 的菜单权限 ${permission} 必须登记在角色权限目录`);
