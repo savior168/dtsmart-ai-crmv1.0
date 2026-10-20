@@ -202,12 +202,12 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   sheet["!ref"] = `A1:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`;
   // The logical nine-column table uses the same proportions as the browser preview.
   sheet["!cols"] = (showDualCurrencyPrices
-    ? [6, 7, 11, 12, 15, 17, 9, 8, 13, 13, 8, 15, 15]
+    ? [6, 7, 11, 12, 15, 17, 9, 8, 17, 17, 8, 15, 15]
     : [6, 7, 11, 12, 15, 17, 9, 8, 13, 8, 16]).map((wch) => ({ wch }));
   const paymentLineCount = order.payment_account_snapshot!.trim().split(/\r?\n/)
     .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 95)), 0);
   sheet["!rows"] = Array.from({ length: signatureDate }, (_, index) => ({
-    hpt: index === paymentBody - 1 ? Math.max(80, paymentLineCount * 13 + 8) : index === 17 ? 34 : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : index >= 1 && index <= 8 ? 14 : index === 9 || index === 10 ? 6 : 21,
+    hpt: index === paymentBody - 1 ? Math.max(80, paymentLineCount * 13 + 8) : index === 17 ? (showDualCurrencyPrices ? 24 : 34) : index >= 18 && index < lastItemRow ? (index < 18 + items.length ? 24 : 19) : index >= 1 && index <= 8 ? 14 : index === 9 || index === 10 ? 6 : 21,
   }));
   sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
 

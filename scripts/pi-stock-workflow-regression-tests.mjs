@@ -454,6 +454,8 @@ assert.equal(dualSheet.K6.v, "NAIRA/RMB (NGN)", "双币种PI付款方式应位�
 assert.match(dualSheet.D4.v, /^Address: /, "双币种PI公司信息应从Logo右侧开始且保持可读");
 assert.deepEqual([dualSheet.I18.v, dualSheet.J18.v, dualSheet.K18.v, dualSheet.L18.v, dualSheet.M18.v],
   ["Unit Price (CNY)", "Unit Price (NGN)", "Quantity", "Amount (CNY)", "Amount (NGN)"], "双币种单价与金额须独立成列");
+assert.ok(dualSheet["!cols"][8].wpx >= 105 && dualSheet["!cols"][9].wpx >= 105, "双币种单价表头须有足够宽度单行显示");
+assert.equal(dualSheet["!rows"][17].hpt, 24, "双币种产品表头不应为单价文字保留双行高度");
 assert.deepEqual([dualSheet.I19.v, dualSheet.J19.v, dualSheet.K19.v], [100, 20000, 1]);
 assert.equal(dualSheet.L19.f, "I19*K19");
 assert.equal(dualSheet.M19.f, "J19*K19");
