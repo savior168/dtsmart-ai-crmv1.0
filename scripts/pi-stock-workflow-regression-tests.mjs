@@ -378,6 +378,7 @@ assert.equal(logoTop / 9525, 8, "Logo应从页眉顶部留出均衡内边距");
 assert.match(Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8"), /<drawing r:id=/, "工作表必须用有效的XML命名空间引用企业Logo");
 const book = XLSX.read(workbook, { type: "array", cellFormula: true, cellStyles: true });
 const sheet = book.Sheets[book.SheetNames[0]];
+assert.ok((sheet["!cols"] || []).slice(0, 3).reduce((width, column) => width + (column.wpx || 0), 0) >= 144, `页眉Logo应完整位于A:C预留空间内：${JSON.stringify(sheet["!cols"]?.slice(0, 3))}`);
 assert.ok((sheet["!cols"]?.[10]?.wpx || 0) >= 95, "PI金额列应能完整显示币种和四位数金额，不得截断或显示井号");
 const sheetXml = Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8");
 for (const address of ["D4", "D6", "D7", "D8", "D9", "G13"]) {
