@@ -684,7 +684,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             {destination === "PUBLIC_POOL" ? "导入到客户公海" : "导入到我的客户"}
           </h1>
           <div className="text-sm text-slate-500">
-            {destination === "PUBLIC_POOL" ? "仅系统管理员可执行；成功数据无归属人并进入待认领客户" : "成功数据默认归属当前用户；系统自动执行全库去重与归属校验"}
+            {destination === "PUBLIC_POOL" ? "仅系统管理员可执行；成功数据无归属人，完成 AI 分析且评分达到 60 分后才进入待认领客户" : "成功数据默认归属当前用户；系统自动执行全库去重与归属校验"}
           </div>
         </div>
         {!canCreate ? <div role="status" className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><LockKeyhole className="mt-0.5 shrink-0 text-amber-600" size={18}/><div><b>当前角色仅可查看导入页面</b><p className="mt-1 text-amber-800">“执行数据导入”尚未授权，因此上传、预览、模板下载和提交均不可用；请由系统管理员在角色默认权限或用户个性权限中开启该功能。</p></div></div> : null}
@@ -1044,7 +1044,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                       {row.action_url ? <Link href={row.action_url} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">去公海认领<ExternalLink size={12}/></Link> : null}
                     </td>
                     <td className="px-4 py-3">{row.contact_name || "-"}</td>
-                    <td className="px-4 py-3">{destination === "PUBLIC_POOL" ? "待认领" : row.import_stage || "潜在客户"}</td>
+                    <td className="px-4 py-3">{destination === "PUBLIC_POOL" ? "待AI分析" : row.import_stage || "潜在客户"}</td>
                     <td className="px-4 py-3">{row.manual_grade || "未标记"}</td>
                     <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>
                     <td className="w-[160px] whitespace-nowrap px-4 py-3">
