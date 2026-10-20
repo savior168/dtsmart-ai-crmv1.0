@@ -19,6 +19,7 @@ const orderList = read("components/orders-view.tsx");
 const stockList = read("components/stock-orders-view.tsx");
 const operationsPermissions = read("supabase/migrations/20261020071428_operations_role_reports_default.sql");
 const operationsOverview = read("components/operations-overview.tsx");
+const globalStyles = read("app/globals.css");
 
 assert.match(migration, /left join public\.customers c on c\.owner_id=s\.id and c\.deleted_at is null/, "销售客户指标只能统计当前归属且在库的客户");
 assert.match(migration, /count\(c\.id\) filter\(where c\.created_at>=p_from and c\.created_at<p_to\) as new_customers/, "期间新增必须与报表日期范围一致");
@@ -69,6 +70,10 @@ assert.match(dashboardApi, /loadStockProgressItems\(supabase,[\s\S]*summarizeSto
 assert.match(dashboard, /stockProgress\) return <article className=\{`\$\{panelClass\} order-1 self-start overflow-hidden`\}/, "PI备货速览应在左侧紧凑展示");
 assert.match(dashboardApi, /\.order\("pi_updated_at", \{ ascending: false \}\)/, "PI备货速览须按PI最近更新时间倒序展示");
 assert.match(dashboard, /progress\.buckets\[bucket\.key\][\s\S]*part\.percent >= 17/, "备货进度条须显示可容纳的件数与占比");
+for (const page of [dashboard, reports, operationsOverview]) assert.match(page, /crm-data-interactions/, "工作台和报表中心须启用一致的可点击数据反馈");
+assert.match(globalStyles, /crm-data-interactions a\[href\]:is\(\.rounded-xl,\.rounded-lg\):hover[\s\S]*translateY/, "数据卡片须有轻微上浮反馈");
+assert.match(globalStyles, /crm-data-interactions a\[href\]:is\(\.dashboard-country-row[\s\S]*translateX/, "图表分类须与卡片使用不同的轻量动效");
+assert.match(globalStyles, /prefers-reduced-motion: reduce[\s\S]*crm-data-interactions a\[href\][\s\S]*transform: none/, "用户选择减少动画时须取消位移动效");
 assert.match(dashboard, /activity_mode === "STOCK_PROGRESS" \? "order-2" : "order-1"/, "今日待跟进应与PI进度对调顺序");
 assert.match(operationsPermissions, /on conflict \(role_code, permission_code\) do nothing/i, "迁移不得覆盖管理员显式关闭的角色权限");
 assert.match(read("app/reports/page.tsx"), /account\.role === "WAREHOUSE"[\s\S]*OperationsOverview/, "仓库员不得读取销售业绩报表");

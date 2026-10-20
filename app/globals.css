@@ -234,6 +234,8 @@ table th { font-weight:600; }
 .crm-data-interactions a[href] { transition: transform .2s cubic-bezier(.2,.75,.3,1), box-shadow .2s ease, filter .2s ease, background-color .2s ease, border-color .2s ease; }
 .crm-data-interactions a[href]:is(.rounded-xl,.rounded-lg):hover { transform: translateY(-3px); box-shadow: 0 9px 22px rgba(37,99,235,.13); border-color: #93c5fd; }
 .crm-data-interactions a[href]:is(.dashboard-country-row,.report-legend-item,.report-stage-node,.report-country-tile,.report-status-tile,.report-motion-step):hover { transform: translateX(3px); background-color: #eff6ff; }
+.crm-data-interactions a[href].crm-data-row:hover { transform: translateX(2px); background-color: #eff6ff; }
+.crm-data-interactions a[href].flex:not(.rounded-xl):not(.rounded-lg):hover { transform: translateX(2px); background-color: #eff6ff; }
 .crm-data-interactions a[href].dashboard-funnel-layer:hover { transform: scale(1.035); filter: brightness(1.08); }
 .crm-data-interactions a[href]:not(.rounded-xl):not(.rounded-lg):not(.dashboard-country-row):not(.report-legend-item):not(.report-stage-node):not(.report-country-tile):not(.report-status-tile):not(.report-motion-step):not(.dashboard-funnel-layer):hover { text-decoration: underline; text-underline-offset: 3px; }
 .crm-data-interactions a[href]:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
@@ -341,7 +343,7 @@ table th { font-weight:600; }
 
 @media (prefers-reduced-motion: reduce) {
   .crm-data-interactions a[href] { transition: none; }
-  .crm-data-interactions a[href]:is(.rounded-xl,.rounded-lg,.dashboard-country-row,.report-legend-item,.report-stage-node,.report-country-tile,.report-status-tile,.report-motion-step,.dashboard-funnel-layer):hover { transform: none; }
+  .crm-data-interactions a[href]:is(.rounded-xl,.rounded-lg,.dashboard-country-row,.report-legend-item,.report-stage-node,.report-country-tile,.report-status-tile,.report-motion-step,.dashboard-funnel-layer,.crm-data-row,.flex):hover { transform: none; }
   .dashboard-donut-segment:hover,
   .dashboard-donut-segment:focus-visible { animation: none; }
   .dashboard-funnel-layer { transition: none; }
