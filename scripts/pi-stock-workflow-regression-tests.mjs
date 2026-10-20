@@ -128,7 +128,7 @@ const orderListApi = read("app/api/orders/route.ts");
 const createPiApi = read("app/api/orders/create-pi/route.ts");
 const paymentAccountsApi = read("app/api/pi-payment-accounts/route.ts");
 const orderListView = read("components/orders-view.tsx");
-const compactStockNumberMigration = read("supabase/migrations/20261020031345_compact_stock_order_numbers.sql");
+const compactStockNumberMigration = read("supabase/migrations/20261020032152_compact_stock_order_numbers.sql");
 assert.match(compactStockNumberMigration, /create table public\.stock_order_daily_counters[\s\S]*on conflict \(business_date\) do update[\s\S]*confirm_quote_create_sales_order[\s\S]*submit_direct_pi_order/, "两条备货创建流程必须共用按日原子递增的编号表");
 assert.match(compactStockNumberMigration, /'Asia\/Shanghai'[\s\S]*return 'BH' \|\| to_char\(v_day, 'YYMMDD'\)[\s\S]*lpad\(v_serial::text, 3, '0'\)/, "新备货单号应按业务日期从 BH261020001 起逐日编号");
 assert.match(orderListView, /备货单号<\/th>[\s\S]*title=\{`\$\{stock\.stock_number\}[\s\S]*className="whitespace-nowrap px-3 py-3"><AppStatusBadge/, "PI列表应截断旧长编号但保留完整悬停信息，并避免状态逐字换行");
@@ -271,7 +271,7 @@ assert.match(piForm, /editLine\(index, "description_zh", value\)/, "PI输入的�
 assert.match(piInput, /!\[row\.item_name, row\.brand, row\.model, row\.quality\]\.every/, "服务端只应强制校验真正必填的产品字段");
 assert.match(piInput, /description_zh: String\(row\.description_zh \|\| ""\)/, "空中文描述应保持空白而非字符串 undefined");
 assert.doesNotMatch(piInput, /description_zh:[^\n]*join\(" \/ "\)/, "仓库中文描述不得自动拼接产品、品牌或型号");
-const optionalDescriptionMigration = read("supabase/migrations/20261020030054_pi_optional_warehouse_description.sql");
+const optionalDescriptionMigration = read("supabase/migrations/20261020032135_pi_optional_warehouse_description.sql");
 assert.match(optionalDescriptionMigration, /create_direct_pi_order[\s\S]*update_direct_pi_draft/, "新建与编辑PI数据库函数须同步接受空中文描述");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
 assert.match(piForm, /"成本单价（CNY） \*", "销售单价（CNY） \*", `销售单价（\$\{currency \|\| "付款币种"\}） \*`, "数量 \*", "销售金额（CNY）", `销售金额（\$\{currency \|\| "付款币种"\}）`/, "PI录入列头须按CNY、付款币种、数量、双币金额排列");
