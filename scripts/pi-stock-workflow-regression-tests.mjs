@@ -97,7 +97,10 @@ assert.match(piForm, /document\.addEventListener\("click", interceptLink, true\)
 assert.match(piForm, /window\.addEventListener\("popstate", interceptBack\)/, "未保存PI遇到浏览器后退应提醒");
 assert.match(piForm, /当前 PI 内容尚未保存[\s\S]*放弃填写并离开/, "离开提示应明确说明未保存内容会丢失并允许取消");
 assert.match(piForm, /hasUnsavedChanges\.current = false;\s*window\.location\.assign\(`\/orders\/\$\{saved\.id\}`\)/, "成功保存后跳转详情不应再次提示未保存");
-assert.match(piForm, /aria-label="搜索客户名称并选择PI客户"[^>]*placeholderValue=""/, "未选择PI客户时应显示占位提示样式");
+assert.match(piForm, /aria-label="搜索客户名称或公司名称并选择PI客户"[^>]*placeholderValue=""/, "未选择PI客户时应显示占位提示样式");
+assert.match(piForm, /data-search-text=\{`\$\{customer\.contact_name \|\| ""\} \$\{customer\.company_name \|\| ""\}`\}/, "PI客户选项应同时按客户名称和公司名称搜索");
+assert.match(piForm, /data-secondary-label=\{customer\.company_name \|\| ""\}>\{customer\.contact_name\?\.trim\(\) \|\| "未填写客户名称"\}/, "PI选中值仅显示客户名称，公司名称只作候选辅助信息");
+assert.match(read("components/ui/app-select.tsx"), /option\.searchText\.toLocaleLowerCase\(\)\.includes\(query\)/, "共享选择组件应使用独立搜索词过滤而非强制拼接显示名称");
 assert.match(piForm, /aria-label="选择PI收款账户"[^>]*placeholderValue=""/, "未选择收款账户时应显示占位提示样式");
 assert.match(read("components/ui/app-select.tsx"), /isPlaceholder \? "text-slate-400" : "text-slate-700"/, "占位提示应为浅灰色，真实已选值应为正常深色");
 const statusRoute = read("app/api/stock-orders/[id]/status/route.ts");
@@ -149,7 +152,9 @@ assert.equal(validPiSellingPrice("10.01", "10"), true, "正利润产品可以保
 assert.match(createPiApi, /requireOwnedPiCustomer\(supabase, account\.id, input\.p_customer_id\)/, "PI创建API必须核对客户当前归属");
 assert.match(strictOwnerMigration, /customer\.owner_id is distinct from actor\.id/, "数据库创建函数必须对所有角色强制当前归属校验");
 assert.match(strictOwnerMigration, /c\.owner_id=target\.sales_user_id/, "PI提交前必须再次核对客户归属");
-assert.match(piForm, /forceSearch[\s\S]*按客户名称查找/, "PI客户下拉即使选项较少也必须可搜索");
+assert.match(piForm, /forceSearch[\s\S]*搜索客户名称或公司名称/, "PI客户下拉即使选项较少也必须可搜索");
+assert.match(piForm, /单据单价显示人民币 \+ \{currency \|\| "付款币种"\}/, "双币种选项应明确仅控制单据展示");
+assert.match(piForm, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(22rem,28rem\)\]/, "PI费用汇总须限制宽度，避免空白区域撑开");
 assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");

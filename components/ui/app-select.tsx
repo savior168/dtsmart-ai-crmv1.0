@@ -4,8 +4,8 @@ import { ChevronDown, Search } from "lucide-react";
 import { Children, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, type OptionHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-type SelectOption = { value: string; label: string; disabled: boolean };
-type OptionElement = OptionHTMLAttributes<HTMLOptionElement> & { children?: ReactNode };
+type SelectOption = { value: string; label: string; searchText: string; secondaryLabel: string; disabled: boolean };
+type OptionElement = OptionHTMLAttributes<HTMLOptionElement> & { children?: ReactNode; "data-search-text"?: string; "data-secondary-label"?: string };
 
 function optionText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -19,7 +19,7 @@ function collectOptions(children: ReactNode): SelectOption[] {
     if (!isValidElement<OptionElement>(node)) return [];
     if (node.type !== "option") return collectOptions(node.props.children);
     const label = optionText(node.props.children);
-    return [{ value: String(node.props.value ?? label), label, disabled: Boolean(node.props.disabled) }];
+    return [{ value: String(node.props.value ?? label), label, searchText: node.props["data-search-text"] || label, secondaryLabel: node.props["data-secondary-label"] || "", disabled: Boolean(node.props.disabled) }];
   });
 }
 
@@ -69,7 +69,7 @@ export function AppSelect({
   const searchable = forceSearch || options.length > 6;
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    return query ? options.filter((option) => option.label.toLocaleLowerCase().includes(query)) : options;
+    return query ? options.filter((option) => option.searchText.toLocaleLowerCase().includes(query)) : options;
   }, [options, search]);
 
   const place = useCallback(() => {
@@ -162,7 +162,7 @@ export function AppSelect({
         onMouseEnter={() => setActiveIndex(index)}
         onClick={() => choose(option)}
         className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm leading-5 disabled:cursor-not-allowed disabled:opacity-40 ${option.value === selectedValue ? "bg-blue-50 font-medium text-blue-700" : "text-slate-700 hover:bg-slate-50"}`}
-      ><span className="min-w-0 break-words">{option.label}</span>{option.value === selectedValue ? <span aria-hidden="true" className="shrink-0 text-blue-600">✓</span> : null}</button>)}
+      ><span className="min-w-0"><span className="block break-words">{option.label}</span>{option.secondaryLabel ? <span className="block break-words text-xs font-normal text-slate-500">{option.secondaryLabel}</span> : null}</span>{option.value === selectedValue ? <span aria-hidden="true" className="shrink-0 text-blue-600">✓</span> : null}</button>)}
       {!filtered.length ? <p className="px-3 py-5 text-center text-sm text-slate-400">没有匹配的选项</p> : null}
     </div>
   </div> : null;
