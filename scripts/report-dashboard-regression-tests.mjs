@@ -16,7 +16,7 @@ const reportLoader = read("lib/reports/sales.ts");
 const operations = read("components/operations-overview.tsx");
 const orderList = read("components/orders-view.tsx");
 const stockList = read("components/stock-orders-view.tsx");
-const operationsPermissions = read("supabase/migrations/20261020035729_operations_role_reports_default.sql");
+const operationsPermissions = read("supabase/migrations/20261020071428_operations_role_reports_default.sql");
 
 assert.match(migration, /left join public\.customers c on c\.owner_id=s\.id and c\.deleted_at is null/, "销售客户指标只能统计当前归属且在库的客户");
 assert.match(migration, /count\(c\.id\) filter\(where c\.created_at>=p_from and c\.created_at<p_to\) as new_customers/, "期间新增必须与报表日期范围一致");
