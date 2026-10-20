@@ -145,11 +145,10 @@ export function PasswordAuthForm() {
     refreshCaptcha();
   }
   function goToApp() {
-    const next = params.get("next");
     window.dispatchEvent(new CustomEvent("dtsmart-auth-changed"));
-    router.replace(
-      next?.startsWith("/") && !next.startsWith("//") ? next : "/",
-    );
+    // The previous URL can be inaccessible to a different account after a
+    // role switch. Let the authenticated home choose this user's allowed page.
+    router.replace("/");
     router.refresh();
   }
 

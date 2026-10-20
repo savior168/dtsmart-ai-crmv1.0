@@ -99,7 +99,8 @@ async function parseExcelWorkbook(buffer: ArrayBuffer): Promise<ImportRow[]> {
   // scientific notation.
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, { type: "array", raw: false, cellDates: false });
-  return workbook.SheetNames.flatMap((name) =>
+  const dataSheets = workbook.SheetNames.includes("客户导入模板") ? ["客户导入模板"] : workbook.SheetNames.filter((name) => name !== "填写说明");
+  return dataSheets.flatMap((name) =>
     XLSX.utils.sheet_to_json<ImportRow>(workbook.Sheets[name], {
       defval: "",
       raw: false,

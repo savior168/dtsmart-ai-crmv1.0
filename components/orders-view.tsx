@@ -43,7 +43,7 @@ type Row = {
   creator?: { name?: string | null; email?: string } | null;
   stock?: StockLink | StockLink[] | null;
 };
-export function OrdersView() {
+export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?: string; dateFrom?: string; dateTo?: string; creatorId?: string } }) {
   const router = useRouter();
   const listRequestVersion = useRef(0);
   const [data, setData] = useState<Row[]>([]);
@@ -51,15 +51,15 @@ export function OrdersView() {
   const [error, setError] = useState("");
   const [sessionExpired, setSessionExpired] = useState(false);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(initialFilters.status || "");
   const [currency, setCurrency] = useState("");
   const [country, setCountry] = useState("");
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialFilters.dateFrom || "");
+  const [dateTo, setDateTo] = useState(initialFilters.dateTo || "");
   const [userId, setUserId] = useState("");
-  const [creatorId, setCreatorId] = useState("");
+  const [creatorId, setCreatorId] = useState(initialFilters.creatorId || "");
   const [canFilterCreator, setCanFilterCreator] = useState(false);
   const [canViewStock, setCanViewStock] = useState(false);
   const [canCreate, setCanCreate] = useState(false);

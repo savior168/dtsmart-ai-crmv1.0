@@ -13,6 +13,10 @@ const dashboardApi = read("app/api/dashboard/stats/route.ts");
 const dashboard = read("components/crm-dashboard.tsx");
 const reports = read("components/sales-reports-view.tsx");
 const reportLoader = read("lib/reports/sales.ts");
+const operations = read("components/operations-overview.tsx");
+const orderList = read("components/orders-view.tsx");
+const stockList = read("components/stock-orders-view.tsx");
+const operationsPermissions = read("supabase/migrations/20261020035729_operations_role_reports_default.sql");
 
 assert.match(migration, /left join public\.customers c on c\.owner_id=s\.id and c\.deleted_at is null/, "销售客户指标只能统计当前归属且在库的客户");
 assert.match(migration, /count\(c\.id\) filter\(where c\.created_at>=p_from and c\.created_at<p_to\) as new_customers/, "期间新增必须与报表日期范围一致");
@@ -36,6 +40,18 @@ assert.match(reports, /user_id: scope === "ALL" \? "all" : scope/, "报表全员
 assert.doesNotMatch(reports, /report\.scope === "ALL" \? undefined : customerDetailHref/, "切换全部归属人后客户指标仍需可进入同范围明细");
 assert.match(reports, /customerDetailHref\(scope, \{ status: row\.label \}\)/, "客户阶段需跳转同口径明细");
 assert.doesNotMatch(reports, /function BusinessMotion/, "报表不得重复展示相同业务指标");
+assert.match(operations, /creator_id: userId, status: "DRAFT"/, "跟单员本人草稿必须同时按制单人和状态统计");
+assert.match(operations, /if \(canFilterCreator\)/, "关闭全部订单数据权限后不得发送不允许的制单人筛选请求");
+assert.match(operations, /status: "ACTIVE"/, "执行中备货指标必须与列表聚合状态一致");
+assert.match(operations, /listHref\("\/stock-orders", from, to, \{ status: "ACTIVE" \}\)/, "备货指标点击后必须继承报表日期与状态范围");
+assert.match(orderList, /useState\(initialFilters\.creatorId \|\| ""\)/, "PI列表必须接收工作台制单人明细筛选");
+assert.match(stockList, /useState\(initialFilters\.status\|\|""\)/, "备货列表必须接收工作台状态明细筛选");
+assert.match(read("app/orders/page.tsx"), /initialFilters=\{filters\}/, "PI列表必须从页面查询参数传入筛选条件");
+assert.match(read("app/stock-orders/page.tsx"), /initialFilters=\{filters\}/, "备货列表必须从页面查询参数传入筛选条件");
+assert.match(operationsPermissions, /\('ORDER_CLERK', 'reports\.view', true\)/, "跟单员应默认可进入岗位报表");
+assert.match(operationsPermissions, /\('WAREHOUSE', 'reports\.view', true\)/, "仓库员应默认可进入岗位报表");
+assert.match(operationsPermissions, /on conflict \(role_code, permission_code\) do nothing/i, "迁移不得覆盖管理员显式关闭的角色权限");
+assert.match(read("app/reports/page.tsx"), /account\.role === "WAREHOUSE"[\s\S]*OperationsOverview/, "仓库员不得读取销售业绩报表");
 
 const compiledReport = ts.transpileModule(reportLoader, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const reportExports = {};

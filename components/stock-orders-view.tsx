@@ -23,7 +23,7 @@ type Row = { id:string; sales_order_id:string; stock_number:string; order_number
 type Payload = { data:Row[]; count:number; profile:{role:string}; can_view_all:boolean; can_view_pi:boolean; can_export:boolean; can_preview:boolean };
 const STOCK_FILTER_STATUSES = ["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED", "READY"] as const;
 
-export function StockOrdersView() {
+export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:string;dateFrom?:string;dateTo?:string;creatorId?:string}}) {
   const router=useRouter();
   const listRequestVersion=useRef(0);
   const [data,setData]=useState<Payload|null>(null);
@@ -31,14 +31,14 @@ export function StockOrdersView() {
   const [error,setError]=useState("");
   const [sessionExpired,setSessionExpired]=useState(false);
   const [q,setQ]=useState("");
-  const [status,setStatus]=useState("");
+  const [status,setStatus]=useState(initialFilters.status||"");
   const [country,setCountry]=useState("");
   const [sortBy,setSortBy]=useState("updated_at");
   const [sortDir,setSortDir]=useState<"asc"|"desc">("desc");
-  const [dateFrom,setDateFrom]=useState("");
-  const [dateTo,setDateTo]=useState("");
+  const [dateFrom,setDateFrom]=useState(initialFilters.dateFrom||"");
+  const [dateTo,setDateTo]=useState(initialFilters.dateTo||"");
   const [userId,setUserId]=useState("");
-  const [creatorId,setCreatorId]=useState("");
+  const [creatorId,setCreatorId]=useState(initialFilters.creatorId||"");
   const [page,setPage]=useState(1);
   const [pageSize,setPageSize]=useState(20);
   const [exportBusy,setExportBusy]=useState(false);

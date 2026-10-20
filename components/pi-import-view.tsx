@@ -66,7 +66,7 @@ export function PiImportView() {
 
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1200px] space-y-4">
     <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-bold">导入PI订单</h1><p className="mt-1 text-sm text-slate-600">导入后先保存为本人待补全草稿；核对客户、人民币售价和成本、汇率及收款账户后，才可创建PI订单。</p></div><Link href="/orders" className="rounded-lg border bg-white px-3 py-2 text-sm">返回PI订单</Link></header>
-    <section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">导入客户PI Excel</h2><p className="mt-1 text-sm text-slate-600">支持您实际使用的英文客户PI格式，以及下方专用模板。红色 * 标示导入必填项；文件不超过2MB。</p>
+    <section className="rounded-xl border bg-white p-5"><h2 className="font-semibold">导入PI整单 Excel</h2><p className="mt-1 text-sm text-slate-600">新模板分为“PI基本信息”和“PI产品明细”两页，与当前创建页面对应；也兼容旧英文客户PI。红色 * 为导入必填项，文件不超过2MB。导入后须核对客户归属、汇率、收款账户及费用，确认后才生成订单。</p>
       <div className="mt-4 flex flex-wrap items-center gap-2"><button type="button" onClick={() => window.location.assign("/api/orders/import-template")} className="inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm text-blue-700"><FileDown size={16}/>下载PI导入模板</button><input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(event) => void upload(event.target.files?.[0])}/><button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{busy ? <LoaderCircle size={16} className="animate-spin"/> : <Upload size={16}/>}上传并生成待补全草稿</button></div>
       {error ? <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     </section>

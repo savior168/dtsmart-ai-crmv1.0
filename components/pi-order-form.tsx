@@ -254,25 +254,37 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setImportRevision(importBody.data.revision);
         setWarehouseReferenceNumber(source.warehouse_reference_number);
         setCurrency(source.currency);
-        const importedRate = Number(ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || 0);
+        const importedRate = Number(source.fx_rate_cny_per_payment || ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || 0);
         setRate(importedRate > 0 ? String(importedRate) : "");
-        if (importedRate > 0) setShippingInput(roundMoney(source.shipping_payment * importedRate).toFixed(2));
+        if (source.shipping_cny !== undefined) setShippingInput(source.shipping_cny.toFixed(2));
+        else if (importedRate > 0) setShippingInput(roundMoney(source.shipping_payment * importedRate).toFixed(2));
         const companyName = normalizeCustomerName(source.delivery_company);
-        const exactCustomerMatches = companyName ? listed.filter((customer) => normalizeCustomerName(customer.company_name) === companyName) : [];
+        const exactCustomerMatches = companyName ? listed.filter((customer) => normalizeCustomerName(customer.company_name) === companyName && (!source.customer_name || normalizeCustomerName(customer.contact_name || "") === normalizeCustomerName(source.customer_name))) : [];
         if (exactCustomerMatches.length === 1) setCustomerId(exactCustomerMatches[0].id);
         if (source.payment_method) {
           if (PI_PAYMENT_CHANNELS.some((method) => method === source.payment_method)) setPaymentMethod(source.payment_method);
           else { setPaymentMethod("OTHER"); setCustomPaymentMethod(source.payment_method); }
         }
         setDeliveryDate(source.delivery_date);
+        if (source.valid_until) setValidUntil(source.valid_until);
         setRecipient(source.delivery_recipient);
         setPhone(source.delivery_phone);
         setEmail(source.delivery_email);
         setAddress(source.delivery_address);
+        if (source.stocking_requirements) setStockingRequirements(source.stocking_requirements);
+        if (source.show_dual_currency_prices) setShowDualCurrencyPrices(true);
+        if (source.paypal_rate_percent !== undefined) setPaypalRateInput(String(source.paypal_rate_percent));
+        setFeeFields({
+          last_balance: { source: "CNY", enabled: Boolean(source.last_balance_cny), amount: (source.last_balance_cny || 0).toFixed(2) },
+          discount: { source: "CNY", enabled: Boolean(source.discount_cny), amount: (source.discount_cny || 0).toFixed(2) },
+          other: { source: "CNY", enabled: Boolean(source.other_cny), amount: (source.other_cny || 0).toFixed(2) },
+        });
         setItems(source.items.map((item) => ({ ...newLine(), item_name: item.item_name, brand: item.brand,
-          model: item.model, quality: item.quality, description: item.description, quantity: String(item.quantity),
-          unit_price_source: "PAYMENT" as const, unit_price_payment: item.unit_price_payment.toFixed(2),
-          unit_price_cny: importedRate > 0 ? roundMoney(item.unit_price_payment * importedRate).toFixed(2) : "" })));
+          model: item.model, quality: item.quality, description: item.description, description_zh: item.description_zh || "", quantity: String(item.quantity),
+          unit_price_source: item.unit_price_cny !== undefined ? "CNY" as const : "PAYMENT" as const,
+          unit_price_payment: item.unit_price_cny !== undefined && importedRate > 0 ? roundMoney(item.unit_price_cny / importedRate).toFixed(2) : item.unit_price_payment.toFixed(2),
+          unit_price_cny: item.unit_price_cny !== undefined ? item.unit_price_cny.toFixed(2) : importedRate > 0 ? roundMoney(item.unit_price_payment * importedRate).toFixed(2) : "",
+          estimated_unit_cost_cny: item.estimated_unit_cost_cny?.toFixed(2) || "", preparation_requirement: item.preparation_requirement || "", internal_note: item.internal_note || "" })));
         setAccountId(source.payment_account_id || "");
         setLoadingDraft(false);
       }
@@ -544,7 +556,13 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"><div><h1 className="text-xl font-bold">{importDraftId ? "核对并补全导入PI" : draftOrderId ? "编辑PI草稿" : "创建PI订单"}</h1><p className="mt-1 text-sm text-slate-500">{importDraftId ? "请关联本人客户，补齐人民币售价与成本、汇率及收款账户；先生成PI草稿，核对后再提交仓库。" : "客户与价格只录入一次；保存草稿后核对，确认后生成仓库备货单。"}</p></div><Link href={importDraftId ? "/orders/import" : draftOrderId ? `/orders/${draftOrderId}` : "/orders"} className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm hover:bg-slate-50">返回</Link></header>
     {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}{savedDraftId ? <> · <Link className="font-semibold underline" href={`/orders/${savedDraftId}`}>查看已保存PI</Link></> : null}</div> : null}
-    {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">原Excel：{importSource.warehouse_reference_number} · {importSource.currency} {importSource.total_payment.toFixed(2)}（含运费 {importSource.shipping_payment.toFixed(2)}）。{selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已按PI公司名称精确匹配，请确认。" : "请从本人客户中选择与PI公司名称一致的客户。"}人民币售价和运费{effectiveRate > 0 ? "已按当前业务汇率自动折算，可核对调整" : "需在汇率可用后折算"}；预估成本{importSource.payment_account_id ? "需补充" : "及收款账户需补充或核对"}。{importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "付款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与原文件金额不一致时会要求逐项确认。</div> : null}
+    {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      {importSource.source_kind === "SYSTEM_TEMPLATE"
+        ? <>系统整单模板：{importSource.warehouse_reference_number}。人民币售价、成本和费用已带入；{effectiveRate > 0 ? "请核对汇率与换算后的客户付款金额。" : "请填写有效汇率后核对客户付款金额。"}模板中未提供收款账户时请手动选择。费用与 PayPal 手续费将在页面计算 PI 总额。</>
+        : <>原客户 PI：{importSource.warehouse_reference_number} · {importSource.currency} {importSource.total_payment.toFixed(2)}（含运费 {importSource.shipping_payment.toFixed(2)}）。人民币售价和运费{effectiveRate > 0 ? "已按当前业务汇率自动折算，可核对调整" : "需在汇率可用后折算"}；预估成本及收款账户需补充或核对。</>}
+      {selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已按公司名称匹配，请确认联系人。" : "请选择与公司和联系人一致的有权访问客户。"}
+      {importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "收款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与导入文件不一致时会要求逐项确认。
+    </div> : null}
     <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {isClerk ? <label className="text-sm">负责销售员或主管<Required /><AppSelect className={field} aria-label="选择负责PI的销售员或主管" value={salesUserId} disabled={Boolean(draftOrderId)} placeholderValue="" onChange={(event) => void chooseSalesperson(event.target.value)}><option value="">请先选择销售员或主管</option>{salespeople.map((person) => <option key={person.id} value={person.id}>{person.name || person.id}</option>)}</AppSelect></label> : null}
       <label className="text-sm">客户名称<Required /><AppSelect className={field} aria-label="搜索客户名称或公司名称并选择PI客户" forceSearch placeholderValue="" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">搜索客户名称或公司名称</option>{customers.map((customer) => <option key={customer.id} value={customer.id} data-search-text={`${customer.contact_name || ""} ${customer.company_name || ""}`} data-secondary-label={customer.company_name || ""}>{customer.contact_name?.trim() || "未填写客户名称"}</option>)}</AppSelect></label>
@@ -572,7 +590,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行产品质量/描述中文（展示给后端）`} value={item.description_zh} onChange={(value) => editLine(index, "description_zh", value)} /></td>
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行预估成本`} className={`${field} h-9 w-28`} type="text" inputMode="decimal" maxLength={15} value={item.estimated_unit_cost_cny} onChange={(event) => { if (event.target.value === "" || /^(?:0|[1-9]\d{0,11})(?:\.\d{0,2})?$/.test(event.target.value)) editLine(index, "estimated_unit_cost_cny", event.target.value); }} /></td>
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行人民币单价`} className={`${field} h-9 w-28 ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "border-rose-400" : ""}`} type="text" inputMode="decimal" maxLength={15} value={item.unit_price_cny} onChange={(event) => { if (event.target.value === "" || /^(?:0|[1-9]\d{0,11})(?:\.\d{0,2})?$/.test(event.target.value)) editUnitPrice(index, "CNY", event.target.value); }} />{validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? <span className="block text-[11px] text-rose-600">售价必须高于成本</span> : null}</td>
-        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行${currency}单价`} className={`${field} h-9 w-28 ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "border-rose-400" : ""}`} type="text" inputMode="decimal" maxLength={15} value={item.unit_price_payment} onChange={(event) => { if (event.target.value === "" || /^(?:0|[1-9]\d{0,11})(?:\.\d{0,2})?$/.test(event.target.value)) editUnitPrice(index, "PAYMENT", event.target.value); }} />{importSource?.items[index] ? <span className="mt-1 block whitespace-nowrap text-[11px] text-amber-700">原单价 {currency} {importSource.items[index].unit_price_payment.toFixed(2)}</span> : null}</td>
+        <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行${currency}单价`} className={`${field} h-9 w-28 ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "border-rose-400" : ""}`} type="text" inputMode="decimal" maxLength={15} value={item.unit_price_payment} onChange={(event) => { if (event.target.value === "" || /^(?:0|[1-9]\d{0,11})(?:\.\d{0,2})?$/.test(event.target.value)) editUnitPrice(index, "PAYMENT", event.target.value); }} />{importSource?.items[index] ? <span className="mt-1 block whitespace-nowrap text-[11px] text-amber-700">{importSource.source_kind === "SYSTEM_TEMPLATE" ? `模板单价 CNY ${importSource.items[index].unit_price_cny?.toFixed(2)}` : `原单价 ${currency} ${importSource.items[index].unit_price_payment.toFixed(2)}`}</span> : null}</td>
         <td className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行数量`} className={`${field} h-9 w-20`} type="text" inputMode="numeric" maxLength={10} value={item.quantity} onChange={(event) => { if (event.target.value === "" || /^[1-9]\d{0,9}$/.test(event.target.value)) editLine(index, "quantity", event.target.value); }} /></td>
         <td className="whitespace-nowrap px-2 py-1.5 font-medium">{validPiMoney(item.unit_price_cny) && validPiQuantity(item.quantity) ? `¥${roundMoney(Number(item.quantity) * Number(item.unit_price_cny)).toFixed(2)}` : "—"}</td>
         <td className="whitespace-nowrap px-2 py-1.5 font-medium text-blue-700">{validPiMoney(item.unit_price_payment) && validPiQuantity(item.quantity) ? `${currency} ${roundMoney(Number(item.quantity) * Number(item.unit_price_payment)).toFixed(2)}` : "—"}</td>

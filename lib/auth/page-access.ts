@@ -6,6 +6,17 @@ export async function protectPage(permission: string) {
   return protectAnyPage([permission]);
 }
 
+export async function protectAuthenticatedPage() {
+  try {
+    return await requireUser();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (["UNAUTHORIZED", "SESSION_REVOKED"].includes(message)) redirect("/login");
+    if (message === "AUTHORIZATION_UNAVAILABLE") redirect("/access-unavailable");
+    redirect("/access-denied");
+  }
+}
+
 export async function protectAnyPage(permissions: readonly string[]) {
   try {
     const context = await requireUser();

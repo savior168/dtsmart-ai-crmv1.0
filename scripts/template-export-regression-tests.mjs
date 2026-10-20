@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import XLSX from "xlsx";
 import { buildQuoteWorkbook, buildStockWorkbook } from "../lib/template-xlsx.ts";
@@ -165,8 +164,5 @@ assert.match(xfs[noteStyleId], new RegExp(`fontId="${noteFontId}"`), "含内容�
 const totalRequirementStyleId = Number(stockSheetXml.match(/<(?:x:)?c r="K4" s="(\d+)"/)[1]);
 assert.equal(totalRequirementStyleId, noteStyleId, "整单理货要求须与单项注意事项使用完全一致的柔和字体样式");
 
-await mkdir(".tmp", { recursive: true });
-await writeFile(".tmp/quote-template-regression.xlsx", quoteBuffer);
-await writeFile(".tmp/stock-template-regression.xlsx", stockBuffer);
 console.log("报价单与备货单模板导出回归测试通过。");
 

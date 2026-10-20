@@ -5,7 +5,7 @@ import XLSX from "xlsx";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
-const { mapImportRow } = await jiti.import(resolve("lib/import-parser.ts"));
+const { mapImportRow, parseImportFile } = await jiti.import(resolve("lib/import-parser.ts"));
 const { sanitizeImportRow } = await jiti.import(resolve("lib/import-safety.ts"));
 const { importedCustomerGrade, importedCustomerStage } = await jiti.import(resolve("lib/customers/import-profile.ts"));
 const binary = await readFile(resolve("assets/templates/Customer_Import_Template.xlsx"));
@@ -30,7 +30,12 @@ assert.match(customerListApi, /manualGrade === "UNMARKED"\) query = query\.is\("
 assert.match(customerListApi, /"ai_score", "manual_grade", "status"/, "客户等级应可排序");
 assert.match(customersView, /aria-label="客户等级"/, "我的客户应提供客户等级筛选");
 const workbook = XLSX.read(binary, { type: "buffer" });
-assert.deepEqual(workbook.SheetNames, ["客户导入模板"]);
+assert.deepEqual(workbook.SheetNames, ["客户导入模板", "填写说明"]);
+const help = XLSX.utils.sheet_to_json(workbook.Sheets["填写说明"], { header: 1, defval: "" });
+assert.match(help[3][1], /电话号码、邮箱、客户官网、谷歌商家链接四项中至少填写一项/);
+assert.match(help[4][1], /意向客户和已成交客户必须同时填写电话和邮箱/);
+assert.match(help[5][1], /不能预设客户阶段或客户等级/);
+assert.deepEqual(await parseImportFile(new File([binary], "客户导入模板.xlsx")), [], "空白客户数据页与说明页不能被识别为客户记录");
 const sheet = workbook.Sheets[workbook.SheetNames[0]];
 const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 const headers = [

@@ -53,12 +53,46 @@ assert.throws(() => parseCustomerPiWorkbook(template), /订单编号不能为空
 exampleSheet.J19 = { t: "n", v: 1.5 };
 assert.throws(() => parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })), /整数数量/);
 
+const wholeTemplate = XLSX.readFile("assets/templates/PI_Whole_Order_Import_Template.xlsx", { cellFormula: true });
+assert.deepEqual(wholeTemplate.SheetNames, ["PI基本信息", "PI产品明细"]);
+const basic = wholeTemplate.Sheets["PI基本信息"];
+const lines = wholeTemplate.Sheets["PI产品明细"];
+assert.equal(lines.E1.v, "产品描述", "产品描述应选填");
+assert.equal(lines.F1.v, "产品质量/描述中文（展示给后端）", "中文描述应选填");
+assert.match(lines.K501.f, /H501\*J501/, "500行金额须自动计算");
+assert.match(lines.L501.f, /H501-G501/, "500行利润须自动计算");
+assert.match(lines.M501.f, /L501\/K501/, "500行利润率须自动计算");
+for (const [address, value] of Object.entries({ B3: "Jack Liu", B4: "i-Service", B5: "D6052456", B6: "USD", B7: 6.67, B8: "2026-11-01", B10: "T/T Bank Transfer", B11: "Jack Liu", B12: "+86 1520256556", B13: "jack@example.com", B14: "Dublin", B15: 100, B16: 50, B17: 5, B18: 8, B19: 0, B20: "是" })) {
+  basic[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
+}
+for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP17", D2: "OLED", G2: 80, H2: 120, J2: 10 })) {
+  lines[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
+}
+const wholeBytes = () => XLSX.write(wholeTemplate, { type: "buffer", bookType: "xlsx" });
+const whole = parseCustomerPiWorkbook(wholeBytes()).document;
+assert.equal(whole.source_kind, "SYSTEM_TEMPLATE");
+assert.equal(whole.customer_name, "Jack Liu");
+assert.equal(whole.items[0].unit_price_cny, 120);
+assert.equal(whole.items[0].estimated_unit_cost_cny, 80);
+assert.equal(whole.items[0].description, "");
+assert.equal(whole.items[0].description_zh, "");
+assert.equal(whole.shipping_cny, 100);
+assert.equal(whole.show_dual_currency_prices, true);
+assert.equal(whole.last_balance_cny, 50);
+basic.B13 = { t: "s", v: "not-an-email" };
+assert.throws(() => parseCustomerPiWorkbook(wholeBytes()), /邮箱格式/);
+basic.B13 = { t: "s", v: "jack@example.com" };
+lines.G2 = { t: "n", v: 120 };
+assert.throws(() => parseCustomerPiWorkbook(wholeBytes()), /售价须高于成本/);
+lines.G2 = { t: "n", v: 80 };
+
 const route = readFileSync("app/api/orders/import-template/route.ts", "utf8");
 const view = readFileSync("components/pi-import-view.tsx", "utf8");
 const conversion = readFileSync("app/api/orders/import-drafts/[id]/convert/route.ts", "utf8");
 assert.match(route, /requirePermission\("orders\.import"\)/);
 assert.match(route, /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/);
 assert.match(route, /filename\*=UTF-8''PI-import-template\.xlsx/);
+assert.match(route, /PI_Whole_Order_Import_Template\.xlsx/, "下载接口须提供当前系统整单模板");
 assert.match(view, /下载PI导入模板/);
 assert.match(view, /accept="\.xlsx"/);
 assert.match(conversion, /acknowledge_differences/);

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
 import XLSX from "xlsx";
 import { buildDirectPiWorkbook } from "../lib/direct-pi-export.ts";
 import { createPiDocumentModel } from "../lib/pi-document-model.ts";
@@ -85,6 +84,10 @@ const lineTemplateArchive = XLSX.CFB.read(lineTemplateBytes, { type: "buffer" })
 const lineTemplateStyles = Buffer.from(XLSX.CFB.find(lineTemplateArchive, "/xl/styles.xml").content).toString("utf8");
 assert.match(lineTemplateStyles, /(?:DC2626|dc2626)/, "PI产品导入模板必填表头须使用红色标识");
 const lineTemplateBook = XLSX.read(lineTemplateBytes, { type: "buffer", cellFormula: true });
+assert.deepEqual(lineTemplateBook.SheetNames.slice(1), ["填写说明"], "产品模板须提供独立说明页且导入器只读第一张明细页");
+const lineHelp = XLSX.utils.sheet_to_json(lineTemplateBook.Sheets["填写说明"], { header: 1, defval: "" });
+assert.match(lineHelp[3][1], /产品描述、产品质量\/描述中文/, "选填描述须在模板中明确说明");
+assert.match(lineHelp[4][1], /销售金额＝人民币销售单价×数量/, "自动计算列须在模板中说明");
 const lineTemplateSheet = lineTemplateBook.Sheets[lineTemplateBook.SheetNames[0]];
 assert.deepEqual(XLSX.utils.sheet_to_json(lineTemplateSheet, { header: 1, range: 0 })[0], ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "仓库备注"], "PI产品模板列顺序应与录入表一致");
 assert.match(lineTemplateSheet.J2.f, /ROUND\(H2\*I2,2\)/, "销售金额应根据售价和数量自动计算");
@@ -507,7 +510,4 @@ assert.doesNotMatch(visibleValues, /PRIVATE-SUPPLIER|PRIVATE-WAREHOUSE|\b31\b|�
 assert.doesNotMatch(`${sheet.I18.v} ${sheet.K18.v}`, /RMB|CNY|人民币/i, "客户PI价格列只显示所选付款币种");
 assert.throws(() => buildDirectPiWorkbook({ ...orderFixture, subtotal: 19999 }, [itemFixture]), /金额与订单汇总不一致/);
 assert.throws(() => buildDirectPiWorkbook(orderFixture, [{ ...itemFixture, unit_price: 19999 }]), /换算单价不正确/);
-await mkdir(".tmp", { recursive: true });
-await writeFile(".tmp/pi-customer-regression.xlsx", workbook);
-
 console.log("PI备货价格隔离、回货数量校验、阶段流转和销售进度静态回归通过。");

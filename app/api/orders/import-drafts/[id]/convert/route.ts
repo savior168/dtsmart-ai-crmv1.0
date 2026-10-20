@@ -34,11 +34,17 @@ export async function POST(request: NextRequest, context: Context) {
       const after = input.p_items[index];
       if (before.item_name !== after.item_name || before.brand !== after.brand || before.model !== after.model ||
           before.quality !== after.quality || before.quantity !== after.quantity) differences.push(`第${index + 1}行产品或数量已变更`);
-      if (Math.abs(after.unit_price_payment - before.unit_price_payment) > 0.01) {
+      if (source.source_kind === "SYSTEM_TEMPLATE" && before.unit_price_cny !== undefined) {
+        if (Math.abs(after.unit_price_cny - before.unit_price_cny) > 0.01 || Math.abs(after.estimated_unit_cost_cny - Number(before.estimated_unit_cost_cny)) > 0.01) {
+          differences.push(`第${index + 1}行人民币售价或成本与导入模板不同`);
+        }
+      } else if (Math.abs(after.unit_price_payment - before.unit_price_payment) > 0.01) {
         differences.push(`第${index + 1}行客户外币单价由 ${before.unit_price_payment.toFixed(2)} 变为 ${after.unit_price_payment.toFixed(2)}`);
       }
     }
-    if (Math.abs(roundMoney(input.p_shipping_cny * input.p_fx_rate) - source.shipping_payment) > 0.01) differences.push("外币运费与导入文件不同");
+    if (source.source_kind === "SYSTEM_TEMPLATE") {
+      if (Math.abs(input.p_shipping_cny - Number(source.shipping_cny)) > 0.01) differences.push("人民币运费与导入模板不同");
+    } else if (Math.abs(roundMoney(input.p_shipping_cny * input.p_fx_rate) - source.shipping_payment) > 0.01) differences.push("外币运费与导入文件不同");
     if (differences.length && body.acknowledge_differences !== true) {
       return NextResponse.json({ error: "补全后的PI与原Excel不一致，请逐项核对；确认后才能转换为PI草稿", differences }, { status: 409 });
     }

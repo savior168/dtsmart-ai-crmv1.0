@@ -7,6 +7,7 @@ const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 const permissionCatalog = read("lib/auth/permissions.ts");
 assert.match(permissionCatalog, /export function normalizeRole[\s\S]*throw new Error\("UNKNOWN_ROLE"\)/, "未知角色必须拒绝登录，不能默认为销售员");
 const sidebar = read("components/app-shell.tsx");
+assert.match(read("components/password-auth-form.tsx"), /function goToApp\(\) \{[\s\S]*?router\.replace\("\/"\)/, "登录成功应先进入按当前账号权限选路的首页");
 assert.match(read("app/supabase-test/page.tsx"), /export default async function SupabaseTestPage\(\) \{\s*await protectPage\("system\.users\.view"\)/, "数据库连接诊断页必须有管理员页面守卫");
 for (const [page, permission] of [
   ["app/settings/users/page.tsx", "system.users.view"],
@@ -29,6 +30,15 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
   }
   const guarded = guards.some((source) => source.includes(`protectPage("${permission}")`)
     || source.includes(`requirePermission("${permission}")`));
+  if (href === "/" && permission === "dashboard.view") {
+    const home = read(page);
+    assert.match(home, /await protectAuthenticatedPage\(\)/, "首页必须先验证有效登录状态");
+    assert.match(home, /if \(!hasPermission\(account, "dashboard\.view"\)\)/, "无工作台权限不得渲染工作台数据");
+    assert.match(home, /landingPermissions\.find/, "首页应按实际页面权限寻找安全落点");
+    assert.match(home, /if \(target\) redirect\(target\)/, "有其他业务页面权限的账号必须进入可访问页面");
+    assert.doesNotMatch(home, /redirect\(target \|\| "\/access-denied"\)/, "零页面权限账号不应在登录后默认进入无权限页");
+    continue;
+  }
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
 }
 assert.match(read("app/api/pi-exchange-rates/route.ts"), /account\.role === "ADMIN"[\s\S]*rates\.map\(\(\{ currency, label, business_cny \}\)/, "销售读取业务汇率不能泄露管理员的参考来源、手工值和调整规则");
