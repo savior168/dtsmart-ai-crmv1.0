@@ -36,7 +36,7 @@ assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选�
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
 assert.match(newCustomer, /value="FOLLOWING"[^>]*>意向客户/, "新增客户可选择意向客户");
 assert.match(newCustomer, /value="DEAL"[^>]*>已成交客户/, "新增客户可选择已成交客户");
-for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "客户收货地址", "货代地址"]) {
+for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "客户收货信息", "货代收货信息"]) {
   assert.ok(newCustomer.includes(label), `新增客户表单应显示${label}`);
 }
 assert.doesNotMatch(newCustomer, />其他地址</, "客户表单不应再展示其他地址");
@@ -91,13 +91,24 @@ assert.doesNotMatch(publicPoolCustomer, /<span[^>]*>(客户类型|原始商家�
 assert.doesNotMatch(publicPoolCustomer, /客户等级|变更客户阶段/, "公海编辑不得显示我的客户等级和阶段操作");
 const unverifiedPublicCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: null, ai_screening_done: false, category: "electronics_store | cell_phone_store" }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
 assert.doesNotMatch(unverifiedPublicCustomer, /所属行业|手机零售、电子产品零售|尚未经AI核验/, "未核验公海客户也不应回显行业");
-assert.match(editCustomer, /客户收货信息[\s\S]*收货人[\s\S]*联系电话[\s\S]*详细收货地址/, "客户收货信息每条必须显示三项必填字段");
-assert.match(publicPoolCustomer, /aria-label="货代地址1"/, "公海编辑应复用货代地址列表");
-assert.match(editCustomer, /\+ 添加客户收货信息[\s\S]*\+ 添加货代地址/, "收货信息和货代地址都应可追加");
+assert.match(formSource, /function ShippingContactEditor[\s\S]*收货人[\s\S]*联系电话[\s\S]*详细收货地址/, "添加的收货信息每条必须显示三项必填字段");
+assert.match(publicPoolCustomer, /货代收货信息/, "公海编辑应展示结构化货代收货信息");
+assert.match(editCustomer, /\+ 添加客户收货信息[\s\S]*\+ 添加货代收货信息/, "两侧收货信息都应可追加");
 const multiAddressCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, shipping_addresses: ["收货地址甲", "收货地址乙"], forwarder_addresses: ["货代地址甲", "货代地址乙"] }, onDone: noop, onCancel: noop, editBasicOnly: true }));
-for (const label of ["收货信息 1", "收货信息 2", "收货地址甲", "收货地址乙", "货代地址1", "货代地址2", "删除货代地址2"]) assert.ok(multiAddressCustomer.includes(label), `${label}应回显且可维护`);
+for (const label of ["收货信息 1", "收货信息 2", "收货地址甲", "收货地址乙", "货代地址甲", "货代地址乙"]) assert.ok(multiAddressCustomer.includes(label), `${label}应回显且可维护`);
+const newCustomerShipping = renderToStaticMarkup(createElement(CustomerForm, { onDone: noop, onCancel: noop }));
+assert.doesNotMatch(newCustomerShipping, /收货信息 1/, "新客户未点击添加时两侧均不应预设空白收货条目");
+assert.match(newCustomerShipping, /\+ 添加客户收货信息[\s\S]*\+ 添加货代收货信息/, "可按需添加两类收货信息");
 assert.deepEqual(displayAddressList([], "旧收货地址"), ["旧收货地址"], "历史单地址应回显为第一条");
 assert.deepEqual(displayShippingContacts([], ["旧收货地址"]), [{ address: "旧收货地址", recipient: "", phone: "" }], "历史地址不得因缺少收货人和电话被丢弃");
+assert.deepEqual(validateShippingContacts([]), [], "未添加客户收货信息应允许保存");
+assert.deepEqual(validateShippingContacts([], "货代收货信息"), [], "未添加货代收货信息应允许保存");
+assert.throws(() => validateShippingContacts([{ address: "", recipient: "", phone: "" }], "货代收货信息"), /每条货代收货信息都需填写/, "点击添加货代信息后不得保存空条目");
+const forwarderPayload = { forwarder_contact_entries: [{ recipient: "货代收货人", phone: "+86 138 0012 3456", address: "货代仓库地址" }] };
+normalizeAddressPayload(forwarderPayload);
+assert.deepEqual(forwarderPayload.forwarder_addresses, ["货代仓库地址"], "结构化货代收货信息须同步至 PI 使用的地址列表");
+assert.equal(forwarderPayload.forwarder_address, "货代仓库地址", "结构化货代收货信息须同步至旧版首条地址");
+assert.throws(() => normalizeAddressPayload({ forwarder_contact_entries: [{ recipient: "", phone: "13800123456", address: "货代仓库地址" }] }), /每条货代收货信息都需填写/, "服务端须拒绝不完整的货代收货信息");
 assert.deepEqual(validateShippingContacts([{ recipient: "张三", phone: "+86 138 0012 3456", address: "深圳测试收货地址" }]), [{ recipient: "张三", phone: "+86 138 0012 3456", address: "深圳测试收货地址" }]);
 for (const entry of [{ address: "深圳测试地址", recipient: "张三", phone: "" }, { address: "深圳测试地址", recipient: "", phone: "13800123456" }, { address: "", recipient: "张三", phone: "13800123456" }]) {
   assert.throws(() => validateShippingContacts([entry]), /都需填写/, "任一收货字段为空必须拒绝");
@@ -116,7 +127,7 @@ assert.match(formSource, /const payload=editBasicOnly\?Object\.fromEntries\(edit
 assert.match(formSource, /destination==="PUBLIC_POOL"\?basicKeys\.filter\(\(key\)=>key!=="manual_grade"\)/, "公海编辑保存不得覆盖我的客户等级");
 const editableFields = formSource.match(/const basicKeys=\[[^\]]+\]/)?.[0] || "";
 assert.doesNotMatch(editableFields, /"category"/, "基础资料保存不得覆盖原始商家类别");
-for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "shipping_addresses", "shipping_contact_entries", "forwarder_addresses", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
+for (const field of ["company_name", "contact_name", "country", "phone", "whatsapp", "wechat", "email", "tax_number", "manual_grade", "website", "google_url", "address", "shipping_address", "forwarder_address", "shipping_addresses", "shipping_contact_entries", "forwarder_addresses", "forwarder_contact_entries", "tally_requirements", "notes", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "other_public_urls"]) {
   assert.ok(editableFields.includes(`"${field}"`), `编辑保存必须包含${field}`);
 }
 assert.doesNotMatch(editableFields, /"other_address"/, "编辑保存不应覆盖已隐藏的历史其他地址");
@@ -138,7 +149,7 @@ assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s
 assert.match(detailSource, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号[\s\S]*客户等级/, "客户详情前五项应与编辑表单顺序一致");
 assert.match(detailSource, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须读取完整收货地址列表并兼容旧字段");
 assert.match(detailSource, /displayAddressList\(customer\.forwarder_addresses, customer\.forwarder_address\)/, "详情须读取完整货代地址列表并兼容旧字段");
-assert.match(detailSource, /客户收货信息\$\{index \+ 1\}[\s\S]*货代地址\$\{index \+ 1\}/, "收货信息与货代地址须逐行编号回显");
+assert.match(detailSource, /客户收货信息\$\{index \+ 1\}[\s\S]*货代收货信息\$\{index \+ 1\}/, "客户及货代收货信息须逐行编号回显");
 assert.match(addressMigration, /new\.shipping_address := nullif\(btrim\(new\.shipping_addresses\[1\]\)/, "数据库须同步首条收货地址供PI默认使用");
 assert.match(addressMigration, /new\.forwarder_address := nullif\(btrim\(new\.forwarder_addresses\[1\]\)/, "数据库须同步首条货代地址至旧字段");
 assert.match(addressMigration, /grant select \(shipping_addresses, forwarder_addresses\)/, "新地址字段须有显式列授权");

@@ -18,7 +18,8 @@ const customerEditApi = await readFile(resolve("app/api/customers/[id]/route.ts"
 const piCustomerApi = await readFile(resolve("app/api/orders/pi-customers/route.ts"), "utf8");
 const piForm = await readFile(resolve("components/pi-order-form.tsx"), "utf8");
 assert.match(customerForm, /shipping_address:customer\?\.shipping_address\|\|""/, "编辑客户须回填客户收货地址");
-assert.match(customerForm, /<ShippingContactEditor values=\{shippingContacts\}/, "手动新增及编辑须显示结构化客户收货信息");
+assert.match(customerForm, /<ShippingContactEditor label="客户收货信息" values=\{shippingContacts\}/, "手动新增及编辑须显示结构化客户收货信息");
+assert.match(customerForm, /<ShippingContactEditor label="货代收货信息" values=\{forwarderContacts\}/, "货代收货信息须使用同样的三字段结构");
 assert.match(customerForm, /"address","shipping_address","forwarder_address"/, "编辑资料须提交客户收货地址");
 assert.match(customerDetail, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须显示客户收货地址列表");
 assert.match(customerCreateApi, /"other_address", "shipping_address"/, "手动新增 API 须保存客户收货地址");

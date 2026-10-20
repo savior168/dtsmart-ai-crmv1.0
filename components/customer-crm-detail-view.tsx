@@ -67,6 +67,7 @@ function CustomerBasicInfo({ data, scoreLabel, gradeLabel, targetLabel }: { data
   const shipping = displayAddressList(customer.shipping_addresses, customer.shipping_address);
   const shippingContacts = displayShippingContacts(customer.shipping_contact_entries, shipping);
   const forwarder = displayAddressList(customer.forwarder_addresses, customer.forwarder_address);
+  const forwarderContacts = displayShippingContacts(customer.forwarder_contact_entries, forwarder);
   const addressCount = Math.max(shipping.length, forwarder.length, 1);
   return <div className="grid gap-5 p-5 xl:grid-cols-[1.15fr_.85fr]">
     <section className="rounded-xl border p-5"><h2 className="font-semibold">客户基本信息</h2>
@@ -78,7 +79,7 @@ function CustomerBasicInfo({ data, scoreLabel, gradeLabel, targetLabel }: { data
         <Row label="官网"><CustomerPublicLink value={customer.website} kind="website" size="normal"/></Row>
         <Row label="公开渠道"><CustomerPublicChannels customer={customer}/></Row><Row label="公司地址">{value(customer.address)}</Row>
         {Array.from({ length: addressCount }, (_, index) => <div key={index} className="contents">
-          <Row label={`客户收货信息${index + 1}`}>{shipping[index] ? <span className="font-normal">收货人：{value(shippingContacts[index]?.recipient)} · 电话：{value(shippingContacts[index]?.phone)}<br/>地址：{shipping[index]}</span> : "—"}</Row><Row label={`货代地址${index + 1}`}>{value(forwarder[index])}</Row>
+          <Row label={`客户收货信息${index + 1}`}>{shipping[index] ? <span className="font-normal">收货人：{value(shippingContacts[index]?.recipient)} · 电话：{value(shippingContacts[index]?.phone)}<br/>地址：{shipping[index]}</span> : "—"}</Row><Row label={`货代收货信息${index + 1}`}>{forwarder[index] ? <span className="font-normal">收货人：{value(forwarderContacts[index]?.recipient)} · 电话：{value(forwarderContacts[index]?.phone)}<br/>地址：{forwarder[index]}</span> : "—"}</Row>
         </div>)}
         <Row label="微信号码">{value(customer.wechat)}</Row>
         <Row label="理货要求"><span className="whitespace-pre-wrap font-normal leading-6">{value(customer.tally_requirements)}</span></Row>

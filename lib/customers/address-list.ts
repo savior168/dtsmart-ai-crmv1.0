@@ -10,22 +10,22 @@ export function displayShippingContacts(value: ShippingContact[] | null | undefi
   });
 }
 
-export function validateShippingContacts(value: unknown): ShippingContact[] {
-  if (!Array.isArray(value) || value.length > MAX_CUSTOMER_ADDRESSES) throw new Error(`客户收货信息最多可填写 ${MAX_CUSTOMER_ADDRESSES} 条`);
+export function validateShippingContacts(value: unknown, label = "客户收货信息"): ShippingContact[] {
+  if (!Array.isArray(value) || value.length > MAX_CUSTOMER_ADDRESSES) throw new Error(`${label}最多可填写 ${MAX_CUSTOMER_ADDRESSES} 条`);
   const rows = value.map((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("客户收货信息格式不正确");
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`${label}格式不正确`);
     const entry = item as Record<string, unknown>;
-    if (![entry.address, entry.recipient, entry.phone].every((part) => typeof part === "string")) throw new Error("客户收货信息格式不正确");
+    if (![entry.address, entry.recipient, entry.phone].every((part) => typeof part === "string")) throw new Error(`${label}格式不正确`);
     return { address: String(entry.address).trim(), recipient: String(entry.recipient).trim(), phone: String(entry.phone).trim() };
-  }).filter((row) => row.address || row.recipient || row.phone);
+  });
   for (const row of rows) {
-    if (!row.address || !row.recipient || !row.phone) throw new Error("每条客户收货信息都需填写收货地址、收货人和联系电话");
-    if (row.address.length > 500 || row.recipient.length > 200 || row.phone.length > 100) throw new Error("客户收货信息超出允许长度");
+    if (!row.address || !row.recipient || !row.phone) throw new Error(`每条${label}都需填写收货地址、收货人和联系电话`);
+    if (row.address.length > 500 || row.recipient.length > 200 || row.phone.length > 100) throw new Error(`${label}超出允许长度`);
     row.phone = normalizeManualPhone(row.phone, "收货人电话");
     const digits = row.phone.replace(/\D/g, "");
     if (digits.length < 7 || digits.length > 15 || /^(\d)\1+$/.test(digits)) throw new Error("收货人电话须为有效的 7 至 15 位号码");
   }
-  validateAddressList(rows.map((row) => row.address), "客户收货地址");
+  validateAddressList(rows.map((row) => row.address), label);
   return rows;
 }
 
@@ -54,6 +54,11 @@ export function normalizeAddressPayload(body: Record<string, unknown>): void {
     const entries = validateShippingContacts(body.shipping_contact_entries);
     body.shipping_contact_entries = entries;
     body.shipping_addresses = entries.map((entry) => entry.address);
+  }
+  if ("forwarder_contact_entries" in body) {
+    const entries = validateShippingContacts(body.forwarder_contact_entries, "货代收货信息");
+    body.forwarder_contact_entries = entries;
+    body.forwarder_addresses = entries.map((entry) => entry.address);
   }
   for (const [listKey, primaryKey, label] of [
     ["shipping_addresses", "shipping_address", "客户收货地址"],
