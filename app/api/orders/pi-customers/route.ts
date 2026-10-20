@@ -13,11 +13,11 @@ export async function GET(request: NextRequest) {
     if (salespeople?.error) throw salespeople.error;
     const selectedOwner = isClerk ? request.nextUrl.searchParams.get("sales_user_id") || "" : account.id;
     if (isClerk && selectedOwner && !salespeople?.data?.some((user) => user.id === selectedOwner)) throw new Error("所选销售员或主管无效或未启用");
-    const customers: Array<{ id: string; company_name: string; country: string | null; contact_name: string | null; tax_number: string | null; tally_requirements: string | null; phone: string | null; email: string | null; address: string | null; shipping_address: string | null; shipping_addresses: string[] | null; shipping_contact_entries: Array<{ address: string; recipient: string; phone: string }> | null; forwarder_addresses: string[] | null }> = [];
+    const customers: Array<{ id: string; company_name: string; country: string | null; contact_name: string | null; tax_number: string | null; tally_requirements: string | null; phone: string | null; email: string | null; address: string | null; shipping_address: string | null; shipping_addresses: string[] | null; shipping_contact_entries: Array<{ address: string; recipient: string; phone: string }> | null; forwarder_addresses: string[] | null; forwarder_contact_entries: Array<{ address: string; recipient: string; phone: string }> | null }> = [];
     if (isClerk && !selectedOwner) return NextResponse.json({ data: customers, is_clerk: true, salespeople: salespeople?.data || [] });
     for (let offset = 0;; offset += 1000) {
       const { data, error } = await (admin || supabase).from("customers")
-        .select("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses")
+        .select("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses,forwarder_contact_entries")
         .eq("owner_id", selectedOwner)
         .is("deleted_at", null)
         .neq("status", "RELEASED")

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ChevronDown, FileDown, LoaderCircle, RefreshCw, Save, Trash2, XCircle } from "lucide-react";
+import { ArrowLeft, FileDown, LoaderCircle, RefreshCw, Save, Trash2, XCircle } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppStatusBadge } from "@/components/ui/app-list";
@@ -32,7 +32,7 @@ type Payload = {
     quote_id: string;
     quote_number: string;
     customer_short_name: string;
-    customer?: { contact_name?: string | null; company_name?: string | null; tax_number?: string | null } | null;
+    customer?: { contact_name?: string | null; company_name?: string | null; tax_number?: string | null; forwarder_contact_entries?: Array<{ address: string; recipient: string; phone: string }> | null } | null;
     destination_country: string | null;
     currency: string;
     show_dual_currency_prices: boolean | null;
@@ -92,38 +92,39 @@ type Payload = {
 };
 
 function PiInfoCards({ order: o }: { order: Payload["order"] }) {
-  const feeRows: Array<[string, number]> = [
+  const currentForwarder = o.customer?.forwarder_contact_entries?.find((entry) => entry.address === o.forwarder_address);
+  const feeRows = ([
     ["产品小计", Number(o.subtotal)],
     ["运费", Number(o.shipping_cost)],
     ["未付尾款（加收）", Number(o.last_balance_amount || 0)],
     ["其他费用（加收）", Number(o.other_charge_amount || 0)],
     ["折扣（扣减）", -Number(o.discount_amount || 0)],
     ["PayPal 手续费（加收）", Number(o.paypal_fee_amount || 0)],
-  ];
-  return <div className="grid items-stretch gap-4 border-t px-5 py-4 text-sm lg:grid-cols-2">
-    <details open className="group min-w-0 rounded-lg border border-slate-200 bg-slate-50 open:bg-white">
-      <summary className="flex min-h-[76px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-        <span className="min-w-0"><span className="block font-semibold text-slate-800">订单与收货信息</span><span className="mt-1 block text-xs text-slate-500">收货人：{o.delivery_recipient || "未填写"} · 货代地址：{o.forwarder_address ? "已选择" : "未填写"}</span></span>
-        <ChevronDown size={16} className="shrink-0 text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className="grid gap-3 border-t border-slate-200 p-4">
-        <div className="min-w-0 space-y-1 text-slate-600"><h3 className="font-medium text-slate-800">客户收货信息</h3><p>收货人：{o.delivery_recipient || "—"}</p><p>电话：{o.delivery_phone || "—"}</p><p className="break-all">邮箱：{o.delivery_email || "—"}</p><p className="break-words">收货地址：{o.delivery_address || "—"}</p></div>
-        <div className="min-w-0 space-y-1 text-slate-600"><h3 className="font-medium text-slate-800">货代收货信息</h3><p className="break-words">本单货代地址：{o.forwarder_address || "未填写"}</p><p>确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"}</p><p>预计交付日期：{o.delivery_date || "—"}</p></div>
-      </div>
-    </details>
-    <details open className="group min-w-0 rounded-lg border border-slate-200 bg-slate-50 open:bg-white">
-      <summary className="flex min-h-[76px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-        <span className="min-w-0"><span className="block font-semibold text-slate-800">付款与汇率</span><span className="mt-1 block text-xs text-slate-500">{o.currency} {Number(o.total_amount).toFixed(2)} · 双币种价格展示：{o.show_dual_currency_prices === true ? "已开启" : "未开启"}</span></span>
-        <ChevronDown size={16} className="shrink-0 text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className="space-y-1 border-t border-slate-200 p-4 text-slate-600">
-        <p>付款方式：{o.payment_method || "—"} · 1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p>
-        <p>人民币总额（含各项费用）：¥{Number(o.total_cny).toFixed(2)}</p>
-        <p>双币种价格展示：{o.show_dual_currency_prices === true ? `已开启（CNY / ${o.currency}）` : `未开启（仅 ${o.currency}）`}</p>
-        <div className="pt-2"><h3 className="font-medium text-slate-800">费用明细 · {o.currency}</h3><dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}<dt className="border-t border-slate-200 pt-1 font-semibold text-slate-800">客户应付总额</dt><dd className="border-t border-slate-200 pt-1 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd></dl></div>
-        <details className="pt-2"><summary className="cursor-pointer text-blue-700">查看收款账户快照</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-slate-600">{o.payment_account_snapshot || "—"}</p></details>
-      </div>
-    </details>
+  ] as Array<[string, number]>).filter(([label, amount]) => label === "产品小计" || amount !== 0);
+  const card = "min-w-0 rounded-lg border border-slate-200 bg-white p-4";
+  return <div className="grid items-stretch gap-3 border-t px-5 py-4 text-sm md:grid-cols-2 xl:grid-cols-4">
+    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">客户收货信息</h3><div className="space-y-1.5 text-slate-600">
+      <p>收货人：{o.delivery_recipient || "—"}</p><p>电话：{o.delivery_phone || "—"}</p>
+      <p className="break-all">邮箱：{o.delivery_email || "—"}</p><p className="break-words">收货地址：{o.delivery_address || "—"}</p>
+      {o.delivery_date ? <p>预计交付日期：{o.delivery_date}</p> : null}
+    </div></section>
+    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">货代收货信息</h3><div className="space-y-1.5 text-slate-600">
+      {currentForwarder ? <><p>收货人：{currentForwarder.recipient}</p><p>电话：{currentForwarder.phone}</p></> : null}
+      <p className="break-words">收货地址：{o.forwarder_address || "未填写"}</p>
+      {currentForwarder ? <p className="text-xs text-slate-400">联系人和电话来自客户当前资料</p> : null}
+    </div></section>
+    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">付款与汇率</h3><div className="space-y-1.5 text-slate-600">
+      <p>付款方式：{o.payment_method || "—"}</p>
+      <p>汇率：1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p>
+      <p>人民币总额：¥{Number(o.total_cny).toFixed(2)}</p>
+      <p>价格展示：{o.show_dual_currency_prices === true ? `CNY / ${o.currency} 双币种` : `仅 ${o.currency}`}</p>
+      {o.payment_account_snapshot ? <details className="pt-1"><summary className="cursor-pointer text-blue-700">查看收款账户</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-2 text-xs">{o.payment_account_snapshot}</p></details> : null}
+    </div></section>
+    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">费用明细 · {o.currency}</h3>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 text-slate-600 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}
+        <dt className="border-t border-slate-200 pt-2 font-semibold text-slate-800">客户应付总额</dt><dd className="border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd>
+      </dl>
+    </section>
   </div>;
 }
 export function OrderDetailView({ id }: { id: string }) {

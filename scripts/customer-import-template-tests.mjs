@@ -24,7 +24,7 @@ assert.match(customerForm, /"address","shipping_address","forwarder_address"/, "
 assert.match(customerDetail, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须显示客户收货地址列表");
 assert.match(customerCreateApi, /"other_address", "shipping_address"/, "手动新增 API 须保存客户收货地址");
 assert.match(customerEditApi, /"other_address", "shipping_address"/, "编辑 API 须保存客户收货地址");
-assert.match(piCustomerApi, /address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses"\)/, "PI客户选项须读取结构化收货信息和货代地址");
+assert.match(piCustomerApi, /address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses,forwarder_contact_entries"\)/, "PI客户选项须读取客户与货代的结构化收货信息");
 assert.match(piForm, /setAddress\(chosen\?\.address \|\| ""\)/, "PI仅在单条收货信息时自动带入地址");
 assert.match(piForm, /aria-label="选择客户收货地址"/, "多条客户收货地址时 PI 应可选择实际配送地址");
 assert.match(customerListApi, /manualGrade === "UNMARKED"\) query = query\.is\("manual_grade", null\)/, "客户等级筛选须覆盖未标记客户");

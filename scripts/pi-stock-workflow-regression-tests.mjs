@@ -76,10 +76,11 @@ assert.match(read("app/api/stock-orders/route.ts"), /salesperson: detail\.salesp
 assert.match(read("components/ui/app-pagination.tsx"), /STANDARD_PAGE_SIZES = \[10, 20, 50, 100, 300, 500\]/, "全站列表分页选项应使用20而非30");
 const orderDetailView = read("components/order-detail-view.tsx");
 assert.match(orderDetailView, /公司税号：\{o\.customer\?\.tax_number\?\.trim\(\) \|\| "未填写"\}/, "PI详情应显示客户公司税号及空值状态");
-assert.match(orderDetailView, /grid items-stretch gap-4[\s\S]*?<details open className="group[\s\S]*?订单与收货信息[\s\S]*?客户收货信息[\s\S]*?收货人：\{o\.delivery_recipient[\s\S]*?货代收货信息[\s\S]*?本单货代地址：\{o\.forwarder_address[\s\S]*?<details open className="group[\s\S]*?付款与汇率/, "PI详情两栏应等高折叠展示客户收货、货代及付款信息");
-assert.match(orderDetailView, /双币种价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应以订单保存的选项显示双币种价格状态");
+assert.match(orderDetailView, /xl:grid-cols-4[\s\S]*客户收货信息[\s\S]*货代收货信息[\s\S]*付款与汇率[\s\S]*费用明细/, "PI详情应以四个直观卡片展示收货及费用信息");
+assert.match(orderDetailView, /价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应只显示一次订单保存的双币种选项");
+assert.match(orderDetailView, /\.filter\(\(\[label, amount\]\) => label === "产品小计" \|\| amount !== 0\)/, "PI详情应隐藏金额为零的附加费用");
 for (const fee of ["subtotal", "shipping_cost", "last_balance_amount", "other_charge_amount", "discount_amount", "paypal_fee_amount", "total_amount"]) assert.match(orderDetailView, new RegExp(`o\\.${fee}`), `PI详情费用明细应包含 ${fee}`);
-assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "PI详情税号只能来自当前可查看订单关联客户");
+assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number,forwarder_contact_entries\)/, "PI详情客户资料只能来自当前可查看订单关联客户");
 const stockDraftApi = read("app/api/stock-orders/[id]/draft/route.ts");
 const stockSubmitApi = read("app/api/stock-orders/[id]/submit/route.ts");
 const customerPi = read("lib/direct-pi-export.ts");
@@ -105,7 +106,7 @@ assert.match(piForm, /link\.href = "\/templates\/pi-line-import-template\.xlsx"/
 const piInput = read("lib/pi-order-input.ts");
 const deliveryMigration = read("supabase/migrations/20261015202000_pi_required_delivery_contact.sql");
 const piCustomersRoute = read("app/api/orders/pi-customers/route.ts");
-assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses"\)/, "PI客户选项应读取收货信息和货代地址，但不改变客户归属边界");
+assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses,forwarder_contact_entries"\)/, "PI客户选项应读取两类收货信息，但不改变客户归属边界");
 assert.match(piForm, /addresses\.length === 1 \? displayShippingContacts\(customer\.shipping_contact_entries, addresses\)\[0\] : null[\s\S]*setAddress\(chosen\?\.address \|\| ""\)/, "PI 仅在单条地址时自动带出收货地址，多条应手动选择");
 assert.match(piForm, /客户名称<Required \/><AppSelect.*?forceSearch[\s\S]*?公司名称<input[\s\S]*?selectedCustomer\?\.company_name[\s\S]*?公司税号<input[\s\S]*?selectedCustomer\?\.tax_number/, "PI应先选具体客户名称，再只读带出公司名称和税号");
 assert.match(piForm, /查看客户资料理货要求[\s\S]*?selectedCustomer\.tally_requirements[\s\S]*?复制理货要求/, "PI填写时应能只读查看并复制客户资料理货要求");
@@ -305,7 +306,9 @@ assert.match(piFeeMigration, /update public\.quote_items qi set[\s\S]*unit_price
 assert.doesNotMatch(piFeeMigration, /update public\.(?:quote_items|sales_order_items) (?:qi|soi) set\s+[^;]*?\bamount\s*=/, "产品行金额是数据库生成列，不能直接赋值");
 assert.match(piForm, /countryInfo\(selectedCustomer\.country\)\.name/, "目的国家只显示中文名称而不附加国家代码");
 assert.match(piForm, /recalledDraft \? <div className="flex min-w-0 flex-col">[\s\S]*订单变更说明/, "订单变更说明只在撤回后编辑PI时显示");
-assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收货人[\s\S]*电话[\s\S]*邮箱[\s\S]*<PiDeliveryAddressField/, "收货信息四项应在宽屏同一行显示");
+assert.match(piForm, /客户收货信息[\s\S]*sm:grid-cols-2[\s\S]*收货人[\s\S]*电话[\s\S]*邮箱[\s\S]*<PiDeliveryAddressField[\s\S]*货代收货信息/, "客户与货代收货信息应清晰分区，每类单选");
+assert.match(piForm, /<PiDeliveryAddressField value=\{address\} options=\{selectedShippingAddresses\}/, "一张 PI 应仅选择一个客户收货地址");
+assert.match(piForm, /<AppSelect className=\{field\} value=\{forwarderAddress\}[\s\S]*selectedForwarderContact\?\.recipient[\s\S]*selectedForwarderContact\?\.phone/, "一张 PI 应仅选择一个货代收货地址并回显对应联系人和电话");
 assert.match(piForm, /function PiLineTextArea[\s\S]*scrollHeight[\s\S]*<PiLineTextArea label=/, "产品文本字段应自动增高以完整显示内容");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
 assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*公司名称<input[\s\S]*公司税号<input[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息应先确认客户，再带出公司信息并填写交易信息");
@@ -316,7 +319,7 @@ assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.mo
 assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sql"), /x\.brand[\s\S]*x\.model[\s\S]*x\.quality/, "数据库RPC必须防止绕过必填字段校验");
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
 assert.match(piForm, /订单编号<Required \/>/, "创建PI应统一显示订单编号并以红星标出必填");
-assert.match(piForm, /PI有效期[\s\S]*客户及收货信息[\s\S]*PI产品明细[\s\S]*PI费用汇总[\s\S]*pi-shipping/, "运费输入应位于PI费用汇总区");
+assert.match(piForm, /PI有效期[\s\S]*客户及货代收货信息[\s\S]*PI产品明细[\s\S]*PI费用汇总[\s\S]*pi-shipping/, "运费输入应位于PI费用汇总区");
 assert.match(piForm, /"last_balance", "未付尾款"[\s\S]*"discount", "折扣（扣减）"[\s\S]*"other", "其他费用"/, "PI费用项目应使用准确名称");
 assert.match(piForm, /key === "discount" \? "−" : "\+"/, "PI费用项目应明确标出加收与扣减方向");
 assert.match(read("components/order-print-preview.tsx"), /"UNPAID BALANCE:"/, "PI预览应以未付尾款命名");
@@ -442,7 +445,7 @@ assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).deliveryTax
 const longPaymentOrder = { ...orderFixture, payment_account_snapshot: Array.from({ length: 8 }, (_, index) => `Account line ${index + 1}: ${"X".repeat(105)}`).join("\n") };
 const longPaymentSheet = XLSX.read(buildDirectPiWorkbook(longPaymentOrder, [itemFixture]), { type: "array", cellStyles: true }).Sheets.PI;
 assert.ok(longPaymentSheet["!rows"].some((row) => row.hpt >= 8 * 2 * 13 + 8), "多行长收款信息须按折行后总行数扩展行高");
-assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "单张预览必须读取客户名称和公司税号");
+assert.match(read("app/api/orders/[id]/route.ts"), /customer:customers\(company_name,contact_name,tax_number,forwarder_contact_entries\)/, "单张预览必须读取客户名称、公司税号和货代收货信息");
 assert.match(read("app/api/orders/route.ts"), /customer:customers\(company_name,contact_name,tax_number\)/, "批量预览必须读取客户名称和公司税号");
 assert.match(read("app/api/orders/[id]/export/route.ts"), /customer:customers\(company_name,contact_name,tax_number,phone\)/, "单张 Excel 导出必须读取公司税号");
 assert.match(read("components/order-print-preview.tsx"), /Tax No\.: \{piDocument!\.deliveryTaxNumber\}/, "PI 预览和 PDF 必须显示已维护的公司税号");

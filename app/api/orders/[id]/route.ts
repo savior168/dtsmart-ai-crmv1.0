@@ -19,7 +19,7 @@ export async function GET(
     const order = await supabase
         .from("sales_orders")
         .select(
-          "*,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name,tax_number)",
+          "*,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name,tax_number,forwarder_contact_entries)",
         )
         .eq("id", id)
         .single();
@@ -57,7 +57,7 @@ export async function GET(
       received_units: (stockItems.data || []).reduce((sum, item) => sum + Number(item.received_quantity), 0),
     } : null;
     const clerkCustomer = account.role === "ORDER_CLERK" ? await relatedClient.from("customers")
-      .select("company_name,contact_name,tax_number").eq("id", order.data.customer_id).maybeSingle() : null;
+      .select("company_name,contact_name,tax_number,forwarder_contact_entries").eq("id", order.data.customer_id).maybeSingle() : null;
     if (clerkCustomer?.error) throw clerkCustomer.error;
     const clerkOwner = account.role === "ORDER_CLERK" && !order.data.owner && order.data.sales_user_id
       ? await relatedClient.from("users").select("name,email").eq("id", order.data.sales_user_id).maybeSingle()
