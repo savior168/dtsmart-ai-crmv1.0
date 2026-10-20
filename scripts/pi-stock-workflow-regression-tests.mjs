@@ -259,6 +259,8 @@ for (const page of ["app/orders/new/page.tsx", "app/orders/[id]/edit/page.tsx", 
 }
 assert.match(read("components/pi-order-form.tsx"), /useState\(initialIsClerk\)/, "PI表单首屏应直接展示跟单员专用的销售员选择栏");
 assert.match(read("components/pi-order-form.tsx"), /为哪位销售员创建PI[\s\S]*请选择销售员（含主管）/, "跟单员应清楚选择本单归属的销售员，主管同样可选");
+assert.match(piForm, /<fieldset disabled=\{isClerk && !salesScopeReady\}/, "跟单员选定归属销售员并载入客户范围前，不得填写其他PI字段");
+assert.match(piForm, /if \(!response\.ok\) throw new Error\(body\.error \|\| "该销售员客户加载失败"\);[\s\S]*setSalesScopeReady\(true\)/, "只有归属销售员的客户范围成功载入后才能开放PI字段");
 assert.match(orderListApi, /can_delete_draft:[\s\S]*hasPermission\(account, "orders\.delete_draft"\)[\s\S]*!stockByOrderId\.has\(item\.id\)/, "PI列表删除入口也必须按权限、归属及未生成备货单判断");
 assert.match(orderListView, /row\.can_delete_draft[\s\S]*删除草稿[\s\S]*<ConfirmDialog[\s\S]*deleteDraft\(\)/, "PI列表应提供未提交草稿的确认删除操作");
 assert.match(draftDeleteMigration, /target\.confirmed_at is not null[\s\S]*stock_orders[\s\S]*PI_SUBMIT[\s\S]*PI_RECALL[\s\S]*PI_DRAFT_DELETE/, "数据库必须阻止删除已提交或撤回草稿并保留删除审计");

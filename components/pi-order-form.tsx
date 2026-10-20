@@ -85,6 +85,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [salespeople, setSalespeople] = useState<Salesperson[]>([]);
   const [isClerk, setIsClerk] = useState(initialIsClerk);
+  const [salesScopeReady, setSalesScopeReady] = useState(!initialIsClerk);
   const [salesUserId, setSalesUserId] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
@@ -230,6 +231,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       }
       const clerk = Boolean(customerBody.is_clerk);
       setIsClerk(clerk);
+      setSalesScopeReady(!clerk);
       setSalespeople(customerBody.salespeople || []);
       let listed = (customerBody.data || []) as Customer[];
       if (clerk && draftBody?.order?.sales_user_id) {
@@ -238,6 +240,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         if (!scopedResponse.ok) { setError(scopedBody.error || "PI客户加载失败"); setLoadingDraft(false); return; }
         listed = scopedBody.data || [];
         setSalesUserId(draftBody.order.sales_user_id);
+        setSalesScopeReady(true);
       }
       const exact = initialCustomerId ? listed.find((item) => item.id === initialCustomerId) : null;
       setCustomers(listed);
@@ -384,6 +387,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     const requestNumber = ++customerScopeRequest.current;
     markUnsaved();
     setSalesUserId(id);
+    setSalesScopeReady(false);
     setCustomerId("");
     setCustomers([]);
     setRecipient(""); setPhone(""); setEmail(""); setAddress(""); setForwarderAddress("");
@@ -395,6 +399,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       if (requestNumber !== customerScopeRequest.current) return;
       if (!response.ok) throw new Error(body.error || "该销售员客户加载失败");
       setCustomers(body.data || []);
+      setSalesScopeReady(true);
     } catch (cause) { if (requestNumber === customerScopeRequest.current) setError(cause instanceof Error ? cause.message : "该销售员客户加载失败"); }
   }
   async function copyCustomerTally() {
@@ -579,6 +584,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"><div><h1 className="text-xl font-bold">{importDraftId ? "核对并补全导入PI" : draftOrderId ? "编辑PI草稿" : "创建PI订单"}</h1><p className="mt-1 text-sm text-slate-500">{importDraftId ? "请关联本人客户，补齐人民币售价与成本、汇率及收款账户；先生成PI草稿，核对后再提交仓库。" : "客户与价格只录入一次；保存草稿后核对，确认后生成仓库备货单。"}</p></div><Link href={importDraftId ? "/orders/import" : draftOrderId ? `/orders/${draftOrderId}` : "/orders"} className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm hover:bg-slate-50">返回</Link></header>
     {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}{savedDraftId ? <> · <Link className="font-semibold underline" href={`/orders/${savedDraftId}`}>查看已保存PI</Link></> : null}</div> : null}
+    {isClerk ? <section className="border-b border-slate-100 p-5"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><label className="text-sm">为哪位销售员创建PI<Required /><AppSelect className={field} aria-label="选择PI归属销售员（含主管）" value={salesUserId} disabled={Boolean(draftOrderId)} placeholderValue="" onChange={(event) => void chooseSalesperson(event.target.value)}><option value="">请选择销售员（含主管）</option>{salespeople.map((person) => <option key={person.id} value={person.id}>{person.name || person.id}</option>)}</AppSelect></label></div><p className="mt-2 text-xs text-slate-500">请先选择本单归属的销售员；客户、产品与费用信息将在其客户范围加载完成后开放填写。</p></section> : null}
+    <fieldset disabled={isClerk && !salesScopeReady} aria-disabled={isClerk && !salesScopeReady} className={`min-w-0 border-0 p-0 ${isClerk && !salesScopeReady ? "pointer-events-none opacity-50" : ""}`}>
     {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
       {importSource.source_kind === "SYSTEM_TEMPLATE"
         ? <>系统整单模板：{importSource.warehouse_reference_number}。人民币售价、成本和费用已带入；{effectiveRate > 0 ? "请核对汇率与换算后的客户付款金额。" : "请填写有效汇率后核对客户付款金额。"}模板中未提供收款账户时请手动选择。费用与 PayPal 手续费将在页面计算 PI 总额。</>
@@ -587,7 +594,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       {importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "收款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与导入文件不一致时会要求逐项确认。
     </div> : null}
     <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {isClerk ? <label className="text-sm">为哪位销售员创建PI<Required /><AppSelect className={field} aria-label="选择PI归属销售员（含主管）" value={salesUserId} disabled={Boolean(draftOrderId)} placeholderValue="" onChange={(event) => void chooseSalesperson(event.target.value)}><option value="">请选择销售员（含主管）</option>{salespeople.map((person) => <option key={person.id} value={person.id}>{person.name || person.id}</option>)}</AppSelect></label> : null}
       <label className="text-sm">客户名称<Required /><AppSelect className={field} aria-label="搜索客户名称或公司名称并选择PI客户" forceSearch placeholderValue="" disabled={Boolean(draftOrderId)} value={customerId} onChange={(event) => chooseCustomer(event.target.value)}><option value="">搜索客户名称或公司名称</option>{customers.map((customer) => <option key={customer.id} value={customer.id} data-search-text={`${customer.contact_name || ""} ${customer.company_name || ""}`} data-secondary-label={customer.company_name || ""}>{customer.contact_name?.trim() || "未填写客户名称"}</option>)}</AppSelect></label>
       <label className="text-sm">公司名称<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.company_name || ""} readOnly aria-readonly="true" placeholder="选择客户后自动带出" /></label>
       <label className="text-sm">公司税号<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.tax_number || ""} readOnly aria-readonly="true" placeholder="客户资料未填写" title="只可在客户资料中修改公司税号" /></label>
@@ -632,6 +638,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <span className="border-t pt-2 text-left font-semibold text-slate-900">PI总额</span><span className="border-t pt-2 font-semibold text-slate-900">¥{feeCalculation.value?.totalCny.toFixed(2) || "—"}</span><span className="border-t pt-2 font-semibold text-blue-700">{feeCalculation.value?.totalPayment.toFixed(2) || "—"}</span></div>{feeCalculation.error && effectiveRate > 0 ? <p role="alert" className="mt-2 text-xs text-rose-700">{feeCalculation.error}</p> : null}</div>
     </section>
     <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-5 py-4"><button type="button" disabled={busy || loadingDraft || !availableAccounts.length || Boolean(savedDraftId)} onClick={() => void create()} className="rounded-lg border border-slate-300 px-6 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50">{busy ? "处理中…" : "保存PI草稿"}</button><button type="button" disabled={busy || loadingDraft || !availableAccounts.length || !canSubmitDraft || Boolean(savedDraftId)} onClick={() => setConfirmSubmit(true)} className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50">确认并生成备货单</button></div>
+    </fieldset>
     </div>
     <ConfirmDialog open={pendingLeaveUrl !== ""} title="当前 PI 内容尚未保存" description="离开后，当前尚未保存的填写内容将丢失。建议先保存 PI 草稿。" confirmLabel="放弃填写并离开" danger onCancel={() => setPendingLeaveUrl("")} onConfirm={() => { const url = pendingLeaveUrl; hasUnsavedChanges.current = false; setPendingLeaveUrl(""); window.location.assign(url); }} />
     <ConfirmDialog open={pendingHistoryBack} title="当前 PI 内容尚未保存" description="后退将丢失当前尚未保存的填写内容。建议先保存 PI 草稿。" confirmLabel="放弃填写并后退" danger onCancel={() => setPendingHistoryBack(false)} onConfirm={() => { hasUnsavedChanges.current = false; setPendingHistoryBack(false); window.history.go(-2); }} />
