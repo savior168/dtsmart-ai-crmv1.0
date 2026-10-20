@@ -108,7 +108,7 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
   };
   const valid_until = date(8, "PI有效期");
   const delivery_date = date(9, "预计交付日期");
-  const delivery_recipient = required(11, "收件人");
+  const delivery_recipient = required(11, "收货人");
   const delivery_phone = required(12, "电话");
   const delivery_email = required(13, "邮箱");
   const delivery_address = required(14, "收货地址");

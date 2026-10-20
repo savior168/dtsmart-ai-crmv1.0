@@ -33,7 +33,7 @@ assert.match(correctionMigration, /line\.preparation_status <> 'PREPARING'[\s\S]
 assert.match(read("app/api/stock-orders/[id]/corrections/route.ts"), /requirePermission\("stock\.update"\)[\s\S]*correct_stock_item_progress/, "更正接口必须验证仓库更新权限并走受控数据库事务");
 assert.match(read("components/stock-order-detail-view.tsx"), /更正进度[\s\S]*更正原因（必填）[\s\S]*确认更正并记入流水/, "仓库员应有清晰的单项进度更正入口且必须填写原因");
 assert.match(read("app/api/stock-orders/[id]/route.ts"), /customer_short_name,destination_country,delivery_recipient,delivery_address/, "备货详情应从对应备货单快照读取收件人与收货地址");
-assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dt[^>]*>收件人<\/dt><dd[^>]*>\{o\.delivery_recipient[\s\S]*<dt[^>]*>收货地址<\/dt><dd[^>]*>\{o\.delivery_address/, "仓库详情摘要应清晰显示收件人和收货地址");
+assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dt[^>]*>收货人<\/dt><dd[^>]*>\{o\.delivery_recipient[\s\S]*<dt[^>]*>收货地址<\/dt><dd[^>]*>\{o\.delivery_address/, "仓库详情摘要应清晰显示收货人和收货地址");
 assert.match(read("components/stock-order-detail-view.tsx"), /整单实物进度[\s\S]*整单理货要求[\s\S]*客户与收货信息/, "备货详情顶部应按进度、理货要求、收货信息顺序显示三块摘要");
 assert.match(read("components/stock-order-detail-view.tsx"), /showStockProgress \? "xl:grid-cols-3"/, "备货详情三块摘要在大屏应等宽排列");
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
@@ -100,12 +100,12 @@ assert.match(piForm, /link\.href = "\/templates\/pi-line-import-template\.xlsx"/
 const piInput = read("lib/pi-order-input.ts");
 const deliveryMigration = read("supabase/migrations/20261015202000_pi_required_delivery_contact.sql");
 const piCustomersRoute = read("app/api/orders/pi-customers/route.ts");
-assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses"\)/, "PI客户选项应读取客户收货地址列表，但不改变客户归属边界");
-assert.match(piForm, /setAddress\(displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)\[0\] \|\| ""\)/, "PI 默认收货地址只能取客户第一条收货地址，不得误用公司地址");
+assert.match(piCustomersRoute, /select\("id,company_name,country,contact_name,tax_number,tally_requirements,phone,email,address,shipping_address,shipping_addresses,shipping_contact_entries,forwarder_addresses"\)/, "PI客户选项应读取收货信息和货代地址，但不改变客户归属边界");
+assert.match(piForm, /addresses\.length === 1 \? displayShippingContacts\(customer\.shipping_contact_entries, addresses\)\[0\] : null[\s\S]*setAddress\(chosen\?\.address \|\| ""\)/, "PI 仅在单条地址时自动带出收货地址，多条应手动选择");
 assert.match(piForm, /客户名称<Required \/><AppSelect.*?forceSearch[\s\S]*?公司名称<input[\s\S]*?selectedCustomer\?\.company_name[\s\S]*?公司税号<input[\s\S]*?selectedCustomer\?\.tax_number/, "PI应先选具体客户名称，再只读带出公司名称和税号");
 assert.match(piForm, /查看客户资料理货要求[\s\S]*?selectedCustomer\.tally_requirements[\s\S]*?复制理货要求/, "PI填写时应能只读查看并复制客户资料理货要求");
 assert.match(piForm, /if \(!customer\) \{\s*setRecipient\(""\);\s*setPhone\(""\);\s*setEmail\(""\);\s*setAddress\(""\);/, "清空客户选择时不能保留前一客户的收件人和联系方式");
-assert.match(piForm, /setRecipient\(customer\.contact_name\?\.trim\(\) \|\| ""\)/, "PI收件人仅默认带入客户名称，缺少时不得回退到公司名称");
+assert.match(piForm, /setRecipient\(chosen\?\.recipient \|\| \(addresses\.length > 1 \? "" : customer\.contact_name\?\.trim\(\) \|\| ""\)\)/, "PI收货人优先取所选收货信息，历史单地址才回退客户名称");
 assert.match(piForm, /if \(!recipient\.trim\(\) \|\| !phone\.trim\(\) \|\| !email\.trim\(\) \|\| !address\.trim\(\)\)/, "PI创建页应校验四项收货信息");
 assert.match(piInput, /deliveryFields\.some\(\(value\) => typeof value !== "string" \|\| !value\.trim\(\)\)/, "PI服务端必须拒绝缺失的收货信息");
 assert.match(deliveryMigration, /add constraint direct_pi_delivery_contact_required[\s\S]*delivery_recipient[\s\S]*delivery_phone[\s\S]*delivery_email[\s\S]*delivery_address/, "直接调用数据库创建PI也不能绕过必填收货信息");
@@ -251,6 +251,9 @@ for (const api of [orderListApi, stockListApi]) {
   assert.match(api, /countryFilterRawValues\(\[country\]\)/, "目的国家筛选应匹配旧数据中不同的国家写法");
 }
 assert.match(order, /can_delete_draft:[\s\S]*!stock\.data[\s\S]*export async function DELETE[\s\S]*delete_never_submitted_pi_draft/, "只有未生成备货单的PI草稿才提供受权限控制的删除入口");
+assert.match(order, /can_view_stock: hasPermission\(account, "stock\.view"\)/, "PI详情必须把备货查看权限传给前端");
+assert.match(orderDetailView, /data\.can_view_stock && data\.stock_order[\s\S]*查看备货单/, "无备货查看权限时不得显示跳转入口，且只读入口不得暗示可编辑");
+assert.doesNotMatch(orderDetailView, /查看\/完善备货单/, "PI详情不得把只读查看误写为完善备货单");
 assert.match(orderListApi, /can_delete_draft:[\s\S]*hasPermission\(account, "orders\.delete_draft"\)[\s\S]*!stockByOrderId\.has\(item\.id\)/, "PI列表删除入口也必须按权限、归属及未生成备货单判断");
 assert.match(orderListView, /row\.can_delete_draft[\s\S]*删除草稿[\s\S]*<ConfirmDialog[\s\S]*deleteDraft\(\)/, "PI列表应提供未提交草稿的确认删除操作");
 assert.match(draftDeleteMigration, /target\.confirmed_at is not null[\s\S]*stock_orders[\s\S]*PI_SUBMIT[\s\S]*PI_RECALL[\s\S]*PI_DRAFT_DELETE/, "数据库必须阻止删除已提交或撤回草稿并保留删除审计");
@@ -288,7 +291,7 @@ assert.match(piFeeMigration, /update public\.quote_items qi set[\s\S]*unit_price
 assert.doesNotMatch(piFeeMigration, /update public\.(?:quote_items|sales_order_items) (?:qi|soi) set\s+[^;]*?\bamount\s*=/, "产品行金额是数据库生成列，不能直接赋值");
 assert.match(piForm, /countryInfo\(selectedCustomer\.country\)\.name/, "目的国家只显示中文名称而不附加国家代码");
 assert.match(piForm, /recalledDraft \? <div className="flex min-w-0 flex-col">[\s\S]*订单变更说明/, "订单变更说明只在撤回后编辑PI时显示");
-assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收件人[\s\S]*电话[\s\S]*邮箱[\s\S]*<PiDeliveryAddressField/, "收货信息四项应在宽屏同一行显示");
+assert.match(piForm, /md:grid-cols-2 xl:grid-cols-4[\s\S]*收货人[\s\S]*电话[\s\S]*邮箱[\s\S]*<PiDeliveryAddressField/, "收货信息四项应在宽屏同一行显示");
 assert.match(piForm, /function PiLineTextArea[\s\S]*scrollHeight[\s\S]*<PiLineTextArea label=/, "产品文本字段应自动增高以完整显示内容");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
 assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*公司名称<input[\s\S]*公司税号<input[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息应先确认客户，再带出公司信息并填写交易信息");

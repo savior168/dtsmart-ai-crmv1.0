@@ -20,7 +20,7 @@ import { CUSTOMER_STATUS_LABELS, FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, FOLLOWU
 import { cleanChineseAiNarrative } from "@/lib/ai/presentation";
 import { auditActionLabel } from "@/lib/audit-log";
 import { localDateTimeInput } from "@/lib/date-time";
-import { displayAddressList } from "@/lib/customers/address-list";
+import { displayAddressList, displayShippingContacts } from "@/lib/customers/address-list";
 
 type EffectiveProtection = { source:"EXPLICIT"|"DEFAULT_90_DAYS"|"NONE"; start_date:string|null; expire_date:string|null; status:"ACTIVE"|"RELEASED"|"EXPIRED"; remaining_days:number|null; permanent:boolean };
 type HistoryUser = { id:string; name?:string|null; email?:string|null };
@@ -65,6 +65,7 @@ function Row({label,children}:{label:string;children:ReactNode}){return <div cla
 function CustomerBasicInfo({ data, scoreLabel, gradeLabel, targetLabel }: { data: Data; scoreLabel: string | number; gradeLabel: string; targetLabel: string }) {
   const { customer } = data;
   const shipping = displayAddressList(customer.shipping_addresses, customer.shipping_address);
+  const shippingContacts = displayShippingContacts(customer.shipping_contact_entries, shipping);
   const forwarder = displayAddressList(customer.forwarder_addresses, customer.forwarder_address);
   const addressCount = Math.max(shipping.length, forwarder.length, 1);
   return <div className="grid gap-5 p-5 xl:grid-cols-[1.15fr_.85fr]">
@@ -77,7 +78,7 @@ function CustomerBasicInfo({ data, scoreLabel, gradeLabel, targetLabel }: { data
         <Row label="官网"><CustomerPublicLink value={customer.website} kind="website" size="normal"/></Row>
         <Row label="公开渠道"><CustomerPublicChannels customer={customer}/></Row><Row label="公司地址">{value(customer.address)}</Row>
         {Array.from({ length: addressCount }, (_, index) => <div key={index} className="contents">
-          <Row label={`客户收货地址${index + 1}`}>{value(shipping[index])}</Row><Row label={`货代地址${index + 1}`}>{value(forwarder[index])}</Row>
+          <Row label={`客户收货信息${index + 1}`}>{shipping[index] ? <span className="font-normal">收货人：{value(shippingContacts[index]?.recipient)} · 电话：{value(shippingContacts[index]?.phone)}<br/>地址：{shipping[index]}</span> : "—"}</Row><Row label={`货代地址${index + 1}`}>{value(forwarder[index])}</Row>
         </div>)}
         <Row label="微信号码">{value(customer.wechat)}</Row>
         <Row label="理货要求"><span className="whitespace-pre-wrap font-normal leading-6">{value(customer.tally_requirements)}</span></Row>

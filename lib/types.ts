@@ -29,6 +29,7 @@ export type Customer = {
   shipping_address?: string | null;
   forwarder_addresses?: string[] | null;
   shipping_addresses?: string[] | null;
+  shipping_contact_entries?: import("@/lib/customers/address-list").ShippingContact[] | null;
   other_address?: string | null;
   industry: string | null;
   business_scope?: string | null;

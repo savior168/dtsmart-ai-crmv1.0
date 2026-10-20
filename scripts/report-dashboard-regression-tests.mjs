@@ -11,12 +11,14 @@ const countryMigration = read("supabase/migrations/202609300004_sales_report_all
 const dashboardCountryMigration = read("supabase/migrations/202609300005_dashboard_country_groups_before_top10.sql");
 const dashboardApi = read("app/api/dashboard/stats/route.ts");
 const dashboard = read("components/crm-dashboard.tsx");
+const dashboardPage = read("app/page.tsx");
 const reports = read("components/sales-reports-view.tsx");
 const reportLoader = read("lib/reports/sales.ts");
 const operations = read("components/operations-overview.tsx");
 const orderList = read("components/orders-view.tsx");
 const stockList = read("components/stock-orders-view.tsx");
 const operationsPermissions = read("supabase/migrations/20261020071428_operations_role_reports_default.sql");
+const operationsOverview = read("components/operations-overview.tsx");
 
 assert.match(migration, /left join public\.customers c on c\.owner_id=s\.id and c\.deleted_at is null/, "销售客户指标只能统计当前归属且在库的客户");
 assert.match(migration, /count\(c\.id\) filter\(where c\.created_at>=p_from and c\.created_at<p_to\) as new_customers/, "期间新增必须与报表日期范围一致");
@@ -31,6 +33,13 @@ assert.match(dashboardApi, /normalizeReportCountries\(\(\(overview\.country_top 
 assert.match(dashboardCountryMigration, /previous_grouping text := 'from filtered_customers group by 1 order by count desc,name limit 10'/, "工作台数据库函数不得提前截断原始国家分组");
 assert.doesNotMatch(dashboardApi, /statusCount\("UNCLAIMED"\)/, "销售漏斗不得展示不属于销售阶段的新客户");
 assert.match(dashboard, /canCreateAcquisition \? <Link href="\/ai-acquisition\/new"/, "AI获客快捷入口必须按创建权限显示");
+assert.match(dashboardPage, /canCreateAiScreening=\{hasPermission\(account, "ai\.tasks\.create"\)\}/, "AI筛选快捷入口应使用与页面一致的操作权限");
+assert.match(dashboardPage, /canImportCustomers=\{hasPermission\(account, "imports\.create"\)\}/, "客户导入快捷入口应使用与页面一致的操作权限");
+assert.match(dashboardPage, /canCreateOrder=\{hasPermission\(account, "orders\.create"\)\}/, "PI创建快捷入口应使用与页面一致的操作权限");
+assert.match(dashboard, /canCreateAiScreening \? <Link href="\/ai-screening\/new"/, "没有AI筛选权限时不得显示创建入口");
+assert.match(dashboard, /canCreateOrder \? <Link href="\/orders\/new"/, "没有PI创建权限时不得显示创建入口");
+assert.match(dashboard, /canImportCustomers \? <Link href="\/import\?destination=private"/, "没有导入权限时不得显示替代快捷入口");
+assert.match(dashboard, /href=\{scopedHref\("\/customers", scopeUserId, data\.range, countryDetails\.code\)\}/, "国家分布每项须跳转到同范围的客户列表");
 assert.match(reports, /期间新增在库/, "报表新增指标必须明确当前在库口径");
 assert.match(reports, /end\.setUTCDate\(end\.getUTCDate\(\) \+ 1\)/, "报表查询日期上界必须覆盖所选结束日");
 assert.match(countryMigration, /country_rows as \([\s\S]*?group by 1\s*\)/, "国家分组必须先返回全部原始值，不能在标准化前截断 TOP10");
@@ -50,6 +59,15 @@ assert.match(read("app/orders/page.tsx"), /initialFilters=\{filters\}/, "PI列�
 assert.match(read("app/stock-orders/page.tsx"), /initialFilters=\{filters\}/, "备货列表必须从页面查询参数传入筛选条件");
 assert.match(operationsPermissions, /\('ORDER_CLERK', 'reports\.view', true\)/, "跟单员应默认可进入岗位报表");
 assert.match(operationsPermissions, /\('WAREHOUSE', 'reports\.view', true\)/, "仓库员应默认可进入岗位报表");
+assert.match(operationsOverview, /const cards = report \? \[\] : workCards/, "跟单与仓库工作台待办卡片不得复制到报表中心");
+assert.match(operationsOverview, /report && canViewStock[\s\S]*备货状态分布[\s\S]*conic-gradient/, "岗位报表须展示备货状态图和明细入口");
+assert.match(operationsOverview, /report && !warehouse && canViewOrders && canFilterCreator[\s\S]*PI 制单构成/, "跟单报表须展示制单构成而非重复待办列表");
+assert.match(operationsOverview, /!report \? <div className="grid gap-4 lg:grid-cols-2"/, "近期单据待办仅在工作台出现");
+assert.match(dashboardApi, /\["SALES", "SUPERVISOR"\]\.includes\(account\.role\) && hasPermission\(account, "stock\.view"\)/, "只有有备货查看权限的销售员和主管才展示PI备货进度");
+assert.match(dashboardApi, /requestedOwnerId\(request, account, "stock\.data_all"\)[\s\S]*stock_orders_with_pi_preparer[\s\S]*\.eq\("sales_user_id", stockOwnerId\)/, "PI备货动态必须按备货数据权限限制归属范围");
+assert.match(dashboardApi, /loadStockProgressItems\(supabase,[\s\S]*summarizeStockProgress\(row\.status/, "PI备货动态须从可见实物明细计算真实进度");
+assert.match(dashboard, /stockProgress \? "order-1" : "order-2"/, "PI备货进度应在左侧优先显示");
+assert.match(dashboard, /activity_mode === "STOCK_PROGRESS" \? "order-2" : "order-1"/, "今日待跟进应与PI进度对调顺序");
 assert.match(operationsPermissions, /on conflict \(role_code, permission_code\) do nothing/i, "迁移不得覆盖管理员显式关闭的角色权限");
 assert.match(read("app/reports/page.tsx"), /account\.role === "WAREHOUSE"[\s\S]*OperationsOverview/, "仓库员不得读取销售业绩报表");
 

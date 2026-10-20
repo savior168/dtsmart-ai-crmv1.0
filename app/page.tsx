@@ -28,5 +28,10 @@ export default async function Home() {
   }
   if (account.role === "ORDER_CLERK") return <OperationsOverview role="ORDER_CLERK" userId={account.id} canViewOrders={hasPermission(account, "orders.view")} canFilterCreator={hasPermission(account, "orders.data_all")} canViewStock={hasPermission(account, "stock.view")} />;
   if (account.role === "WAREHOUSE") return hasPermission(account, "stock.view") ? <WarehouseDashboard /> : <OperationsOverview role="WAREHOUSE" userId={account.id} canViewOrders={false} canFilterCreator={false} canViewStock={false} />;
-  return <CrmDashboard canCreateAcquisition={hasPermission(account, "ai.acquisition.create")} />;
+  return <CrmDashboard
+    canCreateAcquisition={hasPermission(account, "ai.acquisition.create")}
+    canImportCustomers={hasPermission(account, "imports.create")}
+    canCreateAiScreening={hasPermission(account, "ai.tasks.create")}
+    canCreateOrder={hasPermission(account, "orders.create")}
+  />;
 }

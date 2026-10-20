@@ -17,6 +17,6 @@ assert.equal((withOptions.match(/id="pi-delivery-address"/g) || []).length, 1, "
 assert.doesNotMatch(withOptions, /<select/, "不应再用第二行下拉框挤高表单");
 assert.doesNotMatch(render("自定义地址", []), /选择客户收货地址/, "无已保存地址时仅展示自由输入框");
 assert.match(source, /onClick=\{\(\) => \{ onChange\(item\); setOpen\(false\); \}\}/, "选择地址应直接填入同一字段");
-assert.match(source, /PiDeliveryAddressField value=\{address\} options=\{selectedShippingAddresses\} onChange=\{\(value\) => \{ markUnsaved\(\); setAddress\(value\); \}\}/, "选择及手工输入都须更新PI地址并标记未保存");
+assert.match(source, /PiDeliveryAddressField value=\{address\} options=\{selectedShippingAddresses\} onChange=\{\(value\) => \{ markUnsaved\(\); setAddress\(value\); const selected = selectedShippingContacts\.find/, "选择及手工输入都须更新PI地址并标记未保存，同时匹配对应收货人和电话");
 assert.doesNotMatch(source, /<AppSelect aria-label="选择客户收货地址"/, "不得保留旧第二行地址下拉框");
 console.log("PI single-field delivery address regressions passed.");

@@ -45,6 +45,7 @@ type StockExportData = {
   delivery_phone?: string | null;
   delivery_email?: string | null;
   delivery_address?: string | null;
+  forwarder_address?: string | null;
   created_at: string;
   salesperson?: { name?: string | null; email?: string | null } | null;
 };
@@ -238,12 +239,13 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
     ["K4", stock.stocking_requirements?.trim() || "常规理货"],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
-    ["D9", [`姓名：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`].join("\n")],
+    ["D9", [`收货人：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`, `本单货代地址：${stock.forwarder_address || "未填写"}`].join("\n")],
+    ["B9", "＊收货人（姓名/电话）\n＊详细收货地址："],
     ["B10", stock.status_label ? `备货状态：${stock.status_label}` : ""],
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
   if (stock.status_label) xml = withRowHeight(xml, 10, 20);
-  xml = withCellStyle(withRowHeight(xml, 9, 57), "D9", styles.contactStyle);
+  xml = withCellStyle(withRowHeight(xml, 9, 75), "D9", styles.contactStyle);
   if (stock.stocking_requirements?.trim() && stock.stocking_requirements.trim() !== "常规理货") xml = withCellStyle(xml, "K4", styles.nStyle);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
   const totalEstimatedCost = items.every((item) => typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny))

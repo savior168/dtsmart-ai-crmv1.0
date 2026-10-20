@@ -3,6 +3,7 @@ import { validPiMoney, validPiQuantity, validPiSellingPrice } from "@/lib/pi-lin
 import { linkedPiUnitPrices } from "@/lib/pi-line-currency";
 import type { createClient } from "@/lib/supabase/server";
 import type { PiFeeInput, PiFeesInput } from "@/lib/pi-fees";
+import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -52,12 +53,17 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   if (!customerId || !paymentAccountId) throw new Error("请选择客户和收款账户");
   if (!warehouseReferenceNumber || warehouseReferenceNumber.length > 80) throw new Error("请填写80字以内的订单编号");
   const deliveryFields = [body.delivery_recipient, body.delivery_phone, body.delivery_email, body.delivery_address];
-  if (deliveryFields.some((value) => typeof value !== "string" || !value.trim())) throw new Error("收件人、电话、邮箱和收货地址均为必填项");
+  if (deliveryFields.some((value) => typeof value !== "string" || !value.trim())) throw new Error("收货人、电话、邮箱和收货地址均为必填项");
   const [deliveryRecipient, deliveryPhone, deliveryEmail, deliveryAddress] = deliveryFields as string[];
   if (deliveryRecipient.trim().length > 200 || deliveryPhone.trim().length > 100 || deliveryEmail.trim().length > 200 || deliveryAddress.trim().length > 1000) {
     throw new Error("收货信息超出允许长度，请核对后重试");
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deliveryEmail.trim())) throw new Error("请输入有效的收货邮箱地址");
+  const normalizedDeliveryPhone = normalizeManualPhone(deliveryPhone, "收货人电话");
+  const phoneDigits = normalizedDeliveryPhone.replace(/\D/g, "");
+  if (phoneDigits.length < 7 || phoneDigits.length > 15 || /^(\d)\1+$/.test(phoneDigits)) throw new Error("收货人电话须为有效的 7 至 15 位号码");
+  const forwarderAddress = body.forwarder_address === undefined ? "" : body.forwarder_address;
+  if (typeof forwarderAddress !== "string" || forwarderAddress.trim().length > 500) throw new Error("货代地址格式不正确");
   const fees = parsePiFees(body.fees, String(body.payment_method || ""));
   return {
     p_customer_id: customerId,
@@ -70,12 +76,12 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     p_valid_until: String(body.valid_until || "").trim() || null,
     p_delivery_date: String(body.delivery_date || "").trim() || null,
     p_delivery_recipient: deliveryRecipient.trim(),
-    p_delivery_phone: deliveryPhone.trim(),
+    p_delivery_phone: normalizedDeliveryPhone,
     p_delivery_email: deliveryEmail.trim(),
     p_delivery_address: deliveryAddress.trim(),
     p_stocking_requirements: String(body.stocking_requirements || "").trim().slice(0, 2000) || "常规理货",
     p_items: items,
-    p_fees: fees,
+    p_fees: { ...fees, forwarder_address: forwarderAddress.trim() },
   };
 }
 

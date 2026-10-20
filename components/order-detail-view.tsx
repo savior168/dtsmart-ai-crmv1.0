@@ -47,6 +47,7 @@ type Payload = {
     delivery_phone: string | null;
     delivery_email: string | null;
     delivery_address: string | null;
+    forwarder_address: string | null;
     payment_method: string | null;
     delivery_date: string | null;
     confirmation_method: string | null;
@@ -82,6 +83,7 @@ type Payload = {
   can_cancel: boolean;
   can_export: boolean;
   can_preview: boolean;
+  can_view_stock: boolean;
 };
 export function OrderDetailView({ id }: { id: string }) {
   const router = useRouter();
@@ -190,11 +192,11 @@ export function OrderDetailView({ id }: { id: string }) {
             >
               查看关联报价
             </Link> : null}
-            {data.stock_order && !(directPi && o.status === "DRAFT") ? <Link
+            {data.can_view_stock && data.stock_order && !(directPi && o.status === "DRAFT") ? <Link
               href={`/stock-orders/${data.stock_order.id}`}
               className="h-9 rounded-lg border px-3 py-2 text-sm text-emerald-700"
             >
-              查看/完善备货单
+              查看备货单
             </Link> : null}
             {data.can_edit_draft ? <Link href={`/orders/${id}/edit`} className="h-9 rounded-lg border px-3 py-2 text-sm text-blue-700">修改PI草稿及商品</Link> : null}
             {data.can_delete_draft ? <button type="button" disabled={busy} onClick={() => setDeleteOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-200 px-3 text-sm text-rose-700 disabled:opacity-50"><Trash2 size={15}/>删除未提交草稿</button> : null}
@@ -223,12 +225,12 @@ export function OrderDetailView({ id }: { id: string }) {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress} wide/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
             </div>
             <div className="grid gap-4 border-t px-5 py-4 text-sm lg:grid-cols-2">
-              <div><h2 className="font-semibold text-slate-800">订单与收货信息</h2><p className="mt-2 text-slate-600">确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"} · 收件人：{o.delivery_recipient || "—"}</p><p className="mt-1 text-slate-600">电话：{o.delivery_phone || "—"} · 邮箱：{o.delivery_email || "—"}</p><p className="mt-1 break-words text-slate-600">收货地址：{o.delivery_address || "—"}</p><p className="mt-1 text-slate-600">预计交付日期：{o.delivery_date || "—"}</p></div>
+              <div><h2 className="font-semibold text-slate-800">订单与收货信息</h2><p className="mt-2 text-slate-600">确认时间：{o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"} · 收货人：{o.delivery_recipient || "—"}</p><p className="mt-1 text-slate-600">电话：{o.delivery_phone || "—"} · 邮箱：{o.delivery_email || "—"}</p><p className="mt-1 break-words text-slate-600">收货地址：{o.delivery_address || "—"}</p><p className="mt-1 break-words text-slate-600">本单货代地址：{o.forwarder_address || "未填写"}</p><p className="mt-1 text-slate-600">预计交付日期：{o.delivery_date || "—"}</p></div>
               <div><h2 className="font-semibold text-slate-800">付款与汇率</h2><p className="mt-2 text-slate-600">付款方式：{o.payment_method || "—"} · 1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p><p className="mt-1 text-slate-600">人民币总额（含运费）：¥{Number(o.total_cny).toFixed(2)}</p><details className="mt-2"><summary className="cursor-pointer text-blue-700">查看收款账户快照</summary><p className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-slate-600">{o.payment_account_snapshot || "—"}</p></details></div>
             </div>
             <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>
           </> : <div className="grid gap-4 p-5 md:grid-cols-5">{[["客户名称", o.customer?.contact_name?.trim() || "未填写"], ["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
-          {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span><Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link></div> : null}
+          {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span>{data.can_view_stock ? <Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link> : null}</div> : null}
           <div className="overflow-x-auto border-y">
             <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>
               <thead className="bg-slate-50 text-xs">
