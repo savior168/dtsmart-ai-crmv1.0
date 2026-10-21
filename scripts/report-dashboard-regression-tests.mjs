@@ -74,6 +74,7 @@ assert.match(dashboardApi, /requestedOwnerId\(request, account, "stock\.data_all
 assert.match(dashboardApi, /loadStockProgressItems\(supabase,[\s\S]*summarizeStockProgress\(row\.status/, "PI备货动态须从可见实物明细计算真实进度");
 assert.match(dashboard, /stockProgress\) return <article className=\{`\$\{panelClass\} order-1 overflow-hidden`\}/, "PI备货速览应在左侧展示并与右侧卡片等高");
 assert.match(dashboard, /data\.activities\.slice\(0, 5\)[\s\S]*py-1\.5 text-xs[\s\S]*min-w-0 flex-1 truncate/, "PI速览最多展示五条紧凑单行摘要");
+assert.match(dashboard, /function TodayFollowupsPanel[\s\S]*flex min-h-\[310px\] flex-col overflow-hidden[\s\S]*flex min-h-0 flex-1 flex-col overflow-x-auto[\s\S]*grid min-h-\[175px\] min-w-\[690px\] flex-1 place-items-center[\s\S]*footer className="flex h-12 shrink-0/, "今日待跟进空状态应在剩余空间居中且分页固定到底部");
 assert.match(dashboardApi, /\.order\("pi_updated_at", \{ ascending: false \}\)/, "PI备货速览须按PI最近更新时间倒序展示");
 assert.match(dashboard, /flex h-1\.5 overflow-hidden rounded-full[\s\S]*progress\.buckets\[bucket\.key\][\s\S]*progress\?\.received_units[\s\S]*progress\?\.shipped_units/, "工作台备货进度应使用轻量细条和文字件数摘要");
 assert.match(dashboardApi, /\["SALES", "SUPERVISOR", "ADMIN"\][\s\S]*hasPermission\(account, "stock\.view"\)/, "管理员也应在授权范围看到PI备货速览");
