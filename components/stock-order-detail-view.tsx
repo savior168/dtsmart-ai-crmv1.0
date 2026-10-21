@@ -479,29 +479,29 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div>
           ) : null}
           {o.status_note?.trim() ? <p className="border-b bg-amber-50 px-5 py-2 text-sm text-amber-900"><b>状态备注：</b>{o.status_note}</p> : null}
-          <div className="grid items-start gap-3 border-b p-5 lg:grid-cols-2">
-            <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {showStockProgress ? <section className="min-w-0 bg-slate-50/70 p-4" aria-labelledby="stock-progress-heading">
-              <h2 id="stock-progress-heading" className="mb-3 text-sm font-semibold text-slate-900">整单实物进度 · {stockProgress.ordered_units} 件</h2>
-              <StockProgressCell progress={stockProgress} wide/>
-              <details className="mt-3 text-xs leading-5 text-slate-500"><summary className="cursor-pointer font-medium text-blue-700">进度统计口径</summary><p className="mt-1">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。理货中的产品按实际件数分别计入“已回货待理货”和“已理货未交货代”，未完成整行理货不能交货代；“已交货代”仅表示仓库完成交接，不代表客户签收。</p></details>
-            </section> : null}
-            <section className={`min-w-0 border-t border-l-4 p-4 ${o.stocking_requirements?.trim() ? "border-l-amber-400 text-amber-900" : "border-l-slate-200 text-slate-600"}`} aria-labelledby="stock-requirements-heading">
-              <h2 id="stock-requirements-heading" className="mb-2 text-sm font-semibold">整单理货要求</h2>
-              <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6" tabIndex={0}>{o.stocking_requirements || "常规理货"}</p>
-            </section>
-            </div>
+          <div className="grid gap-3 border-b p-4 lg:grid-cols-2">
             <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="stock-recipient-heading">
               <h2 id="stock-recipient-heading" className="mb-3 text-sm font-semibold text-slate-900">客户与收货信息</h2>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm leading-5">
-                <div><dt className="text-xs text-slate-500">客户名称</dt><dd className="font-medium text-slate-900">{o.customer_name || "未填写"}</dd>{!o.customer_name_snapshot ? <span className="text-[11px] text-amber-700">历史单：当前档案名称，仅供参考</span> : null}</div>
-                <div><dt className="text-xs text-slate-500">公司名称</dt><dd className="font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
+              <dl className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm leading-5">
+                <div className="min-w-0"><dt className="text-xs text-slate-500">客户名称</dt><dd className="break-words font-medium text-slate-900">{o.customer_name || "未填写"}</dd>{!o.customer_name_snapshot ? <span className="text-[11px] text-amber-700">历史单：当前档案名称，仅供参考</span> : null}</div>
+                <div className="min-w-0"><dt className="text-xs text-slate-500">公司名称</dt><dd className="break-words font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
                 <div><dt className="text-xs text-slate-500">目的国家</dt><dd><CountryLabel value={o.destination_country}/></dd></div>
-                <div><dt className="text-xs text-slate-500">收货人</dt><dd className="font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-slate-500">收货人</dt><dd className="break-words font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>
                 <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">收货地址</dt><dd className="break-words text-slate-800">{o.delivery_address || "—"}</dd></div>
-                <div className="col-span-2 min-w-0"><dt className="text-xs text-slate-500">本单货代收货信息</dt><dd className="break-words text-slate-800">{o.forwarder_address ? `${o.forwarder_recipient || "收货人未填写"} · ${o.forwarder_phone || "电话未填写"} · ${o.forwarder_address}` : "未填写"}</dd></div>
+                <div className="col-span-2 min-w-0 border-t border-slate-100 pt-2"><dt className="text-xs text-slate-500">货代收货</dt><dd className="break-words text-slate-800">{o.forwarder_address ? `${o.forwarder_recipient || "收货人未填写"} · ${o.forwarder_phone || "电话未填写"} · ${o.forwarder_address}` : "未填写"}</dd></div>
               </dl>
             </section>
+            <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            {showStockProgress ? <section className="min-w-0 bg-slate-50/70 p-4" aria-labelledby="stock-progress-heading">
+              <h2 id="stock-progress-heading" className="mb-2 text-sm font-semibold text-slate-900">整单实物进度 · {stockProgress.ordered_units} 件</h2>
+              <StockProgressCell progress={stockProgress} wide/>
+              <details className="mt-2 text-xs leading-5 text-slate-500"><summary className="cursor-pointer font-medium text-blue-700">进度统计口径</summary><p className="mt-1">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。理货中的产品按实际件数分别计入“已回货待理货”和“已理货未交货代”，未完成整行理货不能交货代；“已交货代”仅表示仓库完成交接，不代表客户签收。</p></details>
+            </section> : null}
+            <section className={`min-w-0 border-t border-l-4 px-4 py-3 ${o.stocking_requirements?.trim() ? "border-l-amber-400 text-amber-900" : "border-l-slate-200 text-slate-600"}`} aria-labelledby="stock-requirements-heading">
+              <h2 id="stock-requirements-heading" className="mb-1 text-sm font-semibold">整单理货要求</h2>
+              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-sm leading-5" tabIndex={0}>{o.stocking_requirements || "常规理货"}</p>
+            </section>
+            </div>
           </div>
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>

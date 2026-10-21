@@ -105,18 +105,18 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
     ["折扣（扣减）", -Number(o.discount_amount || 0)],
     ["PayPal 手续费（加收）", Number(o.paypal_fee_amount || 0)],
   ] as Array<[string, number]>).filter(([label, amount]) => label === "产品小计" || amount !== 0);
-  const card = "min-w-0 rounded-lg border border-slate-200 bg-white p-4";
-  return <><div className="grid items-stretch gap-3 border-t px-5 py-4 text-sm md:grid-cols-2 xl:grid-cols-4">
-    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">客户收货信息</h3><div className="space-y-1.5 text-slate-600">
+  const card = "min-w-0 rounded-lg border border-slate-200 bg-white p-3";
+  return <><div className="grid items-stretch gap-3 border-t px-5 py-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">客户收货信息</h3><div className="space-y-1 text-slate-600">
       <p>收货人：{o.delivery_recipient || "—"}</p><p>电话：{o.delivery_phone || "—"}</p>
       <p className="break-all">邮箱：{o.delivery_email || "—"}</p><p className="break-words">收货地址：{o.delivery_address || "—"}</p>
       {o.delivery_date ? <p>预计交付日期：{o.delivery_date}</p> : null}
     </div></section>
-    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">货代收货信息</h3><div className="space-y-1.5 text-slate-600">
+    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">货代收货信息</h3><div className="space-y-1 text-slate-600">
       <p>收货人：{o.forwarder_recipient || "未填写"}</p><p>电话：{o.forwarder_phone || "未填写"}</p>
       <p className="break-words">收货地址：{o.forwarder_address || "未填写"}</p>
     </div></section>
-    <section className={card}><h3 className="mb-3 font-semibold text-slate-800">付款与汇率</h3><div className="space-y-1.5 text-slate-600">
+    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">付款与汇率</h3><div className="space-y-1 text-slate-600">
       <p className="text-lg font-semibold text-blue-700 tabular-nums">{o.currency} {Number(o.total_amount).toFixed(2)}</p>
       <p>付款方式：{o.payment_method || "—"}</p>
       <p>汇率：1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p>
@@ -124,8 +124,8 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
       <p>价格展示：{o.show_dual_currency_prices === true ? `CNY / ${o.currency} 双币种` : `仅 ${o.currency}`}</p>
       {o.payment_account_snapshot ? <button type="button" onClick={() => setAccountOpen(true)} className="pt-1 text-left font-medium text-blue-700 hover:underline">查看收款账户</button> : null}
     </div></section>
-    <section id="pi-fee-details" className={`${card} scroll-mt-24`}><h3 className="mb-3 font-semibold text-slate-800">费用明细 · {o.currency}</h3>
-      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 text-slate-600 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}
+    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">费用明细 · {o.currency}</h3>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 text-slate-600 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}
         <dt className="border-t border-slate-200 pt-2 font-semibold text-slate-800">客户应付总额</dt><dd className="border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd>
       </dl>
     </section>
@@ -248,7 +248,7 @@ export function OrderDetailView({ id }: { id: string }) {
           </div>
         </div>
         <section className="rounded-xl border bg-white shadow-sm">
-          <header className="flex flex-wrap justify-between gap-3 border-b p-5">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
             <div>
               <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
               <p className="mt-1 text-sm text-slate-500">{directPi ? "客户订单编号" : "报价编号"}：<span className="font-semibold text-slate-800">{directPi ? o.warehouse_reference_number : o.quote_number}</span> · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
@@ -261,11 +261,11 @@ export function OrderDetailView({ id }: { id: string }) {
             </p>
           ) : null}
           {directPi ? <>
-            <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">客户名称（本单快照）</p><p className="mt-2 text-lg font-semibold text-slate-900">{o.customer_name_snapshot?.trim() || "历史未留存"}</p><p className="mt-1 text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="mt-1 break-words text-sm text-slate-600">公司税号（本单）：{o.customer_tax_number_snapshot?.trim() || "历史未留存"}</p><div className="mt-1 text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-2 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p><a href="#pi-fee-details" className="mt-2 inline-block text-xs font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900">查看费用明细 ↓</a></div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-2 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress} wide/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
+            <div className="grid gap-3 px-5 py-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">客户名称（本单快照）</p><p className="mt-1 text-lg font-semibold text-slate-900">{o.customer_name_snapshot?.trim() || "历史未留存"}</p><p className="text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="break-words text-sm text-slate-600">公司税号（本单）：{o.customer_tax_number_snapshot?.trim() || "历史未留存"}</p><div className="text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-1 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p></div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress}/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
             </div>
             <PiInfoCards order={o} />
             <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>

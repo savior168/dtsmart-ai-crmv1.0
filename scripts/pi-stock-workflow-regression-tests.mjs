@@ -34,13 +34,13 @@ assert.match(read("app/api/stock-orders/[id]/corrections/route.ts"), /requirePer
 assert.match(read("components/stock-order-detail-view.tsx"), /更正进度[\s\S]*更正原因（必填）[\s\S]*确认更正并记入流水/, "仓库员应有清晰的单项进度更正入口且必须填写原因");
 assert.match(read("app/api/stock-orders/[id]/route.ts"), /customer_short_name,destination_country,delivery_recipient,delivery_address/, "备货详情应从对应备货单快照读取收件人与收货地址");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dt[^>]*>收货人<\/dt><dd[^>]*>\{o\.delivery_recipient[\s\S]*<dt[^>]*>收货地址<\/dt><dd[^>]*>\{o\.delivery_address/, "仓库详情摘要应清晰显示收货人和收货地址");
-assert.match(read("components/stock-order-detail-view.tsx"), /整单实物进度[\s\S]*整单理货要求[\s\S]*客户与收货信息/, "备货详情顶部应按进度、理货要求、收货信息顺序显示三块摘要");
-assert.match(read("components/stock-order-detail-view.tsx"), /grid items-start gap-3 border-b p-5 lg:grid-cols-2/, "备货详情应将进度和理货要求合并在前，客户收货信息紧随其后");
+assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*货代收货[\s\S]*整单实物进度[\s\S]*整单理货要求/, "备货详情应先显示客户与货代收货信息，右侧显示实物进度和理货要求");
+assert.match(read("components/stock-order-detail-view.tsx"), /grid gap-3 border-b p-4 lg:grid-cols-2/, "备货详情顶部两栏应并排对齐且保持紧凑");
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dl className="grid grid-cols-2[\s\S]*className="col-span-2 min-w-0"/, "收货资料应紧凑分列，长地址跨列显示");
-assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 p-4[\s\S]*border-l-amber-400 text-amber-900/, "整单理货要求应使用橙色强调文字及边框，而非整块黄色底色");
+assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 px-4 py-3[\s\S]*border-l-amber-400 text-amber-900/, "整单理货要求应紧凑展示并使用橙色边框强调");
 assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\s\S]*border-r border-slate-100 px-2 py-2[\s\S]*<br\/>交货代[\s\S]*<td className="px-3 py-2">/, "单项进度数量摘要不得不换行溢出并覆盖理货要求列");
-assert.match(read("components/stock-progress-cell.tsx"), /wide \? \{ gridTemplateColumns: "repeat\(auto-fit,minmax\(95px,1fr\)\)" \}[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "列表同排五阶段，详情按可用宽度完整显示五阶段");
+assert.match(read("components/stock-progress-cell.tsx"), /flex h-1\.5 overflow-hidden rounded-full[\s\S]*wide \? \{ gridTemplateColumns: "repeat\(auto-fit,minmax\(90px,1fr\)\)" \}[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "列表与详情进度条应同样纤细，详情按可用宽度完整显示五阶段");
 assert.match(read("components/stock-progress-cell.tsx"), /wide \? "w-full min-w-0"[\s\S]*STOCK_BUCKETS\.map/, "详情进度卡不可通过横向滚动隐藏阶段");
 assert.match(read("tailwind.config.ts"), /\.\/lib\/stock-progress\.ts/, "构建时须扫描状态颜色定义，否则进度条和图例会缺色");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
@@ -75,8 +75,11 @@ assert.match(read("app/api/stock-orders/[id]/export/route.ts"), /salesperson: or
 assert.match(read("app/api/stock-orders/route.ts"), /salesperson: detail\.salesperson \|\| salesOwnerById\.get\(detail\.sales_user_id\) \|\| null/, "批量备货导出须补齐销售员姓名");
 assert.match(read("components/ui/app-pagination.tsx"), /STANDARD_PAGE_SIZES = \[10, 20, 50, 100, 300, 500\]/, "全站列表分页选项应使用20而非30");
 const orderDetailView = read("components/order-detail-view.tsx");
+assert.match(orderDetailView, /<header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">/, "PI标题与状态标签应垂直居中对齐且保持紧凑");
 assert.match(orderDetailView, /公司税号（本单）：\{o\.customer_tax_number_snapshot\?\.trim\(\) \|\| "历史未留存"\}/, "PI详情应显示本单公司税号快照，历史空值不得回填现值");
 assert.match(orderDetailView, /xl:grid-cols-4[\s\S]*客户收货信息[\s\S]*货代收货信息[\s\S]*付款与汇率[\s\S]*费用明细/, "PI详情应以四个直观卡片展示收货及费用信息");
+assert.match(orderDetailView, /grid gap-3 px-5 py-3 sm:grid-cols-2 xl:grid-cols-4[\s\S]*StockProgressCell progress=\{data\.stock_order\.progress\}\/>/, "PI顶部摘要应紧凑且备货进度同列表一样显示五阶段");
+assert.doesNotMatch(orderDetailView, /查看费用明细 ↓/, "PI费用明细已在下排卡片显示，不应出现多余的锚点入口");
 assert.match(orderDetailView, /价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应只显示一次订单保存的双币种选项");
 assert.match(orderDetailView, /\.filter\(\(\[label, amount\]\) => label === "产品小计" \|\| amount !== 0\)/, "PI详情应隐藏金额为零的附加费用");
 for (const fee of ["subtotal", "shipping_cost", "last_balance_amount", "other_charge_amount", "discount_amount", "paypal_fee_amount", "total_amount"]) assert.match(orderDetailView, new RegExp(`o\\.${fee}`), `PI详情费用明细应包含 ${fee}`);
@@ -235,7 +238,7 @@ assert.match(read("components/order-print-preview.tsx"), /\[\["客户名称（�
 assert.match(orderListView, /<td className="max-w-\[144px\] px-3 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
-assert.match(progressCellView, /gridTemplateColumns: "repeat\(auto-fit,minmax\(95px,1fr\)\)"[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表与详情应完整显示阶段件数和百分比");
+assert.match(progressCellView, /gridTemplateColumns: "repeat\(auto-fit,minmax\(90px,1fr\)\)"[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表与详情应完整显示阶段件数和百分比");
 assert.match(progressCellView, /title=\{detail\}[\s\S]*aria-label=\{detail\}/, "紧凑进度条仍须为鼠标悬停和辅助技术保留阶段详情");
 assert.match(orderListApi, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"/, "PI列表必须能搜索销售与仓库共用的订单编号");
 for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockListApi]]) {
