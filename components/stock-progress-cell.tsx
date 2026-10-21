@@ -5,7 +5,7 @@ export function StockProgressCell({ progress, wide = false }: { progress: StockP
   const exceptional = ["DRAFT", "SHORTAGE", "CANCELLED"].includes(progress.status);
   const progressDetails = STOCK_BUCKETS.map((bucket) =>
     `${bucket.label}：${progress.buckets[bucket.key].units} 件（${progress.buckets[bucket.key].percent}%）`).join("；");
-  return <div className={wide ? "w-full min-w-0" : "min-w-[320px] max-w-[360px]"} aria-label={`备货共 ${progress.ordered_units} 件；${STOCK_BUCKETS.map((bucket) =>
+  return <div className="w-full min-w-0" aria-label={`备货共 ${progress.ordered_units} 件；${STOCK_BUCKETS.map((bucket) =>
     `${bucket.label} ${progress.buckets[bucket.key].units} 件，占 ${progress.buckets[bucket.key].percent}%`).join("；")}`}>
     {exceptional ? <p className="mb-1 text-xs font-medium text-rose-700">{progress.status === "DRAFT" ? "未提交仓库" : progress.status === "SHORTAGE" ? "存在缺货异常" : "已取消"} · 以下为已记录的实物进度</p> : null}
     <div className="min-w-0">

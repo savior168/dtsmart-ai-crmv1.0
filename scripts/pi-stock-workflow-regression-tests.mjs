@@ -41,7 +41,7 @@ assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信
 assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 px-4 py-3[\s\S]*border-l-amber-400 text-amber-900/, "整单理货要求应紧凑展示并使用橙色边框强调");
 assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\s\S]*border-r border-slate-100 px-2 py-2[\s\S]*<br\/>交货代[\s\S]*<td className="px-3 py-2">/, "单项进度数量摘要不得不换行溢出并覆盖理货要求列");
 assert.match(read("components/stock-progress-cell.tsx"), /flex h-1\.5 overflow-hidden rounded-full[\s\S]*gridTemplateColumns: wide \? "repeat\(auto-fit,minmax\(90px,1fr\)\)" : "repeat\(auto-fit,minmax\(64px,1fr\)\)"[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "列表与详情进度条应同样纤细且按卡片宽度自动换行");
-assert.match(read("components/stock-progress-cell.tsx"), /wide \? "w-full min-w-0"[\s\S]*STOCK_BUCKETS\.map/, "详情进度卡不可通过横向滚动隐藏阶段");
+assert.match(read("components/stock-progress-cell.tsx"), /return <div className="w-full min-w-0"[\s\S]*STOCK_BUCKETS\.map/, "所有进度卡都应遵守容器宽度，不得在窄屏横向越界");
 assert.match(read("tailwind.config.ts"), /\.\/lib\/stock-progress\.ts/, "构建时须扫描状态颜色定义，否则进度条和图例会缺色");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
 assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*理货中的产品按实际件数分别计入/, "筛选和进度说明应使用同一单项状态计算口径");
