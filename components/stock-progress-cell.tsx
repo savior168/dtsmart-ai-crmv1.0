@@ -18,7 +18,7 @@ export function StockProgressCell({ progress, wide = false }: { progress: StockP
             style={{ width: `${value.percent}%` }} title={detail} aria-label={detail}/>;
         })}
       </div>
-      <div className={`grid gap-1 text-[10px] leading-4 text-slate-700 ${wide ? "mt-2 grid-cols-2" : "mt-1 grid-cols-5"}`}>
+      <div className={`grid gap-1 text-[10px] leading-4 text-slate-700 ${wide ? "mt-2" : "mt-1 grid-cols-5"}`} style={wide ? { gridTemplateColumns: "repeat(auto-fit,minmax(95px,1fr))" } : undefined}>
         {STOCK_BUCKETS.map((bucket) => {
           const value = progress.buckets[bucket.key];
           return <span key={bucket.key} title={`${bucket.label}：${value.units}件 · ${value.percent}%`} className={wide ? "min-w-0 rounded-md bg-slate-50 px-1 py-1" : "min-w-0 px-0.5"}>
