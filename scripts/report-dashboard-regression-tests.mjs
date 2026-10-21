@@ -72,9 +72,10 @@ assert.match(operationsOverview, /!report \? <div className="grid gap-4 lg:grid-
 assert.match(dashboardApi, /\["SALES", "SUPERVISOR", "ADMIN"\]\.includes\(account\.role\) && hasPermission\(account, "stock\.view"\)/, "有备货查看权限的销售员、主管与管理员展示PI备货进度");
 assert.match(dashboardApi, /requestedOwnerId\(request, account, "stock\.data_all"\)[\s\S]*stock_orders_with_pi_preparer[\s\S]*\.eq\("sales_user_id", stockOwnerId\)/, "PI备货动态必须按备货数据权限限制归属范围");
 assert.match(dashboardApi, /loadStockProgressItems\(supabase,[\s\S]*summarizeStockProgress\(row\.status/, "PI备货动态须从可见实物明细计算真实进度");
-assert.match(dashboard, /stockProgress\) return <article className=\{`\$\{panelClass\} order-1 self-start overflow-hidden`\}/, "PI备货速览应在左侧紧凑展示");
+assert.match(dashboard, /stockProgress\) return <article className=\{`\$\{panelClass\} order-1 overflow-hidden`\}/, "PI备货速览应在左侧展示并与右侧卡片等高");
+assert.match(dashboard, /data\.activities\.slice\(0, 5\)[\s\S]*py-1\.5 text-xs[\s\S]*min-w-0 flex-1 truncate/, "PI速览最多展示五条紧凑单行摘要");
 assert.match(dashboardApi, /\.order\("pi_updated_at", \{ ascending: false \}\)/, "PI备货速览须按PI最近更新时间倒序展示");
-assert.match(dashboard, /flex h-2 overflow-hidden rounded-full[\s\S]*progress\.buckets\[bucket\.key\][\s\S]*progress\?\.received_units[\s\S]*progress\?\.shipped_units/, "工作台备货进度应使用轻量细条和文字件数摘要");
+assert.match(dashboard, /flex h-1\.5 overflow-hidden rounded-full[\s\S]*progress\.buckets\[bucket\.key\][\s\S]*progress\?\.received_units[\s\S]*progress\?\.shipped_units/, "工作台备货进度应使用轻量细条和文字件数摘要");
 assert.match(dashboardApi, /\["SALES", "SUPERVISOR", "ADMIN"\][\s\S]*hasPermission\(account, "stock\.view"\)/, "管理员也应在授权范围看到PI备货速览");
 for (const page of [dashboard, reports, operationsOverview]) assert.match(page, /crm-data-interactions/, "工作台和报表中心须启用一致的可点击数据反馈");
 assert.match(globalStyles, /crm-data-interactions a\[href\]:is\(\.rounded-xl,\.rounded-lg\):hover[\s\S]*translateY/, "数据卡片须有轻微上浮反馈");
