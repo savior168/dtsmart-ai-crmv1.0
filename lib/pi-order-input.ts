@@ -53,17 +53,26 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   if (!customerId || !paymentAccountId) throw new Error("请选择客户和收款账户");
   if (!warehouseReferenceNumber || warehouseReferenceNumber.length > 80) throw new Error("请填写80字以内的订单编号");
   const deliveryFields = [body.delivery_recipient, body.delivery_phone, body.delivery_email, body.delivery_address];
-  if (deliveryFields.some((value) => typeof value !== "string" || !value.trim())) throw new Error("收货人、电话、邮箱和收货地址均为必填项");
-  const [deliveryRecipient, deliveryPhone, deliveryEmail, deliveryAddress] = deliveryFields as string[];
+  if (deliveryFields.some((value) => value !== undefined && typeof value !== "string")) throw new Error("收货信息格式不正确");
+  const [deliveryRecipient, deliveryPhone, deliveryEmail, deliveryAddress] = deliveryFields.map((value) => String(value || "").trim());
+  const hasDelivery = deliveryFields.some((value) => String(value || "").trim());
+  if (hasDelivery && (!deliveryRecipient || !deliveryPhone || !deliveryAddress)) throw new Error("添加客户收货信息后，收货人、电话和收货地址均为必填项");
   if (deliveryRecipient.trim().length > 200 || deliveryPhone.trim().length > 100 || deliveryEmail.trim().length > 200 || deliveryAddress.trim().length > 1000) {
     throw new Error("收货信息超出允许长度，请核对后重试");
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deliveryEmail.trim())) throw new Error("请输入有效的收货邮箱地址");
-  const normalizedDeliveryPhone = normalizeManualPhone(deliveryPhone, "收货人电话");
+  if (deliveryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deliveryEmail)) throw new Error("请输入有效的收货邮箱地址");
+  const normalizedDeliveryPhone = hasDelivery ? normalizeManualPhone(deliveryPhone, "收货人电话") : "";
   const phoneDigits = normalizedDeliveryPhone.replace(/\D/g, "");
-  if (phoneDigits.length < 7 || phoneDigits.length > 15 || /^(\d)\1+$/.test(phoneDigits)) throw new Error("收货人电话须为有效的 7 至 15 位号码");
-  const forwarderAddress = body.forwarder_address === undefined ? "" : body.forwarder_address;
-  if (typeof forwarderAddress !== "string" || forwarderAddress.trim().length > 500) throw new Error("货代地址格式不正确");
+  if (hasDelivery && (phoneDigits.length < 7 || phoneDigits.length > 15 || /^(\d)\1+$/.test(phoneDigits))) throw new Error("收货人电话须为有效的 7 至 15 位号码");
+  const forwarderFields = [body.forwarder_recipient, body.forwarder_phone, body.forwarder_address];
+  if (forwarderFields.some((value) => value !== undefined && typeof value !== "string")) throw new Error("货代收货信息格式不正确");
+  const [forwarderRecipient, forwarderPhone, forwarderAddress] = forwarderFields.map((value) => String(value || "").trim());
+  const hasForwarder = forwarderFields.some((value) => String(value || "").trim());
+  if (hasForwarder && (!forwarderRecipient || !forwarderPhone || !forwarderAddress)) throw new Error("添加货代收货信息后，收货人、电话和收货地址均为必填项");
+  if (forwarderRecipient.length > 200 || forwarderPhone.length > 100 || forwarderAddress.length > 500) throw new Error("货代收货信息超出允许长度");
+  const normalizedForwarderPhone = hasForwarder ? normalizeManualPhone(forwarderPhone, "货代收货人电话") : "";
+  const forwarderPhoneDigits = normalizedForwarderPhone.replace(/\D/g, "");
+  if (hasForwarder && (forwarderPhoneDigits.length < 7 || forwarderPhoneDigits.length > 15 || /^(\d)\1+$/.test(forwarderPhoneDigits))) throw new Error("货代收货人电话须为有效的 7 至 15 位号码");
   const fees = parsePiFees(body.fees, String(body.payment_method || ""));
   return {
     p_customer_id: customerId,
@@ -81,7 +90,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     p_delivery_address: deliveryAddress.trim(),
     p_stocking_requirements: String(body.stocking_requirements || "").trim().slice(0, 2000) || "常规理货",
     p_items: items,
-    p_fees: { ...fees, forwarder_address: forwarderAddress.trim() },
+    p_fees: { ...fees, forwarder_address: forwarderAddress, forwarder_recipient: forwarderRecipient, forwarder_phone: normalizedForwarderPhone },
   };
 }
 

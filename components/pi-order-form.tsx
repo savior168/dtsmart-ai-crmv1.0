@@ -52,7 +52,7 @@ export function PiDeliveryAddressField({ value, options, onChange }: { value: st
   return <div className="text-sm">
     <label htmlFor="pi-delivery-address">收货地址<Required /></label>
     <div ref={containerRef} className="relative mt-1">
-      <input id="pi-delivery-address" className={`${field} ${options.length ? "pr-11" : ""}`} required readOnly={options.length > 1} maxLength={1000}
+      <textarea id="pi-delivery-address" className={`${field} min-h-20 resize-y py-2 ${options.length ? "pr-11" : ""}`} required rows={2} maxLength={1000}
         value={value} onChange={(event) => onChange(event.target.value)} placeholder="输入或选择收货地址" />
       {options.length > 0 ? <button type="button" aria-label="选择客户收货地址" aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -107,7 +107,11 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
+  const [useCustomerDelivery, setUseCustomerDelivery] = useState(false);
+  const [useForwarderDelivery, setUseForwarderDelivery] = useState(false);
   const [forwarderAddress, setForwarderAddress] = useState("");
+  const [forwarderRecipient, setForwarderRecipient] = useState("");
+  const [forwarderPhone, setForwarderPhone] = useState("");
   const [stockingRequirements, setStockingRequirements] = useState("");
   const [changeNote, setChangeNote] = useState("");
   const [initialChangeNote, setInitialChangeNote] = useState("");
@@ -141,7 +145,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const selectedShippingContacts = displayShippingContacts(selectedCustomer?.shipping_contact_entries, selectedShippingAddresses);
   const selectedForwarderAddresses = displayAddressList(selectedCustomer?.forwarder_addresses, null);
   const selectedForwarderContacts = displayShippingContacts(selectedCustomer?.forwarder_contact_entries, selectedForwarderAddresses);
-  const selectedForwarderContact = selectedForwarderContacts.find((entry) => entry.address === forwarderAddress);
   const totals = useMemo(() => {
     const subtotalCny = roundMoney(items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price_cny || 0)), 0));
     const subtotalPayment = roundMoney(items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price_payment || 0)), 0));
@@ -247,15 +250,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       const exact = initialCustomerId ? listed.find((item) => item.id === initialCustomerId) : null;
       setCustomers(listed);
       if (initialCustomerId && !exact && !draftOrderId && !clerk) { setCustomerId(""); setError("该客户当前不归属您，不能为其创建PI订单"); }
-      if (exact) {
-        const addresses = displayAddressList(exact.shipping_addresses, exact.shipping_address);
-        const chosen = addresses.length === 1 ? displayShippingContacts(exact.shipping_contact_entries, addresses)[0] : null;
-        setRecipient(chosen?.recipient || (addresses.length > 1 ? "" : exact.contact_name?.trim() || ""));
-        setPhone(chosen?.phone || (addresses.length > 1 ? "" : exact.phone || ""));
-        setEmail(exact.email || ""); setAddress(chosen?.address || "");
-        const forwarders = displayAddressList(exact.forwarder_addresses, null);
-        setForwarderAddress(forwarders.length === 1 ? forwarders[0] : "");
-      }
       setAccounts(accountBody.data || []);
       if (ratesResponse.ok) {
         setExchangeRates(ratesBody.rates || []);
@@ -287,10 +281,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setPhone(source.delivery_phone);
         setEmail(source.delivery_email);
         setAddress(source.delivery_address);
-        if (exactCustomerMatches.length === 1) {
-          const forwarders = displayAddressList(exactCustomerMatches[0].forwarder_addresses, null);
-          setForwarderAddress(forwarders.length === 1 ? forwarders[0] : "");
-        }
+        setUseCustomerDelivery(Boolean(source.delivery_recipient || source.delivery_phone || source.delivery_address));
         if (source.stocking_requirements) setStockingRequirements(source.stocking_requirements);
         if (source.show_dual_currency_prices) setShowDualCurrencyPrices(true);
         if (source.paypal_rate_percent !== undefined) setPaypalRateInput(String(source.paypal_rate_percent));
@@ -333,12 +324,15 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         else if (storedMethod) { setPaymentMethod("OTHER"); setCustomPaymentMethod(storedMethod); }
         setValidUntil(order.pi_valid_until || "");
         setDeliveryDate(order.delivery_date || "");
-        const draftCustomer = listed.find((item) => item.id === order.customer_id);
-        setRecipient(order.delivery_recipient || draftCustomer?.contact_name?.trim() || "");
+        setRecipient(order.delivery_recipient || "");
         setPhone(order.delivery_phone || "");
         setEmail(order.delivery_email || "");
         setAddress(order.delivery_address || "");
         setForwarderAddress(order.forwarder_address || "");
+        setForwarderRecipient(order.forwarder_recipient || "");
+        setForwarderPhone(order.forwarder_phone || "");
+        setUseCustomerDelivery(Boolean(order.delivery_recipient || order.delivery_phone || order.delivery_address));
+        setUseForwarderDelivery(Boolean(order.forwarder_address));
         setStockingRequirements(draftBody.stocking_requirements || "");
         setChangeNote(draftBody.order.confirmation_note || "");
         setInitialChangeNote(draftBody.order.confirmation_note || "");
@@ -366,23 +360,18 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     setCustomerId(id);
     setShowCustomerTally(false);
     setTallyCopyMessage("");
+    setUseCustomerDelivery(false);
+    setUseForwarderDelivery(false);
     const customer = customers.find((item) => item.id === id);
     if (!customer) {
       setRecipient("");
       setPhone("");
       setEmail("");
       setAddress("");
-      setForwarderAddress("");
+      setForwarderAddress(""); setForwarderRecipient(""); setForwarderPhone("");
       return;
     }
-    const addresses = displayAddressList(customer.shipping_addresses, customer.shipping_address);
-    const chosen = addresses.length === 1 ? displayShippingContacts(customer.shipping_contact_entries, addresses)[0] : null;
-    setRecipient(chosen?.recipient || (addresses.length > 1 ? "" : customer.contact_name?.trim() || ""));
-    setPhone(chosen?.phone || (addresses.length > 1 ? "" : customer.phone || ""));
-    setEmail(customer.email || "");
-    setAddress(chosen?.address || "");
-    const forwarders = displayAddressList(customer.forwarder_addresses, null);
-    setForwarderAddress(forwarders.length === 1 ? forwarders[0] : "");
+    setRecipient(""); setPhone(""); setEmail(""); setAddress(""); setForwarderAddress(""); setForwarderRecipient(""); setForwarderPhone("");
   }
   async function chooseSalesperson(id: string) {
     if (id === salesUserId) return;
@@ -392,7 +381,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     setSalesScopeReady(false);
     setCustomerId("");
     setCustomers([]);
-    setRecipient(""); setPhone(""); setEmail(""); setAddress(""); setForwarderAddress("");
+    setRecipient(""); setPhone(""); setEmail(""); setAddress(""); setForwarderAddress(""); setForwarderRecipient(""); setForwarderPhone("");
+    setUseCustomerDelivery(false); setUseForwarderDelivery(false);
     setError("");
     if (!id) return;
     try {
@@ -524,12 +514,9 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         paymentMethod === "PayPal" && !/^\d+(?:\.\d{1,4})?$/.test(paypalRateInput) || !feeCalculation.value) {
       setError(feeCalculation.error || "请核对附加费用和PayPal手续费百分比"); return;
     }
-    if (!recipient.trim() || !phone.trim() || !email.trim() || !address.trim()) {
-      setError("请填写收货人、电话、邮箱和收货地址；这四项是PI收货必填信息"); return;
-    }
-    if (!draftOrderId && selectedShippingAddresses.length > 1 && !selectedShippingAddresses.includes(address)) { setError("请从客户档案中选择本单收货地址"); return; }
-    if (selectedForwarderAddresses.length && !forwarderAddress) { setError("请选择本单货代地址"); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError("请输入有效的收货邮箱地址"); return; }
+    if (useCustomerDelivery && (!recipient.trim() || !phone.trim() || !address.trim())) { setError("启用客户收货信息后，请填写收货人、电话和收货地址"); return; }
+    if (useCustomerDelivery && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError("请输入有效的收货邮箱地址"); return; }
+    if (useForwarderDelivery && (!forwarderRecipient.trim() || !forwarderPhone.trim() || !forwarderAddress.trim())) { setError("启用货代收货信息后，请填写收货人、电话和收货地址"); return; }
     const invalidRow = items.findIndex((item) => !item.item_name.trim() || !item.brand.trim() || !item.model.trim() || !item.quality.trim() || !validPiQuantity(item.quantity) || !validPiMoney(item.unit_price_cny) || !validPiMoney(item.unit_price_payment) || !validPiMoney(item.estimated_unit_cost_cny));
     if (invalidRow >= 0) {
       setError(`第${invalidRow + 1}行请填写产品、品牌、型号、质量、正整数数量，以及最多两位小数的非负人民币成本和售价`); return;
@@ -547,7 +534,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         method: draftOrderId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer_id: customerId, sales_user_id: isClerk ? salesUserId : undefined, warehouse_reference_number: warehouseReferenceNumber.trim(), currency, fx_rate_cny_to_payment: effectiveRate, shipping_cny: shippingCny, fees: feeInput,
           payment_method: chosenPaymentMethod, payment_account_id: accountId, valid_until: validUntil, delivery_date: deliveryDate,
-          delivery_recipient: recipient, delivery_phone: phone, delivery_email: email, delivery_address: address, forwarder_address: forwarderAddress,
+          delivery_recipient: useCustomerDelivery ? recipient : "", delivery_phone: useCustomerDelivery ? phone : "", delivery_email: useCustomerDelivery ? email : "", delivery_address: useCustomerDelivery ? address : "", forwarder_address: useForwarderDelivery ? forwarderAddress : "", forwarder_recipient: useForwarderDelivery ? forwarderRecipient : "", forwarder_phone: useForwarderDelivery ? forwarderPhone : "",
           stocking_requirements: stockingRequirements, items: items.map((item) => ({ ...item, quantity: Number(item.quantity), unit_price_cny: Number(item.unit_price_cny), unit_price_payment: Number(item.unit_price_payment), estimated_unit_cost_cny: Number(item.estimated_unit_cost_cny) })), revision,
           import_revision: importRevision, acknowledge_differences: acknowledgeDifferences }),
       });
@@ -608,16 +595,16 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <div className="text-sm"><label>付款渠道<Required /><AppSelect className={field} value={paymentMethod} onChange={(event) => { if (event.target.value !== paymentMethod) { markUnsaved(); setAccountId(""); } setPaymentMethod(event.target.value); }}>{PI_PAYMENT_CHANNELS.map((method) => <option key={method} value={method}>{method}</option>)}<option value="OTHER">其他渠道（手工填写）</option></AppSelect></label>{paymentMethod === "OTHER" ? <input aria-label="其他付款渠道" className={`${field} mt-2`} maxLength={300} value={customPaymentMethod} onChange={(event) => setCustomPaymentMethod(event.target.value)} placeholder="填写实际收款渠道" /> : null}</div>
       <div className="text-sm"><label>收款账户<Required /><AppSelect className={field} aria-label="选择PI收款账户" placeholderValue="" value={availableAccounts.some((account) => account.id === accountId) ? accountId : ""} onChange={(event) => { if (event.target.value !== accountId) markUnsaved(); setAccountId(event.target.value); }}><option value="">{availableAccounts.length ? "请选择此渠道的收款账户" : "该付款渠道暂无启用的收款账户"}</option>{availableAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}</AppSelect></label>{selectedAccount && availableAccounts.some((account) => account.id === accountId) ? <button type="button" onClick={() => setShowAccountDetails(true)} className="mt-1 text-xs font-medium text-blue-700 underline">查看账户详情</button> : null}{!availableAccounts.length ? <span className="mt-1 block text-xs text-amber-700">{canManageAccounts ? <><Link href="/settings/pi-payment-accounts" className="underline">先为此付款渠道配置并启用收款账户</Link>，再返回创建PI。</> : "请联系系统管理员为此付款渠道配置并启用收款账户。"}</span> : null}</div>
     </div></section>
-    <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">客户及货代收货信息</h2><div className="grid gap-4 xl:grid-cols-2">
-      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><h3 className="mb-1 text-sm font-semibold">客户收货信息</h3><p className="mb-3 text-xs text-slate-500">从客户资料选一条，也可为本单填写；保存后固定在 PI 中。</p><div className="grid gap-3 sm:grid-cols-2">
+    <section className="border-b border-slate-100 p-5"><h2 className="mb-1 font-semibold">客户及货代收货信息（选填）</h2><p className="mb-4 text-xs text-slate-500">默认不添加；按本单需要勾选，保存后作为 PI 快照。</p><div className="grid items-stretch gap-4 xl:grid-cols-2">
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><label className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={useCustomerDelivery} onChange={(event) => { markUnsaved(); setUseCustomerDelivery(event.target.checked); if (event.target.checked) { const chosen = selectedShippingContacts.length === 1 ? selectedShippingContacts[0] : null; setRecipient(chosen?.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(chosen?.phone || selectedCustomer?.phone || ""); setEmail(selectedCustomer?.email || ""); setAddress(chosen?.address || ""); } else { setRecipient(""); setPhone(""); setEmail(""); setAddress(""); } }} />添加客户收货信息</label>{useCustomerDelivery ? <><p className="mb-3 mt-2 text-xs text-slate-500">从客户资料带出后可为本单调整；不会修改客户资料。</p><div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">收货人<Required /><input className={field} required maxLength={200} value={recipient} onChange={(event) => setRecipient(event.target.value)} /></label>
         <label className="text-sm">电话<Required /><input className={field} type="tel" required maxLength={100} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
-        <label className="text-sm">邮箱<Required /><input className={field} type="email" required maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <PiDeliveryAddressField value={address} options={selectedShippingAddresses} onChange={(value) => { markUnsaved(); setAddress(value); const selected = selectedShippingContacts.find((entry) => entry.address === value); if (selected) { setRecipient(selected.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(selected.phone || selectedCustomer?.phone || ""); } }} />
-      </div></div>
-      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><h3 className="mb-1 text-sm font-semibold">货代收货信息</h3><p className="mb-3 text-xs text-slate-500">从客户资料选一条；无货代信息时可留空。</p>
-        <label className="text-sm">选择货代收货信息{selectedForwarderAddresses.length ? <Required /> : null}<AppSelect className={field} value={forwarderAddress} onChange={(event) => { markUnsaved(); setForwarderAddress(event.target.value); }}><option value="">{selectedForwarderAddresses.length ? "请选择客户资料中的货代收货信息" : "未填写（客户资料无货代收货信息）"}</option>{selectedForwarderAddresses.map((item, index) => <option key={`${index}-${item}`} value={item}>货代收货信息{index + 1} · {item}</option>)}{forwarderAddress && !selectedForwarderAddresses.includes(forwarderAddress) ? <option value={forwarderAddress}>历史单据快照 · {forwarderAddress}</option> : null}</AppSelect></label>
-        {forwarderAddress ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm">收货人<input className={`${field} bg-white`} value={selectedForwarderContact?.recipient || ""} readOnly placeholder="客户资料未维护" /></label><label className="text-sm">电话<input className={`${field} bg-white`} value={selectedForwarderContact?.phone || ""} readOnly placeholder="客户资料未维护" /></label><label className="text-sm sm:col-span-2">收货地址<textarea className={`${field} min-h-20 resize-none bg-white`} value={forwarderAddress} readOnly rows={2} /></label></div> : <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-sm text-slate-500">本单不使用货代收货信息</p>}
+        <label className="text-sm sm:col-span-2">邮箱（选填）<input className={field} type="email" maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <div className="sm:col-span-2"><PiDeliveryAddressField value={address} options={selectedShippingAddresses} onChange={(value) => { markUnsaved(); setAddress(value); const selected = selectedShippingContacts.find((entry) => entry.address === value); if (selected) { setRecipient(selected.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(selected.phone || selectedCustomer?.phone || ""); } }} /></div>
+      </div></> : <p className="mt-2 text-xs text-slate-500">本单不使用客户收货信息</p>}</div>
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><label className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={useForwarderDelivery} onChange={(event) => { markUnsaved(); setUseForwarderDelivery(event.target.checked); if (event.target.checked && selectedForwarderContacts.length === 1) { setForwarderAddress(selectedForwarderContacts[0].address); setForwarderRecipient(selectedForwarderContacts[0].recipient); setForwarderPhone(selectedForwarderContacts[0].phone); } else if (!event.target.checked) { setForwarderAddress(""); setForwarderRecipient(""); setForwarderPhone(""); } }} />添加货代收货信息</label>{useForwarderDelivery ? <><p className="mb-3 mt-2 text-xs text-slate-500">从客户资料带出后可为本单调整；不会修改客户资料。</p>
+        {selectedForwarderAddresses.length ? <label className="text-sm">从客户资料选择<AppSelect className={field} value={selectedForwarderAddresses.includes(forwarderAddress) ? forwarderAddress : ""} onChange={(event) => { markUnsaved(); const selected = selectedForwarderContacts.find((entry) => entry.address === event.target.value); setForwarderAddress(selected?.address || ""); setForwarderRecipient(selected?.recipient || ""); setForwarderPhone(selected?.phone || ""); }}><option value="">自行填写</option>{selectedForwarderAddresses.map((item, index) => <option key={`${index}-${item}`} value={item}>货代收货信息{index + 1} · {item}</option>)}</AppSelect></label> : null}
+        <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm">收货人<Required /><input className={field} required maxLength={200} value={forwarderRecipient} onChange={(event) => { markUnsaved(); setForwarderRecipient(event.target.value); }} /></label><label className="text-sm">电话<Required /><input className={field} type="tel" required maxLength={100} value={forwarderPhone} onChange={(event) => { markUnsaved(); setForwarderPhone(event.target.value); }} /></label><label className="text-sm sm:col-span-2">收货地址<Required /><textarea className={`${field} min-h-20 resize-y py-2`} required maxLength={500} value={forwarderAddress} onChange={(event) => { markUnsaved(); setForwarderAddress(event.target.value); }} rows={2} /></label></div></> : <p className="mt-2 text-xs text-slate-500">本单不使用货代收货信息</p>}
       </div>
     </div></section>
     <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">销售单价可任选 CNY 或{currency ? ` ${currency}` : "付款币种"}录入，另一币种自动换算；成本和利润按 CNY 核算。表格可横向滚动。</p>{currency !== "CNY" ? <label className={`mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${showDualCurrencyPrices ? "border-blue-400 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} title="勾选后，PI预览、打印、PDF 和 Excel 的单价、产品金额及费用汇总同时显示人民币及付款币种；录入表格始终显示两种币种"><input type="checkbox" className="accent-blue-600" checked={showDualCurrencyPrices} onChange={(event) => { markUnsaved(); setShowDualCurrencyPrices(event.target.checked); }} />单据价格显示人民币 + {currency || "付款币种"}<span className="font-normal text-slate-500">（默认仅显示{currency || "付款币种"}）</span></label> : null}</div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
