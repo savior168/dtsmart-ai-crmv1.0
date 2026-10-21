@@ -43,6 +43,7 @@ assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\
 assert.match(read("components/stock-progress-cell.tsx"), /flex h-1 overflow-hidden rounded-full[\s\S]*overflow-x-auto[\s\S]*min-w-\[320px\] grid-cols-5[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "列表与详情的五个进度阶段应保持同一行，窄屏仅在图例内部横向滚动");
 assert.match(read("components/orders-view.tsx"), /min-w-\[352px\][^>]*>备货进度[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表应为五阶段进度保留足够宽度");
 assert.match(read("components/stock-orders-view.tsx"), /min-w-\[352px\][^>]*>备货进度[\s\S]*<StockProgressCell progress=\{row\.progress\}\/>/, "备货单列表应为五阶段进度保留足够宽度");
+assert.match(read("components/order-detail-view.tsx"), /grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4/, "手机端 PI 摘要卡片应允许缩入页面宽度");
 assert.match(read("components/stock-progress-cell.tsx"), /return <div className="w-full min-w-0"[\s\S]*STOCK_BUCKETS\.map/, "所有进度卡都应遵守容器宽度，不得在窄屏横向越界");
 assert.match(read("tailwind.config.ts"), /\.\/lib\/stock-progress\.ts/, "构建时须扫描状态颜色定义，否则进度条和图例会缺色");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
@@ -80,7 +81,7 @@ const orderDetailView = read("components/order-detail-view.tsx");
 assert.match(orderDetailView, /<header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">/, "PI标题与状态标签应垂直居中对齐且保持紧凑");
 assert.match(orderDetailView, /公司税号（本单）：\{o\.customer_tax_number_snapshot\?\.trim\(\) \|\| "历史未留存"\}/, "PI详情应显示本单公司税号快照，历史空值不得回填现值");
 assert.match(orderDetailView, /xl:grid-cols-4[\s\S]*客户收货信息[\s\S]*货代收货信息[\s\S]*付款与汇率[\s\S]*费用明细/, "PI详情应以四个直观卡片展示收货及费用信息");
-assert.match(orderDetailView, /grid gap-3 px-5 py-3 sm:grid-cols-2 xl:grid-cols-4[\s\S]*StockProgressCell progress=\{data\.stock_order\.progress\}\/>/, "PI顶部摘要应紧凑且备货进度同列表一样显示五阶段");
+assert.match(orderDetailView, /grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4[\s\S]*StockProgressCell progress=\{data\.stock_order\.progress\}\/>/, "PI顶部摘要应紧凑且备货进度同列表一样显示五阶段");
 assert.doesNotMatch(orderDetailView, /查看费用明细 ↓/, "PI费用明细已在下排卡片显示，不应出现多余的锚点入口");
 assert.match(orderDetailView, /价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应只显示一次订单保存的双币种选项");
 assert.match(orderDetailView, /\.filter\(\(\[label, amount\]\) => label === "产品小计" \|\| amount !== 0\)/, "PI详情应隐藏金额为零的附加费用");
