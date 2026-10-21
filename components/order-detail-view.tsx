@@ -12,16 +12,15 @@ import { StockProgressCell } from "@/components/stock-progress-cell";
 import type { StockProgress } from "@/lib/stock-progress";
 import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
 
-function PiInternalTextCell({ text, fallback, label, lineNumber, onOpen }: {
+function PiInternalTextCell({ text, fallback, label, lineNumber }: {
   text: string | null; fallback: string; label: string; lineNumber: number;
-  onOpen: (title: string, content: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const content = text?.trim() || fallback;
-  return <td className="min-w-[180px] max-w-[260px] px-3 py-3">
-    <div className="flex min-w-0 items-start gap-2">
-      <span className="line-clamp-2 min-w-0 flex-1 break-words leading-5" title={content}>{content}</span>
-      {text?.trim() ? <button type="button" onClick={() => onOpen(`第 ${lineNumber} 项 · ${label}`, content)} className="shrink-0 whitespace-nowrap text-xs font-medium text-blue-700 hover:underline" aria-label={`查看第 ${lineNumber} 项完整${label}`}>查看全文</button> : null}
-    </div>
+  const canExpand = content.length > 48 || content.includes("\n");
+  return <td className="min-w-[180px] max-w-[260px] px-3 py-2 align-top">
+    <span className={`block min-w-0 leading-5 ${canExpand && !expanded ? "line-clamp-2 break-words" : "max-h-40 overflow-y-auto whitespace-pre-wrap break-words"}`} title={canExpand && !expanded ? content : undefined}>{content}</span>
+    {canExpand ? <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-label={`${expanded ? "收起" : "展开"}第 ${lineNumber} 项${label}`} className="mt-1 text-xs font-medium text-blue-700 hover:underline">{expanded ? "收起" : "展开"}</button> : null}
   </td>;
 }
 type Payload = {
@@ -144,7 +143,6 @@ export function OrderDetailView({ id }: { id: string }) {
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallReason, setRecallReason] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [expandedLineText, setExpandedLineText] = useState<{ title: string; content: string } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
@@ -311,7 +309,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     <td className="px-3 py-3 font-semibold">
                       {o.currency} {Number(i.amount).toFixed(2)}
                     </td>
-                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number} onOpen={(title, content) => setExpandedLineText({ title, content })}/><PiInternalTextCell text={i.internal_note} fallback="—" label="仓库备注" lineNumber={i.line_number} onOpen={(title, content) => setExpandedLineText({ title, content })}/></> : null}
+                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number}/><PiInternalTextCell text={i.internal_note} fallback="—" label="仓库备注" lineNumber={i.line_number}/></> : null}
                   </tr>
                 ))}
               </tbody>
@@ -385,9 +383,6 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
-        <AppDialog open={expandedLineText !== null} title={expandedLineText?.title || "逐项内容"} onClose={() => setExpandedLineText(null)} width="max-w-2xl">
-          <p className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-800">{expandedLineText?.content}</p>
-        </AppDialog>
         <AppDialog open={deleteOpen} title="删除未提交的PI草稿" description="仅从未提交过、也未生成备货单的草稿可删除；删除后无法恢复。" onClose={() => setDeleteOpen(false)} width="max-w-md">
           <p className="text-sm text-slate-700">确认删除 PI {o.order_number} 及其产品明细吗？</p>
           <form onSubmit={(event) => { event.preventDefault(); void deleteDraft(); }}><DialogActions busy={busy} onCancel={() => setDeleteOpen(false)} confirmLabel="确认删除草稿" tone="danger"/></form>

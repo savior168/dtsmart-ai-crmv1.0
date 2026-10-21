@@ -212,7 +212,8 @@ assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
 assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "仓库备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和仓库备注放在产品明细最后两列");
-assert.match(orderDetailView, /function PiInternalTextCell[\s\S]*line-clamp-2[\s\S]*查看全文[\s\S]*AppDialog open=\{expandedLineText !== null\}/, "逐项长内容应限制行高并可在弹窗查看全文");
+assert.match(orderDetailView, /function PiInternalTextCell[\s\S]*content\.length > 48[\s\S]*line-clamp-2[\s\S]*aria-expanded=\{expanded\}[\s\S]*\{expanded \? "收起" : "展开"\}/, "短内容应直接显示，长内容可在原单元格展开而不弹窗");
+assert.doesNotMatch(orderDetailView, /查看全文|expandedLineText/, "逐项备注不应在每行重复显示全文按钮或弹窗");
 assert.doesNotMatch(orderDetailView, /逐项理货要求与仓库备注/, "PI详情不应在产品表格后重复列出逐项内部要求");
 const piBatchActions = orderListView.split("批量导出 PI，已选")[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piBatchActions, /导出 Excel[\s\S]*导出 PDF/, "所选正式PI应在统一批量导出菜单提供Excel和PDF入口");
