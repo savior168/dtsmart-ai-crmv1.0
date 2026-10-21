@@ -35,13 +35,13 @@ assert.match(read("components/stock-order-detail-view.tsx"), /更正进度[\s\S]
 assert.match(read("app/api/stock-orders/[id]/route.ts"), /customer_short_name,destination_country,delivery_recipient,delivery_address/, "备货详情应从对应备货单快照读取收件人与收货地址");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dt[^>]*>收货人<\/dt><dd[^>]*>\{o\.delivery_recipient[\s\S]*<dt[^>]*>收货地址<\/dt><dd[^>]*>\{o\.delivery_address/, "仓库详情摘要应清晰显示收货人和收货地址");
 assert.match(read("components/stock-order-detail-view.tsx"), /整单实物进度[\s\S]*整单理货要求[\s\S]*客户与收货信息/, "备货详情顶部应按进度、理货要求、收货信息顺序显示三块摘要");
-assert.match(read("components/stock-order-detail-view.tsx"), /showStockProgress \? "xl:grid-cols-3"/, "备货详情三块摘要在大屏应等宽排列");
+assert.match(read("components/stock-order-detail-view.tsx"), /grid items-start gap-3 border-b p-5 lg:grid-cols-2/, "备货详情应将进度和理货要求合并在前，客户收货信息紧随其后");
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
 assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dl className="grid grid-cols-2[\s\S]*className="col-span-2 min-w-0"/, "收货资料应紧凑分列，长地址跨列显示");
-assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 border-l-amber-400 bg-white text-amber-900/, "整单理货要求应使用橙色强调文字及边框，而非整块黄色底色");
+assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 p-4[\s\S]*border-l-amber-400 text-amber-900/, "整单理货要求应使用橙色强调文字及边框，而非整块黄色底色");
 assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\s\S]*border-r border-slate-100 px-2 py-2[\s\S]*<br\/>交货代[\s\S]*<td className="px-3 py-2">/, "单项进度数量摘要不得不换行溢出并覆盖理货要求列");
-assert.match(read("components/stock-progress-cell.tsx"), /grid grid-cols-5 gap-1[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "PI、备货单列表和详情应在同一行显示五个阶段的件数和百分比");
-assert.match(read("components/stock-progress-cell.tsx"), /overflow-x-auto[\s\S]*min-w-\[390px\][\s\S]*bucket\.color/, "窄屏应保留可横向查看的完整五阶段颜色图例");
+assert.match(read("components/stock-progress-cell.tsx"), /wide \? "mt-2 grid-cols-2" : "mt-1 grid-cols-5"[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "列表同排五阶段，详情窄卡应换行完整显示五阶段");
+assert.match(read("components/stock-progress-cell.tsx"), /wide \? "w-full min-w-0"[\s\S]*STOCK_BUCKETS\.map/, "详情进度卡不可通过横向滚动隐藏阶段");
 assert.match(read("tailwind.config.ts"), /\.\/lib\/stock-progress\.ts/, "构建时须扫描状态颜色定义，否则进度条和图例会缺色");
 assert.match(read("lib/stock-progress.ts"), /PARTIAL_RECEIPT", label: "部分回货"[\s\S]*stockItemProgressKey/, "单项部分回货必须是独立状态而非与采购中混合");
 assert.match(read("components/stock-order-detail-view.tsx"), /stockItemProgressKey\(item\)[\s\S]*理货中的产品按实际件数分别计入/, "筛选和进度说明应使用同一单项状态计算口径");
@@ -75,7 +75,7 @@ assert.match(read("app/api/stock-orders/[id]/export/route.ts"), /salesperson: or
 assert.match(read("app/api/stock-orders/route.ts"), /salesperson: detail\.salesperson \|\| salesOwnerById\.get\(detail\.sales_user_id\) \|\| null/, "批量备货导出须补齐销售员姓名");
 assert.match(read("components/ui/app-pagination.tsx"), /STANDARD_PAGE_SIZES = \[10, 20, 50, 100, 300, 500\]/, "全站列表分页选项应使用20而非30");
 const orderDetailView = read("components/order-detail-view.tsx");
-assert.match(orderDetailView, /公司税号：\{o\.customer\?\.tax_number\?\.trim\(\) \|\| "未填写"\}/, "PI详情应显示客户公司税号及空值状态");
+assert.match(orderDetailView, /公司税号（本单）：\{o\.customer_tax_number_snapshot\?\.trim\(\) \|\| "历史未留存"\}/, "PI详情应显示本单公司税号快照，历史空值不得回填现值");
 assert.match(orderDetailView, /xl:grid-cols-4[\s\S]*客户收货信息[\s\S]*货代收货信息[\s\S]*付款与汇率[\s\S]*费用明细/, "PI详情应以四个直观卡片展示收货及费用信息");
 assert.match(orderDetailView, /价格展示：\{o\.show_dual_currency_prices === true \?/, "PI详情应只显示一次订单保存的双币种选项");
 assert.match(orderDetailView, /\.filter\(\(\[label, amount\]\) => label === "产品小计" \|\| amount !== 0\)/, "PI详情应隐藏金额为零的附加费用");
@@ -213,24 +213,29 @@ assert.match(orderDetailView, /function PiInternalTextCell[\s\S]*line-clamp-2[\s
 assert.doesNotMatch(orderDetailView, /逐项理货要求与仓库备注/, "PI详情不应在产品表格后重复列出逐项内部要求");
 const piBatchActions = orderListView.split("批量导出 PI，已选")[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piBatchActions, /导出 Excel[\s\S]*导出 PDF/, "所选正式PI应在统一批量导出菜单提供Excel和PDF入口");
-assert.match(orderDetailView, /导出 PI Excel[\s\S]*导出 PI PDF/, "PI详情应直接提供Excel与PDF两种选择");
+assert.match(orderDetailView, /导出\{directPi \? " PI"[\s\S]*导出 Excel[\s\S]*导出 PDF/, "PI详情应在统一导出菜单提供Excel与PDF");
 const batchPdfPage = read("components/batch-order-print-preview.tsx");
 assert.match(batchPdfPage, /ids\.length > 50[\s\S]*new Set\(ids\)\.size !== ids\.length/, "批量PDF必须限制数量与重复ID");
 assert.match(batchPdfPage, /!payload\.can_export[\s\S]*"DRAFT", "CANCELLED"[\s\S]*confirmation_method !== "DIRECT_PI"/, "批量PDF必须逐张核对正式PI导出权限");
 assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.PI_EXECUTING_STATUSES\]\)/, "PI执行中筛选必须使用与列表状态一致的共享状态集合");
 assert.match(stockListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.STOCK_EXECUTING_STATUSES\]\)/, "备货执行中筛选必须使用与PI同步的共享状态集合");
 const contactLookup = read("lib/order-customer-name.ts");
-assert.match(contactLookup, /sales_orders[\s\S]*customer:customers\(contact_name\)/, "PI和备货单的客户名称必须来自关联客户的具体对接人");
+assert.match(contactLookup, /sales_orders[\s\S]*customer_name_snapshot,customer:customers\(contact_name\)/, "PI和备货单应优先使用创建时客户名称快照");
+assert.match(contactLookup, /historicalOnly \? null : customer\?\.contact_name/, "正式备货导出不能拿当前档案冒充历史客户名称");
+assert.match(read("app/api/stock-orders/[id]/export/route.ts"), /loadOrderCustomerNames\(\[order\.sales_order_id\], true\)/, "单笔备货导出应只用本单客户名称快照");
+assert.match(read("app/api/stock-orders/route.ts"), /loadOrderCustomerNames\(rows\.map\(\(row\) => row\.sales_order_id\), true\)/, "批量备货导出应只用本单客户名称快照");
+assert.match(read("supabase/migrations/20261021021259_pi_customer_tax_snapshot.sql"), /customer_name_snapshot[\s\S]*customer_tax_number_snapshot[\s\S]*old\.customer_name_snapshot/, "客户名称和税号须在建单时留存，更新原客户档案不得改写快照");
+assert.match(read("supabase/migrations/20261021022732_pi_customer_identity_snapshot_guard.sql"), /update of customer_id, customer_tax_number_snapshot, customer_name_snapshot/, "客户名称和税号快照均须受触发器防改写保护");
 assert.doesNotMatch(contactLookup, /delivery_recipient|customer_short_name/, "客户名称不得错误回退为收件人或公司简称");
 assert.match(orderListApi, /customer_name: customerNames\.get\(item\.id\)/, "PI列表必须带出关联对接人");
 assert.match(stockListApi, /customer_name: customerNames\.get\(item\.sales_order_id\)/, "备货列表必须通过关联PI带出同一对接人");
 assert.match(orderListView, /客户名称[\s\S]*公司名称[\s\S]*row\.customer_name[\s\S]*row\.customer_short_name/, "PI列表必须优先显示对接人，再显示公司");
 assert.match(read("components/stock-orders-view.tsx"), /客户名称[\s\S]*公司名称[\s\S]*row\.customer_name[\s\S]*row\.customer_short_name/, "备货列表必须优先显示对接人，再显示公司");
-assert.match(read("components/order-print-preview.tsx"), /\[\["客户名称", stock\.order\.customer_name[\s\S]*\["公司名称", stock\.order\.customer_short_name/, "备货预览及PDF必须优先显示对接人");
+assert.match(read("components/order-print-preview.tsx"), /\[\["客户名称（本单快照）"[\s\S]*customer_name_snapshot[\s\S]*\["公司名称", stock\.order\.customer_short_name/, "备货预览及PDF必须优先显示本单客户名称快照");
 assert.match(orderListView, /<td className="max-w-\[144px\] px-3 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
-assert.match(progressCellView, /<div className="mt-2 grid grid-cols-5[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表应直接显示五个阶段的件数和百分比");
+assert.match(progressCellView, /wide \? "mt-2 grid-cols-2" : "mt-1 grid-cols-5"[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表与详情应完整显示阶段件数和百分比");
 assert.match(progressCellView, /title=\{detail\}[\s\S]*aria-label=\{detail\}/, "紧凑进度条仍须为鼠标悬停和辅助技术保留阶段详情");
 assert.match(orderListApi, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"/, "PI列表必须能搜索销售与仓库共用的订单编号");
 for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockListApi]]) {
@@ -362,7 +367,7 @@ const orderFixture = {
   order_number: "PI-TEST", created_at: "2026-10-12T00:00:00Z", confirmed_at: "2026-10-13T00:00:00Z", pi_valid_until: "2026-10-17",
   seller_company_name: "DT-Smart", seller_company_address: "Shenzhen", seller_website: "https://www.dt-smart.com/",
   seller_contact_name: "Eva", seller_contact_phone: "+86 100000", seller_contact_email: "eva@example.com",
-  customer_short_name: "Buyer", customer: { company_name: "Buyer Ltd", contact_name: "Jo", tax_number: "GB123456" }, delivery_recipient: "Shipping Agent", delivery_phone: "+44 123",
+  customer_short_name: "Buyer Ltd", customer_name_snapshot: "Jo", customer_tax_number_snapshot: "GB123456", customer: { company_name: "Changed Buyer", contact_name: "Changed Jo", tax_number: "CHANGED" }, delivery_recipient: "Jo", delivery_phone: "+44 123",
   delivery_email: "jo@example.com", delivery_address: "London", delivery_date: "2026-10-25",
   currency: "NGN", fx_rate_cny_to_payment: 200, payment_method: "NAIRA/RMB",
   subtotal_cny: 100, shipping_cny: 10, total_cny: 110, subtotal: 20000, shipping_cost: 2000, total_amount: 22000,
@@ -426,6 +431,7 @@ function assertSignatureOutline(workbookArchive, workbookSheet, rightColumn) {
 }
 assertSignatureOutline(archive, sheet, "K");
 assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).deliveryTaxNumber, "GB123456", "页面预览与Excel应复用同一个公司税号值");
+assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).recipient, "Jo", "PI收货人应使用本单收货快照，而不是后来修改的客户档案");
 assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
 assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
 assert.match(read("components/order-print-preview.tsx"), /<p>Address: \{piDocument!\.companyAddress\}<\/p>/, "PI 预览企业地址属性名和值均使用常规字重");
@@ -434,7 +440,7 @@ assert.equal(sheet.G6.v, "PAYMENT / METHOD:", "客户PI页眉付款标签只显�
 assert.equal(sheet.J6.v, "NAIRA/RMB (NGN)", "客户PI页眉付款栏须紧邻显示付款渠道及本单币种");
 assert.match(read("components/order-print-preview.tsx"), /PAYMENT \/ METHOD:<\/span><span[^>]*>\{piDocument!\.paymentMethod\}/, "PI预览付款栏须复用Excel字段模型");
 assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["Company: Buyer Ltd", "Tax No.: GB123456", "To: Jo · TEL: +44 123", "Email: jo@example.com"], "PI Excel 应按公司、税号、联系人/电话和邮箱紧凑排列");
-const emptyContactOrder = { ...orderFixture, customer: { company_name: "Buyer Ltd", contact_name: null } };
+const emptyContactOrder = { ...orderFixture, delivery_recipient: null, customer_tax_number_snapshot: null, customer: { company_name: "Buyer Ltd", contact_name: null } };
 assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).recipient, "", "客户名称为空时 PI 预览的 To 必须留空，不得回退到收件人或公司名称");
 const emptyContactWorkbook = buildDirectPiWorkbook(emptyContactOrder, [itemFixture]);
 const emptyContactBook = XLSX.read(emptyContactWorkbook, { type: "array" });

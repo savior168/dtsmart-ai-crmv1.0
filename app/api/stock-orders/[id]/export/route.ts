@@ -20,7 +20,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     if (itemError) throw itemError;
     if (eventError) throw eventError;
     if(["DRAFT", "CANCELLED"].includes(order.status))throw new Error("草稿或已取消的备货单不能作为正式单据导出");
-    const customerNames = await loadOrderCustomerNames([order.sales_order_id]);
+    const customerNames = await loadOrderCustomerNames([order.sales_order_id], true);
     const piNote = await createAdminClient().from("sales_orders").select("confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone").eq("id", order.sales_order_id).single();
     if (piNote.error) throw piNote.error;
     const salesOwner = !order.salesperson && order.sales_user_id ? await createAdminClient().from("users")

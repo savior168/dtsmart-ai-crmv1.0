@@ -301,7 +301,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status" className="min-w-[150px] whitespace-nowrap"/>
-                    <th className="w-[420px] px-4 py-3 font-medium">备货进度</th>
+                    <th className="w-[360px] px-4 py-3 font-medium">备货进度</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th>
                     <SortHeader label="更新时间" column="updated_at"/>

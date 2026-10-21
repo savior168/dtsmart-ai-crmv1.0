@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
       { label: "潜在客户", value: Number(potentialCustomersResult.count || 0) }, { label: "意向客户", value: Number(followingCustomersResult.count || 0) },
       { label: "成交客户", value: Number(totals.deals || 0) },
     ];
-    const stockActivityMode = ["SALES", "SUPERVISOR"].includes(account.role) && hasPermission(account, "stock.view");
+    const stockActivityMode = ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role) && hasPermission(account, "stock.view");
     let activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || ""), href: "" }));
     if (stockActivityMode) {
       const stockOwnerId = await requestedOwnerId(request, account, "stock.data_all");

@@ -77,6 +77,7 @@ type Payload = {
     stock_number: string;
     customer_short_name: string;
     customer_name: string | null;
+    customer_name_snapshot?: string | null;
     destination_country: string | null;
     delivery_recipient: string | null;
     delivery_address: string | null;
@@ -450,16 +451,13 @@ export function StockOrderDetailView({ id }: { id: string }) {
               查看PI订单 {o.warehouse_reference_number || o.order_number}
             </Link> : null}
             {data.can_preview && o.status !== "CANCELLED" ? <Link href={`/stock-orders/${id}/preview`} className="inline-flex h-9 items-center rounded-lg border px-3 text-sm text-blue-700">预览{data.can_export ? " / 打印" : "草稿"}</Link> : null}
-            {data.can_export ? (
-              <a
-                href={`/api/stock-orders/${id}/export`}
-                className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm text-emerald-700"
-              >
-                <FileDown size={16} />
-                导出备货单 Excel
-              </a>
-            ) : null}
-            {data.can_export ? <Link href={`/stock-orders/${id}/preview?export=pdf`} target="_blank" rel="noopener noreferrer" title="打开打印窗口并选择另存为 PDF" className="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm text-violet-700"><FileDown size={16}/>导出备货单 PDF</Link> : null}
+            {data.can_export ? <details className="relative z-20">
+              <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg border bg-white px-3 text-sm text-emerald-700 hover:bg-emerald-50"><FileDown size={16} />导出备货单<span aria-hidden="true">▾</span></summary>
+              <div className="absolute right-0 top-full mt-1 min-w-44 rounded-lg border bg-white p-1 shadow-lg">
+                <a href={`/api/stock-orders/${id}/export`} className="block rounded px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">导出 Excel</a>
+                <Link href={`/stock-orders/${id}/preview?export=pdf`} target="_blank" rel="noopener noreferrer" title="打开打印窗口并选择另存为 PDF" className="block rounded px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">导出 PDF</Link>
+              </div>
+            </details> : null}
           </div>
         </div>
         <section className="rounded-xl border bg-white shadow-sm">
@@ -481,20 +479,22 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div>
           ) : null}
           {o.status_note?.trim() ? <p className="border-b bg-amber-50 px-5 py-2 text-sm text-amber-900"><b>状态备注：</b>{o.status_note}</p> : null}
-          <div className={`grid gap-3 border-b p-5 lg:grid-cols-2 ${showStockProgress ? "xl:grid-cols-3" : ""}`}>
-            {showStockProgress ? <section className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4 lg:col-span-2 xl:col-span-1" aria-labelledby="stock-progress-heading">
+          <div className="grid items-start gap-3 border-b p-5 lg:grid-cols-2">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            {showStockProgress ? <section className="min-w-0 bg-slate-50/70 p-4" aria-labelledby="stock-progress-heading">
               <h2 id="stock-progress-heading" className="mb-3 text-sm font-semibold text-slate-900">整单实物进度 · {stockProgress.ordered_units} 件</h2>
               <StockProgressCell progress={stockProgress} wide/>
-              <p className="mt-3 text-xs leading-5 text-slate-500">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。理货中的产品按实际件数分别计入“已回货待理货”和“已理货未交货代”，未完成整行理货不能交货代；“已交货代”仅表示仓库完成交接，不代表客户签收。</p>
+              <details className="mt-3 text-xs leading-5 text-slate-500"><summary className="cursor-pointer font-medium text-blue-700">进度统计口径</summary><p className="mt-1">按件数统计，合计 100%；0% 阶段保留图例颜色，但不占进度条宽度。理货中的产品按实际件数分别计入“已回货待理货”和“已理货未交货代”，未完成整行理货不能交货代；“已交货代”仅表示仓库完成交接，不代表客户签收。</p></details>
             </section> : null}
-            <section className={`min-w-0 rounded-xl border p-4 ${o.stocking_requirements?.trim() ? "border-slate-200 border-l-4 border-l-amber-400 bg-white text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600"}`} aria-labelledby="stock-requirements-heading">
+            <section className={`min-w-0 border-t border-l-4 p-4 ${o.stocking_requirements?.trim() ? "border-l-amber-400 text-amber-900" : "border-l-slate-200 text-slate-600"}`} aria-labelledby="stock-requirements-heading">
               <h2 id="stock-requirements-heading" className="mb-2 text-sm font-semibold">整单理货要求</h2>
               <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6" tabIndex={0}>{o.stocking_requirements || "常规理货"}</p>
             </section>
+            </div>
             <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="stock-recipient-heading">
               <h2 id="stock-recipient-heading" className="mb-3 text-sm font-semibold text-slate-900">客户与收货信息</h2>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm leading-5">
-                <div><dt className="text-xs text-slate-500">客户名称</dt><dd className="font-medium text-slate-900">{o.customer_name || "未填写"}</dd></div>
+                <div><dt className="text-xs text-slate-500">客户名称</dt><dd className="font-medium text-slate-900">{o.customer_name || "未填写"}</dd>{!o.customer_name_snapshot ? <span className="text-[11px] text-amber-700">历史单：当前档案名称，仅供参考</span> : null}</div>
                 <div><dt className="text-xs text-slate-500">公司名称</dt><dd className="font-medium text-slate-900">{o.customer_short_name || "—"}</dd></div>
                 <div><dt className="text-xs text-slate-500">目的国家</dt><dd><CountryLabel value={o.destination_country}/></dd></div>
                 <div><dt className="text-xs text-slate-500">收货人</dt><dd className="font-medium text-slate-900">{o.delivery_recipient || "—"}</dd></div>

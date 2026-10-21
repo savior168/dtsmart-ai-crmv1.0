@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
         if (!shippedByStockId.has(event.stock_order_id)) shippedByStockId.set(event.stock_order_id, event.created_at);
       }
       const exportedAt = new Date();
-      const customerNames = await loadOrderCustomerNames(rows.map((row) => row.sales_order_id));
+      const customerNames = await loadOrderCustomerNames(rows.map((row) => row.sales_order_id), true);
       const files: Array<{ name: string; data: ArrayBuffer | Uint8Array }> = [];
       for (const row of rows) {
         const detail = detailById.get(row.id);
