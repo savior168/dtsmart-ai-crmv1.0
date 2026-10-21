@@ -74,6 +74,7 @@ assert.match(dashboardApi, /requestedOwnerId\(request, account, "stock\.data_all
 assert.match(dashboardApi, /loadStockProgressItems\(supabase,[\s\S]*summarizeStockProgress\(row\.status/, "PI备货动态须从可见实物明细计算真实进度");
 assert.match(dashboard, /stockProgress\) return <article className=\{`\$\{panelClass\} order-1 overflow-hidden`\}/, "PI备货速览应在左侧展示并与右侧卡片等高");
 assert.match(dashboard, /xl:grid-cols-2 min-\[1800px\]:grid-cols-\[1\.12fr_1\.05fr_\.88fr_1fr\]/, "中等屏宽图表应排成两列，避免最后一列被挤窄");
+assert.match(dashboard, /w-full overflow-x-auto rounded-lg sm:w-auto sm:overflow-visible"><CompactDateRange/, "手机端日期筛选应在自身容器内滚动，不得撑宽整页");
 assert.match(dashboard, /data\.activities\.slice\(0, 5\)[\s\S]*py-1\.5 text-xs[\s\S]*min-w-0 flex-1 truncate/, "PI速览最多展示五条紧凑单行摘要");
 assert.match(dashboard, /return <Link key=\{item\.id\} href=\{item\.href \|\| "\/orders"\}[\s\S]*aria-label=\{`查看 PI[\s\S]*text-\[10px\] text-slate-400/, "PI速览整行应直达PI详情且更新时间使用较小字号");
 assert.doesNotMatch(dashboard, /item\.stock_href \? <Link/, "PI速览不应在每条记录重复显示备货详情入口");
