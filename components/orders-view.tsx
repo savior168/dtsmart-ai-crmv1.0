@@ -301,7 +301,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
                     <SortHeader label="状态" column="status" className="min-w-[150px] whitespace-nowrap"/>
-                    <th className="w-[360px] px-4 py-3 font-medium">备货进度</th>
+                    <th className="w-[360px] min-w-[352px] px-4 py-3 font-medium">备货进度</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th>
                     <SortHeader label="更新时间" column="updated_at"/>
@@ -331,7 +331,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
                         <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status} tone={row.confirmation_method === "DIRECT_PI" && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? "violet" : undefined}>{statusLabel}</AppStatusBadge></td>
-                        <td className="px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
+                        <td className="min-w-[352px] px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3">{row.owner?.name || row.owner?.email || "-"}</td>

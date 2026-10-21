@@ -131,7 +131,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
           <SortHeader label="公司名称" column="customer_name"/>
           <th className="px-4 py-3 font-medium">目的国家</th>
           <SortHeader label="状态" column="status"/>
-          <th className="w-[360px] px-4 py-3 font-medium">备货进度</th>
+          <th className="w-[360px] min-w-[352px] px-4 py-3 font-medium">备货进度</th>
           <th className="px-4 py-3 font-medium">所属销售员</th>
           <th className="px-4 py-3 font-medium">制单人</th>
           <SortHeader label="更新时间" column="updated_at"/>
@@ -147,7 +147,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
             <td className="max-w-52 px-4 py-3" title={row.customer_short_name}>{row.customer_short_name}</td>
             <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
             <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":stockProgressLabel(row.progress)}</AppStatusBadge></td>
-            <td className="w-[360px] px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
+            <td className="w-[360px] min-w-[352px] px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
             <td className="px-4 py-3">{row.sales?.name||row.sales?.email||"-"}</td>
             <td className="px-4 py-3">{row.preparer?.name||row.preparer?.email||"未记录"}</td>
             <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
