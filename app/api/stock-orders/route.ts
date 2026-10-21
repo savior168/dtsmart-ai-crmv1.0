@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";
     const q = normalizeDocumentSearch(params.get("q"));
-    if (status && status !== "ACTIVE" && !(status in STOCK_STATUS_LABELS)) throw new Error("备货状态无效");
+    if (status && !["ACTIVE", "OTHER"].includes(status) && !(status in STOCK_STATUS_LABELS)) throw new Error("备货状态无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (!(sortBy in SORT_COLUMNS) || !["asc", "desc"].includes(sortDir)) throw new Error("排序参数无效");
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
       if (creatorId) query = query.eq("pi_prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
       if (status === "ACTIVE") query = query.in("status", [...STOCK_EXECUTING_STATUSES]);
+      else if (status === "OTHER") query = query.in("status", ["DRAFT", "CANCELLED", "READY"]);
       else if (status) query = query.eq("status", status);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));
       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00+08:00`);

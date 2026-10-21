@@ -53,6 +53,11 @@ assert.doesNotMatch(reports, /function BusinessMotion/, "报表不得重复展�
 assert.match(operations, /creator_id: userId, status: "DRAFT"/, "跟单员本人草稿必须同时按制单人和状态统计");
 assert.match(operations, /if \(canFilterCreator\)/, "关闭全部订单数据权限后不得发送不允许的制单人筛选请求");
 assert.match(operations, /status: "ACTIVE"/, "执行中备货指标必须与列表聚合状态一致");
+assert.match(operations, /status: "OTHER"/, "报表其他状态必须有对应明细入口");
+assert.match(read("app/api/stock-orders/route.ts"), /status === "OTHER"[\s\S]*\["DRAFT", "CANCELLED", "READY"\]/, "其他状态筛选应准确覆盖草稿、取消和历史备齐单");
+assert.match(stockList, /key==="OTHER"\?"其他状态/, "备货列表必须显示其他状态聚合筛选");
+assert.match(operations, /conic-gradient\(\$\{chartStops\}\)/, "备货状态图必须按全部实际状态着色");
+assert.match(operations, /Number\(\(count \/ stockTotal \* 100\)\.toFixed\(1\)\)/, "备货状态占比应保留一位小数避免明显舍入偏差");
 assert.match(operations, /listHref\("\/stock-orders", from, to, \{ status: "ACTIVE" \}\)/, "备货指标点击后必须继承报表日期与状态范围");
 assert.match(orderList, /useState\(initialFilters\.creatorId \|\| ""\)/, "PI列表必须接收工作台制单人明细筛选");
 assert.match(stockList, /useState\(initialFilters\.status\|\|""\)/, "备货列表必须接收工作台状态明细筛选");

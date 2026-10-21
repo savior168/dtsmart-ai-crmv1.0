@@ -191,7 +191,7 @@ assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-mediu
 assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
 assert.doesNotMatch(orderListView, /历史\/异常筛选|按订单类型筛选|包含历史销售订单/, "PI列表不应再提供冗余历史及单据类型筛选");
 assert.match(orderListView, /new URLSearchParams\(\{ page: String\(page\), page_size: String\(pageSize\), type: "PI" \}\)/, "PI列表移除类型选项后仍必须仅查询PI单据");
-assert.match(stockListView, /STOCK_FILTER_STATUSES = \["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED", "READY"\]/, "备货单单一状态筛选必须覆盖当前、异常与历史状态");
+assert.match(stockListView, /STOCK_FILTER_STATUSES = \["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "OTHER", "CANCELLED", "READY"\]/, "备货单单一状态筛选必须覆盖当前、异常与历史状态");
 assert.doesNotMatch(stockListView, /历史\/异常筛选|按历史或异常备货状态筛选/, "备货单不应重复设置历史异常筛选入口");
 for (const view of [orderListView, stockListView]) {
   assert.match(view, /搜索客户名称、公司、PI\/备货单号、电话或邮箱/, "两张单据列表都应明确多字段搜索范围");

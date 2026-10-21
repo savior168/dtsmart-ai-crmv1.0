@@ -21,7 +21,7 @@ import { batchExportFilename, documentExportFilename } from "@/lib/export-file-n
 
 type Row = { id:string; sales_order_id:string; stock_number:string; order_number:string; warehouse_reference_number:string|null; customer_short_name:string; customer_name:string|null; destination_country:string|null; status:StockOrderStatus; progress:StockProgress; status_note:string|null; stocking_requirements:string|null; expected_ready_at:string; created_at:string; updated_at:string; sales?:{name?:string|null;email?:string}|null; preparer?:{name?:string|null;email?:string}|null };
 type Payload = { data:Row[]; count:number; profile:{role:string}; can_view_all:boolean; can_view_pi:boolean; can_export:boolean; can_preview:boolean };
-const STOCK_FILTER_STATUSES = ["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED", "READY"] as const;
+const STOCK_FILTER_STATUSES = ["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "OTHER", "CANCELLED", "READY"] as const;
 
 export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:string;dateFrom?:string;dateTo?:string;creatorId?:string}}) {
   const router=useRouter();
@@ -112,7 +112,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
     <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><p className="mt-1 text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p></header>
     <AppFilterBar>
       <label className="relative min-w-[260px] flex-1 xl:min-w-[360px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索客户名称、公司、PI/备货单号、电话或邮箱" className={`${appFieldClass} w-full pl-9`}/></label>
-      <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="ACTIVE"?"备货处理中（各阶段见进度条）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
+      <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="ACTIVE"?"备货处理中（各阶段见进度条）":key==="OTHER"?"其他状态（草稿／取消／历史）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
       <AppSelect value={country} onChange={e=>{setCountry(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按目的国家筛选" forceSearch><option value="">全部目的国家</option>{COUNTRY_OPTIONS.map(option=><option key={option.code} value={option.code}>{option.name}</option>)}</AppSelect>
       {data?.profile.role!=="WAREHOUSE"?<UserScopeSelect permission="stock.data_all" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>:null}
       {canFilterCreator ? <UserScopeSelect permission="stock.data_all" kind="pi_creator" value={creatorId} onChange={value=>{setCreatorId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
