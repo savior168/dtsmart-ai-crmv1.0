@@ -25,18 +25,18 @@ const taskRuntime = await readFile(new URL("../components/task-runtime.tsx", imp
 const noop = () => undefined;
 
 const newCustomer = renderToStaticMarkup(createElement(CustomerForm, { onDone: noop, onCancel: noop }));
-for (const [before, after] of [["客户名称", "国家/地区"], ["国家/地区", "公司名称"], ["公司名称", "公司税号"]]) {
+for (const [before, after] of [["客户名称", "国家/地区"], ["国家/地区", "公司名称"], ["公司名称", "客户税号"]]) {
   assert.ok(newCustomer.indexOf(before) < newCustomer.indexOf(after), `${before}应排在${after}之前`);
 }
 assert.match(newCustomer, />官网<\/span>/, "客户表单官网字段应简洁显示为官网");
-assert.match(newCustomer, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号/, "新增与编辑表单的前四项顺序应一致");
+assert.match(newCustomer, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*客户税号/, "新增与编辑表单的前四项顺序应一致");
 assert.doesNotMatch(newCustomer, /客户类型|原始商家类别/, "AI原始分类不得作为客户手工编辑字段");
 assert.match(newCustomer, /理货要求<\/span><textarea[^>]*rows="5"[\s\S]*备注<\/span><textarea[^>]*rows="5"/, "理货要求与备注应同排使用多行输入框");
 assert.match(newCustomer, /客户阶段/, "手动新增我的客户必须能选择客户阶段");
 assert.match(newCustomer, /value="CLAIMED"[^>]*>潜在客户/, "新增客户默认潜在客户");
 assert.match(newCustomer, /value="FOLLOWING"[^>]*>意向客户/, "新增客户可选择意向客户");
 assert.match(newCustomer, /value="DEAL"[^>]*>已成交客户/, "新增客户可选择已成交客户");
-for (const label of ["公司名称", "公司税号", "客户名称", "客户等级", "公司地址", "客户收货信息", "货代收货信息"]) {
+for (const label of ["公司名称", "客户税号", "客户名称", "客户等级", "公司地址", "客户收货信息", "货代收货信息"]) {
   assert.ok(newCustomer.includes(label), `新增客户表单应显示${label}`);
 }
 assert.doesNotMatch(newCustomer, />其他地址</, "客户表单不应再展示其他地址");
@@ -146,7 +146,7 @@ assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_scor
   "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
 assert.match(detailSource, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onDirtyChange=\{setEditingDirty\} onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
 assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onFollowup=\{\(\)=>exitEditing\("followup"\)\}/, "编辑窗口进入跟进留痕前也须检查未保存修改");
-assert.match(detailSource, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*公司税号[\s\S]*客户等级/, "客户详情前五项应与编辑表单顺序一致");
+assert.match(detailSource, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*客户税号[\s\S]*客户等级/, "客户详情前五项应与编辑表单顺序一致");
 assert.match(detailSource, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须读取完整收货地址列表并兼容旧字段");
 assert.match(detailSource, /displayAddressList\(customer\.forwarder_addresses, customer\.forwarder_address\)/, "详情须读取完整货代地址列表并兼容旧字段");
 assert.match(detailSource, /客户收货信息\$\{index \+ 1\}[\s\S]*货代收货信息\$\{index \+ 1\}/, "客户及货代收货信息须逐行编号回显");

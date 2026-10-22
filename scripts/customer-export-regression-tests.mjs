@@ -6,7 +6,7 @@ import XLSX from "xlsx";
 import { createWorkbookFile } from "../lib/xlsx-export.ts";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
-const { buildCustomerWorkbookSheets } = await jiti.import("../lib/customer-export.ts");
+const { buildCustomerWorkbookSheets, customerProtectionText } = await jiti.import("../lib/customer-export.ts");
 const { formatPhoneInternational, normalizePhoneInternational } = await jiti.import("../lib/contacts/phone-normalization.ts");
 const { exportOfficialWebsiteText, exportPublicChannelForUrl, legacyWebsiteExportPatch } = await jiti.import("../lib/customers/export-public-channels.ts");
 const customerExport = await readFile(new URL("../lib/customer-export.ts", import.meta.url), "utf8");
@@ -141,6 +141,8 @@ const sparseSheet = buildCustomerWorkbookSheets([{ id: "sparse", company_name: "
 })[0];
 assert.deepEqual(sparseSheet.rows[0], ["公司名称", "客户阶段"], "整批无数据的联系方式与渠道列不应导出");
 assert.equal(sparseSheet.rows[1][1], "已成交客户", "客户阶段名称须与我的客户页面一致");
+assert.equal(customerProtectionText({ id: "deal", company_name: "成交客户", status: "DEAL", created_at: "2026-08-01T00:00:00Z" }, Date.parse("2026-10-22T00:00:00Z")), "永久", "已成交客户保护期必须显示永久，而非按创建时间计算剩余90天");
+assert.equal(customerProtectionText({ id: "lead", company_name: "潜在客户", status: "CLAIMED", created_at: "2026-10-01T00:00:00Z" }, Date.parse("2026-10-22T00:00:00Z")), "剩余 69 天", "非成交客户仍按默认90天保护期计算");
 const domainOnlySheets = buildCustomerWorkbookSheets([
   { id: "domain-only", company_name: "仅域名客户", website: "example.org/contact", facebook_url: "javascript:alert(1)", other_public_urls: ["https://youtube.com/@main", "https://youtube.com/@support"] },
 ], { columns: ["company_name"], includeAllContactChannels: true });

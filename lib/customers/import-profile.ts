@@ -10,26 +10,23 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
-export function importedCustomerStage(label: unknown, destination: "PRIVATE" | "PUBLIC_POOL", phone: unknown, email: unknown) {
+export function importedCustomerStage(label: unknown, destination: "PRIVATE" | "PUBLIC_POOL") {
   const selected = text(label);
   if (destination === "PUBLIC_POOL") {
-    if (selected) throw new Error("客户公海不能预设我的客户阶段");
+    if (selected && !Object.hasOwn(stageByLabel, selected)) {
+      throw new Error("客户阶段只能填写潜在客户、意向客户或已成交客户");
+    }
     return "UNCLAIMED" as const;
   }
   if (selected && !Object.hasOwn(stageByLabel, selected)) {
     throw new Error("客户阶段只能填写潜在客户、意向客户或已成交客户");
   }
-  const stage = selected ? stageByLabel[selected] : "CLAIMED";
-  if (stage !== "CLAIMED" && (!text(phone) || !text(email))) {
-    throw new Error("意向客户和已成交客户必须同时填写联系电话和邮箱");
-  }
-  return stage;
+  return selected ? stageByLabel[selected] : "CLAIMED";
 }
 
-export function importedCustomerGrade(value: unknown, destination: "PRIVATE" | "PUBLIC_POOL") {
+export function importedCustomerGrade(value: unknown) {
   const grade = text(value).toUpperCase();
   if (!grade) return null;
-  if (destination === "PUBLIC_POOL") throw new Error("客户公海不能预设销售客户等级");
   if (!["S", "A", "B", "C", "D"].includes(grade)) {
     throw new Error("客户等级只能填写 S、A、B、C、D");
   }

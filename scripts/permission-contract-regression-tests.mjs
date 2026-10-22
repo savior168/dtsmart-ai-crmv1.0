@@ -115,7 +115,8 @@ assert.match(importView, /disabled=\{!canCreate\}/, "未授权导入时模板下
 assert.match(importView, /disabled=\{!canCreate \|\| busy \|\| !previewReady\}/, "未授权或预检未成功时提交按钮必须禁用");
 const templateApi = read("app/api/import/template/route.ts");
 assert.match(templateApi, /requirePermission\("imports\.create"\)/, "导入模板接口必须服务端校验执行权限");
-assert.match(templateApi, /readFile\(path\.join\(process\.cwd\(\), "assets", "templates", "Customer_Import_Template\.xlsx"\)\)/, "客户导入模板必须从非公开目录由授权接口返回");
+assert.match(templateApi, /const filename = isPublicPool \? "Customer_Public_Pool_Import_Template\.xlsx" : "Customer_Import_Template\.xlsx"/, "导入接口必须按目标返回匹配的独立模板");
+assert.match(templateApi, /readFile\(path\.join\(process\.cwd\(\), "assets", "templates", filename\)\)/, "客户导入模板必须从非公开目录由授权接口返回");
 assert.ok(!existsSync(resolve("public/templates/客户导入模板.xlsx")), "公开静态目录不能保留绕过授权的客户导入模板");
 
 const evidencePage = "app/(customer-evidence)/ai-screening/customers/[customerId]/evidence/page.tsx";

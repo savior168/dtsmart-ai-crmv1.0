@@ -1,5 +1,6 @@
 export type CustomerIdentityInput = {
   company_name?: unknown;
+  contact_name?: unknown;
   phone?: unknown;
   whatsapp?: unknown;
   email?: unknown;
@@ -183,4 +184,18 @@ export function customerIndexIdentityKeys(row: CustomerIdentityInput) {
 /** Backwards-compatible alias used by import preview and conflict snapshots. */
 export function customerIdentityKeys(row: CustomerIdentityInput) {
   return customerLookupIdentityKeys(row);
+}
+
+/** Batch-import identity avoids treating a shared mailbox as a unique person. */
+export function customerImportIdentityKeys(row: CustomerIdentityInput) {
+  const company = normalizeIdentityText(row.company_name);
+  const contact = normalizeIdentityText(row.contact_name);
+  const entity = company || contact;
+  return distinct([
+    ...normalizeIdentityPhones(row.phone).map((phone) => `phone:${phone}`),
+    ...normalizeIdentityPhones(row.whatsapp).map((phone) => `phone:${phone}`),
+    ...normalizeIdentityEmails(row.email).map((email) => `email:${email}|${entity}`),
+    ...normalizeIdentityEmails(row.email).filter(() => !entity).map((email) => `email:${email}`),
+    ...customerFallbackIdentityKeys({ ...row, company_name: entity }),
+  ]);
 }

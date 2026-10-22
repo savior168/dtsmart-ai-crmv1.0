@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerImportIdentityKeys } from "@/lib/import-dedupe";
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 import { readableImportError, sanitizeImportRow } from "@/lib/import-safety";
 import { importedCustomerGrade, importedCustomerStage } from "@/lib/customers/import-profile";
@@ -24,7 +24,7 @@ const bounded = (value: unknown, min: number, max: number) => {
   const number = Number(match[0]);
   return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : null;
 };
-function identity(row: Row) { return { lookupKeys: customerLookupIdentityKeys(row), indexKeys: customerIndexIdentityKeys(row) }; }
+function identity(row: Row) { return { lookupKeys: customerImportIdentityKeys(row), indexKeys: customerImportIdentityKeys(row) }; }
 function importErrorMessage(error: unknown) {
   const message = readableImportError(error, "");
   if (/customers_assigned_via_check/i.test(message)) return "客户归属来源不合法，请检查导入目标后重试";
@@ -87,12 +87,13 @@ export async function POST(request: NextRequest) {
       if ("ai_score" in item) item.ai_score = bounded(item.ai_score, 0, 100);
       const current = identity(item);
       try {
-        if (!text(item.company_name)) throw new Error("公司名称为空");
         if (!text(item.contact_name)) throw new Error("客户名称为空");
         if (!text(item.country)) throw new Error("国家/地区为空");
-        if (![item.phone, item.email, item.website, item.google_url].some((value) => text(value))) throw new Error("缺少电话、邮箱、官网或 Google 地图联系方式");
-        const stage = importedCustomerStage(item.import_stage, publicPool ? "PUBLIC_POOL" : "PRIVATE", item.phone, item.email);
-        const grade = importedCustomerGrade(item.manual_grade, publicPool ? "PUBLIC_POOL" : "PRIVATE");
+        const stage = publicPool ? "UNCLAIMED" : importedCustomerStage(item.import_stage, "PRIVATE");
+        const grade = publicPool ? null : importedCustomerGrade(item.manual_grade);
+        const sourceStageLabel = publicPool ? text(item.import_stage) || null : null;
+        const sourceGradeLabel = publicPool ? text(item.manual_grade) || null : null;
+        if ((sourceStageLabel?.length || 0) > 100 || (sourceGradeLabel?.length || 0) > 50) throw new Error("公海来源阶段/等级内容过长");
         const duplicateOf = current.lookupKeys.map((key) => seen.get(key)).find(Boolean);
         if (duplicateOf) {
           if (!duplicateOf.id) {
@@ -133,7 +134,11 @@ export async function POST(request: NextRequest) {
         delete item.website_email;
         delete item.website_phone;
         delete item.import_stage;
-        if (grade) item.manual_grade = grade;
+        if (publicPool) {
+          if (sourceStageLabel) item.source_stage_label = sourceStageLabel;
+          if (sourceGradeLabel) item.source_grade_label = sourceGradeLabel;
+          delete item.manual_grade;
+        } else if (grade) item.manual_grade = grade;
         else delete item.manual_grade;
         accepted.push({ row: publicPool
           ? { ...item, source_channel: "BATCH_IMPORT", source_batch: fileName, source_batch_id: taskId || null, status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
