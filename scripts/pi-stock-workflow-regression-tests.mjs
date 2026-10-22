@@ -118,7 +118,9 @@ assert.match(piForm, /useCustomerDelivery, setUseCustomerDelivery\] = useState\(
 assert.match(piForm, /客户名称<Required \/><AppSelect.*?forceSearch[\s\S]*?公司名称<input[\s\S]*?selectedCustomer\?\.company_name[\s\S]*?客户税号<input[\s\S]*?selectedCustomer\?\.tax_number/, "PI应先选具体客户名称，再只读带出公司名称和税号");
 assert.match(piForm, /查看客户资料理货要求[\s\S]*?selectedCustomer\.tally_requirements[\s\S]*?复制理货要求/, "PI填写时应能只读查看并复制客户资料理货要求");
 assert.match(piForm, /if \(!customer\) \{[\s\S]*setRecipient\(""\);[\s\S]*setPhone\(""\);[\s\S]*setEmail\(""\);[\s\S]*setAddress\(""\);/, "清空客户选择时不能保留前一客户的收件人和联系方式");
-assert.match(piForm, /const chosen = selectedShippingContacts\.length === 1 \? selectedShippingContacts\[0\] : null; setRecipient\(chosen\?\.recipient/, "勾选客户收货信息时仅自动带出一条资料");
+assert.match(piForm, /const index = selectedShippingContacts\.length === 1 \? "0" : ""; const chosen = index \? selectedShippingContacts\[0\] : null; setCustomerDeliveryProfileIndex\(index\); setRecipient\(chosen\?\.recipient/, "仅有一条客户资料时自动选中并带出，多个条目时要求明确选择");
+assert.match(piForm, /选择客户资料中的客户收货信息[\s\S]*selectedShippingContacts\.map/, "PI应支持从客户资料选择整条收货信息再编辑本单快照");
+assert.match(piForm, /选择客户资料中的货代收货信息[\s\S]*selectedForwarderContacts\.map/, "PI应支持从客户资料选择整条货代信息再编辑本单快照");
 assert.match(piForm, /useCustomerDelivery && \(!recipient\.trim\(\) \|\| !phone\.trim\(\) \|\| !address\.trim\(\)\)/, "勾选客户收货信息后必须填写三项基础信息");
 assert.match(piInput, /hasDelivery && \(!deliveryRecipient \|\| !deliveryPhone \|\| !deliveryAddress\)/, "服务端允许整组留空并拒绝部分填写");
 assert.match(deliveryMigration, /add constraint direct_pi_delivery_contact_required[\s\S]*delivery_recipient[\s\S]*delivery_phone[\s\S]*delivery_email[\s\S]*delivery_address/, "直接调用数据库创建PI也不能绕过必填收货信息");

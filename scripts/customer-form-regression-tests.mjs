@@ -91,7 +91,8 @@ assert.doesNotMatch(publicPoolCustomer, /<span[^>]*>(客户类型|原始商家�
 assert.doesNotMatch(publicPoolCustomer, /客户等级|变更客户阶段/, "公海编辑不得显示我的客户等级和阶段操作");
 const unverifiedPublicCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, industry: null, ai_screening_done: false, category: "electronics_store | cell_phone_store" }, destination: "PUBLIC_POOL", onDone: noop, onCancel: noop, editBasicOnly: true }));
 assert.doesNotMatch(unverifiedPublicCustomer, /所属行业|手机零售、电子产品零售|尚未经AI核验/, "未核验公海客户也不应回显行业");
-assert.match(formSource, /function ShippingContactEditor[\s\S]*收货人[\s\S]*联系电话[\s\S]*详细收货地址/, "添加的收货信息每条必须显示三项必填字段");
+assert.match(formSource, /function ShippingContactEditor[\s\S]*收货人[\s\S]*联系电话[\s\S]*详细收货地址/, "添加的收货信息每条应显示三个可分别填写的字段");
+assert.match(formSource, /收货人、联系电话和详细地址可分别填写/, "收货字段说明须明确允许分别填写");
 assert.match(publicPoolCustomer, /货代收货信息/, "公海编辑应展示结构化货代收货信息");
 assert.match(editCustomer, /\+ 添加客户收货信息[\s\S]*\+ 添加货代收货信息/, "两侧收货信息都应可追加");
 const multiAddressCustomer = renderToStaticMarkup(createElement(CustomerForm, { customer: { ...existing, shipping_addresses: ["收货地址甲", "收货地址乙"], forwarder_addresses: ["货代地址甲", "货代地址乙"] }, onDone: noop, onCancel: noop, editBasicOnly: true }));
@@ -103,15 +104,22 @@ assert.deepEqual(displayAddressList([], "旧收货地址"), ["旧收货地址"],
 assert.deepEqual(displayShippingContacts([], ["旧收货地址"]), [{ address: "旧收货地址", recipient: "", phone: "" }], "历史地址不得因缺少收货人和电话被丢弃");
 assert.deepEqual(validateShippingContacts([]), [], "未添加客户收货信息应允许保存");
 assert.deepEqual(validateShippingContacts([], "货代收货信息"), [], "未添加货代收货信息应允许保存");
-assert.throws(() => validateShippingContacts([{ address: "", recipient: "", phone: "" }], "货代收货信息"), /每条货代收货信息都需填写/, "点击添加货代信息后不得保存空条目");
+assert.deepEqual(validateShippingContacts([{ address: "", recipient: "", phone: "" }], "货代收货信息"), [], "完全空白的添加行应被忽略，不能阻止保存");
 const forwarderPayload = { forwarder_contact_entries: [{ recipient: "货代收货人", phone: "+86 138 0012 3456", address: "货代仓库地址" }] };
 normalizeAddressPayload(forwarderPayload);
 assert.deepEqual(forwarderPayload.forwarder_addresses, ["货代仓库地址"], "结构化货代收货信息须同步至 PI 使用的地址列表");
 assert.equal(forwarderPayload.forwarder_address, "货代仓库地址", "结构化货代收货信息须同步至旧版首条地址");
-assert.throws(() => normalizeAddressPayload({ forwarder_contact_entries: [{ recipient: "", phone: "13800123456", address: "货代仓库地址" }] }), /每条货代收货信息都需填写/, "服务端须拒绝不完整的货代收货信息");
+const partialForwarderPayload = { forwarder_contact_entries: [{ recipient: "", phone: "13800123456", address: "" }] };
+normalizeAddressPayload(partialForwarderPayload);
+assert.deepEqual(partialForwarderPayload.forwarder_contact_entries, [{ recipient: "", phone: "13800123456", address: "" }], "货代电话单独填写应可保存并规范化");
+assert.deepEqual(partialForwarderPayload.forwarder_addresses, [], "无货代地址时不得生成空地址项");
+const partialShippingPayload = { shipping_contact_entries: [{ recipient: "张三", phone: "", address: "" }] };
+normalizeAddressPayload(partialShippingPayload);
+assert.deepEqual(partialShippingPayload.shipping_contact_entries, [{ recipient: "张三", phone: "", address: "" }], "客户收货人单独填写应可保存");
+assert.deepEqual(partialShippingPayload.shipping_addresses, [], "无客户收货地址时不得生成空地址项");
 assert.deepEqual(validateShippingContacts([{ recipient: "张三", phone: "+86 138 0012 3456", address: "深圳测试收货地址" }]), [{ recipient: "张三", phone: "+86 138 0012 3456", address: "深圳测试收货地址" }]);
 for (const entry of [{ address: "深圳测试地址", recipient: "张三", phone: "" }, { address: "深圳测试地址", recipient: "", phone: "13800123456" }, { address: "", recipient: "张三", phone: "13800123456" }]) {
-  assert.throws(() => validateShippingContacts([entry]), /都需填写/, "任一收货字段为空必须拒绝");
+  assert.deepEqual(validateShippingContacts([entry]), [entry], "三个字段应支持任意单项或组合填写");
 }
 for (const phone of ["123", "11111111111", "1234567890123456", "号码错误"]) {
   assert.throws(() => validateShippingContacts([{ address: "深圳测试地址", recipient: "张三", phone }]), /电话|格式/, "明显无效号码必须拒绝");

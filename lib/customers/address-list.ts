@@ -4,10 +4,13 @@ export const MAX_CUSTOMER_ADDRESSES = 10;
 export type ShippingContact = { address: string; recipient: string; phone: string };
 
 export function displayShippingContacts(value: ShippingContact[] | null | undefined, addresses: string[]): ShippingContact[] {
-  return addresses.map((address) => {
+  const rows = addresses.map((address) => {
     const saved = Array.isArray(value) ? value.find((entry) => entry?.address === address) : null;
     return { address, recipient: saved?.recipient || "", phone: saved?.phone || "" };
   });
+  const addressSet = new Set(addresses);
+  const partial = Array.isArray(value) ? value.filter((entry) => !entry?.address?.trim() && (entry?.recipient?.trim() || entry?.phone?.trim()) && !addressSet.has(entry.address)) : [];
+  return [...rows, ...partial];
 }
 
 export function validateShippingContacts(value: unknown, label = "客户收货信息"): ShippingContact[] {
@@ -18,15 +21,16 @@ export function validateShippingContacts(value: unknown, label = "客户收货�
     if (![entry.address, entry.recipient, entry.phone].every((part) => typeof part === "string")) throw new Error(`${label}格式不正确`);
     return { address: String(entry.address).trim(), recipient: String(entry.recipient).trim(), phone: String(entry.phone).trim() };
   });
-  for (const row of rows) {
-    if (!row.address || !row.recipient || !row.phone) throw new Error(`每条${label}都需填写收货地址、收货人和联系电话`);
+  const nonEmptyRows = rows.filter((row) => row.address || row.recipient || row.phone);
+  for (const row of nonEmptyRows) {
     if (row.address.length > 500 || row.recipient.length > 200 || row.phone.length > 100) throw new Error(`${label}超出允许长度`);
+    if (!row.phone) continue;
     row.phone = normalizeManualPhone(row.phone, "收货人电话");
     const digits = row.phone.replace(/\D/g, "");
     if (digits.length < 7 || digits.length > 15 || /^(\d)\1+$/.test(digits)) throw new Error("收货人电话须为有效的 7 至 15 位号码");
   }
-  validateAddressList(rows.map((row) => row.address), label);
-  return rows;
+  validateAddressList(nonEmptyRows.map((row) => row.address), label);
+  return nonEmptyRows;
 }
 
 export function displayAddressList(list: string[] | null | undefined, primary: string | null | undefined): string[] {
