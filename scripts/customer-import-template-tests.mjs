@@ -5,7 +5,7 @@ import XLSX from "xlsx";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
-const { mapImportRow, parseImportFile } = await jiti.import(resolve("lib/import-parser.ts"));
+const { importDeliveryContactError, mapImportRow, parseImportFile } = await jiti.import(resolve("lib/import-parser.ts"));
 const { sanitizeImportRow } = await jiti.import(resolve("lib/import-safety.ts"));
 const { importedCustomerGrade, importedCustomerStage } = await jiti.import(resolve("lib/customers/import-profile.ts"));
 const { customerImportIdentityKeys } = await jiti.import(resolve("lib/import-dedupe.ts"));
@@ -56,8 +56,8 @@ const sheet = workbook.Sheets[workbook.SheetNames[0]];
 const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 const headers = [
   "客户名称*", "公司名称", "国家*", "电话号码", "邮箱号", "whatsapp号码", "wechat号码",
-  "客户税号", "客户阶段", "客户等级", "客户官网", "公司地址", "客户收货地址", "理货要求", "备注",
-  "货代地址", "其他地址", "谷歌商家链接", "FB主页链接", "INS主页链接",
+  "客户税号", "客户阶段", "客户等级", "客户官网", "公司地址", "客户收货人", "客户收货电话", "客户收货地址", "理货要求", "备注",
+  "货代收货人", "货代收货电话", "货代收货地址", "其他地址", "谷歌商家链接", "FB主页链接", "INS主页链接",
   "Tiktok主页链接", "Linked主页链接",
 ];
 assert.deepEqual(rows[0], headers, "模板标准列名及顺序必须固定");
@@ -80,7 +80,8 @@ Object.assign(sample, {
   "电话号码": "+33 123456", "邮箱号": "zhang@example.com", "whatsapp号码": "+33 987654",
   "wechat号码": "contact123", "客户税号": "FR123", "客户阶段": "意向客户", "客户等级": "S",
   "公司地址": "巴黎", "客户收货地址": "巴黎收货仓", "客户官网": "https://example.com", "理货要求": "逐件核对",
-  "备注": "优先邮件", "货代地址": "里昂仓", "其他地址": "马赛仓",
+  "客户收货人": "张先生", "客户收货电话": "+33 12345678", "备注": "优先邮件",
+  "货代收货人": "李先生", "货代收货电话": "+33 87654321", "货代收货地址": "里昂仓", "其他地址": "马赛仓",
   "谷歌商家链接": "https://maps.google.com/?cid=123",
   "FB主页链接": "https://facebook.com/example", "INS主页链接": "https://instagram.com/example",
   "Tiktok主页链接": "https://tiktok.com/@example", "Linked主页链接": "https://linkedin.com/company/example",
@@ -99,6 +100,19 @@ for (const [field, expected] of Object.entries({
 })) {
   assert.equal(safe[field], expected, `模板列应可靠映射并通过服务端白名单：${field}`);
 }
+assert.deepEqual(safe.shipping_contact_entries, [{ recipient: "张先生", phone: "+33 12345678", address: "巴黎收货仓" }], "新模板的客户收货三字段须映射为结构化客户资料");
+assert.deepEqual(safe.forwarder_contact_entries, [{ recipient: "李先生", phone: "+33 87654321", address: "里昂仓" }], "新模板的货代收货三字段须映射为结构化客户资料");
+assert.equal(importDeliveryContactError(sample), "", "完整收货信息可通过预览校验");
+assert.match(importDeliveryContactError({ "客户收货人": "张先生", "客户收货电话": "+33 12345678" }), /三项必须完整|同时填写/);
+assert.match(importDeliveryContactError({ "货代收货人": "李先生", "货代收货电话": "+33 87654321" }), /货代收货信息/);
+assert.match(importDeliveryContactError({ "客户收货人": "张先生", "客户收货电话": "123456", "客户收货地址": "巴黎" }), /电话须为有效/);
+const legacyMapped = sanitizeImportRow(mapImportRow({ "客户名称*": "旧模板客户", "国家*": "法国", "客户收货地址": "旧客户地址", "货代地址": "旧货代地址", "其他地址": "旧备用地址" }));
+assert.equal(legacyMapped.shipping_address, "旧客户地址", "旧模板客户收货地址列仍须兼容");
+assert.equal(legacyMapped.forwarder_address, "旧货代地址", "旧模板货代地址列仍须兼容");
+assert.equal(legacyMapped.other_address, "旧备用地址", "旧模板其他地址列仍须兼容");
+assert.equal(legacyMapped.shipping_contact_entries, undefined, "旧版地址列不得伪造收货人和电话");
+assert.equal(legacyMapped.forwarder_contact_entries, undefined, "旧版货代地址列不得伪造收件人和电话");
+assert.equal(importDeliveryContactError(legacyMapped), "", "旧版地址-only 数据仍可正常导入");
 assert.equal(mapImportRow({ "客户名称*": "张先生", "国家*": "法国" }).company_name, "", "客户名称不可误当公司名称");
 assert.equal(mapImportRow({ "公司名称": "", "客户名称*": "张先生" }).company_name, "", "公司名称为空不可回退到客户名称");
 assert.equal(importedCustomerStage("", "PRIVATE"), "CLAIMED");
@@ -129,4 +143,4 @@ assert.doesNotMatch(importApi, /if \(!text\(item\.company_name\)\)/);
 assert.doesNotMatch(importApi, /缺少电话、邮箱、官网或 Google 地图联系方式/);
 assert.match(importApi, /source_stage_label = sourceStageLabel/);
 assert.match(importApi, /status: "UNCLAIMED"/);
-console.log("客户导入模板表头、下拉选项及 22 列映射检查通过。");
+console.log("客户导入模板表头、下拉选项及结构化地址兼容映射检查通过。");

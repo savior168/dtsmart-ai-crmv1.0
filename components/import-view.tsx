@@ -20,6 +20,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import {
+  importDeliveryContactError,
   mapImportRow,
   parseImportFile,
   type ImportRow,
@@ -438,7 +439,8 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
           } as MappedRow;
           const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
           const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !["S", "A", "B", "C", "D"].includes(item.manual_grade));
-          if (!item.contact_name || !item.country || invalidStage || invalidGrade) {
+          const deliveryError = importDeliveryContactError(item as ImportRow);
+          if (!item.contact_name || !item.country || invalidStage || invalidGrade || deliveryError) {
             bad.push({
               id: badId++,
               file_name: fileLabel,
@@ -447,6 +449,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                 ? "缺少客户名称或国家/地区，已跳过"
                 : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
                 : invalidGrade ? "客户等级只能填写 S、A、B、C、D"
+                : deliveryError ? deliveryError
                 : "客户资料校验失败，已跳过",
               kind: "error",
               row: item,

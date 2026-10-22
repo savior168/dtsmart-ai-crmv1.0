@@ -7,7 +7,7 @@ const IMPORTABLE_CUSTOMER_FIELDS = [
   "company_name", "contact_name", "country", "phone", "whatsapp", "email",
   "website", "google_url", "address", "industry", "category", "source", "tags",
   "rating", "ai_score", "ai_level", "facebook_url", "instagram_url", "tiktok_url", "linkedin_url", "notes",
-  "wechat", "tax_number", "manual_grade", "import_stage", "source_stage_label", "source_grade_label", "tally_requirements", "forwarder_address", "other_address", "shipping_address",
+  "wechat", "tax_number", "manual_grade", "import_stage", "source_stage_label", "source_grade_label", "tally_requirements", "forwarder_address", "other_address", "shipping_address", "shipping_contact_entries", "forwarder_contact_entries",
 ] as const;
 
 /** Only customer source fields may cross the API boundary into a database insert. */

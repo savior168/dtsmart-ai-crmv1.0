@@ -5,6 +5,7 @@ import { classifyExistingCustomer, customerImportIdentityKeys } from "@/lib/impo
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 import { readableImportError, sanitizeImportRow } from "@/lib/import-safety";
 import { importedCustomerGrade, importedCustomerStage } from "@/lib/customers/import-profile";
+import { importDeliveryContactError } from "@/lib/import-parser";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -89,6 +90,8 @@ export async function POST(request: NextRequest) {
       try {
         if (!text(item.contact_name)) throw new Error("客户名称为空");
         if (!text(item.country)) throw new Error("国家/地区为空");
+        const deliveryError = importDeliveryContactError(item);
+        if (deliveryError) throw new Error(deliveryError);
         const stage = publicPool ? "UNCLAIMED" : importedCustomerStage(item.import_stage, "PRIVATE");
         const grade = publicPool ? null : importedCustomerGrade(item.manual_grade);
         const sourceStageLabel = publicPool ? text(item.import_stage) || null : null;
