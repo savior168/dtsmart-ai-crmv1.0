@@ -41,8 +41,8 @@ for (const label of ["公司名称", "客户税号", "客户名称", "客户等�
 }
 assert.doesNotMatch(newCustomer, />其他地址</, "客户表单不应再展示其他地址");
 assert.ok(newCustomer.indexOf("客户等级") < newCustomer.indexOf("客户阶段"), "客户阶段应紧随客户等级");
-for (const grade of ["S", "A", "B", "C", "D"]) {
-  assert.match(newCustomer, new RegExp(`value="${grade}"[^>]*>${grade}<`), `客户等级应支持${grade}`);
+for (const grade of ["S", "KA", "MA", "A", "B", "C", "D"]) {
+  assert.match(newCustomer, new RegExp(`value="${grade}"[^>]*>${grade} — `), `客户等级应支持${grade}并显示业绩区间`);
 }
 assert.doesNotMatch(newCustomer, /意向佐证凭证/, "默认潜在客户不应要求意向凭证");
 assert.match(formSource, /客户阶段[\s\S]*?意向佐证凭证[\s\S]*?input\("phone"/, "意向佐证入口应紧邻客户阶段且排在联系方式之前");
@@ -56,7 +56,7 @@ assert.match(createApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)/, "�
 assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不应强制必填");
 assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不是必填项");
 assert.doesNotMatch(createApi, /body\.website, body\.google_url\].some/, "潜在客户与客户公海不应强制要求一般联系方式");
-assert.match(createApi, /requestedStage === "DEAL" && \(!String\(body\.phone \|\| ""\)\.trim\(\) \|\| !String\(body\.email \|\| ""\)\.trim\(\)\)/, "服务端必须校验手动新增成交客户的电话与邮箱");
+assert.match(createApi, /const contactError = customerStageContactError\(intendedStage, body\);[\s\S]*if \(contactError\) return NextResponse\.json\(\{ error: contactError \}, \{ status: 400 \}\)/, "服务端必须校验意向及成交客户至少有微信、邮箱或电话其中一项");
 assert.match(createApi, /ownership_disposition: ownership/, "疑似重复候选必须返回服务端核定的归属类型");
 assert.match(createApi, /\.from\("users"\)\.select\("id,name"\)\.in\("id", ownerIds\)/, "仅查询已有归属人的内部姓名，不返回员工邮箱");
 assert.match(createApi, /owner_name: ownership === "OTHER_OWNED_CUSTOMER"/, "仅向已有归属人的候选返回归属姓名");

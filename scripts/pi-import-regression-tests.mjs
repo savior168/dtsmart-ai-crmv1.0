@@ -95,9 +95,9 @@ const wholeHelp = XLSX.utils.sheet_to_json(wholeTemplate.Sheets["PI基本信息"
 assert.match(String(wholeHelp[0][1]), /红色 \* 为必填/);
 assert.equal(basic.A4.v, "公司名称（选填）", "公司名称应与创建PI页面一致，不强制填写");
 assert.match(String(basic.C4.v), /可留空.*导入后手动选择客户/);
-assert.match(String(wholeHelp[10][0]), /启用客户收货信息时必填/);
+assert.match(String(wholeHelp[10][2]), /启用客户收货信息时必填/);
 assert.match(String(wholeHelp[12][0]), /邮箱（选填）/);
-assert.match(String(wholeHelp[22][1]), /导入后必须核对本人客户匹配.*选择可用付款渠道和收款账户/);
+assert.match(String(wholeHelp[22][2]), /导入后必须核对本人客户匹配.*选择可用付款渠道和收款账户/);
 assert.equal(wholeTemplate.Sheets["PI产品明细"].O1.v, "销售备注", "PI整单模板备注字段须与创建页的销售备注一致");
 
 const optionalWhole = XLSX.readFile("assets/templates/PI_Whole_Order_Import_Template.xlsx", { cellFormula: true });

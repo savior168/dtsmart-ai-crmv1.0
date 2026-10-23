@@ -206,6 +206,9 @@ assert.match(piForm, /forceSearch[\s\S]*搜索客户名称或公司名称/, "PI�
 assert.match(piForm, /单据价格显示人民币 \+ \{currency \|\| "付款币种"\}/, "双币种选项应明确控制单据价格展示");
 assert.match(piForm, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(22rem,28rem\)\]/, "PI费用汇总须限制宽度，避免空白区域撑开");
 assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
+assert.match(piForm, /if \(!items\.length\) \{ setError\("请先添加至少一条产品明细/, "零行状态不能提交无产品PI");
+assert.match(piForm, /aria-label=\{`删除第\$\{index \+ 1\}行`\} onClick=/, "最后一行也必须允许删除");
+assert.match(piForm, /确认清空[\s\S]*setItems\(\[\]\)/, "清空明细不得自动补回空白产品行");
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
