@@ -132,7 +132,7 @@ assert.equal(excelImported[0].preparation_requirement, "逐件检查");
 assert.equal(excelImported[0].internal_note, "销售说明");
 assert.deepEqual(parsePiProductRows([excelRows[1]], 0.15), excelImported, "无表头复制的数据区域仍按标准列序解析");
 assert.throws(() => parsePiProductRows([excelRows[2]], 0.15), /1至500条产品明细/, "模板空白公式行不得误判为明细");
-assert.throws(() => parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", "", "", "", "", "", "", ""]], 0.15), /缺少产品/, "缺少产品必填价格或数量须拒绝");
+assert.throws(() => parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", "", "", "", "", "", "", ""]], 0.15), /须填写产品、品牌、型号、质量、整数数量/, "缺少产品必填价格或数量须拒绝");
 const formSource = readFileSync("components/pi-order-form.tsx", "utf8");
 assert.match(formSource, /parsePiProductRows\(rows, effectiveRate\)/, "PI导入入口须调用共享解析器");
 assert.match(formSource, /importRows\(XLSX\.utils\.sheet_to_json/, "Excel上传须进入共享导入处理");
