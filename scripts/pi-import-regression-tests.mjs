@@ -196,8 +196,10 @@ assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /sal
 assert.match(route, /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/);
 assert.match(route, /PI-invoice-layout-template/);
 assert.match(route, /PI_Whole_Order_Import_Template\.xlsx/, "下载接口须提供当前系统整单模板");
-assert.match(view, /下载客户版式模板/);
-assert.match(view, /下载系统整单模板/);
+assert.match(view, /下载PI导入模板/);
+assert.match(view, /\/api\/orders\/import-template\?format=invoice/, "页面应只提供客户版式导入模板");
+assert.doesNotMatch(view, /下载系统整单模板|下载客户版式模板/, "页面不应让用户在两种模板间选择");
+assert.match(view, /title="删除导入草稿" aria-label=\{`删除导入草稿/, "删除操作应为有文字提示和无障碍名称的图标按钮");
 assert.match(view, /accept="\.xlsx"/);
 assert.match(conversion, /acknowledge_differences/);
 const form = readFileSync("components/pi-order-form.tsx", "utf8");
