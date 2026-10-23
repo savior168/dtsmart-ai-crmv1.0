@@ -426,7 +426,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "客户等级只能选择 S、A、B、C、D" }, { status: 400 });
     }
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
-    if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
+    if (![body.phone, body.email, body.wechat, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
     const submittedKeys = customerLookupIdentityKeys(body);
     if (submittedKeys.length) {
       const possibleMatches: Record<string, unknown>[] = [];
