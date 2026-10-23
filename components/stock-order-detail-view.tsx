@@ -278,6 +278,14 @@ export function StockOrderDetailView({ id }: { id: string }) {
       setError(`第 ${invalidItem.line_number} 项采购价无效：请输入非负金额，最多两位小数`);
       return;
     }
+    const missingRequiredPrice = items.find((item) => {
+      const supplierCode = receivingDraft[item.id]?.supplierCode.trim() || item.warehouse_supplier_code?.trim() || "";
+      return Boolean(supplierCode) && parseProcurementCost(procurementDraft[item.id]?.cost || "") === null;
+    });
+    if (missingRequiredPrice) {
+      setError(`第 ${missingRequiredPrice.line_number} 项已填写供应商编码，请先填写并保存采购价`);
+      return;
+    }
     const saved = await request(`/api/stock-orders/${id}/procurement`, "PATCH", {
       items: items.map((item) => ({
         line_number: item.line_number,
@@ -292,6 +300,17 @@ export function StockOrderDetailView({ id }: { id: string }) {
     if (!draft) return;
     const raw = action === "RECEIVE" ? draft.received : draft.prepared;
     const supplierCode = draft.supplierCode.trim();
+    const supplierCodeChanged = (item.warehouse_supplier_code || "") !== supplierCode;
+    if (action === "RECEIVE" && supplierCodeChanged && supplierCode) {
+      const draftCost = procurementDraft[item.id]?.cost;
+      const savedCost = item.procurement_cost_confirmed && typeof item.procurement_cost === "number"
+        ? Number(item.procurement_cost) : null;
+      const parsedDraftCost = parseProcurementCost(draftCost || "");
+      if (savedCost === null || (draftCost !== undefined && parsedDraftCost !== savedCost)) {
+        setError(`第 ${item.line_number} 项请先录入并保存采购价，再填写供应商编码`);
+        return;
+      }
+    }
     if (action === "RECEIVE" && String(item.received_quantity) === raw
       && (item.warehouse_supplier_code || "") === supplierCode) return;
     if (action === "PREPARE" && String(item.prepared_quantity) === raw) return;
@@ -425,6 +444,12 @@ export function StockOrderDetailView({ id }: { id: string }) {
       setError("更正数量须满足已发货数 ≤ 理货数 ≤ 回货数 ≤ 订购数；供应商编码最多100字");
       return;
     }
+    const correctedSupplierCode = correction.supplierCode.trim();
+    if ((item.warehouse_supplier_code || "") !== correctedSupplierCode && correctedSupplierCode
+      && (!item.procurement_cost_confirmed || typeof item.procurement_cost !== "number")) {
+      setError(`第 ${item.line_number} 项请先录入并保存采购价，再填写供应商编码`);
+      return;
+    }
     if (!correction.reason.trim()) { setError("请填写本次更正原因"); return; }
     if (correction.revertStart && (item.preparation_status !== "PREPARING"
       || item.received_quantity !== 0 || item.prepared_quantity !== 0 || item.shipped_quantity !== 0)) {
@@ -472,6 +497,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
   });
   const procurementTotal = Math.round(procurementRows.reduce((sum, row) => sum + (row.price === null ? 0 : row.price * Number(row.item.quantity || 0)), 0) * 100) / 100;
   const missingProcurementCount = procurementRows.filter((row) => row.price === null).length;
+  const completeCostDifference = procurementRows.length > 0 && procurementRows.every((row) => row.difference !== null);
+  const costDifferenceTotal = completeCostDifference
+    ? Math.round(procurementRows.reduce((sum, row) => sum + Number(row.difference) * Number(row.item.quantity || 0), 0) * 100) / 100
+    : null;
   const unshippedItems = items.filter((item) => item.shipped_quantity === 0);
   const canShip = canExecute && data.shipment_feature_ready !== false && unshippedItems.length > 0 && unshippedItems.every((item) =>
     item.received_quantity === item.quantity && item.prepared_quantity === item.quantity);
@@ -566,8 +595,9 @@ export function StockOrderDetailView({ id }: { id: string }) {
             {canViewProcurement ? <section className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-sm" aria-label="采购金额汇总">
               <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
                 <span className="font-medium text-slate-700">{missingProcurementCount ? "已录采购金额" : "采购总金额"}：<strong className="text-amber-900">¥{procurementTotal.toFixed(2)}</strong></span>
-                {missingProcurementCount ? <span className="text-xs text-amber-800">还有 {missingProcurementCount} 项未录采购价，当前金额为已录部分小计</span> : null}
-                <span className="text-xs text-slate-600">成本差价 = PI 成本单价 − 采购单价</span>
+                <span className="font-medium text-slate-700">成本差价总额：<strong className={costDifferenceTotal !== null && costDifferenceTotal < 0 ? "text-rose-700" : "text-emerald-800"}>{costDifferenceTotal === null ? "待全部核价" : `¥${costDifferenceTotal.toFixed(2)}`}</strong></span>
+                {missingProcurementCount ? <span className="text-xs text-amber-800">还有 {missingProcurementCount} 项未录采购价，当前采购金额为已录部分小计，差价待全部核价后计算</span> : null}
+                <span className="text-xs text-slate-600">差价总额 =（PI 成本单价 − 采购单价）× 数量后汇总</span>
               </div>
               {canEditProcurement ? <button type="button" disabled={busy} onClick={() => void saveProcurement()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-700 px-3 text-sm font-medium text-white disabled:opacity-50"><Save size={15}/>{busy ? "正在保存…" : "保存采购信息"}</button> : null}
             </section> : null}

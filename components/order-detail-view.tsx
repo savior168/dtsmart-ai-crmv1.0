@@ -8,7 +8,6 @@ import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppStatusBadge } from "@/components/ui/app-list";
 import { CountryLabel } from "@/components/country-label";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
-import { StockProgressCell } from "@/components/stock-progress-cell";
 import type { StockProgress } from "@/lib/stock-progress";
 import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
 
@@ -47,6 +46,10 @@ type Payload = {
     fx_rate_cny_to_payment: number | null;
     subtotal_cny: number | null;
     shipping_cny: number | null;
+    last_balance_cny: number | null;
+    other_charge_cny: number | null;
+    discount_cny: number | null;
+    paypal_fee_cny: number | null;
     total_cny: number | null;
     payment_account_snapshot: string | null;
     delivery_recipient: string | null;
@@ -96,14 +99,18 @@ type Payload = {
 
 function PiInfoCards({ order: o }: { order: Payload["order"] }) {
   const [accountOpen, setAccountOpen] = useState(false);
-  const feeRows = ([
-    ["产品小计", Number(o.subtotal)],
-    ["运费", Number(o.shipping_cost)],
-    ["未付尾款（加收）", Number(o.last_balance_amount || 0)],
-    ["其他费用（加收）", Number(o.other_charge_amount || 0)],
-    ["折扣（扣减）", -Number(o.discount_amount || 0)],
-    ["PayPal 手续费（加收）", Number(o.paypal_fee_amount || 0)],
-  ] as Array<[string, number]>).filter(([label, amount]) => label === "产品小计" || amount !== 0);
+  const fx = Number(o.fx_rate_cny_to_payment);
+  const toCny = (cny: number | null, payment: number) => typeof cny === "number" && Number.isFinite(cny)
+    ? cny : fx > 0 ? payment / fx : null;
+  const feeRows = [
+    { label: "产品小计", payment: Number(o.subtotal), cny: toCny(o.subtotal_cny, Number(o.subtotal)) },
+    { label: "运费", payment: Number(o.shipping_cost), cny: toCny(o.shipping_cny, Number(o.shipping_cost)) },
+    { label: "未付尾款（加收）", payment: Number(o.last_balance_amount || 0), cny: toCny(o.last_balance_cny, Number(o.last_balance_amount || 0)) },
+    { label: "其他费用（加收）", payment: Number(o.other_charge_amount || 0), cny: toCny(o.other_charge_cny, Number(o.other_charge_amount || 0)) },
+    { label: "折扣（扣减）", payment: -Number(o.discount_amount || 0), cny: toCny(o.discount_cny === null ? null : -Number(o.discount_cny), -Number(o.discount_amount || 0)) },
+    { label: "PayPal 手续费（加收）", payment: Number(o.paypal_fee_amount || 0), cny: toCny(o.paypal_fee_cny, Number(o.paypal_fee_amount || 0)) },
+  ].filter((row) => row.label === "产品小计" || row.payment !== 0 || (row.cny !== null && row.cny !== 0));
+  const totalCny = toCny(o.total_cny, Number(o.total_amount));
   const card = "min-w-0 rounded-lg border border-slate-200 bg-white p-3";
   return <><div className="grid items-stretch gap-3 border-t px-5 py-3 text-sm md:grid-cols-2 xl:grid-cols-4">
     <section className={card}><h3 className="mb-2 font-semibold text-slate-800">客户收货信息</h3><div className="space-y-1 text-slate-600">
@@ -124,8 +131,10 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
       {o.payment_account_snapshot ? <button type="button" onClick={() => setAccountOpen(true)} className="pt-1 text-left font-medium text-blue-700 hover:underline">查看收款账户</button> : null}
     </div></section>
     <section className={card}><h3 className="mb-2 font-semibold text-slate-800">费用明细 · {o.currency}</h3>
-      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 text-slate-600 tabular-nums">{feeRows.map(([label, amount]) => <div key={label} className="contents"><dt>{label}</dt><dd className="text-right">{amount.toFixed(2)}</dd></div>)}
-        <dt className="border-t border-slate-200 pt-2 font-semibold text-slate-800">客户应付总额</dt><dd className="border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd>
+      <dl className={`grid gap-x-2 gap-y-1 text-xs text-slate-600 tabular-nums ${o.currency === "CNY" ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
+        <dt className="font-medium text-slate-500">费用项目</dt><dd className="text-right font-medium text-slate-500">RMB</dd>{o.currency !== "CNY" ? <dd className="text-right font-medium text-slate-500">{o.currency}</dd> : null}
+        {feeRows.map((row) => <div key={row.label} className="contents"><dt className="min-w-0">{row.label}</dt><dd className="whitespace-nowrap text-right">{row.cny === null ? "—" : Number(row.cny).toFixed(2)}</dd>{o.currency !== "CNY" ? <dd className="whitespace-nowrap text-right">{row.payment.toFixed(2)}</dd> : null}</div>)}
+        <dt className="border-t border-slate-200 pt-2 font-semibold text-slate-800">客户应付总额</dt><dd className="whitespace-nowrap border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{totalCny === null ? "—" : Number(totalCny).toFixed(2)}</dd>{o.currency !== "CNY" ? <dd className="whitespace-nowrap border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd> : null}
       </dl>
     </section>
   </div><AppDialog open={accountOpen} onClose={() => setAccountOpen(false)} title="本单收款账户快照"><p className="whitespace-pre-wrap break-all text-sm leading-6 text-slate-700">{o.payment_account_snapshot || "—"}</p></AppDialog></>;
@@ -203,6 +212,9 @@ export function OrderDetailView({ id }: { id: string }) {
     return <main className="p-6 text-rose-600">{error || "订单不存在"}</main>;
   const o = data.order;
   const directPi = o.confirmation_method === "DIRECT_PI";
+  const totalFx = Number(o.fx_rate_cny_to_payment);
+  const totalCny = typeof o.total_cny === "number" && Number.isFinite(o.total_cny)
+    ? o.total_cny : totalFx > 0 ? Number(o.total_amount) / totalFx : null;
   const productSalesCny = data.items.reduce((sum, item) => sum + Number(item.unit_price_cny || 0) * Number(item.quantity || 0), 0);
   const productCostCny = data.items.reduce((sum, item) => sum + Number(item.estimated_unit_cost_cny || 0) * Number(item.quantity || 0), 0);
   const productProfitCny = productSalesCny - productCostCny;
@@ -259,11 +271,10 @@ export function OrderDetailView({ id }: { id: string }) {
             </p>
           ) : null}
           {directPi ? <>
-            <div className="grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">客户名称（本单快照）</p><p className="mt-1 text-lg font-semibold text-slate-900">{o.customer_name_snapshot?.trim() || "历史未留存"}</p><p className="text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="break-words text-sm text-slate-600">客户税号（本单）：{o.customer_tax_number_snapshot?.trim() || "历史未留存"}</p><div className="text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-1 text-xl font-bold tabular-nums text-blue-800">{o.currency} {Number(o.total_amount).toFixed(2)}</p></div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-bold tabular-nums text-blue-800"><span>{totalCny === null ? "RMB —" : `¥${Number(totalCny).toFixed(2)}`}</span>{o.currency !== "CNY" ? <span className="text-base">{o.currency} {Number(o.total_amount).toFixed(2)}</span> : null}</p></div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="mb-2 text-xs text-slate-500">备货进度</p>{data.stock_order && o.status !== "DRAFT" ? <StockProgressCell progress={data.stock_order.progress}/> : <p className="text-sm font-medium text-slate-600">{o.status === "DRAFT" ? "PI草稿未提交仓库" : SALES_ORDER_STATUS_LABELS[o.status]}</p>}</div>
             </div>
             <PiInfoCards order={o} />
             <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>
@@ -318,8 +329,8 @@ export function OrderDetailView({ id }: { id: string }) {
                   <td colSpan={directPi ? 11 : 8} className="px-3 py-3 text-right">
                     订单总额（含运费及各项费用）
                   </td>
-                  <td className="px-3 py-3 font-bold text-blue-700">
-                    {o.currency} {Number(o.total_amount).toFixed(2)}
+                  <td className="px-3 py-3 text-right font-bold text-blue-700">
+                    <span className="inline-flex flex-wrap justify-end gap-x-4 gap-y-1 whitespace-nowrap"><span>{directPi ? totalCny === null ? "RMB —" : `¥${Number(totalCny).toFixed(2)}` : `${o.currency} ${Number(o.total_amount).toFixed(2)}`}</span>{directPi && o.currency !== "CNY" ? <span>{o.currency} {Number(o.total_amount).toFixed(2)}</span> : null}</span>
                   </td>
                   {directPi ? <td colSpan={2}/> : null}
                 </tr>
