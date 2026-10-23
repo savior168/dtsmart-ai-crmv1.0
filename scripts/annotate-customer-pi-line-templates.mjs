@@ -1,5 +1,7 @@
-import { FileBlob, SpreadsheetFile } from "@oai/artifact-tool";
+import { FileBlob, SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
+const piOnly = process.argv.includes("--pi-only");
+if (!piOnly) {
 const customer = await SpreadsheetFile.importXlsx(await FileBlob.load("assets/templates/Customer_Import_Template.xlsx"));
 const customerData = customer.worksheets.getItem("客户导入模板");
 const customerHelp = customer.worksheets.add("填写说明");
@@ -25,16 +27,30 @@ customerHelp.getRange("A3:B11").format.rowHeight = 35;
 customerData.getRange("A1:C1").format.font = { name: "Arial", size: 10, bold: true, color: "#B91C1C" };
 customer.recalculate();
 await (await SpreadsheetFile.exportXlsx(customer)).save("assets/templates/Customer_Import_Template.xlsx");
+}
 
-const line = await SpreadsheetFile.importXlsx(await FileBlob.load("public/templates/pi-line-import-template.xlsx"));
+const line = piOnly ? Workbook.create() : await SpreadsheetFile.importXlsx(await FileBlob.load("public/templates/pi-line-import-template.xlsx"));
+const lineData = piOnly ? line.worksheets.add("PI产品明细") : line.worksheets.getItem("PI产品明细");
+if (!piOnly) lineData.getRange("M1:N501").copyTo(lineData.getRange("J1:K501"), "all");
+lineData.getRange("A1:H1").values = [["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *"]];
+if (piOnly) {
+  lineData.showGridLines = false;
+  lineData.getRange("A1:H1").format = { fill: "#DBEAFE", font: { name: "Arial", size: 10, bold: true, color: "#DC2626" }, wrapText: true, verticalAlignment: "center", rowHeight: 38 };
+  lineData.getRange("E1").format.font = { name: "Arial", size: 10, bold: true, color: "#1E40AF" };
+  lineData.getRange("A2:H501").format = { font: { name: "Arial", size: 10, color: "#172554" }, fill: "#EFF6FF", verticalAlignment: "center" };
+  for (const [range, width] of [["A:D", 18], ["E:E", 34], ["F:G", 20], ["H:H", 12]]) lineData.getRange(range).format.columnWidth = width;
+  lineData.getRange("F2:G501").setNumberFormat("0.00");
+  lineData.getRange("H2:H501").setNumberFormat("0");
+  lineData.freezePanes.freezeRows(1);
+}
 const lineHelp = line.worksheets.add("填写说明");
 lineHelp.showGridLines = false;
 lineHelp.getRange("A1:B1").values = [["PI产品明细导入说明", "只填写第一张“产品明细”表；本页不导入"]];
 lineHelp.getRange("A3:B8").values = [
   ["必填", "产品类型、品牌、型号、质量、成本单价（CNY）、销售单价（CNY）及正整数数量。红色 * 已在数据页标记。"],
-  ["选填", "产品描述、产品质量/描述中文、理货要求和销售备注；留空不自动拼接其他字段。"],
-  ["自动计算", "销售金额＝人民币销售单价×数量；总利润＝（人民币销售单价－成本单价）×数量；利润率＝总利润÷销售金额。无需手填公式列。"],
-  ["币种", "导入及粘贴只需录入 CNY 成本与售价；先在 PI 页面设置付款币种及汇率，系统自动换算另一币种。"],
+  ["选填", "产品描述；产品质量/描述中文、理货要求和销售备注不在模板中，导入后可在PI草稿中补充。"],
+  ["自动计算", "模板不包含销售金额、总利润和利润率列；导入后由系统根据售价、成本和数量自动计算，无需在 Excel 手填。"],
+  ["币种", "导入及粘贴只需录入 CNY 成本与售价；先在 PI 页面设置付款币种及汇率，系统按当前汇率自动换算外币金额，金额按常规四舍五入保留两位小数。"],
   ["校验", "销售单价必须高于成本；金额最多两位小数；每张 PI 最多 500 条明细。"],
   ["导入方式", "下载模板、填写后在 PI 创建页点“导入Excel”；粘贴表格须与模板列顺序一致。导入后仍需核对再保存。"],
 ];
@@ -44,5 +60,18 @@ lineHelp.getRange("B3:B8").format = { font: { name: "Arial", size: 10, color: "#
 lineHelp.getRange("A:A").format.columnWidth = 20;
 lineHelp.getRange("B:B").format.columnWidth = 110;
 lineHelp.getRange("A3:B8").format.rowHeight = 35;
+if (piOnly) {
+  const example = line.worksheets.add("填写示例");
+  example.showGridLines = false;
+  example.getRange("A1:H2").values = [
+    ["示例（不导入）", "品牌", "型号", "质量", "产品描述", "成本单价（CNY）", "销售单价（CNY）", "数量"],
+    ["手机屏幕", "IPH", "IP17", "OLED", "120Hz", 80, 120, 10],
+  ];
+  example.getRange("A1:H1").format = { fill: "#DBEAFE", font: { name: "Arial", size: 10, bold: true, color: "#1E40AF" }, wrapText: true };
+  example.getRange("A2:H2").format = { font: { name: "Arial", size: 10, color: "#475569" }, fill: "#F8FAFC" };
+  example.getRange("A:H").format.columnWidth = 22;
+  example.getRange("E:E").format.columnWidth = 34;
+  example.getRange("F2:G2").setNumberFormat("0.00");
+}
 line.recalculate();
 await (await SpreadsheetFile.exportXlsx(line)).save("public/templates/pi-line-import-template.xlsx");

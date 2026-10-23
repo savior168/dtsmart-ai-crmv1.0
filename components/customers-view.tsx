@@ -43,7 +43,7 @@ import {
   normalizeCustomerListColumns,
 } from "@/lib/customers/list-fields";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
-import { CUSTOMER_GRADE_OPTIONS, customerGradeDescription } from "@/lib/customers/customer-grade";
+import { CUSTOMER_GRADE_FILTER_LABELS, CUSTOMER_GRADE_OPTIONS, customerGradeDescription } from "@/lib/customers/customer-grade";
 import { customerSourceLabel } from "@/lib/customers/source-display";
 import { displayCustomerName } from "@/lib/customer-display";
 import { countryInfo } from "@/lib/countries";
@@ -674,14 +674,14 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                 setManualGrade(event.target.value);
                 setPage(1);
               }}
-              className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 w-56 shrink-0 rounded-lg border border-slate-200 px-3 text-sm"
               aria-label="客户等级"
               title={customerGradeDescription(manualGrade) || "按人工客户等级筛选"}
             >
               <option value="">全部客户等级</option>
               <option value="UNMARKED">未标记</option>
               {CUSTOMER_GRADE_OPTIONS.map((grade) => (
-                <option key={grade} value={grade}>{grade}</option>
+                <option key={grade} value={grade}>{CUSTOMER_GRADE_FILTER_LABELS[grade]}</option>
               ))}
             </select>
             <select

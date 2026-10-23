@@ -12,6 +12,16 @@ export const CUSTOMER_GRADE_DESCRIPTIONS: Record<CustomerGrade, string> = {
   D: "业绩 < $2,000 USD",
 };
 
+export const CUSTOMER_GRADE_FILTER_LABELS: Record<CustomerGrade, string> = {
+  S: "S   (Sum >= $50000)",
+  KA: "KA   (Sum >= $30000, < $50000)",
+  MA: "MA   (Sum >= $10000, < $30000)",
+  A: "A   (Sum >= $8000, < $10000)",
+  B: "B   (Sum >= $5000, < $8000)",
+  C: "C   (Sum >= $2000, < $5000)",
+  D: "D   (Sum < $2000)",
+};
+
 export function normalizeCustomerGrade(value: unknown): CustomerGrade | null {
   const grade = String(value ?? "").trim().toUpperCase();
   return CUSTOMER_GRADE_OPTIONS.find((option) => option === grade) ?? null;

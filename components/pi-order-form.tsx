@@ -30,7 +30,6 @@ const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100)
 const normalizeCustomerName = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
 const defaultValidity = () => { const date = new Date(); date.setDate(date.getDate() + 5); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
-const importHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "销售备注"];
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
 function PiLineTextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -235,12 +234,13 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setImportRevision(importBody.data.revision);
         setWarehouseReferenceNumber(source.warehouse_reference_number);
         setCurrency(source.currency);
-        const importedRate = Number(ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || 0);
+        const systemRate = Number(ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || 0);
+        const importedRate = Number(source.fx_rate_cny_per_payment || systemRate || 0);
         setRate(importedRate > 0 ? String(importedRate) : "");
         if (source.shipping_cny !== undefined) setShippingInput(source.shipping_cny.toFixed(2));
         else if (importedRate > 0) setShippingInput(roundMoney(source.shipping_payment * importedRate).toFixed(2));
         const companyName = normalizeCustomerName(source.delivery_company);
-        const exactCustomerMatches = companyName ? listed.filter((customer) => normalizeCustomerName(customer.company_name) === companyName && (!source.customer_name || normalizeCustomerName(customer.contact_name || "") === normalizeCustomerName(source.customer_name))) : [];
+        const exactCustomerMatches = companyName ? listed.filter((customer) => normalizeCustomerName(customer.company_name) === companyName && (!source.customer_name || normalizeCustomerName(customer.contact_name || "") === normalizeCustomerName(source.customer_name)) && (!source.customer_tax_number || normalizeCustomerName(customer.tax_number || "") === normalizeCustomerName(source.customer_tax_number))) : [];
         if (exactCustomerMatches.length === 1) setCustomerId(exactCustomerMatches[0].id);
         if (source.payment_method) {
           if (PI_PAYMENT_CHANNELS.some((method) => method === source.payment_method)) setPaymentMethod(source.payment_method);

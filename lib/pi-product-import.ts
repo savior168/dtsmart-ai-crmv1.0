@@ -15,7 +15,9 @@ export type ParsedPiProductLine = {
   internal_note: string;
 };
 
-const modernHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "销售备注"];
+const productHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *"];
+const expandedProductHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "理货要求", "销售备注"];
+const legacyCalculatedHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "销售备注"];
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 /** Shared parser for the PI detail Excel import and tab-delimited paste actions. */
@@ -25,12 +27,14 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number): Pa
   const first = cells.find((row) => row.some(Boolean)) || [];
   if (first.some((value) => /PI基本信息|PI整单导入模板/.test(value))) throw new Error("请使用“PI产品明细”导入模板，不要导入PI整单模板");
   const legacy = first[0] === "产品名称";
-  const modernHeader = first[0] === modernHeaders[0] && first[9] === modernHeaders[9];
+  const productHeader = first[0] === productHeaders[0] && first[5] === productHeaders[5] && first[7] === productHeaders[7];
+  const expandedProductHeader = first[0] === expandedProductHeaders[0] && first[8] === expandedProductHeaders[8] && first[10] === expandedProductHeaders[10];
+  const legacyCalculatedHeader = first[0] === legacyCalculatedHeaders[0] && first[9] === legacyCalculatedHeaders[9];
   const oldTemplate = first[0] === "产品";
-  const modernTemplate = modernHeader || (!legacy && !oldTemplate && first[0] !== "产品" && first.length >= 14);
-  const withChineseDescription = legacy || modernTemplate || oldTemplate || first[5]?.startsWith("产品质量/描述中文") || first.length >= 11;
-  const dataRows = cells.filter((row) => [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13].some((index) => String(row[index] ?? "").trim()));
-  if (modernHeader || oldTemplate || legacy) dataRows.shift();
+  const legacyCalculated = legacyCalculatedHeader || (!productHeader && !legacy && !oldTemplate && first.length >= 14);
+  const withChineseDescription = !productHeader && (expandedProductHeader || legacyCalculated || legacy || oldTemplate || first[5]?.startsWith("产品质量/描述中文") || first.length >= 11);
+  const dataRows = cells.filter((row) => (legacyCalculated ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13] : Array.from({ length: Math.min(row.length, 11) }, (_, index) => index)).some((index) => String(row[index] ?? "").trim()));
+  if (productHeader || expandedProductHeader || legacyCalculatedHeader || oldTemplate || legacy) dataRows.shift();
   if (!dataRows.length || dataRows.length > 500) throw new Error("请导入1至500条产品明细");
   return dataRows.map((row, index) => {
     const quantityIndex = legacy ? 6 : withChineseDescription ? 8 : 7;
@@ -49,8 +53,8 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number): Pa
       quantity: String(quantity), unit_price_cny: String(unitPrice),
       unit_price_payment: roundMoney(unitPrice * paymentPerCny).toFixed(2),
       estimated_unit_cost_cny: String(cost),
-      preparation_requirement: row[modernTemplate ? 12 : legacy ? 9 : withChineseDescription ? 9 : 8] || "",
-      internal_note: legacy ? "" : row[modernTemplate ? 13 : withChineseDescription ? 10 : 9] || "",
+      preparation_requirement: expandedProductHeader || legacyCalculated || legacy || oldTemplate || withChineseDescription ? row[legacyCalculated ? 12 : legacy ? 9 : 9] || "" : "",
+      internal_note: legacy || productHeader ? "" : row[legacyCalculated ? 13 : withChineseDescription ? 10 : 9] || "",
     };
   });
 }

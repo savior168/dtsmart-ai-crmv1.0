@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { importDeliveryContactError, mapImportRow, parseImportFile } = await jiti.import(resolve("lib/import-parser.ts"));
 const { sanitizeImportRow } = await jiti.import(resolve("lib/import-safety.ts"));
 const { importedCustomerGrade, importedCustomerStage } = await jiti.import(resolve("lib/customers/import-profile.ts"));
-const { CUSTOMER_GRADE_OPTIONS, CUSTOMER_GRADE_DESCRIPTIONS, customerGradeDescription, isCustomerGrade } = await jiti.import(resolve("lib/customers/customer-grade.ts"));
+const { CUSTOMER_GRADE_OPTIONS, CUSTOMER_GRADE_DESCRIPTIONS, CUSTOMER_GRADE_FILTER_LABELS, customerGradeDescription, isCustomerGrade } = await jiti.import(resolve("lib/customers/customer-grade.ts"));
 const { customerImportIdentityKeys } = await jiti.import(resolve("lib/import-dedupe.ts"));
 const { customerStageContactError } = await jiti.import(resolve("lib/customer-contact-requirement.ts"));
 const binary = await readFile(resolve("assets/templates/Customer_Import_Template.xlsx"));
@@ -199,6 +199,11 @@ assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.A, "$8,000 ≤ 业绩 < $10,000 USD");
 assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.B, "$5,000 ≤ 业绩 < $8,000 USD");
 assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.C, "$2,000 ≤ 业绩 < $5,000 USD");
 assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.D, "业绩 < $2,000 USD");
+assert.deepEqual(CUSTOMER_GRADE_OPTIONS.map((grade) => CUSTOMER_GRADE_FILTER_LABELS[grade]), [
+  "S   (Sum >= $50000)", "KA   (Sum >= $30000, < $50000)", "MA   (Sum >= $10000, < $30000)",
+  "A   (Sum >= $8000, < $10000)", "B   (Sum >= $5000, < $8000)", "C   (Sum >= $2000, < $5000)", "D   (Sum < $2000)",
+], "客户等级筛选项须显示各档英文业绩区间");
+assert.match(customersView, /CUSTOMER_GRADE_FILTER_LABELS\[grade\]/, "客户等级筛选显示英文业绩区间且筛选值仍是等级代码");
 assert.equal(importedCustomerGrade("", "PRIVATE"), null);
 assert.throws(() => importedCustomerGrade("E", "PRIVATE"), /客户等级只能/);
 assert.equal(importedCustomerGrade(" ka ", "PRIVATE"), "KA", "前后空格和大小写应规范化");
