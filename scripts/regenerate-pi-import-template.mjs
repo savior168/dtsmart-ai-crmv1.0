@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { QUOTE_CURRENCIES } from "../lib/currencies.ts";
 
 const file = "assets/templates/PI_Import_Template.xlsx";
 const require = createRequire(import.meta.url);
@@ -27,6 +28,11 @@ function replaceCell(address, attributes, body) {
   worksheetXml = worksheetXml.slice(0, start) + replacement + worksheetXml.slice(closeEnd + 6);
 }
 
+// The selected payment currency is required; never ship a preselected USD value.
+replaceCell("J6", 't="inlineStr"', '<x:is><x:t></x:t></x:is>');
+const currencyList = QUOTE_CURRENCIES.map(([code]) => code).join(",");
+const validation = `<x:dataValidations count="1"><x:dataValidation type="list" allowBlank="0" showErrorMessage="1" errorTitle="请选择币种" error="请从下拉列表选择系统支持的付款币种" sqref="J6"><x:formula1>"${currencyList}"</x:formula1></x:dataValidation></x:dataValidations>`;
+if (!worksheetXml.includes('<x:dataValidations')) worksheetXml = worksheetXml.replace('</x:worksheet>', `${validation}</x:worksheet>`);
 // Keep the PI export's product labels while making the displayed currency follow J6.
 replaceCell("I18", 't="str"', '<x:f>"Unit Price ("&amp;J6&amp;")"</x:f><x:v>Unit Price (USD)</x:v>');
 replaceCell("K18", 't="str"', '<x:f>"Amount ("&amp;J6&amp;")"</x:f><x:v>Amount (USD)</x:v>');

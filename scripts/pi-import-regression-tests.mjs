@@ -23,12 +23,14 @@ for (const address of ["B17", "D17", "E17", "F17", "I17", "J17"]) {
 }
 assert.match(String(sheet.A72.v), /PAYMENT INFORMATION/);
 assert.match(String(sheet.A74.v), /人民币售价、成本、汇率及收款账户由系统核对时补全/);
-assert.equal(sheet.J6.v, "USD");
+assert.equal(sheet.J6?.v || "", "", "新模板不得预填币种，须由用户选择");
+assert.match(Buffer.from(XLSX.CFB.find(archive, "/xl/worksheets/sheet1.xml").content).toString("utf8"), /dataValidation[^>]*sqref="J6"/, "付款币种应提供下拉选择");
 assert.equal(sheet.J2?.v, undefined, "模板订单编号必须留空供销售填写");
 
 const example = XLSX.read(template, { type: "buffer" });
 const exampleSheet = example.Sheets[example.SheetNames[0]];
 exampleSheet.J2 = { t: "s", v: "D60020733" };
+exampleSheet.J6 = { t: "s", v: "USD" };
 for (const [column, value] of Object.entries({ B: "LCD", D: "IPH", E: "IP 17 Pro", F: "OLED", G: "COF", I: 41.64, J: 20 })) {
   exampleSheet[`${column}19`] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
 }
@@ -77,6 +79,9 @@ assert.equal(matchImportedPaymentAccount("BANK: A\nACCOUNT: 123", [{ id: "accoun
 exampleSheet.J6.v = "EUR";
 assert.equal(parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })).document.currency, "EUR", "导入币种以明确填写的币种字段为准，不受缓存表头影响");
 exampleSheet.J6.v = "USD";
+delete exampleSheet.J6;
+assert.throws(() => parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })), /客户付款币种为必填项/, "不得从缓存的美元列头推断未填写的币种");
+exampleSheet.J6 = { t: "s", v: "USD" };
 assert.throws(() => parseCustomerPiWorkbook(template), /订单编号不能为空/, "未填写必填项不得生成草稿");
 exampleSheet.J19 = { t: "n", v: 1.5 };
 assert.throws(() => parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })), /整数数量/);
@@ -206,6 +211,7 @@ const form = readFileSync("components/pi-order-form.tsx", "utf8");
 assert.match(form, /"保存PI草稿"[\s\S]*"确认并生成备货单"/, "导入核对页与新建页应提供保存草稿、确认生成备货单两个入口");
 assert.doesNotMatch(form, /if \(importDraftId && submitToWarehouse\)/, "导入PI核对页应允许直接确认提交仓库");
 assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单价应按当前业务汇率折算并预填人民币售价");
+assert.match(form, /source\.currency\)\?\.business_cny \|\| source\.fx_rate_cny_per_payment/, "导入时应优先采用系统当前业务汇率，旧模板汇率仅作无系统汇率时的回退");
 assert.match(form, /source\.shipping_payment \* importedRate/, "导入外币运费应按当前业务汇率折算并预填人民币运费");
 assert.match(form, /exactCustomerMatches\.length === 1/, "仅在本人公司名称唯一精确匹配时自动关联客户");
 assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货单"/, "差异核对确认应保留直接提交仓库意图");

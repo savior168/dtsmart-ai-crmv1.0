@@ -175,7 +175,12 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   const warehouse_reference_number = cellText(sheet, `${invoiceValueColumn}2`);
   if (!warehouse_reference_number || warehouse_reference_number.length > 80) throw new Error("PI订单编号不能为空且不得超过80字");
   // The invoice value cell is the explicit import currency; older dual-currency exports used J6.
-  const currencyCandidates = [cellText(sheet, `${invoiceValueColumn}6`), cellText(sheet, `${invoiceLabelColumn}6`).match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, dualCurrencyColumns ? "J18" : "I18").match(/\(([A-Z]{3})\)/)?.[1]];
+  const explicitValue = cellText(sheet, `${invoiceValueColumn}6`);
+  const explicitCurrency = (explicitValue.match(/\(([A-Z]{3})\)\s*$/i)?.[1] || explicitValue).toUpperCase();
+  const isImportTemplate = cellText(sheet, `${invoiceLabelColumn}6`).includes("客户付款币种");
+  if (isImportTemplate && !explicitCurrency) throw new Error("客户付款币种为必填项，请在模板中选择币种");
+  if (isImportTemplate && !QUOTE_CURRENCY_CODES.has(explicitCurrency)) throw new Error("客户付款币种不受系统支持，请从模板下拉列表选择");
+  const currencyCandidates = [explicitCurrency, cellText(sheet, `${invoiceLabelColumn}6`).match(/\(([A-Z]{3})\)/)?.[1], cellText(sheet, dualCurrencyColumns ? "J18" : "I18").match(/\(([A-Z]{3})\)/)?.[1]];
   const currency = currencyCandidates.find((value) => value && QUOTE_CURRENCY_CODES.has(value)) || "";
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
   const paymentText = cellText(sheet, `${invoiceValueColumn}6`);
