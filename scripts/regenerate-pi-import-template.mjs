@@ -34,8 +34,8 @@ const currencyList = QUOTE_CURRENCIES.map(([code]) => code).join(",");
 const validation = `<x:dataValidations count="1"><x:dataValidation type="list" allowBlank="0" showErrorMessage="1" errorTitle="请选择币种" error="请从下拉列表选择系统支持的付款币种" sqref="J6"><x:formula1>"${currencyList}"</x:formula1></x:dataValidation></x:dataValidations>`;
 if (!worksheetXml.includes('<x:dataValidations')) worksheetXml = worksheetXml.replace('</x:worksheet>', `${validation}</x:worksheet>`);
 // Keep the PI export's product labels while making the displayed currency follow J6.
-replaceCell("I18", 't="str"', '<x:f>"Unit Price ("&amp;J6&amp;")"</x:f><x:v>Unit Price (USD)</x:v>');
-replaceCell("K18", 't="str"', '<x:f>"Amount ("&amp;J6&amp;")"</x:f><x:v>Amount (USD)</x:v>');
+replaceCell("I18", 't="str"', '<x:f>"Unit Price ("&amp;J6&amp;")"</x:f><x:v>Unit Price (select currency)</x:v>');
+replaceCell("K18", 't="str"', '<x:f>"Amount ("&amp;J6&amp;")"</x:f><x:v>Amount (select currency)</x:v>');
 const note = "红色 * 为必填；产品明细列名和顺序与正式PI一致。币种请在上方选择，单价及金额填写客户外币；人民币售价、成本、汇率及收款账户由系统核对时补全，未补全不会生成备货单。";
 replaceCell("A73", 't="inlineStr"', `<x:is><x:t>${note}</x:t></x:is>`);
 // Keep the customer-facing layout round-trippable: imported payment instructions

@@ -12,8 +12,8 @@ const book = XLSX.read(template, { type: "buffer", cellStyles: true, cellFormula
 const sheet = book.Sheets[book.SheetNames[0]];
 assert.equal(sheet.G2.v, "COMMERCIAL INVOICE");
 assert.equal(sheet.A18.v, "No.");
-assert.equal(sheet.I18.v, "Unit Price (USD)", "单价列标题应与正式PI导出一致并显示币种");
-assert.equal(sheet.K18.v, "Amount (USD)", "金额列标题应与正式PI导出一致并显示币种");
+assert.equal(sheet.I18.v, "Unit Price (select currency)", "未选币种时单价列不得误显示 USD");
+assert.equal(sheet.K18.v, "Amount (select currency)", "未选币种时金额列不得误显示 USD");
 assert.match(sheet.I18.f, /J6/, "模板单价标题应随顶部所选币种更新");
 assert.match(sheet.K18.f, /J6/, "模板金额标题应随顶部所选币种更新");
 assert.match(String(sheet.I2.v), /\*.*订单编号/);
