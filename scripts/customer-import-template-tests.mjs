@@ -48,7 +48,7 @@ assert.equal(exampleRows[4][8], "", "示例不得预设客户阶段");
 const help = XLSX.utils.sheet_to_json(workbook.Sheets["填写说明"], { header: 1, defval: "" });
 assert.match(help[3][1], /仅“客户名称”和“国家\/地区”必填/);
 assert.match(help[6][1], /均为选填，收货人、电话、地址可分别填写/);
-assert.match(help[4][1], /阶段不是必填项/);
+assert.match(help[4][1], /客户阶段不是必填项/);
 assert.match(help[4][1], /已成交客户.*微信、邮箱或电话其中一项/);
 assert.match(help[4][1], /只填一项即可/);
 assert.match(help[9][1], /列名为系统标准字段，请勿更改、删除、合并或调换/);
@@ -71,6 +71,42 @@ assert.ok(rows.slice(1).every((row) => row.every((value) => value === "")), "模
 const poolHeaders = XLSX.utils.sheet_to_json(poolWorkbook.Sheets["客户导入模板"], { header: 1, defval: "" })[0];
 assert.deepEqual(poolHeaders, headers.filter((_, index) => index !== 8 && index !== 9), "公海模板应移除阶段、等级列，其他标准列保持一致");
 assert.ok(!poolHeaders.some((header) => /客户阶段|客户等级/.test(header)));
+
+function getSheetXml(buffer) {
+  const archive = XLSX.CFB.read(buffer, { type: "buffer" });
+  const index = archive.FullPaths.findIndex((item) => item.endsWith("/xl/worksheets/sheet1.xml"));
+  assert.ok(index >= 0, "导入工作表XML必须存在");
+  return archive.FileIndex[index].content.toString("utf8");
+}
+function getCellStyle(xml, address) {
+  return xml.match(new RegExp('<c r="' + address + '" s="(\\d+)"'))?.[1];
+}
+const privateTemplateXml = getSheetXml(binary);
+const poolTemplateXml = getSheetXml(poolBinary);
+for (const [name, xml] of [["我的客户", privateTemplateXml], ["客户公海", poolTemplateXml]]) {
+  const requiredStyle = getCellStyle(xml, "A1");
+  const countryStyle = getCellStyle(xml, "C1");
+  const companyStyle = getCellStyle(xml, "B1");
+  assert.ok(requiredStyle && countryStyle && companyStyle, name + " 表头必须有明确格式");
+  assert.equal(requiredStyle, countryStyle, name + " 客户名称和国家使用统一必填标记");
+  assert.equal(companyStyle, getCellStyle(xml, "D1"), name + " 公司名称应使用选填列样式");
+  assert.notEqual(companyStyle, requiredStyle, name + " 公司名称不能显示成必填红色");
+  assert.match(xml, /<sheetProtection[^>]*sheet="1"/, name + " 模板表头应开启防误改保护");
+  assert.doesNotMatch(xml.match(/<sheetProtection[^>]*>/)?.[0] ?? "", /(?:insertRows|insertColumns|deleteRows|deleteColumns)="1"/,
+    name + " 模板保护不应允许插入或删除列/行破坏标准表头");
+  assert.match(xml, /<c r="A2" s="17"/, name + " 数据行须保持可填写");
+}
+const customerArchive = XLSX.CFB.read(binary, { type: "buffer" });
+const customerStylesPath = customerArchive.FullPaths.findIndex((item) => item.endsWith("/xl/styles.xml"));
+assert.ok(customerStylesPath >= 0);
+const customerStylesXml = customerArchive.FileIndex[customerStylesPath].content.toString("utf8");
+const customerXfs = customerStylesXml.match(/<cellXfs[^>]*>([\\s\\S]*?)<\\/cellXfs>/)?.[1]
+  .match(/<xf\\b[^>]*(?:\\/>|>[\\s\\S]*?<\\/xf>)/g);
+assert.ok(customerXfs?.[17]?.includes('locked="0"'), "客户导入数据行必须解锁");
+for (const address of ["A1", "B1", "C1"]) {
+  const styleIndex = Number(getCellStyle(privateTemplateXml, address));
+  assert.ok(!customerXfs[styleIndex]?.includes('locked="0"'), "列名行必须保持锁定");
+}
 assert.match(templateApi, /Customer_Public_Pool_Import_Template/);
 assert.match(importView, /api\/import\/template\?destination=\$\{destination\}/);
 const archive = XLSX.CFB.read(binary, { type: "buffer" });
