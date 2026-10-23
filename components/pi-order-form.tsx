@@ -264,7 +264,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setItems(source.items.map((item) => ({ ...newLine(), item_name: item.item_name, brand: item.brand,
           model: item.model, quality: item.quality, description: item.description, description_zh: item.description_zh || "", quantity: String(item.quantity),
           unit_price_source: item.unit_price_cny !== undefined ? "CNY" as const : "PAYMENT" as const,
-          unit_price_payment: item.unit_price_cny !== undefined && importedRate > 0 ? roundMoney(item.unit_price_cny / importedRate).toFixed(2) : item.unit_price_payment.toFixed(2),
+          unit_price_payment: item.unit_price_cny !== undefined ? importedRate > 0 ? roundMoney(item.unit_price_cny / importedRate).toFixed(2) : "" : item.unit_price_payment.toFixed(2),
           unit_price_cny: item.unit_price_cny !== undefined ? item.unit_price_cny.toFixed(2) : importedRate > 0 ? roundMoney(item.unit_price_payment * importedRate).toFixed(2) : "",
           estimated_unit_cost_cny: item.estimated_unit_cost_cny?.toFixed(2) || "", preparation_requirement: item.preparation_requirement || "", internal_note: item.internal_note || "" })));
         setAccountId(source.payment_account_id || "");
