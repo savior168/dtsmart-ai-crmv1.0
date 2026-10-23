@@ -228,7 +228,7 @@ export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteIte
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
 
-export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { procurement_cost_confirmed?: boolean; estimated_unit_cost_cny?: number | null; received_quantity?: number; warehouse_supplier_code?: string | null; internal_note?: string | null })[]) {
+export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { procurement_cost_confirmed?: boolean; estimated_unit_cost_cny?: number | null; received_quantity?: number; warehouse_supplier_code?: string | null; internal_note?: string | null; warehouse_note?: string | null })[], options: { includeProcurement?: boolean } = {}) {
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
@@ -250,26 +250,49 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   xml = withCellStyle(withRowHeight(xml, 9, 75), "D9", styles.contactStyle);
   if (stock.stocking_requirements?.trim() && stock.stocking_requirements.trim() !== "常规理货") xml = withCellStyle(xml, "K4", styles.nStyle);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
-  const totalEstimatedCost = items.every((item) => typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny))
+  const totalEstimatedCost = items.length > 0 && items.every((item) => typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny))
     ? Math.round(items.reduce((sum, item) => sum + Number(item.estimated_unit_cost_cny) * Number(item.quantity || 0), 0) * 100) / 100
     : "";
   xml = setCell(xml, "J11", totalEstimatedCost, "IF(COUNT(J13:J999)<COUNT(K13:K999),\"\",SUMPRODUCT(J13:J999,K13:K999))");
+  if (options.includeProcurement) {
+    const completeProcurement = items.length > 0 && items.every((item) => item.procurement_cost_confirmed === true
+      && typeof item.procurement_cost === "number" && Number.isFinite(item.procurement_cost));
+    const totalProcurement = completeProcurement
+      ? Math.round(items.reduce((sum, item) => sum + Number(item.procurement_cost) * Number(item.quantity || 0), 0) * 100) / 100
+      : "";
+    xml = setCell(xml, "P11", "采购总金额（CNY）");
+    xml = setCell(xml, "Q11", totalProcurement, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))');
+    xml = setCell(xml, "P12", "采购单价（CNY）");
+    xml = setCell(xml, "Q12", "成本差价（CNY/件）");
+    xml = setCell(xml, "R12", "仓库备注");
+  }
   for (let index = 0; index < Math.max(items.length, 9); index += 1) {
     const row = 13 + index;
     const item = items[index];
     const warehouseDescription = item?.description_zh?.trim() || "";
-    const warehouseAttention = item ? [item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "", item.internal_note ? `仓库备注：${item.internal_note}` : ""].filter(Boolean).join("\n") : "";
+    const warehouseAttention = item ? [item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "", item.internal_note ? `销售备注：${item.internal_note}` : ""].filter(Boolean).join("\n") : "";
     const valuesForRow: Array<[string, unknown]> = item ? [
       [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || item.item_name || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
       [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny) ? Number(item.estimated_unit_cost_cny) : ""],
       [`K${row}`, Number(item.quantity || 0)], [`L${row}`, warehouseDescription], [`N${row}`, warehouseAttention],
     ] : [[`B${row}`, ""], [`C${row}`, ""], [`E${row}`, ""], [`F${row}`, ""], [`G${row}`, ""], [`H${row}`, ""], [`J${row}`, ""], [`K${row}`, ""], [`L${row}`, ""], [`N${row}`, ""]];
     for (const [cell, value] of valuesForRow) xml = setCell(xml, cell, value);
+    if (options.includeProcurement) {
+      const purchasePrice = item?.procurement_cost_confirmed && typeof item.procurement_cost === "number" && Number.isFinite(item.procurement_cost)
+        ? Number(item.procurement_cost) : "";
+      const costDifference = typeof purchasePrice === "number" && typeof item?.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny)
+        ? Math.round((Number(item.estimated_unit_cost_cny) - purchasePrice) * 100) / 100 : "";
+      xml = setCell(xml, `P${row}`, purchasePrice);
+      xml = setCell(xml, `Q${row}`, costDifference);
+      xml = setCell(xml, `R${row}`, item?.warehouse_note || "");
+      if (item?.warehouse_note) xml = withCellStyle(xml, `R${row}`, styles.nStyle);
+    }
     if (item) {
       if (warehouseDescription) xml = withCellStyle(xml, `L${row}`, styles.descriptionStyle);
       if (warehouseAttention) xml = withCellStyle(xml, `N${row}`, styles.nStyle);
       const attentionLines = warehouseAttention.split("\n").reduce((total, line) => total + Math.max(1, Math.ceil(line.length / 34)), 0);
-      const lines = Math.max(Math.ceil(warehouseDescription.length / 28), attentionLines);
+      const warehouseNoteLines = item?.warehouse_note ? Math.max(1, Math.ceil(item.warehouse_note.length / 24)) : 0;
+      const lines = Math.max(Math.ceil(warehouseDescription.length / 28), attentionLines, warehouseNoteLines);
       if (lines > 0) xml = withRowHeight(xml, row, Math.max(28, 18 + lines * 11));
     }
   }

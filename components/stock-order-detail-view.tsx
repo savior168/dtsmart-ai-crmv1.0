@@ -30,9 +30,10 @@ type Item = {
   quality: string | null;
   description: string | null;
   description_zh: string | null;
-  procurement_cost: number;
+  procurement_cost?: number | null;
   estimated_unit_cost_cny: number | null;
-  procurement_cost_confirmed: boolean;
+  procurement_cost_confirmed?: boolean;
+  warehouse_note?: string | null;
   quantity: number;
   received_quantity: number;
   prepared_quantity: number;
@@ -106,6 +107,8 @@ type Payload = {
   can_submit: boolean;
   can_update: boolean;
   can_edit_receiving: boolean;
+  can_view_procurement: boolean;
+  can_edit_procurement: boolean;
   allowed_statuses: StockOrderStatus[];
 };
 const ITEM_STAGES: StockOrderStatus[] = ["WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED"];
@@ -119,9 +122,17 @@ function readableEventNote(value: string | null) {
   return value.replace(/\b(DRAFT|WAITING|PREPARING|RECEIVED|SORTING|READY_TO_SHIP|SHIPPED|SHORTAGE|CANCELLED|READY)\b/g,
     (status) => eventStageLabels[status] || status);
 }
+function parseProcurementCost(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const amount = Number(normalized);
+  return Number.isFinite(amount) && amount >= 0 && amount <= 999999999999.99 ? amount : null;
+}
 export function StockOrderDetailView({ id }: { id: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [procurementDraft, setProcurementDraft] = useState<Record<string, { cost: string; note: string }>>({});
   const [receivingDraft, setReceivingDraft] = useState<Record<string, { received: string; prepared: string; supplierCode: string }>>({});
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -167,6 +178,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
     setData(body);
     setEventPage(1);
     setItems(body.items || []);
+    setProcurementDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, {
+      cost: item.procurement_cost_confirmed ? Number(item.procurement_cost || 0).toFixed(2) : "",
+      note: item.warehouse_note || "",
+    }])));
     setSelectedItemIds([]);
     orderVersion.current = body.order.updated_at;
     setReceivingDraft(Object.fromEntries((body.items || []).map((item: Item) => [item.id, { received: String(item.received_quantity ?? 0), prepared: String(item.prepared_quantity ?? 0), supplierCode: item.warehouse_supplier_code || "" }])));
@@ -252,6 +267,25 @@ export function StockOrderDetailView({ id }: { id: string }) {
       expected_ready_at: expected ? new Date(expected).toISOString() : null,
       items,
     });
+  }
+  async function saveProcurement() {
+    if (!data?.can_edit_procurement) return;
+    const invalidItem = items.find((item) => {
+      const value = procurementDraft[item.id]?.cost || "";
+      return Boolean(value.trim()) && parseProcurementCost(value) === null;
+    });
+    if (invalidItem) {
+      setError(`第 ${invalidItem.line_number} 项采购价无效：请输入非负金额，最多两位小数`);
+      return;
+    }
+    const saved = await request(`/api/stock-orders/${id}/procurement`, "PATCH", {
+      items: items.map((item) => ({
+        line_number: item.line_number,
+        procurement_cost: parseProcurementCost(procurementDraft[item.id]?.cost || ""),
+        warehouse_note: (procurementDraft[item.id]?.note || "").trim() || null,
+      })),
+    });
+    if (saved) setError("");
   }
   function saveLineOnBlur(item: Item, action: "RECEIVE" | "PREPARE") {
     const draft = receivingDraft[item.id];
@@ -427,6 +461,17 @@ export function StockOrderDetailView({ id }: { id: string }) {
   const stockProgress = summarizeStockProgress(o.status, items);
   const showStockProgress = o.status !== "DRAFT" && !data.recalled_pi;
   const canExecute = data.can_update && ITEM_STAGES.includes(o.status) && o.status !== "SHIPPED" && !data.recalled_pi;
+  const canViewProcurement = data.can_view_procurement;
+  const canEditProcurement = data.can_edit_procurement;
+  const procurementRows = items.map((item) => {
+    const price = canEditProcurement
+      ? parseProcurementCost(procurementDraft[item.id]?.cost || "")
+      : item.procurement_cost_confirmed ? Number(item.procurement_cost) : null;
+    const estimate = item.estimated_unit_cost_cny;
+    return { item, price, difference: price !== null && typeof estimate === "number" && Number.isFinite(estimate) ? Math.round((estimate - price) * 100) / 100 : null };
+  });
+  const procurementTotal = Math.round(procurementRows.reduce((sum, row) => sum + (row.price === null ? 0 : row.price * Number(row.item.quantity || 0)), 0) * 100) / 100;
+  const missingProcurementCount = procurementRows.filter((row) => row.price === null).length;
   const unshippedItems = items.filter((item) => item.shipped_quantity === 0);
   const canShip = canExecute && data.shipment_feature_ready !== false && unshippedItems.length > 0 && unshippedItems.every((item) =>
     item.received_quantity === item.quantity && item.prepared_quantity === item.quantity);
@@ -518,11 +563,19 @@ export function StockOrderDetailView({ id }: { id: string }) {
             {canExecute ? <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
               累计回货数、已完成理货数和供应商编码离开输入框后自动保存；理货数不能超过已回货数。减少已保存的数量时，先填写下方更正原因。
             </div> : null}
+            {canViewProcurement ? <section className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-sm" aria-label="采购金额汇总">
+              <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                <span className="font-medium text-slate-700">{missingProcurementCount ? "已录采购金额" : "采购总金额"}：<strong className="text-amber-900">¥{procurementTotal.toFixed(2)}</strong></span>
+                {missingProcurementCount ? <span className="text-xs text-amber-800">还有 {missingProcurementCount} 项未录采购价，当前金额为已录部分小计</span> : null}
+                <span className="text-xs text-slate-600">成本差价 = PI 成本单价 − 采购单价</span>
+              </div>
+              {canEditProcurement ? <button type="button" disabled={busy} onClick={() => void saveProcurement()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-700 px-3 text-sm font-medium text-white disabled:opacity-50"><Save size={15}/>{busy ? "正在保存…" : "保存采购信息"}</button> : null}
+            </section> : null}
             {error ? <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
             <div className="overflow-x-auto rounded-xl border">
               <table className="w-full min-w-[1880px] table-fixed text-left text-sm">
                 <colgroup>
-                  {[42, 48, 74, 74, 104, 112, 110, 170, 115, 58, 125, 105, 105, 180, 190, 150, ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}
+                  {[42, 48, 74, 74, 104, 112, 110, 170, 115, ...(canViewProcurement ? [112, 120] : []), 58, 125, 105, 105, 180, 190, 150, ...(canViewProcurement ? [150] : []), ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}
                 </colgroup>
                 <thead className="bg-slate-50 text-xs">
                   <tr>
@@ -536,13 +589,15 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "产品描述",
                       "中文质量/描述（仓库）",
                       "成本单价（人民币）",
+                      ...(canViewProcurement ? ["采购价（人民币/件）", "成本差价（人民币/件）"] : []),
                       "数量",
                       "供应商编码",
                       "累计已回货",
                       "已完成理货",
                       "单项进度",
                       "理货要求",
-                      "仓库备注",
+                      "销售备注",
+                      ...(canViewProcurement ? ["仓库备注"] : []),
                       ...(canExecute ? ["操作"] : []),
                     ].map((x) => (
                       <th key={x} className="break-words px-2 py-3 font-medium leading-4">
@@ -588,6 +643,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-2 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
+                      {canViewProcurement ? <>
+                        <td className="px-2 py-2">{canEditProcurement ? <input inputMode="decimal" value={procurementDraft[item.id]?.cost || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: event.target.value, note: current[item.id]?.note || "" } }))} placeholder="未录入" aria-label={`第 ${item.line_number} 项采购价（人民币/件）`} className="h-9 w-full min-w-0 rounded border px-2 text-right tabular-nums" /> : item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-400">未录入</span>}</td>
+                        <td className={`px-2 py-2 text-right tabular-nums ${procurementRows[index]?.difference !== null && (procurementRows[index]?.difference ?? 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>{procurementRows[index]?.difference === null ? "—" : Number(procurementRows[index]?.difference).toFixed(2)}</td>
+                      </> : null}
                       <td className="px-2 py-2">{item.quantity}</td>
                       <td className="px-2 py-2">
                         {canExecute ? <input value={receivingDraft[item.id]?.supplierCode ?? ""}
@@ -627,6 +686,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-2 py-2"><div className="line-clamp-2 break-words text-[13px] leading-5 text-slate-600" title={item.internal_note || "-"}>{item.internal_note || "-"}</div></td>
+                      {canViewProcurement ? <td className="px-2 py-2">{canEditProcurement ? <input value={procurementDraft[item.id]?.note || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: current[item.id]?.cost || "", note: event.target.value } }))} maxLength={1000} aria-label={`第 ${item.line_number} 项仓库备注`} placeholder="仓库补充说明" className="h-9 w-full min-w-0 rounded border px-2" /> : <div className="line-clamp-2 break-words text-[13px] leading-5 text-slate-600" title={item.warehouse_note || "-"}>{item.warehouse_note || "-"}</div>}</td> : null}
                       {canExecute ? <td className="px-2 py-2"><button type="button" disabled={busy || savingItemId !== null || hasUnsavedQuantity} onClick={() => setCorrection({
                         itemId: item.id, received: String(item.received_quantity), prepared: String(item.prepared_quantity),
                         supplierCode: item.warehouse_supplier_code || "", reason: "", revertStart: false,

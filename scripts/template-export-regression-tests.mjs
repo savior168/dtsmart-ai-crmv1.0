@@ -47,7 +47,7 @@ const quoteBuffer = await buildQuoteWorkbook({
   customer: { company_name: "Demo GmbH", contact_name: "Tom", phone: "491234567" },
 }, items);
 
-const stockBuffer = await buildStockWorkbook({
+const stockData = {
   stock_number: "BH-TEST-001",
   order_number: "ORDER-TEST-001",
   quote_number: "PI-TEST-001",
@@ -65,7 +65,11 @@ const stockBuffer = await buildStockWorkbook({
   delivery_address: "Berlin",
   created_at: new Date().toISOString(),
   salesperson: { name: "Eva", email: "eva@example.com" },
-}, items);
+};
+const stockBuffer = await buildStockWorkbook(stockData, items);
+const warehouseStockBuffer = await buildStockWorkbook(stockData,
+  items.map((item) => ({ ...item, procurement_cost_confirmed: true, warehouse_note: "SUPPLIER-INTERNAL-NOTE" })),
+  { includeProcurement: true });
 
 function firstSheet(buffer) {
   const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: true, cellStyles: true });
@@ -116,6 +120,7 @@ assert.ok(quote.B19.s, "报价产品行样式必须保留");
 assert.ok(containsMedia(quoteBuffer), "报价单必须保留企业 Logo");
 
 const stock = firstSheet(stockBuffer);
+const warehouseStock = firstSheet(warehouseStockBuffer);
 assert.equal(stock.G3.v, "ORDER-TEST-001");
 assert.equal(stock.K3.v, "德国", "目的国家须显示中文名称而非代码");
 assert.equal(stock.N3.v, "2026-10-13", "实际发货日须来自已发货事件");
@@ -128,7 +133,16 @@ assert.equal(stock.C6.v, "Update delivery date");
 assert.equal(stock.C7.v, "New label");
 assert.match(stock.H4.v, /【理货要求】/, "理货要求须保留模板固定说明");
 assert.equal(stock.K4.v, "Pack", "实际理货要求须写入模板右侧内容区");
-assert.equal(stock.N13.v, "理货要求：Label\n仓库备注：Keep dry", "逐项理货要求和仓库备注须在同一单元格分行显示");
+assert.equal(stock.N13.v, "理货要求：Label\n销售备注：Keep dry", "销售备注与逐项理货要求须分行显示");
+assert.equal(stock.P12?.v, undefined, "销售导出不得出现采购字段列头");
+assert.equal(stock.P13?.v, undefined, "销售导出不得包含采购单价");
+assert.equal(stock.R13?.v, undefined, "销售导出不得包含仓库备注");
+assert.equal(warehouseStock.P11.v, "采购总金额（CNY）", "仓库导出应标明采购总金额");
+assert.equal(warehouseStock.Q11.v, 487.5, "采购总金额必须按采购单价乘数量完整计算");
+assert.equal(warehouseStock.Q11.f, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))', "采购总金额公式必须按采购价和数量计算且未录齐时留空");
+assert.equal(warehouseStock.P13.v, 6.25, "仓库导出应显示采购单价");
+assert.equal(warehouseStock.Q13.v, 2.25, "成本差价应为PI成本单价减采购单价");
+assert.equal(warehouseStock.R13.v, "SUPPLIER-INTERNAL-NOTE", "仓库导出应包含仓库员填写的独立备注");
 assert.doesNotMatch(stock.N13.v, /已回货|供应商编码|SUPPLIER-PRIVATE/, "标准备货单不应混入动态回货进度或供应商编码");
 assert.equal(stock.B8.v, "外箱唛头：", "不得清空模板固定标签");
 assert.equal(stock.C13.v, "屏幕");
@@ -144,9 +158,9 @@ for (const [cell, label] of Object.entries({ C12: "产品类型", E12: "产品�
 }
 const stockPreviewSource = readFileSync("components/order-print-preview.tsx", "utf8").split("{stock?<>")[1]?.split("</>:null}")[0] || "";
 for (const label of ["产品质量", "产品描述", "成本单价", "订单数量", "产品质量/描述中文", "注意事项及理货要求"]) assert.ok(stockPreviewSource.includes(label), `备货预览须显示模板列头 ${label}`);
-assert.match(stockPreviewSource, /\[4,5,8,9\]\.includes\(index\)/, "备货预览的产品质量和产品描述都须标明展示给客户");
-assert.doesNotMatch(stockPreviewSource, /成本单价（人民币）|"理货要求","仓库备注"/, "备货预览列头不得与模板不一致");
-assert.match(stockPreviewSource, /采购成本/, "备货预览须显示采购成本汇总");
+assert.match(stockPreviewSource, /\[4,5,stock\.can_view_procurement\?10:8,stock\.can_view_procurement\?11:9\]\.includes\(index\)/, "备货预览的质量、描述和仓库列说明须按角色显示且索引准确");
+assert.doesNotMatch(stockPreviewSource, /成本单价（人民币）|仓库备注：\$\{item\.internal_note/, "备货预览列头和销售备注内容必须区分准确");
+assert.match(stockPreviewSource, /采购总金额/, "仓库备货预览须显示实际采购总金额");
 assert.match(stockPreviewSource, /text-\[\#986C47\]/, "整单和单项理货提醒须使用一致的柔和字体颜色");
 assert.ok(stock.C13.s, "备货产品行样式必须保留");
 assert.equal(stock.H3.v, "Jo", "备货 Excel 的客户名称应是PI关联的具体对接人，不得用公司或收件人代替");

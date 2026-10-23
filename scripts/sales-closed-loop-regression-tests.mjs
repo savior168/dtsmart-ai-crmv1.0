@@ -37,14 +37,23 @@ assert.match(attachmentDetail, /报价发送后附件作为业务凭证保留，
 const stockApi = read("app/api/stock-orders/[id]/route.ts");
 assert.match(stockApi, /const warehouseEditor = \["WAREHOUSE", "ADMIN"\]\.includes\(account\.role\)[\s\S]*can_update: warehouseEditor/, "备货状态只能由仓库员或系统管理员更新");
 assert.doesNotMatch(stockApi, /unit_price|total_amount|customer:customers|delivery_phone|delivery_email/, "仓库接口不得返回销售价格或客户私人联系方式；本单货代收货电话仍可用于交接");
-assert.match(stockApi, /procurement_cost_confirmed[\s\S]*can_edit_procurement: warehouseEditor[\s\S]*stock\.procurement\.edit/, "采购核价状态和独立权限必须由服务端返回");
+assert.match(stockApi, /can_view_procurement: canViewProcurement[\s\S]*can_edit_procurement: canViewProcurement/, "采购字段查看和编辑能力必须由服务端单独授权");
+assert.match(stockApi, /const canViewProcurement = account\.role === "WAREHOUSE"/, "只有仓库员可在备货单详情查看采购敏感信息");
+assert.match(read("app/api/stock-orders/[id]/export/route.ts"), /const canViewProcurement = account\.role === "WAREHOUSE"/, "只有仓库员可在备货单导出查看采购敏感信息");
+assert.match(read("app/api/stock-orders/[id]/procurement/route.ts"), /account\.role !== "WAREHOUSE"/, "只有仓库员可写入采购敏感信息");
 assert.doesNotMatch(read("app/api/stock-orders/[id]/draft/route.ts"), /procurement_cost:/, "销售员保存备货草稿不能传入采购价");
-assert.match(read("app/api/stock-orders/[id]/procurement/route.ts"), /requirePermission\("stock\.procurement\.edit"\)[\s\S]*\["WAREHOUSE", "ADMIN"\][\s\S]*save_stock_order_procurement_costs/, "采购核价仅可由有权限的采购仓库角色或管理员执行");
+assert.match(read("app/api/stock-orders/[id]/procurement/route.ts"), /requirePermission\("stock\.procurement\.edit"\)[\s\S]*account\.role !== "WAREHOUSE"[\s\S]*save_stock_order_procurement_costs/, "采购核价仅可由有权限的仓库员执行");
 const stockCostMigration = read("supabase/migrations/202609230005_stock_procurement_cost_separation.sql");
+const stockProcurementMigration = read("supabase/migrations/202610220003_stock_procurement_fields_and_access.sql");
 assert.match(stockCostMigration, /procurement_cost_confirmed boolean not null default false/, "历史备货采购价必须默认未确认");
 assert.doesNotMatch(stockCostMigration.match(/create or replace function public\.capture_stock_product_type_and_cost\(\)[\s\S]*?end \$\$;/)?.[0] || "", /new\.procurement_cost\s*:=/, "建单触发器不能把含包装费的报价成本伪装成采购价");
 assert.doesNotMatch(stockCostMigration.match(/create or replace function public\.update_stock_order_draft\([\s\S]*?end \$\$;/)?.[0] || "", /procurement_cost\s*=/, "销售备货草稿数据库函数不能修改采购价");
-assert.match(stockCostMigration, /actor\.role not in \('WAREHOUSE','ADMIN'\)[\s\S]*current_user_has_business_permission\('stock\.procurement\.edit'\)/, "数据库核价必须同时校验角色和独立权限");
+assert.match(stockProcurementMigration, /actor\.role <> 'WAREHOUSE'[\s\S]*current_user_has_business_permission\('stock\.procurement\.edit'\)/, "数据库核价必须同时校验仓库角色和独立权限");
+const procurementAccessMigration = read("supabase/migrations/202610220004_stock_procurement_column_access.sql");
+assert.match(procurementAccessMigration, /revoke all privileges on table public\.stock_order_items from public, anon, authenticated[\s\S]*grant select on table public\.stock_order_items to service_role/, "采购敏感字段不得通过用户态直连数据表读取，服务端管理员读取保持可用");
+assert.match(procurementAccessMigration, /grant select \([\s\S]*internal_note\s*\) on public\.stock_order_items to authenticated/, "销售端只保留非采购字段的逐列读取权限");
+assert.match(procurementAccessMigration, /revoke all privileges \([\s\S]*procurement_cost[\s\S]*warehouse_note[\s\S]*\) on table public\.stock_order_items from public, anon, authenticated/, "撤销已有逐列授权，避免旧采购字段权限残留");
+assert.doesNotMatch(procurementAccessMigration.match(/grant select \(([\s\S]*?)\) on public\.stock_order_items to authenticated/)?.[1] || "", /procurement_cost|warehouse_note/, "销售端不能获授采购价、确认状态或仓库备注权限");
 
 const migration = read("supabase/migrations/202609010001_sales_quote_stock_cost_center.sql");
 const orderMigration = read("supabase/migrations/202609010002_sales_order_workflow.sql");

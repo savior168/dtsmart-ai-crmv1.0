@@ -102,12 +102,12 @@ const lineHelp = XLSX.utils.sheet_to_json(lineTemplateBook.Sheets["填写说明"
 assert.match(lineHelp[3][1], /产品描述、产品质量\/描述中文/, "选填描述须在模板中明确说明");
 assert.match(lineHelp[4][1], /销售金额＝人民币销售单价×数量/, "自动计算列须在模板中说明");
 const lineTemplateSheet = lineTemplateBook.Sheets[lineTemplateBook.SheetNames[0]];
-assert.deepEqual(XLSX.utils.sheet_to_json(lineTemplateSheet, { header: 1, range: 0 })[0], ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "仓库备注"], "PI产品模板列顺序应与录入表一致");
+assert.deepEqual(XLSX.utils.sheet_to_json(lineTemplateSheet, { header: 1, range: 0 })[0], ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "销售备注"], "PI产品模板列顺序应与录入表一致");
 assert.match(lineTemplateSheet.J2.f, /ROUND\(H2\*I2,2\)/, "销售金额应根据售价和数量自动计算");
 assert.match(lineTemplateSheet.K2.f, /ROUND\(\(H2-G2\)\*I2,2\)/, "利润应根据成本、售价和数量自动计算");
 assert.match(lineTemplateSheet.L2.f, /K2\/J2/, "利润率应根据利润与销售金额自动计算");
 assert.match(lineTemplateSheet.L501.f, /K501\/J501/, "500条产品行均应预置计算公式");
-assert.match(piForm, /modernTemplate \? 12[\s\S]*modernTemplate \? 13/, "导入新版模板时必须正确读取理货要求和仓库备注，并忽略公式列");
+assert.match(piForm, /modernTemplate \? 12[\s\S]*modernTemplate \? 13/, "导入新版模板时必须正确读取理货要求和销售备注，并忽略公式列");
 assert.match(piForm, /link\.href = "\/templates\/pi-line-import-template\.xlsx"/, "下载按钮必须返回已校验的固定模板");
 const piInput = read("lib/pi-order-input.ts");
 const deliveryMigration = read("supabase/migrations/20261015202000_pi_required_delivery_contact.sql");
@@ -219,10 +219,10 @@ for (const api of [orderListApi, stockListApi]) {
 assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
-assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "仓库备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和仓库备注放在产品明细最后两列");
+assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "销售备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和销售备注放在产品明细最后两列");
 assert.match(orderDetailView, /function PiInternalTextCell[\s\S]*content\.length > 48[\s\S]*line-clamp-2[\s\S]*aria-expanded=\{expanded\}[\s\S]*\{expanded \? "收起" : "展开"\}/, "短内容应直接显示，长内容可在原单元格展开而不弹窗");
 assert.doesNotMatch(orderDetailView, /查看全文|expandedLineText/, "逐项备注不应在每行重复显示全文按钮或弹窗");
-assert.doesNotMatch(orderDetailView, /逐项理货要求与仓库备注/, "PI详情不应在产品表格后重复列出逐项内部要求");
+assert.doesNotMatch(orderDetailView, /逐项理货要求与销售备注/, "PI详情不应在产品表格后重复列出逐项内部要求");
 const piBatchActions = orderListView.split("批量导出 PI，已选")[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piBatchActions, /导出 Excel[\s\S]*导出 PDF/, "所选正式PI应在统一批量导出菜单提供Excel和PDF入口");
 assert.match(orderDetailView, /导出\{directPi \? " PI"[\s\S]*导出 Excel[\s\S]*导出 PDF/, "PI详情应在统一导出菜单提供Excel与PDF");
@@ -337,13 +337,16 @@ assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sq
 assert.doesNotMatch(piForm, /<Fragment|colSpan=\{9\}/, "每项产品应只占一行");
 assert.match(piForm, /订单编号<Required \/>/, "创建PI应统一显示订单编号并以红星标出必填");
 assert.match(piForm, /PI有效期[\s\S]*客户及货代收货信息[\s\S]*PI产品明细[\s\S]*PI费用汇总[\s\S]*pi-shipping/, "运费输入应位于PI费用汇总区");
+assert.match(piForm, /availablePaymentChannels = PI_PAYMENT_CHANNELS\.filter\(\(channel\) => accounts\.some\([\s\S]*payment_channel === channel\)/, "付款渠道只显示有启用收款账户的渠道");
+assert.match(piForm, /请选择已配置收款账户的付款渠道[\s\S]*hasOtherPaymentAccount/, "无收款账户的付款渠道须隐藏并提供提示");
 assert.match(piForm, /"last_balance", "未付尾款"[\s\S]*"discount", "折扣（扣减）"[\s\S]*"other", "其他费用"/, "PI费用项目应使用准确名称");
 assert.match(piForm, /key === "discount" \? "−" : "\+"/, "PI费用项目应明确标出加收与扣减方向");
 assert.match(read("components/order-print-preview.tsx"), /"UNPAID BALANCE:"/, "PI预览应以未付尾款命名");
 
 for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /unit_price|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润");
-  assert.match(source, /estimated_unit_cost_cny,procurement_cost/, "仓库仅读取预估及实际成本");
+  assert.match(source, /estimated_unit_cost_cny,quantity,received_quantity/, "普通明细查询只读取PI成本预算及实物进度");
+  assert.match(source, /createAdminClient\(\)\.from\("stock_order_items"\)[\s\S]*procurement_cost,procurement_cost_confirmed,warehouse_note/, "采购字段须通过服务端管理员客户端仅向授权角色补充读取");
   assert.match(source, /received_quantity[,a-z_]*warehouse_supplier_code/, "仓库回货和供应商编码应可查看");
 }
 assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /requirePermission\("stock\.update"\)/, "实物进度更新必须验证仓库权限");
@@ -370,7 +373,8 @@ assert.match(migration, /create table public\.stock_order_expenses[\s\S]*?enable
 assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','SHIP'\)/, "常规进度只允许采购、回货、理货和整单发货动作");
 assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
 assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
-assert.doesNotMatch(stockView, /未维护类型|实际采购单价（CNY）|保存采购核价/, "仓库明细暂不显示空类型占位或实际采购价入口");
+assert.match(stockView, /采购价（人民币\/件）[\s\S]*成本差价（人民币\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
+assert.match(detail, /const canViewProcurement = account\.role === "WAREHOUSE"/, "采购敏感字段只能由仓库角色加载");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");
 assert.doesNotMatch(order, /stock_order_expenses|packaging_cost_cny|shipping_expenses_cny/, "销售订单详情不得返回仓库整单费用");

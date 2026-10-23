@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as XLSX from "xlsx";
-import { parseImportFile, mapImportRow } from "../lib/import-parser.ts";
 import { postgrestContains } from "../lib/postgrest-search.ts";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
+const { parseImportFile, mapImportRow } = await jiti.import(resolve("lib/import-parser.ts"));
 
 const rows = [
   ["名称", "国家", "完整号码", "邮箱"],

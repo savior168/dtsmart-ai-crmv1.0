@@ -24,6 +24,8 @@ const SORT_COLUMNS = {
 export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("stock.view");
+    const canViewProcurement = account.role === "WAREHOUSE"
+      && hasPermission(account, "stock.procurement.edit");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
     const selectedIds = params.getAll("id");
@@ -111,21 +113,39 @@ export async function GET(request: NextRequest) {
             "id,sales_order_id,sales_user_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
           ).in("id", batchIds),
           supabase.from("stock_order_items").select(
-            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
+            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
           ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(0, 999),
           supabase.from("stock_order_events").select("stock_order_id,created_at").in("stock_order_id", batchIds).eq("to_status", "SHIPPED").order("created_at", { ascending: false }).order("id").range(0, 999),
         ]);
         if (details.error) throw details.error;
         if (firstItems.error) throw firstItems.error;
         if (firstShipped.error) throw firstShipped.error;
-        const items = [...(firstItems.data || [])];
+        let items = [...(firstItems.data || [])];
         for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
           const next = await supabase.from("stock_order_items").select(
-            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,procurement_cost,procurement_cost_confirmed,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
+            "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
           ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(offset, offset + 999);
           if (next.error) throw next.error;
           items.push(...(next.data || []));
           if ((next.data || []).length < 1000) break;
+        }
+        if (canViewProcurement) {
+          const sensitive = createAdminClient();
+          const purchaseRows = await sensitive.from("stock_order_items")
+            .select("stock_order_id,line_number,procurement_cost,procurement_cost_confirmed,warehouse_note")
+            .in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(0, 999);
+          if (purchaseRows.error) throw purchaseRows.error;
+          const procurementItems = [...(purchaseRows.data || [])];
+          for (let offset = procurementItems.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
+            const next = await sensitive.from("stock_order_items")
+              .select("stock_order_id,line_number,procurement_cost,procurement_cost_confirmed,warehouse_note")
+              .in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(offset, offset + 999);
+            if (next.error) throw next.error;
+            procurementItems.push(...(next.data || []));
+            if ((next.data || []).length < 1000) break;
+          }
+          const procurementByLine = new Map(procurementItems.map((item) => [`${item.stock_order_id}:${item.line_number}`, item]));
+          items = items.map((item) => ({ ...item, ...procurementByLine.get(`${item.stock_order_id}:${item.line_number}`) }));
         }
         const shipped = [...(firstShipped.data || [])];
         for (let offset = shipped.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
@@ -175,7 +195,7 @@ export async function GET(request: NextRequest) {
             forwarder_recipient: piNoteById.get(detail.sales_order_id)?.forwarder_recipient || null,
             forwarder_phone: piNoteById.get(detail.sales_order_id)?.forwarder_phone || null,
             shipped_at: shippedByStockId.get(row.id) || null,
-            status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never) });
+            status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never, { includeProcurement: canViewProcurement }) });
       }
       const zip = buildWorkbookZip(files);
       return new NextResponse(streamZipBytes(zip), { headers: {

@@ -42,7 +42,7 @@ for (const row of [3, 4, 5, 6, 11, 12, 13, 14]) basic.getRange(`A${row}`).format
 basic.getRange("B15:B19").setNumberFormat("0.00");
 basic.getRange("B6").dataValidation = { rule: { type: "list", values: QUOTE_CURRENCIES.map(([code]) => code) } };
 basic.getRange("B20").dataValidation = { rule: { type: "list", values: ["是", "否"] } };
-lines.getRange("A1:O1").values = [["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "销售单价（付款币种，自动换算）", "数量 *", "销售金额（CNY，自动计算）", "总利润（CNY，自动计算）", "利润率（自动计算）", "理货要求", "仓库备注"]];
+lines.getRange("A1:O1").values = [["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "销售单价（付款币种，自动换算）", "数量 *", "销售金额（CNY，自动计算）", "总利润（CNY，自动计算）", "利润率（自动计算）", "理货要求", "销售备注"]];
 lines.getRange("A1:O1").format = { fill: "#DBEAFE", font: { name: "Arial", size: 10, bold: true, color: "#B91C1C" }, wrapText: true, rowHeight: 40 };
 for (const column of ["E", "F", "I", "K", "L", "M", "N", "O"]) lines.getRange(`${column}1`).format.font = { name: "Arial", size: 10, bold: true, color: "#1E40AF" };
 lines.getRange("A2:O51").format.font = { name: "Arial", size: 10, color: "#172554" };

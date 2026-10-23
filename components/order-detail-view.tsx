@@ -284,7 +284,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     ...(directPi ? ["销售单价（人民币）", "成本单价（人民币）", "利润率"] : []),
                     "单价",
                     "金额",
-                    ...(directPi ? ["理货要求", "仓库备注"] : []),
+                    ...(directPi ? ["理货要求", "销售备注"] : []),
                   ].map((x) => (
                     <th key={x} className="px-3 py-3 font-medium">
                       {x}
@@ -309,7 +309,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     <td className="px-3 py-3 font-semibold">
                       {o.currency} {Number(i.amount).toFixed(2)}
                     </td>
-                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number}/><PiInternalTextCell text={i.internal_note} fallback="—" label="仓库备注" lineNumber={i.line_number}/></> : null}
+                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number}/><PiInternalTextCell text={i.internal_note} fallback="—" label="销售备注" lineNumber={i.line_number}/></> : null}
                   </tr>
                 ))}
               </tbody>
