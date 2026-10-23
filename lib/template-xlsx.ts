@@ -154,6 +154,11 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>, includeProcureme
   // but OOXML readers such as openpyxl reject the exported workbook.
   xml = xml.replace(/<fill\s*\/>/g, '<fill><patternFill patternType="none"/></fill>');
   xml = xml.replace(/&quot;采购成本 ∑= &quot;/, includeProcurement ? '&quot;采购总金额 ∑= &quot;' : '&quot;PI预估成本 ∑= &quot;');
+  const numberFormats = xml.match(/<numFmts count="(\d+)"[^>]*>([\s\S]*?)<\/numFmts>/);
+  if (!numberFormats) throw new Error("备货模板数字格式结构不完整");
+  const formatIds = [...numberFormats[2].matchAll(/numFmtId="(\d+)"/g)].map((match) => Number(match[1]));
+  const differenceFormatId = Math.max(163, ...formatIds) + 1;
+  if (includeProcurement) xml = xml.replace(numberFormats[0], `<numFmts count="${Number(numberFormats[1]) + 1}">${numberFormats[2]}<numFmt numFmtId="${differenceFormatId}" formatCode="&quot;成本差价总额（CNY） ∑= &quot;#,##0.00"/></numFmts>`);
   const fonts = xml.match(/<fonts count="(\d+)"[^>]*>([\s\S]*?)<\/fonts>/);
   const cellXfs = xml.match(/<cellXfs count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
   if (!fonts || !cellXfs) throw new Error("备货模板样式结构不完整");
@@ -171,7 +176,8 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>, includeProcureme
   const nStyle = existing.length;
   const contactStyle = nStyle + 1;
   const descriptionStyle = contactStyle + 1;
-  const additions = clone(56, itemNoteFont) + clone(31, null) + clone(55, null);
+  const differenceTotalStyle = existing[42].replace(/numFmtId="\d+"/, `numFmtId="${differenceFormatId}"`);
+  const additions = clone(56, itemNoteFont) + clone(31, null) + clone(55, null) + (includeProcurement ? differenceTotalStyle : "");
   const customStyles = [...additions.matchAll(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g)].map((match) => match[0]);
   const baseStyles = [...existing, ...customStyles];
   xml = xml.replace(cellXfs[0], `<cellXfs count="${baseStyles.length}">${baseStyles.join("")}</cellXfs>`);
@@ -194,7 +200,7 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>, includeProcureme
   const procurementBorderStyles = baseStyles.map((_, index) => Number(currentXfs[1]) + index);
   xml = xml.replace(currentXfs[0], `<cellXfs count="${Number(currentXfs[1]) + borderedStyles.length}">${currentXfs[2]}${borderedStyles.join("")}</cellXfs>`);
   entry.content = Buffer.from(xml, "utf8");
-  return { nStyle, contactStyle, descriptionStyle, procurementBorderStyles };
+  return { nStyle, contactStyle, descriptionStyle, differenceTotalStyle: descriptionStyle + 1, procurementBorderStyles };
 }
 
 function withProcurementBorder(xml: string, reference: string, styles: number[]) {
@@ -271,10 +277,10 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
     ["D9", [`货代收货信息：`, `收货人：${stock.forwarder_recipient || "未填写"}`, `电话：${stock.forwarder_phone || "未填写"}`, `地址：${stock.forwarder_address || "未填写"}`].join("\n")],
     ["B9", "货代收货信息：\n＊收货人（姓名/电话）\n＊详细收货地址："],
-    ["B10", stock.status_label ? `备货状态：${stock.status_label}` : ""],
+    ["B10", ""],
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
-  if (stock.status_label) xml = withRowHeight(xml, 10, 20);
+  xml = xml.replace(/(<row\b[^>]*\br="10"[^>]*)(>)/, '$1 hidden="1"$2');
   xml = withCellStyle(withRowHeight(xml, 9, 75), "D9", styles.contactStyle);
   if (stock.stocking_requirements?.trim() && stock.stocking_requirements.trim() !== "常规理货") xml = withCellStyle(xml, "K4", styles.nStyle);
   xml = setCell(xml, "B11", "", "SUM(K13:K999)");
@@ -292,8 +298,11 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
       ? Math.round(items.reduce((sum, item) => sum + (Number(item.estimated_unit_cost_cny) - Number(item.procurement_cost)) * Number(item.quantity || 0), 0) * 100) / 100
       : "";
     xml = setCell(xml, "J11", totalProcurement, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))');
-    xml = setCell(xml, "P11", "成本差价总额（CNY）");
-    xml = setCell(xml, "Q11", totalCostDifference, 'IF(OR(COUNT(J13:J999)<COUNT(K13:K999),COUNT(P13:P999)<COUNT(K13:K999)),"",SUMPRODUCT(J13:J999,K13:K999)-SUMPRODUCT(P13:P999,K13:K999))');
+    xml = setCell(xml, "P11", totalCostDifference, 'IF(OR(COUNT(J13:J999)<COUNT(K13:K999),COUNT(P13:P999)<COUNT(K13:K999)),"",SUMPRODUCT(J13:J999,K13:K999)-SUMPRODUCT(P13:P999,K13:K999))');
+    xml = withCellStyle(xml, "P11", styles.differenceTotalStyle);
+    xml = xml.replace(/(<mergeCells\b[^>]*\bcount=")(\d+)(")/, (_, before, count, after) => `${before}${Number(count) + 1}${after}`)
+      .replace("</mergeCells>", '<mergeCell ref="P11:R11"/></mergeCells>');
+    for (const [cell, style] of [["Q11", 43], ["R11", 44], ["P12", 18], ["Q12", 18], ["R12", 16]] as const) xml = withCellStyle(xml, cell, style);
     xml = setCell(xml, "P12", "采购单价（CNY）");
     xml = setCell(xml, "Q12", "成本差价（CNY/件）");
     xml = setCell(xml, "R12", "仓库备注");
@@ -319,6 +328,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
       xml = setCell(xml, `P${row}`, purchasePrice);
       xml = setCell(xml, `Q${row}`, costDifference);
       xml = setCell(xml, `R${row}`, item?.warehouse_note || "");
+      for (const [column, style] of [["P", 54], ["Q", 54], ["R", 56]] as const) xml = withCellStyle(xml, `${column}${row}`, style);
       if (item?.warehouse_note) xml = withCellStyle(xml, `R${row}`, styles.nStyle);
     }
     if (item) {
@@ -331,6 +341,8 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     }
   }
   if (options.includeProcurement) {
+    xml = xml.replace(/<col min="16" max="16" width="[^"]+" customWidth="1"\/>/, '<col min="16" max="16" width="20.7109" customWidth="1"/>')
+      .replace(/<col min="17" max="28" width="[^"]+" customWidth="1"\/>/, '<col min="17" max="17" width="17.7109" customWidth="1"/><col min="18" max="18" width="22.7109" customWidth="1"/><col min="19" max="28" width="10.7109" customWidth="1"/>');
     const lastProcurementRow = 12 + Math.max(items.length, 9);
     for (let row = 12; row <= lastProcurementRow; row += 1) {
       for (const column of ["P", "Q", "R"]) xml = withProcurementBorder(xml, `${column}${row}`, styles.procurementBorderStyles);
