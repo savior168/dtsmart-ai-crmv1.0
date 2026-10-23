@@ -9,6 +9,7 @@ import { exportOfficialWebsiteText, legacyWebsiteExportPatch } from "@/lib/custo
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
+import { customerStageContactError } from "@/lib/customer-contact-requirement";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
 // ownership or workflow transitions. Those fields belong to dedicated flows.
@@ -408,9 +409,16 @@ export async function POST(request: NextRequest) {
         ? "意向客户必须先创建潜在客户，再提交真实佐证凭证完成阶段变更"
         : "无效客户阶段" }, { status: 400 });
     }
-    if (requestedStage === "DEAL" && (!String(body.phone || "").trim() || !String(body.email || "").trim())) {
-      return NextResponse.json({ error: "成交客户必须同时填写联系电话和邮箱" }, { status: 400 });
+    const intendedStage = publicPool ? "UNCLAIMED" : String(body.requested_stage || requestedStage).toUpperCase();
+    if (!publicPool && !["CLAIMED", "FOLLOWING", "DEAL"].includes(intendedStage)) {
+      return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
     }
+    if (!publicPool && intendedStage !== requestedStage && !(requestedStage === "CLAIMED" && intendedStage === "FOLLOWING")) {
+      return NextResponse.json({ error: "客户阶段与新增流程不一致，请刷新页面后重试" }, { status: 400 });
+    }
+    const contactError = customerStageContactError(intendedStage, body);
+    if (contactError) return NextResponse.json({ error: contactError }, { status: 400 });
+    delete body.requested_stage;
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
     if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.contact_name) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
