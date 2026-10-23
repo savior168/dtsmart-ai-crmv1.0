@@ -1,3 +1,6 @@
+
+import { CUSTOMER_GRADE_OPTIONS, normalizeCustomerGrade } from "@/lib/customers/customer-grade";
+
 export type ImportedCustomerStage = "CLAIMED" | "FOLLOWING" | "DEAL";
 
 const stageByLabel: Record<string, ImportedCustomerStage> = {
@@ -25,10 +28,11 @@ export function importedCustomerStage(label: unknown, destination: "PRIVATE" | "
 }
 
 export function importedCustomerGrade(value: unknown) {
-  const grade = text(value).toUpperCase();
-  if (!grade) return null;
-  if (!["S", "A", "B", "C", "D"].includes(grade)) {
-    throw new Error("客户等级只能填写 S、A、B、C、D");
+  const raw = text(value);
+  if (!raw) return null;
+  const grade = normalizeCustomerGrade(raw);
+  if (!grade) {
+    throw new Error(`客户等级只能填写 ${CUSTOMER_GRADE_OPTIONS.join("、")}`);
   }
-  return grade as "S" | "A" | "B" | "C" | "D";
+  return grade;
 }

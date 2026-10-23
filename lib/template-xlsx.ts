@@ -70,7 +70,7 @@ function cellMarkup(reference: string, style: string, value: unknown, formula: s
 
 function setCell(xml: string, reference: string, value: unknown, formula?: string) {
   const prefix = xml.includes("<x:c") ? "x:" : "";
-  const opening = xml.match(new RegExp(`<${prefix}c\\b(?=[^>]*\\br="${reference}")[^>]*>`));
+  const opening = xml.match(new RegExp(`<${prefix}c\b(?=[^>]*\br="${reference}")[^>]*>`));
   if (!opening || opening.index === undefined) throw new Error(`模板缺少单元格 ${reference}`);
   const start = opening.index;
   let end = start + opening[0].length;
@@ -116,7 +116,7 @@ function shiftPiRows(xml: string, delta: number) {
       .replace(/([A-Z]{1,3})27\b/g, `$1${row}`);
   }).join("");
   const firstFooterRow = 28 + delta;
-  let result = shifted.replace(new RegExp(`(<x:row[^>]*r="${firstFooterRow}"[\\s\\S]*?<\\/x:row>)`), `${extraRows}$1`) + afterEnd;
+  let result = shifted.replace(new RegExp(`(<x:row[^>]*r="${firstFooterRow}"[\s\S]*?<\/x:row>)`), `${extraRows}$1`) + afterEnd;
   result = result.replace(/(<x:dimension[^>]*ref=")([^"]+)(")/, (_, start, range, end) => `${start}${shiftCellReference(range, 28, delta)}${end}`);
   result = result.replace(/(<x:mergeCell[^>]*ref=")([^"]+)(")/g, (_, start, range, end) => `${start}${shiftCellReference(range, 28, delta)}${end}`);
   return result;
@@ -146,13 +146,14 @@ function finishTemplate(cfb: ReturnType<typeof XLSX.CFB.read>, entry: { content:
   return Buffer.from(XLSX.CFB.write(cfb, { fileType: "zip", type: "buffer" }) as Uint8Array);
 }
 
-function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>) {
+function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>, includeProcurement: boolean) {
   const entry = XLSX.CFB.find(cfb, "/xl/styles.xml");
   if (!entry?.content) throw new Error("备货模板缺少样式定义");
   let xml = Buffer.from(entry.content).toString("utf8");
   // The supplied workbook contains an empty fill node. Excel tolerates it,
   // but OOXML readers such as openpyxl reject the exported workbook.
   xml = xml.replace(/<fill\s*\/>/g, '<fill><patternFill patternType="none"/></fill>');
+  xml = xml.replace(/&quot;采购成本 ∑= &quot;/, includeProcurement ? '&quot;采购总金额 ∑= &quot;' : '&quot;PI预估成本 ∑= &quot;');
   const fonts = xml.match(/<fonts count="(\d+)"[^>]*>([\s\S]*?)<\/fonts>/);
   const cellXfs = xml.match(/<cellXfs count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
   if (!fonts || !cellXfs) throw new Error("备货模板样式结构不完整");
@@ -171,17 +172,44 @@ function stockTextStyles(cfb: ReturnType<typeof XLSX.CFB.read>) {
   const contactStyle = nStyle + 1;
   const descriptionStyle = contactStyle + 1;
   const additions = clone(56, itemNoteFont) + clone(31, null) + clone(55, null);
-  xml = xml.replace(cellXfs[0], `<cellXfs count="${existing.length + 3}">${cellXfs[2]}${additions}</cellXfs>`);
+  const customStyles = [...additions.matchAll(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g)].map((match) => match[0]);
+  const baseStyles = [...existing, ...customStyles];
+  xml = xml.replace(cellXfs[0], `<cellXfs count="${baseStyles.length}">${baseStyles.join("")}</cellXfs>`);
+  const borders = xml.match(/<borders count="(\d+)"[^>]*>([\s\S]*?)<\/borders>/);
+  if (!borders) throw new Error("备货模板缺少边框样式");
+  const procurementBorderId = Number(borders[1]);
+  const procurementBorder = '<border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>';
+  xml = xml.replace(borders[0], `<borders count="${procurementBorderId + 1}">${borders[2]}${procurementBorder}</borders>`);
+  const addBorder = (style: string) => {
+    const opening = style.match(/^<xf\b([^>]*?)(\/?)>/);
+    if (!opening) throw new Error("备货模板单元格样式结构不完整");
+    let attrs = opening[1].replace(/\bborderId="\d+"/, `borderId="${procurementBorderId}"`);
+    if (!/\bborderId="/.test(attrs)) attrs += ` borderId="${procurementBorderId}"`;
+    attrs = /\bapplyBorder="/.test(attrs) ? attrs.replace(/\bapplyBorder="\d+"/, 'applyBorder="1"') : `${attrs} applyBorder="1"`;
+    return `<xf${attrs}${opening[2] ? "/" : ""}>${style.slice(opening[0].length)}`;
+  };
+  const borderedStyles = baseStyles.map(addBorder);
+  const currentXfs = xml.match(/<cellXfs count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
+  if (!currentXfs) throw new Error("备货模板单元格样式结构不完整");
+  const procurementBorderStyles = baseStyles.map((_, index) => Number(currentXfs[1]) + index);
+  xml = xml.replace(currentXfs[0], `<cellXfs count="${Number(currentXfs[1]) + borderedStyles.length}">${currentXfs[2]}${borderedStyles.join("")}</cellXfs>`);
   entry.content = Buffer.from(xml, "utf8");
-  return { nStyle, contactStyle, descriptionStyle };
+  return { nStyle, contactStyle, descriptionStyle, procurementBorderStyles };
+}
+
+function withProcurementBorder(xml: string, reference: string, styles: number[]) {
+  return xml.replace(new RegExp(`(<c\\b[^>]*\\br="${reference}"[^>]*\\bs=")(\\d+)("[^>]*>)`), (all, before, styleId, after) => {
+    const borderedStyle = styles[Number(styleId)];
+    return borderedStyle === undefined ? all : `${before}${borderedStyle}${after}`;
+  });
 }
 
 function withCellStyle(xml: string, reference: string, style: number) {
-  return xml.replace(new RegExp(`(<c\\b[^>]*\\br="${reference}"[^>]*\\bs=")\\d+("[^>]*>)`), `$1${style}$2`);
+  return xml.replace(new RegExp(`(<c\b[^>]*\br="${reference}"[^>]*\bs=")\d+("[^>]*>)`), `$1${style}$2`);
 }
 
 function withRowHeight(xml: string, row: number, height: number) {
-  return xml.replace(new RegExp(`(<row\\b[^>]*\\br="${row}"[^>]*\\bht=")([^"]+)(")`), `$1${height}$3`);
+  return xml.replace(new RegExp(`(<row\b[^>]*\br="${row}"[^>]*\bht=")([^"]+)(")`), `$1${height}$3`);
 }
 
 export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteItem[]) {
@@ -232,7 +260,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
-  const styles = stockTextStyles(opened.cfb);
+  const styles = stockTextStyles(opened.cfb, options.includeProcurement === true);
   const changes = String(stock.order_change_note || "").split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:\d+[.、)]|[⑴⑵⑶])\s*/, "").trim()).filter(Boolean);
   const values: Array<[string, unknown]> = [
@@ -241,8 +269,8 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
     ["K4", stock.stocking_requirements?.trim() || "常规理货"],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
-    ["D9", [`收货人：${stock.delivery_recipient || "—"}　电话：${stock.delivery_phone || "—"}`, `邮箱：${stock.delivery_email || "—"}`, `地址：${stock.delivery_address || "—"}`, `本单货代收货信息：${stock.forwarder_address ? `${stock.forwarder_recipient || "收货人未填写"} · ${stock.forwarder_phone || "电话未填写"} · ${stock.forwarder_address}` : "未填写"}`].join("\n")],
-    ["B9", "＊收货人（姓名/电话）\n＊详细收货地址："],
+    ["D9", [`货代收货信息：`, `收货人：${stock.forwarder_recipient || "未填写"}`, `电话：${stock.forwarder_phone || "未填写"}`, `地址：${stock.forwarder_address || "未填写"}`].join("\n")],
+    ["B9", "货代收货信息：\n＊收货人（姓名/电话）\n＊详细收货地址："],
     ["B10", stock.status_label ? `备货状态：${stock.status_label}` : ""],
   ];
   for (const [cell, value] of values) xml = setCell(xml, cell, value);
@@ -253,18 +281,24 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   const totalEstimatedCost = items.length > 0 && items.every((item) => typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny))
     ? Math.round(items.reduce((sum, item) => sum + Number(item.estimated_unit_cost_cny) * Number(item.quantity || 0), 0) * 100) / 100
     : "";
-  xml = setCell(xml, "J11", totalEstimatedCost, "IF(COUNT(J13:J999)<COUNT(K13:K999),\"\",SUMPRODUCT(J13:J999,K13:K999))");
+  const estimatedTotalComplete = items.length > 0 && items.every((item) => typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny));
   if (options.includeProcurement) {
     const completeProcurement = items.length > 0 && items.every((item) => item.procurement_cost_confirmed === true
       && typeof item.procurement_cost === "number" && Number.isFinite(item.procurement_cost));
     const totalProcurement = completeProcurement
       ? Math.round(items.reduce((sum, item) => sum + Number(item.procurement_cost) * Number(item.quantity || 0), 0) * 100) / 100
       : "";
-    xml = setCell(xml, "P11", "采购总金额（CNY）");
-    xml = setCell(xml, "Q11", totalProcurement, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))');
+    const totalCostDifference = completeProcurement && estimatedTotalComplete
+      ? Math.round(items.reduce((sum, item) => sum + (Number(item.estimated_unit_cost_cny) - Number(item.procurement_cost)) * Number(item.quantity || 0), 0) * 100) / 100
+      : "";
+    xml = setCell(xml, "J11", totalProcurement, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))');
+    xml = setCell(xml, "P11", "成本差价总额（CNY）");
+    xml = setCell(xml, "Q11", totalCostDifference, 'IF(OR(COUNT(J13:J999)<COUNT(K13:K999),COUNT(P13:P999)<COUNT(K13:K999)),"",SUMPRODUCT(J13:J999,K13:K999)-SUMPRODUCT(P13:P999,K13:K999))');
     xml = setCell(xml, "P12", "采购单价（CNY）");
     xml = setCell(xml, "Q12", "成本差价（CNY/件）");
     xml = setCell(xml, "R12", "仓库备注");
+  } else {
+    xml = setCell(xml, "J11", totalEstimatedCost, 'IF(COUNT(J13:J999)<COUNT(K13:K999),"",SUMPRODUCT(J13:J999,K13:K999))');
   }
   for (let index = 0; index < Math.max(items.length, 9); index += 1) {
     const row = 13 + index;
@@ -294,6 +328,12 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
       const warehouseNoteLines = item?.warehouse_note ? Math.max(1, Math.ceil(item.warehouse_note.length / 24)) : 0;
       const lines = Math.max(Math.ceil(warehouseDescription.length / 28), attentionLines, warehouseNoteLines);
       if (lines > 0) xml = withRowHeight(xml, row, Math.max(28, 18 + lines * 11));
+    }
+  }
+  if (options.includeProcurement) {
+    const lastProcurementRow = 12 + Math.max(items.length, 9);
+    for (let row = 12; row <= lastProcurementRow; row += 1) {
+      for (const column of ["P", "Q", "R"]) xml = withProcurementBorder(xml, `${column}${row}`, styles.procurementBorderStyles);
     }
   }
   return finishTemplate(opened.cfb, opened.entry, xml);

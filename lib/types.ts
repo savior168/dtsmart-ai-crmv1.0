@@ -1,3 +1,5 @@
+import type { CustomerGrade } from "@/lib/customers/customer-grade";
+
 export type CustomerStatus = "UNCLAIMED" | "CLAIMED" | "FOLLOWING" | "QUOTE" | "DEAL" | "RELEASED";
 export type AiStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 
@@ -11,7 +13,7 @@ export type Customer = {
   wechat?: string | null;
   email: string | null;
   tax_number?: string | null;
-  manual_grade?: "S" | "A" | "B" | "C" | "D" | null;
+  manual_grade?: CustomerGrade | null;
   website: string | null;
   google_url: string | null;
   facebook_url?: string | null;

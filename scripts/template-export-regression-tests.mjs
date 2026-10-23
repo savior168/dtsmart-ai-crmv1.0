@@ -63,6 +63,9 @@ const stockData = {
   delivery_phone: "+49 123",
   delivery_email: "tom@example.com",
   delivery_address: "Berlin",
+  forwarder_recipient: "Zhang Dan",
+  forwarder_phone: "+86 13600000000",
+  forwarder_address: "Shenzhen Logistics Park 1",
   created_at: new Date().toISOString(),
   salesperson: { name: "Eva", email: "eva@example.com" },
 };
@@ -125,8 +128,9 @@ assert.equal(stock.G3.v, "ORDER-TEST-001");
 assert.equal(stock.K3.v, "德国", "目的国家须显示中文名称而非代码");
 assert.equal(stock.N3.v, "2026-10-13", "实际发货日须来自已发货事件");
 assert.equal(stock.B10.v, "备货状态：部分已交货代", "备货 Excel 状态须与详情和预览共用同一口径");
-assert.match(stock.D9.v, /收货人：Tom.*电话：\+49 123\n邮箱：tom@example.com\n地址：Berlin\n本单货代收货信息：未填写/, "客户收货信息和本单货代收货信息须分项显示");
-assert.match(stock.B9.v, /收货人.*详细收货地址/s, "备货模板固定标签须统一为收货人和详细收货地址");
+assert.equal(stock.D9.v, "货代收货信息：\n收货人：Zhang Dan\n电话：+86 13600000000\n地址：Shenzhen Logistics Park 1", "备货单仅显示本单货代收货信息，不显示客户收货信息");
+assert.doesNotMatch(stock.D9.v, /Tom|tom@example.com|Berlin/, "备货导出不得暴露或混淆客户收货信息");
+assert.match(stock.B9.v, /货代收货信息：.*收货人.*详细收货地址/s, "备货模板固定标签须明确标注货代收货信息");
 assert.match(stock.B4.v, /订单变更说明/, "不得用仓库状态备注覆盖订单变更说明栏");
 assert.equal(stock.C5.v, "Add 2 items");
 assert.equal(stock.C6.v, "Update delivery date");
@@ -137,9 +141,15 @@ assert.equal(stock.N13.v, "理货要求：Label\n销售备注：Keep dry", "销�
 assert.equal(stock.P12?.v, undefined, "销售导出不得出现采购字段列头");
 assert.equal(stock.P13?.v, undefined, "销售导出不得包含采购单价");
 assert.equal(stock.R13?.v, undefined, "销售导出不得包含仓库备注");
-assert.equal(warehouseStock.P11.v, "采购总金额（CNY）", "仓库导出应标明采购总金额");
-assert.equal(warehouseStock.Q11.v, 487.5, "采购总金额必须按采购单价乘数量完整计算");
-assert.equal(warehouseStock.Q11.f, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))', "采购总金额公式必须按采购价和数量计算且未录齐时留空");
+assert.equal(stock.P11?.v, undefined, "销售导出不得包含仓库采购总金额或差价汇总");
+assert.equal(stock.Q11?.v, undefined, "销售导出不得包含仓库采购总金额或差价汇总");
+assert.equal(warehouseStock.J11.v, 487.5, "仓库采购总金额必须按采购单价乘数量计算，而非PI预估成本");
+assert.equal(warehouseStock.J11.f, 'IF(COUNT(P13:P999)<COUNT(K13:K999),"",SUMPRODUCT(P13:P999,K13:K999))', "采购总金额公式必须按采购价和数量计算且未录齐时留空");
+assert.equal(warehouseStock.P11.v, "成本差价总额（CNY）", "仓库导出应清晰标明成本差价总额");
+assert.equal(warehouseStock.Q11.v, 175.5, "成本差价总额应按PI成本价总额减采购价总额计算");
+assert.equal(warehouseStock.Q11.f, 'IF(OR(COUNT(J13:J999)<COUNT(K13:K999),COUNT(P13:P999)<COUNT(K13:K999)),"",SUMPRODUCT(J13:J999,K13:K999)-SUMPRODUCT(P13:P999,K13:K999))', "差价总额须在两类单价都完整时计算");
+assert.equal(warehouseStock.P12.v, "采购单价（CNY）");
+assert.equal(warehouseStock.Q12.v, "成本差价（CNY/件）");
 assert.equal(warehouseStock.P13.v, 6.25, "仓库导出应显示采购单价");
 assert.equal(warehouseStock.Q13.v, 2.25, "成本差价应为PI成本单价减采购单价");
 assert.equal(warehouseStock.R13.v, "SUPPLIER-INTERNAL-NOTE", "仓库导出应包含仓库员填写的独立备注");
@@ -150,7 +160,9 @@ assert.equal(stock.L13.v, "屏幕", "备货模板的后端中文描述只能使�
 assert.equal(stock.C24.v, "屏幕");
 assert.equal(stock.B11.f, "SUM(K13:K999)");
 assert.equal(stock.J11.f, 'IF(COUNT(J13:J999)<COUNT(K13:K999),"",SUMPRODUCT(J13:J999,K13:K999))');
-assert.equal(stock.J11.v, 663, "总成本应展示PI预估成本单价乘以订购数量的合计");
+assert.equal(stock.J11.v, 663, "普通销售导出只能展示PI预估成本总额");
+assert.match(stock.J11.z, /^"PI预估成本 ∑= "/, "销售导出汇总应标注PI预估成本，不能误称采购总金额");
+assert.match(warehouseStock.J11.z, /^"采购总金额 ∑= "/, "仓库采购汇总应明确标注真实采购总金额");
 assert.equal(stock.J13.v, 8.5, "成本单价必须来自PI预估成本，与采购确认价无关");
 assert.equal(stock.J14.v, 8.5, "每行预估成本均须带入备货单");
 for (const [cell, label] of Object.entries({ C12: "产品类型", E12: "产品品牌", F12: "产品型号", G12: "产品质量（展示给客户）", H12: "产品描述（展示给客户）", J12: "成本单价", K12: "订单数量", L12: "产品质量/描述中文（展示给后端）", N12: "注意事项及理货要求（展示给后端）" })) {
@@ -173,15 +185,21 @@ assert.ok(stock["!rows"][12].hpt <= 45, "短理货备注与相邻描述应保持
 const stockPackage = XLSX.CFB.read(stockBuffer, { type: "buffer" });
 const stockStylesXml = Buffer.from(XLSX.CFB.find(stockPackage, "/xl/styles.xml").content).toString("utf8");
 assert.doesNotMatch(stockStylesXml, /<fill\s*\/>/, "备货 Excel 不得包含其他 OOXML 阅读器无法解析的空填充样式");
-assert.match(stock.J11.z, /^"采购成本 ∑= "/, "采购成本汇总标签须保持模板原文且不重复标注人民币");
+assert.match(stock.J11.z, /^"PI预估成本 ∑= "/, "销售导出应将PI预估成本总额与仓库实际采购总额明确区分");
 const stockSheetXml = Buffer.from(XLSX.CFB.find(stockPackage, "/xl/worksheets/sheet1.xml").content).toString("utf8");
 const noteFontId = Number(stockStylesXml.match(/<fonts count="(\d+)"/)[1]) - 1;
 assert.match(stockStylesXml, /<font><sz val="9"\/><color rgb="FF986C47"\/><name val="微软雅黑"\/><\/font>/, "逐项备注应使用较小的柔和色字体而非深色粗体");
 const noteStyleId = Number(stockSheetXml.match(/<(?:x:)?c r="N13" s="(\d+)"/)[1]);
+
 const xfs = [...stockStylesXml.match(/<cellXfs count="\d+">([\s\S]*?)<\/cellXfs>/)[1].matchAll(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g)].map((match) => match[0]);
 assert.match(xfs[noteStyleId], new RegExp(`fontId="${noteFontId}"`), "含内容的逐项备注应实际应用柔和字体样式");
 const totalRequirementStyleId = Number(stockSheetXml.match(/<(?:x:)?c r="K4" s="(\d+)"/)[1]);
 assert.equal(totalRequirementStyleId, noteStyleId, "整单理货要求须与单项注意事项使用完全一致的柔和字体样式");
+const warehouseSheetXml = Buffer.from(XLSX.CFB.find(XLSX.CFB.read(warehouseStockBuffer, { type: "buffer" }), "/xl/worksheets/sheet1.xml").content).toString("utf8");
+const warehouseStyleIds = ["P12", "Q12", "R12", "P13", "Q13", "R13"].map((cell) => Number(warehouseSheetXml.match(new RegExp(`<(?:x:)?c r="${cell}" s="(\\d+)"`))[1]));
+const warehouseBorderIds = warehouseStyleIds.map((styleId) => Number(xfs[styleId]?.match(/borderId="(\d+)"/)?.[1]));
+assert.ok(warehouseBorderIds.every((id) => Number.isInteger(id) && id > 0 && id === warehouseBorderIds[0]), "采购价、成本差价和仓库备注必须使用统一边框分组样式");
+assert.match(stockStylesXml, /<border><left style="thin">[\s\S]*?<right style="thin">[\s\S]*?<top style="thin">[\s\S]*?<bottom style="thin">[\s\S]*?<\/border>/, "仓库专属采购信息列应有完整细边框");
 
 console.log("报价单与备货单模板导出回归测试通过。");
 

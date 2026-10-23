@@ -14,6 +14,7 @@ import { calculatePiFees, type PiFeeSource } from "@/lib/pi-fees";
 import { PI_PAYMENT_CHANNELS, type PiPaymentChannel } from "@/lib/pi-payment-channel";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
+import { parsePiProductRows } from "@/lib/pi-product-import";
 import { displayAddressList, displayShippingContacts, type ShippingContact } from "@/lib/customers/address-list";
 
 type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null; shipping_contact_entries?: ShippingContact[] | null; forwarder_addresses?: string[] | null; forwarder_contact_entries?: ShippingContact[] | null };
@@ -420,32 +421,12 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     updateRate(String(exchangeRates.find((item) => item.currency === nextCurrency)?.business_cny || ""), true);
   }
   function importRows(rows: unknown[][]) {
-    if (!currency || !Number.isFinite(effectiveRate) || effectiveRate <= 0) throw new Error("请先选择付款币种并填写有效汇率，再导入产品明细");
-    const cells = rows.map((row) => row.map((value) => String(value ?? "").trim())).filter((row) => row.some(Boolean));
-    const legacy = cells[0]?.[0] === "产品名称";
-    const modernHeader = cells[0]?.[0] === importHeaders[0] && cells[0]?.[9] === importHeaders[9];
-    const modernTemplate = modernHeader || (!legacy && cells[0]?.[0] !== "产品" && cells[0]?.length >= 14);
-    const oldTemplate = cells[0]?.[0] === "产品";
-    const withChineseDescription = legacy || modernTemplate || oldTemplate || cells[0]?.[5]?.startsWith("产品质量/描述中文") || cells[0]?.length >= 11;
-    if (modernHeader || oldTemplate || legacy) cells.shift();
-    if (!cells.length || cells.length > 500) throw new Error("请导入1至500条产品明细");
-    const imported = cells.map((row, index) => {
-      const quantityIndex = legacy ? 6 : withChineseDescription ? 8 : 7;
-      const priceIndex = legacy ? 7 : withChineseDescription ? 7 : 6;
-      const costIndex = legacy ? 8 : withChineseDescription ? 6 : 5;
-      const quantity = Number(row[quantityIndex]);
-      const unitPrice = Number(row[priceIndex]);
-      const cost = Number(row[costIndex]);
-      if (!row[0] || !row[1] || !row[2] || !row[3] || !validPiQuantity(row[quantityIndex]) || !validPiMoney(row[priceIndex]) || !validPiMoney(row[costIndex])) {
-        throw new Error(`第${index + 1}行须填写产品、品牌、型号、质量、整数数量、人民币成本和售价（金额最多两位小数）`);
-      }
-      if (!validPiSellingPrice(row[priceIndex], row[costIndex])) throw new Error(`第${index + 1}行人民币售价必须高于成本价`);
-      return { ...newLine(), item_name: row[0], brand: row[1] || "", model: row[2] || "", quality: row[3] || "",
-        description: row[4] || "", description_zh: withChineseDescription ? row[5] || "" : "", quantity: String(quantity), unit_price_cny: String(unitPrice),
-        unit_price_payment: roundMoney(unitPrice * effectiveRate).toFixed(2), unit_price_source: "CNY" as const,
-        estimated_unit_cost_cny: String(cost), preparation_requirement: row[modernTemplate ? 12 : legacy ? 9 : withChineseDescription ? 9 : 8] || "", internal_note: legacy ? "" : row[modernTemplate ? 13 : withChineseDescription ? 10 : 9] || "" };
-    });
-    if (items.filter((item) => item.item_name.trim()).length + imported.length > 500) throw new Error("每张PI最多500条产品，请分批处理");
+    const imported = parsePiProductRows(rows, effectiveRate).map((item) => ({
+      ...newLine(),
+      ...item,
+      unit_price_source: "CNY" as const,
+    }));
+    if (items.filter((item) => item.item_name.trim()).length + imported.length > 500) throw new Error("每张PI最多500条明细，请分批处理");
     setItems((current) => [...current.filter((item) => item.item_name.trim()), ...imported]);
     markUnsaved();
     setError("");

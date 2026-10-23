@@ -91,7 +91,7 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
     return result;
   };
   const customer_name = required(3, "客户名称");
-  const delivery_company = required(4, "公司名称");
+  const delivery_company = read(4);
   const warehouse_reference_number = required(5, "PI订单编号");
   if (warehouse_reference_number.length > 80) throw new Error("PI订单编号不能超过80字");
   const currency = required(6, "客户付款币种").toUpperCase();
@@ -108,11 +108,11 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
   };
   const valid_until = date(8, "PI有效期");
   const delivery_date = date(9, "预计交付日期");
-  const delivery_recipient = required(11, "收货人");
-  const delivery_phone = required(12, "电话");
-  const delivery_email = required(13, "邮箱");
-  const delivery_address = required(14, "收货地址");
-  if (delivery_recipient.length > 200 || delivery_phone.length > 100 || delivery_email.length > 200 || delivery_address.length > 1000 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(delivery_email)) throw new Error("收货信息长度或邮箱格式不正确");
+  const delivery_recipient = read(11);
+  const delivery_phone = read(12);
+  const delivery_email = read(13);
+  const delivery_address = read(14);
+  if (delivery_recipient.length > 200 || delivery_phone.length > 100 || delivery_email.length > 200 || delivery_address.length > 1000 || (delivery_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(delivery_email))) throw new Error("收货信息长度或邮箱格式不正确");
   const fee = (row: number, label: string) => read(row) ? templateMoney(read(row), label) : 0;
   const shipping_cny = fee(15, "运费");
   const last_balance_cny = fee(16, "未付尾款");
@@ -171,7 +171,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   const currency = currencyCandidates.find((value) => value && QUOTE_CURRENCY_CODES.has(value)) || "";
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
   const paymentText = cellText(sheet, `${invoiceValueColumn}6`);
-  const paymentMethod = paymentText === currency ? "" : paymentText.replace(new RegExp(`\\s*\\(${currency}\\)\\s*$`, "i"), "").trim();
+  const paymentMethod = paymentText === currency ? "" : paymentText.replace(new RegExp(`\s*\\(${currency}\\)\s*$`, "i"), "").trim();
   const items: ImportedPiItem[] = [];
   let subtotalRow = 0;
   for (let row = 19; row <= 518; row += 1) {
@@ -208,7 +208,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   }
   const deliveryLines = Array.from({ length: 4 }, (_, index) => cellText(sheet, `A${13 + index}`));
   const deliveryValue = (label: string) => {
-    const line = deliveryLines.find((value) => new RegExp(`^${label}\\s*[:：]`, "i").test(value));
+    const line = deliveryLines.find((value) => new RegExp(`^${label}\s*[:：]`, "i").test(value));
     return line ? afterLabel(line) : "";
   };
   const recipientLine = deliveryValue("To");

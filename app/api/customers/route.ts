@@ -9,6 +9,8 @@ import { exportOfficialWebsiteText, legacyWebsiteExportPatch } from "@/lib/custo
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
+import { customerStageContactError } from "@/lib/customer-contact-requirement";
+import { isCustomerGrade, normalizeCustomerGrade } from "@/lib/customers/customer-grade";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
 // ownership or workflow transitions. Those fields belong to dedicated flows.
@@ -132,7 +134,7 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const manualGrade = request.nextUrl.searchParams.get("manual_grade")?.toUpperCase() || "";
-    if (manualGrade && !["S", "A", "B", "C", "D", "UNMARKED"].includes(manualGrade)) {
+    if (manualGrade && !(manualGrade === "UNMARKED" || isCustomerGrade(manualGrade))) {
       return NextResponse.json({ error: "客户等级筛选无效" }, { status: 400 });
     }
     const countries = [...new Set(request.nextUrl.searchParams.getAll("country").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean))];
@@ -408,17 +410,24 @@ export async function POST(request: NextRequest) {
         ? "意向客户必须先创建潜在客户，再提交真实佐证凭证完成阶段变更"
         : "无效客户阶段" }, { status: 400 });
     }
-    if (requestedStage === "DEAL" && (!String(body.phone || "").trim() || !String(body.email || "").trim())) {
-      return NextResponse.json({ error: "成交客户必须同时填写联系电话和邮箱" }, { status: 400 });
+    const intendedStage = publicPool ? "UNCLAIMED" : String(body.requested_stage || requestedStage).toUpperCase();
+    if (!publicPool && !["CLAIMED", "FOLLOWING", "DEAL"].includes(intendedStage)) {
+      return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
     }
+    if (!publicPool && intendedStage !== requestedStage && !(requestedStage === "CLAIMED" && intendedStage === "FOLLOWING")) {
+      return NextResponse.json({ error: "客户阶段与新增流程不一致，请刷新页面后重试" }, { status: 400 });
+    }
+    const contactError = customerStageContactError(intendedStage, body);
+    if (contactError) return NextResponse.json({ error: contactError }, { status: 400 });
+    delete body.requested_stage;
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
-    if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.contact_name) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
-    if (body.manual_grade && !["S", "A", "B", "C", "D"].includes(body.manual_grade)) {
-      return NextResponse.json({ error: "客户等级只能选择 S、A、B、C、D" }, { status: 400 });
+    if (body.manual_grade) {
+      const grade = normalizeCustomerGrade(body.manual_grade);
+      if (!grade) return NextResponse.json({ error: "客户等级只能选择 S、KA、MA、A、B、C、D" }, { status: 400 });
+      body.manual_grade = grade;
     }
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
-    if (![body.phone, body.email, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
     const submittedKeys = customerLookupIdentityKeys(body);
     if (submittedKeys.length) {
       const possibleMatches: Record<string, unknown>[] = [];

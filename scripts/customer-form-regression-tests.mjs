@@ -48,9 +48,14 @@ assert.doesNotMatch(newCustomer, /意向佐证凭证/, "默认潜在客户不应
 assert.match(formSource, /客户阶段[\s\S]*?意向佐证凭证[\s\S]*?input\("phone"/, "意向佐证入口应紧邻客户阶段且排在联系方式之前");
 assert.match(formSource, /id="customer-intent-evidence" type="file"[\s\S]*?className="sr-only"/, "意向佐证应使用可访问的定制文件选择入口，不展示浏览器原生控件");
 assert.match(formSource, /stageFile \? "更换文件" : "选择文件"/, "已选凭证应可更换并回显文件名");
-assert.match(formSource, /const needsBothContacts = !customer && destination === "PRIVATE" && \["FOLLOWING", "DEAL"\]\.includes\(form\.status\)/, "新增意向或成交客户时电话与邮箱必须标为必填");
+assert.match(formSource, /customerStageContactError\(stage, form\)/, "新增或编辑阶段按微信、邮箱、电话至少一项校验");
+assert.match(formSource, /仅客户名称和国家\/地区为必填项/, "手动新增说明应明确只有客户名称和国家必填");
+assert.doesNotMatch(formSource, /needsBothContacts/, "不得残留旧的电话加邮箱双必填规则");
 assert.match(formSource, /stage === "FOLLOWING" && !stageFile/, "新增意向客户必须提交凭证");
 assert.match(createApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)/, "新增意向客户必须先以潜在客户建立主档，再走凭证阶段流程");
+assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不应强制必填");
+assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不是必填项");
+assert.doesNotMatch(createApi, /body\.website, body\.google_url\].some/, "潜在客户与客户公海不应强制要求一般联系方式");
 assert.match(createApi, /requestedStage === "DEAL" && \(!String\(body\.phone \|\| ""\)\.trim\(\) \|\| !String\(body\.email \|\| ""\)\.trim\(\)\)/, "服务端必须校验手动新增成交客户的电话与邮箱");
 assert.match(createApi, /ownership_disposition: ownership/, "疑似重复候选必须返回服务端核定的归属类型");
 assert.match(createApi, /\.from\("users"\)\.select\("id,name"\)\.in\("id", ownerIds\)/, "仅查询已有归属人的内部姓名，不返回员工邮箱");

@@ -7,6 +7,7 @@ import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } fro
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
+import { normalizeCustomerGrade } from "@/lib/customers/customer-grade";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -100,8 +101,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const body = await request.json();
     normalizeAddressPayload(body);
     const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
-    if (payload.manual_grade != null && !["S", "A", "B", "C", "D"].includes(String(payload.manual_grade))) {
-      throw new Error("客户等级只能选择 S、A、B、C、D");
+    if (payload.manual_grade != null) {
+      const grade = normalizeCustomerGrade(payload.manual_grade);
+      if (String(payload.manual_grade).trim() && !grade) throw new Error("客户等级只能选择 S、KA、MA、A、B、C、D");
+      payload.manual_grade = grade;
     }
     validateCustomerContactPayload(payload);
     const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country,phone,whatsapp,email,website,google_url").eq("id", id).single();
