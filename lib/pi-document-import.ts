@@ -108,11 +108,11 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
   };
   const valid_until = date(8, "PI有效期");
   const delivery_date = date(9, "预计交付日期");
-  const delivery_recipient = required(11, "收货人");
-  const delivery_phone = required(12, "电话");
-  const delivery_email = required(13, "邮箱");
-  const delivery_address = required(14, "收货地址");
-  if (delivery_recipient.length > 200 || delivery_phone.length > 100 || delivery_email.length > 200 || delivery_address.length > 1000 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(delivery_email)) throw new Error("收货信息长度或邮箱格式不正确");
+  const delivery_recipient = read(11);
+  const delivery_phone = read(12);
+  const delivery_email = read(13);
+  const delivery_address = read(14);
+  if (delivery_recipient.length > 200 || delivery_phone.length > 100 || delivery_email.length > 200 || delivery_address.length > 1000 || (delivery_email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(delivery_email))) throw new Error("收货信息长度或邮箱格式不正确");
   const fee = (row: number, label: string) => read(row) ? templateMoney(read(row), label) : 0;
   const shipping_cny = fee(15, "运费");
   const last_balance_cny = fee(16, "未付尾款");
