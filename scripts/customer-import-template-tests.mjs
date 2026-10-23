@@ -29,6 +29,7 @@ assert.match(customerForm, /shipping_address:customer\?\.shipping_address\|\|""/
 assert.match(customerForm, /<ShippingContactEditor label="客户收货信息" values=\{shippingContacts\}/, "手动新增及编辑须显示结构化客户收货信息");
 assert.match(customerForm, /<ShippingContactEditor label="货代收货信息" values=\{forwarderContacts\}/, "货代收货信息须使用同样的三字段结构");
 assert.match(customerForm, /CUSTOMER_GRADE_OPTIONS\.map\(\(grade\)/, "手动新增客户须提供七档客户等级");
+assert.doesNotMatch(customerForm, /includes\(stage\)/, "客户等级/联系方式提示不得引用未定义阶段变量");
 assert.match(customerForm, /title=\{customerGradeDescription\(form\.manual_grade\)\}/, "手动客户等级须悬浮显示业绩区间");
 assert.match(customersView, /title=\{customerGradeDescription\(customer\.manual_grade\)\}/, "客户列表等级字母须悬浮显示业绩区间");
 assert.match(customerDetail, /title=\{customerGradeDescription\(customer\.manual_grade\)\}/, "客户详情等级字母须悬浮显示业绩区间");
