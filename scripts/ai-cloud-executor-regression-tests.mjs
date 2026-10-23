@@ -33,6 +33,7 @@ assert.match(workflow, /pauseForTransientRecovery[\s\S]+status: "QUEUED"[\s\S]+s
 assert.match(workflow, /pause_started_at: null[\s\S]+paused_duration_ms: pausedDuration/, "cloud recovery must record paused time separately before resuming execution");
 assert.match(workflow, /WAITING_FOR_RECOVERY[\s\S]+lease_expires_at\.lt\.\$\{now\}/, "a replacement workflow must requeue expired item leases before looking for pending work");
 assert.match(taskItemExecutor, /isTransientAnalysisError\(error\) && item\.attemptNumber < 3[\s\S]+status: "PENDING"[\s\S]+lease_owner: null[\s\S]+\.eq\("lease_owner", lease\.executorId\)\.eq\("lease_token", lease\.leaseToken\)/, "transient infrastructure failures must return the leased item to the durable queue with a bounded retry budget");
+assert.match(taskItemExecutor, /PUBLIC_SOURCE_NETWORK_UNAVAILABLE/, "public-source network outages must be treated as transient and retried without a business verdict");
 assert.match(taskItemExecutor, /if \(!queued\.data\) return \{ status: "LEASE_LOST" as const \}/, "an expired or replaced lease must not requeue another executor's item");
 assert.match(workflow, /analyzeTaskItem\.maxRetries = 0/, "a transient database failure must not immediately consume another item attempt");
 assert.match(workflow, /Promise\.race\([\s\S]*promise\.then\(\(\) => index, \(\) => index\)[\s\S]*Promise\.allSettled\(active\)/, "a worker failure must await all already-started steps before workflow exit");
@@ -74,6 +75,10 @@ const transientRetry = await executeWithError({ code: "57014", message: "canceli
 assert.equal(transientRetry.error?.code, "57014", "a first statement timeout must pause this workflow run for spaced recovery");
 assert.equal(transientRetry.writes[0]?.values.status, "PENDING");
 assert.equal(transientRetry.writes.some(({ table }) => table === "customers"), false, "transient failure must not mark the customer failed");
+const publicSourceRetry = await executeWithError(new Error("PUBLIC_SOURCE_NETWORK_UNAVAILABLE: website fetch failed"), 1);
+assert.equal(publicSourceRetry.error?.message, "PUBLIC_SOURCE_NETWORK_UNAVAILABLE: website fetch failed", "public-source transport outages must return to the durable retry queue");
+assert.equal(publicSourceRetry.writes[0]?.values.status, "PENDING");
+assert.equal(publicSourceRetry.writes.some(({ table }) => table === "customers"), false, "public-source transport outages must not produce a negative customer verdict");
 const secondTransientRetry = await executeWithError({ code: "57014", message: "canceling statement due to statement timeout" }, 2);
 assert.equal(secondTransientRetry.error?.code, "57014", "the second transient failure must also pause instead of immediately retrying");
 assert.equal(secondTransientRetry.writes[0]?.values.status, "PENDING");

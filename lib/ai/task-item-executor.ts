@@ -22,7 +22,7 @@ function isTransientAnalysisError(error: unknown) {
   const code = String(candidate?.code || candidate?.status || "");
   const message = error instanceof Error ? error.message : String(candidate?.message || error || "");
   return ["40001", "40P01", "55P03", "57014", "408", "429", "500", "502", "503", "504", "525", "529"].includes(code)
-    || /(?:statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|temporarily unavailable|OPENAI_API_ERROR:\s*(?:429|5\d\d)\b)/i.test(message);
+    || /(?:PUBLIC_SOURCE_NETWORK_UNAVAILABLE|statement timeout|deadlock detected|could not serialize access|lock not available|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|gateway timeout|ssl handshake failed|temporarily unavailable|OPENAI_API_ERROR:\s*(?:429|5\d\d)\b)/i.test(message);
 }
 
 export async function executeClaimedAiTaskItem(
