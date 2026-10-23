@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
+import { ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppDialog, ConfirmDialog } from "@/components/ui/app-dialog";
@@ -31,44 +31,6 @@ const defaultValidity = () => { const date = new Date(); date.setDate(date.getDa
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
 const importHeaders = ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", "数量 *", "销售金额（CNY）", "总利润（CNY）", "利润率", "理货要求", "销售备注"];
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
-export function PiDeliveryAddressField({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeEscape);
-    };
-  }, [open]);
-  return <div className="text-sm">
-    <label htmlFor="pi-delivery-address">收货地址<Required /></label>
-    <div ref={containerRef} className="relative mt-1">
-      <textarea id="pi-delivery-address" className={`${field} min-h-20 resize-y py-2 ${options.length ? "pr-11" : ""}`} required rows={2} maxLength={1000}
-        value={value} onChange={(event) => onChange(event.target.value)} placeholder="输入或选择收货地址" />
-      {options.length > 0 ? <button type="button" aria-label="选择客户收货地址" aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg border-l border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-700">
-        <ChevronDown size={16} className={open ? "rotate-180" : ""} />
-      </button> : null}
-      {open && options.length > 0 ? <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-        {options.map((item, index) => <button type="button" key={`${index}-${item}`} onClick={() => { onChange(item); setOpen(false); }}
-          className={`block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-blue-50 ${value === item ? "bg-blue-50 text-blue-800" : "text-slate-700"}`}>
-          <span className="block text-xs text-slate-500">客户收货地址{index + 1}</span>
-          <span className="block break-words">{item}</span>
-        </button>)}
-      </div> : null}
-    </div>
-  </div>;
-}
 function PiLineTextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -111,6 +73,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [useForwarderDelivery, setUseForwarderDelivery] = useState(false);
   const [customerDeliveryProfileIndex, setCustomerDeliveryProfileIndex] = useState("");
   const [forwarderDeliveryProfileIndex, setForwarderDeliveryProfileIndex] = useState("");
+  const [openCustomerDeliverySelector, setOpenCustomerDeliverySelector] = useState(false);
+  const [openForwarderDeliverySelector, setOpenForwarderDeliverySelector] = useState(false);
   const [forwarderAddress, setForwarderAddress] = useState("");
   const [forwarderRecipient, setForwarderRecipient] = useState("");
   const [forwarderPhone, setForwarderPhone] = useState("");
@@ -370,6 +334,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     setUseForwarderDelivery(false);
     setCustomerDeliveryProfileIndex("");
     setForwarderDeliveryProfileIndex("");
+    setOpenCustomerDeliverySelector(false);
+    setOpenForwarderDeliverySelector(false);
     const customer = customers.find((item) => item.id === id);
     if (!customer) {
       setRecipient("");
@@ -523,7 +489,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       setError(feeCalculation.error || "请核对附加费用和PayPal手续费百分比"); return;
     }
     if (useCustomerDelivery && (!recipient.trim() || !phone.trim() || !address.trim())) { setError("启用客户收货信息后，请填写收货人、电话和收货地址"); return; }
-    if (useCustomerDelivery && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError("请输入有效的收货邮箱地址"); return; }
     if (useForwarderDelivery && (!forwarderRecipient.trim() || !forwarderPhone.trim() || !forwarderAddress.trim())) { setError("启用货代收货信息后，请填写收货人、电话和收货地址"); return; }
     const invalidRow = items.findIndex((item) => !item.item_name.trim() || !item.brand.trim() || !item.model.trim() || !item.quality.trim() || !validPiQuantity(item.quantity) || !validPiMoney(item.unit_price_cny) || !validPiMoney(item.unit_price_payment) || !validPiMoney(item.estimated_unit_cost_cny));
     if (invalidRow >= 0) {
@@ -604,15 +569,13 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <div className="text-sm"><label>收款账户<Required /><AppSelect className={field} aria-label="选择PI收款账户" placeholderValue="" value={availableAccounts.some((account) => account.id === accountId) ? accountId : ""} onChange={(event) => { if (event.target.value !== accountId) markUnsaved(); setAccountId(event.target.value); }}><option value="">{availableAccounts.length ? "请选择此渠道的收款账户" : "该付款渠道暂无启用的收款账户"}</option>{availableAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}</AppSelect></label>{selectedAccount && availableAccounts.some((account) => account.id === accountId) ? <button type="button" onClick={() => setShowAccountDetails(true)} className="mt-1 text-xs font-medium text-blue-700 underline">查看账户详情</button> : null}{!availableAccounts.length ? <span className="mt-1 block text-xs text-amber-700">{canManageAccounts ? <><Link href="/settings/pi-payment-accounts" className="underline">先为此付款渠道配置并启用收款账户</Link>，再返回创建PI。</> : "请联系系统管理员为此付款渠道配置并启用收款账户。"}</span> : null}</div>
     </div></section>
     <section className="border-b border-slate-100 p-5"><h2 className="mb-1 font-semibold">客户及货代收货信息（选填）</h2><p className="mb-4 text-xs text-slate-500">默认不添加；按本单需要勾选，保存后作为 PI 快照。</p><div className="grid items-stretch gap-4 xl:grid-cols-2">
-      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><label className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={useCustomerDelivery} onChange={(event) => { markUnsaved(); setUseCustomerDelivery(event.target.checked); if (event.target.checked) { const index = selectedShippingContacts.length === 1 ? "0" : ""; const chosen = index ? selectedShippingContacts[0] : null; setCustomerDeliveryProfileIndex(index); setRecipient(chosen?.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(chosen?.phone || selectedCustomer?.phone || ""); setEmail(selectedCustomer?.email || ""); setAddress(chosen?.address || ""); } else { setCustomerDeliveryProfileIndex(""); setRecipient(""); setPhone(""); setEmail(""); setAddress(""); } }} />添加客户收货信息</label>{useCustomerDelivery ? <><p className="mb-3 mt-2 text-xs text-slate-500">可从客户资料选择已有收货信息；带出后可编辑本单内容，不会修改客户资料。</p>{selectedShippingContacts.length ? <label className="mb-3 block text-sm">选择客户资料中的收货信息<AppSelect className={field} aria-label="选择客户资料中的客户收货信息" value={customerDeliveryProfileIndex} onChange={(event) => { markUnsaved(); const index = event.target.value; setCustomerDeliveryProfileIndex(index); const chosen = index === "" ? null : selectedShippingContacts[Number(index)]; setRecipient(chosen?.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(chosen?.phone || selectedCustomer?.phone || ""); setEmail(selectedCustomer?.email || ""); setAddress(chosen?.address || ""); }}><option value="">请选择或手动填写</option>{selectedShippingContacts.map((item, index) => <option key={`${index}-${item.address}`} value={String(index)}>{[item.recipient, item.phone, item.address].filter(Boolean).join(" · ") || `客户收货信息 ${index + 1}`}</option>)}</AppSelect></label> : null}<div className="grid gap-3 sm:grid-cols-2">
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><label className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={useCustomerDelivery} onChange={(event) => { markUnsaved(); setUseCustomerDelivery(event.target.checked); setOpenCustomerDeliverySelector(event.target.checked && selectedShippingContacts.length > 0); if (event.target.checked) { const index = selectedShippingContacts.length === 1 ? "0" : ""; const chosen = index ? selectedShippingContacts[0] : null; setCustomerDeliveryProfileIndex(index); setRecipient(chosen?.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(chosen?.phone || selectedCustomer?.phone || "");  setAddress(chosen?.address || ""); } else { setCustomerDeliveryProfileIndex(""); setRecipient(""); setPhone(""); setEmail(""); setAddress(""); } }} />添加客户收货信息</label>{useCustomerDelivery ? <><p className="mb-3 mt-2 text-xs text-slate-500">可从客户资料选择已有收货信息；带出后可编辑本单内容，不会修改客户资料。</p>{selectedShippingContacts.length ? <label className="mb-3 block text-sm">选择客户资料中的收货信息<AppSelect className={field} aria-label="选择客户资料中的客户收货信息" value={customerDeliveryProfileIndex} openOnMount={openCustomerDeliverySelector} onChange={(event) => { markUnsaved(); setOpenCustomerDeliverySelector(false); const index = event.target.value; setCustomerDeliveryProfileIndex(index); const chosen = index === "" ? null : selectedShippingContacts[Number(index)]; setRecipient(chosen?.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(chosen?.phone || selectedCustomer?.phone || "");  setAddress(chosen?.address || ""); }}><option value="">请选择或手动填写</option>{selectedShippingContacts.map((item, index) => <option key={`${index}-${item.address}`} value={String(index)}>{`${item.recipient || "未填写收货人"} | ${item.phone || "未填写电话"} | ${item.address || "未填写地址"}`}</option>)}</AppSelect></label> : null}<div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">收货人<Required /><input className={field} required maxLength={200} value={recipient} onChange={(event) => setRecipient(event.target.value)} /></label>
         <label className="text-sm">电话<Required /><input className={field} type="tel" required maxLength={100} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
-        <label className="text-sm sm:col-span-2">邮箱（选填）<input className={field} type="email" maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <div className="sm:col-span-2"><PiDeliveryAddressField value={address} options={selectedShippingAddresses} onChange={(value) => { markUnsaved(); setAddress(value); const selected = selectedShippingContacts.find((entry) => entry.address === value); if (selected) { setRecipient(selected.recipient || selectedCustomer?.contact_name?.trim() || ""); setPhone(selected.phone || selectedCustomer?.phone || ""); } }} /></div>
+        <label className="text-sm sm:col-span-2">收货地址<Required /><textarea className={`${field} min-h-20 resize-y py-2`} required maxLength={500} value={address} onChange={(event) => { markUnsaved(); setAddress(event.target.value); }} placeholder="输入或选择客户资料中的收货地址" rows={2} /></label>
       </div></> : <p className="mt-2 text-xs text-slate-500">本单不使用客户收货信息</p>}</div>
-      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><label className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={useForwarderDelivery} onChange={(event) => { markUnsaved(); setUseForwarderDelivery(event.target.checked); if (event.target.checked) { const index = selectedForwarderContacts.length === 1 ? "0" : ""; const chosen = index ? selectedForwarderContacts[0] : null; setForwarderDeliveryProfileIndex(index); setForwarderAddress(chosen?.address || ""); setForwarderRecipient(chosen?.recipient || ""); setForwarderPhone(chosen?.phone || ""); } else { setForwarderDeliveryProfileIndex(""); setForwarderAddress(""); setForwarderRecipient(""); setForwarderPhone(""); } }} />添加货代收货信息</label>{useForwarderDelivery ? <><p className="mb-3 mt-2 text-xs text-slate-500">可从客户资料选择已有货代收货信息；带出后可编辑本单内容，不会修改客户资料。</p>
-        {selectedForwarderContacts.length ? <label className="mb-3 block text-sm">选择客户资料中的货代收货信息<AppSelect className={field} aria-label="选择客户资料中的货代收货信息" value={forwarderDeliveryProfileIndex} onChange={(event) => { markUnsaved(); const index = event.target.value; setForwarderDeliveryProfileIndex(index); const chosen = index === "" ? null : selectedForwarderContacts[Number(index)]; setForwarderAddress(chosen?.address || ""); setForwarderRecipient(chosen?.recipient || ""); setForwarderPhone(chosen?.phone || ""); }}><option value="">请选择或手动填写</option>{selectedForwarderContacts.map((item, index) => <option key={`${index}-${item.address}`} value={String(index)}>{[item.recipient, item.phone, item.address].filter(Boolean).join(" · ") || `货代收货信息 ${index + 1}`}</option>)}</AppSelect></label> : null}
-        {selectedForwarderAddresses.length ? <label className="text-sm">从客户资料选择<AppSelect className={field} value={selectedForwarderAddresses.includes(forwarderAddress) ? forwarderAddress : ""} onChange={(event) => { markUnsaved(); const selected = selectedForwarderContacts.find((entry) => entry.address === event.target.value); setForwarderAddress(selected?.address || ""); setForwarderRecipient(selected?.recipient || ""); setForwarderPhone(selected?.phone || ""); }}><option value="">自行填写</option>{selectedForwarderAddresses.map((item, index) => <option key={`${index}-${item}`} value={item}>货代收货信息{index + 1} · {item}</option>)}</AppSelect></label> : null}
+      <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 p-4"><label className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={useForwarderDelivery} onChange={(event) => { markUnsaved(); setUseForwarderDelivery(event.target.checked); setOpenForwarderDeliverySelector(event.target.checked && selectedForwarderContacts.length > 0); if (event.target.checked) { const index = selectedForwarderContacts.length === 1 ? "0" : ""; const chosen = index ? selectedForwarderContacts[0] : null; setForwarderDeliveryProfileIndex(index); setForwarderAddress(chosen?.address || ""); setForwarderRecipient(chosen?.recipient || ""); setForwarderPhone(chosen?.phone || ""); } else { setForwarderDeliveryProfileIndex(""); setForwarderAddress(""); setForwarderRecipient(""); setForwarderPhone(""); } }} />添加货代收货信息</label>{useForwarderDelivery ? <><p className="mb-3 mt-2 text-xs text-slate-500">可从客户资料选择已有货代收货信息；带出后可编辑本单内容，不会修改客户资料。</p>
+        {selectedForwarderContacts.length ? <label className="mb-3 block text-sm">选择客户资料中的货代收货信息<AppSelect className={field} aria-label="选择客户资料中的货代收货信息" value={forwarderDeliveryProfileIndex} openOnMount={openForwarderDeliverySelector} onChange={(event) => { markUnsaved(); setOpenForwarderDeliverySelector(false); const index = event.target.value; setForwarderDeliveryProfileIndex(index); const chosen = index === "" ? null : selectedForwarderContacts[Number(index)]; setForwarderAddress(chosen?.address || ""); setForwarderRecipient(chosen?.recipient || ""); setForwarderPhone(chosen?.phone || ""); }}><option value="">请选择或手动填写</option>{selectedForwarderContacts.map((item, index) => <option key={`${index}-${item.address}`} value={String(index)}>{`${item.recipient || "未填写收货人"} | ${item.phone || "未填写电话"} | ${item.address || "未填写地址"}`}</option>)}</AppSelect></label> : null}
         <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm">收货人<Required /><input className={field} required maxLength={200} value={forwarderRecipient} onChange={(event) => { markUnsaved(); setForwarderRecipient(event.target.value); }} /></label><label className="text-sm">电话<Required /><input className={field} type="tel" required maxLength={100} value={forwarderPhone} onChange={(event) => { markUnsaved(); setForwarderPhone(event.target.value); }} /></label><label className="text-sm sm:col-span-2">收货地址<Required /><textarea className={`${field} min-h-20 resize-y py-2`} required maxLength={500} value={forwarderAddress} onChange={(event) => { markUnsaved(); setForwarderAddress(event.target.value); }} rows={2} /></label></div></> : <p className="mt-2 text-xs text-slate-500">本单不使用货代收货信息</p>}
       </div>
     </div></section>

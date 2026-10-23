@@ -36,6 +36,7 @@ export function AppSelect({
   id,
   title,
   forceSearch = false,
+  openOnMount = false,
   placeholderValue,
   "aria-label": ariaLabel,
 }: {
@@ -49,6 +50,7 @@ export function AppSelect({
   id?: string;
   title?: string;
   forceSearch?: boolean;
+  openOnMount?: boolean;
   placeholderValue?: string;
   "aria-label"?: string;
 }) {
@@ -62,6 +64,7 @@ export function AppSelect({
   const optionButtons = useRef<Array<HTMLButtonElement | null>>([]);
   const listId = useId();
   const [open, setOpen] = useState(false);
+  const autoOpenConsumed = useRef(false);
   const [search, setSearch] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [invalid, setInvalid] = useState(false);
@@ -96,6 +99,15 @@ export function AppSelect({
     place();
     setOpen(true);
   }
+
+  useEffect(() => {
+    if (!openOnMount || autoOpenConsumed.current || disabled) return;
+    autoOpenConsumed.current = true;
+    setSearch("");
+    setActiveIndex(Math.max(0, options.findIndex((option) => option.value === selectedValue && !option.disabled)));
+    place();
+    setOpen(true);
+  }, [openOnMount, disabled, options, selectedValue, place]);
 
   function choose(next: SelectOption) {
     if (next.disabled) return;
