@@ -27,7 +27,8 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number): Pa
   const legacy = first[0] === "产品名称";
   const modernHeader = first[0] === modernHeaders[0] && first[9] === modernHeaders[9];
   const oldTemplate = first[0] === "产品";
-  const withChineseDescription = legacy || modernHeader || oldTemplate || first[5]?.startsWith("产品质量/描述中文") || first.length >= 11;
+  const modernTemplate = modernHeader || (!legacy && !oldTemplate && first[0] !== "产品" && first.length >= 14);
+  const withChineseDescription = legacy || modernTemplate || oldTemplate || first[5]?.startsWith("产品质量/描述中文") || first.length >= 11;
   const dataRows = cells.filter((row) => [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13].some((index) => String(row[index] ?? "").trim()));
   if (modernHeader || oldTemplate || legacy) dataRows.shift();
   if (!dataRows.length || dataRows.length > 500) throw new Error("请导入1至500条产品明细");
@@ -48,8 +49,8 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number): Pa
       quantity: String(quantity), unit_price_cny: String(unitPrice),
       unit_price_payment: roundMoney(unitPrice * paymentPerCny).toFixed(2),
       estimated_unit_cost_cny: String(cost),
-      preparation_requirement: row[modernHeader ? 12 : legacy ? 9 : withChineseDescription ? 9 : 8] || "",
-      internal_note: legacy ? "" : row[modernHeader ? 13 : withChineseDescription ? 10 : 9] || "",
+      preparation_requirement: row[modernTemplate ? 12 : legacy ? 9 : withChineseDescription ? 9 : 8] || "",
+      internal_note: legacy ? "" : row[modernTemplate ? 13 : withChineseDescription ? 10 : 9] || "",
     };
   });
 }
