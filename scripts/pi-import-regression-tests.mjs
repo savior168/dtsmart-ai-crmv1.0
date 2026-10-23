@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import XLSX from "xlsx";
 import { matchImportedPaymentAccount, parseCustomerPiWorkbook } from "../lib/pi-document-import.ts";
+import { parsePiProductRows } from "../lib/pi-product-import.ts";
 
 const template = readFileSync("assets/templates/PI_Import_Template.xlsx");
 const archive = XLSX.CFB.read(template, { type: "buffer" });
@@ -89,6 +90,50 @@ basic.B13 = { t: "s", v: "jack@example.com" };
 lines.G2 = { t: "n", v: 120 };
 assert.throws(() => parseCustomerPiWorkbook(wholeBytes()), /售价须高于成本/);
 lines.G2 = { t: "n", v: 80 };
+
+const wholeHelp = XLSX.utils.sheet_to_json(wholeTemplate.Sheets["PI基本信息"], { header: 1, defval: "" });
+assert.match(String(wholeHelp[0][1]), /红色 \* 为必填/);
+assert.match(String(wholeHelp[10][0]), /启用客户收货信息时必填/);
+assert.match(String(wholeHelp[12][0]), /邮箱（选填）/);
+assert.match(String(wholeHelp[22][1]), /导入后必须核对本人客户匹配.*选择可用付款渠道和收款账户/);
+assert.equal(wholeTemplate.Sheets["PI产品明细"].O1.v, "销售备注", "PI整单模板备注字段须与创建页的销售备注一致");
+
+const optionalWhole = XLSX.readFile("assets/templates/PI_Whole_Order_Import_Template.xlsx", { cellFormula: true });
+const optionalBasic = optionalWhole.Sheets["PI基本信息"];
+const optionalLines = optionalWhole.Sheets["PI产品明细"];
+for (const [address, value] of Object.entries({ B3: "Jack Liu", B4: "i-Service", B5: "D6052457", B6: "USD" })) optionalBasic[address] = { t: "s", v: value };
+for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP17", D2: "OLED", G2: 80, H2: 120, J2: 10 })) optionalLines[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
+const optionalDocument = parseCustomerPiWorkbook(XLSX.write(optionalWhole, { type: "buffer", bookType: "xlsx" })).document;
+assert.equal(optionalDocument.delivery_recipient, "", "未启用客户收货信息时收件人可以留空");
+assert.equal(optionalDocument.delivery_phone, "", "未启用客户收货信息时电话可以留空");
+assert.equal(optionalDocument.delivery_email, "", "收货邮箱选填");
+assert.equal(optionalDocument.delivery_address, "", "未启用客户收货信息时地址可以留空");
+assert.equal(optionalDocument.payment_method, "", "付款渠道可留空，导入核对页由用户选择");
+assert.equal(optionalDocument.fx_rate_cny_per_payment, 0, "汇率可留空并在导入核对页采用当前业务汇率");
+assert.equal(optionalDocument.items.length, 1, "PI整单模板至少须提供一条产品明细");
+
+const productTemplate = XLSX.readFile("public/templates/pi-line-import-template.xlsx", { cellFormula: true });
+const productSheet = productTemplate.Sheets["PI产品明细"];
+assert.equal(productSheet.N1.v, "销售备注");
+for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP 17 Pro", D2: "OLED", E2: "产品描述", F2: "中文描述", G2: 80, H2: 120, I2: 10, M2: "逐件检查", N2: "销售说明" })) {
+  productSheet[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
+}
+const excelRows = XLSX.utils.sheet_to_json(productSheet, { header: 1, defval: "" });
+const excelImported = parsePiProductRows(excelRows, 0.15);
+const pastedImported = parsePiProductRows(excelRows.map((row) => row.map((cell) => String(cell ?? ""))), 0.15);
+assert.deepEqual(pastedImported, excelImported, "Excel导入与粘贴表格须使用相同字段映射和校验");
+assert.equal(excelImported.length, 1);
+assert.equal(excelImported[0].item_name, "LCD");
+assert.equal(excelImported[0].unit_price_payment, "18.00");
+assert.equal(excelImported[0].preparation_requirement, "逐件检查");
+assert.equal(excelImported[0].internal_note, "销售说明");
+assert.deepEqual(parsePiProductRows([excelRows[1]], 0.15), excelImported, "无表头复制的数据区域仍按标准列序解析");
+assert.throws(() => parsePiProductRows([excelRows[2]], 0.15), /1至500条产品明细/, "模板空白公式行不得误判为明细");
+assert.throws(() => parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", "", "", "", "", "", "", ""]], 0.15), /缺少产品/, "缺少产品必填价格或数量须拒绝");
+const formSource = readFileSync("components/pi-order-form.tsx", "utf8");
+assert.match(formSource, /parsePiProductRows\(rows, effectiveRate\)/, "PI导入入口须调用共享解析器");
+assert.match(formSource, /importRows\(XLSX\.utils\.sheet_to_json/, "Excel上传须进入共享导入处理");
+assert.match(formSource, /importRows\(\(await navigator\.clipboard\.readText\(\)\)\.split\(/, "剪贴板粘贴须进入同一共享处理");
 
 const route = readFileSync("app/api/orders/import-template/route.ts", "utf8");
 const view = readFileSync("components/pi-import-view.tsx", "utf8");
