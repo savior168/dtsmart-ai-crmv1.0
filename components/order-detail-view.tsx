@@ -98,7 +98,6 @@ type Payload = {
 };
 
 function PiInfoCards({ order: o }: { order: Payload["order"] }) {
-  const [accountOpen, setAccountOpen] = useState(false);
   const fx = Number(o.fx_rate_cny_to_payment);
   const toCny = (cny: number | null, payment: number) => typeof cny === "number" && Number.isFinite(cny)
     ? cny : fx > 0 ? payment / fx : null;
@@ -111,33 +110,70 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
     { label: "PayPal 手续费（加收）", payment: Number(o.paypal_fee_amount || 0), cny: toCny(o.paypal_fee_cny, Number(o.paypal_fee_amount || 0)) },
   ].filter((row) => row.label === "产品小计" || row.payment !== 0 || (row.cny !== null && row.cny !== 0));
   const totalCny = toCny(o.total_cny, Number(o.total_amount));
-  const card = "min-w-0 rounded-lg border border-slate-200 bg-white p-3";
-  return <><div className="grid items-stretch gap-3 border-t px-5 py-3 text-sm md:grid-cols-2 xl:grid-cols-4">
-    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">客户收货信息</h3><div className="space-y-1 text-slate-600">
-      <p>收货人：{o.delivery_recipient || "—"}</p><p>电话：{o.delivery_phone || "—"}</p>
-      <p className="break-all">邮箱：{o.delivery_email || "—"}</p><p className="break-words">收货地址：{o.delivery_address || "—"}</p>
-      {o.delivery_date ? <p>预计交付日期：{o.delivery_date}</p> : null}
-    </div></section>
-    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">货代收货信息</h3><div className="space-y-1 text-slate-600">
-      <p>收货人：{o.forwarder_recipient || "未填写"}</p><p>电话：{o.forwarder_phone || "未填写"}</p>
-      <p className="break-words">收货地址：{o.forwarder_address || "未填写"}</p>
-    </div></section>
-    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">付款与汇率</h3><div className="space-y-1 text-slate-600">
-      <p className="text-lg font-semibold text-blue-700 tabular-nums">{o.currency} {Number(o.total_amount).toFixed(2)}</p>
-      <p>付款方式：{o.payment_method || "—"}</p>
-      <p>汇率：1 {o.currency} ≈ {Number(o.fx_rate_cny_to_payment) > 0 ? Number((1 / Number(o.fx_rate_cny_to_payment)).toPrecision(8)) : "—"} CNY</p>
-      <p>人民币总额：¥{Number(o.total_cny).toFixed(2)}</p>
-      <p>价格展示：{o.show_dual_currency_prices === true ? `CNY / ${o.currency} 双币种` : `仅 ${o.currency}`}</p>
-      {o.payment_account_snapshot ? <button type="button" onClick={() => setAccountOpen(true)} className="pt-1 text-left font-medium text-blue-700 hover:underline">查看收款账户</button> : null}
-    </div></section>
-    <section className={card}><h3 className="mb-2 font-semibold text-slate-800">费用明细 · {o.currency}</h3>
-      <dl className={`grid gap-x-2 gap-y-1 text-xs text-slate-600 tabular-nums ${o.currency === "CNY" ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
-        <dt className="font-medium text-slate-500">费用项目</dt><dd className="text-right font-medium text-slate-500">RMB</dd>{o.currency !== "CNY" ? <dd className="text-right font-medium text-slate-500">{o.currency}</dd> : null}
-        {feeRows.map((row) => <div key={row.label} className="contents"><dt className="min-w-0">{row.label}</dt><dd className="whitespace-nowrap text-right">{row.cny === null ? "—" : Number(row.cny).toFixed(2)}</dd>{o.currency !== "CNY" ? <dd className="whitespace-nowrap text-right">{row.payment.toFixed(2)}</dd> : null}</div>)}
-        <dt className="border-t border-slate-200 pt-2 font-semibold text-slate-800">客户应付总额</dt><dd className="whitespace-nowrap border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{totalCny === null ? "—" : Number(totalCny).toFixed(2)}</dd>{o.currency !== "CNY" ? <dd className="whitespace-nowrap border-t border-slate-200 pt-2 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd> : null}
-      </dl>
-    </section>
-  </div><AppDialog open={accountOpen} onClose={() => setAccountOpen(false)} title="本单收款账户快照"><p className="whitespace-pre-wrap break-all text-sm leading-6 text-slate-700">{o.payment_account_snapshot || "—"}</p></AppDialog></>;
+  const hasCustomerDelivery = Boolean(o.delivery_recipient || o.delivery_phone || o.delivery_email || o.delivery_address || o.delivery_date);
+  const hasForwarder = Boolean(o.forwarder_recipient || o.forwarder_phone || o.forwarder_address);
+  const detailClass = "group min-w-0 rounded-lg border border-slate-200 bg-white";
+  const summaryClass = "flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm";
+  return <div className="grid gap-2 border-t px-5 py-2 xl:grid-cols-2">
+    <details className={detailClass}>
+      <summary className={summaryClass}>
+        <span className="font-semibold text-slate-800">收货信息</span>
+        <span className="min-w-0 truncate text-right text-xs text-slate-500">
+          {hasCustomerDelivery || hasForwarder
+            ? [hasCustomerDelivery ? `客户：${o.delivery_recipient || "已填写"}` : "", hasForwarder ? `货代：${o.forwarder_recipient || "已填写"}` : ""].filter(Boolean).join(" · ")
+            : "本单未记录收货信息"}
+          <span className="ml-2 text-blue-700 group-open:hidden">展开</span>
+          <span className="ml-2 hidden text-blue-700 group-open:inline">收起</span>
+        </span>
+      </summary>
+      <div className="grid gap-3 border-t bg-slate-50/70 p-3 text-sm sm:grid-cols-2">
+        <section className="min-w-0">
+          <h3 className="mb-1 font-medium text-slate-700">客户收货</h3>
+          {hasCustomerDelivery ? <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-slate-600">
+            {o.delivery_recipient ? <><dt>收货人</dt><dd className="break-words">{o.delivery_recipient}</dd></> : null}
+            {o.delivery_phone ? <><dt>电话</dt><dd className="break-words">{o.delivery_phone}</dd></> : null}
+            {o.delivery_email ? <><dt>邮箱</dt><dd className="break-all">{o.delivery_email}</dd></> : null}
+            {o.delivery_address ? <><dt>地址</dt><dd className="break-words">{o.delivery_address}</dd></> : null}
+            {o.delivery_date ? <><dt>预计交付</dt><dd>{o.delivery_date}</dd></> : null}
+          </dl> : <p className="text-xs text-slate-500">未填写</p>}
+        </section>
+        <section className="min-w-0">
+          <h3 className="mb-1 font-medium text-slate-700">货代收货</h3>
+          {hasForwarder ? <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-slate-600">
+            {o.forwarder_recipient ? <><dt>收货人</dt><dd className="break-words">{o.forwarder_recipient}</dd></> : null}
+            {o.forwarder_phone ? <><dt>电话</dt><dd className="break-words">{o.forwarder_phone}</dd></> : null}
+            {o.forwarder_address ? <><dt>地址</dt><dd className="break-words">{o.forwarder_address}</dd></> : null}
+          </dl> : <p className="text-xs text-slate-500">未填写</p>}
+        </section>
+      </div>
+    </details>
+    <details className={detailClass}>
+      <summary className={summaryClass}>
+        <span className="font-semibold text-slate-800">付款与费用明细</span>
+        <span className="min-w-0 truncate text-right text-xs text-slate-500">
+          {o.payment_method || "未记录付款方式"}{fx > 0 ? ` · 1 ${o.currency} ≈ ${Number((1 / fx).toPrecision(6))} CNY` : ""}
+          <span className="ml-2 text-blue-700 group-open:hidden">展开</span>
+          <span className="ml-2 hidden text-blue-700 group-open:inline">收起</span>
+        </span>
+      </summary>
+      <div className="grid gap-3 border-t bg-slate-50/70 p-3 md:grid-cols-[minmax(180px,0.7fr)_minmax(0,1.3fr)]">
+        <div className="space-y-1 text-sm text-slate-600">
+          <p>付款方式：{o.payment_method || "—"}</p>
+          <p>汇率：1 {o.currency} ≈ {fx > 0 ? Number((1 / fx).toPrecision(8)) : "—"} CNY</p>
+          <p>应付金额：{totalCny === null ? "RMB —" : `¥${Number(totalCny).toFixed(2)}`}{o.currency !== "CNY" ? ` · ${o.currency} ${Number(o.total_amount).toFixed(2)}` : ""}</p>
+          {o.payment_account_snapshot ? <p className="break-words"><span className="font-medium">收款账户：</span>{o.payment_account_snapshot}</p> : null}
+        </div>
+        <div className="min-w-0">
+          <p className="mb-1 text-xs font-medium text-slate-500">费用项目及金额</p>
+          <dl className={`grid gap-x-3 gap-y-1 text-xs text-slate-600 tabular-nums ${o.currency === "CNY" ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
+            <dt className="font-medium text-slate-500">费用项目</dt><dd className="text-right font-medium text-slate-500">RMB</dd>{o.currency !== "CNY" ? <dd className="text-right font-medium text-slate-500">{o.currency}</dd> : null}
+            {feeRows.map((row) => <div key={row.label} className="contents"><dt className="min-w-0">{row.label}</dt><dd className="whitespace-nowrap text-right">{row.cny === null ? "—" : Number(row.cny).toFixed(2)}</dd>{o.currency !== "CNY" ? <dd className="whitespace-nowrap text-right">{row.payment.toFixed(2)}</dd> : null}</div>)}
+            <dt className="border-t border-slate-200 pt-1 font-semibold text-slate-800">总计</dt><dd className="whitespace-nowrap border-t border-slate-200 pt-1 text-right font-semibold text-blue-700">{totalCny === null ? "—" : Number(totalCny).toFixed(2)}</dd>{o.currency !== "CNY" ? <dd className="whitespace-nowrap border-t border-slate-200 pt-1 text-right font-semibold text-blue-700">{Number(o.total_amount).toFixed(2)}</dd> : null}
+          </dl>
+        </div>
+      </div>
+    </details>
+  </div>;
 }
 export function OrderDetailView({ id }: { id: string }) {
   const router = useRouter();
@@ -277,7 +313,6 @@ export function OrderDetailView({ id }: { id: string }) {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
             </div>
             <PiInfoCards order={o} />
-            <p className="border-t px-5 py-2 text-xs text-slate-400">PI系统ID：{o.id}</p>
           </> : <div className="grid gap-4 p-5 md:grid-cols-5">{[["客户名称", o.customer?.contact_name?.trim() || "未填写"], ["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span>{data.can_view_stock ? <Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link> : null}</div> : null}
           <div className="overflow-x-auto border-y">
