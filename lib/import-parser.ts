@@ -1,4 +1,6 @@
-export type ImportRow = Record<string, string | number | null>;
+import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
+
+export type ImportRow = Record<string, unknown>;
 
 function csvRows(text: string) {
   const rows: string[][] = [];
@@ -124,6 +126,20 @@ export function mapImportRow(row: ImportRow) {
     value(row, "商店状态", "store status"),
   ].flatMap((item) => item.split(/[,，]/)).map((item) => item.trim()).filter(Boolean);
 
+  const shippingRecipient = value(row, "收货人（客户）", "收货人(客户)", "客户收货人", "收货人", "shipping recipient");
+  const shippingPhone = value(row, "收货电话（客户）", "收货电话(客户)", "客户收货电话", "客户收货联系电话", "收货电话", "shipping phone");
+  const shippingAddress = value(row, "收货地址（客户）", "收货地址(客户)", "客户收货地址", "收货地址", "shipping address");
+  const forwarderRecipient = value(row, "收货人（货代）", "收货人(货代)", "货代收货人", "货代收件人", "forwarder recipient");
+  const forwarderPhone = value(row, "收货电话（货代）", "收货电话(货代)", "货代收货电话", "货代联系电话", "forwarder phone");
+  const forwarderAddress = value(row, "收货地址（货代）", "收货地址(货代)", "货代收货地址", "货代地址", "forwarder address");
+  const hasStructuredShippingColumns = Object.keys(row).some((key) => ["收货人（客户）", "收货人(客户)", "收货电话（客户）", "收货电话(客户)", "收货地址（客户）", "收货地址(客户)", "客户收货人", "客户收货电话", "客户收货联系电话", "收货人", "收货电话", "shipping recipient", "shipping phone"].includes(key.trim().toLowerCase()));
+  const hasStructuredForwarderColumns = Object.keys(row).some((key) => ["收货人（货代）", "收货人(货代)", "收货电话（货代）", "收货电话(货代)", "收货地址（货代）", "收货地址(货代)", "货代收货人", "货代收件人", "货代收货电话", "货代联系电话", "forwarder recipient", "forwarder phone"].includes(key.trim().toLowerCase()));
+  const shippingContactEntries = hasStructuredShippingColumns && [shippingRecipient, shippingPhone, shippingAddress].some(Boolean)
+    ? [{ recipient: shippingRecipient, phone: shippingPhone, address: shippingAddress }]
+    : undefined;
+  const forwarderContactEntries = hasStructuredForwarderColumns && [forwarderRecipient, forwarderPhone, forwarderAddress].some(Boolean)
+    ? [{ recipient: forwarderRecipient, phone: forwarderPhone, address: forwarderAddress }]
+    : undefined;
   return {
     company_name: value(row, "公司名称*", "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"),
     contact_name: value(row, "客户名称*", "客户名称", "联系人", "contact", "contact name"),
@@ -142,10 +158,12 @@ export function mapImportRow(row: ImportRow) {
     tiktok_url: value(row, "Tiktok主页链接", "TikTok主页链接", "tiktok_url"),
     linkedin_url: value(row, "Linked主页链接", "LinkedIn主页链接", "linkedin_url"),
     address: value(row, "公司地址", "商店地址", "地址", "address", "store address"),
-    shipping_address: value(row, "客户收货地址", "收货地址", "shipping address"),
+    shipping_address: shippingAddress,
+    ...(shippingContactEntries ? { shipping_contact_entries: shippingContactEntries } : {}),
     tally_requirements: value(row, "理货要求"),
     notes: value(row, "备注", "notes"),
-    forwarder_address: value(row, "货代地址"),
+    forwarder_address: forwarderAddress,
+    ...(forwarderContactEntries ? { forwarder_contact_entries: forwarderContactEntries } : {}),
     other_address: value(row, "其他地址"),
     category: value(row, "分类", "商店类型", "category", "store type"),
     industry: value(row, "行业", "industry"),
@@ -167,4 +185,31 @@ export function mapImportRow(row: ImportRow) {
       created_at: value(row, "创建时间", "created at", "created_time"),
     },
   };
+}
+
+export function importDeliveryContactError(row: ImportRow) {
+  const shippingEntry = Array.isArray(row.shipping_contact_entries) ? row.shipping_contact_entries[0] as Record<string, unknown> | undefined : undefined;
+  const forwarderEntry = Array.isArray(row.forwarder_contact_entries) ? row.forwarder_contact_entries[0] as Record<string, unknown> | undefined : undefined;
+  const shipping = shippingEntry ? [shippingEntry.recipient, shippingEntry.phone, shippingEntry.address].map((part) => String(part || "").trim()) : [
+    value(row, "收货人（客户）", "收货人(客户)", "客户收货人", "收货人", "shipping recipient"),
+    value(row, "收货电话（客户）", "收货电话(客户)", "客户收货电话", "客户收货联系电话", "收货电话", "shipping phone"),
+    value(row, "收货地址（客户）", "收货地址(客户)", "客户收货地址", "收货地址", "shipping address"),
+  ];
+  const forwarder = forwarderEntry ? [forwarderEntry.recipient, forwarderEntry.phone, forwarderEntry.address].map((part) => String(part || "").trim()) : [
+    value(row, "收货人（货代）", "收货人(货代)", "货代收货人", "货代收件人", "forwarder recipient"),
+    value(row, "收货电话（货代）", "收货电话(货代)", "货代收货电话", "货代联系电话", "forwarder phone"),
+    value(row, "收货地址（货代）", "收货地址(货代)", "货代收货地址", "货代地址", "forwarder address"),
+  ];
+  for (const [label, contact] of [["客户收货信息", shipping], ["货代收货信息", forwarder]] as const) {
+    if (contact[0].length > 200 || contact[2].length > 500) return `${label}的收货人或地址超出长度限制`;
+    if (!contact[1]) continue;
+    try {
+      const phone = normalizeManualPhone(contact[1], `${label}联系电话`);
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15 || /^(\d)\1+$/.test(digits)) return `${label}联系电话须为有效的 7 至 15 位号码`;
+    } catch {
+      return `${label}联系电话格式不正确`;
+    }
+  }
+  return "";
 }

@@ -60,6 +60,7 @@ export function formatCustomerPhone(value?: string | null) {
 }
 
 export function customerProtectionText(customer: Customer, now = Date.now()) {
+  if (customer.status === "DEAL") return "永久";
   const createdAt = new Date(customer.created_at).getTime();
   if (!Number.isFinite(createdAt)) return "-";
   const expiresAt = createdAt + 90 * 24 * 60 * 60 * 1000;

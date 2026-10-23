@@ -23,6 +23,10 @@ assert.doesNotMatch(source, /<AppSelect aria-label="选择客户收货地址"/, 
 const emptyForm = renderToStaticMarkup(createElement(PiOrderForm, { initialIsClerk: false }));
 assert.match(emptyForm, /添加客户收货信息/);
 assert.match(emptyForm, /添加货代收货信息/);
+assert.match(source, /选择客户资料中的客户收货信息/, "勾选客户收货信息后须能选择客户档案中的联系人条目");
+assert.match(source, /选择客户资料中的货代收货信息/, "勾选货代收货信息后须能选择客户档案中的货代条目");
+assert.match(source, /setRecipient\(chosen\?\.recipient[\s\S]*setPhone\(chosen\?\.phone[\s\S]*setAddress\(chosen\?\.address/, "选择客户资料后须带入整条收货信息，且输入框保持可编辑");
+assert.match(source, /setForwarderAddress\(chosen\?\.address[\s\S]*setForwarderRecipient\(chosen\?\.recipient[\s\S]*setForwarderPhone\(chosen\?\.phone/, "选择客户资料后须带入整条货代信息，且输入框保持可编辑");
 assert.doesNotMatch(emptyForm, /id="pi-delivery-address"/, "未勾选时不应直接显示客户收货地址输入框");
 assert.doesNotMatch(emptyForm, /从客户资料选择/, "未勾选时不应显示货代选择控件");
 console.log("PI single-field delivery address regressions passed.");

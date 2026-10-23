@@ -20,13 +20,14 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import {
+  importDeliveryContactError,
   mapImportRow,
   parseImportFile,
   type ImportRow,
 } from "@/lib/import-parser";
 import { downloadWorkbook } from "@/lib/xlsx-export";
 import { dataExportFilename } from "@/lib/export-file-name";
-import { customerIdentityKeys } from "@/lib/import-dedupe";
+import { customerImportIdentityKeys } from "@/lib/import-dedupe";
 import { CountryLabel } from "@/components/country-label";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { readableImportError } from "@/lib/import-safety";
@@ -187,7 +188,7 @@ function LinkCell({ value }: { value?: string | null }) {
   );
 }
 function identityKeys(row: MappedRow) {
-  return customerIdentityKeys(row);
+  return customerImportIdentityKeys(row);
 }
 
 function Metric({
@@ -436,28 +437,20 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             file_name: fileLabel,
             row_number: index + 2,
           } as MappedRow;
-          const hasContact = [
-            item.phone,
-            item.email,
-            item.website,
-            item.google_url,
-          ].some(Boolean);
-          const invalidStage = Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
-          const invalidGrade = Boolean(item.manual_grade && !["S", "A", "B", "C", "D"].includes(item.manual_grade));
-          const restrictedStage = destination === "PUBLIC_POOL" && Boolean(item.import_stage || item.manual_grade);
-          const missingStageContacts = destination === "PRIVATE" && ["意向客户", "已成交客户"].includes(item.import_stage)
-            && (!item.phone || !item.email);
-          if (!item.company_name || !item.contact_name || !item.country || !hasContact || invalidStage || invalidGrade || restrictedStage || missingStageContacts) {
+          const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
+          const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !["S", "A", "B", "C", "D"].includes(item.manual_grade));
+          const deliveryError = importDeliveryContactError(item as ImportRow);
+          if (!item.contact_name || !item.country || invalidStage || invalidGrade || deliveryError) {
             bad.push({
               id: badId++,
               file_name: fileLabel,
               row_number: index + 2,
-              reason: !item.company_name || !item.contact_name || !item.country || !hasContact
-                ? "缺少公司名称、客户名称、国家或有效联系方式，已跳过"
+              reason: !item.contact_name || !item.country
+                ? "缺少客户名称或国家/地区，已跳过"
                 : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
                 : invalidGrade ? "客户等级只能填写 S、A、B、C、D"
-                : restrictedStage ? "客户公海不能预设我的客户阶段或销售客户等级"
-                : "意向客户和已成交客户必须同时填写联系电话和邮箱",
+                : deliveryError ? deliveryError
+                : "客户资料校验失败，已跳过",
               kind: "error",
               row: item,
             });
@@ -670,7 +663,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
 
   function downloadTemplate() {
     if (!canCreate) return;
-    window.location.assign("/api/import/template");
+    window.location.assign(`/api/import/template?destination=${destination}`);
   }
 
   return (
@@ -839,10 +832,10 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               </button>
             </div>
             <ul className="mt-5 space-y-3 text-sm text-slate-600">
-              <li>• 必填：公司名称、客户名称、国家/地区</li>
-              <li>• 至少提供一种联系方式：电话、邮箱、官网或 Google Maps</li>
+              <li>• 客户名称和国家/地区必填；其他资料可留空，填写后会保存到客户资料</li>
+              {destination === "PUBLIC_POOL" ? <li>• 公海模板不含销售阶段和等级；所有新导入公海客户保持“待认领”</li> : null}
               <li>• 支持多文件和文件夹批量导入，系统自动合并预览</li>
-              <li>• 名称+完整电话或名称+邮箱相同的数据只保留最先导入的一条</li>
+              <li>• 电话、WhatsApp 和同一客户的邮箱用于重复识别；共享邮箱不会单独合并不同联系人</li>
             </ul>
             <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
               <AlertTriangle className="mr-2 inline" size={16} />{" "}

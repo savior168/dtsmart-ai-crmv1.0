@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
+import { classifyExistingCustomer, customerImportIdentityKeys, potentialCustomerDuplicateReasons } from "@/lib/import-dedupe";
 
 type Row = {
   company_name?: string;
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const data: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,country,phone,whatsapp,email,website,google_url,owner_id,acquisition_scope,pool_status,status")
+        .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,owner_id,acquisition_scope,pool_status,status")
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .range(from, from + 999);
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     const existing = new Map<string, Record<string, unknown>>();
     data.forEach((row) =>
-      customerIndexIdentityKeys(row as Row).forEach((key) => { if (!existing.has(key)) existing.set(key, row); }),
+      customerImportIdentityKeys(row as Row).forEach((key) => { if (!existing.has(key)) existing.set(key, row); }),
     );
 
     let conflictCount = 0;
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     const suspectedMatches: Record<number, Array<Record<string, unknown>>> = {};
     const preflightMatches: Record<number, Array<Record<string, unknown>>> = {};
     rows.forEach((row, rowIndex) => {
-      const match = customerLookupIdentityKeys(row)
+      const match = customerImportIdentityKeys(row)
         .map((key) => existing.get(key))
         .find(Boolean);
       if (!match) {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         return;
       }
       const disposition = classifyExistingCustomer(match, user.id);
-      const matchedKeys = customerLookupIdentityKeys(row).filter((key) => customerIndexIdentityKeys(match).includes(key));
+      const matchedKeys = customerImportIdentityKeys(row).filter((key) => customerImportIdentityKeys(match).includes(key));
       preflightMatches[rowIndex] = [{
         id: match.id,
         company_name: match.company_name,

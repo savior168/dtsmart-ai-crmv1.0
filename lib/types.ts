@@ -40,6 +40,8 @@ export type Customer = {
   source: string | null;
   source_batch?: string | null;
   source_batch_id?: string | null;
+  source_stage_label?: string | null;
+  source_grade_label?: string | null;
   tags: string[];
   rating?: number | null;
   ai_score: number | null;
