@@ -93,6 +93,8 @@ lines.G2 = { t: "n", v: 80 };
 
 const wholeHelp = XLSX.utils.sheet_to_json(wholeTemplate.Sheets["PI基本信息"], { header: 1, defval: "" });
 assert.match(String(wholeHelp[0][1]), /红色 \* 为必填/);
+assert.equal(basic.A4.v, "公司名称（选填）", "公司名称应与创建PI页面一致，不强制填写");
+assert.match(String(basic.C4.v), /可留空.*导入后手动选择客户/);
 assert.match(String(wholeHelp[10][0]), /启用客户收货信息时必填/);
 assert.match(String(wholeHelp[12][0]), /邮箱（选填）/);
 assert.match(String(wholeHelp[22][1]), /导入后必须核对本人客户匹配.*选择可用付款渠道和收款账户/);
@@ -101,9 +103,10 @@ assert.equal(wholeTemplate.Sheets["PI产品明细"].O1.v, "销售备注", "PI整
 const optionalWhole = XLSX.readFile("assets/templates/PI_Whole_Order_Import_Template.xlsx", { cellFormula: true });
 const optionalBasic = optionalWhole.Sheets["PI基本信息"];
 const optionalLines = optionalWhole.Sheets["PI产品明细"];
-for (const [address, value] of Object.entries({ B3: "Jack Liu", B4: "i-Service", B5: "D6052457", B6: "USD" })) optionalBasic[address] = { t: "s", v: value };
+for (const [address, value] of Object.entries({ B3: "Jack Liu", B5: "D6052457", B6: "USD" })) optionalBasic[address] = { t: "s", v: value };
 for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP17", D2: "OLED", G2: 80, H2: 120, J2: 10 })) optionalLines[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
 const optionalDocument = parseCustomerPiWorkbook(XLSX.write(optionalWhole, { type: "buffer", bookType: "xlsx" })).document;
+assert.equal(optionalDocument.delivery_company, "", "PI整单模板公司名称选填");
 assert.equal(optionalDocument.delivery_recipient, "", "未启用客户收货信息时收件人可以留空");
 assert.equal(optionalDocument.delivery_phone, "", "未启用客户收货信息时电话可以留空");
 assert.equal(optionalDocument.delivery_email, "", "收货邮箱选填");
