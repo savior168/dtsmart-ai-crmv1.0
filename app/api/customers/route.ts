@@ -420,13 +420,11 @@ export async function POST(request: NextRequest) {
     if (contactError) return NextResponse.json({ error: contactError }, { status: 400 });
     delete body.requested_stage;
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
-    if (!body.company_name) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!body.contact_name) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
     if (body.manual_grade && !["S", "A", "B", "C", "D"].includes(body.manual_grade)) {
       return NextResponse.json({ error: "客户等级只能选择 S、A、B、C、D" }, { status: 400 });
     }
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
-    if (![body.phone, body.email, body.wechat, body.website, body.google_url].some((value) => String(value || "").trim())) return NextResponse.json({ error: "完整号码、邮箱、官网或Google Maps网址至少填写一项" }, { status: 400 });
     const submittedKeys = customerLookupIdentityKeys(body);
     if (submittedKeys.length) {
       const possibleMatches: Record<string, unknown>[] = [];
