@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
         const deliveryError = importDeliveryContactError(item);
         if (deliveryError) throw new Error(deliveryError);
         const stage = publicPool ? "UNCLAIMED" : importedCustomerStage(item.import_stage, "PRIVATE");
-        const contactError = publicPool ? null : customerStageContactError(stage, item);
+        const contactError = publicPool ? null : customerStageContactError(stage, { phone: item.phone, email: item.email, wechat: item.wechat });
         if (contactError) throw new Error(contactError);
         const grade = publicPool ? null : importedCustomerGrade(item.manual_grade);
         const sourceStageLabel = publicPool ? text(item.import_stage) || null : null;

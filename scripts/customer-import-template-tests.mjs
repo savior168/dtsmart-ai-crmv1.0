@@ -220,6 +220,7 @@ assert.doesNotMatch(importApi, /if \(!text\(item\.company_name\)\)/);
 assert.doesNotMatch(importApi, /缺少电话、邮箱、官网或 Google 地图联系方式/);
 assert.match(importApi, /customerStageContactError\(stage, item\)/, "批量导入API须对意向和成交客户执行联系方式服务端校验");
 assert.match(importView, /customerStageContactError\(item\.import_stage, item\)/, "批量导入预览须显示阶段联系方式错误");
+assert.match(importApi, /customerStageContactError\(stage, \{ phone: item\.phone, email: item\.email, wechat: item\.wechat \}\)/, "批量导入API须显式传入联系人渠道字段");
 assert.match(workflowApi, /customerStageContactError\(status, customer\.data\)/, "阶段变更API须校验联系方式");
 assert.equal(customerStageContactError("FOLLOWING", { wechat: "wx-id" }), null);
 assert.equal(customerStageContactError("DEAL", { email: "person@example.com" }), null);
