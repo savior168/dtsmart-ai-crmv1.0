@@ -26,6 +26,8 @@ type Payload = {
   order: {
     id: string;
     order_number: string;
+    created_at: string;
+    updated_at: string;
     warehouse_reference_number: string | null;
     quote_id: string;
     quote_number: string;
@@ -84,7 +86,7 @@ type Payload = {
     internal_note: string | null;
     amount: number;
   }>;
-  stock_order: { id: string; stock_number: string; status: string; progress: StockProgress } | null;
+  stock_order: { id: string; stock_number: string; status: string; created_at: string; updated_at: string; progress: StockProgress } | null;
   receiving_progress: { total_items: number; received_items: number; ordered_units: number; received_units: number } | null;
   can_edit_draft: boolean;
   can_delete_draft: boolean;
@@ -295,9 +297,10 @@ export function OrderDetailView({ id }: { id: string }) {
         </div>
         <section className="rounded-xl border bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
-            <div>
-              <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
-              <p className="mt-1 text-sm text-slate-500">{directPi ? "客户订单编号" : "报价编号"}：<span className="font-semibold text-slate-800">{directPi ? o.warehouse_reference_number : o.quote_number}</span> · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
+            <div className="min-w-0">
+              <h1 className="break-all text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {directPi ? (o.warehouse_reference_number || o.order_number) : o.order_number}</h1>
+              <p className="mt-1 break-all text-xs text-slate-500">{directPi ? "系统PI编号" : "报价编号"}：{directPi ? o.order_number : o.quote_number} · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
+              {directPi ? <p className="mt-1 text-xs text-slate-500">创建：{new Date(o.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · 最近更新：{new Date(o.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}{data.stock_order ? ` · 备货单创建：${new Date(data.stock_order.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · 备货单更新：${new Date(data.stock_order.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}` : ""}</p> : null}
             </div>
             <AppStatusBadge status={o.status} tone={directPi && (PI_EXECUTING_STATUSES as readonly string[]).includes(o.status) ? "violet" : undefined}>{directPi ? piOrderStatusLabel(o.status) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>

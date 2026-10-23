@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { QUOTE_CURRENCY_CODES } from "./currencies.ts";
+import { parsePiProductRows } from "./pi-product-import.ts";
 
 export type ImportedPiItem = {
   item_name: string;
@@ -34,12 +35,16 @@ export type ImportedPiDocument = {
   total_payment: number;
   source_kind?: "SYSTEM_TEMPLATE";
   customer_name?: string;
+  sales_account_email?: string;
   fx_rate_cny_per_payment?: number;
   valid_until?: string;
   shipping_cny?: number;
   last_balance_cny?: number;
+  last_balance_payment?: number;
   discount_cny?: number;
+  discount_payment?: number;
   other_cny?: number;
+  other_payment?: number;
   paypal_rate_percent?: number;
   show_dual_currency_prices?: boolean;
   stocking_requirements?: string;
@@ -50,10 +55,10 @@ const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 10
 const afterLabel = (value: string) => value.replace(/^[^:：]*[:：]\s*/, "").trim();
 const normalizePaymentInstructions = (value: string) => value.normalize("NFKC").replace(/\s+/g, "").toLocaleLowerCase();
 
-export function matchImportedPaymentAccount(sourceInstructions: string, accounts: Array<{ id: string; currency: string; instructions: string }>, currency: string) {
+export function matchImportedPaymentAccount(sourceInstructions: string, accounts: Array<{ id: string; currency: string; instructions: string; payment_channel?: string }>, currency: string, paymentMethod = "") {
   const normalized = normalizePaymentInstructions(sourceInstructions);
   if (!normalized) return "";
-  const matches = accounts.filter((account) => account.currency === currency && normalizePaymentInstructions(account.instructions) === normalized);
+  const matches = accounts.filter((account) => account.currency === currency && (!paymentMethod || account.payment_channel === paymentMethod) && normalizePaymentInstructions(account.instructions) === normalized);
   return matches.length === 1 ? matches[0].id : "";
 }
 function dateValue(value: unknown, date1904 = false) {
@@ -91,6 +96,8 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
     return result;
   };
   const customer_name = required(3, "客户名称");
+  const sales_account_email = read(22);
+  if (sales_account_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sales_account_email)) throw new Error("所属销售员账号请填写完整登录邮箱");
   const delivery_company = read(4);
   const warehouse_reference_number = required(5, "PI订单编号");
   if (warehouse_reference_number.length > 80) throw new Error("PI订单编号不能超过80字");
@@ -122,26 +129,27 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
   if (!Number.isFinite(paypal_rate_percent) || paypal_rate_percent < 0 || paypal_rate_percent > 100 || !/^\d+(?:\.\d{1,4})?$/.test(read(19) || "0")) throw new Error("PayPal手续费率须在0%至100%之间，最多四位小数");
   const dual = read(20) || "否";
   if (!["是", "否"].includes(dual)) throw new Error("双币种展示须填写 是 或 否");
-  const items: ImportedPiItem[] = [];
-  for (let row = 2; row <= 501; row += 1) {
-    const fields = ["A", "B", "C", "D", "E", "F", "G", "H", "J", "N", "O"].map((column) => cellText(lines, `${column}${row}`));
-    if (!fields.some(Boolean)) continue;
-    const [item_name, brand, model, quality, description, description_zh, costText, priceText, quantityText, preparation_requirement, internal_note] = fields;
-    if (![item_name, brand, model, quality, costText, priceText, quantityText].every(Boolean)) throw new Error(`产品明细第${row}行缺少红色 * 必填项`);
-    const estimated_unit_cost_cny = templateMoney(costText, `产品明细第${row}行成本`);
-    const unit_price_cny = templateMoney(priceText, `产品明细第${row}行售价`, false);
-    const quantity = Number(quantityText);
-    if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error(`产品明细第${row}行数量须为正整数`);
-    if (unit_price_cny <= estimated_unit_cost_cny) throw new Error(`产品明细第${row}行售价须高于成本`);
-    if ([item_name, brand, model, quality].some((value) => value.length > 160) || description.length > 1000 || description_zh.length > 1000 || preparation_requirement.length > 1000 || internal_note.length > 1000) throw new Error(`产品明细第${row}行文本超出长度限制`);
+  const legacyWholeLines = cellText(lines, "I1").startsWith("销售单价（付款币种");
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(lines, { header: 1, range: legacyWholeLines ? "A1:O501" : "A1:N501", defval: "" });
+  const rows = legacyWholeLines ? rawRows.slice(1).map((row) => [
+    ...row.slice(0, 8), row[9], row[10], row[11], row[12], row[13], row[14],
+  ]) : rawRows;
+  const parsedLines = parsePiProductRows(rows, fx_rate_cny_per_payment ? 1 / fx_rate_cny_per_payment : 1);
+  const items: ImportedPiItem[] = parsedLines.map((line, index) => {
+    if ([line.item_name, line.brand, line.model, line.quality].some((value) => value.length > 160) || line.description.length > 1000 || line.description_zh.length > 1000 || line.preparation_requirement.length > 1000 || line.internal_note.length > 1000) throw new Error(`产品明细第${index + 2}行文本超出长度限制`);
+    const quantity = Number(line.quantity);
+    const unit_price_cny = Number(line.unit_price_cny);
+    const estimated_unit_cost_cny = Number(line.estimated_unit_cost_cny);
     const unit_price_payment = fx_rate_cny_per_payment ? money(unit_price_cny / fx_rate_cny_per_payment) : 0;
-    items.push({ item_name, brand, model, quality, description, description_zh, quantity, estimated_unit_cost_cny, unit_price_cny, unit_price_payment, amount_payment: money(unit_price_payment * quantity), preparation_requirement, internal_note });
-  }
-  if (!items.length) throw new Error("PI产品明细至少填写一行");
+    return { item_name: line.item_name, brand: line.brand, model: line.model, quality: line.quality,
+      description: line.description, description_zh: line.description_zh, preparation_requirement: line.preparation_requirement,
+      internal_note: line.internal_note, quantity, unit_price_cny, estimated_unit_cost_cny, unit_price_payment,
+      amount_payment: money(unit_price_payment * quantity) };
+  });
   const subtotal_payment = money(items.reduce((sum, item) => sum + item.amount_payment, 0));
   const shipping_payment = fx_rate_cny_per_payment ? money(shipping_cny / fx_rate_cny_per_payment) : 0;
-  return { sheet_name: "PI基本信息", payment_account_instructions: "", document: {
-    source_kind: "SYSTEM_TEMPLATE" as const, customer_name, delivery_company, warehouse_reference_number, currency,
+  return { sheet_name: "PI基本信息", payment_account_instructions: read(23), document: {
+    source_kind: "SYSTEM_TEMPLATE" as const, customer_name, sales_account_email, delivery_company, warehouse_reference_number, currency,
     fx_rate_cny_per_payment, valid_until, delivery_date, payment_method: read(10), delivery_recipient,
     delivery_phone, delivery_email, delivery_address, shipping_cny, shipping_payment,
     last_balance_cny, discount_cny, other_cny, paypal_rate_percent,
@@ -151,7 +159,7 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
 }
 
 /** Parse only the customer-facing PI layout; internal RMB and account data are never inferred. */
-export function parseCustomerPiWorkbook(bytes: Uint8Array) {
+export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string; payment_account_instructions: string; document: ImportedPiDocument } {
   if (bytes.byteLength < 100 || bytes.byteLength > 2 * 1024 * 1024) throw new Error("PI文件大小须在2MB以内");
   const workbook = XLSX.read(bytes, { type: "array", cellDates: false, cellFormula: true });
   if (workbook.SheetNames.includes("PI基本信息") || workbook.SheetNames.includes("PI产品明细")) return parseSystemPiWorkbook(workbook);
@@ -171,7 +179,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   const currency = currencyCandidates.find((value) => value && QUOTE_CURRENCY_CODES.has(value)) || "";
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
   const paymentText = cellText(sheet, `${invoiceValueColumn}6`);
-  const paymentMethod = paymentText === currency ? "" : paymentText.replace(new RegExp(`\s*\\(${currency}\\)\s*$`, "i"), "").trim();
+  const paymentMethod = paymentText === currency ? "" : paymentText.replace(new RegExp(`\\s*\\(${currency}\\)\\s*$`, "i"), "").trim();
   const items: ImportedPiItem[] = [];
   let subtotalRow = 0;
   for (let row = 19; row <= 518; row += 1) {
@@ -206,26 +214,69 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array) {
   if (!subtotalCell?.f && shownSubtotal !== undefined && shownSubtotal !== null && String(shownSubtotal).trim() && Math.abs(Number(shownSubtotal) - subtotal_payment) > 0.01) {
     throw new Error("客户PI产品小计与明细不一致");
   }
-  const deliveryLines = Array.from({ length: 4 }, (_, index) => cellText(sheet, `A${13 + index}`));
+  const deliveryLines = Array.from({ length: 5 }, (_, index) => cellText(sheet, `A${13 + index}`));
   const deliveryValue = (label: string) => {
-    const line = deliveryLines.find((value) => new RegExp(`^${label}\s*[:：]`, "i").test(value));
+    const line = deliveryLines.find((value) => new RegExp(`^${label}\\s*[:：]`, "i").test(value));
     return line ? afterLabel(line) : "";
   };
   const recipientLine = deliveryValue("To");
   const recipient = recipientLine.split(/\s*[·•]\s*TEL\s*[:：]/i)[0].trim();
   const phone = recipientLine.match(/TEL\s*[:：]\s*(.*)$/i)?.[1]?.trim() || "";
+  const amountColumn = dualCurrencyColumns ? "M" : "K";
+  const amountCnyColumn = dualCurrencyColumns ? "L" : "";
+  const readAmount = (row: number, column: string, label: string) => {
+    const raw = sheet[`${column}${row}`]?.v;
+    if (raw === undefined || raw === null || raw === "") return 0;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || Math.abs(value) > 999999999999 || Math.abs(value - money(value)) > 0.000001) throw new Error(`客户PI${label}金额不正确`);
+    return money(value);
+  };
   let paymentAccountInstructions = "";
-  for (let row = subtotalRow + 2; row <= subtotalRow + 10; row += 1) {
+  let shipping_payment = 0;
+  let shipping_cny = 0;
+  let last_balance_payment = 0;
+  let last_balance_cny = 0;
+  let other_payment = 0;
+  let other_cny = 0;
+  let discount_payment = 0;
+  let discount_cny = 0;
+  let paypal_fee = 0;
+  let paypal_rate_percent = 0;
+  let shownTotal: number | undefined;
+  for (let row = subtotalRow + 1; row <= subtotalRow + 12; row += 1) {
+    const label = cellText(sheet, `G${row}`).toUpperCase();
     if (/PAYMENT INFORMATION/i.test(cellText(sheet, `A${row}`))) { paymentAccountInstructions = cellText(sheet, `A${row + 1}`); break; }
+    if (!label) continue;
+    const paid = readAmount(row, amountColumn, label);
+    const cny = amountCnyColumn ? readAmount(row, amountCnyColumn, label) : 0;
+    if (/^SHIPPING COST\s*:/.test(label)) { shipping_payment = paid; shipping_cny = cny; if (paid < 0 || cny < 0) throw new Error("客户PI运费不正确"); }
+    else if (/^UNPAID BALANCE\s*:/.test(label)) { last_balance_payment = paid; last_balance_cny = cny; if (paid < 0 || cny < 0) throw new Error("客户PI未付尾款不正确"); }
+    else if (/^OTHER CHARGES\s*:/.test(label)) { other_payment = paid; other_cny = cny; if (paid < 0 || cny < 0) throw new Error("客户PI其他费用不正确"); }
+    else if (/^DISCOUNT\s*:/.test(label)) { discount_payment = -paid; discount_cny = -cny; if (paid > 0 || cny > 0) throw new Error("客户PI折扣方向不正确"); }
+    else if (/^PAYPAL FEE\s*\((\d+(?:\.\d{1,4})?)%\)\s*:/.test(label)) {
+      paypal_rate_percent = Number(label.match(/\((\d+(?:\.\d{1,4})?)%\)/)?.[1]);
+      if (paypal_rate_percent > 100 || paid < 0 || cny < 0) throw new Error("客户PI PayPal 手续费不正确");
+      paypal_fee = paid;
+    }
+    else if (/^TOTAL AMOUNT\s*:/.test(label)) { shownTotal = paid; }
+    else throw new Error(`客户PI含无法识别的费用项目：${label}`);
   }
-  const shippingRow = subtotalRow + 1;
-  const shipping_payment = Number(sheet[`${dualCurrencyColumns ? "M" : "K"}${shippingRow}`]?.v || 0);
-  if (!Number.isFinite(shipping_payment) || shipping_payment < 0) throw new Error("客户PI运费不正确");
+  if (shownTotal === undefined) throw new Error("客户PI缺少订单总金额，无法校验费用");
+  const total_payment = money(subtotal_payment + shipping_payment + last_balance_payment + other_payment - discount_payment + paypal_fee);
+  const totalCell = Array.from({ length: 12 }, (_, index) => subtotalRow + index + 1)
+    .find((row) => /^TOTAL AMOUNT\s*:/i.test(cellText(sheet, `G${row}`)));
+  if (totalCell && !sheet[`${amountColumn}${totalCell}`]?.f && Math.abs(shownTotal - total_payment) > 0.01) {
+    throw new Error("客户PI订单总金额与产品和费用明细不一致");
+  }
   return { sheet_name: sheetName, payment_account_instructions: paymentAccountInstructions, document: {
-    warehouse_reference_number, currency, payment_method: paymentMethod,
+    warehouse_reference_number, currency, payment_method: paymentMethod, customer_name: recipient,
     delivery_date: dateValue(sheet[`${invoiceValueColumn}8`]?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: recipient,
     delivery_phone: phone, delivery_company: deliveryValue("Company"),
     delivery_email: deliveryValue("Email"), delivery_address: afterLabel(cellText(sheet, "G13")),
-    items, subtotal_payment, shipping_payment: money(shipping_payment), total_payment: money(subtotal_payment + shipping_payment),
+    items, subtotal_payment, shipping_payment, shipping_cny: dualCurrencyColumns ? shipping_cny : undefined,
+    last_balance_payment, last_balance_cny: dualCurrencyColumns ? last_balance_cny : undefined,
+    other_payment, other_cny: dualCurrencyColumns ? other_cny : undefined,
+    discount_payment, discount_cny: dualCurrencyColumns ? discount_cny : undefined,
+    paypal_rate_percent, show_dual_currency_prices: dualCurrencyColumns, total_payment,
   } satisfies ImportedPiDocument };
 }

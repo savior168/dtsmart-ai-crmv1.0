@@ -32,10 +32,13 @@ export async function POST(request: NextRequest) {
       throw new Error("请选择2MB以内的.xlsx客户PI文件");
     }
     const parsed = parseCustomerPiWorkbook(new Uint8Array(await file.arrayBuffer()));
+    if (parsed.document.sales_account_email && parsed.document.sales_account_email.toLowerCase() !== account.email.toLowerCase()) {
+      throw new Error("模板中的所属销售员账号与当前登录账号不一致；请由该销售员本人导入，或核对模板账号后重试");
+    }
     const { data: accounts, error: accountsError } = await supabase.from("pi_payment_accounts")
-      .select("id,currency,instructions").eq("currency", parsed.document.currency).eq("active", true);
+      .select("id,currency,instructions,payment_channel").eq("currency", parsed.document.currency).eq("active", true);
     if (accountsError) throw accountsError;
-    const payment_account_id = matchImportedPaymentAccount(parsed.payment_account_instructions, accounts || [], parsed.document.currency) || null;
+    const payment_account_id = matchImportedPaymentAccount(parsed.payment_account_instructions, accounts || [], parsed.document.currency, parsed.document.payment_method) || null;
     const { data, error } = await supabase.rpc("create_pi_import_draft", {
       p_file_name: file.name.slice(0, 255), p_sheet_name: parsed.sheet_name, p_payload: { ...parsed.document, payment_account_id },
     });

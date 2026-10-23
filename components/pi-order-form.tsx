@@ -257,9 +257,9 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         if (source.show_dual_currency_prices) setShowDualCurrencyPrices(true);
         if (source.paypal_rate_percent !== undefined) setPaypalRateInput(String(source.paypal_rate_percent));
         setFeeFields({
-          last_balance: { source: "CNY", enabled: Boolean(source.last_balance_cny), amount: (source.last_balance_cny || 0).toFixed(2) },
-          discount: { source: "CNY", enabled: Boolean(source.discount_cny), amount: (source.discount_cny || 0).toFixed(2) },
-          other: { source: "CNY", enabled: Boolean(source.other_cny), amount: (source.other_cny || 0).toFixed(2) },
+          last_balance: { source: source.last_balance_cny !== undefined ? "CNY" : "PAYMENT", enabled: Boolean(source.last_balance_cny || source.last_balance_payment), amount: (source.last_balance_cny ?? source.last_balance_payment ?? 0).toFixed(2) },
+          discount: { source: source.discount_cny !== undefined ? "CNY" : "PAYMENT", enabled: Boolean(source.discount_cny || source.discount_payment), amount: (source.discount_cny ?? source.discount_payment ?? 0).toFixed(2) },
+          other: { source: source.other_cny !== undefined ? "CNY" : "PAYMENT", enabled: Boolean(source.other_cny || source.other_payment), amount: (source.other_cny ?? source.other_payment ?? 0).toFixed(2) },
         });
         setItems(source.items.map((item) => ({ ...newLine(), item_name: item.item_name, brand: item.brand,
           model: item.model, quality: item.quality, description: item.description, description_zh: item.description_zh || "", quantity: String(item.quantity),
@@ -534,7 +534,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       {importSource.source_kind === "SYSTEM_TEMPLATE"
         ? <>系统整单模板：{importSource.warehouse_reference_number}。人民币售价、成本和费用已带入；{effectiveRate > 0 ? "请核对汇率与换算后的客户付款金额。" : "请填写有效汇率后核对客户付款金额。"}模板中未提供收款账户时请手动选择。费用与 PayPal 手续费将在页面计算 PI 总额。</>
         : <>原客户 PI：{importSource.warehouse_reference_number} · {importSource.currency} {importSource.total_payment.toFixed(2)}（含运费 {importSource.shipping_payment.toFixed(2)}）。人民币售价和运费{effectiveRate > 0 ? "已按当前业务汇率自动折算，可核对调整" : "需在汇率可用后折算"}；预估成本及收款账户需补充或核对。</>}
-      {selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已按公司名称匹配，请确认联系人。" : "请选择与公司和联系人一致的有权访问客户。"}
+      {selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已在当前账号名下唯一匹配，请确认联系人。" : "未自动匹配到当前账号名下的唯一客户；可能是客户未创建、归属他人或资料不一致。请先核对归属，再从本人客户列表选择；不能直接使用他人的客户。"}
       {importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "收款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与导入文件不一致时会要求逐项确认。
     </div> : null}
     <section className="border-b border-slate-100 p-5"><h2 className="mb-4 font-semibold">PI基本信息</h2><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

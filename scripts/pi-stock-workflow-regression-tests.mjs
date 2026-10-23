@@ -97,7 +97,17 @@ const supplierPriceGuard = read("supabase/migrations/20261023030500_stock_suppli
 const stockOrderDetailView = read("components/stock-order-detail-view.tsx");
 assert.match(supplierPriceGuard, /function public\.require_confirmed_purchase_price_for_supplier[\s\S]*procurement_cost_confirmed is not true[\s\S]*23514[\s\S]*create trigger stock_supplier_requires_confirmed_purchase_price[\s\S]*before insert or update/, "数据库必须阻止新增供应商编码但无已确认采购价，且不改动旧数据");
 assert.match(supplierPriceGuard, /old\.warehouse_supplier_code is distinct from new\.warehouse_supplier_code[\s\S]*old\.procurement_cost is distinct from new\.procurement_cost/, "历史异常行的无关更新不得被新约束误拦截");
-assert.match(stockOrderDetailView, /supplierCodeChanged[\s\S]*item\.procurement_cost_confirmed[\s\S]*请先录入并保存采购价，再填写供应商编码/, "仓库端须在录入供应商编码前提示先保存采购价");
+assert.match(stockOrderDetailView, /保存采购与进度/, "仓库端应提供统一保存入口");
+assert.match(stockOrderDetailView, /hasUnsavedEntry/, "仓库端须提示尚未保存的修改");
+assert.doesNotMatch(stockOrderDetailView, /saveLineOnBlur/, "编辑数量或供应商编码不应再触发失焦自动保存");
+const unifiedEntryMigration = readFileSync(new URL("../supabase/migrations/20261023075437_unified_stock_entry_save.sql", import.meta.url), "utf8");
+const unifiedEntryRoute = readFileSync(new URL("../app/api/stock-orders/[id]/entry/route.ts", import.meta.url), "utf8");
+assert.match(unifiedEntryRoute, /requirePermission\("stock\.procurement\.edit"\)[\s\S]*account\.role !== "WAREHOUSE"/, "统一保存仅允许有权限的仓库员调用");
+assert.match(unifiedEntryRoute, /save_stock_entry_details/, "统一保存 API 必须调用事务型数据库函数");
+assert.match(unifiedEntryMigration, /entry\.warehouse_supplier_code[\s\S]*entry\.procurement_cost is null/, "填写供应商编码必须同时具有采购价");
+assert.match(unifiedEntryMigration, /entry\.received_quantity < saved\.received_quantity[\s\S]*entry\.prepared_quantity < saved\.prepared_quantity/, "普通保存不得减少已记录数量");
+assert.match(unifiedEntryMigration, /target\.updated_at is distinct from p_expected_updated_at/, "统一保存须进行并发版本校验");
+assert.match(unifiedEntryMigration, /save_stock_order_procurement_costs[\s\S]*record_stock_progress/, "采购信息和进度须在同一数据库事务内保存");
 assert.match(stockOrderDetailView, /成本差价总额：[\s\S]*costDifferenceTotal[\s\S]*PI 成本单价 − 采购单价/, "仓库详情须汇总显示成本差价总额");
 
 const customerPi = read("lib/direct-pi-export.ts");
@@ -311,7 +321,7 @@ assert.match(piMigration, /if stock\.id is null then[\s\S]*insert into public\.s
 assert.match(stockListView, /已撤回，待重新提交/, "备货列表必须区分撤回记录与有效待办");
 assert.match(stockView, /data\.recalled_pi[\s\S]*当前不是仓库待办/, "撤回备货详情必须显示不可继续处理的说明");
 assert.match(detail, /\.eq\("id", id\)\.maybeSingle\(\)[\s\S]*if \(!order\)[\s\S]*account\.role === "WAREHOUSE"[\s\S]*withdrawn: true[\s\S]*status: 410/, "仓库停留在已撤回详情页刷新时必须返回明确的已撤回状态，而不是单行JSON错误");
-assert.match(stockView, /response\.status === 410 && body\.withdrawn[\s\S]*订单 \$\{withdrawnOrderNumber\} 已撤回[\s\S]*返回备货单列表/, "已撤回的备货详情必须有可返回列表的友好提示");
+assert.match(stockView, /response\?\.status === 410 && body\.withdrawn[\s\S]*订单 \$\{withdrawnOrderNumber\} 已撤回[\s\S]*返回备货单列表/, "已撤回的备货详情必须有可返回列表的友好提示");
 for (const api of [stockDraftApi, stockSubmitApi]) assert.match(api, /stock\.status === "DRAFT" && stock\.warehouse_reference_number[\s\S]*已撤回/, "旧备货草稿接口不得处理撤回的直接PI");
 assert.match(piForm, /AppSelect[\s\S]*搜索并选择客户付款币种/, "币种应使用系统可搜索选择组件");
 assert.doesNotMatch(piForm, /<select\b/, "PI表单不得退回浏览器原生下拉");

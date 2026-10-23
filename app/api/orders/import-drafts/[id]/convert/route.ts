@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
+import { calculatePiFees } from "@/lib/pi-fees";
 import { parsePiOrderInput, requireOwnedPiCustomer } from "@/lib/pi-order-input";
 import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
 
@@ -45,6 +46,23 @@ export async function POST(request: NextRequest, context: Context) {
     if (source.source_kind === "SYSTEM_TEMPLATE") {
       if (Math.abs(input.p_shipping_cny - Number(source.shipping_cny)) > 0.01) differences.push("人民币运费与导入模板不同");
     } else if (Math.abs(roundMoney(input.p_shipping_cny * input.p_fx_rate) - source.shipping_payment) > 0.01) differences.push("外币运费与导入文件不同");
+    if (source.source_kind !== "SYSTEM_TEMPLATE") {
+      const sourceCharges = [
+        ["last_balance", source.last_balance_payment, "未付尾款"],
+        ["discount", source.discount_payment, "折扣"],
+        ["other", source.other_payment, "其他费用"],
+      ] as const;
+      for (const [key, before, label] of sourceCharges) {
+        const charge = input.p_fees[key];
+        const after = charge.source === "PAYMENT" ? charge.amount : roundMoney(charge.amount * input.p_fx_rate);
+        if (Math.abs(after - Number(before || 0)) > 0.01) differences.push(`${label}与导入文件不同`);
+      }
+      if (Math.abs(input.p_fees.paypal_rate_percent - Number(source.paypal_rate_percent || 0)) > 0.0001) differences.push("PayPal 手续费率与导入文件不同");
+      const subtotalCny = roundMoney(input.p_items.reduce((sum, item) => sum + roundMoney(item.unit_price_cny * item.quantity), 0));
+      const subtotalPayment = roundMoney(input.p_items.reduce((sum, item) => sum + roundMoney(item.unit_price_payment * item.quantity), 0));
+      const totals = calculatePiFees(subtotalCny, subtotalPayment, input.p_shipping_cny, input.p_fx_rate, input.p_payment_method || "", input.p_fees);
+      if (Math.abs(totals.totalPayment - source.total_payment) > 0.01) differences.push("核对后订单总金额与原Excel不同");
+    }
     if (differences.length && body.acknowledge_differences !== true) {
       return NextResponse.json({ error: "补全后的PI与原Excel不一致，请逐项核对；确认后才能转换为PI草稿", differences }, { status: 409 });
     }

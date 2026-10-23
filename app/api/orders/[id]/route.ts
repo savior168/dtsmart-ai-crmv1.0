@@ -34,7 +34,7 @@ export async function GET(
         .order("line_number"),
       relatedClient
         .from("stock_orders")
-        .select("id,stock_number,status,status_note,updated_at")
+        .select("id,stock_number,status,status_note,created_at,updated_at")
         .eq("sales_order_id", id)
         .maybeSingle(),
       relatedClient

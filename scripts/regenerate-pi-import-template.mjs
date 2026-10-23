@@ -32,6 +32,16 @@ replaceCell("I18", 't="str"', '<x:f>"Unit Price ("&amp;J6&amp;")"</x:f><x:v>Unit
 replaceCell("K18", 't="str"', '<x:f>"Amount ("&amp;J6&amp;")"</x:f><x:v>Amount (USD)</x:v>');
 const note = "红色 * 为必填；产品明细列名和顺序与正式PI一致。币种请在上方选择，单价及金额填写客户外币；人民币售价、成本、汇率及收款账户由系统核对时补全，未补全不会生成备货单。";
 replaceCell("A73", 't="inlineStr"', `<x:is><x:t>${note}</x:t></x:is>`);
+// Keep the customer-facing layout round-trippable: imported payment instructions
+// may be matched only to a unique active account of the selected currency/channel.
+if (!worksheetXml.includes("PAYMENT INFORMATION")) {
+  const originalNoteRow = worksheetXml.match(/<x:row r="73"[^>]*>[\s\S]*?<\/x:row>/)?.[0];
+  if (!originalNoteRow || !worksheetXml.includes('<x:c r="A72" s="1" />')) throw new Error("PI客户版式模板付款信息行结构异常");
+  worksheetXml = worksheetXml.replace('<x:c r="A72" s="1" />', '<x:c r="A72" s="1" t="inlineStr"><x:is><x:t>PAYMENT INFORMATION（填写与系统收款账户详情一致的完整信息；无法唯一匹配时导入后手动选择）</x:t></x:is></x:c>');
+  worksheetXml = worksheetXml.replace(originalNoteRow, '<x:row r="73" ht="65" customHeight="1"><x:c r="A73" s="1" t="inlineStr"><x:is><x:t></x:t></x:is></x:c></x:row>' + originalNoteRow.replace(/73/g, "74"));
+  worksheetXml = worksheetXml.replace('ref="A1:K73"', 'ref="A1:K74"');
+  worksheetXml = worksheetXml.replace('</x:mergeCells>', '<x:mergeCell ref="A72:K72"/><x:mergeCell ref="A74:K74"/></x:mergeCells>');
+}
 worksheetPart.content = Buffer.from(worksheetXml, "utf8");
 
 const workbookPart = XLSX.CFB.find(workbook, "/xl/workbook.xml");
