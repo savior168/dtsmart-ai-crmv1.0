@@ -101,7 +101,7 @@ const customerStylesPath = customerArchive.FullPaths.findIndex((item) => item.en
 assert.ok(customerStylesPath >= 0);
 const customerStylesXml = customerArchive.FileIndex[customerStylesPath].content.toString("utf8");
 const customerXfs = customerStylesXml.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1]
-  .match(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g);
+  .match(/<xf\b[^>]*\/>|<xf\b[^>]*>[\s\S]*?<\/xf>/g);
 assert.ok(customerXfs?.[17]?.includes('locked="0"'), "客户导入数据行必须解锁");
 for (const address of ["A1", "B1", "C1"]) {
   const styleIndex = Number(getCellStyle(privateTemplateXml, address));
