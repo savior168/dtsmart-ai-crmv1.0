@@ -605,4 +605,3 @@ assert.doesNotMatch(`${sheet.I18.v} ${sheet.K18.v}`, /RMB|CNY|人民币/i, "客�
 assert.throws(() => buildDirectPiWorkbook({ ...orderFixture, subtotal: 19999 }, [itemFixture]), /金额与订单汇总不一致/);
 assert.throws(() => buildDirectPiWorkbook(orderFixture, [{ ...itemFixture, unit_price: 19999 }]), /换算单价不正确/);
 console.log("PI备货价格隔离、回货数量校验、阶段流转和销售进度静态回归通过。");
-

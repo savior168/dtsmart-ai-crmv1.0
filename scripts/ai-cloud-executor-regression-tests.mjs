@@ -113,4 +113,3 @@ assert.match(dispatcher, /claim_stalled_ai_tasks_for_vercel_excluding/, "screeni
 assert.match(targetedRecoveryMigration, /not \(t\.id = any\(coalesce\(p_excluded_task_ids,[\s\S]+for update skip locked/i, "targeted screening recovery must exclude paused IDs and atomically claim the rest");
 
 console.log("AI cloud executor regression tests passed");
-

@@ -339,4 +339,3 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
 
-
