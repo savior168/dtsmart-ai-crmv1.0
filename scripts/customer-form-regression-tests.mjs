@@ -53,6 +53,7 @@ assert.match(formSource, /仅客户名称和国家\/地区为必填项/, "手动
 assert.doesNotMatch(formSource, /needsBothContacts/, "不得残留旧的电话加邮箱双必填规则");
 assert.match(formSource, /stage === "FOLLOWING" && !stageFile/, "新增意向客户必须提交凭证");
 assert.match(createApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)/, "新增意向客户必须先以潜在客户建立主档，再走凭证阶段流程");
+assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不应强制必填");
 assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不是必填项");
 assert.doesNotMatch(createApi, /body\.website, body\.google_url\].some/, "潜在客户与客户公海不应强制要求一般联系方式");
 assert.match(createApi, /requestedStage === "DEAL" && \(!String\(body\.phone \|\| ""\)\.trim\(\) \|\| !String\(body\.email \|\| ""\)\.trim\(\)\)/, "服务端必须校验手动新增成交客户的电话与邮箱");
