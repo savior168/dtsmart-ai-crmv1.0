@@ -91,7 +91,7 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
     return result;
   };
   const customer_name = required(3, "客户名称");
-  const delivery_company = required(4, "公司名称");
+  const delivery_company = read(4);
   const warehouse_reference_number = required(5, "PI订单编号");
   if (warehouse_reference_number.length > 80) throw new Error("PI订单编号不能超过80字");
   const currency = required(6, "客户付款币种").toUpperCase();
