@@ -235,7 +235,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setImportRevision(importBody.data.revision);
         setWarehouseReferenceNumber(source.warehouse_reference_number);
         setCurrency(source.currency);
-        const importedRate = Number(ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || source.fx_rate_cny_per_payment || 0);
+        const importedRate = Number(ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || 0);
         setRate(importedRate > 0 ? String(importedRate) : "");
         if (source.shipping_cny !== undefined) setShippingInput(source.shipping_cny.toFixed(2));
         else if (importedRate > 0) setShippingInput(roundMoney(source.shipping_payment * importedRate).toFixed(2));
