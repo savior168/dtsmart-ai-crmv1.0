@@ -100,7 +100,7 @@ assert.match(supplierPriceGuard, /old\.warehouse_supplier_code is distinct from 
 assert.match(stockOrderDetailView, /保存采购与进度/, "仓库端应提供统一保存入口");
 assert.match(stockOrderDetailView, /hasUnsavedEntry/, "仓库端须提示尚未保存的修改");
 assert.doesNotMatch(stockOrderDetailView, /saveLineOnBlur/, "编辑数量或供应商编码不应再触发失焦自动保存");
-const unifiedEntryMigration = readFileSync(new URL("../supabase/migrations/20261023075437_unified_stock_entry_save.sql", import.meta.url), "utf8");
+const unifiedEntryMigration = readFileSync(new URL("../supabase/migrations/20261023081336_unified_stock_entry_save.sql", import.meta.url), "utf8");
 const unifiedEntryRoute = readFileSync(new URL("../app/api/stock-orders/[id]/entry/route.ts", import.meta.url), "utf8");
 assert.match(unifiedEntryRoute, /requirePermission\("stock\.procurement\.edit"\)[\s\S]*account\.role !== "WAREHOUSE"/, "统一保存仅允许有权限的仓库员调用");
 assert.match(unifiedEntryRoute, /save_stock_entry_details/, "统一保存 API 必须调用事务型数据库函数");
