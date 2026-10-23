@@ -31,6 +31,7 @@ import { customerImportIdentityKeys } from "@/lib/import-dedupe";
 import { CountryLabel } from "@/components/country-label";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { readableImportError } from "@/lib/import-safety";
+import { customerStageContactError } from "@/lib/customer-contact-requirement";
 
 type PotentialCandidate = {
   id?: string;
@@ -440,7 +441,8 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
           const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
           const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !["S", "A", "B", "C", "D"].includes(item.manual_grade));
           const deliveryError = importDeliveryContactError(item as ImportRow);
-          if (!item.contact_name || !item.country || invalidStage || invalidGrade || deliveryError) {
+          const contactError = destination === "PRIVATE" ? customerStageContactError(item.import_stage, item) : null;
+          if (!item.contact_name || !item.country || invalidStage || invalidGrade || deliveryError || contactError) {
             bad.push({
               id: badId++,
               file_name: fileLabel,
@@ -450,6 +452,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                 : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
                 : invalidGrade ? "客户等级只能填写 S、A、B、C、D"
                 : deliveryError ? deliveryError
+                : contactError ? contactError
                 : "客户资料校验失败，已跳过",
               kind: "error",
               row: item,
