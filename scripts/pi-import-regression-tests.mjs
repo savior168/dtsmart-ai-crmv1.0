@@ -16,6 +16,7 @@ assert.equal(sheet.I18.v, "Unit Price (select currency)", "未选币种时单价
 assert.equal(sheet.K18.v, "Amount (select currency)", "未选币种时金额列不得误显示 USD");
 assert.match(sheet.I18.f, /J6/, "模板单价标题应随顶部所选币种更新");
 assert.match(sheet.K18.f, /J6/, "模板金额标题应随顶部所选币种更新");
+assert.match(sheet.I18.f, /^IF\(J6=""/, "未选币种时重新计算也不得显示空括号");
 assert.match(String(sheet.I2.v), /\*.*订单编号/);
 assert.match(String(sheet.G6.v), /\*.*客户付款币种/);
 for (const address of ["B17", "D17", "E17", "F17", "I17", "J17"]) {
