@@ -70,7 +70,7 @@ function cellMarkup(reference: string, style: string, value: unknown, formula: s
 
 function setCell(xml: string, reference: string, value: unknown, formula?: string) {
   const prefix = xml.includes("<x:c") ? "x:" : "";
-  const opening = xml.match(new RegExp(`<${prefix}c\b(?=[^>]*\br="${reference}")[^>]*>`));
+  const opening = xml.match(new RegExp(`<${prefix}c\\b(?=[^>]*\\br="${reference}")[^>]*>`));
   if (!opening || opening.index === undefined) throw new Error(`模板缺少单元格 ${reference}`);
   const start = opening.index;
   let end = start + opening[0].length;
@@ -116,7 +116,7 @@ function shiftPiRows(xml: string, delta: number) {
       .replace(/([A-Z]{1,3})27\b/g, `$1${row}`);
   }).join("");
   const firstFooterRow = 28 + delta;
-  let result = shifted.replace(new RegExp(`(<x:row[^>]*r="${firstFooterRow}"[\s\S]*?<\/x:row>)`), `${extraRows}$1`) + afterEnd;
+  let result = shifted.replace(new RegExp(`(<x:row[^>]*r="${firstFooterRow}"[\\s\\S]*?<\\/x:row>)`), `${extraRows}$1`) + afterEnd;
   result = result.replace(/(<x:dimension[^>]*ref=")([^"]+)(")/, (_, start, range, end) => `${start}${shiftCellReference(range, 28, delta)}${end}`);
   result = result.replace(/(<x:mergeCell[^>]*ref=")([^"]+)(")/g, (_, start, range, end) => `${start}${shiftCellReference(range, 28, delta)}${end}`);
   return result;
@@ -205,11 +205,11 @@ function withProcurementBorder(xml: string, reference: string, styles: number[])
 }
 
 function withCellStyle(xml: string, reference: string, style: number) {
-  return xml.replace(new RegExp(`(<c\b[^>]*\br="${reference}"[^>]*\bs=")\d+("[^>]*>)`), `$1${style}$2`);
+  return xml.replace(new RegExp(`(<c\\b[^>]*\\br="${reference}"[^>]*\\bs=")\\d+("[^>]*>)`), `$1${style}$2`);
 }
 
 function withRowHeight(xml: string, row: number, height: number) {
-  return xml.replace(new RegExp(`(<row\b[^>]*\br="${row}"[^>]*\bht=")([^"]+)(")`), `$1${height}$3`);
+  return xml.replace(new RegExp(`(<row\\b[^>]*\\br="${row}"[^>]*\\bht=")([^"]+)(")`), `$1${height}$3`);
 }
 
 export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteItem[]) {
@@ -338,4 +338,5 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
   }
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
+
 

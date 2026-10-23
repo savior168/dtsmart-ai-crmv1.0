@@ -312,7 +312,8 @@ assert.match(stageMigration, /customers_no_quote_stage_check check \(status <> '
 assert.match(customersApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)[\s\S]*source: "MANUAL", status: requestedStage/, "手动新增只允许直接选择潜在或成交；意向必须走凭证变更");
 assert.match(customerForm, /stage === "FOLLOWING" && !stageFile[\s\S]*stage === "DEAL" \? "DEAL" : "CLAIMED"/, "手动新增意向需上传凭证，手动新增成交可直接保存");
 assert.match(customerForm, /stage === "DEAL" && result\.status !== "DEAL"[\s\S]*已有客户改为成交/, "重复客户接管不得冒用手动新增免成交凭证例外");
-assert.match(stageWorkflowApi, /\["FOLLOWING", "DEAL"\]\.includes\(status\)[\s\S]*needsEvidence = \["FOLLOWING", "DEAL"\]/, "已有客户无论来源，改意向或成交必须具备联系方式并提交凭证");
+assert.match(stageWorkflowApi, /customerStageContactError\(status, customer\.data\)[\s\S]*needsEvidence = \["FOLLOWING", "DEAL"\]/, "已有客户无论来源，改意向或成交必须具备联系方式并提交凭证");
+assert.match(read("lib/customer-contact-requirement.ts"), /if \(\(!isFollowing && !isDeal\) \|\| hasCustomerContactMethod\(value\)\) return null[\s\S]*至少填写微信、邮箱或电话其中一项/, "意向和成交客户至少须填写微信、邮箱或电话之一");
 assert.match(customersView, /useState<"done" \| "pending" \| "failed" \| "all">\("all"\)/, "我的客户默认展示全部AI分析状态");
 assert.match(poolView, /const activeRequest = useRef<AbortController \| null>\(null\)[\s\S]*setTimeout\(\(\) => controller\.abort\(\), 30_000\)/, "公海批量删除请求必须有等待上限，不能永久卡在处理中");
 assert.match(poolView, /function stopOrClose\(\)[\s\S]*activeRequest\.current\?\.abort\(\)[\s\S]*onClose=\{stopOrClose\}/, "公海删除进行中必须能手动停止发送后续批次并关闭弹窗");
@@ -322,3 +323,4 @@ for (const index of ["ai_acquisition_candidates_staging_customer_idx", "ai_acqui
 }
 
 console.log("customer public-pool regression tests passed");
+

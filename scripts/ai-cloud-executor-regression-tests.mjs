@@ -33,6 +33,7 @@ assert.match(workflow, /pauseForTransientRecovery[\s\S]+status: "QUEUED"[\s\S]+s
 assert.match(workflow, /pause_started_at: null[\s\S]+paused_duration_ms: pausedDuration/, "cloud recovery must record paused time separately before resuming execution");
 assert.match(workflow, /WAITING_FOR_RECOVERY[\s\S]+lease_expires_at\.lt\.\$\{now\}/, "a replacement workflow must requeue expired item leases before looking for pending work");
 assert.match(taskItemExecutor, /isTransientAnalysisError\(error\) && item\.attemptNumber < 3[\s\S]+status: "PENDING"[\s\S]+lease_owner: null[\s\S]+\.eq\("lease_owner", lease\.executorId\)\.eq\("lease_token", lease\.leaseToken\)/, "transient infrastructure failures must return the leased item to the durable queue with a bounded retry budget");
+assert.match(taskItemExecutor, /PUBLIC_SOURCE_NETWORK_UNAVAILABLE/, "public-source network outages must be treated as transient and retried without a business verdict");
 assert.match(taskItemExecutor, /if \(!queued\.data\) return \{ status: "LEASE_LOST" as const \}/, "an expired or replaced lease must not requeue another executor's item");
 assert.match(workflow, /analyzeTaskItem\.maxRetries = 0/, "a transient database failure must not immediately consume another item attempt");
 assert.match(workflow, /Promise\.race\([\s\S]*promise\.then\(\(\) => index, \(\) => index\)[\s\S]*Promise\.allSettled\(active\)/, "a worker failure must await all already-started steps before workflow exit");
@@ -112,3 +113,4 @@ assert.match(dispatcher, /claim_stalled_ai_tasks_for_vercel_excluding/, "screeni
 assert.match(targetedRecoveryMigration, /not \(t\.id = any\(coalesce\(p_excluded_task_ids,[\s\S]+for update skip locked/i, "targeted screening recovery must exclude paused IDs and atomically claim the rest");
 
 console.log("AI cloud executor regression tests passed");
+
