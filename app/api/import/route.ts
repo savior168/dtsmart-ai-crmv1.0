@@ -6,6 +6,7 @@ import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements"
 import { readableImportError, sanitizeImportRow } from "@/lib/import-safety";
 import { importedCustomerGrade, importedCustomerStage } from "@/lib/customers/import-profile";
 import { importDeliveryContactError } from "@/lib/import-parser";
+import { customerStageContactError } from "@/lib/customer-contact-requirement";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -93,6 +94,8 @@ export async function POST(request: NextRequest) {
         const deliveryError = importDeliveryContactError(item);
         if (deliveryError) throw new Error(deliveryError);
         const stage = publicPool ? "UNCLAIMED" : importedCustomerStage(item.import_stage, "PRIVATE");
+        const contactError = publicPool ? null : customerStageContactError(stage, item);
+        if (contactError) throw new Error(contactError);
         const grade = publicPool ? null : importedCustomerGrade(item.manual_grade);
         const sourceStageLabel = publicPool ? text(item.import_stage) || null : null;
         const sourceGradeLabel = publicPool ? text(item.manual_grade) || null : null;
