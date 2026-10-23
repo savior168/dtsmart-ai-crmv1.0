@@ -32,6 +32,7 @@ import { CountryLabel } from "@/components/country-label";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { readableImportError } from "@/lib/import-safety";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
+import { CUSTOMER_GRADE_OPTIONS, customerGradeDescription, isCustomerGrade } from "@/lib/customers/customer-grade";
 
 type PotentialCandidate = {
   id?: string;
@@ -439,7 +440,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             row_number: index + 2,
           } as MappedRow;
           const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
-          const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !["S", "A", "B", "C", "D"].includes(item.manual_grade));
+          const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !isCustomerGrade(item.manual_grade));
           const deliveryError = importDeliveryContactError(item as ImportRow);
           const contactError = destination === "PRIVATE" ? customerStageContactError(item.import_stage, item) : null;
           if (!item.contact_name || !item.country || invalidStage || invalidGrade || deliveryError || contactError) {
@@ -450,7 +451,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               reason: !item.contact_name || !item.country
                 ? "缺少客户名称或国家/地区，已跳过"
                 : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
-                : invalidGrade ? "客户等级只能填写 S、A、B、C、D"
+                : invalidGrade ? `客户等级只能填写 ${CUSTOMER_GRADE_OPTIONS.join("、")}`
                 : deliveryError ? deliveryError
                 : contactError ? contactError
                 : "客户资料校验失败，已跳过",
@@ -1041,7 +1042,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                     </td>
                     <td className="px-4 py-3">{row.contact_name || "-"}</td>
                     <td className="px-4 py-3">{destination === "PUBLIC_POOL" ? "待AI分析" : row.import_stage || "潜在客户"}</td>
-                    <td className="px-4 py-3">{row.manual_grade || "未标记"}</td>
+                    <td className="px-4 py-3">{row.manual_grade ? <span title={customerGradeDescription(row.manual_grade)}>{row.manual_grade}</span> : "未标记"}</td>
                     <td className="w-[150px] px-4 py-3"><ImportCountry value={row.country} /></td>
                     <td className="w-[160px] whitespace-nowrap px-4 py-3">
                       <span className="block truncate" title={row.phone || ""}>{row.phone || "-"}</span>

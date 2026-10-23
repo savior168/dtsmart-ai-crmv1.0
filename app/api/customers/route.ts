@@ -10,6 +10,7 @@ import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } fro
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
+import { isCustomerGrade, normalizeCustomerGrade } from "@/lib/customers/customer-grade";
 
 // Manual creation must never impersonate AI conclusions, import provenance,
 // ownership or workflow transitions. Those fields belong to dedicated flows.
@@ -133,7 +134,7 @@ export async function GET(request: NextRequest) {
     const target = request.nextUrl.searchParams.get("target");
     const aiLevel = request.nextUrl.searchParams.get("ai_level");
     const manualGrade = request.nextUrl.searchParams.get("manual_grade")?.toUpperCase() || "";
-    if (manualGrade && !["S", "A", "B", "C", "D", "UNMARKED"].includes(manualGrade)) {
+    if (manualGrade && !(manualGrade === "UNMARKED" || isCustomerGrade(manualGrade))) {
       return NextResponse.json({ error: "客户等级筛选无效" }, { status: 400 });
     }
     const countries = [...new Set(request.nextUrl.searchParams.getAll("country").flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean))];
@@ -421,8 +422,10 @@ export async function POST(request: NextRequest) {
     delete body.requested_stage;
     if (publicPool && account.role !== "ADMIN") return NextResponse.json({ error: "仅系统管理员可以新增公海客户" }, { status: 403 });
     if (!body.contact_name) return NextResponse.json({ error: "客户名称不能为空" }, { status: 400 });
-    if (body.manual_grade && !["S", "A", "B", "C", "D"].includes(body.manual_grade)) {
-      return NextResponse.json({ error: "客户等级只能选择 S、A、B、C、D" }, { status: 400 });
+    if (body.manual_grade) {
+      const grade = normalizeCustomerGrade(body.manual_grade);
+      if (!grade) return NextResponse.json({ error: "客户等级只能选择 S、KA、MA、A、B、C、D" }, { status: 400 });
+      body.manual_grade = grade;
     }
     if (!body.country) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     const submittedKeys = customerLookupIdentityKeys(body);

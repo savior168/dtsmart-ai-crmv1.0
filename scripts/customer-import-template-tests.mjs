@@ -8,6 +8,7 @@ const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { importDeliveryContactError, mapImportRow, parseImportFile } = await jiti.import(resolve("lib/import-parser.ts"));
 const { sanitizeImportRow } = await jiti.import(resolve("lib/import-safety.ts"));
 const { importedCustomerGrade, importedCustomerStage } = await jiti.import(resolve("lib/customers/import-profile.ts"));
+const { CUSTOMER_GRADE_OPTIONS, CUSTOMER_GRADE_DESCRIPTIONS, customerGradeDescription, isCustomerGrade } = await jiti.import(resolve("lib/customers/customer-grade.ts"));
 const { customerImportIdentityKeys } = await jiti.import(resolve("lib/import-dedupe.ts"));
 const { customerStageContactError } = await jiti.import(resolve("lib/customer-contact-requirement.ts"));
 const binary = await readFile(resolve("assets/templates/Customer_Import_Template.xlsx"));
@@ -27,6 +28,15 @@ const piForm = await readFile(resolve("components/pi-order-form.tsx"), "utf8");
 assert.match(customerForm, /shipping_address:customer\?\.shipping_address\|\|""/, "编辑客户须回填客户收货地址");
 assert.match(customerForm, /<ShippingContactEditor label="客户收货信息" values=\{shippingContacts\}/, "手动新增及编辑须显示结构化客户收货信息");
 assert.match(customerForm, /<ShippingContactEditor label="货代收货信息" values=\{forwarderContacts\}/, "货代收货信息须使用同样的三字段结构");
+assert.match(customerForm, /CUSTOMER_GRADE_OPTIONS\.map\(\(grade\)/, "手动新增客户须提供七档客户等级");
+assert.match(customerForm, /title=\{customerGradeDescription\(form\.manual_grade\)\}/, "手动客户等级须悬浮显示业绩区间");
+assert.match(customersView, /title=\{customerGradeDescription\(customer\.manual_grade\)\}/, "客户列表等级字母须悬浮显示业绩区间");
+assert.match(customerDetail, /title=\{customerGradeDescription\(customer\.manual_grade\)\}/, "客户详情等级字母须悬浮显示业绩区间");
+assert.match(importView, /isCustomerGrade\(item\.manual_grade\)/, "批量导入预览须使用统一等级校验");
+assert.match(importView, /customerGradeDescription\(row\.manual_grade\)/, "批量导入预览等级须悬浮显示业绩区间");
+assert.match(customerCreateApi, /normalizeCustomerGrade\(body\.manual_grade\)/, "手动新增服务端须校验并规范化等级");
+assert.match(customerEditApi, /normalizeCustomerGrade\(payload\.manual_grade\)/, "编辑客户服务端须校验并规范化等级");
+assert.match(customerListApi, /isCustomerGrade\(manualGrade\)/, "客户列表筛选 API 须支持统一的等级集合");
 assert.match(customerForm, /"address","shipping_address","forwarder_address"/, "编辑资料须提交客户收货地址");
 assert.match(customerDetail, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须显示客户收货地址列表");
 assert.match(customerCreateApi, /"other_address", "shipping_address"/, "手动新增 API 须保存客户收货地址");
@@ -51,6 +61,13 @@ assert.match(help[6][1], /均为选填，收货人、电话、地址可分别填
 assert.match(help[4][1], /客户阶段不是必填项/);
 assert.match(help[4][1], /已成交客户.*微信、邮箱或电话其中一项/);
 assert.match(help[4][1], /只填一项即可/);
+assert.match(help[5][1], /S.*50,000/);
+assert.match(help[5][1], /KA.*30,000.*50,000/);
+assert.match(help[5][1], /MA.*10,000.*30,000/);
+assert.match(help[5][1], /A.*8,000.*10,000/);
+assert.match(help[5][1], /B.*5,000.*8,000/);
+assert.match(help[5][1], /C.*2,000.*5,000/);
+assert.match(help[5][1], /D.*2,000/);
 assert.match(help[9][1], /列名为系统标准字段，请勿更改、删除、合并或调换/);
 const poolHelp = XLSX.utils.sheet_to_json(poolWorkbook.Sheets["填写说明"], { header: 1, defval: "" });
 assert.match(poolHelp[4][1], /统一进入公海“待认领”状态/);
@@ -114,7 +131,7 @@ const sheetPath = archive.FullPaths.findIndex((item) => item.endsWith("/xl/works
 assert.ok(sheetPath >= 0);
 const xml = archive.FileIndex[sheetPath].content.toString("utf8").replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
 assert.match(xml, /sqref="I2:I1001"[^>]*>.*?潜在客户,意向客户,已成交客户/s);
-assert.match(xml, /sqref="J2:J1001"[^>]*>.*?S,A,B,C,D/s);
+assert.match(xml, /<dataValidation[^>]*sqref="J2:J1001"[^>]*allowBlank="1"[^>]*>.*?S,KA,MA,A,B,C,D/s, "客户等级下拉必须允许留空并包含七档");
 
 const sample = Object.fromEntries(headers.map((header) => [header, ""]));
 Object.assign(sample, {
@@ -164,9 +181,27 @@ assert.equal(importedCustomerStage("已成交客户", "PRIVATE"), "DEAL");
 assert.equal(importedCustomerStage("意向客户", "PUBLIC_POOL"), "UNCLAIMED");
 assert.throws(() => importedCustomerStage("成交客户", "PRIVATE"), /客户阶段只能/);
 assert.throws(() => importedCustomerStage("toString", "PRIVATE"), /客户阶段只能/);
-for (const grade of ["S", "A", "B", "C", "D"]) assert.equal(importedCustomerGrade(grade, "PRIVATE"), grade);
+assert.deepEqual(CUSTOMER_GRADE_OPTIONS, ["S", "KA", "MA", "A", "B", "C", "D"]);
+for (const grade of CUSTOMER_GRADE_OPTIONS) {
+  assert.equal(importedCustomerGrade(grade, "PRIVATE"), grade);
+  assert.equal(importedCustomerGrade(grade.toLowerCase(), "PRIVATE"), grade, "导入等级大小写应规范化");
+  assert.ok(CUSTOMER_GRADE_DESCRIPTIONS[grade].includes("USD"), "等级说明应明确美元币种");
+  assert.equal(customerGradeDescription(grade), CUSTOMER_GRADE_DESCRIPTIONS[grade]);
+  assert.equal(isCustomerGrade(grade), true);
+}
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.S, "业绩 ≥ $50,000 USD");
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.KA, "$30,000 ≤ 业绩 < $50,000 USD");
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.MA, "$10,000 ≤ 业绩 < $30,000 USD");
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.A, "$8,000 ≤ 业绩 < $10,000 USD");
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.B, "$5,000 ≤ 业绩 < $8,000 USD");
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.C, "$2,000 ≤ 业绩 < $5,000 USD");
+assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.D, "业绩 < $2,000 USD");
 assert.equal(importedCustomerGrade("", "PRIVATE"), null);
 assert.throws(() => importedCustomerGrade("E", "PRIVATE"), /客户等级只能/);
+assert.equal(importedCustomerGrade(" ka ", "PRIVATE"), "KA", "前后空格和大小写应规范化");
+assert.equal(isCustomerGrade("ka"), false, "类型守卫不能把未经规范化的小写值标为有效等级");
+assert.equal(importedCustomerGrade("", "PRIVATE"), null, "客户等级为选填");
+assert.throws(() => importedCustomerGrade("KA/MA", "PRIVATE"), /客户等级只能/);
 assert.equal(importedCustomerGrade("S", "PUBLIC_POOL"), "S", "公海导入将等级作为来源字段保存，不用于系统等级");
 const importedRows = Array.from({ length: 13 }, (_, index) => ({
   company_name: `Company ${index + 1}`, contact_name: `Contact ${index + 1}`, country: "France",

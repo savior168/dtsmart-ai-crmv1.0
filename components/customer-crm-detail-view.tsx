@@ -15,6 +15,7 @@ import { CustomerContactSummary } from "@/components/customer-contact-summary";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { customerSourceLabel } from "@/lib/customers/source-display";
+import { customerGradeDescription } from "@/lib/customers/customer-grade";
 import type { Customer, CustomerStatus, Followup, FollowupStage, FollowupType } from "@/lib/types";
 import { CUSTOMER_STATUS_LABELS, FOLLOWUP_STAGE_LABELS, FOLLOWUP_STAGES, FOLLOWUP_TYPE_LABELS, FOLLOWUP_TYPES, QUOTE_STATUS_LABELS } from "@/lib/types";
 import { cleanChineseAiNarrative } from "@/lib/ai/presentation";
@@ -74,7 +75,7 @@ function CustomerBasicInfo({ data, scoreLabel, gradeLabel, targetLabel }: { data
       <dl className="mt-3 grid gap-x-8 md:grid-cols-2">
         <Row label="客户名称">{value(customer.contact_name)}</Row><Row label="国家/地区"><CountryLabel value={customer.country}/></Row>
         <Row label="公司名称">{value(customer.company_name)}</Row><Row label="客户税号">{value(customer.tax_number)}</Row>
-        <Row label="客户等级">{value(customer.manual_grade)}</Row>{customer.source_stage_label ? <Row label="导入来源阶段（非流程状态）">{value(customer.source_stage_label)}</Row> : null}{customer.source_grade_label ? <Row label="导入来源等级（非系统等级）">{value(customer.source_grade_label)}</Row> : null}<Row label="AI判定行业">{value(customer.industry || customer.category)}</Row>
+        <Row label="客户等级">{customer.manual_grade ? <span title={customerGradeDescription(customer.manual_grade)}>{customer.manual_grade}</span> : value(customer.manual_grade)}</Row>{customer.source_stage_label ? <Row label="导入来源阶段（非流程状态）">{value(customer.source_stage_label)}</Row> : null}{customer.source_grade_label ? <Row label="导入来源等级（非系统等级）">{value(customer.source_grade_label)}</Row> : null}<Row label="AI判定行业">{value(customer.industry || customer.category)}</Row>
         <Row label="联系方式"><CustomerContactSummary customer={{ ...customer, verified_contacts: data.verified_contacts }} source="all"/></Row>
         <Row label="官网"><CustomerPublicLink value={customer.website} kind="website" size="normal"/></Row>
         <Row label="公开渠道"><CustomerPublicChannels customer={customer}/></Row><Row label="公司地址">{value(customer.address)}</Row>
