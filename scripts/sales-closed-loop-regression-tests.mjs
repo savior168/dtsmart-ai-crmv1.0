@@ -179,6 +179,9 @@ assert.match(aiRunner,/OPENAI_MAX_RESERVED_USD_PER_CALL[\s\S]*if \(!reserved\.al
 const shell = read("components/app-shell.tsx");
 assert.match(shell, /toastNotices[\s\S]*fixed bottom-5 right-5[\s\S]*立即查看[\s\S]*稍后查看/, "关键通知必须在右下角弹出并可直达业务详情");
 assert.match(shell, /action: "DISMISS"/, "关闭通知弹框不得将未读消息标记为已读");
+assert.match(shell, /selectNotificationToastBatch\(popupCandidates,visibleIds\)[\s\S]*incoming\.forEach\(item=>shown\.add\(item\.id\)\)/, "只将真正进入可见弹框的通知记录为已展示，避免批次超过三个时丢失提示");
+assert.match(shell, /setTimeout\([\s\S]*30_000\)/, "通知弹框默认应展示 30 秒后关闭");
+assert.match(shell, /page_size=100/, "通知轮询应读取足够的新近通知以降低高频更新时遗漏提示的风险");
 assert.match(shell, /canLoadNotices = Boolean\(profile && \(profile\.role === "ADMIN" \|\| profile\.permissions\.includes\("notifications\.view"\)\)\)[\s\S]*if \(!canLoadNotices\)[\s\S]*setInterval\(refresh, 15000\)/, "登录页、未核验会话或无通知权限的角色不得轮询通知接口");
 const notifications = read("components/notifications-view.tsx");
 assert.match(notifications, /未读[\s\S]*待处理[\s\S]*已归档[\s\S]*标记已处理/, "通知中心必须同时管理阅读与业务处理状态");

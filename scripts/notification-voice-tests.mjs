@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { notificationVoiceText } from "../lib/notification-voice.ts";
-import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
+import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, selectNotificationToastBatch, shouldShowNotificationToast } from "../lib/notification-toast.ts";
 import { defaultNotificationPolicy, notificationPolicyType } from "../lib/notification-policy.ts";
 
 assert.match(notificationVoiceText({ type: "FOLLOWUP_DUE", content: "Call buyer" }), /跟进提醒/);
@@ -35,7 +35,15 @@ assert.equal(shouldShowNotificationToast({ ...unread, deliver_at: "2026-10-15T23
 assert.equal(shouldShowNotificationToast({ ...unread, dismissed_at: sessionStart }, new Set(), sessionStart), false);
 assert.equal(shouldShowNotificationToast({ ...unread, read_at: sessionStart }, new Set(), sessionStart), false);
 assert.equal(shouldShowNotificationToast(unread, new Set([unread.id]), sessionStart), false);
+const toastCandidates = Array.from({ length: 5 }, (_, index) => ({ id: `notice-${index + 1}` }));
+const firstToastBatch = selectNotificationToastBatch(toastCandidates, new Set());
+assert.deepEqual(firstToastBatch.map(item => item.id), ["notice-1", "notice-2", "notice-3"]);
+const firstBatchIds = new Set(firstToastBatch.map(item => item.id));
+assert.deepEqual(selectNotificationToastBatch(toastCandidates, firstBatchIds).map(item => item.id), [], "已有弹框达到显示上限时先排队，不应挤掉仍可见的通知");
+const remainingCandidates = toastCandidates.filter(item => !firstBatchIds.has(item.id));
+assert.deepEqual(selectNotificationToastBatch(remainingCandidates, new Set()).map(item => item.id), ["notice-4", "notice-5"], "每批仅显示三个弹框时，不得把未显示的后续通知标记为已展示而漏掉");
 assert.notEqual(notificationToastStorageKey("sales@example.com"), notificationToastStorageKey("warehouse@example.com"));
+assert.match(notificationToastStorageKey("sales@example.com"), /:v2:/, "修复提示分批遗漏后应重置旧版本的错误已展示缓存");
 assert.notEqual(notificationToastSessionKey("sales@example.com"), notificationToastSessionKey("warehouse@example.com"));
 assert.equal(notificationDisplayContent("Amy 更新订单 D60058756：WAITING→PREPARING"), "Amy 更新订单 D60058756：待仓库接单→采购中");
 assert.equal(notificationDisplayContent("订单 D60058756：READY_TO_SHIP→SHIPPED"), "订单 D60058756：已理货待交货代→已交货代");

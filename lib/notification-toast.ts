@@ -21,11 +21,20 @@ export function shouldShowNotificationToast(item: ToastCandidate, shown: Readonl
 }
 
 export function notificationToastStorageKey(userEmail: string) {
-  return `dtsmart-notification-toasts:${userEmail}`;
+  return `dtsmart-notification-toasts:v2:${userEmail}`;
 }
 
 export function notificationToastSessionKey(userEmail: string) {
   return `dtsmart-notification-session-start:${userEmail}`;
+}
+
+export function selectNotificationToastBatch<T extends { id: string }>(
+  candidates: readonly T[],
+  visibleIds: ReadonlySet<string>,
+  maxVisible = 3,
+) {
+  const availableSlots = Math.max(0, maxVisible - visibleIds.size);
+  return candidates.filter(item => !visibleIds.has(item.id)).slice(0, availableSlots);
 }
 
 export function notificationToastSummary(item: ToastMessage) {

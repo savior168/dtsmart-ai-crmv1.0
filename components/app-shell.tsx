@@ -28,7 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 import { notificationVoiceText } from "@/lib/notification-voice";
-import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "@/lib/notification-toast";
+import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, selectNotificationToastBatch, shouldShowNotificationToast } from "@/lib/notification-toast";
 import { defaultNotificationPolicy, notificationPolicyType, type NotificationPolicy } from "@/lib/notification-policy";
 
 const menu = [
@@ -430,6 +430,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const profileRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
+  const toastNoticesRef = useRef<ShellNotice[]>([]);
+  const toastDismissTimersRef = useRef(new Map<string, number>());
   const policyRef = useRef<Record<string, NotificationPolicy>>({});
   const voiceEnabledRef = useRef(false);
   const settingsRequestRef = useRef(0);
@@ -456,7 +458,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
   const loadNotices = useCallback(async () => {
     try {
-      const response = await fetch("/api/notifications?status=active&page_size=30", { cache:"no-store" });
+      const response = await fetch("/api/notifications?status=active&page_size=100", { cache:"no-store" });
       const body = await response.json();
       if(response.ok){
         const next=(body.data||[]) as ShellNotice[];
@@ -468,9 +470,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (!sessionStartedAt) window.sessionStorage.setItem(sessionKey,new Date().toISOString());
         const shown=new Set<string>(JSON.parse(window.sessionStorage.getItem(storageKey)||"[]"));
         const fresh=next.filter(item=>shouldShowNotificationToast(item,shown,sessionStartedAt));
-        const incoming=fresh.filter(item=>
-          (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).popup_enabled).slice(0,3);
-        fresh.forEach(item=>shown.add(item.id));
+        const popupCandidates=fresh.filter(item=>
+          (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).popup_enabled);
+        const visibleIds=new Set(toastNoticesRef.current.map(item=>item.id));
+        const incoming=selectNotificationToastBatch(popupCandidates,visibleIds);
+        incoming.forEach(item=>shown.add(item.id));
         window.sessionStorage.setItem(storageKey,JSON.stringify([...shown].slice(-200)));
         if (profile?.email) {
           const voiceSeenKey=`dtsmart-notification-voice-seen:${profile.email}`;
@@ -493,11 +497,19 @@ export function AppShell({ children }: { children: ReactNode }) {
           }
         }
         if(incoming.length){
-          setToastNotices(current=>[...incoming,...current.filter(item=>!incoming.some(nextItem=>nextItem.id===item.id))].slice(0,3));
+          setToastNotices(current=>{
+            const currentIds=new Set(current.map(item=>item.id));
+            const next=[...current,...incoming.filter(item=>!currentIds.has(item.id))].slice(0,3);
+            toastNoticesRef.current=next;
+            return next;
+          });
         }
       }
     } catch { /* 保留已加载通知 */ }
   },[profile?.email]);
+  useLayoutEffect(() => {
+    toastNoticesRef.current = toastNotices;
+  }, [toastNotices]);
   const openNotice = useCallback(async (item:ShellNotice) => {
     if(!item.read_at)await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id,action:"READ"})});
     setToastNotices(current=>current.filter(notice=>notice.id!==item.id));setNoticeOpen(false);void loadNotices();if(item.href)router.push(item.href);
@@ -586,11 +598,26 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [canLoadNotices, loadNotices]);
   useEffect(() => {
-    if (!toastNotices.length) return;
-    // Dismissing a pop-up must not mark its notification as read.
-    const timer = window.setTimeout(() => toastNotices.forEach(item => void dismissToast(item)), 8000);
-    return () => window.clearTimeout(timer);
+    const activeIds = new Set(toastNotices.map(item => item.id));
+    for (const [id, timer] of toastDismissTimersRef.current) {
+      if (!activeIds.has(id)) {
+        window.clearTimeout(timer);
+        toastDismissTimersRef.current.delete(id);
+      }
+    }
+    for (const item of toastNotices) {
+      if (toastDismissTimersRef.current.has(item.id)) continue;
+      const timer = window.setTimeout(() => {
+        toastDismissTimersRef.current.delete(item.id);
+        void dismissToast(item);
+      }, 30_000);
+      toastDismissTimersRef.current.set(item.id, timer);
+    }
   }, [toastNotices, dismissToast]);
+  useEffect(() => () => {
+    for (const timer of toastDismissTimersRef.current.values()) window.clearTimeout(timer);
+    toastDismissTimersRef.current.clear();
+  }, []);
   useEffect(() => {
     if (profile?.must_change_password) setModal("password");
   }, [profile?.must_change_password]);
