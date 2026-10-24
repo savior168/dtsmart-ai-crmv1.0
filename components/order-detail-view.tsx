@@ -277,12 +277,6 @@ export function OrderDetailView({ id }: { id: string }) {
                 {directPi ? <Link href={`/orders/${id}/preview?export=pdf`} target="_blank" rel="noopener noreferrer" title="打开打印窗口并选择另存为 PDF" className="block rounded px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">导出 PDF</Link> : null}
               </div>
             </details> : null}
-            {!directPi ? <Link
-              href={`/quotes/${o.quote_id}`}
-              className="h-9 rounded-lg border px-3 py-2 text-sm text-blue-700"
-            >
-              查看关联报价
-            </Link> : null}
             {data.can_view_stock && data.stock_order && !(directPi && o.status === "DRAFT") ? <Link
               href={`/stock-orders/${data.stock_order.id}`}
               className="h-9 rounded-lg border px-3 py-2 text-sm text-emerald-700"

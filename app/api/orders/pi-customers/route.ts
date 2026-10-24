@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("orders.create");
     const isClerk = account.role === "ORDER_CLERK";
     const admin = isClerk ? createAdminClient() : null;
-    const salespeople = isClerk ? await admin!.from("users").select("id,name").in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").order("name") : null;
+    const salespeople = isClerk ? await admin!.from("users").select("id,name,email").in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").order("name") : null;
     if (salespeople?.error) throw salespeople.error;
     const selectedOwner = isClerk ? request.nextUrl.searchParams.get("sales_user_id") || "" : account.id;
     if (isClerk && selectedOwner && !salespeople?.data?.some((user) => user.id === selectedOwner)) throw new Error("所选销售员或主管无效或未启用");

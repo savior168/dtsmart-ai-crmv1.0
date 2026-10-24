@@ -63,7 +63,7 @@ export async function GET(
       ? await relatedClient.from("users").select("name,email").eq("id", order.data.sales_user_id).maybeSingle()
       : null;
     if (clerkOwner?.error) throw clerkOwner.error;
-    const writable = account.role === "ORDER_CLERK"
+    const writable = order.data.confirmation_method === "DIRECT_PI"
       ? order.data.prepared_by === account.id
       : order.data.sales_user_id === account.id || account.role === "ADMIN";
     return NextResponse.json({
@@ -80,16 +80,18 @@ export async function GET(
         hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
         order.data.status === "DRAFT" && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
-      can_recall: account.role !== "ORDER_CLERK" && writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
+      can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
       can_edit:
         account.role !== "ORDER_CLERK" && writable &&
         hasPermission(account, "orders.edit") &&
         order.data.confirmation_method !== "DIRECT_PI" &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),
       can_cancel:
-        account.role !== "ORDER_CLERK" && writable &&
+        writable &&
         hasPermission(account, "orders.cancel") &&
+        (account.role !== "ORDER_CLERK" || order.data.confirmation_method === "DIRECT_PI") &&
         !(order.data.confirmation_method === "DIRECT_PI" && !["DRAFT", "WAITING_STOCK"].includes(order.data.status)) &&
+        !(order.data.confirmation_method === "DIRECT_PI" && stock.data && !["DRAFT", "WAITING"].includes(stock.data.status)) &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),
       can_export: hasPermission(account, "orders.export") && !["DRAFT", "CANCELLED"].includes(order.data.status),
       can_preview: hasPermission(account, "orders.preview"),

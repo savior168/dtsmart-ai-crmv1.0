@@ -14,7 +14,10 @@ const cases = [
   ["跟单员可读全部PI", account("ORDER_CLERK", ["orders.view", "orders.data_all"]), "orders.data_all", true],
   ["跟单员不能修改备货", account("ORDER_CLERK", ["stock.view", "stock.update"]), "stock.update", false],
   ["跟单员不能编辑客户", account("ORDER_CLERK", ["customers.view", "customers.edit"]), "customers.edit", false],
-  ["跟单员不能取消PI", account("ORDER_CLERK", ["orders.view", "orders.cancel"]), "orders.cancel", false],
+  ["跟单员可获PI取消权限", account("ORDER_CLERK", ["orders.view", "orders.cancel"]), "orders.cancel", true],
+  ["跟单员可获PI导入权限", account("ORDER_CLERK", ["orders.view", "orders.import"]), "orders.import", true],
+  ["管理员也不能进入废弃报价模块", account("ADMIN", []), "quotes.view", false],
+  ["旧报价授权无法恢复入口", account("SALES", ["quotes.view", "quotes.create"]), "quotes.create", false],
   ["主管默认不能读下属", account("SUPERVISOR", ["customers.view", "customers.data_all"]), "customers.data_all", false],
   ["主管开启后可读下属", account("SUPERVISOR", ["customers.view", "customers.data_all"], { supervisor_can_view_subordinates: true }), "customers.data_all", true],
   ["主管开启数据开关但页面仍关闭", account("SUPERVISOR", ["customers.data_all"], { supervisor_can_view_subordinates: true }), "customers.data_all", false],
@@ -40,8 +43,7 @@ for (const item of PERMISSION_CATALOG) {
     }
     if (role === "ORDER_CLERK" && (item.code.startsWith("customers.") && !["customers.view", "customers.data_all"].includes(item.code)
       || item.code.startsWith("stock.") && !["stock.view", "stock.data_all"].includes(item.code)
-      || item.code.startsWith("quotes.")
-      || ["orders.cancel", "orders.delete_draft", "orders.import"].includes(item.code))) {
+      || ["orders.delete_draft"].includes(item.code))) {
       assert.equal(evaluatePermission(granted, item.code), false, `跟单员不得获得 ${item.code}`);
     }
     if (item.code !== page) {
@@ -50,4 +52,5 @@ for (const item of PERMISSION_CATALOG) {
     }
   }
 }
+assert.ok(!PERMISSION_CATALOG.some((item) => item.code.startsWith("quotes.")), "角色权限目录不得显示已废弃的报价单权限");
 console.log(`Permission matrix passed: ${cases.length} focused cases plus ${PERMISSION_CATALOG.length} catalog entries across four non-admin roles.`);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { matchImportedPaymentAccount, parseCustomerPiWorkbook } from "@/lib/pi-document-import";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const allowedSizes = new Set([10, 20, 50, 100, 300, 500]);
 
@@ -25,15 +26,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("orders.import");
-    if (!["SALES", "SUPERVISOR", "ADMIN"].includes(account.role)) throw new Error("FORBIDDEN");
+    if (!["SALES", "SUPERVISOR", "ADMIN", "ORDER_CLERK"].includes(account.role)) throw new Error("FORBIDDEN");
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File) || !/\.xlsx$/i.test(file.name) || file.size > 2 * 1024 * 1024 || file.size < 100) {
       throw new Error("请选择2MB以内的.xlsx客户PI文件");
     }
     const parsed = parseCustomerPiWorkbook(new Uint8Array(await file.arrayBuffer()));
-    if (parsed.document.sales_account_email && parsed.document.sales_account_email.toLowerCase() !== account.email.toLowerCase()) {
+    if (account.role !== "ORDER_CLERK" && parsed.document.sales_account_email && parsed.document.sales_account_email.toLowerCase() !== account.email.toLowerCase()) {
       throw new Error("模板中的所属销售员账号与当前登录账号不一致；请由该销售员本人导入，或核对模板账号后重试");
+    }
+    if (account.role === "ORDER_CLERK" && parsed.document.sales_account_email) {
+      const { data: owner, error: ownerError } = await createAdminClient().from("users").select("id")
+        .eq("email", parsed.document.sales_account_email).in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").maybeSingle();
+      if (ownerError) throw ownerError;
+      if (!owner) throw new Error("模板中的销售员账号不存在或未启用；请填写在职销售员/主管账号，导入后核对客户归属");
     }
     const { data: accounts, error: accountsError } = await supabase.from("pi_payment_accounts")
       .select("id,currency,instructions,payment_channel").eq("currency", parsed.document.currency).eq("active", true);

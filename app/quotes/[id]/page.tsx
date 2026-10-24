@@ -1,4 +1,3 @@
-import { QuoteForm } from "@/components/quote-form";
-import { protectPage } from "@/lib/auth/page-access";
+import { notFound } from "next/navigation";
 
-export default async function QuoteDetailPage({params}:{params:Promise<{id:string}>}){await protectPage("quotes.view");const {id}=await params;return <QuoteForm quoteId={id}/>}
+export default function RetiredQuoteDetailPage() { notFound(); }

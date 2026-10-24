@@ -11,13 +11,23 @@ assert.match(read("components/password-auth-form.tsx"), /function goToApp\(\) \{
 assert.match(read("app/supabase-test/page.tsx"), /export default async function SupabaseTestPage\(\) \{\s*await protectPage\("system\.users\.view"\)/, "数据库连接诊断页必须有管理员页面守卫");
 for (const [page, permission] of [
   ["app/settings/users/page.tsx", "system.users.view"],
-  ["app/settings/roles/page.tsx", "system.roles.view"],
+  ["app/settings/roles/page.tsx", "system.users.view"],
   ["app/settings/notifications/page.tsx", "system.notifications.view"],
 ]) {
   assert.ok(read(page).includes(`await protectPage("${permission}")`), `${page} 必须将非管理员导航到无权限页`);
 }
 assert.match(read("app/import/page.tsx"), /params\.destination === "public" && account\.role !== "ADMIN"\) redirect\("\/access-denied\?permission=imports\.create"\)/, "公海导入页面必须拒绝非管理员且明确显示无权限");
 const catalogCodes = new Set([...permissionCatalog.matchAll(/code: "([^"]+)"/g)].map((match) => match[1]));
+const sidebarPermissions = new Set([...sidebar.matchAll(/href: "\/[^"]*"[^\n]*permission: "([^"]+)"/g)].map((match) => match[1]));
+const secondaryPagePermissions = new Set(["imports.view", "notifications.view"]);
+for (const [, code] of permissionCatalog.matchAll(/code: "([^"]+)"[^\n]*kind: "PAGE"/g)) {
+  assert.ok(sidebarPermissions.has(code) || secondaryPagePermissions.has(code), `${code} 页面权限没有菜单或明确的二级入口`);
+}
+assert.doesNotMatch(permissionCatalog, /code: "(?:quotes\.|system\.roles\.)/, "已废弃的报价单与重复角色页面权限不应保留");
+assert.match(read("app/quotes/new/page.tsx"), /notFound\(\)/, "旧报价创建页不得继续跳转进入PI创建流程");
+for (const page of ["app/quotes/page.tsx", "app/quotes/[id]/page.tsx", "app/quotes/[id]/print/page.tsx"]) {
+  assert.match(read(page), /notFound\(\)/, `${page} 已废弃，必须直接返回 404`);
+}
 for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*permission: "([^"]+)"/g)) {
   assert.ok(catalogCodes.has(permission), `${href} 的菜单权限 ${permission} 必须登记在角色权限目录`);
   const page = href === "/" ? "app/page.tsx" : `app${href}/page.tsx`;

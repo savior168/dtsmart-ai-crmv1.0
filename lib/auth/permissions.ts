@@ -83,26 +83,18 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "pricebooks.cost.total.view", label: "查看完整成本合计", group: "商品中心", description: "仅查看采购、包装和其他费用合计，不显示成本拆分和来源", kind: "DATA" },
   { code: "pricebooks.cost.view", label: "查看采购成本", group: "商品中心", description: "查看人民币采购价、包装费、其他成本及其来源；销售员默认不可见", kind: "DATA" },
   { code: "pricebooks.manage", label: "维护产品价格", group: "商品中心", description: "新增、调整或停用产品价格版本", kind: "ACTION", core: true },
-  { code: "pricebooks.import", label: "导入产品报价表", group: "商品中心", description: "上传并预览商品资料或系统 SKU 调价文件，处理来源歧义和异常行", kind: "ACTION", core: true },
+  { code: "pricebooks.import", label: "导入产品价格表", group: "商品中心", description: "进入产品价格表导入页面，上传并预览商品资料或系统 SKU 调价文件", kind: "PAGE", core: true },
   { code: "pricebooks.publish", label: "发布产品价格表", group: "商品中心", description: "发布已核准商品及价格，或确认按系统 SKU 匹配的整批调价；未核准内容继续隔离", kind: "ACTION", core: true },
   { code: "pricebooks.rules.manage", label: "维护销售报价规则", group: "商品中心", description: "维护报价汇率、加价率、最低毛利和商品或分类覆盖规则", kind: "ACTION", core: true },
-
-  { code: "quotes.view", label: "报价单", group: "销售管理", description: "查看权限范围内的报价单", kind: "PAGE" },
-  { code: "quotes.data_all", label: "查看全部报价", group: "销售管理", description: "可按归属人只读查看全部报价", kind: "DATA" },
-  { code: "quotes.create", label: "创建报价单", group: "销售管理", description: "为本人客户创建报价单", kind: "ACTION" },
-  { code: "quotes.edit", label: "编辑本人报价", group: "销售管理", description: "编辑本人尚未确认的报价单", kind: "ACTION" },
-  { code: "quotes.confirm", label: "确认本人报价", group: "销售管理", description: "记录客户确认并创建销售订单和待完善备货单", kind: "ACTION" },
-  { code: "quotes.export", label: "导出报价单", group: "销售管理", description: "按标准PI模板导出报价Excel", kind: "ACTION" },
-  { code: "quotes.cancel", label: "取消本人报价", group: "销售管理", description: "取消本人未确认的报价单", kind: "ACTION" },
 
   { code: "orders.view", label: "PI订单", group: "销售管理", description: "查看PI订单和历史销售订单", kind: "PAGE" },
   { code: "orders.preview", label: "预览PI单据", group: "销售管理", description: "打开PI单据预览页面；正式单据的导出仍需导出权限", kind: "ACTION" },
   { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "销售员和主管为本人客户创建PI；跟单员可为任意在职销售员或主管的客户创建并提交PI", kind: "ACTION" },
-  { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
+  { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "导入客户PI为待补全草稿；跟单员转换时须选择在职销售员及其名下客户", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员可查看全部；主管还需单独开启下属数据开关，且仅能只读查看直属下属订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
   { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅归属销售员或系统管理员可删除从未提交仓库的PI草稿；已提交历史不可删除", kind: "ACTION" },
-  { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
+  { code: "orders.cancel", label: "取消PI订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单；跟单员仅可取消本人制单的PI", kind: "ACTION" },
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
   { code: "stock.view", label: "备货单", group: "采购管理", description: "查看允许范围内的采购备货单", kind: "PAGE" },
@@ -130,8 +122,6 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
   { code: "system.users.view", label: "查看用户管理", group: "系统管理", description: "查看账号与审核状态", kind: "PAGE", core: true },
   { code: "system.users.manage", label: "管理用户账号", group: "系统管理", description: "审核、启停、改角色、重置密码", kind: "ACTION", core: true },
-  { code: "system.roles.view", label: "查看权限配置", group: "系统管理", description: "查看角色与用户权限", kind: "PAGE", core: true },
-  { code: "system.roles.manage", label: "配置角色与用户权限", group: "系统管理", description: "调整角色默认权限和用户覆盖权限", kind: "ACTION", core: true },
   { code: "system.audit.view", label: "查看操作日志", group: "系统管理", description: "查看本人产生的系统关键操作记录；系统管理员可切换操作人", kind: "PAGE" },
   { code: "system.notifications.view", label: "通知与公告设置", group: "系统管理", description: "配置系统通知方式并向全部用户或指定角色发布公告", kind: "PAGE", core: true },
   { code: "system.security.view", label: "查看安全设置", group: "系统管理", description: "只读查看登录与密码安全策略", kind: "PAGE" },
@@ -162,7 +152,6 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("products.")) return "products.view";
   if (code.startsWith("pricebooks.rules.")) return "pricebooks.rules.view";
   if (code.startsWith("pricebooks.")) return "pricebooks.view";
-  if (code.startsWith("quotes.")) return "quotes.view";
   if (code.startsWith("orders.")) return "orders.view";
   if (code.startsWith("stock.")) return "stock.view";
   if (code.startsWith("pi.rates.")) return "pi.rates.view";
@@ -171,7 +160,6 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("costs.")) return "costs.view";
   if (code.startsWith("notifications.")) return "notifications.view";
   if (code.startsWith("system.users.")) return "system.users.view";
-  if (code.startsWith("system.roles.")) return "system.roles.view";
   if (code.startsWith("system.audit.")) return "system.audit.view";
   if (code.startsWith("system.notifications.")) return "system.notifications.view";
   if (code.startsWith("system.security.")) return "system.security.view";
@@ -186,6 +174,9 @@ export type PermissionAccount = {
 
 /** The same decision is used by server handlers and the role regression matrix. */
 export function evaluatePermission(account: PermissionAccount, permission: string) {
+  // Retired quote routes and APIs must stay closed even to administrators and
+  // users with stale database overrides. Historical quote rows remain for PI.
+  if (permission.startsWith("quotes.") || !isKnownPermission(permission)) return false;
   if (account.role === "ADMIN") return true;
   if (account.role === "SUPERVISOR" && !canViewSubordinateData(account)
     && isSubordinateDataPermission(permission)) return false;
@@ -231,8 +222,7 @@ export const ROLE_LABELS: Record<BuiltinUserRole, string> & Record<string, strin
 export function isOrderClerkForbiddenPermission(permission: string) {
   return permission.startsWith("customers.") && !["customers.view", "customers.data_all"].includes(permission)
     || permission.startsWith("stock.") && !["stock.view", "stock.data_all"].includes(permission)
-    || permission.startsWith("quotes.")
-    || ["orders.cancel", "orders.delete_draft", "orders.import"].includes(permission);
+    || ["orders.delete_draft"].includes(permission);
 }
 
 export const STATUS_LABELS: Record<AccountStatus, string> = {
