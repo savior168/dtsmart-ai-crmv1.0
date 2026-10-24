@@ -280,6 +280,7 @@ assert.match(importPreviewApi, /前往客户公海核对\/认领/);
 assert.match(importView, /查看候选详情/);
 assert.match(importView, /打开匹配客户/);
 assert.match(importView, /打开此客户记录/);
+assert.match(importView, /item\.action_label === "前往客户公海核对\/认领" && item\.action_url \?\s*\(\s*<Link[\s\S]*?href=\{item\.action_url\}[\s\S]*?aria-label=\{`\$\{item\.ownership_status\}，前往客户公海核对\/认领`\}/, "公海待认领状态标签须安全直达对应客户的公海核对/认领页");
 assert.match(importView, /target="_blank" rel="noopener noreferrer"/);
 assert.match(importView, /官网：\{normalizeUrl\(item\.website\)[\s\S]*?target="_blank" rel="noopener noreferrer"/, "候选客户官网须以安全的新标签链接打开");
 assert.match(importView, /Google 地图：\{normalizeUrl\(item\.google_url\)[\s\S]*?target="_blank" rel="noopener noreferrer"/, "候选客户地图须以安全的新标签链接打开");
