@@ -90,12 +90,18 @@ export function normalizeGoogleIdentity(value: unknown) {
   const raw = normalizeIdentityText(value);
   if (!raw) return "";
   const decoded = (() => { try { return decodeURIComponent(raw); } catch { return raw; } })();
+  const cid = decoded.match(/[?&]cid=(\d+)/i)?.[1];
+  if (cid) return `cid:${cid}`;
   const hexPlace = decoded.match(/(?:!1s|\/place\/)(0x[0-9a-f]+:0x[0-9a-f]+)/i)?.[1];
   if (hexPlace) return `place:${hexPlace.toLowerCase()}`;
   const semanticPlace = decoded.match(/(?:!16s|\/)(\/g\/[a-z0-9_-]+)/i)?.[1];
   if (semanticPlace) return `place:${semanticPlace.toLowerCase()}`;
   const placeId = decoded.match(/(?:place_id:|place_id=)([a-z0-9_-]+)/i)?.[1];
   if (placeId) return `place:${placeId.toLowerCase()}`;
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (/(?:^|\.)google\.[^/]+$/.test(parsed.hostname) && /^\/(?:maps)?\/?$/.test(parsed.pathname) && !parsed.searchParams.get("query")) return "";
+  } catch { /* Preserve existing URL fallback for non-URL values. */ }
   return normalizeIdentityUrl(raw);
 }
 

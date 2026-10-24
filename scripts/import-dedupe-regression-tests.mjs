@@ -19,6 +19,10 @@ assert.equal(
   normalizeGoogleIdentity("https://www.google.com/maps/place/Test/data=!4m6!3m5!1s0x123:0xABC!8m2"),
   "place:0x123:0xabc",
 );
+assert.equal(normalizeGoogleIdentity("https://maps.google.com/?cid=123"), "cid:123");
+assert.equal(normalizeGoogleIdentity("https://maps.google.com/?cid=456&g_mp=abc"), "cid:456");
+assert.notEqual(normalizeGoogleIdentity("https://maps.google.com/?cid=123"), normalizeGoogleIdentity("https://maps.google.com/?cid=456"));
+assert.equal(normalizeGoogleIdentity("https://maps.google.com/"), "", "没有地点标识的地图首页不能作为客户身份");
 
 const strongContactNameVariantA = { company_name: "Eur Mobile", phone: "+48 123 456 789", email: "sales@example.com" };
 const strongContactNameVariantB = { company_name: "Euro Mobile", phone: "0048 123456789", email: "SALES@example.com" };
