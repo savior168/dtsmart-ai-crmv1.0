@@ -33,6 +33,9 @@ export async function POST(request: NextRequest) {
       throw new Error("请选择2MB以内的.xlsx客户PI文件");
     }
     const parsed = parseCustomerPiWorkbook(new Uint8Array(await file.arrayBuffer()));
+    if (account.role === "ORDER_CLERK" && !parsed.document.sales_account_email) {
+      throw new Error("跟单员导入PI须填写所属销售员/主管的登录邮箱");
+    }
     if (account.role !== "ORDER_CLERK" && parsed.document.sales_account_email && parsed.document.sales_account_email.toLowerCase() !== account.email.toLowerCase()) {
       throw new Error("模板中的所属销售员账号与当前登录账号不一致；请由该销售员本人导入，或核对模板账号后重试");
     }

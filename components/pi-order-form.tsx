@@ -15,6 +15,7 @@ import { PI_PAYMENT_CHANNELS, type PiPaymentChannel } from "@/lib/pi-payment-cha
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
 import { parsePiProductRows } from "@/lib/pi-product-import";
+import { uniqueImportedPiCustomer } from "@/lib/pi-import-customer-match";
 import { displayAddressList, displayShippingContacts, type ShippingContact } from "@/lib/customers/address-list";
 
 type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null; shipping_contact_entries?: ShippingContact[] | null; forwarder_addresses?: string[] | null; forwarder_contact_entries?: ShippingContact[] | null };
@@ -27,7 +28,6 @@ type FeeField = { enabled: boolean; source: PiFeeSource; amount: string };
 const emptyFee = (): FeeField => ({ enabled: false, source: "CNY", amount: "0.00" });
 const newLine = (): Line => ({ item_name: "", brand: "", model: "", quality: "", description: "", description_zh: "", quantity: "", unit_price_cny: "", unit_price_payment: "", unit_price_source: "CNY", estimated_unit_cost_cny: "", preparation_requirement: "", internal_note: "" });
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const normalizeCustomerName = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
 const defaultValidity = () => { const date = new Date(); date.setDate(date.getDate() + 5); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
@@ -253,11 +253,11 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         const systemRate = Number(ratesBody.rates?.find((item: ExchangeRate) => item.currency === source.currency)?.business_cny || 0);
         const importedRate = Number(source.fx_rate_cny_per_payment || systemRate || 0);
         setRate(importedRate > 0 ? String(importedRate) : "");
-        if (source.shipping_cny !== undefined) setShippingFee({ enabled: true, source: "CNY", amount: source.shipping_cny.toFixed(2) });
+        if (source.shipping_source === "PAYMENT") setShippingFee({ enabled: true, source: "PAYMENT", amount: source.shipping_payment.toFixed(2) });
+        else if (source.shipping_cny !== undefined) setShippingFee({ enabled: true, source: "CNY", amount: source.shipping_cny.toFixed(2) });
         else if (importedRate > 0) setShippingFee({ enabled: true, source: "PAYMENT", amount: source.shipping_payment.toFixed(2) });
-        const companyName = normalizeCustomerName(source.delivery_company);
-        const exactCustomerMatches = companyName ? listed.filter((customer) => normalizeCustomerName(customer.company_name) === companyName && (!source.customer_name || normalizeCustomerName(customer.contact_name || "") === normalizeCustomerName(source.customer_name)) && (!source.customer_tax_number || normalizeCustomerName(customer.tax_number || "") === normalizeCustomerName(source.customer_tax_number))) : [];
-        if (exactCustomerMatches.length === 1) setCustomerId(exactCustomerMatches[0].id);
+        const matchedCustomer = uniqueImportedPiCustomer(listed, source);
+        if (matchedCustomer) setCustomerId(matchedCustomer.id);
         if (source.payment_method) {
           if (PI_PAYMENT_CHANNELS.some((method) => method === source.payment_method)) setPaymentMethod(source.payment_method);
           else { setPaymentMethod("OTHER"); setCustomPaymentMethod(source.payment_method); }
@@ -273,9 +273,9 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         if (source.show_dual_currency_prices) setShowDualCurrencyPrices(true);
         if (source.paypal_rate_percent !== undefined) setPaypalRateInput(String(source.paypal_rate_percent));
         setFeeFields({
-          last_balance: { source: source.last_balance_cny !== undefined ? "CNY" : "PAYMENT", enabled: Boolean(source.last_balance_cny || source.last_balance_payment), amount: (source.last_balance_cny ?? source.last_balance_payment ?? 0).toFixed(2) },
-          discount: { source: source.discount_cny !== undefined ? "CNY" : "PAYMENT", enabled: Boolean(source.discount_cny || source.discount_payment), amount: (source.discount_cny ?? source.discount_payment ?? 0).toFixed(2) },
-          other: { source: source.other_cny !== undefined ? "CNY" : "PAYMENT", enabled: Boolean(source.other_cny || source.other_payment), amount: (source.other_cny ?? source.other_payment ?? 0).toFixed(2) },
+          last_balance: { source: source.last_balance_source ?? (source.last_balance_cny !== undefined ? "CNY" : "PAYMENT"), enabled: Boolean(source.last_balance_cny || source.last_balance_payment), amount: (source.last_balance_source === "PAYMENT" ? source.last_balance_payment ?? 0 : source.last_balance_cny ?? source.last_balance_payment ?? 0).toFixed(2) },
+          discount: { source: source.discount_source ?? (source.discount_cny !== undefined ? "CNY" : "PAYMENT"), enabled: Boolean(source.discount_cny || source.discount_payment), amount: (source.discount_source === "PAYMENT" ? source.discount_payment ?? 0 : source.discount_cny ?? source.discount_payment ?? 0).toFixed(2) },
+          other: { source: source.other_source ?? (source.other_cny !== undefined ? "CNY" : "PAYMENT"), enabled: Boolean(source.other_cny || source.other_payment), amount: (source.other_source === "PAYMENT" ? source.other_payment ?? 0 : source.other_cny ?? source.other_payment ?? 0).toFixed(2) },
         });
         setItems(source.items.map((item) => ({ ...newLine(), item_name: item.item_name, brand: item.brand,
           model: item.model, quality: item.quality, description: item.description, description_zh: item.description_zh || "", quantity: String(item.quantity),
@@ -553,7 +553,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       {importSource.source_kind === "SYSTEM_TEMPLATE"
         ? <>系统整单模板：{importSource.warehouse_reference_number}。人民币售价、成本和费用已带入；{effectiveRate > 0 ? "请核对汇率与换算后的客户付款金额。" : "请填写有效汇率后核对客户付款金额。"}模板中未提供收款账户时请手动选择。费用与 PayPal 手续费将在页面计算 PI 总额。</>
         : <>原客户 PI：{importSource.warehouse_reference_number} · {importSource.currency} {importSource.total_payment.toFixed(2)}（含运费 {importSource.shipping_payment.toFixed(2)}）。人民币售价和运费{effectiveRate > 0 ? "已按当前业务汇率自动折算，可核对调整" : "需在汇率可用后折算"}；预估成本及收款账户需补充或核对。</>}
-      {selectedCustomer && normalizeCustomerName(selectedCustomer.company_name) === normalizeCustomerName(importSource.delivery_company) ? "客户已在当前账号名下唯一匹配，请确认联系人。" : "未自动匹配到当前账号名下的唯一客户；可能是客户未创建、归属他人或资料不一致。请先核对归属，再从本人客户列表选择；不能直接使用他人的客户。"}
+      {selectedCustomer ? "客户已在所属销售员名下按收货人和电话唯一匹配，请核对客户及收货信息。" : "收货人和电话未在所属销售员名下唯一匹配；可能是客户未创建、归属他人或资料不一致。请核对归属并手动选择，不可直接使用他人的客户。"}
       {importSource.payment_account_id ? "收款账户已按付款信息唯一精确匹配。" : "收款账户仅在唯一精确匹配时自动选择，否则请手动选择。"}与导入文件不一致时会要求逐项确认。
       {importSource.seller_contact_name ? <p className="mt-2 border-t border-amber-200 pt-2">原文件销售联系人：{importSource.seller_contact_name} · {importSource.seller_contact_phone || "未填写业务电话"} · {importSource.seller_contact_email || "未填写业务邮箱"}。正式 PI 使用归属销售员的系统资料；若有差异，保存前会提示核对。</p> : null}
     </div> : null}

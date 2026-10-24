@@ -346,7 +346,8 @@ assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单�
 assert.match(form, /source\.fx_rate_cny_per_payment \|\| systemRate/, "模板明确汇率优先用于全部换算；无模板汇率的正式导出PI才回退系统业务汇率");
 assert.match(form, /item\.unit_price_cny !== undefined \? importedRate > 0 \?[^\n]+: ""/, "缺失汇率时人民币来源商品的外币售价必须留空，不能显示错误换算值");
 assert.match(form, /setShippingFee\(\{ enabled: true, source: "PAYMENT", amount: source\.shipping_payment\.toFixed\(2\) \}\)/, "导入外币运费应保留外币原值供销售核对，并按当前业务汇率换算人民币显示");
-assert.match(form, /exactCustomerMatches\.length === 1/, "仅在本人公司名称唯一精确匹配时自动关联客户");
+assert.match(form, /uniqueImportedPiCustomer\(listed, source\)/, "只在所属销售员客户中按姓名和电话唯一精确匹配时自动关联");
+assert.match(readFileSync("lib/pi-import-customer-match.ts", "utf8"), /matches\.length === 1/, "重复匹配不得自动关联客户");
 assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货单"/, "差异核对确认应保留直接提交仓库意图");
 assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /matchImportedPaymentAccount[\s\S]*payment_account_id/,
   "付款账户只能服务端唯一精确匹配，并只在导入草稿中保存账户ID而不保留账户明文");
