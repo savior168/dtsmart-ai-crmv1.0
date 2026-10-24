@@ -277,8 +277,10 @@ assert.match(importView, /customerStageContactError\(item\.import_stage, item\)/
 assert.match(importPreviewApi, /disposition === "OWN_CUSTOMER"[\s\S]*?`\/customers\/\$\{customerId\}`/, "疑似重复客户为本人客户时须提供客户详情直达链接");
 assert.match(importPreviewApi, /disposition === "PUBLIC_POOL_AVAILABLE"[\s\S]*?tab=available&customer=\$\{customerId\}/, "疑似匹配的公海客户须提供公海客户直达链接");
 assert.match(importPreviewApi, /前往客户公海核对\/认领/);
-assert.match(importView, /查看候选详情/);
-assert.match(importView, /打开匹配客户/);
+assert.match(importView, /确认重复\/冲突，核对匹配客户/);
+assert.match(importView, /前往处理/);
+assert.match(importView, /确认重复\/冲突，核对匹配客户/, "预检候选入口须明确说明重复/归属冲突并引导核对");
+assert.match(importView, /row\.preflight_candidates\[0\]\.action_url[\s\S]*?前往处理/, "预检候选须保留匹配客户直达操作");
 assert.match(importView, /打开此客户记录/);
 assert.match(importView, /item\.action_label === "前往客户公海核对\/认领" && item\.action_url \?\s*\(\s*<Link[\s\S]*?href=\{item\.action_url\}[\s\S]*?aria-label=\{`\$\{item\.ownership_status\}，前往客户公海核对\/认领`\}/, "公海待认领状态标签须安全直达对应客户的公海核对/认领页");
 assert.match(importView, /target="_blank" rel="noopener noreferrer"/);
