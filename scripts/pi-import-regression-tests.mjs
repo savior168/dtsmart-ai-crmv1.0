@@ -274,6 +274,8 @@ const view = readFileSync("components/pi-import-view.tsx", "utf8");
 const conversion = readFileSync("app/api/orders/import-drafts/[id]/convert/route.ts", "utf8");
 assert.match(route, /requirePermission\("orders\.import"\)/);
 assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /sales_account_email\.toLowerCase\(\) !== account\.email\.toLowerCase\(\)/);
+assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /\.ilike\("email", salesEmailPattern\)[\s\S]*owner\.email\.toLowerCase\(\) !== parsed\.document\.sales_account_email\.toLowerCase\(\)/,
+  "跟单员导入的销售员邮箱应忽略大小写，并在查询后核对精确账号");
 assert.match(route, /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/);
 assert.match(route, /PI-invoice-layout-template/);
 assert.match(route, /PI_Whole_Order_Import_Template\.xlsx/, "下载接口须提供当前系统整单模板");
