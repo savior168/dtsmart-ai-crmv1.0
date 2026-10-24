@@ -53,15 +53,29 @@ export async function POST(request: NextRequest) {
           .map((existingRow) => ({ existingRow, match_reasons: potentialCustomerDuplicateReasons(row, existingRow as Row) }))
           .filter((candidate) => candidate.match_reasons.length)
           .slice(0, 5)
-          .map(({ existingRow, match_reasons }) => ({
-            id: existingRow.id,
-            company_name: existingRow.company_name,
-            country: existingRow.country,
-            website: existingRow.website,
-            google_url: existingRow.google_url,
-            match_reasons,
-            ownership_status: classifyExistingCustomer(existingRow, user.id) === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : "已有归属或待管理员处理",
-          }));
+          .map(({ existingRow, match_reasons }) => {
+            const disposition = classifyExistingCustomer(existingRow, user.id);
+            const customerId = encodeURIComponent(String(existingRow.id));
+            const action_url = disposition === "PUBLIC_POOL_AVAILABLE"
+              ? `/customers/pool?tab=available&customer=${customerId}`
+              : disposition === "OWN_CUSTOMER"
+                ? `/customers/${customerId}`
+                : null;
+            const action_label = disposition === "PUBLIC_POOL_AVAILABLE"
+              ? "前往客户公海核对/认领"
+              : disposition === "OWN_CUSTOMER" ? "打开我的客户详情" : null;
+            return {
+              id: existingRow.id,
+              company_name: existingRow.company_name,
+              country: existingRow.country,
+              website: existingRow.website,
+              google_url: existingRow.google_url,
+              match_reasons,
+              ownership_status: disposition === "PUBLIC_POOL_AVAILABLE" ? "客户公海待认领" : disposition === "OWN_CUSTOMER" ? "我的客户" : "已有归属或待管理员处理",
+              action_url,
+              action_label,
+            };
+          });
         if (candidates.length) {
           suspectedRowIndexes.push(rowIndex);
           suspectedMatches[rowIndex] = candidates;

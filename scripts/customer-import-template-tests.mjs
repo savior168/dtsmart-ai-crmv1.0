@@ -16,6 +16,7 @@ const binary = await readFile(resolve("assets/templates/Customer_Import_Template
 const poolBinary = await readFile(resolve("assets/templates/Customer_Public_Pool_Import_Template.xlsx"));
 const templateApi = await readFile(resolve("app/api/import/template/route.ts"), "utf8");
 const importApi = await readFile(resolve("app/api/import/route.ts"), "utf8");
+const importPreviewApi = await readFile(resolve("app/api/import/preview/route.ts"), "utf8");
 const workflowApi = await readFile(resolve("app/api/customers/[id]/workflow/route.ts"), "utf8");
 const importView = await readFile(resolve("components/import-view.tsx"), "utf8");
 const customerListApi = await readFile(resolve("app/api/customers/route.ts"), "utf8");
@@ -273,6 +274,15 @@ assert.match(importApi, /if \(!text\(item\.country\)\)/);
 assert.doesNotMatch(importApi, /if \(!text\(item\.company_name\)\)/);
 assert.doesNotMatch(importApi, /缺少电话、邮箱、官网或 Google 地图联系方式/);
 assert.match(importView, /customerStageContactError\(item\.import_stage, item\)/, "批量导入预览须显示阶段联系方式错误");
+assert.match(importPreviewApi, /disposition === "OWN_CUSTOMER"[\s\S]*?`\/customers\/\$\{customerId\}`/, "疑似重复客户为本人客户时须提供客户详情直达链接");
+assert.match(importPreviewApi, /disposition === "PUBLIC_POOL_AVAILABLE"[\s\S]*?tab=available&customer=\$\{customerId\}/, "疑似匹配的公海客户须提供公海客户直达链接");
+assert.match(importPreviewApi, /前往客户公海核对\/认领/);
+assert.match(importView, /查看候选详情/);
+assert.match(importView, /打开匹配客户/);
+assert.match(importView, /打开此客户记录/);
+assert.match(importView, /target="_blank" rel="noopener noreferrer"/);
+assert.match(importPreviewApi, /: null;\s*const action_label/,
+  "跨用户归属的疑似客户不得越权直达，只能先核对候选信息");
 assert.match(importApi, /customerStageContactError\(stage, \{ phone: item\.phone, email: item\.email, wechat: item\.wechat \}\)/, "批量导入API须显式传入联系人渠道字段");
 assert.match(workflowApi, /customerStageContactError\(status, customer\.data\)/, "阶段变更API须校验联系方式");
 assert.equal(customerStageContactError("FOLLOWING", { wechat: "wx-id" }), null);
