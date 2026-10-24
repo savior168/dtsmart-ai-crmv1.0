@@ -169,6 +169,22 @@ Object.assign(sample, {
 });
 const mapped = mapImportRow(sample);
 const safe = sanitizeImportRow(mapped);
+for (const [name, source, columns] of [
+  ["我的客户", binary, headers],
+  ["客户公海", poolBinary, poolHeaders],
+]) {
+  const filled = XLSX.read(source, { type: "buffer" });
+  XLSX.utils.sheet_add_aoa(filled.Sheets["客户导入模板"], [columns.map((header) => sample[header])], { origin: "A11" });
+  const uploaded = XLSX.write(filled, { bookType: "xlsx", type: "buffer" });
+  const parsed = await parseImportFile(new File([uploaded], `${name}全字段测试.xlsx`));
+  assert.equal(parsed.length, 1, `${name}模板填写全列后应准确解析一条记录`);
+  for (const header of columns) assert.equal(parsed[0][header], sample[header], `${name}模板字段映射错误：${header}`);
+  const actual = sanitizeImportRow(mapImportRow(parsed[0]));
+  for (const [field, expected] of Object.entries(safe)) {
+    if (name === "客户公海" && ["import_stage", "manual_grade", "import_meta"].includes(field)) continue;
+    assert.deepEqual(actual[field], expected, `${name}上传解析后字段错误：${field}`);
+  }
+}
 for (const [field, expected] of Object.entries({
   company_name: "测试公司", contact_name: "张先生", country: "法国", phone: "+33 123456",
   email: "zhang@example.com", whatsapp: "+33 987654", wechat: "contact123",
