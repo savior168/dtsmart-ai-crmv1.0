@@ -156,7 +156,7 @@ replaceCell("M69", 't="n"', '<x:f>SUM(M19:M68)</x:f><x:v>0</x:v>', "K69");
 for (let row = 70; row <= 75; row += 1) {
   replaceCell(`L${row}`, 't="n"', row === 75 ? '<x:f>SUM(L69:L74)</x:f><x:v>0</x:v>' : `<x:f>IF(M${row}="","",ROUND(M${row}*$J$7,2))</x:f><x:v></x:v>`, "K70");
   replaceCell(`M${row}`, 't="n"', row === 74
-    ? '<x:f>IF($J$8="PayPal",ROUND((M69+M70+M71+M72+M73)*5%,2),0)</x:f><x:v>0</x:v>'
+    ? '<x:f>IF($J$8="PayPal",ROUND(SUM(M69:M73)*5%,2),0)</x:f><x:v>0</x:v>'
     : row === 75 ? '<x:f>SUM(M69:M74)</x:f><x:v>0</x:v>' : '<x:v></x:v>', "K70");
 }
 replaceCell("J69", 't="n"', '<x:v></x:v>', "J70");
@@ -182,6 +182,12 @@ for (let row = 69; row <= 75; row += 1) {
   if (!worksheetXml.includes(`ref="G${row}:J${row}"`)) worksheetXml = worksheetXml.replace("</x:mergeCells>", `<x:mergeCell ref="G${row}:J${row}"/></x:mergeCells>`);
 }
 worksheetXml = worksheetXml.replace('<x:row r="77" ht="22" customHeight="1">', '<x:row r="77" ht="42" customHeight="1">').replace('<x:row r="78" ht="22" customHeight="1">', '<x:row r="78" ht="42" customHeight="1">');
+// The source export uses tall rows for its footer notes. Those rows now contain
+// compact fee lines, so retain invoice spacing instead of inheriting the footer.
+for (let row = 69; row <= 75; row += 1) {
+  worksheetXml = worksheetXml.replace(new RegExp(`<x:row r="${row}"([^>]*)>`), (_match, attributes) =>
+    `<x:row r="${row}"${/\bht=/.test(attributes) ? attributes.replace(/\bht="[^"]*"/, 'ht="22"') : `${attributes} ht="22"`}${/\bcustomHeight=/.test(attributes) ? "" : ' customHeight="1"'}>`);
+}
 const mergeBlock = worksheetXml.match(/<x:mergeCells[^>]*>[\s\S]*?<\/x:mergeCells>/)?.[0];
 if (mergeBlock) worksheetXml = worksheetXml.replace(mergeBlock, mergeBlock.replace(/count="\d+"/, `count="${(mergeBlock.match(/<x:mergeCell\b/g) || []).length}"`));
 worksheetPart.content = Buffer.from(worksheetXml, "utf8");

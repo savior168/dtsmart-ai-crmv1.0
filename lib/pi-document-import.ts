@@ -272,7 +272,11 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   const amountColumn = dualCurrencyColumns ? "M" : "K";
   const amountCnyColumn = dualCurrencyColumns ? "L" : "";
   const readAmount = (row: number, column: string, label: string) => {
-    const raw = sheet[`${column}${row}`]?.v;
+    const cell = sheet[`${column}${row}`];
+    const raw = cell?.v;
+    // Spreadsheet editors may leave stale error caches before recalculation.
+    // Formula-derived fees are recomputed from entered amounts below.
+    if (cell?.f && (raw === undefined || raw === null || raw === "" || !Number.isFinite(Number(raw)))) return 0;
     if (raw === undefined || raw === null || raw === "") return 0;
     const value = Number(raw);
     if (!Number.isFinite(value) || Math.abs(value) > 999999999999 || Math.abs(value - money(value)) > 0.000001) throw new Error(`客户PI${label}金额不正确`);
@@ -309,12 +313,8 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
     else throw new Error(`客户PI含无法识别的费用项目：${label}`);
   }
   if (shownTotal === undefined) throw new Error("客户PI缺少订单总金额，无法校验费用");
-  const total_payment = money(subtotal_payment + shipping_payment + last_balance_payment + other_payment - discount_payment + paypal_fee);
   const totalCell = Array.from({ length: 12 }, (_, index) => subtotalRow + index + 1)
     .find((row) => /^TOTAL AMOUNT\s*:/i.test(cellText(sheet, `G${row}`)));
-  if (totalCell && !sheet[`${amountColumn}${totalCell}`]?.f && Math.abs(shownTotal - total_payment) > 0.001) {
-    throw new Error("客户PI订单总金额与产品和费用明细不一致");
-  }
   if (isImportTemplate) {
     shipping_cny = money(shipping_payment * fx_rate_cny_per_payment);
     last_balance_cny = money(last_balance_payment * fx_rate_cny_per_payment);
@@ -324,6 +324,10 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
     paypal_fee = paymentMethod === "PayPal"
       ? money((subtotal_payment + shipping_payment + last_balance_payment + other_payment - discount_payment) * paypal_rate_percent / 100)
       : 0;
+  }
+  const total_payment = money(subtotal_payment + shipping_payment + last_balance_payment + other_payment - discount_payment + paypal_fee);
+  if (totalCell && !sheet[`${amountColumn}${totalCell}`]?.f && Math.abs(shownTotal - total_payment) > 0.001) {
+    throw new Error("客户PI订单总金额与产品和费用明细不一致");
   }
   return { sheet_name: sheetName, payment_account_instructions: paymentAccountInstructions, document: {
     warehouse_reference_number, currency, payment_method: paymentMethod, customer_name: recipient,

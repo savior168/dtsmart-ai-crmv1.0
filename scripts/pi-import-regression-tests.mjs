@@ -24,6 +24,10 @@ assert.match(sheet.M18.f, /J6/, "模板付款币种金额标题应随顶部所�
 assert.match(sheet.J19.f, /ROUND\(I19\/\$J\$7,2\)/, "付款币种单价应由人民币单价与必填汇率自动计算");
 assert.match(sheet.L19.f, /ROUND\(I19\*K19,2\)/, "人民币金额应由人民币单价和数量计算");
 assert.match(sheet.M19.f, /ROUND\(J19\*K19,2\)/, "外币金额应由外币单价和数量计算");
+assert.match(sheet.M74.f, /SUM\(M69:M73\)/, "空白费用不能使 PayPal 手续费显示 #VALUE!，负数折扣须扣减");
+for (let row = 69; row <= 75; row += 1) {
+  assert.equal(sheet["!rows"]?.[row - 1]?.hpt, 22, `第${row}行费用汇总应使用紧凑统一行高`);
+}
 assert.match(String(sheet.I2.v), /\*.*订单编号/);
 assert.match(String(sheet.G6.v), /\*.*客户付款币种/);
 for (const address of ["B17", "D17", "E17", "F17", "I17", "K17"]) {
@@ -101,6 +105,11 @@ assert.equal(feeImport.document.total_payment, 481.32, "导出的所有费用行
 assert.equal(feeImport.document.paypal_rate_percent, 5);
 assert.equal(feeImport.document.last_balance_payment, 20);
 assert.equal(feeImport.document.shipping_cny, 66.68, "费用人民币金额应按模板汇率换算");
+exampleSheet[`M${invoiceSubtotalRow + 5}`] = { t: "e", v: "#VALUE!", f: "IF(J8=\"PayPal\",ROUND(SUM(M69:M73)*5%,2),0)" };
+exampleSheet[`M${invoiceSubtotalRow + 6}`] = { t: "e", v: "#VALUE!", f: "SUM(M69:M74)" };
+assert.equal(parseCustomerPiWorkbook(XLSX.write(example, { type: "buffer", bookType: "xlsx" })).document.total_payment, 481.32, "公式缓存错误不得阻止从原始金额重新核算导入");
+exampleSheet[`M${invoiceSubtotalRow + 5}`] = { t: "n", v: 22.92 };
+exampleSheet[`M${invoiceSubtotalRow + 6}`] = { t: "n", v: 481.32 };
 exampleSheet["!ref"] = `A1:M${invoiceSubtotalRow + 8}`;
 exampleSheet[`A${invoiceSubtotalRow + 7}`] = { t: "s", v: "PAYMENT INFORMATION" };
 exampleSheet[`A${invoiceSubtotalRow + 8}`] = { t: "s", v: "BANK: A ACCOUNT: 123" };
