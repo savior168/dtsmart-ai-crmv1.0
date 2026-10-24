@@ -281,6 +281,11 @@ assert.match(importView, /查看候选详情/);
 assert.match(importView, /打开匹配客户/);
 assert.match(importView, /打开此客户记录/);
 assert.match(importView, /target="_blank" rel="noopener noreferrer"/);
+assert.match(importView, /官网：\{normalizeUrl\(item\.website\)[\s\S]*?target="_blank" rel="noopener noreferrer"/, "候选客户官网须以安全的新标签链接打开");
+assert.match(importView, /Google 地图：\{normalizeUrl\(item\.google_url\)[\s\S]*?target="_blank" rel="noopener noreferrer"/, "候选客户地图须以安全的新标签链接打开");
+assert.match(piForm, /const customerRequest = fetch\("\/api\/orders\/pi-customers"[\s\S]*?setCustomers\(listed\);\s*setCustomerOptionsLoading\(false\)/, "PI创建页应先呈现本销售员客户，不应等待汇率或收款账户接口完成");
+assert.match(piForm, /customerOptionsLoading \? "正在加载客户…"/, "客户资料加载中应给出明确提示");
+assert.match(piForm, /disabled=\{Boolean\(draftOrderId\) \|\| customerOptionsLoading/, "客户资料未加载完成时应阻止空白选择");
 assert.match(importPreviewApi, /: null;\s*const action_label/,
   "跨用户归属的疑似客户不得越权直达，只能先核对候选信息");
 assert.match(importApi, /customerStageContactError\(stage, \{ phone: item\.phone, email: item\.email, wechat: item\.wechat \}\)/, "批量导入API须显式传入联系人渠道字段");
