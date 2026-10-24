@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { QUOTE_CURRENCY_CODES } from "./currencies.ts";
 import { parsePiProductRows } from "./pi-product-import.ts";
+import { calculatePiFees } from "./pi-fees.ts";
 
 export type ImportedPiItem = {
   item_name: string;
@@ -156,14 +157,24 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
       amount_payment: money(unit_price_payment * quantity) };
   });
   const subtotal_payment = money(items.reduce((sum, item) => sum + item.amount_payment, 0));
-  const shipping_payment = fx_rate_cny_per_payment ? money(shipping_cny / fx_rate_cny_per_payment) : 0;
+  const subtotal_cny = money(items.reduce((sum, item) => sum + money(Number(item.unit_price_cny || 0) * item.quantity), 0));
+  const fees = fx_rate_cny_per_payment ? calculatePiFees(subtotal_cny, subtotal_payment, shipping_cny,
+    1 / fx_rate_cny_per_payment, read(10), {
+      last_balance: { source: "CNY", amount: last_balance_cny },
+      discount: { source: "CNY", amount: discount_cny },
+      other: { source: "CNY", amount: other_cny },
+      paypal_rate_percent,
+      show_dual_currency_prices: dual === "是",
+    }) : null;
   return { sheet_name: "PI基本信息", payment_account_instructions: read(23), document: {
     source_kind: "SYSTEM_TEMPLATE" as const, customer_name, sales_account_email, delivery_company, warehouse_reference_number, currency,
     fx_rate_cny_per_payment, valid_until, delivery_date, payment_method: read(10), delivery_recipient,
-    delivery_phone, delivery_email, delivery_address, shipping_cny, shipping_payment,
-    last_balance_cny, discount_cny, other_cny, paypal_rate_percent,
+    delivery_phone, delivery_email, delivery_address, shipping_cny, shipping_payment: fees?.shippingPayment ?? 0,
+    last_balance_cny, last_balance_payment: fees?.lastBalance.payment ?? 0,
+    discount_cny, discount_payment: fees?.discount.payment ?? 0,
+    other_cny, other_payment: fees?.other.payment ?? 0, paypal_rate_percent,
     show_dual_currency_prices: dual === "是", stocking_requirements: read(21), items,
-    subtotal_payment, total_payment: money(subtotal_payment + shipping_payment),
+    subtotal_payment, total_payment: fees?.totalPayment ?? 0,
   } satisfies ImportedPiDocument };
 }
 

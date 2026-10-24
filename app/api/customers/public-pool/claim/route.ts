@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { uploadWorkflowEvidence, validateWorkflowEvidence } from "@/lib/customer-workflow-evidence";
+import { customerStageContactError } from "@/lib/customer-contact-requirement";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     // The public-pool list uses a narrowly scoped server query: an unowned
     // customer is intentionally invisible through the salesperson's customer
     // RLS. Check the same claimable scope here; the RPC locks and rechecks it.
-    const customer = await createAdminClient().from("customers").select("phone,email,ai_screening_done,ai_score")
+    const customer = await createAdminClient().from("customers").select("phone,email,wechat,ai_screening_done,ai_score")
       .eq("id", customerId).eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE")
       .eq("status", "UNCLAIMED").is("owner_id", null).is("deleted_at", null).maybeSingle();
     if (customer.error) throw customer.error;
@@ -23,11 +24,8 @@ export async function POST(request: NextRequest) {
     if (customer.data.ai_screening_done !== true || customer.data.ai_score === null || customer.data.ai_score < 60) {
       return NextResponse.json({ error: "客户须完成 AI 分析且评分达到 60 分后才能认领" }, { status: 409 });
     }
-    if (["FOLLOWING", "DEAL"].includes(stage)) {
-      if (!String(customer.data.phone || "").trim() || !String(customer.data.email || "").trim()) {
-        return NextResponse.json({ error: "意向客户和成交客户必须同时具备联系电话和邮箱，请先补全客户资料" }, { status: 400 });
-      }
-    }
+    const contactError = customerStageContactError(stage, customer.data);
+    if (contactError) return NextResponse.json({ error: `${contactError}，请先补全客户资料` }, { status: 400 });
     const fileValue = form.get("file");
     if (stage !== "CLAIMED" && !(fileValue instanceof File)) return NextResponse.json({ error: "潜在客户以外的阶段必须上传真实凭证附件" }, { status: 400 });
     if (!String(form.get("next_plan") || "").trim()) return NextResponse.json({ error: "请填写本次联系纪要及下一步安排" }, { status: 400 });

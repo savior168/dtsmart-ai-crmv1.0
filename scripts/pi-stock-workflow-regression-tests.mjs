@@ -11,6 +11,7 @@ const read = (path) => readFileSync(path, "utf8");
 const migration = read("supabase/migrations/20261013090000_stock_receiving_workflow.sql");
 const quantityMigration = read("supabase/migrations/20261015180000_stock_quantity_progress.sql");
 const batchMigration = read("supabase/migrations/20261015201000_stock_bulk_physical_progress.sql");
+const batchIntegerMigration = read("supabase/migrations/20261024061800_stock_bulk_integer_quantities.sql");
 const correctionMigration = read("supabase/migrations/20261015210000_stock_item_progress_correction.sql");
 const shipmentMigration = read("supabase/migrations/20261016080000_stock_line_shipments.sql");
 const piMigration = read("supabase/migrations/20261013074814_pi_order_direct_creation.sql");
@@ -27,6 +28,8 @@ assert.match(batchRoute, /account\.role !== "WAREHOUSE" && account\.role !== "AD
 assert.match(batchMigration, /p_stage not in \('RECEIVED','READY_TO_SHIP'\)/, "批量快捷操作只允许实物已回齐或理货完成");
 assert.match(batchMigration, /public\.record_stock_progress\(p_stock_order_id,'RECEIVE'/, "批量理货完成须先记录实物回货");
 assert.match(batchMigration, /public\.record_stock_progress\(p_stock_order_id,'PREPARE'/, "批量理货完成须沿用已有数量约束、进度汇总及审计");
+assert.equal([...batchIntegerMigration.matchAll(/'quantity',line\.quantity::integer/g)].length, 2, "批量回货和理货必须把历史 numeric(12,2) 数量规范为整数后再交给进度RPC，避免 10.00 转 integer 报错");
+assert.match(batchIntegerMigration, /create or replace function public\.complete_stock_items_batch[\s\S]*revoke all on function public\.complete_stock_items_batch[\s\S]*grant execute on function public\.complete_stock_items_batch/, "批量进度修复必须保留安全定义函数及最小执行授权");
 assert.match(correctionMigration, /create function public\.correct_stock_item_progress[\s\S]*p_reason text[\s\S]*已发货数≤理货数≤回货数≤订购数/, "更正接口必须要求原因并由数据库保护实物数量约束");
 assert.match(correctionMigration, /insert into public\.stock_order_events[\s\S]*更正原因[\s\S]*STOCK_ITEM_PROGRESS_CORRECTION/, "进度更正须追加不可覆盖的审计和状态流水");
 assert.match(correctionMigration, /line\.preparation_status <> 'PREPARING'[\s\S]*line\.received_quantity <> 0[\s\S]*line\.prepared_quantity <> 0[\s\S]*line\.shipped_quantity <> 0[\s\S]*撤回误点的开始采购/, "开始采购只允许在没有任何实物进度时撤回");

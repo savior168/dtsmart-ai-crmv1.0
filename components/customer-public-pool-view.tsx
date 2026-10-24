@@ -1237,7 +1237,6 @@ function ClaimDialog({
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (["FOLLOWING", "DEAL"].includes(stage) && (!row.phone?.trim() || !row.email?.trim())) return setError("意向客户和成交客户必须同时具备联系电话和邮箱，请先补全公海主档");
     if (stage !== "CLAIMED" && !file) return setError("潜在客户以外的阶段必须上传真实凭证附件");
     setBusy(true);
     setError("");

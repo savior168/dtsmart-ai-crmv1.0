@@ -223,23 +223,45 @@ const basic = wholeTemplate.Sheets["PI基本信息"];
 const lines = wholeTemplate.Sheets["PI产品明细"];
 assert.equal(lines.E1.v, "产品描述", "产品描述应选填");
 assert.equal(lines.I1, undefined, "PI整单模板明细去掉中文后端描述、理货要求及销售备注及计算列");
-for (const [address, value] of Object.entries({ B3: "Jack Liu", B4: "i-Service", B5: "D6052456", B6: "USD", B7: 6.67, B8: "2026-11-01", B10: "T/T Bank Transfer", B11: "Jack Liu", B12: "+86 1520256556", B13: "jack@example.com", B14: "Dublin", B15: 100, B16: 50, B17: 5, B18: 8, B19: 0, B20: "是" })) {
+for (const [address, value] of Object.entries({ B3: "Jack Liu", B4: "i-Service", B5: "D6052456", B6: "USD", B7: 6.67, B8: "2026-11-01", B9: "2026-11-30", B10: "PayPal", B11: "Jack Liu", B12: "+86 1520256556", B13: "jack@example.com", B14: "Dublin Docklands", B15: 100, B16: 50, B17: 5, B18: 8, B19: 5, B20: "是", B21: "Protect each screen with foam", B22: "seller@example.com", B23: "PayPal: seller@example.com" })) {
   basic[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
 }
-for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP17", D2: "OLED", F2: 80, G2: 120, H2: 10 })) {
+for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP17", D2: "OLED", E2: "AMOLED display", F2: 80, G2: 120, H2: 10 })) {
   lines[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
 }
 const wholeBytes = () => XLSX.write(wholeTemplate, { type: "buffer", bookType: "xlsx" });
 const whole = parseCustomerPiWorkbook(wholeBytes()).document;
 assert.equal(whole.source_kind, "SYSTEM_TEMPLATE");
 assert.equal(whole.customer_name, "Jack Liu");
+assert.equal(whole.delivery_company, "i-Service");
+assert.equal(whole.warehouse_reference_number, "D6052456");
+assert.equal(whole.currency, "USD");
+assert.equal(whole.fx_rate_cny_per_payment, 6.67);
+assert.equal(whole.valid_until, "2026-11-01");
+assert.equal(whole.delivery_date, "2026-11-30");
+assert.equal(whole.payment_method, "PayPal");
+assert.equal(whole.delivery_recipient, "Jack Liu");
+assert.equal(whole.delivery_phone, "+86 1520256556");
+assert.equal(whole.delivery_email, "jack@example.com");
+assert.equal(whole.delivery_address, "Dublin Docklands");
+assert.equal(whole.sales_account_email, "seller@example.com");
+assert.equal(whole.stocking_requirements, "Protect each screen with foam");
 assert.equal(whole.items[0].unit_price_cny, 120);
 assert.equal(whole.items[0].estimated_unit_cost_cny, 80);
-assert.equal(whole.items[0].description, "");
+assert.equal(whole.items[0].description, "AMOLED display");
+assert.equal(whole.items[0].brand, "IPH");
+assert.equal(whole.items[0].model, "IP17");
+assert.equal(whole.items[0].quality, "OLED");
+assert.equal(whole.items[0].quantity, 10);
 assert.equal(whole.items[0].description_zh, "");
 assert.equal(whole.shipping_cny, 100);
 assert.equal(whole.show_dual_currency_prices, true);
 assert.equal(whole.last_balance_cny, 50);
+assert.equal(whole.discount_cny, 5);
+assert.equal(whole.other_cny, 8);
+assert.equal(whole.paypal_rate_percent, 5);
+assert.equal(whole.total_payment, 212.98, "整单小计、费用、折扣和 PayPal 手续费均须计入外币总额并按分四舍五入");
+assert.equal(parseCustomerPiWorkbook(wholeBytes()).payment_account_instructions, "PayPal: seller@example.com");
 const legacyWhole = XLSX.readFile("assets/templates/PI_Whole_Order_Import_Template.xlsx");
 const legacyBasic = legacyWhole.Sheets["PI基本信息"];
 const legacyLines = legacyWhole.Sheets["PI产品明细"];

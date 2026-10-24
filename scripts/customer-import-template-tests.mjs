@@ -11,6 +11,7 @@ const { importedCustomerGrade, importedCustomerStage } = await jiti.import(resol
 const { CUSTOMER_GRADE_OPTIONS, CUSTOMER_GRADE_DESCRIPTIONS, CUSTOMER_GRADE_FILTER_LABELS, customerGradeDescription, isCustomerGrade } = await jiti.import(resolve("lib/customers/customer-grade.ts"));
 const { customerImportIdentityKeys } = await jiti.import(resolve("lib/import-dedupe.ts"));
 const { customerStageContactError } = await jiti.import(resolve("lib/customer-contact-requirement.ts"));
+const stageContactMigration = await readFile(resolve("supabase/migrations/20261024062500_customer_stage_contact_any_channel.sql"), "utf8");
 const binary = await readFile(resolve("assets/templates/Customer_Import_Template.xlsx"));
 const poolBinary = await readFile(resolve("assets/templates/Customer_Public_Pool_Import_Template.xlsx"));
 const templateApi = await readFile(resolve("app/api/import/template/route.ts"), "utf8");
@@ -279,6 +280,8 @@ assert.equal(customerStageContactError("DEAL", { email: "person@example.com" }),
 assert.equal(customerStageContactError("已成交客户", { phone: "+1 202 555 0100" }), null);
 assert.match(customerStageContactError("FOLLOWING", { wechat: "  ", email: "", phone: "" }) || "", /意向客户.*微信、邮箱或电话/);
 assert.equal(customerStageContactError("CLAIMED", {}), null);
+assert.match(stageContactMigration, /nullif\(btrim\(coalesce\(new\.phone, ''\)\), ''\) is null[\s\S]*nullif\(btrim\(coalesce\(new\.email, ''\)\), ''\) is null[\s\S]*nullif\(btrim\(coalesce\(new\.wechat, ''\)\), ''\) is null/, "数据库触发器须与导入规则一致，意向和成交只要求电话、邮箱、微信至少一项");
+assert.match(stageContactMigration, /update of status, phone, email, wechat/, "联系方式单字段变化也须被数据库触发器覆盖");
 assert.doesNotMatch(customerForm, /input\("company_name","公司名称",true\)/, "手动新增公司名称应选填");
 assert.doesNotMatch(customerCreateApi, /if \(!body\.company_name\)/, "服务端不得强制公司名称");
 assert.match(importApi, /source_stage_label = sourceStageLabel/);
