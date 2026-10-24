@@ -289,14 +289,17 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
     ? recipientLine.match(/\s*(?:·|•)\s*TEL\*?\s*[:：]\s*(.*)$/i)?.[1]?.trim() || ""
     : recipientLine.match(/TEL\*?\s*[:：]\s*(.*)$/i)?.[1]?.trim() || "";
   const delivery_address = isImportTemplate && !sourceLayout ? cellText(sheet, "G14") : afterLabel(cellText(sheet, "G13"));
-  const delivery_company = isImportTemplate && !sourceLayout ? cellText(sheet, "D13") : deliveryValue("Company");
+  const delivery_company = sourceLayout && cellText(sheet, "O13").trim()
+    ? cellText(sheet, "O13").trim()
+    : isImportTemplate && !sourceLayout ? cellText(sheet, "D13") : deliveryValue("Company");
   const customer_tax_number = isImportTemplate && !sourceLayout ? cellText(sheet, "D14") : deliveryValue("Tax No.");
   const delivery_email = isImportTemplate && !sourceLayout ? cellText(sheet, "D16") : deliveryValue("Email");
   if (isImportTemplate) {
     if (!dateValue(sheet[sourceLayout ? "K4" : "J4"]?.v, workbook.Workbook?.WBProps?.date1904 === true)) throw new Error("PI有效期为必填项，请填写有效日期");
     if (!recipient || !phone) throw new Error(separateRecipientPhone ? "收货人（客户）和联系电话为必填项，请分别填写To和TEL" : "收货人（客户）和联系电话为必填项，请按“To: 姓名 · TEL: 电话”格式填写");
     if (!delivery_address) throw new Error("客户收货地址为必填项");
-    const salesEmail = cellText(sheet, sourceLayout ? "D10" : "J10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim();
+    const legacySalesEmail = cellText(sheet, sourceLayout ? "D10" : "J10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim();
+    const salesEmail = sourceLayout ? (cellText(sheet, "O7").trim() || legacySalesEmail) : legacySalesEmail;
     if (salesEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesEmail)) throw new Error("所属销售员登录邮箱格式不正确");
     if (sourceLayout) {
       if (!salesEmail) throw new Error("所属销售员登录邮箱为必填项");
@@ -414,11 +417,18 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
       if (!sheet[`N${subtotalRow + 3}`]?.v && other_payment) other_cny = money(other_payment * fx_rate_cny_per_payment);
       if (!sheet[`N${subtotalRow + 4}`]?.v && discount_payment) discount_cny = money(discount_payment * fx_rate_cny_per_payment);
     }
-    const templatePaypalRate = sourceLayout ? Number(sheet[`K${subtotalRow + 5}`]?.v ?? 5) : 5;
+    const rawTemplatePaypalRate = sourceLayout ? sheet[`K${subtotalRow + 5}`]?.v : undefined;
+    const templatePaypalRate = rawTemplatePaypalRate === undefined || rawTemplatePaypalRate === null || String(rawTemplatePaypalRate).trim() === ""
+      ? 5
+      : Number(rawTemplatePaypalRate);
     if (!Number.isFinite(templatePaypalRate) || templatePaypalRate < 0 || templatePaypalRate > 100) {
       throw new Error("PayPal 手续费比例须在0%至100%之间");
     }
-    paypal_rate_percent = paymentMethod === "PayPal" ? templatePaypalRate : 0;
+    // Preserve the editable default for the PI draft. Fees are applied only
+    // when its payment channel is PayPal; imported templates leave that blank.
+    paypal_rate_percent = paymentMethod === "PayPal" || (sourceLayout && !paymentMethod)
+      ? templatePaypalRate
+      : 0;
     paypal_fee = paymentMethod === "PayPal"
       ? money((subtotal_payment + shipping_payment + last_balance_payment + other_payment - discount_payment) * paypal_rate_percent / 100)
       : 0;
@@ -440,7 +450,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
     ...(isImportTemplate ? {
       fx_rate_cny_per_payment,
       valid_until: dateValue(sheet[sourceLayout ? "K4" : "J4"]?.v, workbook.Workbook?.WBProps?.date1904 === true),
-      sales_account_email: cellText(sheet, sourceLayout ? "D10" : "J10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim(),
+      sales_account_email: sourceLayout ? (cellText(sheet, "O7").trim() || cellText(sheet, "D10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim()) : cellText(sheet, "J10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim(),
       seller_contact_name: cellText(sheet, "D7").replace(/^Sales Manager\*?\s*[:：]\s*/i, "").trim(),
       seller_contact_phone: cellText(sheet, "D8").replace(/^Contact No\*?\s*[:：]\s*/i, "").trim(),
       seller_contact_email: cellText(sheet, "D9").replace(/^Email\*?\s*[:：]\s*/i, "").trim(),
