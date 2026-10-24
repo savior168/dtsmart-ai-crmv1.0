@@ -14,11 +14,11 @@ export const CUSTOMER_GRADE_DESCRIPTIONS: Record<CustomerGrade, string> = {
 
 export const CUSTOMER_GRADE_FILTER_LABELS: Record<CustomerGrade, string> = {
   S: "S   (Sum >= $50000)",
-  KA: "KA   (Sum >= $30000, < $50000)",
-  MA: "MA   (Sum >= $10000, < $30000)",
-  A: "A   (Sum >= $8000, < $10000)",
-  B: "B   (Sum >= $5000, < $8000)",
-  C: "C   (Sum >= $2000, < $5000)",
+  KA: "KA   ($30000 <= Sum < $50000)",
+  MA: "MA   ($10000 <= Sum < $30000)",
+  A: "A   ($8000 <= Sum < $10000)",
+  B: "B   ($5000 <= Sum < $8000)",
+  C: "C   ($2000 <= Sum < $5000)",
   D: "D   (Sum < $2000)",
 };
 

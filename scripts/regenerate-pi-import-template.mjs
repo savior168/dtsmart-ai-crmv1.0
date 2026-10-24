@@ -31,43 +31,51 @@ function insertCellInRow(rowNumber, cell) {
   const rowStart = ensureRow(rowNumber);
   const rowEnd = worksheetXml.indexOf("</x:row>", rowStart);
   if (rowEnd < 0) throw new Error(`PI导入模板第${rowNumber}行结构异常`);
-  worksheetXml = worksheetXml.slice(0, rowEnd) + cell + worksheetXml.slice(rowEnd);
+  const targetAddress = cell.match(/\br="([A-Z]+\d+)"/)?.[1];
+  const targetColumn = targetAddress?.match(/^[A-Z]+/)?.[0];
+  const columnNumber = (letters) => [...letters].reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0);
+  const targetIndex = targetColumn ? columnNumber(targetColumn) : Number.POSITIVE_INFINITY;
+  const rowXml = worksheetXml.slice(rowStart, rowEnd);
+  const cells = [...rowXml.matchAll(/<x:c\b[^>]*(?:\/>|>[\s\S]*?<\/x:c>)/g)];
+  const nextCell = cells.find((match) => {
+    const address = match[0].match(/\br="([A-Z]+\d+)"/)?.[1];
+    const letters = address?.match(/^[A-Z]+/)?.[0];
+    return letters ? columnNumber(letters) > targetIndex : false;
+  });
+  const insertAt = nextCell?.index ?? rowEnd - rowStart;
+  worksheetXml = worksheetXml.slice(0, rowStart + insertAt) + cell + worksheetXml.slice(rowStart + insertAt);
 }
 
 function findCell(cellAddress) {
-  const marker = `r="${cellAddress}"`;
-  const markerIndex = worksheetXml.indexOf(marker);
-  if (markerIndex < 0) return null;
-  const index = worksheetXml.lastIndexOf("<x:c", markerIndex);
-  if (index < 0) return null;
-  const openEnd = worksheetXml.indexOf(">", markerIndex);
-  if (openEnd < 0) return null;
-  const selfClosing = worksheetXml.slice(index, openEnd + 1).endsWith("/>");
-  const end = selfClosing ? openEnd + 1 : worksheetXml.indexOf("</x:c>", openEnd) + 6;
-  if (end <= 5) return null;
-  return { index, text: worksheetXml.slice(index, end) };
+  const rowNumber = Number(cellAddress.match(/\d+$/)?.[0]);
+  const rowStart = worksheetXml.indexOf(`<x:row r="${rowNumber}"`);
+  if (rowStart < 0) return null;
+  const rowEnd = worksheetXml.indexOf("</x:row>", rowStart);
+  if (rowEnd < 0) return null;
+  let index = rowStart;
+  while ((index = worksheetXml.indexOf("<x:c", index)) >= 0 && index < rowEnd) {
+    const openEnd = worksheetXml.indexOf(">", index);
+    if (openEnd < 0 || openEnd >= rowEnd) return null;
+    const openingTag = worksheetXml.slice(index, openEnd + 1);
+    if (!new RegExp(`\\br="${cellAddress}"(?:\\s|/?>)`).test(openingTag)) {
+      index = openEnd + 1;
+      continue;
+    }
+    const selfClosing = openingTag.endsWith("/>");
+    const end = selfClosing ? openEnd + 1 : worksheetXml.indexOf("</x:c>", openEnd) + 6;
+    if (end <= 5 || end > rowEnd + 6) return null;
+    return { index, text: worksheetXml.slice(index, end) };
+  }
+  return null;
 }
 
 function replaceCell(address, attributes, body, styleFrom = address) {
   const styleCell = findCell(styleFrom);
   const originalStyle = styleCell?.text.match(/\bs="(\d+)"/)?.[1] || "0";
   const replacement = `<x:c r="${address}" s="${originalStyle}" ${attributes}>${body}</x:c>`;
-  const current = findCell(address);
-  if (current) {
-    worksheetXml = worksheetXml.slice(0, current.index) + replacement + worksheetXml.slice(current.index + current.text.length);
-    return;
-  }
+  while (findCell(address)) removeCell(address);
   const rowNumber = Number(address.match(/\d+$/)?.[0]);
   insertCellInRow(rowNumber, replacement);
-}
-
-function moveCell(from, to) {
-  const match = findCell(from);
-  if (!match) throw new Error(`PI导入模板缺少单元格 ${from}`);
-  const cell = match.text.replace(`r="${from}"`, `r="${to}"`);
-  worksheetXml = worksheetXml.slice(0, match.index) + worksheetXml.slice(match.index + match.text.length);
-  const rowNumber = Number(to.match(/\d+$/)?.[0]);
-  insertCellInRow(rowNumber, cell);
 }
 
 function removeCell(address) {
@@ -76,6 +84,7 @@ function removeCell(address) {
   worksheetXml = worksheetXml.slice(0, match.index) + worksheetXml.slice(match.index + match.text.length);
 }
 const requiredLabel = (label) => `<x:is><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FFC62828"/><x:sz val="10"/></x:rPr><x:t>*</x:t></x:r><x:r><x:rPr><x:rFont val="Arial"/><x:color rgb="FF17243A"/><x:sz val="10"/></x:rPr><x:t xml:space="preserve"> ${label}</x:t></x:r></x:is>`;
+const requiredHeader = (label) => `<x:is><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FF17243A"/><x:sz val="10"/></x:rPr><x:t>${label} </x:t></x:r><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FFC62828"/><x:sz val="10"/></x:rPr><x:t>*</x:t></x:r></x:is>`;
 
 // Keep the export-like invoice layout while adding the fields needed to map a full import safely.
 replaceCell("G4", 't="inlineStr"', requiredLabel("PI有效期"), "A13");
@@ -101,6 +110,7 @@ replaceCell("D16", 't="inlineStr"', '<x:is><x:t></x:t></x:is>', "J6");
 replaceCell("G13", 't="inlineStr"', `<x:is><x:r><x:rPr><x:rFont val="Arial"/><x:color rgb="FF17243A"/><x:sz val="10"/></x:rPr><x:t>Delivery address: </x:t></x:r><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FFC62828"/><x:sz val="10"/></x:rPr><x:t>*</x:t></x:r></x:is>`, "A13");
 replaceCell("G14", 't="inlineStr"', '<x:is><x:t></x:t></x:is>', "J6");
 worksheetXml = worksheetXml.replace('<x:mergeCell ref="G13:K16"/>', '<x:mergeCell ref="G13:K13"/><x:mergeCell ref="G14:K16"/>');
+worksheetXml = worksheetXml.replace(/<x:col min="12" max="12"[^>]*\/>/g, "").replace(/<x:col min="13" max="13"[^>]*\/>/g, "");
 worksheetXml = worksheetXml
   .replace('ref="G13:K13"', 'ref="G13:M13"')
   .replace('ref="G14:K16"', 'ref="G14:M16"')
@@ -116,6 +126,10 @@ worksheetXml = worksheetXml.replace("</x:worksheet>", `${validations}</x:workshe
 replaceCell("I18", 't="inlineStr"', `<x:is><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FF17243A"/><x:sz val="10"/></x:rPr><x:t>Unit Price (CNY) </x:t></x:r><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FFC62828"/><x:sz val="10"/></x:rPr><x:t>*</x:t></x:r></x:is>`, "I18");
 replaceCell("J18", 't="str"', '<x:f>IF(J6="","Unit Price (外币)","Unit Price ("&amp;J6&amp;")")</x:f><x:v>Unit Price (外币)</x:v>', "I18");
 replaceCell("K18", 't="inlineStr"', `<x:is><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FF17243A"/><x:sz val="10"/></x:rPr><x:t>Quantity </x:t></x:r><x:r><x:rPr><x:rFont val="Arial"/><x:b/><x:color rgb="FFC62828"/><x:sz val="10"/></x:rPr><x:t>*</x:t></x:r></x:is>`, "J18");
+// Keep required markers attached to their labels in the invoice-style product header.
+for (const [address, label] of [["B18", "Items"], ["D18", "Brand"], ["E18", "Models"], ["F18", "Quality"], ["I18", "Unit Price (CNY)"], ["K18", "Quantity"]]) {
+  replaceCell(address, 't="inlineStr"', requiredHeader(label), address);
+}
 replaceCell("L18", 't="inlineStr"', '<x:is><x:t>Amount (CNY)</x:t></x:is>', "K18");
 replaceCell("M18", 't="str"', '<x:f>IF(J6="","Amount (外币)","Amount ("&amp;J6&amp;")")</x:f><x:v>Amount (外币)</x:v>', "K18");
 for (let row = 19; row <= 68; row += 1) {
@@ -128,8 +142,6 @@ const note = "红色 * 为必填；订单编号需与已有订单保持唯一。
 replaceCell("A74", 't="inlineStr"', `<x:is><x:t>${note}</x:t></x:is>`);
 
 // Expand the export-style amount summary without changing the product table layout.
-moveCell("G71", "G75");
-moveCell("K71", "K75");
 replaceCell("G71", 't="inlineStr"', '<x:is><x:t>UNPAID BALANCE:</x:t></x:is>', "G70");
 replaceCell("K71", 't="n"', '<x:v></x:v>', "K70");
 replaceCell("K69", 't="n"', '<x:f>SUM(K19:K68)</x:f><x:v>0</x:v>', "J69");
@@ -148,7 +160,10 @@ for (let row = 70; row <= 75; row += 1) {
     : row === 75 ? '<x:f>SUM(M69:M74)</x:f><x:v>0</x:v>' : '<x:v></x:v>', "K70");
 }
 replaceCell("J69", 't="n"', '<x:v></x:v>', "J70");
-moveCell("J17", "K17");
+for (const address of ["B17", "D17", "E17", "F17", "I17", "J17", "K17"]) {
+  while (findCell(address)) removeCell(address);
+}
+worksheetXml = worksheetXml.replace(/<x:row r="17"([^>]*)>/, (_match, attributes) => `<x:row r="17"${/\bht=/.test(attributes) ? attributes.replace(/\bht="[^"]*"/, 'ht="8"') : `${attributes} ht="8"`}${/\bcustomHeight=/.test(attributes) ? "" : ' customHeight="1"'}>`);
 for (const address of ["A72", "A73", "A74"]) removeCell(address);
 replaceCell("A76", 't="inlineStr"', '<x:is><x:t>PAYMENT INFORMATION（填写与系统收款账户详情一致的完整信息；无法唯一匹配时导入后手动选择）</x:t></x:is>', "G70");
 replaceCell("A77", 't="inlineStr"', '<x:is><x:t></x:t></x:is>', "K70");

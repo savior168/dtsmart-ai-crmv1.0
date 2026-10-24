@@ -15,6 +15,9 @@ assert.equal(sheet.G2.v, "COMMERCIAL INVOICE");
 assert.equal(sheet.A18.v, "No.");
 assert.equal(sheet.I18.v, "Unit Price (CNY) *", "PI导入模板人民币单价列必须与导出PI一致");
 assert.equal(sheet.K18.v, "Quantity *");
+for (const [address, expected] of Object.entries({ B18: "Items *", D18: "Brand *", E18: "Models *", F18: "Quality *", I18: "Unit Price (CNY) *", K18: "Quantity *" })) {
+  assert.equal(sheet[address].v, expected, `${address} 必填星号须紧贴产品表头`);
+}
 assert.equal(sheet.L18.v, "Amount (CNY)");
 assert.match(sheet.J18.f, /J6/, "模板付款币种单价标题应随顶部所选币种更新");
 assert.match(sheet.M18.f, /J6/, "模板付款币种金额标题应随顶部所选币种更新");
@@ -24,7 +27,7 @@ assert.match(sheet.M19.f, /ROUND\(J19\*K19,2\)/, "外币金额应由外币单价
 assert.match(String(sheet.I2.v), /\*.*订单编号/);
 assert.match(String(sheet.G6.v), /\*.*客户付款币种/);
 for (const address of ["B17", "D17", "E17", "F17", "I17", "K17"]) {
-  assert.equal(sheet[address].v, "*", `${address} 应标记必填`);
+  assert.equal(sheet[address]?.v, undefined, `${address} 不应再孤立显示必填星号`);
 }
 assert.match(String(sheet.A76.v), /PAYMENT INFORMATION/);
 assert.match(String(sheet.A78.v), /红色 \* 为必填/);
@@ -286,7 +289,7 @@ assert.doesNotMatch(form, /if \(importDraftId && submitToWarehouse\)/, "导入PI
 assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单价应按当前业务汇率折算并预填人民币售价");
 assert.match(form, /source\.fx_rate_cny_per_payment \|\| systemRate/, "模板明确汇率优先用于全部换算；无模板汇率的正式导出PI才回退系统业务汇率");
 assert.match(form, /item\.unit_price_cny !== undefined \? importedRate > 0 \?[^\n]+: ""/, "缺失汇率时人民币来源商品的外币售价必须留空，不能显示错误换算值");
-assert.match(form, /source\.shipping_payment \* importedRate/, "导入外币运费应按当前业务汇率折算并预填人民币运费");
+assert.match(form, /setShippingFee\(\{ enabled: true, source: "PAYMENT", amount: source\.shipping_payment\.toFixed\(2\) \}\)/, "导入外币运费应保留外币原值供销售核对，并按当前业务汇率换算人民币显示");
 assert.match(form, /exactCustomerMatches\.length === 1/, "仅在本人公司名称唯一精确匹配时自动关联客户");
 assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货单"/, "差异核对确认应保留直接提交仓库意图");
 assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /matchImportedPaymentAccount[\s\S]*payment_account_id/,

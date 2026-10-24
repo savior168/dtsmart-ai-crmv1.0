@@ -353,8 +353,12 @@ assert.match(piForm, /setForwarderRecipient\(chosen\?\.recipient \|\| ""\)[\s\S]
 assert.match(piForm, /function PiLineTextArea[\s\S]*scrollHeight[\s\S]*<PiLineTextArea label=/, "产品文本字段应自动增高以完整显示内容");
 assert.match(piForm, /showPicker\?\.\(\)/, "点击日期输入框可打开日期选择器");
 assert.match(piForm, /客户名称<Required\s*\/>[\s\S]*公司名称<input[\s\S]*客户税号<input[\s\S]*目的国家[\s\S]*订单编号<Required\s*\/>[\s\S]*客户付款币种<Required\s*\/>[\s\S]*汇率：[\s\S]*PI有效期<Required\s*\/>[\s\S]*预计交付日期[\s\S]*付款渠道[\s\S]*收款账户<Required\s*\/>/, "PI基本信息应先确认客户，再带出公司信息并填写交易信息");
-assert.match(piForm, /value=\{shippingInput\}[\s\S]*setShippingInput/, "运费应在费用汇总中由销售输入");
-assert.match(piForm, /<label htmlFor="pi-shipping"[\s\S]*aria-hidden="true"[^>]*>¥<\/span><input id="pi-shipping" aria-label="人民币运费"/, "人民币运费输入框应直观显示人民币符号");
+assert.match(piForm, /pi-shipping-cny[\s\S]*pi-shipping-payment[\s\S]*setShippingFee/, "运费应允许人民币或付款币种任一币种录入并自动换算");
+assert.match(piForm, /setShippingFee\(\(current\) => current\.source === "PAYMENT" && effectiveRate[\s\S]*source: "CNY"/, "切换付款币种前应保留运费的人民币价值，避免外币数字被误当成新币种金额");
+assert.match(piForm, /CNY（人民币）[\s\S]*<span>\{currency\}<\/span>/, "费用列应以币种代码区分，避免 ¥ 符号在不同币种间歧义");
+assert.match(piForm, /items-stretch \[&>div\]:h-full/, "理货要求与PI费用汇总模块应保持同高");
+assert.match(piForm, /双击修改手续费百分比[\s\S]*paypalFee\.cny\.toFixed\(2\)[\s\S]*paypalFee\.payment\.toFixed\(2\)/, "PayPal费率应可双击编辑且同一行显示双币手续费");
+assert.doesNotMatch(piForm, /手续费金额/, "PayPal手续费不应另占一行");
 assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "创建PI共享校验必须覆盖产品、品牌、型号和质量");
 assert.match(read("lib/pi-order-input.ts"), /row\.item_name, row\.brand, row\.model, row\.quality/, "编辑PI接口必须校验相同的必填字段");
 assert.match(read("supabase/migrations/20261014160000_pi_line_required_fields.sql"), /x\.brand[\s\S]*x\.model[\s\S]*x\.quality/, "数据库RPC必须防止绕过必填字段校验");

@@ -200,9 +200,9 @@ assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.B, "$5,000 ≤ 业绩 < $8,000 USD");
 assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.C, "$2,000 ≤ 业绩 < $5,000 USD");
 assert.equal(CUSTOMER_GRADE_DESCRIPTIONS.D, "业绩 < $2,000 USD");
 assert.deepEqual(CUSTOMER_GRADE_OPTIONS.map((grade) => CUSTOMER_GRADE_FILTER_LABELS[grade]), [
-  "S   (Sum >= $50000)", "KA   (Sum >= $30000, < $50000)", "MA   (Sum >= $10000, < $30000)",
-  "A   (Sum >= $8000, < $10000)", "B   (Sum >= $5000, < $8000)", "C   (Sum >= $2000, < $5000)", "D   (Sum < $2000)",
-], "客户等级筛选项须显示各档英文业绩区间");
+  "S   (Sum >= $50000)", "KA   ($30000 <= Sum < $50000)", "MA   ($10000 <= Sum < $30000)",
+  "A   ($8000 <= Sum < $10000)", "B   ($5000 <= Sum < $8000)", "C   ($2000 <= Sum < $5000)", "D   (Sum < $2000)",
+], "客户等级筛选项须明确显示各档包含下限、不包含上限的英文业绩区间");
 assert.match(customersView, /CUSTOMER_GRADE_FILTER_LABELS\[grade\]/, "客户等级筛选显示英文业绩区间且筛选值仍是等级代码");
 assert.equal(importedCustomerGrade("", "PRIVATE"), null);
 assert.throws(() => importedCustomerGrade("E", "PRIVATE"), /客户等级只能/);
