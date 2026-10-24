@@ -10,7 +10,6 @@ export const NOTIFICATION_TYPES = [
   { type: "CUSTOMER_ADMIN_ASSIGNED", label: "管理员分配客户", popup: true, voice: true },
   { type: "CUSTOMER_HANDOVER", label: "客户交接", popup: true, voice: true },
   { type: "FOLLOWUP_DUE", label: "客户跟进提醒", popup: false, voice: false },
-  { type: "SYSTEM_ANNOUNCEMENT", label: "系统公告", popup: true, voice: false },
 ] as const;
 
 export type NotificationPolicy = { type: string; popup_enabled: boolean; voice_enabled: boolean };

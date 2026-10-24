@@ -9,7 +9,7 @@ export async function GET() {
     const admin = createAdminClient();
     const [policies, announcements] = await Promise.all([
       admin.from("notification_delivery_policies").select("type,popup_enabled,voice_enabled,updated_at"),
-      admin.from("system_announcements").select("id,title,content,published_at,published_by,recipient_roles,recipient_count").order("published_at", { ascending: false }).limit(20),
+      admin.from("system_announcements").select("id,title,content,announcement_type,priority,published_at,published_by,recipient_roles,recipient_count").order("published_at", { ascending: false }).limit(20),
     ]);
     if (policies.error) throw policies.error;
     if (announcements.error) throw announcements.error;

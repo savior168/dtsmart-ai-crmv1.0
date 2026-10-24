@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Bell,
+  Megaphone,
   ShoppingCart,
   ClipboardList,
   PackageSearch,
@@ -30,6 +31,7 @@ import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 import { notificationVoiceText } from "@/lib/notification-voice";
 import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, selectNotificationToastBatch, shouldShowNotificationToast } from "@/lib/notification-toast";
 import { defaultNotificationPolicy, notificationPolicyType, type NotificationPolicy } from "@/lib/notification-policy";
+import { systemAnnouncementPriorityRank, systemAnnouncementTypeLabel } from "@/lib/system-announcements";
 
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
@@ -419,6 +421,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [noticeCount, setNoticeCount] = useState(0);
   const [notices, setNotices] = useState<ShellNotice[]>([]);
   const [toastNotices, setToastNotices] = useState<ShellNotice[]>([]);
+  const [announcementNotices, setAnnouncementNotices] = useState<ShellNotice[]>([]);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -431,6 +434,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const profileRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
   const toastNoticesRef = useRef<ShellNotice[]>([]);
+  const announcementCloseRef = useRef<HTMLButtonElement>(null);
   const toastDismissTimersRef = useRef(new Map<string, number>());
   const policyRef = useRef<Record<string, NotificationPolicy>>({});
   const voiceEnabledRef = useRef(false);
@@ -463,13 +467,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       if(response.ok){
         const next=(body.data||[]) as ShellNotice[];
         setNotices(next);setNoticeCount(Number(body.unread||0));
+        setAnnouncementNotices(next
+          .filter(item => item.type === "SYSTEM_ANNOUNCEMENT" && !item.dismissed_at)
+          .sort((left, right) => systemAnnouncementPriorityRank(right.metadata?.priority) - systemAnnouncementPriorityRank(left.metadata?.priority)
+            || Date.parse(right.deliver_at) - Date.parse(left.deliver_at)));
         const identity=profile?.email || "unknown";
         const storageKey=notificationToastStorageKey(identity);
         const sessionKey=notificationToastSessionKey(identity);
         const sessionStartedAt=window.sessionStorage.getItem(sessionKey);
         if (!sessionStartedAt) window.sessionStorage.setItem(sessionKey,new Date().toISOString());
         const shown=new Set<string>(JSON.parse(window.sessionStorage.getItem(storageKey)||"[]"));
-        const fresh=next.filter(item=>shouldShowNotificationToast(item,shown,sessionStartedAt));
+        const fresh=next.filter(item=>item.type !== "SYSTEM_ANNOUNCEMENT" && shouldShowNotificationToast(item,shown,sessionStartedAt));
         const popupCandidates=fresh.filter(item=>
           (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).popup_enabled);
         const visibleIds=new Set(toastNoticesRef.current.map(item=>item.id));
@@ -479,7 +487,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (profile?.email) {
           const voiceSeenKey=`dtsmart-notification-voice-seen:${profile.email}`;
           const voiceSeen=new Set<string>(JSON.parse(window.localStorage.getItem(voiceSeenKey)||"[]"));
-          const voiceFresh=next.filter(item=>shouldShowNotificationToast(item,voiceSeen,sessionStartedAt));
+          const voiceFresh=next.filter(item=>item.type !== "SYSTEM_ANNOUNCEMENT" && shouldShowNotificationToast(item,voiceSeen,sessionStartedAt));
           const unseen=voiceFresh.filter(item=>
             (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).voice_enabled);
           voiceFresh.forEach(item=>voiceSeen.add(item.id));
@@ -523,6 +531,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.dispatchEvent(new CustomEvent("dtsmart-toast", { detail: { message: "关闭通知未能保存，下次登录时可能再次提醒", type: "error" } }));
     }
   }, []);
+  const acknowledgeAnnouncement = useCallback(async (item: ShellNotice, navigate = false) => {
+    setAnnouncementNotices(current => current.filter(notice => notice.id !== item.id));
+    try {
+      const response = await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" }, body: JSON.stringify({ id: item.id, action: "ACKNOWLEDGE" }) });
+      if (!response.ok) throw new Error("公告确认未能保存，请重试");
+      void loadNotices();
+      if (navigate && item.href) router.push(item.href);
+    } catch {
+      window.dispatchEvent(new CustomEvent("dtsmart-toast", { detail: { message: "公告确认未能保存，请重试", type: "error" } }));
+      void loadNotices();
+    }
+  }, [loadNotices, router]);
+  const currentAnnouncementId = announcementNotices[0]?.id;
+  useEffect(() => {
+    if (currentAnnouncementId && !profile?.must_change_password) announcementCloseRef.current?.focus();
+  }, [currentAnnouncementId, profile?.must_change_password]);
   useEffect(() => {
     const refresh = () => void loadProfile();
     window.addEventListener("dtsmart-profile-updated", refresh);
@@ -588,7 +612,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
   useEffect(() => {
     if (!canLoadNotices) {
-      setNotices([]); setNoticeCount(0); setToastNotices([]);
+      setNotices([]); setNoticeCount(0); setToastNotices([]); setAnnouncementNotices([]);
       return;
     }
     const refresh = () => void loadNotices();
@@ -936,6 +960,25 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="crm-content min-h-[calc(100vh-64px)]">{children}</div>
       </div>
+      {announcementNotices[0] && !profile?.must_change_password ? (() => {
+        const item = announcementNotices[0];
+        const urgent = item.metadata?.priority === "URGENT";
+        return <div className={urgent ? "fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 p-4" : "fixed left-1/2 top-20 z-[90] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 px-0"}>
+          <section role={urgent ? "alertdialog" : "dialog"} aria-modal={urgent ? "true" : undefined} aria-labelledby={`announcement-title-${item.id}`} aria-describedby={`announcement-body-${item.id}`} onKeyDown={event => {
+            if (event.key === "Escape") { event.preventDefault(); void acknowledgeAnnouncement(item); }
+            if (urgent && event.key === "Tab") {
+              const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
+              const first = buttons[0]; const last = buttons[buttons.length - 1];
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+            }
+          }} className={`w-full overflow-hidden rounded-2xl border bg-white shadow-2xl ${urgent ? "max-h-[min(80dvh,42rem)] max-w-2xl" : "max-h-[calc(100dvh-7rem)]"}`}>
+            <div className={`flex items-start gap-3 border-b px-5 py-4 ${urgent ? "bg-rose-50" : item.metadata?.priority === "IMPORTANT" ? "bg-amber-50" : "bg-blue-50"}`}><span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full ${urgent ? "bg-rose-100 text-rose-700" : item.metadata?.priority === "IMPORTANT" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}><Megaphone size={18}/></span><div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-600">{systemAnnouncementTypeLabel(item.metadata?.announcement_type)} · {urgent ? "紧急公告" : item.metadata?.priority === "IMPORTANT" ? "重要公告" : "系统公告"}</p><h2 id={`announcement-title-${item.id}`} className="mt-1 text-lg font-semibold text-slate-900">{item.title}</h2></div><button ref={announcementCloseRef} type="button" onClick={() => void acknowledgeAnnouncement(item)} aria-label="确认并关闭公告" title="确认并关闭" className="rounded p-1 text-slate-500 hover:bg-white/70"><X size={18}/></button></div>
+            <div className="max-h-[50dvh] overflow-y-auto px-5 py-4"><p id={`announcement-body-${item.id}`} className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{notificationDisplayContent(item.content)}</p><time className="mt-4 block text-xs text-slate-400" dateTime={item.created_at}>发布时间：{new Date(item.created_at).toLocaleString("zh-CN")}</time></div>
+            <footer className="flex flex-wrap justify-end gap-2 border-t bg-slate-50 px-5 py-3">{item.href ? <button type="button" onClick={() => void acknowledgeAnnouncement(item, true)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700">确认并查看通知</button> : null}<button type="button" onClick={() => void acknowledgeAnnouncement(item)} className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${urgent ? "bg-rose-700 hover:bg-rose-800" : "bg-blue-600 hover:bg-blue-700"}`}>我知道了</button></footer>
+          </section>
+        </div>;
+      })() : null}
       {toastNotices.length ? <aside aria-live="polite" className="fixed bottom-5 right-5 z-[70] flex max-h-[calc(100dvh-2.5rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto">{toastNotices.map(item => <article key={item.id} className="rounded-xl border border-blue-100 bg-white p-4 shadow-2xl"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600"><Bell size={18}/></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="text-sm">{item.title}</b>{item.action_status === "PENDING" ? <small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small> : null}</div><p className="mt-1 text-xs leading-5 text-slate-600">{notificationToastSummary(item)}</p><time className="mt-1 block text-[11px] text-slate-400" dateTime={item.created_at} title={new Date(item.created_at).toLocaleString("zh-CN")}>操作时间 {new Date(item.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</time><div className="mt-3 flex gap-2">{item.href ? <button type="button" onClick={() => void openNotice(item)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white">立即查看</button> : null}<button type="button" onClick={() => void dismissToast(item)} className="rounded-lg border px-3 py-1.5 text-xs text-slate-600">稍后查看</button></div></div><button type="button" aria-label="关闭通知弹框，保留未读" title="关闭弹框，通知仍保留在通知中心" onClick={() => void dismissToast(item)} className="text-slate-400"><X size={17}/></button></div></article>)}</aside> : null}
       {modal && profile ? (
         <ProfileModal

@@ -36,14 +36,15 @@ export async function PATCH(request: NextRequest) {
   try {
     const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
     if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
-    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" | "DISMISS" };
+    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" | "DISMISS" | "ACKNOWLEDGE" };
     const action = body.action || (body.id ? "READ" : "READ_ALL");
-    if (!["READ", "READ_ALL", "ARCHIVE", "RESTORE", "RESOLVE", "DISMISS"].includes(action)) {
+    if (!["READ", "READ_ALL", "ARCHIVE", "RESTORE", "RESOLVE", "DISMISS", "ACKNOWLEDGE"].includes(action)) {
       return NextResponse.json({ error: "通知操作无效" }, { status: 400 });
     }
     const now = new Date().toISOString();
     let query = supabase.from("system_notifications").update(
-      action === "DISMISS" ? { dismissed_at: now }
+      action === "ACKNOWLEDGE" ? { dismissed_at: now, read_at: now }
+        : action === "DISMISS" ? { dismissed_at: now }
         : action === "ARCHIVE" ? { archived_at: now, read_at: now }
         : action === "RESTORE" ? { archived_at: null }
           : action === "RESOLVE" ? { action_status: "RESOLVED", read_at: now }
@@ -53,6 +54,7 @@ export async function PATCH(request: NextRequest) {
     else {
       if (!body.id) return NextResponse.json({ error: "缺少通知编号" }, { status: 400 });
       query = query.eq("id", body.id);
+      if (action === "ACKNOWLEDGE") query = query.eq("type", "SYSTEM_ANNOUNCEMENT");
     }
     const { error } = await query;
     if (error) throw error;

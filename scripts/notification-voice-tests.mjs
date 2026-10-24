@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { notificationVoiceText } from "../lib/notification-voice.ts";
 import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, selectNotificationToastBatch, shouldShowNotificationToast } from "../lib/notification-toast.ts";
-import { defaultNotificationPolicy, notificationPolicyType } from "../lib/notification-policy.ts";
+import { defaultNotificationPolicy, notificationPolicyType, NOTIFICATION_TYPES } from "../lib/notification-policy.ts";
+import { systemAnnouncementPriorityRank, systemAnnouncementTypeLabel } from "../lib/system-announcements.ts";
 
 assert.match(notificationVoiceText({ type: "FOLLOWUP_DUE", content: "Call buyer" }), /跟进提醒/);
 assert.equal(defaultNotificationPolicy("FOLLOWUP_DUE").voice_enabled, false);
@@ -12,6 +13,11 @@ assert.equal(defaultNotificationPolicy("STOCK_PROGRESS_ROUTINE").popup_enabled, 
 assert.equal(notificationPolicyType({ type: "STOCK_STATUS_CHANGED", title: "备货进度已更新" }), "STOCK_PROGRESS_ROUTINE");
 assert.equal(notificationPolicyType({ type: "STOCK_STATUS_CHANGED", title: "备货异常已更新" }), "STOCK_STATUS_CHANGED");
 assert.equal(defaultNotificationPolicy("UNKNOWN").popup_enabled, false);
+assert.equal(defaultNotificationPolicy("SYSTEM_ANNOUNCEMENT").popup_enabled, false, "系统公告不得进入普通业务弹窗策略");
+assert.ok(!NOTIFICATION_TYPES.some(item => item.type === "SYSTEM_ANNOUNCEMENT"), "系统公告应从业务通知开关分离");
+assert.equal(systemAnnouncementTypeLabel("MAINTENANCE"), "系统维护");
+assert.equal(systemAnnouncementTypeLabel("unknown"), "一般通知");
+assert.ok(systemAnnouncementPriorityRank("URGENT") > systemAnnouncementPriorityRank("IMPORTANT"));
 assert.match(notificationVoiceText({ type: "SYSTEM_ANNOUNCEMENT" }), /系统公告/);
 assert.equal(notificationVoiceText({ type: "FOLLOWUP_REQUIRED", content: "客户待跟进" }), null);
 assert.equal(notificationVoiceText({ type: "CUSTOMER_FOLLOWUP_STATUS", content: "待跟进" }), null);
@@ -61,9 +67,11 @@ const notificationPanel = readFileSync("components/notification-admin-panel.tsx"
 const announcementApi = readFileSync("app/api/admin/notifications/announcements/route.ts", "utf8");
 const announcementListApi = readFileSync("app/api/admin/notifications/route.ts", "utf8");
 const audienceMigration = readFileSync("supabase/migrations/20261016140000_role_targeted_announcements.sql", "utf8");
+const typedAnnouncementMigration = readFileSync("supabase/migrations/20261024085445_announcement_type_priority_and_manual_acknowledgement.sql", "utf8");
 const settingsLayout = readFileSync("components/settings-layout-content.tsx", "utf8");
+const appShell = readFileSync("components/app-shell.tsx", "utf8");
 assert.match(settingsLayout, /path === "\/settings\/notifications"\) return <>{children}<\/>/, "通知页面不应重复显示系统管理介绍和导航");
-for (const label of ["备货与仓库", "PI 变更", "客户与账号待办", "系统公告"]) {
+for (const label of ["备货与仓库", "PI 变更", "客户与账号待办"]) {
   assert.ok(notificationPanel.includes(label), `通知设置应按业务类别展示：${label}`);
 }
 assert.match(notificationPanel, /policies\.filter\(row => group\.types\.includes\(row\.type\)\)[\s\S]*<details key=\{group\.label\}/, "通知分类应可折叠且保留各类型开关");
@@ -75,5 +83,14 @@ assert.match(announcementListApi, /recipient_roles,recipient_count/, "公告历�
 assert.match(audienceMigration, /actor\.role <> 'ADMIN'[\s\S]*u\.status = 'ACTIVE' and \(normalized_roles is null or u\.role = any\(normalized_roles\)\)/, "数据库必须再次校验管理员并只向匹配角色的启用用户送达");
 assert.match(audienceMigration, /on conflict \(request_id\) do nothing[\s\S]*ANNOUNCEMENT_REQUEST_CONFLICT[\s\S]*NO_ACTIVE_RECIPIENTS/, "公告发布必须保证幂等及非空收件人");
 assert.match(audienceMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\]\)[\s\S]*from public, anon, authenticated/, "定向公告函数不得向匿名用户开放");
+assert.match(typedAnnouncementMigration, /announcement_type text not null default 'GENERAL'[\s\S]*priority text not null default 'STANDARD'/, "公告必须保存分类和重要级别");
+assert.match(typedAnnouncementMigration, /'ORDER_CLERK'[\s\S]*'WAREHOUSE'/, "数据库公告角色范围应覆盖跟单员");
+assert.match(typedAnnouncementMigration, /metadata,href,entity_type[\s\S]*jsonb_build_object\('announcement_type',p_announcement_type,'priority',p_priority\)/, "公告通知需要携带类型和级别供客户端分类展示");
+assert.match(typedAnnouncementMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\],text,text\)[\s\S]*from public, anon, authenticated[\s\S]*grant execute on function public\.publish_system_announcement\(uuid,text,text,text\[\],text,text\)[\s\S]*to authenticated/, "新公告发布 RPC 必须只允许已认证调用并在函数内校验管理员");
+assert.match(appShell, /item\.type !== "SYSTEM_ANNOUNCEMENT"[\s\S]*shouldShowNotificationToast/, "系统公告必须绕过业务 toast 队列");
+assert.match(appShell, /role=\{urgent \? "alertdialog" : "dialog"\}[\s\S]*我知道了/, "紧急公告需屏幕中央确认，一般公告需手动确认");
+assert.match(appShell, /action: "ACKNOWLEDGE"/, "手动确认公告必须保存已读与关闭状态");
+assert.match(announcementApi, /p_announcement_type: announcementType, p_priority: priority/, "发布接口必须把公告分类及级别传给数据库");
+assert.match(notificationPanel, /公告类型<select[\s\S]*重要级别<select[\s\S]*紧急公告使用屏幕中央提示/, "管理员应能选公告分类、级别并预知展示方式");
 console.log("notification voice whitelist tests passed");
 
