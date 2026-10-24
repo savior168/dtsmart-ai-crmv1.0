@@ -26,6 +26,9 @@ const customerCreateApi = await readFile(resolve("app/api/customers/route.ts"), 
 const customerEditApi = await readFile(resolve("app/api/customers/[id]/route.ts"), "utf8");
 const piCustomerApi = await readFile(resolve("app/api/orders/pi-customers/route.ts"), "utf8");
 const piForm = await readFile(resolve("components/pi-order-form.tsx"), "utf8");
+const customerGradeMigration = await readFile(resolve("supabase/migrations/20261024120000_customer_manual_grade_seven_levels.sql"), "utf8");
+assert.match(customerGradeMigration, /manual_grade in \('S', 'KA', 'MA', 'A', 'B', 'C', 'D'\)/,
+  "数据库客户等级约束须与导入模板和手动新增的七档选项一致");
 assert.match(customerForm, /shipping_address:customer\?\.shipping_address\|\|""/, "编辑客户须回填客户收货地址");
 assert.match(customerForm, /<ShippingContactEditor label="客户收货信息" values=\{shippingContacts\}/, "手动新增及编辑须显示结构化客户收货信息");
 assert.match(customerForm, /<ShippingContactEditor label="货代收货信息" values=\{forwarderContacts\}/, "货代收货信息须使用同样的三字段结构");
