@@ -216,7 +216,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
     if (![name, brand, model, quality, description, priceValue, quantityValue, cnyInputValue].some((value) => String(value ?? "").trim())) continue;
     const quantity = Number(quantityValue);
     const unitPriceCnyInput = dualCurrencyColumns ? Number(cnyInputValue) : null;
-    const price = isImportTemplate && dualCurrencyColumns && priceCell?.f
+    const price = isImportTemplate && dualCurrencyColumns
       ? money(unitPriceCnyInput! / fx_rate_cny_per_payment)
       : Number(priceValue);
     if (!name || !brand || !model || !quality || !Number.isSafeInteger(quantity) || quantity <= 0 || !Number.isFinite(price) || price <= 0 || price !== money(price)) {
