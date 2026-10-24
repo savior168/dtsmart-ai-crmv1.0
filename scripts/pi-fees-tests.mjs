@@ -32,6 +32,8 @@ assert.throws(() => calculatePiFees(100, 20, 0, 0.2, "PayPal", { ...input, other
 assert.throws(() => calculatePiFees(1, 1, 0, 1, "PayPal", { ...input, discount: { source: "CNY", amount: 100 } }), /折扣不得超过/);
 assert.throws(() => calculatePiFees(1, 1, 0, 1, "PayPal", { ...input, paypal_rate_percent: 101 }), /PayPal/);
 const piForm = readFileSync(new URL("../components/pi-order-form.tsx", import.meta.url), "utf8");
+assert.match(piForm, /<span className="text-left">币种<\/span><span className="whitespace-nowrap">CNY<\/span><span className="whitespace-nowrap">\{currency\}<\/span>/,
+  "费用汇总三列表头应依次显示币种、CNY 和付款币种");
 assert.match(piForm, /<span className="whitespace-nowrap">CNY<\/span>/, "费用列只显示 CNY，不追加解释文字或换行");
 assert.doesNotMatch(piForm, /<span className="text-xs text-slate-500">自动计算<\/span>/, "PayPal 手续费金额必须与费用名称占同一网格行");
 assert.match(piForm, /paypalFee\.cny\.toFixed\(2\)[\s\S]*paypalFee\.payment\.toFixed\(2\)[\s\S]*PI总额/, "PayPal 手续费和 PI 总额应按 CNY、付款币种顺序对齐");
