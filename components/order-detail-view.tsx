@@ -294,7 +294,12 @@ export function OrderDetailView({ id }: { id: string }) {
             <div className="min-w-0">
               <h1 className="break-all text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {directPi ? (o.warehouse_reference_number || o.order_number) : o.order_number}</h1>
               <p className="mt-1 break-all text-xs text-slate-500">{directPi ? "系统PI编号" : "报价编号"}：{directPi ? o.order_number : o.quote_number} · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
-              {directPi ? <p className="mt-1 text-xs text-slate-500">创建：{new Date(o.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · 最近更新：{new Date(o.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}{data.stock_order ? ` · 备货单创建：${new Date(data.stock_order.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · 备货单更新：${new Date(data.stock_order.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}` : ""}</p> : null}
+              {directPi ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  创建：{new Date(o.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}
+                  · 最近更新：{new Date(o.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}
+                </p>
+              ) : null}
             </div>
             <AppStatusBadge status={o.status} tone={directPi && (PI_EXECUTING_STATUSES as readonly string[]).includes(o.status) ? "violet" : undefined}>{directPi ? piOrderStatusLabel(o.status) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>

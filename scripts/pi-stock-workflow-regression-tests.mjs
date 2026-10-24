@@ -14,6 +14,7 @@ const batchMigration = read("supabase/migrations/20261015201000_stock_bulk_physi
 const batchIntegerMigration = read("supabase/migrations/20261024061800_stock_bulk_integer_quantities.sql");
 const correctionMigration = read("supabase/migrations/20261015210000_stock_item_progress_correction.sql");
 const shipmentMigration = read("supabase/migrations/20261016080000_stock_line_shipments.sql");
+const handoffRequiredFieldsMigration = read("supabase/migrations/20261024180000_require_stock_purchase_fields_before_handoff.sql");
 const piMigration = read("supabase/migrations/20261013074814_pi_order_direct_creation.sql");
 const detail = read("app/api/stock-orders/[id]/route.ts");
 const batchRoute = read("app/api/stock-orders/[id]/batch-progress/route.ts");
@@ -65,6 +66,7 @@ assert.match(read("components/stock-order-detail-view.tsx"), /<AppPagination pag
 assert.match(shipmentMigration, /create trigger require_costed_stock_shipment_before_update[\s\S]*create function public\.record_stock_shipment/, "旧的无费用发货RPC必须由数据库阻断");
 assert.match(shipmentMigration, /p_packaging_cost_cny is null[\s\S]*p_procurement_expenses_cny is null[\s\S]*p_shipping_expenses_cny is null/, "完整产品行发货时三项人民币费用均必填");
 assert.match(shipmentMigration, /i\.prepared_quantity=i\.quantity[\s\S]*i\.shipped_quantity=0[\s\S]*selected_count<>cardinality\(p_item_ids\)/, "只允许将已完成理货且尚未交接的完整产品行发货");
+assert.match(handoffRequiredFieldsMigration, /new\.shipped_quantity > old\.shipped_quantity[\s\S]*warehouse_supplier_code[\s\S]*procurement_cost_confirmed is not true[\s\S]*procurement_cost is null/, "数据库必须阻止未录有效采购价或供应商编码的产品交货代");
 assert.match(read("app/api/stock-orders/[id]/ship/route.ts"), /requirePermission\("stock\.update"\)[\s\S]*record_stock_shipment/, "发货接口必须校验仓库权限并走受控事务");
 assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /action === "SHIP"\) throw/, "旧HTTP发货入口应提示刷新并禁止免费用发货");
 assert.match(read("components/stock-order-detail-view.tsx"), /选中 \{selectedItems\.length\} 项交货代[\s\S]*确认交货代并保存费用/, "仓库应能选择完整产品行并录入本次交接费用");
@@ -405,7 +407,11 @@ assert.match(migration, /create table public\.stock_order_expenses[\s\S]*?enable
 assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','SHIP'\)/, "常规进度只允许采购、回货、理货和整单发货动作");
 assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
 assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
-assert.match(stockView, /采购价（人民币\/件）[\s\S]*成本差价（人民币\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
+assert.match(stockView, /供应商编码[\s\S]*采购价（RMB\/件）[\s\S]*成本差价（RMB\/件）[\s\S]*仓库备注/, "仓库明细应在供应商编码后显示采购价、成本差价和仓库备注");
+assert.match(stockView, /第 \$\{incomplete\.line_number\} 项请先保存有效采购价和供应商编码，再交货代/, "交货代操作前应提示补齐采购价和供应商编码");
+assert.match(stockView, /备货单 \{o\.stock_number\}/, "备货详情标题必须显示系统备货单号而不是PI订单号");
+assert.doesNotMatch(stockView, /采购价（人民币\/件）|成本差价（人民币\/件）/, "备货价格币种统一使用RMB且标题不换行");
+assert.doesNotMatch(order, /备货单创建：|备货单更新：/, "PI详情不应混入备货单创建和更新时间");
 assert.match(detail, /const canViewProcurement = account\.role === "WAREHOUSE"/, "采购敏感字段只能由仓库角色加载");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");
@@ -515,7 +521,7 @@ assert.match(read("components/order-print-preview.tsx"), /overflow-x-auto print:
 assert.match(read("components/order-print-preview.tsx"), /预计备货完成日期[\s\S]*date\(stock\.order\.expected_ready_at\)/, "备货单预览应准确说明 expected_ready_at 是预计备货完成日期");
 assert.match(read("components/order-print-preview.tsx"), /"成本单价"[\s\S]*estimated_unit_cost_cny/, "备货单成本列头不应额外添加人民币后缀");
 assert.equal([...read("components/order-print-preview.tsx").matchAll(/text-\[#986C47\]/g)].length, 2, "整单与单项理货说明应使用一致且克制的浅色字体");
-assert.match(read("components/stock-order-detail-view.tsx"), /\"供应商编码\",\s*\"累计已回货\"[\s\S]*item\.warehouse_supplier_code[\s\S]*item\.received_quantity/, "仓库详情列应将供应商编码排在累计已回货之前，并保持对应数据列同步");
+assert.match(read("components/stock-order-detail-view.tsx"), /\"供应商编码\",\s*\.\.\.\(canViewProcurement \? \["采购价（RMB\/件）", "成本差价（RMB\/件）"\] : \[\]\),\s*"累计已回货"[\s\S]*item\.warehouse_supplier_code[\s\S]*采购价（RMB\/件）/, "仓库详情列应将供应商编码、采购价和成本差价排在累计已回货之前，并保持对应数据列同步");
 assert.ok(!sheet.D13?.v, "收货信息不得再把标签和值分开放在相隔数列的单元格");
 assert.ok(sheet["!merges"].some(({ s, e }) => s.r === 12 && s.c === 0 && e.r === 12 && e.c === 5), "收货信息每行需合并为完整的单项信息单元格");
 assert.match(sheet.I18.v, /NGN/);
