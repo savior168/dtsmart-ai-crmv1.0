@@ -20,7 +20,14 @@ for (const filename of templatePaths) {
   for (const [index, part] of archive.FullPaths.entries()) {
     if (!/\/xl\/worksheets\/sheet\d+\.xml$/.test(part)) continue;
     const before = archive.FileIndex[index].content.toString("utf8");
-    const after = before.replace(/<sheetProtection\b[^>]*\/>/g, "");
+    let after = before.replace(/<sheetProtection\b[^>]*\/>/g, "");
+    if (filename.includes("Customer_") && part.endsWith("/xl/worksheets/sheet2.xml")) {
+      if (filename.endsWith("Customer_Import_Template.xlsx")) {
+        after = after.replace(' t="inlineStr" t="inlineStr"', ' t="inlineStr"');
+      }
+      after = after.replace(/(<c r="B10"[^>]*><is><t>)[\s\S]*?(<\/t><\/is><\/c>)/,
+        '$1仅填写“客户导入模板”工作表；首行列名为系统标准字段，请勿更改、删除、合并或调换。模板不设工作表保护，其余单元格可按需编辑。上传前检查必填项、列对应关系及重复/异常提示。$2');
+    }
     if (after === before) continue;
     archive.FileIndex[index].content = Buffer.from(after, "utf8");
     changed = true;

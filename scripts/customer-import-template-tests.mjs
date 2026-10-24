@@ -72,11 +72,15 @@ assert.match(help[5][1], /B.*5,000.*8,000/);
 assert.match(help[5][1], /C.*2,000.*5,000/);
 assert.match(help[5][1], /D.*2,000/);
 assert.match(help[9][1], /列名为系统标准字段，请勿更改、删除、合并或调换/);
+assert.match(help[9][1], /模板不设工作表保护/);
+assert.doesNotMatch(help[9][1], /已锁定/);
 const poolHelp = XLSX.utils.sheet_to_json(poolWorkbook.Sheets["填写说明"], { header: 1, defval: "" });
 assert.match(poolHelp[4][1], /统一进入公海“待认领”状态/);
 assert.match(poolHelp[6][1], /均为选填，收货人、电话、地址可分别填写/);
 assert.match(poolHelp[5][1], /仅保留为来源信息/);
 assert.match(poolHelp[9][1], /列名为系统标准字段，请勿更改、删除、合并或调换/);
+assert.match(poolHelp[9][1], /模板不设工作表保护/);
+assert.doesNotMatch(poolHelp[9][1], /已锁定/);
 assert.deepEqual(await parseImportFile(new File([binary], "客户导入模板.xlsx")), [], "空白客户数据页与说明页不能被识别为客户记录");
 for (const [name, source] of [["我的客户", binary], ["客户公海", poolBinary]]) {
   const filled = XLSX.read(source, { type: "buffer" });
@@ -135,8 +139,11 @@ for (const filename of [
   const archive = XLSX.CFB.read(await readFile(resolve(filename)), { type: "buffer" });
   for (const [index, part] of archive.FullPaths.entries()) {
     if (!/\/xl\/worksheets\/sheet\d+\.xml$/.test(part)) continue;
-    assert.doesNotMatch(archive.FileIndex[index].content.toString("utf8"), /<sheetProtection\b/,
+    const xml = archive.FileIndex[index].content.toString("utf8");
+    assert.doesNotMatch(xml, /<sheetProtection\b/,
       `${filename} 的 ${part} 不应限制填写或修改`);
+    assert.doesNotMatch(xml, /<c\b[^>]*\bt="inlineStr"[^>]*\bt="inlineStr"/,
+      `${filename} 的 ${part} 不能含重复的单元格类型属性`);
   }
 }
 const customerArchive = XLSX.CFB.read(binary, { type: "buffer" });
