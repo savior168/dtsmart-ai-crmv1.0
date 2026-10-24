@@ -37,6 +37,9 @@ export type ImportedPiDocument = {
   customer_name?: string;
   customer_tax_number?: string;
   sales_account_email?: string;
+  seller_contact_name?: string;
+  seller_contact_phone?: string;
+  seller_contact_email?: string;
   fx_rate_cny_per_payment?: number;
   valid_until?: string;
   shipping_cny?: number;
@@ -179,7 +182,10 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   // The invoice value cell is the explicit import currency; older dual-currency exports used J6.
   const explicitValue = cellText(sheet, `${invoiceValueColumn}6`);
   const explicitCurrency = (explicitValue.match(/\(([A-Z]{3})\)\s*$/i)?.[1] || explicitValue).toUpperCase();
-  const isImportTemplate = cellText(sheet, `${invoiceLabelColumn}6`).includes("客户付款币种");
+  const sourceLayout = invoiceValueColumn === "K"
+    && /^Quotation Currency/i.test(cellText(sheet, "H6"))
+    && /^FX: 1 unit = CNY/i.test(cellText(sheet, "H7"));
+  const isImportTemplate = sourceLayout || cellText(sheet, `${invoiceLabelColumn}6`).includes("客户付款币种");
   if (isImportTemplate && explicitValue.toUpperCase() !== explicitCurrency) throw new Error("客户付款币种须填写币种代码，请从下拉列表选择");
   if (isImportTemplate && !explicitCurrency) throw new Error("客户付款币种为必填项，请在模板中选择币种");
   if (isImportTemplate && !QUOTE_CURRENCY_CODES.has(explicitCurrency)) throw new Error("客户付款币种不受系统支持，请从模板下拉列表选择");
@@ -188,14 +194,15 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   if (!currency) throw new Error("无法识别客户付款币种，请在PI模板中填写有效币种代码");
   let fx_rate_cny_per_payment = 0;
   if (isImportTemplate) {
-    const rawRate = cellText(sheet, "J7");
+    const rawRate = cellText(sheet, sourceLayout ? "K7" : "J7");
     if (!/^\d+(?:\.\d{1,8})?$/.test(rawRate)) throw new Error("人民币兑付款币种汇率为必填项，最多填写8位小数");
     fx_rate_cny_per_payment = Number(rawRate);
     if (!Number.isFinite(fx_rate_cny_per_payment) || fx_rate_cny_per_payment <= 0 || fx_rate_cny_per_payment > 100000000) throw new Error("人民币兑付款币种汇率须为大于0的有效数字");
+    if (currency === "CNY" && fx_rate_cny_per_payment !== 1) throw new Error("客户付款币种为CNY时，汇率必须为1");
   }
   const paymentText = cellText(sheet, `${invoiceValueColumn}6`);
   const paymentMethod = isImportTemplate
-    ? cellText(sheet, "J8")
+    ? cellText(sheet, sourceLayout ? "K9" : "J8")
     : paymentText === currency ? "" : paymentText.replace(new RegExp(`\\s*\\(${currency}\\)\\s*$`, "i"), "").trim();
   if (isImportTemplate && paymentMethod && !["T/T Bank Transfer", "Alipay", "PayPal", "Wise Transfer", "Payoneer Transfer"].includes(paymentMethod)) {
     throw new Error("付款渠道不受系统支持，请从模板下拉列表选择");
@@ -249,25 +256,40 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   if (!subtotalCell?.f && shownSubtotal !== undefined && shownSubtotal !== null && String(shownSubtotal).trim() && Math.abs(Number(shownSubtotal) - subtotal_payment) > 0.001) {
     throw new Error("客户PI产品小计与明细不一致");
   }
+  const subtotalCny = money(items.reduce((sum, item) => sum + money((item.unit_price_cny ?? 0) * item.quantity), 0));
+  const shownSubtotalCny = dualCurrencyColumns ? sheet[`L${subtotalRow}`] : undefined;
+  if (shownSubtotalCny && !shownSubtotalCny.f && shownSubtotalCny.v !== undefined && shownSubtotalCny.v !== ""
+    && Math.abs(Number(shownSubtotalCny.v) - subtotalCny) > 0.001) {
+    throw new Error("客户PI人民币产品小计与明细不一致");
+  }
   const deliveryLines = Array.from({ length: 5 }, (_, index) => cellText(sheet, `A${13 + index}`));
   const deliveryValue = (label: string) => {
-    const line = deliveryLines.find((value) => new RegExp(`^${label}\\s*[:：]`, "i").test(value));
+    const line = deliveryLines.find((value) => new RegExp(`^${label}\\*?\\s*[:：]`, "i").test(value));
     return line ? afterLabel(line) : "";
   };
-  const recipientLine = isImportTemplate ? cellText(sheet, "D15") : deliveryValue("To");
-  const recipient = recipientLine.split(/\s*[·•]\s*TEL\s*[:：]/i)[0].trim();
+  const recipientLine = isImportTemplate && !sourceLayout ? cellText(sheet, "D15") : deliveryValue("To");
+  const recipient = recipientLine.split(/\s*[·•]\s*TEL\*?\s*[:：]/i)[0].trim();
   const phone = isImportTemplate
-    ? recipientLine.match(/\s*(?:·|•)\s*TEL\s*[:：]\s*(.*)$/i)?.[1]?.trim() || ""
-    : recipientLine.match(/TEL\s*[:：]\s*(.*)$/i)?.[1]?.trim() || "";
-  const delivery_address = isImportTemplate ? cellText(sheet, "G14") : afterLabel(cellText(sheet, "G13"));
-  const delivery_company = isImportTemplate ? cellText(sheet, "D13") : deliveryValue("Company");
-  const customer_tax_number = isImportTemplate ? cellText(sheet, "D14") : "";
-  const delivery_email = isImportTemplate ? cellText(sheet, "D16") : deliveryValue("Email");
+    ? recipientLine.match(/\s*(?:·|•)\s*TEL\*?\s*[:：]\s*(.*)$/i)?.[1]?.trim() || ""
+    : recipientLine.match(/TEL\*?\s*[:：]\s*(.*)$/i)?.[1]?.trim() || "";
+  const delivery_address = isImportTemplate && !sourceLayout ? cellText(sheet, "G14") : afterLabel(cellText(sheet, "G13"));
+  const delivery_company = isImportTemplate && !sourceLayout ? cellText(sheet, "D13") : deliveryValue("Company");
+  const customer_tax_number = isImportTemplate && !sourceLayout ? cellText(sheet, "D14") : deliveryValue("Tax No.");
+  const delivery_email = isImportTemplate && !sourceLayout ? cellText(sheet, "D16") : deliveryValue("Email");
   if (isImportTemplate) {
-    if (!dateValue(sheet["J4"]?.v, workbook.Workbook?.WBProps?.date1904 === true)) throw new Error("PI有效期为必填项，请填写有效日期");
+    if (!dateValue(sheet[sourceLayout ? "K4" : "J4"]?.v, workbook.Workbook?.WBProps?.date1904 === true)) throw new Error("PI有效期为必填项，请填写有效日期");
     if (!recipient || !phone) throw new Error("收货人（客户）和联系电话为必填项，请按“To: 姓名 · TEL: 电话”格式填写");
     if (!delivery_address) throw new Error("客户收货地址为必填项");
-    if (cellText(sheet, "J10") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cellText(sheet, "J10"))) throw new Error("所属销售员登录邮箱格式不正确");
+    const salesEmail = cellText(sheet, sourceLayout ? "D10" : "J10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim();
+    if (salesEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesEmail)) throw new Error("所属销售员登录邮箱格式不正确");
+    if (cellText(sheet, "D2").startsWith("DT-Smart Technology")) {
+      const sellerName = cellText(sheet, "D7").replace(/^Sales Manager\*?\s*[:：]\s*/i, "").trim();
+      const sellerPhone = cellText(sheet, "D8").replace(/^Contact No\*?\s*[:：]\s*/i, "").trim();
+      const sellerEmail = cellText(sheet, "D9").replace(/^Email\*?\s*[:：]\s*/i, "").trim();
+      if (!sellerName || !sellerPhone || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sellerEmail) || !salesEmail) {
+        throw new Error("请填写销售员姓名、业务电话、业务邮箱和所属销售员登录邮箱");
+      }
+    }
   }
   const amountColumn = dualCurrencyColumns ? "M" : "K";
   const amountCnyColumn = dualCurrencyColumns ? "L" : "";
@@ -296,10 +318,30 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   let shownTotal: number | undefined;
   for (let row = subtotalRow + 1; row <= subtotalRow + 12; row += 1) {
     const label = cellText(sheet, `G${row}`).toUpperCase();
-    if (/PAYMENT INFORMATION/i.test(cellText(sheet, `A${row}`))) { paymentAccountInstructions = cellText(sheet, isImportTemplate ? "A77" : `A${row + 1}`); break; }
+    if (/PAYMENT INFORMATION/i.test(cellText(sheet, `A${row}`))) { paymentAccountInstructions = cellText(sheet, isImportTemplate && !sourceLayout ? "A77" : `A${row + 1}`); break; }
     if (!label) continue;
-    const paid = readAmount(row, amountColumn, label);
-    const cny = amountCnyColumn ? readAmount(row, amountCnyColumn, label) : 0;
+    let paid = readAmount(row, amountColumn, label);
+    let cny = amountCnyColumn ? readAmount(row, amountCnyColumn, label) : 0;
+    if (isImportTemplate && /^(SHIPPING COST|UNPAID BALANCE|OTHER CHARGES|DISCOUNT)\s*:/.test(label)) {
+      const inputMode = cellText(sheet, `K${row}`);
+      const inputRaw = sheet[`N${row}`]?.v;
+      if (inputRaw !== undefined && inputRaw !== null && String(inputRaw).trim() !== "") {
+        const input = Number(inputRaw);
+        if (!Number.isFinite(input) || input < 0 || input !== money(input)) throw new Error(`客户PI${label}输入金额须为非负数且最多两位小数`);
+        if (inputMode !== "CNY" && inputMode !== "外币") throw new Error(`客户PI${label}请选择CNY或外币作为输入币种`);
+        cny = inputMode === "CNY" ? input : money(input * fx_rate_cny_per_payment);
+        paid = inputMode === "CNY" ? money(input / fx_rate_cny_per_payment) : input;
+        if (/^DISCOUNT\s*:/.test(label)) { cny = -cny; paid = -paid; }
+        if (sourceLayout && ((sheet[`L${row}`] && !sheet[`L${row}`]?.f && Math.abs(readAmount(row, "L", label) - cny) > 0.001)
+          || (sheet[`M${row}`] && !sheet[`M${row}`]?.f && Math.abs(readAmount(row, "M", label) - paid) > 0.001))) {
+          throw new Error(`客户PI${label}显示金额与费用输入不一致`);
+        }
+      } else if (inputMode && inputMode !== "CNY" && inputMode !== "外币") {
+        throw new Error(`客户PI${label}费用币种不正确`);
+      } else if (sourceLayout && (paid || cny)) {
+        throw new Error(`客户PI${label}请在费用输入格填写币种和金额，不要直接覆盖自动计算结果`);
+      }
+    }
     if (/^SHIPPING COST\s*:/.test(label)) { shipping_payment = paid; shipping_cny = cny; if (paid < 0 || cny < 0) throw new Error("客户PI运费不正确"); }
     else if (/^UNPAID BALANCE\s*:/.test(label)) { last_balance_payment = paid; last_balance_cny = cny; if (paid < 0 || cny < 0) throw new Error("客户PI未付尾款不正确"); }
     else if (/^OTHER CHARGES\s*:/.test(label)) { other_payment = paid; other_cny = cny; if (paid < 0 || cny < 0) throw new Error("客户PI其他费用不正确"); }
@@ -316,11 +358,17 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   const totalCell = Array.from({ length: 12 }, (_, index) => subtotalRow + index + 1)
     .find((row) => /^TOTAL AMOUNT\s*:/i.test(cellText(sheet, `G${row}`)));
   if (isImportTemplate) {
-    shipping_cny = money(shipping_payment * fx_rate_cny_per_payment);
-    last_balance_cny = money(last_balance_payment * fx_rate_cny_per_payment);
-    other_cny = money(other_payment * fx_rate_cny_per_payment);
-    discount_cny = money(discount_payment * fx_rate_cny_per_payment);
-    paypal_rate_percent = paymentMethod === "PayPal" ? 5 : 0;
+    // With explicit fee inputs, preserve the entered CNY amount instead of
+    // converting it through a rounded payment amount a second time.
+    if (!sheet[`N${subtotalRow + 1}`]?.v && shipping_payment) shipping_cny = money(shipping_payment * fx_rate_cny_per_payment);
+    if (!sheet[`N${subtotalRow + 2}`]?.v && last_balance_payment) last_balance_cny = money(last_balance_payment * fx_rate_cny_per_payment);
+    if (!sheet[`N${subtotalRow + 3}`]?.v && other_payment) other_cny = money(other_payment * fx_rate_cny_per_payment);
+    if (!sheet[`N${subtotalRow + 4}`]?.v && discount_payment) discount_cny = money(discount_payment * fx_rate_cny_per_payment);
+    const templatePaypalRate = sourceLayout ? Number(sheet[`K${subtotalRow + 5}`]?.v ?? 5) : 5;
+    if (!Number.isFinite(templatePaypalRate) || templatePaypalRate < 0 || templatePaypalRate > 100) {
+      throw new Error("PayPal 手续费比例须在0%至100%之间");
+    }
+    paypal_rate_percent = paymentMethod === "PayPal" ? templatePaypalRate : 0;
     paypal_fee = paymentMethod === "PayPal"
       ? money((subtotal_payment + shipping_payment + last_balance_payment + other_payment - discount_payment) * paypal_rate_percent / 100)
       : 0;
@@ -331,7 +379,7 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
   }
   return { sheet_name: sheetName, payment_account_instructions: paymentAccountInstructions, document: {
     warehouse_reference_number, currency, payment_method: paymentMethod, customer_name: recipient,
-    delivery_date: isImportTemplate ? dateValue(sheet["J9"]?.v, workbook.Workbook?.WBProps?.date1904 === true) : dateValue(sheet[`${invoiceValueColumn}8`]?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: recipient,
+    delivery_date: isImportTemplate ? dateValue(sheet[sourceLayout ? "K8" : "J9"]?.v, workbook.Workbook?.WBProps?.date1904 === true) : dateValue(sheet[`${invoiceValueColumn}8`]?.v, workbook.Workbook?.WBProps?.date1904 === true), delivery_recipient: recipient,
     delivery_phone: phone, delivery_company, customer_tax_number,
     delivery_email, delivery_address,
     items, subtotal_payment, shipping_payment, shipping_cny: dualCurrencyColumns ? shipping_cny : undefined,
@@ -341,8 +389,11 @@ export function parseCustomerPiWorkbook(bytes: Uint8Array): { sheet_name: string
     paypal_rate_percent, show_dual_currency_prices: dualCurrencyColumns, total_payment,
     ...(isImportTemplate ? {
       fx_rate_cny_per_payment,
-      valid_until: dateValue(sheet["J4"]?.v, workbook.Workbook?.WBProps?.date1904 === true),
-      sales_account_email: cellText(sheet, "J10"),
+      valid_until: dateValue(sheet[sourceLayout ? "K4" : "J4"]?.v, workbook.Workbook?.WBProps?.date1904 === true),
+      sales_account_email: cellText(sheet, sourceLayout ? "D10" : "J10").replace(/^\*?\s*销售员登录邮箱\s*[:：]\s*/, "").trim(),
+      seller_contact_name: cellText(sheet, "D7").replace(/^Sales Manager\*?\s*[:：]\s*/i, "").trim(),
+      seller_contact_phone: cellText(sheet, "D8").replace(/^Contact No\*?\s*[:：]\s*/i, "").trim(),
+      seller_contact_email: cellText(sheet, "D9").replace(/^Email\*?\s*[:：]\s*/i, "").trim(),
       shipping_cny, last_balance_cny, other_cny, discount_cny,
     } : {}),
   } satisfies ImportedPiDocument };

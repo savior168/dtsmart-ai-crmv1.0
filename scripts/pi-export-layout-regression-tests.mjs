@@ -1,0 +1,128 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import XLSX from 'xlsx';
+import { parseCustomerPiWorkbook } from '../lib/pi-document-import.ts';
+
+const source = process.env.PI_TEMPLATE_PATH || 'assets/templates/PI_Import_Template.xlsx';
+const templateBytes = readFileSync(source);
+const template = XLSX.read(templateBytes, { type: 'buffer', cellFormula: true, cellStyles: true });
+const sheet = template.Sheets.PI;
+assert.equal(sheet['!protect'], undefined, '导入模板不得锁定工作表');
+const archive = XLSX.CFB.read(templateBytes, { type: 'buffer' });
+assert.ok(XLSX.CFB.find(archive, '/xl/media/image.png'), '原PI的公司标识必须保留');
+assert.equal(sheet.A1.s?.fgColor?.rgb, 'FFFFFF', '无填充单元格不得变为黑色');
+assert.equal(sheet.B19.s?.fgColor?.rgb, 'FFFFFF', '产品录入区域应保持白底');
+assert.equal(sheet.H2.s?.fgColor?.rgb, '70AD47', '原PI绿色标题应保留');
+const worksheetXml = Buffer.from(XLSX.CFB.find(archive, '/xl/worksheets/sheet1.xml').content).toString('utf8');
+assert.match(worksheetXml, /dataValidation[^>]*sqref="K6"/, '付款币种必须提供下拉选项');
+assert.match(worksheetXml, /dataValidation[^>]*sqref="K29:K32"/, '费用币种必须提供下拉选项');
+assert.equal(sheet.D2.v, 'DT-Smart Technology Co., Ltd');
+assert.equal(sheet.H2.v, 'COMMERCIAL INVOICE');
+assert.equal(sheet.A18.v, 'No.');
+assert.equal(sheet.G28.v, 'SUBTOTAL:');
+assert.equal(sheet.J19.f.includes('I19/$K$7'), true);
+assert.equal(sheet.L19.f.includes('I19*K19'), true);
+assert.equal(sheet.M19.f.includes('J19*K19'), true);
+assert.equal(sheet.K2.v, '');
+assert.equal(sheet.K6.v, '');
+
+const put = (address, value) => { sheet[address] = typeof value === 'number' ? { t: 'n', v: value } : { t: 's', v: value }; };
+put('K2', 'CODEX-EXPORT-ROUNDTRIP-1');
+put('K4', '2026-11-01');
+put('K6', 'USD');
+put('K7', 6.668);
+put('K8', '2026-11-05');
+put('K9', 'PayPal');
+put('D7', 'Sales Manager*: Jamie');
+put('D8', 'Contact No*: +8615521077993');
+put('D9', 'Email*: sales@example.com');
+put('D10', '* 销售员登录邮箱: jamie@example.com');
+put('A13', 'Company: i-Service');
+put('A14', 'Tax No.: VAT646564345');
+put('A15', 'To*: Jack Liu · TEL*: +44534324');
+put('A16', 'Email: buyer@example.com');
+put('G13', 'Delivery address*: 1 Example Street');
+for (const [col, value] of Object.entries({ B: 'LCD', D: 'IPH', E: 'IPH 17', F: 'OLED', G: '120HZ', I: 285, K: 10 })) put(`${col}19`, value);
+put('K29', 'CNY'); put('N29', 1500);
+put('K30', '外币'); put('N30', 100);
+put('A36', 'PayPal: account@example.com');
+const parseFull = () => parseCustomerPiWorkbook(XLSX.write(template, { type: 'buffer', bookType: 'xlsx' }));
+const parse = () => parseFull().document;
+const result = parse();
+assert.equal(result.warehouse_reference_number, 'CODEX-EXPORT-ROUNDTRIP-1');
+assert.equal(result.currency, 'USD');
+assert.equal(result.fx_rate_cny_per_payment, 6.668);
+assert.equal(result.sales_account_email, 'jamie@example.com');
+assert.equal(result.seller_contact_name, 'Jamie');
+assert.equal(result.seller_contact_phone, '+8615521077993');
+assert.equal(result.seller_contact_email, 'sales@example.com');
+assert.equal(result.valid_until, '2026-11-01');
+assert.equal(result.delivery_recipient, 'Jack Liu');
+assert.equal(result.delivery_phone, '+44534324');
+assert.equal(result.delivery_company, 'i-Service');
+assert.equal(result.customer_tax_number, 'VAT646564345');
+assert.equal(result.delivery_email, 'buyer@example.com');
+assert.equal(result.delivery_address, '1 Example Street');
+assert.equal(parseFull().payment_account_instructions, 'PayPal: account@example.com');
+assert.equal(result.items.length, 1);
+assert.equal(result.items[0].unit_price_cny, 285);
+assert.equal(result.items[0].unit_price_payment, 42.74);
+assert.equal(result.shipping_cny, 1500);
+assert.equal(result.shipping_payment, 224.96);
+assert.equal(result.last_balance_payment, 100);
+assert.equal(result.last_balance_cny, 666.8);
+assert.equal(result.payment_method, 'PayPal');
+assert.equal(result.total_payment, 789.98);
+
+const extended = XLSX.read(XLSX.write(template, { type: 'buffer', bookType: 'xlsx' }), { type: 'buffer', cellFormula: true });
+const extendedSheet = extended.Sheets.PI;
+for (let row = 38; row >= 28; row -= 1) {
+  for (let col = 0; col < 14; col += 1) {
+    const letter = XLSX.utils.encode_col(col);
+    const from = `${letter}${row}`;
+    const to = `${letter}${row + 1}`;
+    if (extendedSheet[from]) extendedSheet[to] = extendedSheet[from];
+    else delete extendedSheet[to];
+    delete extendedSheet[from];
+  }
+}
+for (const [col, value] of Object.entries({ B: 'LCD', D: 'IPH', E: 'IPH 18', F: 'OLED', I: 100, K: 1 })) {
+  extendedSheet[`${col}28`] = typeof value === 'number' ? { t: 'n', v: value } : { t: 's', v: value };
+}
+extendedSheet['!ref'] = 'A1:N40';
+const extendedResult = parseCustomerPiWorkbook(XLSX.write(extended, { type: 'buffer', bookType: 'xlsx' })).document;
+assert.equal(extendedResult.items.length, 2, '插入商品行后应动态定位小计及费用');
+assert.equal(extendedResult.paypal_rate_percent, 5);
+
+put('K33', 3);
+assert.equal(parse().paypal_rate_percent, 3, '手续费比例应从输入格读取');
+put('K33', 5);
+put('K9', 'T/T Bank Transfer');
+put('A13', 'Company: ');
+put('A14', 'Tax No.: ');
+put('A16', 'Email: ');
+put('K8', '');
+const optionalFields = parse();
+assert.equal(optionalFields.delivery_company, '');
+assert.equal(optionalFields.customer_tax_number, '');
+assert.equal(optionalFields.delivery_email, '');
+assert.equal(optionalFields.delivery_date, '');
+assert.equal(optionalFields.paypal_rate_percent, 0);
+put('K9', 'PayPal');
+put('K8', '2026-11-05');
+
+put('K2', '');
+assert.throws(parse, /PI订单编号不能为空/);
+put('K2', 'CODEX-EXPORT-ROUNDTRIP-1');
+put('K7', 0);
+assert.throws(parse, /汇率须为大于0/);
+put('K7', 6.668);
+put('K6', 'CNY');
+assert.throws(parse, /汇率必须为1/);
+put('K6', 'USD');
+put('L29', 999);
+assert.throws(parse, /显示金额与费用输入不一致/);
+delete sheet.L29;
+put('A15', 'To*: Jack Liu · TEL*: ');
+assert.throws(parse, /联系电话为必填/);
+console.log('source-export template: positive and negative import cases passed');
