@@ -35,9 +35,9 @@ assert.match(quoteDetail, /can_attach:[\s\S]*\["DRAFT","GENERATED","SENT"\]/, "�
 const attachmentDetail = read("app/api/attachments/[id]/route.ts");
 assert.match(attachmentDetail, /报价发送后附件作为业务凭证保留，不能删除/, "已发送报价的附件必须作为业务凭证保留");
 const stockApi = read("app/api/stock-orders/[id]/route.ts");
-assert.match(stockApi, /const warehouseEditor = \["WAREHOUSE", "ADMIN"\]\.includes\(account\.role\)[\s\S]*can_update: warehouseEditor/, "备货状态只能由仓库员或系统管理员更新");
+assert.match(stockApi, /const warehouseEditor = \["WAREHOUSE", "ADMIN"\]\.includes\(account\.role\)[\s\S]*can_update: !archived && warehouseEditor/, "有效备货单仅允许仓库员或系统管理员更新，已归档单据只读");
 assert.doesNotMatch(stockApi, /unit_price|total_amount|customer:customers|delivery_phone|delivery_email/, "仓库接口不得返回销售价格或客户私人联系方式；本单货代收货电话仍可用于交接");
-assert.match(stockApi, /can_view_procurement: canViewProcurement[\s\S]*can_edit_procurement: canViewProcurement/, "采购字段查看和编辑能力必须由服务端单独授权");
+assert.match(stockApi, /can_view_procurement: canViewProcurement[\s\S]*can_edit_procurement: !archived && canViewProcurement/, "采购字段查看和编辑能力必须由服务端单独授权，归档单据只读");
 assert.match(stockApi, /const canViewProcurement = account\.role === "WAREHOUSE"/, "只有仓库员可在备货单详情查看采购敏感信息");
 assert.match(read("app/api/stock-orders/[id]/export/route.ts"), /const canViewProcurement = account\.role === "WAREHOUSE"/, "只有仓库员可在备货单导出查看采购敏感信息");
 assert.match(read("app/api/stock-orders/[id]/procurement/route.ts"), /account\.role !== "WAREHOUSE"/, "只有仓库员可写入采购敏感信息");

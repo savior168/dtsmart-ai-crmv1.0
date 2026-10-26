@@ -7,6 +7,7 @@ const { parsePiOrderInput } = await jiti.import(resolve("lib/pi-order-input.ts")
 const fee = { source: "CNY", amount: 0 };
 const base = {
   customer_id: "customer", payment_account_id: "account", warehouse_reference_number: "TEST-PI",
+  valid_until: "2026-11-30",
   currency: "CNY", fx_rate_cny_to_payment: 1, shipping_cny: 0, payment_method: "T/T Bank Transfer",
   items: [{ item_name: "Display", brand: "Brand", model: "Model", quality: "New", quantity: 1,
     unit_price_cny: 100, unit_price_payment: 100, estimated_unit_cost_cny: 50 }],
