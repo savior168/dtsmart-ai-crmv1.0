@@ -34,7 +34,7 @@ export async function GET(
         .order("line_number"),
       relatedClient
         .from("stock_orders")
-        .select("id,stock_number,status,status_note,created_at,updated_at")
+        .select("id,stock_number,status,status_note,created_at,updated_at,archived_at,archive_reason")
         .eq("sales_order_id", id)
         .maybeSingle(),
       relatedClient
@@ -63,9 +63,10 @@ export async function GET(
       ? await relatedClient.from("users").select("name,email").eq("id", order.data.sales_user_id).maybeSingle()
       : null;
     if (clerkOwner?.error) throw clerkOwner.error;
-    const writable = order.data.confirmation_method === "DIRECT_PI"
+    const archived = Boolean(order.data.archived_at);
+    const writable = !archived && (order.data.confirmation_method === "DIRECT_PI"
       ? order.data.prepared_by === account.id
-      : order.data.sales_user_id === account.id || account.role === "ADMIN";
+      : order.data.sales_user_id === account.id || account.role === "ADMIN");
     return NextResponse.json({
       order: { ...order.data, owner: clerkOwner?.data || order.data.owner, customer: {
         ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
@@ -73,6 +74,8 @@ export async function GET(
       } },
       items: items.data || [],
       stock_order: stock.data ? { ...stock.data, progress: summarizeStockProgress(stock.data.status, stockItems?.data || []) } : null,
+      is_admin: account.role === "ADMIN",
+      can_manage_archive: account.role === "ADMIN",
       receiving_progress: receivingProgress,
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
@@ -93,7 +96,7 @@ export async function GET(
         !(order.data.confirmation_method === "DIRECT_PI" && !["DRAFT", "WAITING_STOCK"].includes(order.data.status)) &&
         !(order.data.confirmation_method === "DIRECT_PI" && stock.data && !["DRAFT", "WAITING"].includes(stock.data.status)) &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),
-      can_export: hasPermission(account, "orders.export") && !["DRAFT", "CANCELLED"].includes(order.data.status),
+      can_export: !archived && hasPermission(account, "orders.export") && !["DRAFT", "CANCELLED"].includes(order.data.status),
       can_preview: hasPermission(account, "orders.preview"),
       can_view_stock: hasPermission(account, "stock.view"),
     });

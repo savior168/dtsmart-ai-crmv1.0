@@ -4,6 +4,7 @@ import { linkedPiUnitPrices } from "@/lib/pi-line-currency";
 import type { createClient } from "@/lib/supabase/server";
 import type { PiFeeInput, PiFeesInput } from "@/lib/pi-fees";
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
+import { isValidPiValidityDate } from "@/lib/pi-validity";
 
 type ServerSupabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -50,6 +51,10 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   const customerId = String(body.customer_id || "").trim();
   const warehouseReferenceNumber = String(body.warehouse_reference_number || "").trim();
   const paymentAccountId = String(body.payment_account_id || "").trim();
+  const validUntil = String(body.valid_until || "").trim();
+  if (!isValidPiValidityDate(validUntil)) {
+    throw new Error("请选择有效的 PI 有效期");
+  }
   if (!customerId || !paymentAccountId) throw new Error("请选择客户和收款账户");
   if (!warehouseReferenceNumber || warehouseReferenceNumber.length > 80) throw new Error("请填写80字以内的订单编号");
   const deliveryFields = [body.delivery_recipient, body.delivery_phone, body.delivery_email, body.delivery_address];
@@ -82,7 +87,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
     p_shipping_cny: shipping,
     p_payment_method: String(body.payment_method || "").trim().slice(0, 300) || null,
     p_payment_account_id: paymentAccountId,
-    p_valid_until: String(body.valid_until || "").trim() || null,
+    p_valid_until: validUntil,
     p_delivery_date: String(body.delivery_date || "").trim() || null,
     p_delivery_recipient: deliveryRecipient.trim(),
     p_delivery_phone: normalizedDeliveryPhone,

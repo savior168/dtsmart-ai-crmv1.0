@@ -129,8 +129,9 @@ export async function GET(request: NextRequest) {
     let activities = ((overview.activities || []) as Array<Record<string, unknown>>).map((item) => ({ id: String(item.id), action: String(item.action || ""), text: activityText(String(item.action || ""), String(item.customer_name || "客户"), item.content), created_at: String(item.created_at || ""), href: "" }));
     if (stockActivityMode) {
       const stockOwnerId = await requestedOwnerId(request, account, "stock.data_all");
-      let stockQuery = supabase.from("stock_orders_with_pi_preparer")
+      let stockQuery = supabase.from("stock_orders_with_archive")
         .select("id,sales_order_id,customer_short_name,stock_number,warehouse_reference_number,status,pi_updated_at")
+        .is("archived_at", null)
         .in("status", ["WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE"])
         .gte("pi_updated_at", fromDate.toISOString()).lt("pi_updated_at", exclusiveTo.toISOString())
         .order("pi_updated_at", { ascending: false }).order("id", { ascending: true }).limit(5);

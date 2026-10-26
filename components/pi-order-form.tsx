@@ -17,6 +17,7 @@ import type { ImportedPiDocument } from "@/lib/pi-document-import";
 import { parsePiProductRows } from "@/lib/pi-product-import";
 import { uniqueImportedPiCustomer } from "@/lib/pi-import-customer-match";
 import { displayAddressList, displayShippingContacts, type ShippingContact } from "@/lib/customers/address-list";
+import { isValidPiValidityDate } from "@/lib/pi-validity";
 
 type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null; shipping_contact_entries?: ShippingContact[] | null; forwarder_addresses?: string[] | null; forwarder_contact_entries?: ShippingContact[] | null };
 type Salesperson = { id: string; name: string | null; email: string | null };
@@ -28,7 +29,6 @@ type FeeField = { enabled: boolean; source: PiFeeSource; amount: string };
 const emptyFee = (): FeeField => ({ enabled: false, source: "CNY", amount: "0.00" });
 const newLine = (): Line => ({ item_name: "", brand: "", model: "", quality: "", description: "", description_zh: "", quantity: "", unit_price_cny: "", unit_price_payment: "", unit_price_source: "CNY", estimated_unit_cost_cny: "", preparation_requirement: "", internal_note: "" });
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const defaultValidity = () => { const date = new Date(); date.setDate(date.getDate() + 5); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const field = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none";
 const Required = () => <span aria-hidden="true" className="font-semibold text-rose-600"> *</span>;
 function PiLineTextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -65,7 +65,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [accountId, setAccountId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<string>(PI_PAYMENT_CHANNELS[0]);
   const [customPaymentMethod, setCustomPaymentMethod] = useState("");
-  const [validUntil, setValidUntil] = useState(defaultValidity);
+  const [validUntil, setValidUntil] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [recipient, setRecipient] = useState("");
   const [phone, setPhone] = useState("");
@@ -492,6 +492,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     if (busy) return;
     if (savedDraftId && !draftOrderId) { setError("当前PI草稿已保存，请先进入详情核对，避免重复创建"); return; }
     setError("");
+    if (!isValidPiValidityDate(validUntil)) { setError("请选择有效的 PI 有效期"); return; }
     if (isClerk && !salesUserId) { setError("请先选择负责此PI的销售员"); return; }
     if (!customerId || !warehouseReferenceNumber.trim() || !currency || !accountId || !Number.isFinite(cnyPerPayment) || cnyPerPayment <= 0) {
       setError("请选择客户、填写订单编号、付款币种、收款账户及正数汇率"); return;
@@ -583,7 +584,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <label className="text-sm">订单编号<Required /><input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 D60020733；不可与其他PI重复" /></label>
       <label className="text-sm">客户付款币种<Required /><AppSelect className={field} aria-label="搜索并选择客户付款币种" value={currency} onChange={(event) => changeCurrency(event.target.value)}><option value="">请选择</option>{QUOTE_CURRENCIES.map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}</AppSelect></label>
       <label className="text-sm">汇率：1 {currency || "付款币种"} = 多少人民币<Required /><input className={field} type="number" min="0.000001" step="0.000001" value={rate} onChange={(event) => updateRate(event.target.value)} placeholder="例如 7.200000" />{exchangeRates.find((item) => item.currency === currency)?.business_cny ? <span className="text-xs text-slate-500">已带入业务汇率，可按本单调整</span> : null}</label>
-      <label className="text-sm">PI有效期<Required /><input className={`${field} cursor-pointer`} type="date" value={validUntil} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setValidUntil(event.target.value)} /></label>
+      <label className="text-sm">PI有效期<Required /><input className={`${field} cursor-pointer`} type="date" required value={validUntil} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setValidUntil(event.target.value)} /></label>
       <label className="text-sm">预计交付日期<input className={`${field} cursor-pointer`} type="date" value={deliveryDate} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setDeliveryDate(event.target.value)} /></label>
       <div className="text-sm"><label>付款渠道<Required /><AppSelect className={field} value={availablePaymentChannels.includes(paymentMethod as typeof PI_PAYMENT_CHANNELS[number]) || (paymentMethod === "OTHER" && hasOtherPaymentAccount) ? paymentMethod : ""} onChange={(event) => { if (event.target.value !== paymentMethod) { markUnsaved(); setAccountId(""); } setPaymentMethod(event.target.value); }}><option value="">请选择已配置收款账户的付款渠道</option>{availablePaymentChannels.map((method) => <option key={method} value={method}>{method}</option>)}{hasOtherPaymentAccount ? <option value="OTHER">其他渠道（手工填写）</option> : null}</AppSelect></label>{paymentMethod === "OTHER" && hasOtherPaymentAccount ? <input aria-label="其他付款渠道" className={`${field} mt-2`} maxLength={300} value={customPaymentMethod} onChange={(event) => setCustomPaymentMethod(event.target.value)} placeholder="填写实际收款渠道" /> : null}{!availablePaymentChannels.length && !hasOtherPaymentAccount ? <span className="mt-1 block text-xs text-amber-700">当前暂无已启用的收款账户，请联系系统管理员先配置收款账户。</span> : null}</div>
       <div className="text-sm"><label>收款账户<Required /><AppSelect className={field} aria-label="选择PI收款账户" placeholderValue="" value={availableAccounts.some((account) => account.id === accountId) ? accountId : ""} onChange={(event) => { if (event.target.value !== accountId) markUnsaved(); setAccountId(event.target.value); }}><option value="">{availableAccounts.length ? "请选择此渠道的收款账户" : "该付款渠道暂无启用的收款账户"}</option>{availableAccounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}</AppSelect></label>{selectedAccount && availableAccounts.some((account) => account.id === accountId) ? <button type="button" onClick={() => setShowAccountDetails(true)} className="mt-1 text-xs font-medium text-blue-700 underline">查看账户详情</button> : null}{!availableAccounts.length ? <span className="mt-1 block text-xs text-amber-700">{canManageAccounts ? <><Link href="/settings/pi-payment-accounts" className="underline">先为此付款渠道配置并启用收款账户</Link>，再返回创建PI。</> : "请联系系统管理员为此付款渠道配置并启用收款账户。"}</span> : null}</div>

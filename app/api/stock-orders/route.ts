@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
       && hasPermission(account, "stock.procurement.edit");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
+    const archivedView = params.get("archive") === "archived";
+    if (archivedView && account.role !== "ADMIN") throw new Error("FORBIDDEN");
+    if (archivedView && exporting) throw new Error("已归档备货单不支持导出");
     const selectedIds = params.getAll("id");
     if (selectedIds.length && (!exporting || selectedIds.length > 50 ||
       new Set(selectedIds).size !== selectedIds.length ||
@@ -69,10 +72,11 @@ export async function GET(request: NextRequest) {
     const matchingCustomerOrderIds = await matchingOrderIds(await matchingCustomerIds(q));
     const from = (page - 1) * pageSize;
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
-      let query = supabase.from("stock_orders_with_pi_preparer")
-        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,pi_prepared_by,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at", { count: "exact" })
+      let query = supabase.from("stock_orders_with_archive")
+        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,pi_prepared_by,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,archived_at,archived_by,archive_reason,archive_batch_id", { count: "exact" })
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
+      query = archivedView ? query.not("archived_at", "is", null) : query.is("archived_at", null);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (creatorId) query = query.eq("pi_prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
@@ -224,7 +228,7 @@ export async function GET(request: NextRequest) {
       sales: clerkOwnerById.get(item.sales_user_id) || null,
       preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),
-      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: ["WAREHOUSE","ADMIN"].includes(account.role) && hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: account.role === "WAREHOUSE" || hasPermission(account, "stock.data_all") });
+      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, is_admin: account.role === "ADMIN", archived_view: archivedView, can_update: ["WAREHOUSE","ADMIN"].includes(account.role) && hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: account.role === "WAREHOUSE" || hasPermission(account, "stock.data_all") });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单列表加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

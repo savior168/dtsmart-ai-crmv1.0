@@ -341,7 +341,8 @@ assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "P
 assert.match(piForm, /"成本单价（CNY） \*", "销售单价（CNY） \*", `销售单价（\$\{currency \|\| "付款币种"\}） \*`, "数量 \*", "销售金额（CNY）", `销售金额（\$\{currency \|\| "付款币种"\}）`/, "PI录入列头须按CNY、付款币种、数量、双币金额排列");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
 assert.match(piForm, /产品总利润率：[\s\S]*totals\.totalProfitCny \/ totals\.subtotalCny \* 100/, "整单利润率必须按产品利润除以产品销售额计算");
-assert.match(piForm, /const defaultValidity = \(\) => \{ const date = new Date\(\); date\.setDate\(date\.getDate\(\) \+ 5\)/, "新建PI有效期默认当前日期后5天");
+assert.match(piForm, /const \[validUntil, setValidUntil\] = useState\(""\)/, "新建PI有效期必须默认留空并由用户选择");
+assert.match(piForm, /if \(!isValidPiValidityDate\(validUntil\)\)/, "提交PI前必须校验有效期");
 assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*editUnitPrice\(index, "CNY"/, "人民币单价输入须同步换算外币");
 assert.match(piForm, /第\$\{index \+ 1\}行\$\{currency\}单价[\s\S]*editUnitPrice\(index, "PAYMENT"/, "外币单价输入须同步换算人民币");
 assert.match(piForm, /validPiMoney\(item\.unit_price_payment\)[\s\S]*Number\(item\.unit_price_payment\)/, "外币销售金额须使用外币单价计算");

@@ -67,6 +67,8 @@ type Payload = {
     confirmation_note: string | null;
     status: SalesOrderStatus;
     confirmed_at: string | null;
+    archived_at?: string | null;
+    archive_reason?: string | null;
     pi_revision: number;
     owner?: { name?: string | null; email?: string } | null;
   };
@@ -308,6 +310,7 @@ export function OrderDetailView({ id }: { id: string }) {
               {error}
             </p>
           ) : null}
+          {o.archived_at ? <p className="border-b bg-slate-100 px-5 py-3 text-sm text-slate-700"><b>已归档（只读）</b> · {new Date(o.archived_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}{o.archive_reason ? ` · 原因：${o.archive_reason}` : ""}</p> : null}
           {directPi ? <>
             <div className="grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">客户名称（本单快照）</p><p className="mt-1 text-lg font-semibold text-slate-900">{o.customer_name_snapshot?.trim() || "历史未留存"}</p><p className="text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="break-words text-sm text-slate-600">客户税号（本单）：{o.customer_tax_number_snapshot?.trim() || "历史未留存"}</p><div className="text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>

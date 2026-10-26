@@ -33,6 +33,9 @@ export async function GET(request: NextRequest) {
     const { supabase, account } = await requirePermission("orders.view");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
+    const archivedView = params.get("archive") === "archived";
+    if (archivedView && account.role !== "ADMIN") throw new Error("FORBIDDEN");
+    if (archivedView && exporting) throw new Error("已归档 PI 不支持导出");
     const selectedIds = params.getAll("id");
     if (selectedIds.length && (!exporting || selectedIds.length > 50 ||
       new Set(selectedIds).size !== selectedIds.length ||
@@ -67,12 +70,13 @@ export async function GET(request: NextRequest) {
       let query = supabase
         .from("sales_orders")
         .select(
-          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,prepared_by,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
+          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,prepared_by,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at,archived_at,archived_by,archive_reason",
           { count: "exact" },
         )
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true })
         .range(rangeStart, rangeEnd);
+      query = archivedView ? query.not("archived_at", "is", null) : query.is("archived_at", null);
       if (account.role === "ORDER_CLERK") query = query.eq("confirmation_method", "DIRECT_PI");
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (creatorId) query = query.eq("prepared_by", creatorId);
@@ -178,7 +182,9 @@ export async function GET(request: NextRequest) {
         ? createAdminClient().from("users").select("id,name,email").in("id", creatorIds)
         : Promise.resolve({ data: [], error: null }),
       orderIds.length
-        ? relatedClient.from("stock_orders").select("id,sales_order_id,stock_number,status").in("sales_order_id", orderIds)
+        ? (archivedView
+          ? relatedClient.from("stock_orders").select("id,sales_order_id,stock_number,status").in("sales_order_id", orderIds).not("archived_at", "is", null)
+          : relatedClient.from("stock_orders").select("id,sales_order_id,stock_number,status").in("sales_order_id", orderIds).is("archived_at", null))
         : Promise.resolve({ data: [], error: null }),
       loadOrderCustomerNames(orderIds),
     ]);
@@ -203,7 +209,7 @@ export async function GET(request: NextRequest) {
         owner: ownerById.get(item.sales_user_id) || null,
         creator: item.prepared_by ? creatorById.get(item.prepared_by) || null : null,
         stock: stockByOrderId.get(item.id) || [],
-        can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") &&
+        can_delete_draft: !item.archived_at && (account.role === "SALES" || account.role === "ADMIN") &&
           hasPermission(account, "orders.delete_draft") &&
           (account.role === "ADMIN" || item.sales_user_id === account.id) &&
           item.confirmation_method === "DIRECT_PI" && item.status === "DRAFT" &&
@@ -217,6 +223,8 @@ export async function GET(request: NextRequest) {
       can_view_stock: hasPermission(account, "stock.view"),
       can_export: hasPermission(account, "orders.export"),
       can_preview: hasPermission(account, "orders.preview"),
+      is_admin: account.role === "ADMIN",
+      archived_view: archivedView,
       can_create: (account.role === "SALES" || account.role === "SUPERVISOR" || account.role === "ADMIN" || account.role === "ORDER_CLERK") && hasPermission(account, "orders.create"),
       can_import: ["SALES", "SUPERVISOR", "ADMIN", "ORDER_CLERK"].includes(account.role) && hasPermission(account, "orders.import"),
     });

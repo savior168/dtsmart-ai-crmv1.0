@@ -17,7 +17,7 @@ export async function GET(
       supabase
         .from("sales_orders")
         .select(
-          "id,customer_id,prepared_by,order_number,warehouse_reference_number,status,currency,show_dual_currency_prices,delivery_date,payment_method,customer_short_name,customer_tax_number_snapshot,destination_country,shipping_cost,subtotal,total_amount,created_at,confirmed_at,confirmation_method,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,last_balance_cny,last_balance_amount,discount_cny,discount_amount,other_charge_cny,other_charge_amount,paypal_fee_percent,paypal_fee_cny,paypal_fee_amount,payment_account_snapshot,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name,tax_number,phone)",
+          "id,customer_id,prepared_by,order_number,warehouse_reference_number,status,currency,show_dual_currency_prices,delivery_date,payment_method,customer_short_name,customer_tax_number_snapshot,destination_country,shipping_cost,subtotal,total_amount,created_at,confirmed_at,confirmation_method,pi_valid_until,archived_at,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,last_balance_cny,last_balance_amount,discount_cny,discount_amount,other_charge_cny,other_charge_amount,paypal_fee_percent,paypal_fee_cny,paypal_fee_amount,payment_account_snapshot,owner:users!sales_orders_sales_user_id_fkey(name,email),customer:customers(company_name,contact_name,tax_number,phone)",
         )
         .eq("id", id)
         .single(),
@@ -31,6 +31,7 @@ export async function GET(
     ]);
     if (order.error) throw order.error;
     if (items.error) throw items.error;
+    if (order.data.archived_at) throw new Error("已归档 PI 订单不能导出，请先由系统管理员恢复");
     if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
     const customerNames = await loadOrderCustomerNames([id]);
     const clerkCustomer = account.role === "ORDER_CLERK" ? await createAdminClient().from("customers")

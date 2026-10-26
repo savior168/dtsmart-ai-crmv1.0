@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
+const migration = read("supabase/migrations/202610260001_admin_order_archiving.sql");
+const visibilityMigration = read("supabase/migrations/202610260002_archive_visibility_and_stock_list_view.sql");
+const triggerFixMigration = read("supabase/migrations/202610260003_fix_archive_item_trigger_record_fields.sql");
+const archiveApi = read("app/api/order-archives/route.ts");
+const ordersApi = read("app/api/orders/route.ts");
+const stockOrdersApi = read("app/api/stock-orders/route.ts");
+const ordersView = read("components/orders-view.tsx");
+const stockOrdersView = read("components/stock-orders-view.tsx");
+const stockDetailApi = read("app/api/stock-orders/[id]/route.ts");
+const piDetailApi = read("app/api/orders/[id]/route.ts");
+const stockExportApi = read("app/api/stock-orders/[id]/export/route.ts");
+const piExportApi = read("app/api/orders/[id]/export/route.ts");
+
+assert.match(migration, /sales_orders_archive_visibility[\s\S]*?as restrictive for select[\s\S]*?archived_at is null or public\.current_user_is_admin\(\)/i);
+assert.match(migration, /stock_orders_archive_visibility[\s\S]*?as restrictive for select[\s\S]*?archived_at is null or public\.current_user_is_admin\(\)/i);
+assert.match(migration, /u\.role = 'ADMIN'[\s\S]*?u\.status = 'ACTIVE'/i);
+assert.match(migration, /仅系统管理员可管理单据归档/);
+assert.match(migration, /current_user_is_admin\(\)[\s\S]*?仅系统管理员可管理单据归档/);
+assert.match(migration, /sales_order_items_archived_read_only/);
+assert.match(migration, /stock_order_items_archived_read_only/);
+assert.match(migration, /s\.archived_at is null/i);
+assert.match(migration, /confirmation_method is distinct from 'DIRECT_PI'/i, "existing warehouse visibility exception must be retained");
+assert.match(migration, /'RECEIVED'[\s\S]*?'SORTING'[\s\S]*?'READY_TO_SHIP'[\s\S]*?'SHIPPED'/, "existing dashboard status counts must be retained");
+assert.match(visibilityMigration, /stock_orders_with_archive[\s\S]*security_invoker/i);
+assert.match(visibilityMigration, /sales_order_items_archive_visibility[\s\S]*as restrictive for select/i);
+assert.match(visibilityMigration, /stock_order_items_archive_visibility[\s\S]*as restrictive for select/i);
+assert.match(visibilityMigration, /sales_orders_archived_delete_guard/);
+assert.match(visibilityMigration, /stock_orders_archived_delete_guard/);
+assert.match(triggerFixMigration, /if tg_table_name = 'sales_order_items' then[\s\S]*old\.sales_order_id[\s\S]*new\.sales_order_id[\s\S]*else[\s\S]*old\.stock_order_id[\s\S]*new\.stock_order_id/);
+assert.doesNotMatch(triggerFixMigration, /case when tg_table_name[\s\S]*old\.sales_order_id[\s\S]*old\.stock_order_id/i, "触发器不得在同一个 record CASE 中访问另一张表不存在的列");
+
+assert.match(archiveApi, /requireAdmin\(\)/);
+assert.match(archiveApi, /manage_order_archives/);
+assert.match(archiveApi, /ids\.length > 100/);
+assert.match(archiveApi, /本入口仅支持归档 PI 订单/);
+assert.match(ordersApi, /archivedView && account\.role !== "ADMIN"/);
+assert.match(stockOrdersApi, /archivedView && account\.role !== "ADMIN"/);
+assert.match(ordersApi, /\.is\("archived_at", null\)/);
+assert.match(stockOrdersApi, /\.is\("archived_at", null\)/);
+assert.match(ordersView, /setIsAdmin\(Boolean\(b\.is_admin\)\)/);
+assert.match(ordersView, /有效单据[\s\S]*已归档/);
+assert.match(stockOrdersView, /data\?\.is_admin\?/);
+assert.match(stockOrdersView, /有效单据[\s\S]*已归档/);
+assert.match(ordersView, /选择本页全部PI订单用于归档/);
+assert.match(ordersView, /批量归档所选/);
+assert.match(stockOrdersView, /批量归档所选/);
+assert.match(piDetailApi, /const archived = Boolean\(order\.data\.archived_at\)/);
+assert.match(stockDetailApi, /const archived = Boolean\(order\.archived_at\)/);
+assert.match(stockExportApi, /已归档备货单不能导出/);
+assert.match(piExportApi, /已归档 PI 订单不能导出/);
+
+console.log("Order archive admin-only and visibility regression checks passed.");

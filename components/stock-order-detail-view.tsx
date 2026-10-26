@@ -88,6 +88,8 @@ type Payload = {
     status: StockOrderStatus;
     stocking_requirements: string | null;
     status_note: string | null;
+    archived_at?: string | null;
+    archive_reason?: string | null;
     expected_ready_at: string | null;
     created_at: string;
     updated_at: string;
@@ -530,6 +532,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </span>}
           </header>
           {data.recalled_pi ? <p className="border-b bg-amber-50 px-5 py-3 text-sm text-amber-800">这张备货单随 PI 撤回，当前不是仓库待办；原内容仅供追溯。请在 PI 草稿中修改并重新提交。</p> : null}
+          {o.archived_at ? <p className="border-b bg-slate-100 px-5 py-3 text-sm text-slate-700"><b>已归档（只读）</b> · {new Date(o.archived_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}{o.archive_reason ? ` · 原因：${o.archive_reason}` : ""}</p> : null}
           {error ? (
             <div className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
               {error}

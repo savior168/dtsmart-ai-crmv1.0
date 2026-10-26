@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, LoaderCircle, Search } from "lucide-react";
 import { SALES_ORDER_STATUS_LABELS, type SalesOrderStatus } from "@/lib/types";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -10,7 +10,7 @@ import { AppPagination } from "@/components/ui/app-pagination";
 import { AppSelect } from "@/components/ui/app-select";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
-import { ConfirmDialog } from "@/components/ui/app-dialog";
+import { AppDialog, ConfirmDialog, DialogActions } from "@/components/ui/app-dialog";
 import { COUNTRY_OPTIONS } from "@/lib/countries";
 import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
@@ -30,6 +30,8 @@ type Row = {
   confirmation_method: string | null;
   pi_revision: number;
   can_delete_draft: boolean;
+  archived_at?: string | null;
+  archive_reason?: string | null;
   customer_short_name: string;
   customer_name: string | null;
   destination_country: string | null;
@@ -66,6 +68,12 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
   const [canImport, setCanImport] = useState(false);
   const [canExport, setCanExport] = useState(false);
   const [canPreview, setCanPreview] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [archivedView, setArchivedView] = useState(false);
+  const [archiveSelectedIds, setArchiveSelectedIds] = useState<string[]>([]);
+  const [archiveAction, setArchiveAction] = useState<"ARCHIVE" | "RESTORE" | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [singleExportId, setSingleExportId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -75,7 +83,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   async function exportSelected() {
-    if (exportBusy || !canExport || !selectedIds.length) return;
+    if (exportBusy || !canExport || archivedView || !selectedIds.length) return;
     setExportBusy(true);
     setError("");
     try {
@@ -149,6 +157,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
     if (dateTo) p.set("date_to", dateTo);
     if (userId) p.set("user_id", userId);
     if (creatorId) p.set("creator_id", creatorId);
+    if (archivedView) p.set("archive", "archived");
     try {
     const r = await fetch(`/api/orders?${p}`, { cache: "no-store" });
     const b = await r.json().catch(() => ({}));
@@ -174,14 +183,28 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
     setCanImport(Boolean(b.can_import));
     setCanExport(Boolean(b.can_export));
     setCanPreview(Boolean(b.can_preview));
+    setIsAdmin(Boolean(b.is_admin));
     setError("");
     } catch {
       if (requestVersion !== listRequestVersion.current) return;
       setLoading(false); setData([]); setCount(0);
       setError("PI订单加载失败，请稍后重试");
     }
-  }, [page, pageSize, q, status, currency, country, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
-  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, dateFrom, dateTo, userId, creatorId]);
+  }, [page, pageSize, q, status, currency, country, sortBy, sortDir, dateFrom, dateTo, userId, creatorId, archivedView]);
+  useEffect(() => { setSelectedIds([]); setArchiveSelectedIds([]); }, [q, status, currency, country, dateFrom, dateTo, userId, creatorId, archivedView, page, pageSize]);
+  async function manageArchive(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isAdmin || !archiveAction || archiveBusy || !archiveSelectedIds.length || archiveSelectedIds.length > 100) return;
+    setArchiveBusy(true);
+    try {
+      const response = await fetch("/api/order-archives", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity_type: "sales_order", ids: archiveSelectedIds, action: archiveAction, reason: archiveReason.trim() }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "PI订单归档操作失败");
+      setArchiveAction(null); setArchiveSelectedIds([]); setArchiveReason("");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "PI订单归档操作失败"); }
+    finally { setArchiveBusy(false); }
+  }
   const selectableIds = data.filter((row) => row.confirmation_method === "DIRECT_PI" && !["DRAFT", "CANCELLED"].includes(row.status)).map((row) => row.id);
   const pageSelection = selectableIds.slice(0, 50);
   const allPageSelected = pageSelection.length > 0 && pageSelection.every((id) => selectedIds.includes(id));
@@ -217,7 +240,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1660px]">
         <header>
-          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">PI订单</h1><div className="flex items-center gap-2">{canImport ? <Link href="/orders/import" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">导入PI订单</Link> : null}{canCreate ? <Link href="/orders/new" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">创建PI订单</Link> : null}</div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">PI订单{archivedView ? " · 已归档" : ""}</h1><div className="flex items-center gap-2">{!archivedView && canImport ? <Link href="/orders/import" className="rounded-lg border bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">导入PI订单</Link> : null}{!archivedView && canCreate ? <Link href="/orders/new" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">创建PI订单</Link> : null}</div></div>
           <p className="mt-1 text-sm text-slate-500">
             先保存PI草稿，确认后才生成仓库可见的备货单。
           </p>
@@ -276,7 +299,8 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             重置
           </button>
         </AppFilterBar>
-        {canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><RowActionMenu ariaLabel={`批量导出 PI，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy || selectedIds.length === 0} onClick={() => void exportSelected()}>{exportBusy ? "正在导出…" : "导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy || selectedIds.length === 0} onClick={() => window.open(`/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div> : null}
+        {isAdmin ? <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={() => { setArchivedView(false); setArchiveSelectedIds([]); setPage(1); }} aria-pressed={!archivedView} className={`h-9 rounded-lg border px-3 text-sm ${!archivedView ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>有效单据</button><button type="button" onClick={() => { setArchivedView(true); setArchiveSelectedIds([]); setPage(1); }} aria-pressed={archivedView} className={`h-9 rounded-lg border px-3 text-sm ${archivedView ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>已归档</button>{archiveSelectedIds.length ? <><span className="ml-2 text-sm text-slate-500">已选择 {archiveSelectedIds.length} 张（单次最多 100 张）</span><button type="button" disabled={archiveSelectedIds.length > 100} onClick={() => { setArchiveReason(""); setArchiveAction(archivedView ? "RESTORE" : "ARCHIVE"); }} className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">{archivedView ? "批量恢复所选" : "批量归档所选"}</button></> : null}</div> : null}
+        {!archivedView && canExport ? <div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式 PI；可跨页选择，最多 50 张</span><RowActionMenu ariaLabel={`批量导出 PI，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy || selectedIds.length === 0} onClick={() => void exportSelected()}>{exportBusy ? "正在导出…" : "导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy || selectedIds.length === 0} onClick={() => window.open(`/orders/batch-preview?${selectedIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div> : null}
         {error ? (
           <p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -293,7 +317,8 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
               <table className="w-full min-w-[1750px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs">
                   <tr>
-                    {canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
+                    {isAdmin ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页全部PI订单用于归档，单次最多100张" checked={data.length > 0 && data.every((row) => archiveSelectedIds.includes(row.id))} disabled={archiveSelectedIds.length >= 100 && !data.every((row) => archiveSelectedIds.includes(row.id))} onChange={(event) => setArchiveSelectedIds((current) => event.target.checked ? [...new Set([...current, ...data.map((row) => row.id)])].slice(0, 100) : current.filter((id) => !data.some((row) => row.id === id)))} className="size-4 accent-indigo-600"/></th> : null}
+                    {!archivedView && canExport ? <th className="w-10 px-3 py-3"><input type="checkbox" aria-label="选择本页可导出的PI订单，最多50张" checked={allPageSelected} disabled={!pageSelection.length || (selectedIds.length >= 50 && !pageSelection.some((id) => selectedIds.includes(id)))} onChange={togglePageSelection} className="size-4 accent-blue-600"/></th> : null}
                     <SortHeader label="订单编号" column="order_number"/>
                     <th className="w-[144px] min-w-[144px] px-3 py-3 font-medium">备货单号</th>
                     <th className="min-w-[110px] px-4 py-3 font-medium">客户名称</th>
@@ -318,9 +343,10 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                       ? piOrderStatusLabel(row.status) : SALES_ORDER_STATUS_LABELS[row.status];
                     return (
                       <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
-                        {canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}
+                        {isAdmin ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}用于归档`} checked={archiveSelectedIds.includes(row.id)} disabled={archiveSelectedIds.length >= 100 && !archiveSelectedIds.includes(row.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setArchiveSelectedIds((current) => event.target.checked ? [...new Set([...current, row.id])].slice(0, 100) : current.filter((id) => id !== row.id))} className="size-4 accent-indigo-600"/></td> : null}
+                        {!archivedView && canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}
                         <td className="px-4 py-3 font-semibold">
-                          {row.confirmation_method === "DIRECT_PI" ? row.warehouse_reference_number || "—" : row.order_number}
+                          {row.confirmation_method === "DIRECT_PI" ? row.warehouse_reference_number || "—" : row.order_number}{row.archived_at ? <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600">已归档</span> : null}
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
                         </td>
                         <td className="max-w-[144px] px-3 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block truncate font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={`${stock.stock_number} · ${row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}`}>{stock.stock_number}</Link> : <span className="block truncate text-slate-500" title={stock.stock_number}>{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
@@ -338,14 +364,14 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                         <td className="whitespace-nowrap px-4 py-3">{row.creator?.name || row.creator?.email || "未记录"}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">
-                          {new Date(row.created_at).toLocaleString("zh-CN")}
+                          {row.archived_at ? <span title={row.archive_reason || ""}>归档于 {new Date(row.archived_at).toLocaleString("zh-CN")}{row.archive_reason ? ` · ${row.archive_reason}` : ""}</span> : new Date(row.created_at).toLocaleString("zh-CN")}
                         </td>
                         <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50">
                           <div className="flex items-center gap-2">
                             <Link href={`/orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">查看详情</Link>
                             <RowActionMenu ariaLabel={`订单 ${row.warehouse_reference_number || row.order_number} 的更多操作`} label="更多">
                               {canPreview && row.confirmation_method === "DIRECT_PI" ? <RowActionItem onClick={() => router.push(`/orders/${row.id}/preview`)}>预览{row.status === "DRAFT" ? "草稿" : " / 打印"}</RowActionItem> : null}
-                              {canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <><RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "导出中…" : "导出 Excel"}</RowActionItem><RowActionItem onClick={() => window.open(`/orders/${row.id}/preview?export=pdf`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></> : null}
+                              {!archivedView && canExport && row.confirmation_method === "DIRECT_PI" && !["DRAFT","CANCELLED"].includes(row.status) ? <><RowActionItem disabled={singleExportId !== null} onClick={() => void exportOne(row)}>{singleExportId === row.id ? "导出中…" : "导出 Excel"}</RowActionItem><RowActionItem onClick={() => window.open(`/orders/${row.id}/preview?export=pdf`, "_blank", "noopener,noreferrer")}>导出 PDF</RowActionItem></> : null}
                               {row.can_delete_draft ? <RowActionItem tone="danger" onClick={() => setDeleting(row)}>删除草稿</RowActionItem> : null}
                             </RowActionMenu>
                           </div>
@@ -358,13 +384,14 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
               {!data.length ? (
                 <div className="grid min-h-52 place-items-center text-sm text-slate-400">
                   <ClipboardList className="mb-2" />
-                  暂无销售订单
+                  {archivedView ? "暂无已归档 PI 订单" : "暂无销售订单"}
                 </div>
               ) : null}
             </div>
           )}
           <AppPagination page={page} pageSize={pageSize} total={count} itemLabel="张订单" onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }}/>
         </section>
+        <AppDialog open={Boolean(archiveAction)} title={archiveAction === "ARCHIVE" ? "归档 PI 订单" : "恢复 PI 订单"} description={archiveAction === "ARCHIVE" ? "归档后其他角色将无法查看。关联的未归档备货单会随 PI 一并归档，记录与审计历史会保留。" : "恢复所选 PI 订单，并恢复由同一次归档操作归档的关联备货单。"} onClose={() => { if (!archiveBusy) setArchiveAction(null); }} width="max-w-lg"><form onSubmit={manageArchive}><p className="text-sm text-slate-600">本次处理 {archiveSelectedIds.length} 张 PI 订单。</p>{archiveAction === "ARCHIVE" ? <label className="mt-4 block text-sm font-medium text-slate-700">归档原因（必填）<textarea autoFocus required maxLength={500} rows={3} value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} placeholder="例如：历史测试单据清理" className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm"/></label> : null}<DialogActions busy={archiveBusy} disabled={archiveAction === "ARCHIVE" && !archiveReason.trim()} onCancel={() => { if (!archiveBusy) setArchiveAction(null); }} confirmLabel={archiveAction === "ARCHIVE" ? "确认归档" : "确认恢复"} tone={archiveAction === "ARCHIVE" ? "danger" : "primary"}/></form></AppDialog>
         <ConfirmDialog open={Boolean(deleting)} title="删除未提交的PI草稿" description={`确认删除订单 ${deleting?.warehouse_reference_number || deleting?.order_number || ""} 及产品明细？仅从未提交仓库的草稿可删除，删除后无法恢复。`} confirmLabel="确认删除" danger busy={deleteBusy} onCancel={() => { if (!deleteBusy) setDeleting(null); }} onConfirm={() => void deleteDraft()}/>
       </div>
     </main>
