@@ -308,7 +308,7 @@ assert.equal(optionalDocument.delivery_phone, "", "未启用客户收货信息�
 assert.equal(optionalDocument.delivery_email, "", "收货邮箱选填");
 assert.equal(optionalDocument.delivery_address, "", "未启用客户收货信息时地址可以留空");
 assert.equal(optionalDocument.payment_method, "", "付款渠道可留空，导入核对页由用户选择");
-assert.equal(optionalDocument.fx_rate_cny_per_payment, 0, "汇率可留空并在导入核对页采用当前业务汇率");
+assert.equal(optionalDocument.fx_rate_cny_per_payment, 0, "汇率可留空，但导入核对页必须由用户自行填写");
 assert.equal(optionalDocument.items.length, 1, "PI整单模板至少须提供一条产品明细");
 
 const productTemplate = XLSX.readFile("public/templates/pi-line-import-template.xlsx", { cellFormula: true });
@@ -364,10 +364,10 @@ assert.match(conversion, /acknowledge_differences/);
 const form = readFileSync("components/pi-order-form.tsx", "utf8");
 assert.match(form, /"保存PI草稿"[\s\S]*"确认并生成备货单"/, "导入核对页与新建页应提供保存草稿、确认生成备货单两个入口");
 assert.doesNotMatch(form, /if \(importDraftId && submitToWarehouse\)/, "导入PI核对页应允许直接确认提交仓库");
-assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单价应按当前业务汇率折算并预填人民币售价");
-assert.match(form, /source\.fx_rate_cny_per_payment \|\| systemRate/, "模板明确汇率优先用于全部换算；无模板汇率的正式导出PI才回退系统业务汇率");
+assert.match(form, /unit_price_payment \* importedRate/, "导入客户外币单价应按文件明确汇率折算并预填人民币售价");
+assert.match(form, /const importedRate = Number\(source\.fx_rate_cny_per_payment \|\| 0\)/, "导入文件未提供汇率时必须留空，由用户核对填写，不得回退系统汇率");
 assert.match(form, /item\.unit_price_cny !== undefined \? importedRate > 0 \?[^\n]+: ""/, "缺失汇率时人民币来源商品的外币售价必须留空，不能显示错误换算值");
-assert.match(form, /setShippingFee\(\{ enabled: true, source: "PAYMENT", amount: source\.shipping_payment\.toFixed\(2\) \}\)/, "导入外币运费应保留外币原值供销售核对，并按当前业务汇率换算人民币显示");
+assert.match(form, /setShippingFee\(\{ enabled: true, source: "PAYMENT", amount: source\.shipping_payment\.toFixed\(2\) \}\)/, "导入外币运费应保留外币原值供销售核对，并在填写汇率后换算人民币显示");
 assert.match(form, /uniqueImportedPiCustomer\(listed, source\)/, "只在所属销售员客户中按姓名和电话唯一精确匹配时自动关联");
 assert.match(readFileSync("lib/pi-import-customer-match.ts", "utf8"), /matches\.length === 1/, "重复匹配不得自动关联客户");
 assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货单"/, "差异核对确认应保留直接提交仓库意图");

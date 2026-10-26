@@ -397,7 +397,7 @@ assert.doesNotMatch(customerPi, /createWorkbookFile/, "客户PI必须使用专�
 assert.doesNotMatch(customerPiRoute.match(/\.from\("sales_order_items"\)[\s\S]*?\.order\("line_number"\)/)?.[0] || "", /unit_cost|estimated|procurement|profit|margin|supplier|received|internal_note|preparation/i, "客户PI导出查询不能读取内部成本或供应商字段");
 assert.match(customerPiRoute, /\["DRAFT", "CANCELLED"\]\.includes\(order\.data\.status\)[\s\S]*不能作为正式PI导出/, "未提交或已取消的PI不能作为正式客户文件导出");
 assert.match(piForm, /useState\("USD"\)/, "创建PI默认客户付款币种应为美元");
-assert.match(piForm, /function changeCurrency\(nextCurrency: string\)[\s\S]*setCurrency\(nextCurrency\);[\s\S]*updateRate\(String\(exchangeRates\.find/, "变更报价币种时应带入该币种业务汇率并同步换算单价");
+assert.match(piForm, /function changeCurrency\(nextCurrency: string\)[\s\S]*setCurrency\(nextCurrency\);[\s\S]*updateRate\("", true\)/, "变更报价币种后应清空汇率，保留人民币单价并等待用户重新填写");
 assert.doesNotMatch(piForm, /setCurrency\(event\.target\.value\); setAccountId\(""\)/, "变更报价币种不得清空已选收款账户");
 assert.doesNotMatch(piMigration, /account\.currency<>clean_currency|a\.currency=target\.currency/, "数据库不得把PI报价币种与收款账户币种绑定");
 assert.match(piMigration, /insert into public\.stock_orders\([\s\S]*?delivery_recipient,delivery_phone,delivery_email,delivery_address,updated_by\)/, "提交PI生成备货单时必须固化收货信息");

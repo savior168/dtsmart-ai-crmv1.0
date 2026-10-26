@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { businessRate, cnyPerPayment, paymentPerCny } from "../lib/pi-exchange-rate-math.ts";
 import { createJiti } from "jiti";
 import { isRecentRateDate, parseFrankfurterCnyRates } from "../lib/pi-rate-sources.ts";
@@ -38,4 +39,11 @@ assert.equal(blended.NGN.source, "AGGREGATED");
 assert.equal(blended.VND, undefined);
 assert.equal(blended.EUR, undefined);
 assert.equal(blended.USD, undefined);
+const form = readFileSync(new URL("../components/pi-order-form.tsx", import.meta.url), "utf8");
+assert.match(form, /const \[rate, setRate\] = useState\(""\)/, "新建 PI 汇率默认应留空");
+assert.doesNotMatch(form, /fetch\("\/api\/pi-exchange-rates"/, "PI 表单不能自动读取财务设置汇率");
+assert.match(form, /const importedRate = Number\(source\.fx_rate_cny_per_payment \|\| 0\)/, "仅可带入导入文件明确填写的汇率");
+assert.match(form, /updateRate\("", true\)/, "切换币种后必须重新填写汇率");
+assert.match(form, /setRateConfirmed\(false\);\s*setRate\(nextRate\)/, "修改汇率必须撤销确认");
+assert.match(form, /if \(!rateConfirmed\) \{ setError\("请核对本单实际汇率/, "保存或提交前必须确认汇率");
 console.log("PI汇率方向、业务调整和无数据回退测试通过。");
