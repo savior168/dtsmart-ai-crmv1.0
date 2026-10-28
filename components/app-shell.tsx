@@ -59,6 +59,7 @@ const menu = [
   {
     label: "销售管理", icon: ClipboardList, defaultHref: "/orders", children: [
       { label: "PI订单", href: "/orders", permission: "orders.view" },
+      { label: "业绩分析", href: "/sales/performance", permission: "reports.view", roles: ["ADMIN", "SUPERVISOR", "SALES"] },
     ],
   },
   { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
@@ -123,6 +124,7 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/orders\/new$/, "销售管理 / PI订单 / 创建PI"],
   [/^\/orders\/[^/]+$/, "销售管理 / PI订单 / 订单详情"],
   [/^\/orders$/, "销售管理 / PI订单"],
+  [/^\/sales\/performance$/, "销售管理 / 业绩分析"],
   [/^\/stock-orders\/[^/]+$/, "采购管理 / 备货单详情"],
   [/^\/stock-orders$/, "采购管理 / 备货单"],
   [/^\/reports$/, "报表中心"],
@@ -695,7 +697,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {menu.map((item) => {
           const Icon = item.icon;
           if ("children" in item) {
-            const children = item.children.filter((child) => canSeePermission(child.permission));
+            const children = item.children.filter((child) => canSeePermission(child.permission) && (!("roles" in child) || !profile || child.roles.includes(profile.role as "ADMIN" | "SUPERVISOR" | "SALES")));
             if (!children.length) return null;
             const selected = children.some((child) => !("disabled" in child && child.disabled) && isActive(path, child.href, fromPool));
             const expanded = !collapsed && (expandedGroups.has(item.label) || selected);
