@@ -29,7 +29,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     currency, amount: orders.filter((order) => order.currency === currency).reduce((sum, order) => sum + order.total_amount, 0),
   }));
   const byCustomer = new Map<string, { id: string | null; label: string; order_count: number; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }>();
-  const byProduct = new Map<string, { key: string; label: string; model: string; quantity: number }>();
+  const byProduct = new Map<string, { key: string; label: string; model: string; quantity: number; amounts: Record<string, number> }>();
   for (const order of orders) {
     const customerKey = order.customer_id || order.customer_name;
     const customer = byCustomer.get(customerKey) || { id: order.customer_id, label: order.customer_name, order_count: 0, quantity: 0, cny: 0, usd: 0, missing_cny: 0, missing_usd: 0 };
@@ -40,8 +40,9 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     byCustomer.set(customerKey, customer);
     for (const item of order.items) {
       const key = [item.item_name, item.brand, item.model].join("\u0000");
-      const product = byProduct.get(key) || { key, label: [item.brand, item.item_name].filter(Boolean).join(" · ") || "未命名产品", model: item.model || "", quantity: 0 };
+      const product = byProduct.get(key) || { key, label: [item.brand, item.item_name].filter(Boolean).join(" · ") || "未命名产品", model: item.model || "", quantity: 0, amounts: {} };
       product.quantity += Number(item.quantity || 0);
+      product.amounts[order.currency] = (product.amounts[order.currency] || 0) + Number(item.amount || 0);
       byProduct.set(key, product);
     }
   }

@@ -21,6 +21,7 @@ assert.equal(all.totals.usd, 100);
 assert.equal(all.totals.missing_cny, 1);
 assert.equal(all.totals.missing_usd, 1);
 assert.equal(all.products[0].quantity, 5);
+assert.deepEqual(all.products[0].amounts, { USD: 100, CNY: 600 });
 const own = summarizePiPerformance(orders, metadata, 's1');
 assert.equal(own.totals.orders, 1);
 assert.equal(own.totals.usd, 100);

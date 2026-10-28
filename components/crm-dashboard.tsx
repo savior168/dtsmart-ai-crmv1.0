@@ -49,7 +49,7 @@ type DashboardData = {
   followups: FollowupRow[];
   activities: ActivityRow[];
 };
-type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; missing_cny?: number; missing_usd?: number; currencies?: Array<{ currency: string; amount: number }> }; customers?: Array<{ label: string; order_count: number; cny: number; missing_cny: number }>; products?: Array<{ label: string; model?: string; quantity: number }> };
+type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; missing_cny?: number; missing_usd?: number; currencies?: Array<{ currency: string; amount: number }> }; customers?: Array<{ label: string; order_count: number; cny: number; usd: number; missing_cny: number }>; products?: Array<{ label: string; model?: string; quantity: number }> };
 
 const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]";
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
@@ -238,7 +238,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
 
           {showPerformance ? <section className={`${panelClass} mt-3 p-4 dashboard-reveal`}>
             <div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold text-slate-900">重点客户与热销产品</h2><p className="mt-1 text-xs text-slate-500">客户按可核实人民币金额、产品按售出件数排序；详细订单请进入报表核对。</p></div><Link href="/reports#pi-performance" className="shrink-0 text-xs font-medium text-blue-700">查看订单明细</Link></div>
-            <div className="mt-4 grid gap-5 sm:grid-cols-2"><PerformancePreview title="客户业绩 TOP 5（人民币）" rows={performance?.customers?.slice(0, 5).map((item) => ({ label: item.label, value: item.cny, suffix: `${item.order_count} 个PI${item.missing_cny ? ` · ${item.missing_cny} 单未换算` : ""}` })) || []} /><PerformancePreview title="产品热销 TOP 5（件数）" rows={performance?.products?.slice(0, 5).map((item) => ({ label: `${item.label}${item.model ? ` · ${item.model}` : ""}`, value: item.quantity, suffix: "件 · 可在报表追溯" })) || []} /></div>
+            <div className="mt-4 grid gap-5 sm:grid-cols-2"><PerformancePreview title="客户业绩 TOP 5（人民币）" rows={performance?.customers?.slice(0, 5).map((item) => ({ label: item.label, value: item.missing_cny === item.order_count ? "待核实" : item.cny, suffix: `${item.order_count} 个PI${item.usd ? ` · 已知 USD ${item.usd.toFixed(2)}` : ""}${item.missing_cny ? ` · ${item.missing_cny} 单未换算` : ""}` })) || []} /><PerformancePreview title="产品热销 TOP 5（件数）" rows={performance?.products?.slice(0, 5).map((item) => ({ label: `${item.label}${item.model ? ` · ${item.model}` : ""}`, value: item.quantity, suffix: "件 · 可在报表追溯" })) || []} /></div>
           </section> : null}
 
           <section className="mt-4">
@@ -266,5 +266,5 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
 }
 
 function PerformanceMetric({ label, value }: { label: string; value: string | number }) { return <div className="rounded-lg bg-slate-50 p-3"><small className="block text-slate-500">{label}</small><b className="mt-1 block text-xl tabular-nums text-slate-950">{value}</b></div>; }
-function PerformancePreview({ title, rows }: { title: string; rows: Array<{ label: string; value: number; suffix: string }> }) { return <div><h4 className="mb-2 text-xs font-semibold text-slate-700">{title}</h4>{rows.length ? <div className="space-y-2">{rows.map((row, index) => <div key={`${title}-${row.label}`} className="grid grid-cols-[20px_1fr_auto] items-center gap-2 text-xs"><span className="text-slate-400">{index + 1}</span><span className="min-w-0 truncate text-slate-700" title={row.label}>{row.label}</span><span className="text-right"><b className="block tabular-nums text-slate-900">{Number(row.value).toFixed(2)}</b><small className="text-slate-400">{row.suffix}</small></span></div>)}</div> : <p className="py-8 text-center text-xs text-slate-400">所选期间暂无 PI 业绩</p>}</div>; }
+function PerformancePreview({ title, rows }: { title: string; rows: Array<{ label: string; value: number | string; suffix: string }> }) { return <div><h4 className="mb-2 text-xs font-semibold text-slate-700">{title}</h4>{rows.length ? <div className="space-y-2">{rows.map((row, index) => <div key={`${title}-${row.label}`} className="grid grid-cols-[20px_1fr_auto] items-center gap-2 text-xs"><span className="text-slate-400">{index + 1}</span><span className="min-w-0 truncate text-slate-700" title={row.label}>{row.label}</span><span className="text-right"><b className="block tabular-nums text-slate-900">{typeof row.value === "number" ? row.value.toFixed(2) : row.value}</b><small className="text-slate-400">{row.suffix}</small></span></div>)}</div> : <p className="py-8 text-center text-xs text-slate-400">所选期间暂无 PI 业绩</p>}</div>; }
 
