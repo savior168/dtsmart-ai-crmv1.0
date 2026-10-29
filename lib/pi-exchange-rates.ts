@@ -18,13 +18,13 @@ export async function loadCfetsReferenceRates() {
   return parseCfetsSafeHtml(await response.text());
 }
 
-export async function loadBaiduFinScopeReferenceRates(currencies: readonly BaiduDiscountCurrency[] = BAIDU_DISCOUNT_CURRENCIES): Promise<Record<string, ReferenceRate>> {
+export async function loadBaiduFinScopeReferenceRates(currencies: readonly BaiduDiscountCurrency[] = BAIDU_DISCOUNT_CURRENCIES, fresh = false): Promise<Record<string, ReferenceRate>> {
   const results = await Promise.allSettled(currencies.map(async (currency) => {
     const url = new URL("https://finance.pae.baidu.com/vapi/v1/exchangebycode");
     url.searchParams.set("from_code", currency);
     url.searchParams.set("to_code", "CNY");
     url.searchParams.set("finClientType", "pc");
-    const response = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(8000) });
+    const response = await fetch(url, fresh ? { cache: "no-store", signal: AbortSignal.timeout(8000) } : { next: { revalidate: 60 }, signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new Error("百度实时汇率暂不可用");
     return [currency, parseBaiduFinScopeReferenceRate(await response.json(), currency)] as const;
   }));
