@@ -1,6 +1,6 @@
 export type AdjustmentMode = "OFFSET" | "PERCENT" | "FIXED";
 
-import { BAIDU_DISCOUNT_CURRENCIES } from "./pi-rate-sources";
+import { BAIDU_DISCOUNT_CURRENCIES } from "./pi-rate-sources.ts";
 
 export function roundReferenceRateToTwoDecimals(reference: number) {
   return Number((Math.round((reference + Number.EPSILON) * 100) / 100).toFixed(2));
