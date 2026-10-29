@@ -1,7 +1,7 @@
 export type PiOrderRow = {
   id: string; order_number: string; customer_id: string | null; customer_name: string;
   sales_user_id: string; currency: string; total_amount: number; confirmed_at: string;
-  items: Array<{ item_name: string; brand: string; model: string; quantity: number; amount: number }>;
+  items: Array<{ item_name: string; brand: string; model: string; quantity: number; amount: number; unit_price_cny: number | null }>;
 };
 
 export type PiOrderMetadata = { id: string; total_cny: number | null; fx_rate_cny_to_payment: number | null; archived_at: string | null; status: string };
@@ -25,11 +25,8 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     const usd = row.currency === "USD" ? native : null;
     return { ...row, total_amount: native, total_cny: cny, total_usd: usd };
   });
-  const currencies = Array.from(new Set(orders.map((order) => order.currency))).sort().map((currency) => ({
-    currency, amount: orders.filter((order) => order.currency === currency).reduce((sum, order) => sum + order.total_amount, 0),
-  }));
   const byCustomer = new Map<string, { id: string | null; label: string; order_count: number; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }>();
-  const byProduct = new Map<string, { key: string; label: string; model: string; quantity: number; amounts: Record<string, number> }>();
+  const byProduct = new Map<string, { key: string; label: string; model: string; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }>();
   for (const order of orders) {
     const customerKey = order.customer_id || order.customer_name;
     const customer = byCustomer.get(customerKey) || { id: order.customer_id, label: order.customer_name, order_count: 0, quantity: 0, cny: 0, usd: 0, missing_cny: 0, missing_usd: 0 };
@@ -40,14 +37,22 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     byCustomer.set(customerKey, customer);
     for (const item of order.items) {
       const key = [item.item_name, item.brand, item.model].join("\u0000");
-      const product = byProduct.get(key) || { key, label: [item.brand, item.item_name].filter(Boolean).join(" · ") || "未命名产品", model: item.model || "", quantity: 0, amounts: {} };
-      product.quantity += Number(item.quantity || 0);
-      product.amounts[order.currency] = (product.amounts[order.currency] || 0) + Number(item.amount || 0);
+      const product = byProduct.get(key) || { key, label: [item.brand, item.item_name].filter(Boolean).join(" · ") || "未命名产品", model: item.model || "", quantity: 0, cny: 0, usd: 0, missing_cny: 0, missing_usd: 0 };
+      const quantity = Number(item.quantity || 0);
+      const amountCny = item.unit_price_cny == null
+        ? order.currency === "CNY" ? Number(item.amount || 0) : null
+        : Number(item.unit_price_cny) * quantity;
+      // Only a USD-denominated PI has an authoritative USD product amount in
+      // the current snapshot. Never convert from today's exchange rate.
+      const amountUsd = order.currency === "USD" ? Number(item.amount || 0) : null;
+      product.quantity += quantity;
+      if (amountCny == null) product.missing_cny++; else product.cny += amountCny;
+      if (amountUsd == null) product.missing_usd++; else product.usd += amountUsd;
       byProduct.set(key, product);
     }
   }
   return {
-    totals: { orders: orders.length, cny: orders.reduce((sum, row) => sum + (row.total_cny || 0), 0), usd: orders.reduce((sum, row) => sum + (row.total_usd || 0), 0), missing_cny: orders.filter((row) => row.total_cny == null).length, missing_usd: orders.filter((row) => row.total_usd == null).length, currencies },
+    totals: { orders: orders.length, cny: orders.reduce((sum, row) => sum + (row.total_cny || 0), 0), usd: orders.reduce((sum, row) => sum + (row.total_usd || 0), 0), missing_cny: orders.filter((row) => row.total_cny == null).length, missing_usd: orders.filter((row) => row.total_usd == null).length },
     customers: [...byCustomer.values()].sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
     products: [...byProduct.values()].sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label)),
     orders,

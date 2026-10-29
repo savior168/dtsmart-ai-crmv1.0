@@ -49,12 +49,12 @@ export async function GET(request: NextRequest) {
       const batch = ids.slice(index, index + 50);
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await admin.from("sales_order_items")
-          .select("sales_order_id,item_name,brand,model,quantity,amount")
+          .select("sales_order_id,item_name,brand,model,quantity,amount,unit_price_cny")
           .in("sales_order_id", batch).order("sales_order_id").order("line_number").range(offset, offset + 999);
         if (error) throw error;
         for (const item of data || []) {
           const entries = itemsByOrder.get(item.sales_order_id) || [];
-          entries.push({ item_name: item.item_name || "", brand: item.brand || "", model: item.model || "", quantity: Number(item.quantity || 0), amount: Number(item.amount || 0) });
+          entries.push({ item_name: item.item_name || "", brand: item.brand || "", model: item.model || "", quantity: Number(item.quantity || 0), amount: Number(item.amount || 0), unit_price_cny: item.unit_price_cny == null ? null : Number(item.unit_price_cny) });
           itemsByOrder.set(item.sales_order_id, entries);
         }
         if (!data || data.length < 1000) break;
