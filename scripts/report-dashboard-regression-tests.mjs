@@ -78,4 +78,7 @@ assert.equal(mergedCountries[0].label, "IE");
 assert.equal(mergedCountries[0].count, 2);
 assert.deepEqual([...mergedCountries[0].source_labels], ["IE", "爱尔兰"], "跳转明细需包含两种原始国家值");
 
+
+assert.match(dashboard, /<section className="mt-4 grid gap-3 xl:grid-cols-\[minmax\(0,2fr\)_minmax\(300px,1fr\)\] items-stretch">[\s\S]*客户开发辅助分析[\s\S]*保护到期提醒/, "保护到期提醒应与客户开发辅助图表处于同一响应式主网格");
+assert.match(dashboard, /保护到期提醒[\s\S]*h-\[290px\][\s\S]*visibleProtections/, "保护提醒卡需与图表同高并容纳四条提醒");
 console.log("报表与工作台口径回归检查通过");
