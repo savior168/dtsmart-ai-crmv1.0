@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
-import { businessRate, cnyPerPayment, paymentPerCny } from "../lib/pi-exchange-rate-math.ts";
+import { businessRate, businessRateForCurrency, cnyPerPayment, paymentPerCny, roundReferenceRateToTwoDecimals } from "../lib/pi-exchange-rate-math.ts";
 import { createJiti } from "jiti";
-import { isRecentRateDate, parseFrankfurterCnyRates } from "../lib/pi-rate-sources.ts";
+import { isRecentRateDate, parseBaiduFinScopeReferenceRate, parseFrankfurterCnyRates } from "../lib/pi-rate-sources.ts";
 const jiti = createJiti(import.meta.url);
 const { parseCfetsSafeHtml } = await jiti.import("../lib/pi-cfets-feed.ts");
 
 assert.equal(businessRate(7.25, { adjustment_mode: "OFFSET", adjustment_value: -0.05 }), 7.2);
+assert.equal(roundReferenceRateToTwoDecimals(6.6616), 6.66);
+assert.equal(businessRateForCurrency("USD", 6.6616, { adjustment_mode: "FIXED", adjustment_value: 99 }), 6.56);
+assert.equal(businessRateForCurrency("EUR", 7.426, { adjustment_mode: "OFFSET", adjustment_value: 0 }), 7.33);
+assert.equal(businessRateForCurrency("GBP", 8.8765), 8.78);
+assert.equal(businessRateForCurrency("AUD", 4.6974), 4.60);
+assert.equal(businessRateForCurrency("CAD", 4.7636), 4.66);
+assert.equal(businessRateForCurrency("NZD", 3.7452), 3.65);
+assert.equal(businessRateForCurrency("JPY", 0.04567, { adjustment_mode: "OFFSET", adjustment_value: 0 }), 0.04567);
+assert.equal(businessRateForCurrency("AUD", null), null);
 assert.equal(businessRate(7.25, { adjustment_mode: "PERCENT", adjustment_value: -2 }), 7.105);
 assert.equal(businessRate(null, { adjustment_mode: "FIXED", adjustment_value: 209 }), 209);
 assert.equal(businessRate(null, { adjustment_mode: "OFFSET", adjustment_value: 0 }), null);
@@ -27,6 +36,17 @@ assert.throws(() => parseCfetsSafeHtml(officialHtml, Date.parse("2026-11-14T00:0
 assert.throws(() => parseCfetsSafeHtml(officialHtml.replace("<td>500.85</td>", ""), Date.parse("2026-10-14T12:00:00Z")), /没有近期完整/);
 assert.equal(isRecentRateDate("2026-10-13", Date.parse("2026-10-14T00:00:00Z")), true);
 assert.equal(isRecentRateDate("2026-09-13", Date.parse("2026-10-14T00:00:00Z")), false);
+const baiduRate = parseBaiduFinScopeReferenceRate({
+  ResultCode: 0,
+  Result: { from_currency: { code: "USD" }, to_currency: { code: "CNY", num: "6.6616" }, update_time: "2026-10-29 12:05" },
+}, "USD", Date.parse("2026-10-29T04:06:00Z"));
+assert.deepEqual(baiduRate, { cny: 6.6616, date: "2026-10-29", updatedAt: "2026-10-29 12:05", source: "BAIDU_FINSCOPE" });
+assert.throws(() => parseBaiduFinScopeReferenceRate({
+  ResultCode: 0, Result: { from_currency: { code: "EUR" }, to_currency: { code: "CNY", num: "7.4" }, update_time: "2026-10-29 12:05" },
+}, "USD", Date.parse("2026-10-29T04:06:00Z")), /无效或已过期/);
+assert.throws(() => parseBaiduFinScopeReferenceRate({
+  ResultCode: 0, Result: { from_currency: { code: "USD" }, to_currency: { code: "CNY", num: "7.4" }, update_time: "2026-10-20 12:05" },
+}, "USD", Date.parse("2026-10-29T04:06:00Z")), /无效或已过期/);
 const blended = parseFrankfurterCnyRates([
   { date: "2026-10-13", base: "CNY", quote: "NGN", rate: 198.92 },
   { date: "2026-09-13", base: "CNY", quote: "VND", rate: 3866.89 },
