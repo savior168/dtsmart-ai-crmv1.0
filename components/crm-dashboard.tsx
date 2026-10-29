@@ -126,6 +126,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
   const [scopeUserId, setScopeUserId] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
   const [performance, setPerformance] = useState<PerformanceSummary | null>(null);
+  const [performanceError, setPerformanceError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [protectionPage, setProtectionPage] = useState(1);
@@ -139,7 +140,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
     controllerRef.current = controller;
     const request = ++requestId.current;
     setLoading(true); setError("");
-    setPerformance(null);
+    setPerformance(null); setPerformanceError("");
     const params = new URLSearchParams({ from, to, country });
     if (scopeUserId) params.set("user_id", scopeUserId);
     const performanceParams = new URLSearchParams(businessRange(from, to));
@@ -163,7 +164,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
       if (request === requestId.current) setLoading(false);
     }
     performanceTask.catch((reason) => {
-      if (!controller.signal.aborted && request === requestId.current) setError(reason instanceof Error ? reason.message : "PI业绩加载失败");
+      if (!controller.signal.aborted && request === requestId.current) setPerformanceError(reason instanceof Error ? reason.message : "PI业绩加载失败");
     });
   }, [country, from, scopeUserId, showPerformance, to]);
 
@@ -213,10 +214,11 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
         {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
           {showPerformance ? <section className={`${panelClass} mt-4 overflow-hidden p-4 dashboard-reveal`}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-600">业绩快照</p><h2 className="mt-1 text-[17px] font-semibold text-slate-900">已确认 PI</h2><p className="mt-1 text-xs text-slate-500">结果概览；客户、产品排名与订单复盘统一在业绩分析查看。</p></div><Link href="/sales/performance" className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">查看完整业绩分析 <ChevronRight size={14}/></Link></div>
+            {performanceError ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">业绩快照暂不可用：{performanceError}</p> : null}
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <PerformanceMetric label="有效 PI" value={performance?.totals?.orders ?? "—"} emphasis="slate" />
-              <PerformanceMetric label="成交金额" value={`¥${money(Number(performance?.totals?.cny || 0))}　/　$${money(Number(performance?.totals?.usd || 0))}`} emphasis="blue" />
-              <PerformanceMetric label="预估产品毛利" value={`¥${money(Number(performance?.totals?.product_profit_cny || 0))}　/　$${money(Number(performance?.totals?.product_profit_usd || 0))}`} emphasis="green" />
+              <PerformanceMetric label="有效 PI" value={performance ? (performance.totals?.orders ?? 0) : "—"} emphasis="slate" />
+              <PerformanceMetric label="成交金额" value={performance ? `¥${money(Number(performance.totals?.cny || 0))}　/　${money(Number(performance.totals?.usd || 0))}` : "—"} emphasis="blue" />
+              <PerformanceMetric label="预估产品毛利" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${money(Number(performance.totals?.product_profit_usd || 0))}` : "—"} emphasis="green" />
               <PerformanceMetric label="预估产品毛利率" value={performance?.totals?.product_margin == null ? "待核实" : `${Number(performance.totals.product_margin).toFixed(2)}%`} emphasis="violet" />
             </div>
             {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或采购成本未完整的单据；毛利为已具备完整产品成本单据的预估值。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利按产品销售额减预估采购成本计算，不含运费及其他费用。</p>}
