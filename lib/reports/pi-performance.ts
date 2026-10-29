@@ -41,7 +41,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       // Later warehouse procurement prices are a separate operational measure and must not rewrite PI margin.
       const piUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
       const unitCost = piUnitCost;
-      const costBasis = piUnitCost != null ? "PI" : "MISSING";
+      const costBasis = piUnitCost != null ? "ESTIMATED" : "MISSING";
       const costCny = unitCost == null ? null : unitCost * quantity;
       return { ...item, quantity, amount, sales_cny: salesCny, sales_usd: salesUsd, cost_cny: costCny, cost_basis: costBasis,
         profit_cny: salesCny != null && costCny != null ? salesCny - costCny : null,
@@ -129,7 +129,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       product_sales_cny: productSalesCny, product_profit_cny: profitCny,
       product_profit_usd: orders.filter((row) => row.product_profit_usd != null).reduce((sum, row) => sum + Number(row.product_profit_usd), 0),
       missing_profit_usd_orders: orders.filter((row) => row.product_profit_usd == null).length,
-      product_margin: productSalesCny > 0 ? profitCny / productSalesCny * 100 : null,
+      product_margin: orders.length > 0 && orders.every((row) => row.product_profit_cny != null) && productSalesCny > 0 ? profitCny / productSalesCny * 100 : null,
       missing_profit_orders: orders.filter((row) => row.product_profit_cny == null).length,
     },
     customers: [...byCustomer.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 && row.missing_profit_orders === 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
