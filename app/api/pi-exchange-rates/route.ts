@@ -37,21 +37,22 @@ export async function GET(request: NextRequest) {
       const isBaiduManaged = (BAIDU_DISCOUNT_CURRENCIES as readonly string[]).includes(currency);
       const baiduMarket = references[currency]?.source === "BAIDU_FINSCOPE" ? references[currency] : undefined;
       const market = isBaiduManaged ? baiduMarket : references[currency];
-      const reference = isBaiduManaged ? market?.cny ?? null : market?.cny ?? rule?.manual_reference_cny ?? (currency === "CNY" ? 1 : null);
-      const source = market?.source ?? (isBaiduManaged ? "UNAVAILABLE" : rule?.manual_reference_cny != null ? "MANUAL" : currency === "CNY" ? "IDENTITY" : "UNAVAILABLE");
+      const reference = market?.cny ?? rule?.manual_reference_cny ?? (currency === "CNY" ? 1 : null);
+      const source = market?.source ?? (rule?.manual_reference_cny != null ? "MANUAL" : currency === "CNY" ? "IDENTITY" : "UNAVAILABLE");
       const sourceUrl = isBaiduManaged
         ? `https://www.baidu.com/s?wd=${encodeURIComponent(`${label}人民币汇率`)}`
         : source === "CFETS" ? "https://www.safe.gov.cn/AppStructured/hlw/RMBQuery.do"
         : source === "AGGREGATED" ? `https://api.frankfurter.dev/v2/rates?base=CNY&symbols=${encodeURIComponent(currency)}`
         : null;
-      const adjustmentMode = isBaiduManaged ? "OFFSET" : rule?.adjustment_mode || "OFFSET";
-      const adjustmentValue = isBaiduManaged ? -0.1 : rule?.adjustment_value || 0;
+      const adjustmentMode = rule?.adjustment_mode ?? "OFFSET";
+      const adjustmentValue = rule?.adjustment_value ?? (isBaiduManaged ? -0.1 : 0);
+      const effectiveRule = { adjustment_mode: adjustmentMode, adjustment_value: adjustmentValue };
       return {
         currency, label, reference_cny: reference, source, source_url: sourceUrl,
         reference_date: market?.date ?? null, source_updated_at: market?.updatedAt ?? null,
-        business_cny: businessRateForCurrency(currency, reference, rule),
+        business_cny: businessRateForCurrency(currency, reference, effectiveRule),
         adjustment_mode: adjustmentMode, adjustment_value: adjustmentValue,
-        manual_reference_cny: isBaiduManaged ? null : rule?.manual_reference_cny ?? null,
+        manual_reference_cny: rule?.manual_reference_cny ?? null,
         updated_at: rule?.updated_at ?? null,
       };
     });
@@ -74,9 +75,6 @@ export async function PATCH(request: NextRequest) {
     const mode = String(body.adjustment_mode || "").trim();
     const value = Number(body.adjustment_value);
     const manual = body.manual_reference_cny === "" || body.manual_reference_cny == null ? null : Number(body.manual_reference_cny);
-    if ((BAIDU_DISCOUNT_CURRENCIES as readonly string[]).includes(currency)) {
-      throw new Error("该币种由系统按百度参考汇率保留两位小数后减0.10计算，不能单独覆盖");
-    }
     if (!QUOTE_CURRENCY_CODES.has(currency) || !["OFFSET", "PERCENT", "FIXED"].includes(mode)
       || !Number.isFinite(value) || Math.abs(value) > 100000000 || Math.round(value * 1e6) !== value * 1e6
       || (mode === "FIXED" && value <= 0)
