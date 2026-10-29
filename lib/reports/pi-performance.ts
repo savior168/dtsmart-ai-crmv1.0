@@ -67,7 +67,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
   const byProduct = new Map<string, {
     key: string; label: string; model: string; quantity: number; cny: number; usd: number;
     missing_cny: number; missing_usd: number; cost_cny: number; product_profit_cny: number;
-    product_profit_usd: number; product_sales_cny: number; missing_cost_lines: number;
+    product_profit_usd: number; product_sales_cny: number; missing_cost_lines: number; missing_profit_lines: number;
   }>();
   for (const order of orders) {
     const customerKey = order.customer_id || order.customer_name;
@@ -91,12 +91,13 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       const product = byProduct.get(key) || { key,
         label: [item.brand, item.item_name].filter(Boolean).join(" · ") || "未命名产品", model: item.model || "",
         quantity: 0, cny: 0, usd: 0, missing_cny: 0, missing_usd: 0,
-        cost_cny: 0, product_profit_cny: 0, product_profit_usd: 0, product_sales_cny: 0, missing_cost_lines: 0 };
+        cost_cny: 0, product_profit_cny: 0, product_profit_usd: 0, product_sales_cny: 0, missing_cost_lines: 0, missing_profit_lines: 0 };
       product.quantity += item.quantity;
       if (item.sales_cny == null) product.missing_cny++; else product.cny += item.sales_cny;
       if (item.sales_usd == null) product.missing_usd++; else product.usd += item.sales_usd;
-      if (item.cost_cny == null || item.profit_cny == null) product.missing_cost_lines++;
-      else {
+      if (item.cost_cny == null) product.missing_cost_lines++;
+      if (item.profit_cny == null) product.missing_profit_lines++;
+      if (item.cost_cny != null && item.profit_cny != null) {
         product.cost_cny += item.cost_cny;
         product.product_profit_cny += item.profit_cny;
         product.product_sales_cny += Number(item.sales_cny || 0);
@@ -120,8 +121,8 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       product_margin: productSalesCny > 0 ? profitCny / productSalesCny * 100 : null,
       missing_profit_orders: orders.filter((row) => row.product_profit_cny == null).length,
     },
-    customers: [...byCustomer.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
-    products: [...byProduct.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label)),
+    customers: [...byCustomer.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 && row.missing_profit_orders === 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
+    products: [...byProduct.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 && row.missing_profit_lines === 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label)),
     orders,
   };
 }
