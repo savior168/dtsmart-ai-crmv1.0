@@ -42,6 +42,8 @@ assert.equal(result.totals.missing_profit_orders, 2);
 assert.equal(result.totals.missing_usd, 1);
 assert.equal(result.orders.find((order) => order.id === "usd-native").product_profit_usd, 80 - (400 / usdRate));
 assert.equal(result.customers.find((customer) => customer.id === "customer-a").order_count, 2);
+assert.equal(result.customers.find((customer) => customer.id === "customer-b").missing_profit_usd_orders, 2,
+  "customer-level USD profit completeness includes missing historical FX and missing cost");
 assert.equal(result.products.find((product) => product.key === ["Phone", "A", "M1"].join("\u0000")).quantity, 6);
 assert.deepEqual(performanceOwnerFilter("SALES", "seller-a", null), ["seller-a"]);
 assert.equal(performanceOwnerFilter("ADMIN", "admin", null), null);
