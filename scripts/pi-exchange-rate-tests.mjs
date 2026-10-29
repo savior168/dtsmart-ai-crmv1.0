@@ -7,8 +7,12 @@ const { parseCfetsSafeHtml } = await jiti.import("../lib/pi-cfets-feed.ts");
 
 assert.equal(businessRate(7.25, { adjustment_mode: "OFFSET", adjustment_value: -0.05 }), 7.2);
 assert.equal(roundReferenceRateToTwoDecimals(6.6616), 6.66);
-assert.equal(businessRateForCurrency("USD", 6.6616, { adjustment_mode: "FIXED", adjustment_value: 99 }), 6.56);
-assert.equal(businessRateForCurrency("EUR", 7.426, { adjustment_mode: "OFFSET", adjustment_value: 0 }), 7.33);
+assert.equal(businessRateForCurrency("USD", 6.6616), 6.56);
+assert.equal(businessRateForCurrency("USD", 6.6616, { adjustment_mode: "FIXED", adjustment_value: 99 }), 99);
+assert.equal(businessRateForCurrency("USD", 6.6616, { adjustment_mode: "OFFSET", adjustment_value: -0.2 }), 6.46);
+assert.equal(businessRateForCurrency("USD", 6.6616, { adjustment_mode: "PERCENT", adjustment_value: -1 }), 6.5934);
+assert.equal(businessRateForCurrency("EUR", 7.426, { adjustment_mode: "OFFSET", adjustment_value: 0 }), 7.43);
+assert.equal(businessRateForCurrency("EUR", null, { adjustment_mode: "FIXED", adjustment_value: 7.35 }), 7.35);
 assert.equal(businessRateForCurrency("GBP", 8.8765), 8.78);
 assert.equal(businessRateForCurrency("AUD", 4.6974), 4.60);
 assert.equal(businessRateForCurrency("CAD", 4.7636), 4.66);
