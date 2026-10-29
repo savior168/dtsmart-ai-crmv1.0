@@ -50,7 +50,7 @@ type DashboardData = {
   followups: FollowupRow[];
   activities: ActivityRow[];
 };
-type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number } };
+type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number; missing_profit_usd_orders?: number } };
 
 const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]";
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
@@ -218,10 +218,10 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <PerformanceMetric label="有效 PI" value={performance ? (performance.totals?.orders ?? 0) : "—"} emphasis="slate" />
               <PerformanceMetric label="成交金额" value={performance ? `¥${money(Number(performance.totals?.cny || 0))}　/　${money(Number(performance.totals?.usd || 0))}` : "—"} emphasis="blue" />
-              <PerformanceMetric label="预估产品毛利" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${money(Number(performance.totals?.product_profit_usd || 0))}` : "—"} emphasis="green" />
-              <PerformanceMetric label="预估产品毛利率" value={performance?.totals?.product_margin == null ? "待核实" : `${Number(performance.totals.product_margin).toFixed(2)}%`} emphasis="violet" />
+              <PerformanceMetric label="产品毛利（实际/估算）" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${money(Number(performance.totals?.product_profit_usd || 0))}` : "—"} emphasis="green" />
+              <PerformanceMetric label="产品毛利率" value={!performance ? "—" : performance.totals?.product_margin == null ? "待核实" : `${Number(performance.totals.product_margin).toFixed(2)}%`} emphasis="violet" />
             </div>
-            {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或采购成本未完整的单据；毛利为已具备完整产品成本单据的预估值。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利按产品销售额减预估采购成本计算，不含运费及其他费用。</p>}
+            {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders || performance?.totals?.missing_profit_usd_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或采购成本未完整的单据；毛利只汇总成本可核实单据；已确认采购成本优先，未确认时采用PI预估成本。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利优先按已确认采购成本计算，未确认时采用PI预估成本；不含运费及其他费用。</p>}
           </section> : null}
 
           <section className="mt-4">
