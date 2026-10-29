@@ -84,12 +84,13 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     customer.cny += order.total_cny || 0; customer.usd += order.total_usd || 0;
     customer.missing_cny += Number(order.total_cny == null); customer.missing_usd += Number(order.total_usd == null);
     if (order.product_profit_cny == null) customer.missing_profit_orders++;
-    else {
+    if (order.product_profit_usd == null) customer.missing_profit_usd_orders++;
+    if (order.product_profit_cny != null) {
       customer.product_profit_cny += order.product_profit_cny;
       customer.cost_cny += order.cost_cny || 0;
       customer.product_sales_cny += order.product_sales_cny || 0;
-      if (order.product_profit_usd == null) customer.missing_profit_usd_orders++; else customer.product_profit_usd += order.product_profit_usd;
     }
+    if (order.product_profit_usd != null) customer.product_profit_usd += order.product_profit_usd;
     byCustomer.set(customerKey, customer);
     for (const item of order.items) {
       const key = [item.item_name, item.brand, item.model].join("\u0000");
