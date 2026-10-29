@@ -3,6 +3,7 @@ import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { loadBaiduFinScopeReferenceRates } from "@/lib/pi-exchange-rates";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { ReferenceRate } from "@/lib/pi-rate-sources";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (draftError) throw draftError;
     if (!draft) throw new Error("PI草稿不存在或已提交，请刷新后重试");
 
-    let usdRate;
+    let usdRate: ReferenceRate | undefined;
     try {
       usdRate = (await loadBaiduFinScopeReferenceRates(["USD"], true)).USD;
     } catch (rateError) {
