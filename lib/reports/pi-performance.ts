@@ -1,7 +1,7 @@
 export type PiOrderRow = {
   id: string; order_number: string; customer_id: string | null; customer_name: string;
   sales_user_id: string; currency: string; total_amount: number; confirmed_at: string;
-  items: Array<{ item_name: string; brand: string; model: string; quantity: number; amount: number; unit_price_cny: number | null; estimated_unit_cost_cny: number | null }>;
+  items: Array<{ item_name: string; brand: string; model: string; quantity: number; amount: number; unit_price_cny: number | null; estimated_unit_cost_cny: number | null; procurement_unit_cost_cny?: number | null; line_number?: number }>;
 };
 
 export type PiOrderMetadata = {
@@ -37,9 +37,12 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       const amount = Number(item.amount || 0);
       const salesCny = item.unit_price_cny == null ? currency === "CNY" ? amount : null : Number(item.unit_price_cny) * quantity;
       const salesUsd = currency === "USD" ? amount : salesCny != null && usdRate ? salesCny / usdRate : null;
-      const unitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
+      const actualUnitCost = item.procurement_unit_cost_cny == null ? null : positiveOrZero(item.procurement_unit_cost_cny);
+      const estimatedUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
+      const unitCost = actualUnitCost ?? estimatedUnitCost;
+      const costBasis = actualUnitCost != null ? "ACTUAL" : estimatedUnitCost != null ? "ESTIMATED" : "MISSING";
       const costCny = unitCost == null ? null : unitCost * quantity;
-      return { ...item, quantity, amount, sales_cny: salesCny, sales_usd: salesUsd, cost_cny: costCny,
+      return { ...item, quantity, amount, sales_cny: salesCny, sales_usd: salesUsd, cost_cny: costCny, cost_basis: costBasis,
         profit_cny: salesCny != null && costCny != null ? salesCny - costCny : null,
         profit_usd: salesUsd != null && costCny != null && usdRate ? salesUsd - costCny / usdRate : null };
     });
@@ -57,6 +60,8 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       product_profit_cny: productProfitCny, product_profit_usd: productProfitUsd, missing_profit_usd: productProfitUsd == null,
       product_margin: productSalesCny && productProfitCny != null ? productProfitCny / productSalesCny * 100 : null,
       missing_cost_lines: items.filter((item) => item.cost_cny == null).length,
+      actual_cost_lines: items.filter((item) => item.cost_basis === "ACTUAL").length,
+      estimated_cost_lines: items.filter((item) => item.cost_basis === "ESTIMATED").length,
       missing_usd_rate: currency !== "USD" && usdRate == null };
   });
   const byCustomer = new Map<string, {
@@ -67,7 +72,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
   const byProduct = new Map<string, {
     key: string; label: string; model: string; quantity: number; cny: number; usd: number;
     missing_cny: number; missing_usd: number; cost_cny: number; product_profit_cny: number;
-    product_profit_usd: number; product_sales_cny: number; missing_cost_lines: number; missing_profit_lines: number; missing_profit_usd_lines: number;
+    product_profit_usd: number; product_sales_cny: number; missing_cost_lines: number; actual_cost_lines: number; estimated_cost_lines: number; missing_profit_lines: number; missing_profit_usd_lines: number;
   }>();
   for (const order of orders) {
     const customerKey = order.customer_id || order.customer_name;
@@ -91,8 +96,10 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       const product = byProduct.get(key) || { key,
         label: [item.brand, item.item_name].filter(Boolean).join(" · ") || "未命名产品", model: item.model || "",
         quantity: 0, cny: 0, usd: 0, missing_cny: 0, missing_usd: 0,
-        cost_cny: 0, product_profit_cny: 0, product_profit_usd: 0, product_sales_cny: 0, missing_cost_lines: 0, missing_profit_lines: 0, missing_profit_usd_lines: 0 };
+        cost_cny: 0, product_profit_cny: 0, product_profit_usd: 0, product_sales_cny: 0, missing_cost_lines: 0, actual_cost_lines: 0, estimated_cost_lines: 0, missing_profit_lines: 0, missing_profit_usd_lines: 0 };
       product.quantity += item.quantity;
+      if (item.cost_basis === "ACTUAL") product.actual_cost_lines++;
+      if (item.cost_basis === "ESTIMATED") product.estimated_cost_lines++;
       if (item.sales_cny == null) product.missing_cny++; else product.cny += item.sales_cny;
       if (item.sales_usd == null) product.missing_usd++; else product.usd += item.sales_usd;
       if (item.cost_cny == null) product.missing_cost_lines++;
