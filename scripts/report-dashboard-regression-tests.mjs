@@ -34,6 +34,10 @@ assert.doesNotMatch(dashboardApi, /statusCount\("UNCLAIMED"\)/, "销售漏斗不
 assert.match(reports, /mode === "performance"[\s\S]*api\/reports\/sales\/performance/, "业绩分析必须使用独立的PI业绩接口");
 assert.match(reports, /mode === "center"[\s\S]*href="\/sales\/performance"/, "报表中心应将PI客户与产品业绩分析独立呈现并提供直达入口");
 assert.match(reports, /客户业绩 TOP 10[\s\S]*产品热销 TOP 10[\s\S]*PI订单核对明细/, "销售业绩分析必须支持客户、产品和PI订单三个维度复盘");
+assert.match(reports, /<small className="block text-slate-500">成交金额<\/small>[\s\S]*人民币[\s\S]*美元/, "CNY and USD must be grouped under one sales amount metric");
+assert.match(reports, /PI产品毛利[\s\S]*毛利率[\s\S]*产品销售额[\s\S]*PI录入成本/, "PI gross profit, margin, product sales, and PI-entered cost must be shown as one related result");
+assert.doesNotMatch(reports, /成交金额 · 人民币|成交金额 · 美元/, "currency amounts must not be split into separate headline metrics");
+assert.match(dashboard, /PerformanceMetric label="成交金额"/, "dashboard performance snapshot must group the sales amount metric");
 assert.match(countryMigration, /country_rows as \([\s\S]*?group by 1\s*\)/, "国家分组必须先返回全部原始值，不能在标准化前截断 TOP10");
 assert.match(reportLoader, /normalizeReportCountries\(countRows\(raw\.countries\)\)/, "国家必须标准化合并后再选 TOP10");
 assert.match(operations, /creator_id: userId, status: "DRAFT"/, "跟单员本人草稿必须同时按制单人和状态统计");
