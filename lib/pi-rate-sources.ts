@@ -1,8 +1,39 @@
 export type ReferenceRate = {
   cny: number;
   date: string;
-  source: "CFETS" | "AGGREGATED";
+  source: "CFETS" | "AGGREGATED" | "BAIDU_FINSCOPE";
+  updatedAt?: string;
 };
+
+export const BAIDU_DISCOUNT_CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD"] as const;
+export type BaiduDiscountCurrency = (typeof BAIDU_DISCOUNT_CURRENCIES)[number];
+
+type BaiduExchangePayload = {
+  ResultCode?: number | string;
+  Result?: {
+    from_currency?: { code?: unknown };
+    to_currency?: { code?: unknown; num?: unknown };
+    update_time?: unknown;
+  };
+};
+
+export function parseBaiduFinScopeReferenceRate(payload: unknown, currency: BaiduDiscountCurrency, now = Date.now()): ReferenceRate {
+  if (!payload || typeof payload !== "object") throw new Error("百度汇率响应格式不正确");
+  const result = payload as BaiduExchangePayload;
+  const quote = result.Result;
+  const rate = typeof quote?.to_currency?.num === "number" ? quote.to_currency.num
+    : typeof quote?.to_currency?.num === "string" ? Number(quote.to_currency.num) : NaN;
+  const updatedAt = typeof quote?.update_time === "string" ? quote.update_time.trim() : "";
+  const dateMatch = /^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}(?::\d{2})?$/.exec(updatedAt);
+  const timestamp = dateMatch ? Date.parse(updatedAt.replace(" ", "T") + "+08:00") : NaN;
+  if ((result.ResultCode !== 0 && result.ResultCode !== "0")
+    || quote?.from_currency?.code !== currency || quote?.to_currency?.code !== "CNY"
+    || !Number.isFinite(rate) || rate <= 0 || !dateMatch || !isRecentRateDate(dateMatch[1], now)
+    || !Number.isFinite(timestamp) || timestamp > now + 5 * 60_000) {
+    throw new Error("百度汇率报价无效或已过期");
+  }
+  return { cny: rate, date: dateMatch[1], updatedAt, source: "BAIDU_FINSCOPE" };
+}
 
 type FrankfurterRow = { date?: unknown; base?: unknown; quote?: unknown; rate?: unknown };
 

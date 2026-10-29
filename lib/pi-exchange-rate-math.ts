@@ -1,5 +1,23 @@
 export type AdjustmentMode = "OFFSET" | "PERCENT" | "FIXED";
 
+import { BAIDU_DISCOUNT_CURRENCIES } from "./pi-rate-sources";
+
+export function roundReferenceRateToTwoDecimals(reference: number) {
+  return Number((Math.round((reference + Number.EPSILON) * 100) / 100).toFixed(2));
+}
+
+export function businessRateForCurrency(
+  currency: string,
+  reference: number | null,
+  rule?: { adjustment_mode: AdjustmentMode; adjustment_value: number },
+) {
+  if ((BAIDU_DISCOUNT_CURRENCIES as readonly string[]).includes(currency)) {
+    if (reference == null || !Number.isFinite(reference) || reference <= 0) return null;
+    return businessRate(roundReferenceRateToTwoDecimals(reference), { adjustment_mode: "OFFSET", adjustment_value: -0.1 });
+  }
+  return businessRate(reference, rule);
+}
+
 export function paymentPerCny(cnyPerPayment: number) {
   return Number.isFinite(cnyPerPayment) && cnyPerPayment > 0
     ? Math.round((1 / cnyPerPayment) * 1e12) / 1e12 : 0;

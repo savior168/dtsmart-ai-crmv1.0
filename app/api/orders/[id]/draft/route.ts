@@ -8,6 +8,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { supabase } = await requirePermission("orders.edit");
     const { id } = await params;
     const body = await request.json() as Record<string, unknown>;
+    if (body.fx_rate_confirmed !== true) throw new Error("请核对汇率参考来源并确认后再保存PI");
     const revision = Number(body.revision);
     if (!Number.isInteger(revision) || revision < 1) throw new Error("PI草稿版本不正确，请刷新");
     const { p_customer_id: _customerId, ...payload } = parsePiOrderInput(body);

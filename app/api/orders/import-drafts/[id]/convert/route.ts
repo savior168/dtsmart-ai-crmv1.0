@@ -13,6 +13,7 @@ export async function POST(request: NextRequest, context: Context) {
     if (!hasPermission(account, "orders.create") || !["SALES", "SUPERVISOR", "ADMIN"].includes(account.role)) throw new Error("FORBIDDEN");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
+    if (body.fx_rate_confirmed !== true) throw new Error("请核对汇率参考来源并确认后再保存PI");
     const revision = Number(body.import_revision);
     if (!Number.isSafeInteger(revision) || revision < 1) throw new Error("导入草稿版本不正确，请刷新");
     const input = parsePiOrderInput(body);
