@@ -12,8 +12,10 @@ export function businessRateForCurrency(
   rule?: { adjustment_mode: AdjustmentMode; adjustment_value: number },
 ) {
   if ((BAIDU_DISCOUNT_CURRENCIES as readonly string[]).includes(currency)) {
+    const effectiveRule = rule ?? { adjustment_mode: "OFFSET" as const, adjustment_value: -0.1 };
+    if (effectiveRule.adjustment_mode === "FIXED") return businessRate(reference, effectiveRule);
     if (reference == null || !Number.isFinite(reference) || reference <= 0) return null;
-    return businessRate(roundReferenceRateToTwoDecimals(reference), { adjustment_mode: "OFFSET", adjustment_value: -0.1 });
+    return businessRate(roundReferenceRateToTwoDecimals(reference), effectiveRule);
   }
   return businessRate(reference, rule);
 }
