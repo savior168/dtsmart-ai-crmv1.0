@@ -1,6 +1,6 @@
 import { parseCfetsSafeHtml } from "@/lib/pi-cfets-feed";
-import { parseFrankfurterCnyRates, type ReferenceRate } from "@/lib/pi-rate-sources";
-export { businessRate } from "@/lib/pi-exchange-rate-math";
+import { BAIDU_DISCOUNT_CURRENCIES, parseBaiduFinScopeReferenceRate, parseFrankfurterCnyRates, type BaiduDiscountCurrency, type ReferenceRate } from "@/lib/pi-rate-sources";
+export { businessRate, businessRateForCurrency, roundReferenceRateToTwoDecimals } from "@/lib/pi-exchange-rate-math";
 
 export type RateRule = {
   currency: string;
@@ -16,6 +16,19 @@ export async function loadCfetsReferenceRates() {
   });
   if (!response.ok) throw new Error("中国外汇交易中心参考汇率暂不可用");
   return parseCfetsSafeHtml(await response.text());
+}
+
+export async function loadBaiduFinScopeReferenceRates(currencies: readonly BaiduDiscountCurrency[] = BAIDU_DISCOUNT_CURRENCIES): Promise<Record<string, ReferenceRate>> {
+  const results = await Promise.allSettled(currencies.map(async (currency) => {
+    const url = new URL("https://finance.pae.baidu.com/vapi/v1/exchangebycode");
+    url.searchParams.set("from_code", currency);
+    url.searchParams.set("to_code", "CNY");
+    url.searchParams.set("finClientType", "pc");
+    const response = await fetch(url, { next: { revalidate: 60 }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error("百度实时汇率暂不可用");
+    return [currency, parseBaiduFinScopeReferenceRate(await response.json(), currency)] as const;
+  }));
+  return Object.fromEntries(results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []));
 }
 
 export async function loadReferenceRates(): Promise<Record<string, ReferenceRate>> {
