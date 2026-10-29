@@ -7,9 +7,9 @@ const metals = [
 ];
 
 export function RankMedal({ rank, className = "" }: { rank: number; className?: string }) {
+  const id = useId().replace(/:/g, "");
   if (rank > 3) return <span aria-label={`第${rank}名`} className={`inline-grid h-7 min-w-7 place-items-center rounded-full bg-slate-100 px-1 text-[11px] font-semibold tabular-nums text-slate-500 ${className}`}>#{rank}</span>;
   const colors = metals[Math.max(0, rank - 1)];
-  const id = useId().replace(/:/g, "");
   return <svg role="img" aria-label={`第${rank}名`} viewBox="0 0 32 36" className={`h-8 w-7 shrink-0 drop-shadow-sm ${className}`}>
     <defs><linearGradient id={`medal-${id}`} x1="0" y1="0" x2="1" y2="1"><stop stopColor={colors.top}/><stop offset="1" stopColor={colors.bottom}/></linearGradient></defs>
     <path d="M8 19 6 34l10-5 10 5-2-15" fill={colors.ribbon}/>
