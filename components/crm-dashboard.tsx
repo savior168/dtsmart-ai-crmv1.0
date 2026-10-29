@@ -215,11 +215,10 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
           {showPerformance ? <section className={`${panelClass} mt-4 overflow-hidden p-4 dashboard-reveal`}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-600">业绩快照</p><h2 className="mt-1 text-[17px] font-semibold text-slate-900">已确认 PI</h2><p className="mt-1 text-xs text-slate-500">结果概览；客户、产品排名与订单复盘统一在业绩分析查看。</p></div><Link href="/sales/performance" className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">查看完整业绩分析 <ChevronRight size={14}/></Link></div>
             {performanceError ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">业绩快照暂不可用：{performanceError}</p> : null}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <PerformanceMetric label="有效 PI" value={performance ? (performance.totals?.orders ?? 0) : "—"} emphasis="slate" />
-              <PerformanceMetric label="成交金额 · 人民币 / 美元" value={performance ? `¥${money(Number(performance.totals?.cny || 0))}　/　${Number(performance.totals?.orders || 0) > 0 && performance.totals?.missing_usd === performance.totals?.orders ? "USD待核实" : `${money(Number(performance.totals?.usd || 0))}${performance.totals?.missing_usd ? " · 部分待核" : ""}`}` : "—"} emphasis="blue" />
-              <PerformanceMetric label="产品毛利 · PI成本口径" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${Number(performance.totals?.orders || 0) > 0 && performance.totals?.missing_profit_usd_orders === performance.totals?.orders ? "USD待核实" : `${money(Number(performance.totals?.product_profit_usd || 0))}${performance.totals?.missing_profit_usd_orders ? " · 部分待核" : ""}`}` : "—"} emphasis="green" />
-              <PerformanceMetric label="产品毛利率" value={!performance ? "—" : performance.totals?.product_margin == null ? "待核实" : `${Number(performance.totals.product_margin).toFixed(2)}%`} emphasis="violet" />
+              <PerformanceMetric label="成交金额" value={performance ? `人民币 ¥${money(Number(performance.totals?.cny || 0))}　/　美元 ${Number(performance.totals?.orders || 0) > 0 && performance.totals?.missing_usd === performance.totals?.orders ? "待回溯" : `${money(Number(performance.totals?.usd || 0))}${performance.totals?.missing_usd ? "（部分待回溯）" : ""}`}` : "—"} emphasis="blue" />
+              <PerformanceMetric label="PI产品毛利 · 毛利率" value={performance ? `人民币 ¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　美元 ${Number(performance.totals?.orders || 0) > 0 && performance.totals?.missing_profit_usd_orders === performance.totals?.orders ? "待回溯" : `${money(Number(performance.totals?.product_profit_usd || 0))}${performance.totals?.missing_profit_usd_orders ? "（部分待回溯）" : ""}`}　·　${performance.totals?.product_margin == null ? "毛利率待核" : `毛利率 ${Number(performance.totals.product_margin).toFixed(2)}%`}` : "—"} emphasis="green" />
             </div>
             {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders || performance?.totals?.missing_profit_usd_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或 PI 成本缺失的单据；毛利仅汇总成本可核实单据。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利按 PI 成本单价 × 数量计算；不含运费及其他费用。</p>}
           </section> : null}
@@ -249,7 +248,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
   );
 }
 
-function PerformanceMetric({ label, value, emphasis }: { label: string; value: string | number; emphasis?: "blue" | "green" | "violet" | "slate" }) {
+function PerformanceMetric({ label, value, emphasis }: { label: string; value: React.ReactNode; emphasis?: "blue" | "green" | "violet" | "slate" }) {
   const tones = { blue: "border-blue-100 bg-blue-50/70 text-blue-700", green: "border-emerald-100 bg-emerald-50/70 text-emerald-700", violet: "border-violet-100 bg-violet-50/70 text-violet-700", slate: "border-slate-200 bg-slate-50 text-slate-900" };
   return <div className={`rounded-xl border p-4 ${tones[emphasis || "slate"]}`}><small className="block text-xs font-medium text-slate-500">{label}</small><b className="mt-2 block text-xl font-semibold tabular-nums">{value}</b></div>;
 }
