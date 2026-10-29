@@ -20,7 +20,7 @@ import { displayAddressList, displayShippingContacts, type ShippingContact } fro
 type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null; shipping_contact_entries?: ShippingContact[] | null; forwarder_addresses?: string[] | null; forwarder_contact_entries?: ShippingContact[] | null };
 type Salesperson = { id: string; name: string | null };
 type Account = { id: string; label: string; currency: string; instructions: string; payment_channel: PiPaymentChannel; active?: boolean };
-type ExchangeRate = { currency: string; business_cny: number | null; source: string; reference_date: string | null };
+type ExchangeRate = { currency: string; business_cny: number | null; reference_cny?: number | null; source: string; source_url?: string | null; reference_date: string | null; source_updated_at?: string | null };
 type Line = { item_name: string; brand: string; model: string; quality: string; description: string; description_zh: string; quantity: string; unit_price_cny: string; unit_price_payment: string; unit_price_source: PiUnitPriceSource; estimated_unit_cost_cny: string; preparation_requirement: string; internal_note: string };
 type FeeKey = "last_balance" | "discount" | "other";
 type FeeField = { enabled: boolean; source: PiFeeSource; amount: string };
@@ -45,6 +45,7 @@ function PiLineTextArea({ label, value, onChange }: { label: string; value: stri
 export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftId, initialIsClerk }: { initialCustomerId?: string; draftOrderId?: string; importDraftId?: string; initialIsClerk: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const customerScopeRequest = useRef(0);
+  const currencyRateRequest = useRef(0);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [salespeople, setSalespeople] = useState<Salesperson[]>([]);
   const [isClerk, setIsClerk] = useState(initialIsClerk);
@@ -58,6 +59,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [currency, setCurrency] = useState("USD");
   const [showDualCurrencyPrices, setShowDualCurrencyPrices] = useState(false);
   const [rate, setRate] = useState("");
+  const [rateReviewed, setRateReviewed] = useState(false);
+  const [rateLoading, setRateLoading] = useState(false);
   const [shippingInput, setShippingInput] = useState("0.00");
   const [feeFields, setFeeFields] = useState<Record<FeeKey, FeeField>>({ last_balance: emptyFee(), discount: emptyFee(), other: emptyFee() });
   const [paypalRateInput, setPaypalRateInput] = useState("5");
@@ -392,6 +395,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   }
   function updateRate(nextRate: string, currencyChanged = false) {
     setRate(nextRate);
+    setRateReviewed(false);
     const convertedRate = paymentPerCny(Number(nextRate));
     setItems((current) => current.map((item) => {
       const source = currencyChanged ? "CNY" : item.unit_price_source;
@@ -418,7 +422,30 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     });
     setCurrency(nextCurrency);
     if (nextCurrency === "CNY") setShowDualCurrencyPrices(false);
-    updateRate(String(exchangeRates.find((item) => item.currency === nextCurrency)?.business_cny || ""), true);
+    setRateReviewed(false);
+    const cachedRate = exchangeRates.find((item) => item.currency === nextCurrency)?.business_cny;
+    updateRate(cachedRate && cachedRate > 0 ? String(cachedRate) : "", true);
+    void refreshSelectedCurrencyRate(nextCurrency);
+  }
+  async function refreshSelectedCurrencyRate(nextCurrency: string) {
+    const requestId = ++currencyRateRequest.current;
+    setRateLoading(true);
+    try {
+      const response = await fetch(`/api/pi-exchange-rates?currency=${encodeURIComponent(nextCurrency)}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "最新汇率获取失败");
+      if (requestId !== currencyRateRequest.current) return;
+      const selectedRate = (body.rates || []).find((item: ExchangeRate) => item.currency === nextCurrency) as ExchangeRate | undefined;
+      setExchangeRates((current) => [...current.filter((item) => item.currency !== nextCurrency), ...(selectedRate ? [selectedRate] : [])]);
+      updateRate(selectedRate?.business_cny && selectedRate.business_cny > 0 ? String(selectedRate.business_cny) : "", true);
+      if (!selectedRate?.business_cny) setError(`${nextCurrency}暂时没有可用的有效业务汇率，请点击参考来源核对后手动填写本单汇率`);
+    } catch (cause) {
+      if (requestId !== currencyRateRequest.current) return;
+      updateRate("", true);
+      setError(cause instanceof Error ? cause.message : "最新汇率获取失败，请核对来源后手动填写");
+    } finally {
+      if (requestId === currencyRateRequest.current) setRateLoading(false);
+    }
   }
   function importRows(rows: unknown[][]) {
     const imported = parsePiProductRows(rows, effectiveRate).map((item) => ({
@@ -455,6 +482,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     if (busy) return;
     if (savedDraftId && !draftOrderId) { setError("当前PI草稿已保存，请先进入详情核对，避免重复创建"); return; }
     setError("");
+    if (rateLoading) { setError("正在刷新所选币种汇率，请稍候再继续"); return; }
+    if (!rateReviewed) { setError("请点击参考来源核对汇率，并勾选确认后再保存PI"); return; }
     if (isClerk && !salesUserId) { setError("请先选择负责此PI的销售员"); return; }
     if (!customerId || !warehouseReferenceNumber.trim() || !currency || !accountId || !Number.isFinite(cnyPerPayment) || cnyPerPayment <= 0) {
       setError("请选择客户、填写订单编号、付款币种、收款账户及正数汇率"); return;
@@ -490,7 +519,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
           payment_method: chosenPaymentMethod, payment_account_id: accountId, valid_until: validUntil, delivery_date: deliveryDate,
           delivery_recipient: useCustomerDelivery ? recipient : "", delivery_phone: useCustomerDelivery ? phone : "", delivery_email: useCustomerDelivery ? email : "", delivery_address: useCustomerDelivery ? address : "", forwarder_address: useForwarderDelivery ? forwarderAddress : "", forwarder_recipient: useForwarderDelivery ? forwarderRecipient : "", forwarder_phone: useForwarderDelivery ? forwarderPhone : "",
           stocking_requirements: stockingRequirements, items: items.map((item) => ({ ...item, quantity: Number(item.quantity), unit_price_cny: Number(item.unit_price_cny), unit_price_payment: Number(item.unit_price_payment), estimated_unit_cost_cny: Number(item.estimated_unit_cost_cny) })), revision,
-          import_revision: importRevision, acknowledge_differences: acknowledgeDifferences }),
+          import_revision: importRevision, acknowledge_differences: acknowledgeDifferences, fx_rate_confirmed: rateReviewed }),
       });
       const body = await response.json().catch(() => ({}));
       if (response.status === 409 && importDraftId && Array.isArray(body.differences)) { setSubmitAfterImportDifferences(submitToWarehouse); setImportDifferences(body.differences); return; }
@@ -543,7 +572,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <label className="text-sm">目的国家<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.country ? countryInfo(selectedCustomer.country).name : "客户档案未填写"} readOnly aria-readonly="true" title="从所选客户档案自动带入" /></label>
       <label className="text-sm">订单编号<Required /><input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 D60020733；不可与其他PI重复" /></label>
       <label className="text-sm">客户付款币种<Required /><AppSelect className={field} aria-label="搜索并选择客户付款币种" value={currency} onChange={(event) => changeCurrency(event.target.value)}><option value="">请选择</option>{QUOTE_CURRENCIES.map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}</AppSelect></label>
-      <label className="text-sm">汇率：1 {currency || "付款币种"} = 多少人民币<Required /><input className={field} type="number" min="0.000001" step="0.000001" value={rate} onChange={(event) => updateRate(event.target.value)} placeholder="例如 7.200000" />{exchangeRates.find((item) => item.currency === currency)?.business_cny ? <span className="text-xs text-slate-500">已带入业务汇率，可按本单调整</span> : null}</label>
+      <div className="text-sm"><label htmlFor="pi-fx-rate" className="block">汇率：1 {currency || "付款币种"} = 多少人民币<Required /></label><input id="pi-fx-rate" className={field} type="number" min="0.000001" step="0.000001" value={rate} onChange={(event) => updateRate(event.target.value)} placeholder="例如 7.200000" aria-describedby="pi-rate-reference pi-rate-confirmation" /><div id="pi-rate-reference" className="mt-1 space-y-1 text-xs text-slate-600">{rateLoading ? <p>正在刷新{currency}参考汇率…</p> : null}{(() => { const selectedRate = exchangeRates.find((item) => item.currency === currency); return <>{selectedRate?.business_cny ? <p>系统业务汇率：1 {currency} = {Number(selectedRate.business_cny).toFixed(["USD","EUR","GBP","AUD","CAD","NZD"].includes(currency) ? 2 : 6)} CNY；可按本单实际交易条件调整</p> : null}{selectedRate?.reference_cny ? <p>参考报价：1 {currency} = {selectedRate.reference_cny} CNY{selectedRate.source_updated_at ? ` · 更新于 ${selectedRate.source_updated_at}（北京时间）` : selectedRate.reference_date ? ` · ${selectedRate.reference_date}` : ""}</p> : selectedRate?.source === "UNAVAILABLE" ? <p>暂未获取到可用参考报价；请核对来源并手动填写</p> : null}{selectedRate?.source_url ? <p><a href={selectedRate.source_url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">点击查看{["USD","EUR","GBP","AUD","CAD","NZD"].includes(currency) ? "百度" : "汇率"}参考来源</a></p> : null}</>; })()}<label id="pi-rate-confirmation" className="flex items-start gap-2 pt-1 text-slate-700"><input type="checkbox" checked={rateReviewed} onChange={(event) => setRateReviewed(event.target.checked)} disabled={rateLoading} className="mt-0.5" /><span>{currency === "CNY" ? "我已确认人民币付款币种及本单汇率" : "我已核对参考汇率及来源，并确认本单使用的汇率"}</span></label></div></div>
       <label className="text-sm">PI有效期<Required /><input className={`${field} cursor-pointer`} type="date" value={validUntil} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setValidUntil(event.target.value)} /></label>
       <label className="text-sm">预计交付日期<input className={`${field} cursor-pointer`} type="date" value={deliveryDate} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setDeliveryDate(event.target.value)} /></label>
       <div className="text-sm"><label>付款渠道<Required /><AppSelect className={field} value={availablePaymentChannels.includes(paymentMethod as typeof PI_PAYMENT_CHANNELS[number]) || (paymentMethod === "OTHER" && hasOtherPaymentAccount) ? paymentMethod : ""} onChange={(event) => { if (event.target.value !== paymentMethod) { markUnsaved(); setAccountId(""); } setPaymentMethod(event.target.value); }}><option value="">请选择已配置收款账户的付款渠道</option>{availablePaymentChannels.map((method) => <option key={method} value={method}>{method}</option>)}{hasOtherPaymentAccount ? <option value="OTHER">其他渠道（手工填写）</option> : null}</AppSelect></label>{paymentMethod === "OTHER" && hasOtherPaymentAccount ? <input aria-label="其他付款渠道" className={`${field} mt-2`} maxLength={300} value={customPaymentMethod} onChange={(event) => setCustomPaymentMethod(event.target.value)} placeholder="填写实际收款渠道" /> : null}{!availablePaymentChannels.length && !hasOtherPaymentAccount ? <span className="mt-1 block text-xs text-amber-700">当前暂无已启用的收款账户，请联系系统管理员先配置收款账户。</span> : null}</div>
