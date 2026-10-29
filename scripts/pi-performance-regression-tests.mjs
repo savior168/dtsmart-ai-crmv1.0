@@ -40,6 +40,21 @@ assert.equal(result.orders.find((order) => order.id === "eur-snapshot").total_us
 assert.equal(result.orders.find((order) => order.id === "missing-cost").product_profit_cny, null);
 assert.equal(result.totals.missing_profit_orders, 2);
 assert.equal(result.totals.missing_usd, 1);
+assert.equal(result.totals.product_margin, null, "overall margin must not disguise incomplete historical PI cost data as a complete rate");
+const cnyPi = summarizePiPerformance([{
+  id: "cny-pi-cost", order_number: "PI-CNY", customer_id: "customer-c", customer_name: "Gamma",
+  sales_user_id: "seller-a", currency: "CNY", total_amount: 27000, confirmed_at: "2026-10-29T12:00:00Z",
+  items: [{ item_name: "Screen", brand: "C", model: "S1", quantity: 20, amount: 27000, unit_price_cny: 1350, estimated_unit_cost_cny: 1130, procurement_unit_cost_cny: 1500 }],
+}], [{
+  id: "cny-pi-cost", total_cny: 27000, fx_rate_cny_to_payment: 1, usd_cny_rate_snapshot: null,
+  usd_rate_source_snapshot: null, usd_rate_reference_date_snapshot: null, usd_rate_synced_at_snapshot: null,
+  archived_at: null, status: "WAITING_STOCK",
+}], null);
+assert.equal(cnyPi.orders[0].cost_cny, 22600, "PI cost total is entered unit cost × quantity");
+assert.equal(cnyPi.orders[0].product_profit_cny, 4400, "PI gross profit is product revenue minus PI cost total");
+assert.equal(cnyPi.orders[0].product_margin, 4400 / 27000 * 100, "PI margin is gross profit divided by product revenue");
+assert.equal(cnyPi.orders[0].product_profit_usd, null, "unknown historical USD rate must not produce a zero USD gross profit");
+assert.equal(cnyPi.totals.product_margin, 4400 / 27000 * 100);
 assert.equal(result.orders.find((order) => order.id === "usd-native").cost_cny, 400, "sales margin uses PI-entered unit cost × quantity, not later warehouse procurement cost");
 assert.equal(result.orders.find((order) => order.id === "usd-native").product_profit_usd, 80 - (400 / usdRate));
 assert.equal(result.customers.find((customer) => customer.id === "customer-a").order_count, 2);
