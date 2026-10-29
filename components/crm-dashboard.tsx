@@ -2,7 +2,7 @@
 
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
   BellRing,
   Bot,
@@ -50,7 +50,7 @@ type DashboardData = {
   followups: FollowupRow[];
   activities: ActivityRow[];
 };
-type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; missing_cny?: number; missing_usd?: number; currencies?: Array<{ currency: string; amount: number }> }; customers?: Array<{ label: string; order_count: number; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }>; products?: Array<{ label: string; model?: string; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }> };
+type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number; missing_profit_usd_orders?: number } };
 
 const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]";
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
@@ -126,37 +126,52 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
   const [scopeUserId, setScopeUserId] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
   const [performance, setPerformance] = useState<PerformanceSummary | null>(null);
+  const [performanceError, setPerformanceError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [protectionPage, setProtectionPage] = useState(1);
+  const requestId = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
   const protectionPageSize = 4;
 
   const load = useCallback(async () => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const request = ++requestId.current;
     setLoading(true); setError("");
+    setPerformance(null); setPerformanceError("");
     const params = new URLSearchParams({ from, to, country });
     if (scopeUserId) params.set("user_id", scopeUserId);
+    const performanceParams = new URLSearchParams(businessRange(from, to));
+    if (scopeUserId) performanceParams.set("user_id", scopeUserId);
+    const performanceTask = showPerformance ? (async () => {
+      const response = await fetch(`/api/reports/sales/performance?${performanceParams}`, { cache: "no-store", signal: controller.signal });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "PI业绩加载失败");
+      if (request === requestId.current) setPerformance(body);
+    })() : Promise.resolve();
     try {
-      const response = await fetch(`/api/dashboard/stats?${params}`);
+      const response = await fetch(`/api/dashboard/stats?${params}`, { cache: "no-store", signal: controller.signal });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "工作台数据加载失败");
+      if (request !== requestId.current) return;
       setData(body);
-      if (showPerformance) {
-        const performanceParams = new URLSearchParams(businessRange(from, to));
-        if (scopeUserId) performanceParams.set("user_id", scopeUserId);
-        const performanceResponse = await fetch(`/api/reports/sales/performance?${performanceParams}`, { cache: "no-store" });
-        const performanceBody = await performanceResponse.json().catch(() => ({}));
-        if (!performanceResponse.ok) throw new Error(performanceBody.error || "PI业绩加载失败");
-        setPerformance(performanceBody);
-      }
       setProtectionPage(1);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
+      if (!controller.signal.aborted && request === requestId.current) setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
+    performanceTask.catch((reason) => {
+      if (!controller.signal.aborted && request === requestId.current) setPerformanceError(reason instanceof Error ? reason.message : "PI业绩加载失败");
+    });
   }, [country, from, scopeUserId, showPerformance, to]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 120);
+    return () => { window.clearTimeout(timer); controllerRef.current?.abort(); requestId.current += 1; };
+  }, [load]);
 
   function reset() {
     setFrom(localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
@@ -198,14 +213,15 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
 
         {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
           {showPerformance ? <section className={`${panelClass} mt-4 overflow-hidden p-4 dashboard-reveal`}>
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-600">核心业绩</p><h2 className="mt-1 text-[17px] font-semibold text-slate-900">PI销售业绩</h2><p className="mt-1 text-xs text-slate-500">先看已确认且未取消的 PI 结果，再进入业绩分析做客户、产品和订单复盘。</p></div><Link href="/sales/performance" className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">进入业绩分析 <ChevronRight size={14}/></Link></div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2"><PerformanceMetric label="成交金额 · 人民币" value={performance?.totals?.orders && performance.totals.missing_cny === performance.totals.orders ? "待核实" : `¥${money(Number(performance?.totals?.cny || 0))}`} emphasis="blue" /><PerformanceMetric label="成交金额 · 美元" value={performance?.totals?.orders && performance.totals.missing_usd === performance.totals.orders ? "待核实" : `USD ${money(Number(performance?.totals?.usd || 0))}`} emphasis="green" /></div><p className="mt-2 text-xs text-slate-500">已确认 PI · {performance?.totals?.orders ?? 0} 单</p>
-            {(performance?.totals?.missing_cny || performance?.totals?.missing_usd) ? <p className="mt-3 text-xs text-amber-700">历史汇率快照不完整：{performance?.totals?.missing_cny || 0} 单无法核实人民币、{performance?.totals?.missing_usd || 0} 单无法核实美元；上方金额不是完整业绩。</p> : null}
-          </section> : null}
-
-          {showPerformance ? <section className={`${panelClass} mt-3 p-4 dashboard-reveal`}>
-            <div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold text-slate-900">成交客户与产品</h2><p className="mt-1 text-xs text-slate-500">客户按已核实人民币金额排名 · 产品按成交件数排名</p></div><Link href="/sales/performance" className="shrink-0 text-xs font-medium text-blue-700">查看全部</Link></div>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2"><PerformancePreview title="客户 TOP 5" rows={performance?.customers?.slice(0, 5).map((item) => ({ label: item.label, value: item.missing_cny === item.order_count ? "待核实" : `¥${money(item.cny)}`, description: `${item.order_count} 单 · ${number(item.quantity)} 件`, secondary: `USD ${item.missing_usd ? item.usd ? `${money(item.usd)}（部分待核实）` : "待核实" : `${money(item.usd)}`}${item.missing_cny ? ` · ${item.missing_cny} 单人民币待核实` : ""}` })) || []} /><PerformancePreview title="热销产品 TOP 5" rows={performance?.products?.slice(0, 5).map((item) => ({ label: `${item.label}${item.model ? ` · ${item.model}` : ""}`, value: `${number(item.quantity)} 件`, description: `人民币 ${item.missing_cny ? item.cny ? `¥${money(item.cny)}（部分待核实）` : "待核实" : `¥${money(item.cny)}`}`, secondary: `美元 ${item.missing_usd ? item.usd ? `USD ${money(item.usd)}（部分待核实）` : "待核实" : `USD ${money(item.usd)}`}` })) || []} /></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-600">业绩快照</p><h2 className="mt-1 text-[17px] font-semibold text-slate-900">已确认 PI</h2><p className="mt-1 text-xs text-slate-500">结果概览；客户、产品排名与订单复盘统一在业绩分析查看。</p></div><Link href="/sales/performance" className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">查看完整业绩分析 <ChevronRight size={14}/></Link></div>
+            {performanceError ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">业绩快照暂不可用：{performanceError}</p> : null}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <PerformanceMetric label="有效 PI" value={performance ? (performance.totals?.orders ?? 0) : "—"} emphasis="slate" />
+              <PerformanceMetric label="成交金额" value={performance ? `¥${money(Number(performance.totals?.cny || 0))}　/　${money(Number(performance.totals?.usd || 0))}` : "—"} emphasis="blue" />
+              <PerformanceMetric label="产品毛利（实际/估算）" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${money(Number(performance.totals?.product_profit_usd || 0))}` : "—"} emphasis="green" />
+              <PerformanceMetric label="产品毛利率" value={!performance ? "—" : performance.totals?.product_margin == null ? "待核实" : `${Number(performance.totals.product_margin).toFixed(2)}%`} emphasis="violet" />
+            </div>
+            {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders || performance?.totals?.missing_profit_usd_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或采购成本未完整的单据；毛利只汇总成本可核实单据；已确认采购成本优先，未确认时采用PI预估成本。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利优先按已确认采购成本计算，未确认时采用PI预估成本；不含运费及其他费用。</p>}
           </section> : null}
 
           <section className="mt-4">
@@ -233,5 +249,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
   );
 }
 
-function PerformanceMetric({ label, value, emphasis }: { label: string; value: string | number; emphasis?: "blue" | "green" }) { const color = emphasis === "blue" ? "border-blue-100 bg-blue-50/70" : emphasis === "green" ? "border-emerald-100 bg-emerald-50/70" : "border-slate-100 bg-slate-50"; const valueColor = emphasis === "blue" ? "text-blue-800" : emphasis === "green" ? "text-emerald-800" : "text-slate-950"; return <div className={`rounded-xl border p-4 ${color}`}><small className="block text-xs font-medium text-slate-500">{label}</small><b className={`mt-2 block text-2xl font-semibold tabular-nums ${valueColor}`}>{value}</b></div>; }
-function PerformancePreview({ title, rows }: { title: string; rows: Array<{ label: string; value: number | string; description: string; secondary: string }> }) { return <div className="overflow-hidden rounded-lg border border-slate-100"><h4 className="border-b bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-700">{title}</h4>{rows.length ? <ol className="divide-y divide-slate-100">{rows.map((row, index) => <li key={`${title}-${row.label}`} className="grid grid-cols-[24px_minmax(0,1fr)] items-center gap-3 px-3 py-3"><span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-semibold ${index < 3 ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span><div className="min-w-0"><div className="flex items-start justify-between gap-3"><span className="min-w-0 truncate text-sm font-medium text-slate-800" title={row.label}>{row.label}</span><b className="shrink-0 tabular-nums text-sm text-slate-900">{row.value}</b></div><p className="mt-1 text-xs text-slate-500">{row.description}</p><p className="mt-0.5 text-xs text-slate-500">{row.secondary}</p></div></li>)}</ol> : <p className="py-8 text-center text-xs text-slate-400">所选期间暂无 PI 成交</p>}</div>; }
+function PerformanceMetric({ label, value, emphasis }: { label: string; value: string | number; emphasis?: "blue" | "green" | "violet" | "slate" }) {
+  const tones = { blue: "border-blue-100 bg-blue-50/70 text-blue-700", green: "border-emerald-100 bg-emerald-50/70 text-emerald-700", violet: "border-violet-100 bg-violet-50/70 text-violet-700", slate: "border-slate-200 bg-slate-50 text-slate-900" };
+  return <div className={`rounded-xl border p-4 ${tones[emphasis || "slate"]}`}><small className="block text-xs font-medium text-slate-500">{label}</small><b className="mt-2 block text-xl font-semibold tabular-nums">{value}</b></div>;
+}

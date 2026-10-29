@@ -571,7 +571,7 @@ assert.match(acquisitionTaskCenter,/t\.usage\?`\$\{formatNumber\(t\.usage\.googl
 assert.match(listRoute,/optional progress unavailable[\s\S]*if \(coreOnly\)[\s\S]*return NextResponse\.json/,"任务列表附属统计不得拖垮核心列表");
 assert.match(acquisitionDispatch,/claim_stalled_ai_acquisition_tasks[\s\S]*p_limit: 1[\s\S]*stalled task claim completed/,"获客恢复器必须只通过受限RPC领取单个停滞任务并记录阶段结果");
 assert.match(recoveryRoute,/yield quickly[\s\S]*RECOVERY_DEADLINE_MS = 4_000/,"恢复器必须快速让出数据库容量，不能每分钟持续阻塞前台业务");
-assert.match(vercelConfig,/"schedule": "\*\/5 \* \* \* \*"/,"停滞任务巡检应每5分钟执行，避免无待恢复任务时仍每分钟争抢数据库连接");
+assert.match(vercelConfig,/"schedule"\s*:\s*"\*\/5 \* \* \* \*"/,"停滞任务巡检应每5分钟执行，避免无待恢复任务时仍每分钟争抢数据库连接");
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.match(acquisitionTaskReport,/data\.usage_error[\s\S]*usage\?formatCost\(totalCost\):"—"/,"报告费用台账超时时必须提示并隐藏未知金额，不能伪装为零费用");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
