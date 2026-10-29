@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
     const { supabase, account } = await requirePermission("orders.create");
     if (!["SALES", "SUPERVISOR", "ADMIN", "ORDER_CLERK"].includes(account.role)) throw new Error("FORBIDDEN");
     const body = await request.json() as Record<string, unknown>;
+    if (body.fx_rate_confirmed !== true) throw new Error("请核对汇率参考来源并确认后再保存PI");
     const input = parsePiOrderInput(body);
     const salesUserId = account.role === "ORDER_CLERK" ? String(body.sales_user_id || "") : account.id;
     if (account.role === "ORDER_CLERK") {
