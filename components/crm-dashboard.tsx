@@ -51,7 +51,7 @@ type DashboardData = {
   followups: FollowupRow[];
   activities: ActivityRow[];
 };
-type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number }; customers?: Array<{ label: string; order_count: number; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }>; products?: Array<{ label: string; model?: string; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number }> };
+type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number } };
 
 const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04)]";
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
@@ -131,40 +131,46 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
   const [error, setError] = useState("");
   const [protectionPage, setProtectionPage] = useState(1);
   const requestId = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
   const protectionPageSize = 4;
 
   const load = useCallback(async () => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     const request = ++requestId.current;
     setLoading(true); setError("");
+    setPerformance(null);
     const params = new URLSearchParams({ from, to, country });
     if (scopeUserId) params.set("user_id", scopeUserId);
     const performanceParams = new URLSearchParams(businessRange(from, to));
     if (scopeUserId) performanceParams.set("user_id", scopeUserId);
+    const performanceTask = showPerformance ? (async () => {
+      const response = await fetch(`/api/reports/sales/performance?${performanceParams}`, { cache: "no-store", signal: controller.signal });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "PI业绩加载失败");
+      if (request === requestId.current) setPerformance(body);
+    })() : Promise.resolve();
     try {
-      const [dashboardResponse, performanceResponse] = await Promise.all([
-        fetch(`/api/dashboard/stats?${params}`, { cache: "no-store" }),
-        showPerformance ? fetch(`/api/reports/sales/performance?${performanceParams}`, { cache: "no-store" }) : Promise.resolve(null),
-      ]);
+      const response = await fetch(`/api/dashboard/stats?${params}`, { cache: "no-store", signal: controller.signal });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "工作台数据加载失败");
       if (request !== requestId.current) return;
-      const body = await dashboardResponse.json().catch(() => ({}));
-      if (!dashboardResponse.ok) throw new Error(body.error || "工作台数据加载失败");
       setData(body);
-      if (performanceResponse) {
-        const performanceBody = await performanceResponse.json().catch(() => ({}));
-        if (!performanceResponse.ok) throw new Error(performanceBody.error || "PI业绩加载失败");
-        setPerformance(performanceBody);
-      }
       setProtectionPage(1);
     } catch (reason) {
-      if (request === requestId.current) setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
+      if (!controller.signal.aborted && request === requestId.current) setError(reason instanceof Error ? reason.message : "工作台数据加载失败");
     } finally {
       if (request === requestId.current) setLoading(false);
     }
+    performanceTask.catch((reason) => {
+      if (!controller.signal.aborted && request === requestId.current) setError(reason instanceof Error ? reason.message : "PI业绩加载失败");
+    });
   }, [country, from, scopeUserId, showPerformance, to]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 120);
-    return () => { window.clearTimeout(timer); requestId.current += 1; };
+    return () => { window.clearTimeout(timer); controllerRef.current?.abort(); requestId.current += 1; };
   }, [load]);
 
   function reset() {
