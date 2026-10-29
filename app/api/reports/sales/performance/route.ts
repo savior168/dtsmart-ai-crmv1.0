@@ -23,11 +23,13 @@ export async function GET(request: NextRequest) {
     const rawOrders: Array<{
       id: string; order_number: string; customer_id: string | null; customer_short_name: string | null;
       sales_user_id: string; currency: string; total_amount: number; total_cny: number | null;
-      fx_rate_cny_to_payment: number | null; archived_at: string | null; status: string; confirmed_at: string;
+      fx_rate_cny_to_payment: number | null; usd_cny_rate_snapshot: number | null;
+      usd_rate_source_snapshot: string | null; usd_rate_reference_date_snapshot: string | null;
+      usd_rate_synced_at_snapshot: string | null; archived_at: string | null; status: string; confirmed_at: string;
     }> = [];
     for (let offset = 0; ; offset += PAGE_SIZE) {
       let query = admin.from("sales_orders")
-        .select("id,order_number,customer_id,customer_short_name,sales_user_id,currency,total_amount,total_cny,fx_rate_cny_to_payment,archived_at,status,confirmed_at")
+        .select("id,order_number,customer_id,customer_short_name,sales_user_id,currency,total_amount,total_cny,fx_rate_cny_to_payment,usd_cny_rate_snapshot,usd_rate_source_snapshot,usd_rate_reference_date_snapshot,usd_rate_synced_at_snapshot,archived_at,status,confirmed_at")
         .gte("confirmed_at", from).lt("confirmed_at", to).is("archived_at", null).in("status", PERFORMANCE_STATUSES)
         .order("confirmed_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
       if (allowedOwners) query = query.in("sales_user_id", allowedOwners);
@@ -49,12 +51,12 @@ export async function GET(request: NextRequest) {
       const batch = ids.slice(index, index + 50);
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await admin.from("sales_order_items")
-          .select("sales_order_id,item_name,brand,model,quantity,amount,unit_price_cny")
+          .select("sales_order_id,item_name,brand,model,quantity,amount,unit_price_cny,estimated_unit_cost_cny")
           .in("sales_order_id", batch).order("sales_order_id").order("line_number").range(offset, offset + 999);
         if (error) throw error;
         for (const item of data || []) {
           const entries = itemsByOrder.get(item.sales_order_id) || [];
-          entries.push({ item_name: item.item_name || "", brand: item.brand || "", model: item.model || "", quantity: Number(item.quantity || 0), amount: Number(item.amount || 0), unit_price_cny: item.unit_price_cny == null ? null : Number(item.unit_price_cny) });
+          entries.push({ item_name: item.item_name || "", brand: item.brand || "", model: item.model || "", quantity: Number(item.quantity || 0), amount: Number(item.amount || 0), unit_price_cny: item.unit_price_cny == null ? null : Number(item.unit_price_cny), estimated_unit_cost_cny: item.estimated_unit_cost_cny == null ? null : Number(item.estimated_unit_cost_cny) });
           itemsByOrder.set(item.sales_order_id, entries);
         }
         if (!data || data.length < 1000) break;
