@@ -6,7 +6,7 @@ const rows = [
   {
     id: "usd-native", order_number: "PI-USD", customer_id: "customer-a", customer_name: "Alpha",
     sales_user_id: "seller-a", currency: "USD", total_amount: 100, confirmed_at: "2026-10-27T10:00:00Z",
-    items: [{ item_name: "Phone", brand: "A", model: "M1", quantity: 2, amount: 80, unit_price_cny: 532.952, estimated_unit_cost_cny: 200 }],
+    items: [{ item_name: "Phone", brand: "A", model: "M1", quantity: 2, amount: 80, unit_price_cny: 532.952, estimated_unit_cost_cny: 200, procurement_unit_cost_cny: 999 }],
   },
   {
     id: "eur-snapshot", order_number: "PI-EUR", customer_id: "customer-a", customer_name: "Alpha",
@@ -40,6 +40,7 @@ assert.equal(result.orders.find((order) => order.id === "eur-snapshot").total_us
 assert.equal(result.orders.find((order) => order.id === "missing-cost").product_profit_cny, null);
 assert.equal(result.totals.missing_profit_orders, 2);
 assert.equal(result.totals.missing_usd, 1);
+assert.equal(result.orders.find((order) => order.id === "usd-native").cost_cny, 400, "sales margin uses PI-entered unit cost × quantity, not later warehouse procurement cost");
 assert.equal(result.orders.find((order) => order.id === "usd-native").product_profit_usd, 80 - (400 / usdRate));
 assert.equal(result.customers.find((customer) => customer.id === "customer-a").order_count, 2);
 assert.equal(result.customers.find((customer) => customer.id === "customer-b").missing_profit_usd_orders, 2,
