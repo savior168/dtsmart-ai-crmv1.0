@@ -217,11 +217,11 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
             {performanceError ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">业绩快照暂不可用：{performanceError}</p> : null}
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <PerformanceMetric label="有效 PI" value={performance ? (performance.totals?.orders ?? 0) : "—"} emphasis="slate" />
-              <PerformanceMetric label="成交金额" value={performance ? `¥${money(Number(performance.totals?.cny || 0))}　/　${money(Number(performance.totals?.usd || 0))}` : "—"} emphasis="blue" />
-              <PerformanceMetric label="产品毛利（实际/估算）" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${money(Number(performance.totals?.product_profit_usd || 0))}` : "—"} emphasis="green" />
+              <PerformanceMetric label="成交金额 · 人民币 / 美元" value={performance ? `¥${money(Number(performance.totals?.cny || 0))}　/　${Number(performance.totals?.orders || 0) > 0 && performance.totals?.missing_usd === performance.totals?.orders ? "USD待核实" : `${money(Number(performance.totals?.usd || 0))}${performance.totals?.missing_usd ? " · 部分待核" : ""}`}` : "—"} emphasis="blue" />
+              <PerformanceMetric label="产品毛利 · PI成本口径" value={performance ? `¥${money(Number(performance.totals?.product_profit_cny || 0))}　/　${Number(performance.totals?.orders || 0) > 0 && performance.totals?.missing_profit_usd_orders === performance.totals?.orders ? "USD待核实" : `${money(Number(performance.totals?.product_profit_usd || 0))}${performance.totals?.missing_profit_usd_orders ? " · 部分待核" : ""}`}` : "—"} emphasis="green" />
               <PerformanceMetric label="产品毛利率" value={!performance ? "—" : performance.totals?.product_margin == null ? "待核实" : `${Number(performance.totals.product_margin).toFixed(2)}%`} emphasis="violet" />
             </div>
-            {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders || performance?.totals?.missing_profit_usd_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或采购成本未完整的单据；毛利只汇总成本可核实单据；已确认采购成本优先，未确认时采用PI预估成本。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利优先按已确认采购成本计算，未确认时采用PI预估成本；不含运费及其他费用。</p>}
+            {(performance?.totals?.missing_cny || performance?.totals?.missing_usd || performance?.totals?.missing_profit_orders || performance?.totals?.missing_profit_usd_orders) ? <p className="mt-3 text-xs text-amber-700">有历史汇率或 PI 成本缺失的单据；毛利仅汇总成本可核实单据。进入业绩分析查看待核实明细。</p> : <p className="mt-2 text-[11px] text-slate-500">毛利按 PI 成本单价 × 数量计算；不含运费及其他费用。</p>}
           </section> : null}
 
           <section className="mt-4">
