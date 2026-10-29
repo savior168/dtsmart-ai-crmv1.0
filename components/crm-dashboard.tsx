@@ -28,7 +28,6 @@ import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { CountryLabel } from "@/components/country-label";
 import { businessRange } from "@/lib/reports/business-date-range";
-import { RankMedal } from "@/components/ui/rank-medal";
 
 function Link(props: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={false} {...props} />;
