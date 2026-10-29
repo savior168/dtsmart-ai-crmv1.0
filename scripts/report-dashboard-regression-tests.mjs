@@ -55,7 +55,7 @@ assert.match(operationsOverview, /const cards = report \? \[\] : workCards/, "�
 assert.match(operationsOverview, /report && canViewStock[\s\S]*备货状态分布[\s\S]*conic-gradient/, "岗位报表须展示备货状态图和明细入口");
 assert.match(operationsOverview, /report && !warehouse && canViewOrders && canFilterCreator[\s\S]*PI 制单构成/, "跟单报表须展示制单构成而非重复待办列表");
 assert.match(operationsOverview, /!report \? <div className="grid gap-4 lg:grid-cols-2"/, "近期单据待办仅在工作台出现");
-assert.match(dashboard, /业绩快照[\s\S]*已确认 PI[\s\S]*PerformanceMetric label="成交金额"[\s\S]*查看完整业绩分析/, "工作台应以紧凑快照展示成交金额并将完整分析导流至业绩分析");
+assert.match(dashboard, /业绩快照[\s\S]*已确认 PI[\s\S]*查看完整业绩分析[\s\S]*PerformanceMetric label="成交金额"/, "工作台应以紧凑快照展示成交金额并将完整分析导流至业绩分析");
 assert.doesNotMatch(dashboard, /客户 TOP 5|热销产品 TOP 5/, "客户和产品排名应集中在业绩分析，避免与工作台快照重复");
 assert.match(dashboard, /<details[^>]*><summary[^>]*>客户开发辅助分析[\s\S]*AI筛选分布[\s\S]*销售漏斗/, "AI分布和销售阶段仅作为默认折叠的辅助分析");
 assert.doesNotMatch(dashboard, /<details[^>]*\bopen\b/i, "AI辅助分析默认收起");
