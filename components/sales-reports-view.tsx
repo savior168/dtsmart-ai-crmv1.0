@@ -103,15 +103,29 @@ function PerformanceDetail({ performance }: { performance: Performance }) {
   return <section className="mt-4 space-y-4">
     <header className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-widest text-blue-700">销售复盘</p><h2 className="mt-1 text-lg font-semibold text-slate-900">已确认 PI 业绩汇总</h2><p className="mt-1 text-xs text-slate-600">按 PI 确认日期统计；取消及归档单据排除，金额按单据时点快照换算。</p></div><span className="rounded-full bg-white px-3 py-1.5 text-xs text-slate-600">期间 {totals.orders} 单</span></div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Metric label="成交金额 · 人民币" value={`¥${totals.cny.toFixed(2)}`} />
-        <Metric label="成交金额 · 美元" value={`$${totals.usd.toFixed(2)}`} />
-        <Metric label="产品销售额 · 人民币" value={`¥${totals.product_sales_cny.toFixed(2)}`} />
-        <Metric label="产品毛利 · 人民币 / 美元" value={`¥${totals.product_profit_cny.toFixed(2)} / $${totals.product_profit_usd.toFixed(2)}`} />
-        <Metric label="产品毛利率" value={totals.product_margin == null ? "待核实" : `${totals.product_margin.toFixed(2)}%`} />
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1.25fr]">
+        <article className="rounded-lg bg-white p-4 shadow-sm">
+          <small className="block text-slate-500">成交金额</small>
+          <div className="mt-2 grid grid-cols-2 gap-4">
+            <div><small className="block text-xs text-slate-500">人民币</small><b className="mt-1 block text-xl tabular-nums text-slate-950">¥{totals.cny.toFixed(2)}</b></div>
+            <div><small className="block text-xs text-slate-500">美元</small><b className="mt-1 block text-xl tabular-nums text-slate-950">{totals.missing_usd === totals.orders && totals.orders > 0 ? "待回溯" : `${totals.usd.toFixed(2)}`}</b></div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">{totals.orders} 单{totals.missing_usd ? ` · ${totals.missing_usd} 单历史美元汇率待回溯` : ""}</p>
+        </article>
+        <article className="rounded-lg bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <small className="text-slate-500">PI产品毛利</small>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">毛利率 {totals.product_margin == null ? "待计算" : `${totals.product_margin.toFixed(2)}%`}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-4">
+            <div><small className="block text-xs text-slate-500">人民币</small><b className="mt-1 block text-xl tabular-nums text-slate-950">¥{totals.product_profit_cny.toFixed(2)}</b></div>
+            <div><small className="block text-xs text-slate-500">美元</small><b className="mt-1 block text-xl tabular-nums text-slate-950">{totals.missing_profit_usd_orders === totals.orders && totals.orders > 0 ? "待回溯" : `${totals.product_profit_usd.toFixed(2)}`}</b></div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">产品销售额 ¥{totals.product_sales_cny.toFixed(2)} − PI录入成本 ¥{totals.cost_cny.toFixed(2)}{totals.missing_profit_usd_orders ? ` · ${totals.missing_profit_usd_orders} 单美元毛利待回溯` : ""}</p>
+        </article>
       </div>
-      <p className="mt-3 text-xs text-slate-500">毛利 = 产品销售额 − 已确认采购成本（未确认时采用 PI 预估成本）；毛利率以产品销售额为分母，不含运费及其他费用，不代表最终净利润。</p>
-      {(totals.missing_cny || totals.missing_usd || totals.missing_profit_orders || totals.missing_profit_usd_orders) ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">待核实单据：人民币汇率 {totals.missing_cny} 单 · 美元汇率 {totals.missing_usd} 单 · 产品毛利 {totals.missing_profit_orders} 单、美元毛利汇率 {totals.missing_profit_usd_orders} 单。未使用当前汇率倒算历史业绩。</p> : null}
+      <p className="mt-2 text-xs text-slate-500">毛利按 PI 产品销售额 − PI录入成本（成本单价 × 数量）计算；不含运费及其他费用。</p>
+      {(totals.missing_cny || totals.missing_usd || totals.missing_profit_orders || totals.missing_profit_usd_orders) ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">历史汇率待回溯：成交额 {totals.missing_usd} 单 · 产品毛利 {totals.missing_profit_usd_orders} 单；不以当前汇率替代历史快照。</p> : null}
     </header>
     <div className="grid gap-4 xl:grid-cols-2">
       <section className="rounded-xl border bg-white shadow-sm"><header className="border-b p-4"><h3 className="font-semibold">客户业绩 TOP 10</h3><p className="mt-1 text-xs text-slate-500">按 PI 成交额排序；显示销售额、PI成本口径毛利与毛利率。选择客户查看产品结构及订单。</p></header><div className="divide-y">{performance.customers.slice(0, 10).map((row, index) => <button key={row.id || row.label} type="button" onClick={() => { setSelectedCustomer(row.id || row.label); setSelectedProduct(null); setPage(1); }} className={`grid w-full grid-cols-[2.5rem_minmax(0,1fr)_minmax(8rem,auto)] items-center gap-3 px-4 py-3 text-left text-sm hover:bg-blue-50 ${selectedCustomer === (row.id || row.label) ? "bg-blue-50" : ""}`}><RankMedal rank={index + 1}/><span className="min-w-0"><span className="block truncate font-medium text-blue-700">{row.label}</span><small className="block text-slate-500">{row.order_count} 单 · {row.quantity} 件</small><small className="block text-slate-600">{row.missing_profit_orders ? row.product_profit_cny > 0 ? `PI毛利 ¥${row.product_profit_cny.toFixed(2)}（部分已核）· 其余待核` : "PI毛利待核实" : `PI成本 ¥${row.cost_cny.toFixed(2)} · 毛利 ¥${row.product_profit_cny.toFixed(2)} · 毛利率 ${row.product_margin == null ? "待核实" : `${row.product_margin.toFixed(2)}%`}`}</small></span><span className="text-right tabular-nums"><strong className="block whitespace-nowrap font-semibold text-slate-900">¥{row.cny.toFixed(2)}{row.missing_cny ? " · 部分待核" : ""}</strong><small className="block whitespace-nowrap text-slate-500">USD {row.missing_usd === row.order_count ? "待核实" : `${row.usd.toFixed(2)}${row.missing_usd ? " · 部分待核" : ""}`}</small></span></button>)}{!performance.customers.length ? <EmptyPanel /> : null}</div></section>
