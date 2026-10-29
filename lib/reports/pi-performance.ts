@@ -37,10 +37,11 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       const amount = Number(item.amount || 0);
       const salesCny = item.unit_price_cny == null ? currency === "CNY" ? amount : null : Number(item.unit_price_cny) * quantity;
       const salesUsd = currency === "USD" ? amount : salesCny != null && usdRate ? salesCny / usdRate : null;
-      const actualUnitCost = item.procurement_unit_cost_cny == null ? null : positiveOrZero(item.procurement_unit_cost_cny);
-      const estimatedUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
-      const unitCost = actualUnitCost ?? estimatedUnitCost;
-      const costBasis = actualUnitCost != null ? "ACTUAL" : estimatedUnitCost != null ? "ESTIMATED" : "MISSING";
+      // Sales performance uses the cost the seller entered on the PI (unit cost × quantity).
+      // Later warehouse procurement prices are a separate operational measure and must not rewrite PI margin.
+      const piUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
+      const unitCost = piUnitCost;
+      const costBasis = piUnitCost != null ? "PI" : "MISSING";
       const costCny = unitCost == null ? null : unitCost * quantity;
       return { ...item, quantity, amount, sales_cny: salesCny, sales_usd: salesUsd, cost_cny: costCny, cost_basis: costBasis,
         profit_cny: salesCny != null && costCny != null ? salesCny - costCny : null,
