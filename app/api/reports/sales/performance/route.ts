@@ -51,13 +51,38 @@ export async function GET(request: NextRequest) {
       const batch = ids.slice(index, index + 50);
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await admin.from("sales_order_items")
-          .select("sales_order_id,item_name,brand,model,quantity,amount,unit_price_cny,estimated_unit_cost_cny")
+          .select("sales_order_id,line_number,item_name,brand,model,quantity,amount,unit_price_cny,estimated_unit_cost_cny")
           .in("sales_order_id", batch).order("sales_order_id").order("line_number").range(offset, offset + 999);
         if (error) throw error;
         for (const item of data || []) {
           const entries = itemsByOrder.get(item.sales_order_id) || [];
-          entries.push({ item_name: item.item_name || "", brand: item.brand || "", model: item.model || "", quantity: Number(item.quantity || 0), amount: Number(item.amount || 0), unit_price_cny: item.unit_price_cny == null ? null : Number(item.unit_price_cny), estimated_unit_cost_cny: item.estimated_unit_cost_cny == null ? null : Number(item.estimated_unit_cost_cny) });
+          entries.push({ line_number: Number(item.line_number), item_name: item.item_name || "", brand: item.brand || "", model: item.model || "", quantity: Number(item.quantity || 0), amount: Number(item.amount || 0), unit_price_cny: item.unit_price_cny == null ? null : Number(item.unit_price_cny), estimated_unit_cost_cny: item.estimated_unit_cost_cny == null ? null : Number(item.estimated_unit_cost_cny) });
           itemsByOrder.set(item.sales_order_id, entries);
+        }
+        if (!data || data.length < 1000) break;
+      }
+    }
+    const stockByOrder = new Map<string, string>();
+    for (let index = 0; index < ids.length; index += 100) {
+      const { data, error } = await admin.from("stock_orders").select("id,sales_order_id")
+        .in("sales_order_id", ids.slice(index, index + 100)).order("updated_at", { ascending: false });
+      if (error) throw error;
+      for (const stock of data || []) if (!stockByOrder.has(stock.sales_order_id)) stockByOrder.set(stock.sales_order_id, stock.id);
+    }
+    const procurementByLine = new Map<string, number>();
+    const stockIds = [...new Set(stockByOrder.values())];
+    for (let index = 0; index < stockIds.length; index += 50) {
+      const batch = stockIds.slice(index, index + 50);
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await admin.from("stock_order_items")
+          .select("stock_order_id,line_number,procurement_cost,procurement_cost_confirmed")
+          .in("stock_order_id", batch).range(offset, offset + 999);
+        if (error) throw error;
+        for (const item of data || []) {
+          const cost = Number(item.procurement_cost);
+          if (item.procurement_cost_confirmed && Number.isFinite(cost) && cost >= 0) {
+            procurementByLine.set(String(item.stock_order_id) + ":" + String(item.line_number), cost);
+          }
         }
         if (!data || data.length < 1000) break;
       }
@@ -66,9 +91,40 @@ export async function GET(request: NextRequest) {
       id: order.id, order_number: order.order_number, customer_id: order.customer_id,
       customer_name: (order.customer_id && customerNames.get(order.customer_id)) || order.customer_short_name || "未命名客户",
       sales_user_id: order.sales_user_id, currency: order.currency, total_amount: Number(order.total_amount || 0),
-      confirmed_at: order.confirmed_at, items: itemsByOrder.get(order.id) || [],
+      confirmed_at: order.confirmed_at, items: (itemsByOrder.get(order.id) || []).map((item) => ({ ...item, procurement_unit_cost_cny: item.line_number == null ? null : procurementByLine.get(String(stockByOrder.get(order.id)) + ":" + String(item.line_number)) ?? null })),
     }));
-    return NextResponse.json(summarizePiPerformance(orders, rawOrders, selectedOwner), { headers: { "Cache-Control": "private, no-store" } });
+    const summary = summarizePiPerformance(orders, rawOrders, selectedOwner);
+    return NextResponse.json({
+      totals: { orders: summary.totals.orders, cny: summary.totals.cny, usd: summary.totals.usd,
+        missing_cny: summary.totals.missing_cny, missing_usd: summary.totals.missing_usd,
+        product_sales_cny: summary.totals.product_sales_cny, product_profit_cny: summary.totals.product_profit_cny,
+        product_profit_usd: summary.totals.product_profit_usd, product_margin: summary.totals.product_margin,
+        missing_profit_orders: summary.totals.missing_profit_orders, missing_profit_usd_orders: summary.totals.missing_profit_usd_orders },
+      customers: summary.customers.map((row) => ({ id: row.id, label: row.label, order_count: row.order_count, quantity: row.quantity,
+        cny: row.cny, usd: row.usd, missing_cny: row.missing_cny, missing_usd: row.missing_usd,
+        product_profit_cny: row.product_profit_cny, product_profit_usd: row.product_profit_usd,
+        product_sales_cny: row.product_sales_cny, missing_profit_orders: row.missing_profit_orders,
+        missing_profit_usd_orders: row.missing_profit_usd_orders, product_margin: row.product_margin })),
+      products: summary.products.map((row) => ({ key: row.key, label: row.label, model: row.model, quantity: row.quantity,
+        cny: row.cny, usd: row.usd, missing_cny: row.missing_cny, missing_usd: row.missing_usd,
+        product_profit_cny: row.product_profit_cny, product_profit_usd: row.product_profit_usd,
+        product_sales_cny: row.product_sales_cny, missing_cost_lines: row.missing_cost_lines,
+        missing_profit_lines: row.missing_profit_lines, missing_profit_usd_lines: row.missing_profit_usd_lines,
+        product_margin: row.product_margin })),
+      orders: summary.orders.map((row) => ({
+        id: row.id, order_number: row.order_number, customer_id: row.customer_id, customer_name: row.customer_name,
+        currency: row.currency, total_amount: row.total_amount, total_cny: row.total_cny, total_usd: row.total_usd,
+        product_sales_cny: row.product_sales_cny, product_profit_cny: row.product_profit_cny, product_profit_usd: row.product_profit_usd,
+        product_margin: row.product_margin, missing_cost_lines: row.missing_cost_lines, actual_cost_lines: row.actual_cost_lines,
+        estimated_cost_lines: row.estimated_cost_lines, missing_profit_usd: row.missing_profit_usd,
+        usd_cny_rate_snapshot: row.usd_cny_rate_snapshot, usd_rate_source_snapshot: row.usd_rate_source_snapshot,
+        usd_rate_reference_date_snapshot: row.usd_rate_reference_date_snapshot, usd_rate_synced_at_snapshot: row.usd_rate_synced_at_snapshot,
+        confirmed_at: row.confirmed_at,
+        items: row.items.map((item) => ({ item_name: item.item_name, brand: item.brand, model: item.model,
+          quantity: item.quantity, amount: item.amount, unit_price_cny: item.unit_price_cny,
+          sales_cny: item.sales_cny, sales_usd: item.sales_usd, profit_cny: item.profit_cny, profit_usd: item.profit_usd })),
+      })),
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "业绩明细加载失败";
     if (message === "UNAUTHORIZED" || message === "FORBIDDEN") {
