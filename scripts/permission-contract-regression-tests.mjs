@@ -37,7 +37,11 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
   }
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
 }
-assert.match(read("app/api/pi-exchange-rates/route.ts"), /account\.role === "ADMIN"[\s\S]*rates\.map\(\(\{ currency, label, business_cny \}\)/, "销售读取业务汇率不能泄露管理员的参考来源、手工值和调整规则");
+const piExchangeRateApi = read("app/api/pi-exchange-rates/route.ts");
+const publicRateProjection = piExchangeRateApi.match(/rates: account\.role === "ADMIN"\s*\?\s*rates\s*:\s*rates\.map\(\(\{ ([^}]+) \}\) => \(\{ ([^}]+) \}\)\)/);
+assert.ok(publicRateProjection, "销售可读取可核对的公开汇率来源，但响应字段必须白名单化");
+assert.equal(publicRateProjection[1], "currency, label, reference_cny, source, source_url, reference_date, source_updated_at, business_cny", "销售不得读取管理员的手工汇率或调整规则");
+assert.equal(publicRateProjection[2], publicRateProjection[1], "普通用户响应只能包含明确允许的汇率字段");
 for (const [code, page, api, method] of [
   ["pi.rates.view", "app/settings/pi-exchange-rates/page.tsx", null, null],
   ["pi.accounts.view", "app/settings/pi-payment-accounts/page.tsx", null, null],
