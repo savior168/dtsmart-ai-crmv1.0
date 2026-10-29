@@ -120,8 +120,8 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       product_margin: productSalesCny > 0 ? profitCny / productSalesCny * 100 : null,
       missing_profit_orders: orders.filter((row) => row.product_profit_cny == null).length,
     },
-    customers: [...byCustomer.values()].sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
-    products: [...byProduct.values()].sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label)),
+    customers: [...byCustomer.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
+    products: [...byProduct.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label)),
     orders,
   };
 }
