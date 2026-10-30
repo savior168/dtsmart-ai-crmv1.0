@@ -1,6 +1,7 @@
 import { validPiMoney, validPiQuantity, validPiSellingPrice } from "./pi-line-values.ts";
 
 export type ParsedPiProductLine = {
+  source_row: number;
   item_name: string; brand: string; model: string; quality: string;
   description: string; description_zh: string; quantity: string;
   unit_price_cny: string; unit_price_payment: string;
@@ -84,25 +85,23 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number, pay
     const read = (field: Field) => text(row[columns[field] ?? -1]);
     const item_name = read("item_name"), brand = read("brand"), model = read("model"), quality = read("quality");
     const costText = read("cost"), priceText = read("price"), quantityText = read("quantity");
-    if (![item_name, brand, model, quality, costText, priceText, quantityText].some(Boolean)) continue;
+    if (![item_name, brand, model, quality, read("description"), costText, priceText, quantityText].some(Boolean)) continue;
     const sourceRow = index + 1;
-    if (!item_name || !brand || !model || !quality || !validPiQuantity(quantityText) || !costText || !priceText) {
-      throw new Error(`第${sourceRow}行须填写产品类型、品牌、型号、质量、成本单价、销售单价和正整数数量；产品描述可留空`);
-    }
-    const cost = moneyToken(costText, sourceRow, "成本单价", "CNY");
-    const price = moneyToken(priceText, sourceRow, "销售单价", recognized?.priceCurrency || "CNY");
-    if ((cost.currency === "USD" || price.currency === "USD") && paymentCurrency !== "USD") {
+    if (quantityText && !validPiQuantity(quantityText)) throw new Error(`第${sourceRow}行数量须填写正整数`);
+    const cost = costText ? moneyToken(costText, sourceRow, "成本单价", "CNY") : null;
+    const price = priceText ? moneyToken(priceText, sourceRow, "销售单价", recognized?.priceCurrency || "CNY") : null;
+    if ((cost?.currency === "USD" || price?.currency === "USD") && paymentCurrency !== "USD") {
       throw new Error(`第${sourceRow}行含美元价格，请先将PI付款币种选为USD，或改填人民币价格`);
     }
-    const costCny = roundMoney(cost.currency === "USD" ? cost.amount / paymentPerCny : cost.amount);
-    const priceCny = roundMoney(price.currency === "USD" ? price.amount / paymentPerCny : price.amount);
-    const pricePayment = price.currency === "USD" ? price.amount : roundMoney(priceCny * paymentPerCny);
-    if (!validPiMoney(String(costCny)) || !validPiMoney(String(priceCny)) || !validPiMoney(String(pricePayment)) || !validPiSellingPrice(String(priceCny), String(costCny))) {
+    const costCny = cost ? roundMoney(cost.currency === "USD" ? cost.amount / paymentPerCny : cost.amount) : null;
+    const priceCny = price ? roundMoney(price.currency === "USD" ? price.amount / paymentPerCny : price.amount) : null;
+    const pricePayment = price && priceCny !== null ? price.currency === "USD" ? price.amount : roundMoney(priceCny * paymentPerCny) : null;
+    if ((costCny !== null && !validPiMoney(String(costCny))) || (priceCny !== null && !validPiMoney(String(priceCny))) || (pricePayment !== null && !validPiMoney(String(pricePayment))) || (costCny !== null && priceCny !== null && !validPiSellingPrice(String(priceCny), String(costCny)))) {
       throw new Error(`第${sourceRow}行换算后人民币售价须高于成本价，且金额不能超出允许范围`);
     }
-    imported.push({ item_name, brand, model, quality, description: read("description"), description_zh: read("description_zh"),
-      quantity: quantityText, unit_price_cny: priceCny.toFixed(2), unit_price_payment: pricePayment.toFixed(2),
-      unit_price_source: price.currency === "USD" ? "PAYMENT" : "CNY", estimated_unit_cost_cny: costCny.toFixed(2),
+    imported.push({ source_row: sourceRow, item_name, brand, model, quality, description: read("description"), description_zh: read("description_zh"),
+      quantity: quantityText, unit_price_cny: priceCny === null ? "" : priceCny.toFixed(2), unit_price_payment: pricePayment === null ? "" : pricePayment.toFixed(2),
+      unit_price_source: price?.currency === "USD" ? "PAYMENT" : "CNY", estimated_unit_cost_cny: costCny === null ? "" : costCny.toFixed(2),
       preparation_requirement: read("preparation_requirement"), internal_note: read("internal_note") });
     if (imported.length > 500) throw new Error("每张PI最多导入500条产品明细");
   }
