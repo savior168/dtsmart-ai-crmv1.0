@@ -224,6 +224,13 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
           </section> : null}
 
           <section className="mt-4">
+            <div className="mb-2 flex items-end justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">运营概览</p><h2 className="mt-1 text-[15px] font-semibold text-slate-900">客户经营与今日行动</h2></div><Link href="/reports#customer-operations" className="text-xs font-medium text-blue-600">查看运营报表</Link></div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {cards.slice(4).map((card,index) => { const Icon = card.icon; return <Link key={card.label} href={card.href} style={{ animationDelay: `${index * 45}ms` }} className={`${panelClass} dashboard-reveal group relative min-h-[110px] overflow-hidden p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}><ChevronRight size={16} className="absolute right-3 top-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /><div className="flex items-center gap-3"><span className={`dashboard-icon-pulse grid h-12 w-12 shrink-0 place-items-center rounded-xl ${card.background} ${card.color}`}><Icon size={28} strokeWidth={1.9} /></span><div className="min-w-0"><p className="truncate text-[13px] text-slate-600">{card.label}</p><strong className="mt-0.5 block text-[25px] leading-8 tracking-tight text-slate-950">{number(card.value)}</strong></div></div><p className={`mt-2 text-center text-xs font-medium ${card.trendColor}`}>{card.trend}</p></Link>; })}
+            </div>
+          </section>
+
+          <section className="mt-4">
             <details open className="mt-3 rounded-xl border bg-white p-3"><summary className="cursor-pointer text-sm font-medium text-slate-700">客户储备与 AI 筛选指标</summary><div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{cards.slice(0, 4).map((card) => { const Icon = card.icon; return <Link key={card.label} href={card.href} className="group rounded-lg border p-3 transition hover:border-blue-300"><span className="flex items-center gap-2 text-xs text-slate-500"><Icon size={16} />{card.label}</span><b className="mt-2 block text-xl">{number(card.value)}</b><small className="text-blue-600">查看对应客户</small></Link>; })}</div></details>
           </section>
 
