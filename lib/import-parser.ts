@@ -1,6 +1,16 @@
 import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
+import { COUNTRY_OPTIONS, countryInfo } from "@/lib/countries";
 
 export type ImportRow = Record<string, unknown>;
+
+const importCountryCodes = new Set(COUNTRY_OPTIONS.map((option) => option.code));
+
+export function normalizeImportCountry(raw: unknown) {
+  const value = String(raw ?? "").trim();
+  // Source spreadsheets sometimes append an explanatory region in a new line.
+  const annotated = value.replace(/\s*[\r\n]+\s*[（(][\s\S]*$/, "").trim();
+  return importCountryCodes.has(countryInfo(annotated).code) ? annotated : "";
+}
 
 function csvRows(text: string) {
   const rows: string[][] = [];
@@ -102,13 +112,25 @@ async function parseExcelWorkbook(buffer: ArrayBuffer): Promise<ImportRow[]> {
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, { type: "array", raw: false, cellDates: false });
   const dataSheets = workbook.SheetNames.includes("客户导入模板") ? ["客户导入模板"] : workbook.SheetNames.filter((name) => name !== "填写说明");
-  return dataSheets.flatMap((name) =>
-    XLSX.utils.sheet_to_json<ImportRow>(workbook.Sheets[name], {
+  return dataSheets.flatMap((name) => {
+    const sheet = workbook.Sheets[name];
+    if (sheet["!ref"]) {
+      const range = XLSX.utils.decode_range(sheet["!ref"]);
+      for (let column = range.s.c; column <= range.e.c; column += 1) {
+        const header = String(sheet[XLSX.utils.encode_cell({ r: range.s.r, c: column })]?.v ?? "");
+        if (!/电话|whats\s*app|微信|wechat|phone/i.test(header)) continue;
+        for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
+          const cell = sheet[XLSX.utils.encode_cell({ r: row, c: column })];
+          if (cell?.t === "n" && typeof cell.v === "number" && Number.isSafeInteger(cell.v)) cell.w = String(cell.v);
+        }
+      }
+    }
+    return XLSX.utils.sheet_to_json<ImportRow>(sheet, {
       defval: "",
       raw: false,
       blankrows: false,
-    }),
-  );
+    });
+  });
 }
 
 export function mapImportRow(row: ImportRow) {
@@ -143,7 +165,7 @@ export function mapImportRow(row: ImportRow) {
   return {
     company_name: value(row, "公司名称*", "名称", "公司名称", "商店名称", "店铺名称", "name", "company name", "store name"),
     contact_name: value(row, "客户名称*", "客户名称", "联系人", "contact", "contact name"),
-    country: value(row, "国家*", "国家", "country"),
+    country: normalizeImportCountry(value(row, "国家*", "国家", "country")),
     phone: value(row, "电话号码", "完整号码", "完整电话", "电话", "phone", "full phone"),
     whatsapp: value(row, "whatsapp号码", "WhatsApp", "whatsapp"),
     wechat: value(row, "wechat号码", "微信号码", "wechat"),

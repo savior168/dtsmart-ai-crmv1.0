@@ -117,8 +117,8 @@ assert.equal(optionalDocument.items.length, 1, "PI整单模板至少须提供一
 
 const productTemplate = XLSX.readFile("public/templates/pi-line-import-template.xlsx", { cellFormula: true });
 const productSheet = productTemplate.Sheets["PI产品明细"];
-assert.equal(productSheet.N1.v, "销售备注");
-for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP 17 Pro", D2: "OLED", E2: "产品描述", F2: "中文描述", G2: 80, H2: 120, I2: 10, M2: "逐件检查", N2: "销售说明" })) {
+assert.equal(productSheet.H1.v, "数量 *", "产品明细模板只保留八项输入列");
+for (const [address, value] of Object.entries({ A2: "LCD", B2: "IPH", C2: "IP 17 Pro", D2: "OLED", E2: "产品描述", F2: 80, G2: 120, H2: 10 })) {
   productSheet[address] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
 }
 const excelRows = XLSX.utils.sheet_to_json(productSheet, { header: 1, defval: "" });
@@ -128,14 +128,13 @@ assert.deepEqual(pastedImported, excelImported, "Excel导入与粘贴表格须�
 assert.equal(excelImported.length, 1);
 assert.equal(excelImported[0].item_name, "LCD");
 assert.equal(excelImported[0].unit_price_payment, "18.00");
-assert.equal(excelImported[0].preparation_requirement, "逐件检查");
-assert.equal(excelImported[0].internal_note, "销售说明");
+assert.equal(excelImported[0].description, "产品描述");
 assert.deepEqual(parsePiProductRows([excelRows[1]], 0.15), excelImported, "无表头复制的数据区域仍按标准列序解析");
 assert.throws(() => parsePiProductRows([excelRows[2]], 0.15), /1至500条产品明细/, "模板空白公式行不得误判为明细");
-assert.throws(() => parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", "", "", "", "", "", "", ""]], 0.15), /须填写产品、品牌、型号、质量、整数数量/, "缺少产品必填价格或数量须拒绝");
+assert.throws(() => parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", ""]], 0.15), /须填写.*成本单价.*销售单价.*数量/, "缺少产品必填价格或数量须拒绝");
 const formSource = readFileSync("components/pi-order-form.tsx", "utf8");
-assert.match(formSource, /parsePiProductRows\(rows, effectiveRate\)/, "PI导入入口须调用共享解析器");
-assert.match(formSource, /importRows\(XLSX\.utils\.sheet_to_json/, "Excel上传须进入共享导入处理");
+assert.match(formSource, /parsePiProductRows\(rows, effectiveRate, currency\)/, "PI导入入口须调用共享解析器和当前付款币种");
+assert.match(formSource, /importRows\(productSheet\.rows\)/, "Excel上传须选中产品明细表进入共享导入处理");
 assert.match(formSource, /importRows\(\(await navigator\.clipboard\.readText\(\)\)\.split\(/, "剪贴板粘贴须进入同一共享处理");
 
 const route = readFileSync("app/api/orders/import-template/route.ts", "utf8");

@@ -98,6 +98,7 @@ function parsePiFees(value: unknown, paymentMethod: string): PiFeesInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请核对PI附加费用");
   const fees = value as Record<string, unknown>;
   if (fees.show_dual_currency_prices !== undefined && typeof fees.show_dual_currency_prices !== "boolean") throw new Error("PI双币种展示选项不正确");
+  if (fees.price_display_mode !== undefined && !["PAYMENT_ONLY", "CNY_ONLY", "DUAL"].includes(String(fees.price_display_mode))) throw new Error("PI报价展示方式不正确");
   const parseCharge = (key: string): PiFeeInput => {
     const raw = fees[key];
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("请核对PI附加费用");
@@ -120,6 +121,7 @@ function parsePiFees(value: unknown, paymentMethod: string): PiFeesInput {
     other: parseCharge("other"),
     paypal_rate_percent: paymentMethod === "PayPal" ? rate : 0,
     show_dual_currency_prices: fees.show_dual_currency_prices === true,
+    price_display_mode: fees.price_display_mode as PiFeesInput["price_display_mode"],
   };
 }
 

@@ -41,7 +41,7 @@ const currentIdentityGuard = readFileSync(resolve("supabase/migrations/202609040
 assert.match(currentIdentityGuard, /existing\.deleted_at is null/, "当前数据库身份约束应只比较在库客户");
 assert.match(importRoute, /from\("customers"\)[\s\S]{0,300}\.is\("deleted_at", null\)/, "正式导入去重应与当前数据库约束一致，排除已软删除客户");
 assert.match(previewRoute, /from\("customers"\)[\s\S]{0,300}\.is\("deleted_at", null\)/, "导入预检也应排除已软删除客户");
-assert.match(importRoute, /if \(!text\(item\.country\)\)/, "服务端必须再次校验国家地区，不依赖页面校验");
+assert.match(importRoute, /const country = normalizeImportCountry\(item\.country\)[\s\S]*if \(!country\) throw new Error\("国家\/地区为空或无效"\)/, "服务端必须再次校验有效国家地区，不依赖页面校验");
 assert.match(previewRoute, /success_count: Math\.max\(0, rows\.length - conflictCount - existingDuplicates\)/, "预检必须逐行统计冲突，不能按不同客户ID虚增预计成功数");
 const importView = readFileSync(resolve("components/import-view.tsx"), "utf8");
 assert.match(importView, /const previewReady = rows\.length > 0 && rows\.every/, "预检失败后不能继续确认导入");

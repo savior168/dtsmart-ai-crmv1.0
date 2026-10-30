@@ -4,6 +4,7 @@ import { Check, ChevronDown, Copy, Mail, Phone, TriangleAlert } from "lucide-rea
 import { useState, type ReactNode } from "react";
 import { normalizePhoneInternational, formatPhoneInternational } from "@/lib/contacts/phone-normalization";
 import { splitStoredContactValues } from "@/lib/contacts/stored-values";
+import { splitManualContacts } from "@/lib/contacts/manual-contact-list";
 
 type VerifiedContact = { type?: string | null; value_raw?: string | null; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null; captured_at?: string | null };
 type ContactCustomer = { source?: string | null; country?: string | null; phone?: string | null; whatsapp?: string | null; email?: string | null; website?: string | null; google_url?: string | null; website_phone?: string | null; website_email?: string | null; verified_contacts?: VerifiedContact[] | null };
@@ -48,9 +49,9 @@ export function CustomerContactSummary({ customer, source, display = "all" }: { 
   const [copiedKey, setCopiedKey] = useState("");
   const collapseThreshold = 1;
   const originals: DisplayContact[] = [
-    { label: "电话", value: customer.phone || "未提供", type: "PHONE", icon: <Phone size={14} className="text-blue-600"/>, source: "original" },
-    { label: "WhatsApp", value: customer.whatsapp || "未提供", type: "WHATSAPP", icon: iconFor("WHATSAPP"), source: "original" },
-    { label: "邮箱", value: customer.email || "未提供", type: "EMAIL", icon: iconFor("EMAIL"), source: "original" },
+    ...splitManualContacts(customer.phone).map((value) => ({ label: "电话", value, type: "PHONE" as const, icon: <Phone size={14} className="text-blue-600"/>, source: "original" as const })),
+    ...splitManualContacts(customer.whatsapp).map((value) => ({ label: "WhatsApp", value, type: "WHATSAPP" as const, icon: iconFor("WHATSAPP"), source: "original" as const })),
+    ...splitManualContacts(customer.email).map((value) => ({ label: "邮箱", value, type: "EMAIL" as const, icon: iconFor("EMAIL"), source: "original" as const })),
   ];
   const originalKeys = new Set(originals.filter((item) => item.value !== "未提供").map((item) => contactKey(item.type, item.value, customer.country)));
   const collected: DisplayContact[] = (customer.verified_contacts || [])

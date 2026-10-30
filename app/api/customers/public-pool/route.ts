@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      exportMode && account.role === "ADMIN" ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode && account.role === "ADMIN" ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,wechat,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (selectedIds.length) query = query.in("id", selectedIds);
@@ -360,6 +360,7 @@ export async function GET(request: NextRequest) {
         contact_name: full ? row.contact_name : null,
         phone: full ? row.phone : null,
         whatsapp: full ? row.whatsapp : null,
+        wechat: full ? row.wechat : null,
         email: full ? row.email : null,
         website_phone: full ? websitePhone : null,
         website_email: full ? websiteEmail : null,

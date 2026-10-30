@@ -39,6 +39,7 @@ import {
 import { AppPagination } from "@/components/ui/app-pagination";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
+import { splitManualContacts } from "@/lib/contacts/manual-contact-list";
 import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
@@ -62,6 +63,7 @@ import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/con
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { countryInfo } from "@/lib/countries";
+import { hasCustomerContactMethod } from "@/lib/customer-contact-requirement";
 
 type Role = UserRole;
 type Tab =
@@ -81,6 +83,7 @@ type PoolRow = {
   industry: string | null;
   phone: string | null;
   whatsapp: string | null;
+  wechat: string | null;
   email: string | null;
   website_email: string | null;
   website_phone: string | null;
@@ -255,9 +258,9 @@ function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai"
   type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
   const iconFor = (type: string) => type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> : <Phone size={14}/>;
   const originals: DisplayContact[] = [
-    { label: "原始电话", value: row.phone || "未提供", type: "PHONE", icon: <Phone size={14}/>, source: "original" },
-    { label: "原始 WhatsApp", value: row.whatsapp || "未提供", type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" },
-    { label: "原始邮箱", value: row.email || "未提供", type: "EMAIL", icon: <Mail size={14}/>, source: "original" },
+    ...splitManualContacts(row.phone).map((value): DisplayContact => ({ label: "原始电话", value, type: "PHONE", icon: <Phone size={14}/>, source: "original" })),
+    ...splitManualContacts(row.whatsapp).map((value): DisplayContact => ({ label: "原始 WhatsApp", value, type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" })),
+    ...splitManualContacts(row.email).map((value): DisplayContact => ({ label: "原始邮箱", value, type: "EMAIL", icon: <Mail size={14}/>, source: "original" })),
   ];
   const contactKey = (type: string, value: string) => {
     if (type === "EMAIL") return `${type}:${value.trim().toLowerCase()}`;
@@ -1235,9 +1238,18 @@ function ClaimDialog({
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [missingContactOpen, setMissingContactOpen] = useState(false);
+  const hasContact = hasCustomerContactMethod(row);
+  function chooseStage(next: string) {
+    if (next !== "CLAIMED" && !hasContact) {
+      setMissingContactOpen(true);
+      return;
+    }
+    setStage(next);
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (["FOLLOWING", "DEAL"].includes(stage) && (!row.phone?.trim() || !row.email?.trim())) return setError("意向客户和成交客户必须同时具备联系电话和邮箱，请先补全公海主档");
+    if (stage !== "CLAIMED" && !hasContact) { setMissingContactOpen(true); return; }
     if (stage !== "CLAIMED" && !file) return setError("潜在客户以外的阶段必须上传真实凭证附件");
     setBusy(true);
     setError("");
@@ -1268,8 +1280,8 @@ function ClaimDialog({
     >
       <form onSubmit={submit} className="space-y-4">
         {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"客户名称",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
-        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"}]}/>
-        {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">联系电话 <b className="text-rose-600">*</b> · 邮箱 <b className="text-rose-600">*</b>；两项须已在客户主档中填写。</p> : null}
+        <ClaimChoice label="认领后客户阶段" value={stage} onChange={chooseStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"四类联系方式至少一项，并上传凭证"},{value:"DEAL",label:"成交客户",description:"四类联系方式至少一项，并上传凭证"}]}/>
+        {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">电话、邮箱、微信或 WhatsApp 至少填写一项；本阶段还须提交真实联系凭证。</p> : null}
         <ClaimChoice label="实际联系渠道" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"邮箱"},{value:"PHONE",label:"电话"},{value:"LINKEDIN",label:"LinkedIn / 其他社媒"},{value:"OTHER",label:"官网表单 / 其他方式"}]}/>
         <ClaimChoice label="本次真实联系结果" placeholder="请选择联系结果" value={result} onChange={setResult} options={[{value:"已发送首条开发信息，待回复",label:"已发送首条开发信息，待回复"},{value:"已联系到对方，需求待确认",label:"已联系到对方，需求待确认"},{value:"对方要求后续跟进",label:"对方要求后续跟进"},{value:"确认存在采购或合作需求",label:"确认存在采购或合作需求"},{value:"暂不匹配或明确无需求",label:"暂不匹配或明确无需求"},{value:"联系方式无效或无法触达",label:"联系方式无效或无法触达"},{value:"其他真实联系结果",label:"其他真实联系结果"}]}/>
         <label className="block text-sm font-medium">
@@ -1288,6 +1300,7 @@ function ClaimDialog({
         {error ? <ErrorText value={error} /> : null}
         <DialogActions busy={busy} disabled={!result || (stage !== "CLAIMED" && !file)} close={close} label="确认认领" />
       </form>
+      <AppDialog open={missingContactOpen} title="暂不能认领为意向或成交客户" description="该客户暂无电话、邮箱、微信及 WhatsApp。" onClose={() => setMissingContactOpen(false)} width="max-w-md"><p className="text-sm leading-6 text-slate-700">请先认领为潜在客户，再到“我的客户”补全至少一项联系方式，随后变更客户阶段。</p><div className="mt-5 flex justify-end"><button type="button" onClick={() => { setStage("CLAIMED"); setMissingContactOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">按潜在客户认领</button></div></AppDialog>
     </Modal>
   );
 }

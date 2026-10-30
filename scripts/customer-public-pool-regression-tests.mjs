@@ -73,7 +73,7 @@ assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入�
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
 assert.equal((poolApi.match(/\.eq\("ai_screening_done", true\)\.gte\("ai_score", 60\)/g) || []).length, 3, "待认领数量、筛选选项和列表/导出必须统一只包含已完成筛选且达到 60 分的客户");
 assert.match(claimApi, /ai_screening_done !== true \|\| customer\.data\.ai_score === null \|\| customer\.data\.ai_score < 60/, "认领接口必须拒绝未筛选和低分客户");
-assert.match(claimApi, /createAdminClient\(\)\.from\("customers"\)[\s\S]*\.eq\("acquisition_scope", "PUBLIC_POOL"\)\.eq\("pool_status", "AVAILABLE"\)[\s\S]*\.eq\("status", "UNCLAIMED"\)\.is\("owner_id", null\)/, "公海可认领客户须通过受限服务端查询核验，不能被销售员主档RLS误判为不存在");
+assert.match(claimApi, /createAdminClient\(\)[\s\S]*admin\.from\("customers"\)[\s\S]*\.eq\("acquisition_scope", "PUBLIC_POOL"\)\.eq\("pool_status", "AVAILABLE"\)[\s\S]*\.eq\("status", "UNCLAIMED"\)\.is\("owner_id", null\)/, "公海可认领客户须通过受限服务端查询核验，不能被销售员主档RLS误判为不存在");
 assert.match(claimEligibility, /revoke all on function public\.claim_public_customer\(uuid,text,text,text,text,text,text,bigint\)/, "废弃的无阶段认领RPC不得继续对客户端开放");
 assert.match(claimEligibility, /current_user_has_business_permission\(''customers\.claim''\)/, "新认领RPC须核验数据库中的实际认领权限");
 assert.match(lowScoreClaimGuard, /before update on public\.customers[\s\S]*SELF_CLAIM[\s\S]*reject_low_score_self_claim/, "数据库必须阻止绕过接口的低分自认领");
@@ -313,7 +313,7 @@ assert.match(customersApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)[\
 assert.match(customerForm, /stage === "FOLLOWING" && !stageFile[\s\S]*stage === "DEAL" \? "DEAL" : "CLAIMED"/, "手动新增意向需上传凭证，手动新增成交可直接保存");
 assert.match(customerForm, /stage === "DEAL" && result\.status !== "DEAL"[\s\S]*已有客户改为成交/, "重复客户接管不得冒用手动新增免成交凭证例外");
 assert.match(stageWorkflowApi, /customerStageContactError\(status, customer\.data\)[\s\S]*needsEvidence = \["FOLLOWING", "DEAL"\]/, "已有客户无论来源，改意向或成交必须具备联系方式并提交凭证");
-assert.match(read("lib/customer-contact-requirement.ts"), /if \(\(!isFollowing && !isDeal\) \|\| hasCustomerContactMethod\(value\)\) return null[\s\S]*至少填写微信、邮箱或电话其中一项/, "意向和成交客户至少须填写微信、邮箱或电话之一");
+assert.match(read("lib/customer-contact-requirement.ts"), /if \(\(!isFollowing && !isDeal\) \|\| hasCustomerContactMethod\(value\)\) return null[\s\S]*至少填写电话、邮箱、微信或 WhatsApp 其中一项/, "意向和成交客户至少须填写四类联系方式之一");
 assert.match(customersView, /useState<"done" \| "pending" \| "failed" \| "all">\("all"\)/, "我的客户默认展示全部AI分析状态");
 assert.match(poolView, /const activeRequest = useRef<AbortController \| null>\(null\)[\s\S]*setTimeout\(\(\) => controller\.abort\(\), 30_000\)/, "公海批量删除请求必须有等待上限，不能永久卡在处理中");
 assert.match(poolView, /function stopOrClose\(\)[\s\S]*activeRequest\.current\?\.abort\(\)[\s\S]*onClose=\{stopOrClose\}/, "公海删除进行中必须能手动停止发送后续批次并关闭弹窗");

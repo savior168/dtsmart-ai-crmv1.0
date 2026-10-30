@@ -8,6 +8,7 @@ export type PiFeesInput = {
   other: PiFeeInput;
   paypal_rate_percent: number;
   show_dual_currency_prices?: boolean;
+  price_display_mode?: "PAYMENT_ONLY" | "CNY_ONLY" | "DUAL";
 };
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
