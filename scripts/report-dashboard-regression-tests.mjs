@@ -44,7 +44,8 @@ assert.match(performanceApi, /manager_id", account\.id\).*role", "SALES".*status
 assert.match(performanceApi, /team_leaderboard: \{ available: account\.role === "SUPERVISOR"/, "团队排行可用状态必须由服务端角色和权限计算");
 assert.match(performanceApi, /teamOwnerIds = \[\.\.\.new Set\(\[account\.id,[\s\S]*ownerIds = \[\.\.\.new Set\(\[\.\.\.ownerIds, \..*activeSales/, "团队榜应保留当前团队且为无成交销售显示零值");
 assert.match(performanceApi, /trends: \{ granularity: trendGranularity, periods: trendPeriods, sellers: sellerTrends, top_customers: customerTrends \}/, "业绩接口应返回销售员与高业绩客户的时序数据");
-assert.match(reports, /销售员业绩走势[\s\S]*高业绩客户下单走势[\s\S]*悬停数据点查看金额与单数/, "业绩分析须提供销售员和重点客户趋势图及订单金额核对");
+assert.match(reports, /销售员业绩走势[\s\S]*高业绩客户下单走势/, "业绩分析须提供销售员与重点客户走势");
+assert.match(reports, /悬停数据点查看金额与单数/, "走势需支持核对单期成交金额与订单数");
 assert.match(reports, /<small className="block text-slate-500">成交金额<\/small>[\s\S]*¥[\s\S]*\$/, "RMB and USD amounts must use the standard ¥ and $ symbols");
 assert.match(reports, /PI产品毛利[\s\S]*毛利率[\s\S]*产品销售额[\s\S]*PI录入成本/, "PI gross profit, margin, product sales, and PI-entered cost must be shown as one related result");
 assert.doesNotMatch(reports, /成交金额 · 人民币|成交金额 · 美元/, "currency amounts must not be split into separate headline metrics");
