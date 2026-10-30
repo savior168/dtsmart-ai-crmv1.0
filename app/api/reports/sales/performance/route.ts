@@ -15,11 +15,22 @@ export async function GET(request: NextRequest) {
     if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) {
       return NextResponse.json({ error: "无效日期范围" }, { status: 400 });
     }
+    const teamScopeRequested = account.role === "SUPERVISOR" && request.nextUrl.searchParams.get("scope") === "team";
+    if (teamScopeRequested && (!account.supervisor_can_view_subordinates || !account.permissions.includes("reports.data_all"))) {
+      return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+    }
     const selectedOwner = await requestedOwnerId(request, account, "reports.data_all");
     const admin = createAdminClient();
     // requestedOwnerId validates every non-admin selection against the direct
     // report relationship and the live role permission before privileged reads.
-    const allowedOwners = performanceOwnerFilter(account.role, account.id, selectedOwner);
+    let allowedOwners = performanceOwnerFilter(account.role, account.id, selectedOwner);
+    if (teamScopeRequested) {
+      const { data: reports, error } = await admin.from("users").select("id")
+        .eq("manager_id", account.id).eq("role", "SALES").eq("status", "ACTIVE");
+      if (error) throw error;
+      allowedOwners = [...new Set([account.id, ...(reports || []).map((row) => String(row.id))])];
+    }
+    const includeTeamLeaderboard = account.role === "ADMIN" && selectedOwner === null || teamScopeRequested;
     const rawOrders: Array<{
       id: string; order_number: string; customer_id: string | null; customer_short_name: string | null;
       sales_user_id: string; currency: string; total_amount: number; total_cny: number | null;
@@ -115,9 +126,34 @@ export async function GET(request: NextRequest) {
       sales_user_id: order.sales_user_id, currency: order.currency, total_amount: Number(order.total_amount || 0),
       confirmed_at: order.confirmed_at, items: (itemsByOrder.get(order.id) || []).map((item) => ({ ...item, procurement_unit_cost_cny: item.line_number == null ? null : procurementByLine.get(String(stockByOrder.get(order.id)) + ":" + String(item.line_number)) ?? null })),
     }));
-    const summary = summarizePiPerformance(orders, scopedOrders, selectedOwner);
+    const summary = summarizePiPerformance(orders, scopedOrders, teamScopeRequested ? null : selectedOwner);
+    let teamLeaderboard: Array<{ user_id: string; name: string; email: string; orders: number; customers: number; products: number; quantity: number; cny: number; usd: number; product_profit_cny: number; product_profit_usd: number; product_margin: number | null }> = [];
+    if (includeTeamLeaderboard) {
+      const ownerIds = [...new Set(scopedOrders.map((order) => order.sales_user_id))];
+      const ownerNames = new Map<string, { name: string; email: string }>();
+      for (let index = 0; index < ownerIds.length; index += 100) {
+        const { data, error } = await admin.from("users").select("id,name,email").in("id", ownerIds.slice(index, index + 100));
+        if (error) throw error;
+        for (const owner of data || []) ownerNames.set(String(owner.id), { name: String(owner.name || ""), email: String(owner.email || "") });
+      }
+      teamLeaderboard = ownerIds.map((ownerId) => {
+        const ownerRows = scopedOrders.filter((order) => order.sales_user_id === ownerId);
+        const ownerOrders = orders.filter((order) => order.sales_user_id === ownerId);
+        const ownerSummary = summarizePiPerformance(ownerOrders, ownerRows, ownerId);
+        const owner = ownerNames.get(ownerId) || { name: "", email: "" };
+        return {
+          user_id: ownerId, name: owner.name || owner.email || "未命名销售员", email: owner.email,
+          orders: ownerSummary.totals.orders, customers: ownerSummary.customers.length, products: ownerSummary.products.length,
+          quantity: ownerSummary.orders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0),
+          cny: ownerSummary.totals.cny, usd: ownerSummary.totals.usd,
+          product_profit_cny: ownerSummary.totals.product_profit_cny, product_profit_usd: ownerSummary.totals.product_profit_usd,
+          product_margin: ownerSummary.totals.product_margin,
+        };
+      });
+    }
     return NextResponse.json({
       filters: { countries: countryOptions, customers: customerOptions },
+      team_leaderboard: { available: account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && account.permissions.includes("reports.data_all"), selected: includeTeamLeaderboard, rows: teamLeaderboard },
       totals: { orders: summary.totals.orders, cny: summary.totals.cny, usd: summary.totals.usd,
         missing_cny: summary.totals.missing_cny, missing_usd: summary.totals.missing_usd,
         product_sales_cny: summary.totals.product_sales_cny, cost_cny: summary.totals.cost_cny, product_profit_cny: summary.totals.product_profit_cny,
