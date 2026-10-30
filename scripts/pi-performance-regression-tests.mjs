@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import { performanceOwnerFilter, summarizePiPerformance } from "../lib/reports/pi-performance.ts";
+import { formatPerformanceNumber } from "../lib/reports/format.ts";
+
+assert.equal(formatPerformanceNumber(1234.5), "1234.50");
+assert.equal(formatPerformanceNumber(1234, 0), "1234");
+assert.equal(formatPerformanceNumber(null), "—");
+assert.equal(formatPerformanceNumber(undefined), "—");
+assert.equal(formatPerformanceNumber(Number.NaN), "—");
 
 const usdRate = 6.6619;
 const rows = [
