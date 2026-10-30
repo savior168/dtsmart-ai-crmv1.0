@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       totals: { orders: summary.totals.orders, cny: summary.totals.cny, usd: summary.totals.usd,
         missing_cny: summary.totals.missing_cny, missing_usd: summary.totals.missing_usd,
-        product_sales_cny: summary.totals.product_sales_cny, product_profit_cny: summary.totals.product_profit_cny,
+        product_sales_cny: summary.totals.product_sales_cny, cost_cny: summary.totals.cost_cny, product_profit_cny: summary.totals.product_profit_cny,
         product_profit_usd: summary.totals.product_profit_usd, product_margin: summary.totals.product_margin,
         missing_profit_orders: summary.totals.missing_profit_orders, missing_profit_usd_orders: summary.totals.missing_profit_usd_orders },
       customers: summary.customers.map((row) => ({ id: row.id, label: row.label, order_count: row.order_count, quantity: row.quantity,
