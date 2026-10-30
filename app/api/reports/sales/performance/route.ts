@@ -164,8 +164,60 @@ export async function GET(request: NextRequest) {
         };
       });
     }
+    const periodStart = new Date(`${from.slice(0, 10)}T00:00:00Z`);
+    const periodEnd = new Date(`${to.slice(0, 10)}T00:00:00Z`);
+    const daySpan = Math.max(1, Math.ceil((periodEnd.getTime() - periodStart.getTime()) / 86_400_000));
+    const trendGranularity: "day" | "month" | "year" = daySpan <= 62 ? "day" : daySpan <= 3650 ? "month" : "year";
+    const trendPeriods: string[] = [];
+    const cursor = new Date(periodStart);
+    if (trendGranularity !== "day") cursor.setUTCDate(1);
+    if (trendGranularity === "year") cursor.setUTCMonth(0);
+    while (cursor < periodEnd) {
+      trendPeriods.push(trendGranularity === "day" ? cursor.toISOString().slice(0, 10) : trendGranularity === "month" ? cursor.toISOString().slice(0, 7) : cursor.toISOString().slice(0, 4));
+      if (trendGranularity === "day") cursor.setUTCDate(cursor.getUTCDate() + 1);
+      else if (trendGranularity === "month") cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      else cursor.setUTCFullYear(cursor.getUTCFullYear() + 1);
+    }
+    const bucketFor = (value: string) => trendGranularity === "day" ? value.slice(0, 10) : trendGranularity === "month" ? value.slice(0, 7) : value.slice(0, 4);
+    const periodIndex = new Map(trendPeriods.map((period, index) => [period, index]));
+    const buildTrend = (id: string, label: string, matches: (order: (typeof summary.orders)[number]) => boolean) => {
+      const points = trendPeriods.map((period) => ({ period, orders: 0, cny: 0, usd: 0 }));
+      for (const order of summary.orders) {
+        if (!matches(order)) continue;
+        const index = periodIndex.get(bucketFor(order.confirmed_at));
+        if (index == null) continue;
+        points[index].orders++;
+        points[index].cny += order.total_cny || 0;
+        points[index].usd += order.total_usd || 0;
+      }
+      return { id, label, points };
+    };
+    const sellerIds = [...new Set(summary.orders.map((order) => order.sales_user_id))];
+    const sellerLabels = new Map<string, string>();
+    if (includeTeamLeaderboard) {
+      for (const row of teamLeaderboard) sellerLabels.set(row.user_id, row.name);
+    }
+    for (let index = 0; index < sellerIds.length; index += 100) {
+      const missingNames = sellerIds.slice(index, index + 100).filter((id) => !sellerLabels.has(id));
+      if (!missingNames.length) continue;
+      const { data, error } = await admin.from("users").select("id,name,email").in("id", missingNames);
+      if (error) throw error;
+      for (const owner of data || []) sellerLabels.set(String(owner.id), String(owner.name || owner.email || "销售员"));
+    }
+    const sellerTotals = new Map<string, number>();
+    for (const order of summary.orders) sellerTotals.set(order.sales_user_id, (sellerTotals.get(order.sales_user_id) || 0) + (order.total_cny || 0));
+    const sellerRows = includeTeamLeaderboard
+      ? teamLeaderboard
+      : [...sellerTotals].map(([user_id, cny]) => ({ user_id, cny }));
+    const sellerTrends = [...sellerRows].sort((a, b) => b.cny - a.cny || a.user_id.localeCompare(b.user_id))
+      .slice(0, 5).map((seller) => buildTrend(seller.user_id, sellerLabels.get(seller.user_id) || "销售员", (order) => order.sales_user_id === seller.user_id));
+    const customerTrends = summary.customers.slice(0, 5).map((customer) => {
+      const customerKey = customer.id || customer.label;
+      return buildTrend(customerKey, customer.label, (order) => (order.customer_id || order.customer_name) === customerKey);
+    });
     return NextResponse.json({
       filters: { countries: countryOptions, customers: customerOptions },
+      trends: { granularity: trendGranularity, periods: trendPeriods, sellers: sellerTrends, top_customers: customerTrends },
       team_leaderboard: { available: account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && account.permissions.includes("reports.data_all"), selected: includeTeamLeaderboard, rows: teamLeaderboard },
       totals: { orders: summary.totals.orders, cny: summary.totals.cny, usd: summary.totals.usd,
         missing_cny: summary.totals.missing_cny, missing_usd: summary.totals.missing_usd,
