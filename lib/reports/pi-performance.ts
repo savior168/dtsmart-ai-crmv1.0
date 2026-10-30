@@ -1,3 +1,5 @@
+const LEGACY_USD_CNY_RATE = 6.61;
+
 export type PiOrderRow = {
   id: string; order_number: string; customer_id: string | null; customer_name: string;
   sales_user_id: string; currency: string; total_amount: number; confirmed_at: string;
@@ -30,7 +32,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     const currency = row.currency.toUpperCase();
     const native = Number(row.total_amount);
     const cny = meta.total_cny == null ? currency === "CNY" ? native : null : Number(meta.total_cny);
-    const usdRate = positive(meta.usd_cny_rate_snapshot);
+    const usdRate = positive(meta.usd_cny_rate_snapshot) ?? LEGACY_USD_CNY_RATE;
     const usd = currency === "USD" ? native : cny != null && usdRate ? cny / usdRate : null;
     const items = row.items.map((item) => {
       const quantity = Number(item.quantity || 0);
@@ -54,8 +56,8 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     const productProfitCny = productSalesCny != null && costCny != null ? productSalesCny - costCny : null;
     const productProfitUsd = costComplete && items.every((item) => item.profit_usd != null) ? items.reduce((sum, item) => sum + Number(item.profit_usd), 0) : null;
     return { ...row, currency, total_amount: native, total_cny: cny, total_usd: usd,
-      usd_cny_rate_snapshot: usdRate, usd_rate_source_snapshot: meta.usd_rate_source_snapshot,
-      usd_rate_reference_date_snapshot: meta.usd_rate_reference_date_snapshot,
+      usd_cny_rate_snapshot: usdRate, usd_rate_source_snapshot: meta.usd_rate_source_snapshot || "HISTORICAL_STANDARD_6_61",
+      usd_rate_reference_date_snapshot: meta.usd_rate_reference_date_snapshot || row.confirmed_at.slice(0, 10),
       usd_rate_synced_at_snapshot: meta.usd_rate_synced_at_snapshot,
       items, product_sales_cny: productSalesCny, cost_cny: costCny,
       product_profit_cny: productProfitCny, product_profit_usd: productProfitUsd, missing_profit_usd: productProfitUsd == null,
