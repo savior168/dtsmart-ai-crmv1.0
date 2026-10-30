@@ -1,3 +1,5 @@
+const LEGACY_USD_CNY_RATE = 6.61;
+
 export type PiOrderRow = {
   id: string; order_number: string; customer_id: string | null; customer_name: string;
   sales_user_id: string; currency: string; total_amount: number; confirmed_at: string;
@@ -30,17 +32,18 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     const currency = row.currency.toUpperCase();
     const native = Number(row.total_amount);
     const cny = meta.total_cny == null ? currency === "CNY" ? native : null : Number(meta.total_cny);
-    const usdRate = positive(meta.usd_cny_rate_snapshot);
+    const usdRate = positive(meta.usd_cny_rate_snapshot) ?? LEGACY_USD_CNY_RATE;
     const usd = currency === "USD" ? native : cny != null && usdRate ? cny / usdRate : null;
     const items = row.items.map((item) => {
       const quantity = Number(item.quantity || 0);
       const amount = Number(item.amount || 0);
       const salesCny = item.unit_price_cny == null ? currency === "CNY" ? amount : null : Number(item.unit_price_cny) * quantity;
       const salesUsd = currency === "USD" ? amount : salesCny != null && usdRate ? salesCny / usdRate : null;
-      const actualUnitCost = item.procurement_unit_cost_cny == null ? null : positiveOrZero(item.procurement_unit_cost_cny);
-      const estimatedUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
-      const unitCost = actualUnitCost ?? estimatedUnitCost;
-      const costBasis = actualUnitCost != null ? "ACTUAL" : estimatedUnitCost != null ? "ESTIMATED" : "MISSING";
+      // Sales performance uses the cost the seller entered on the PI (unit cost × quantity).
+      // Later warehouse procurement prices are a separate operational measure and must not rewrite PI margin.
+      const piUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
+      const unitCost = piUnitCost;
+      const costBasis = piUnitCost != null ? "ESTIMATED" : "MISSING";
       const costCny = unitCost == null ? null : unitCost * quantity;
       return { ...item, quantity, amount, sales_cny: salesCny, sales_usd: salesUsd, cost_cny: costCny, cost_basis: costBasis,
         profit_cny: salesCny != null && costCny != null ? salesCny - costCny : null,
@@ -53,8 +56,8 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
     const productProfitCny = productSalesCny != null && costCny != null ? productSalesCny - costCny : null;
     const productProfitUsd = costComplete && items.every((item) => item.profit_usd != null) ? items.reduce((sum, item) => sum + Number(item.profit_usd), 0) : null;
     return { ...row, currency, total_amount: native, total_cny: cny, total_usd: usd,
-      usd_cny_rate_snapshot: usdRate, usd_rate_source_snapshot: meta.usd_rate_source_snapshot,
-      usd_rate_reference_date_snapshot: meta.usd_rate_reference_date_snapshot,
+      usd_cny_rate_snapshot: usdRate, usd_rate_source_snapshot: meta.usd_rate_source_snapshot || "HISTORICAL_STANDARD_6_61",
+      usd_rate_reference_date_snapshot: meta.usd_rate_reference_date_snapshot || row.confirmed_at.slice(0, 10),
       usd_rate_synced_at_snapshot: meta.usd_rate_synced_at_snapshot,
       items, product_sales_cny: productSalesCny, cost_cny: costCny,
       product_profit_cny: productProfitCny, product_profit_usd: productProfitUsd, missing_profit_usd: productProfitUsd == null,
@@ -128,7 +131,7 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       product_sales_cny: productSalesCny, product_profit_cny: profitCny,
       product_profit_usd: orders.filter((row) => row.product_profit_usd != null).reduce((sum, row) => sum + Number(row.product_profit_usd), 0),
       missing_profit_usd_orders: orders.filter((row) => row.product_profit_usd == null).length,
-      product_margin: productSalesCny > 0 ? profitCny / productSalesCny * 100 : null,
+      product_margin: orders.length > 0 && orders.every((row) => row.product_profit_cny != null) && productSalesCny > 0 ? profitCny / productSalesCny * 100 : null,
       missing_profit_orders: orders.filter((row) => row.product_profit_cny == null).length,
     },
     customers: [...byCustomer.values()].map((row) => ({ ...row, product_margin: row.product_sales_cny > 0 && row.missing_profit_orders === 0 ? row.product_profit_cny / row.product_sales_cny * 100 : null })).sort((a, b) => b.cny - a.cny || b.usd - a.usd || b.quantity - a.quantity),
