@@ -24,11 +24,13 @@ export async function GET(request: NextRequest) {
     // requestedOwnerId validates every non-admin selection against the direct
     // report relationship and the live role permission before privileged reads.
     let allowedOwners = performanceOwnerFilter(account.role, account.id, selectedOwner);
+    let teamOwnerIds: string[] | null = null;
     if (teamScopeRequested) {
       const { data: reports, error } = await admin.from("users").select("id")
         .eq("manager_id", account.id).eq("role", "SALES").eq("status", "ACTIVE");
       if (error) throw error;
-      allowedOwners = [...new Set([account.id, ...(reports || []).map((row) => String(row.id))])];
+      teamOwnerIds = [...new Set([account.id, ...(reports || []).map((row) => String(row.id))])];
+      allowedOwners = teamOwnerIds;
     }
     const includeTeamLeaderboard = account.role === "ADMIN" && selectedOwner === null || teamScopeRequested;
     const rawOrders: Array<{
@@ -129,18 +131,29 @@ export async function GET(request: NextRequest) {
     const summary = summarizePiPerformance(orders, scopedOrders, teamScopeRequested ? null : selectedOwner);
     let teamLeaderboard: Array<{ user_id: string; name: string; email: string; orders: number; customers: number; products: number; quantity: number; cny: number; usd: number; product_profit_cny: number; product_profit_usd: number; product_margin: number | null }> = [];
     if (includeTeamLeaderboard) {
-      const ownerIds = [...new Set(scopedOrders.map((order) => order.sales_user_id))];
-      const ownerNames = new Map<string, { name: string; email: string }>();
-      for (let index = 0; index < ownerIds.length; index += 100) {
-        const { data, error } = await admin.from("users").select("id,name,email").in("id", ownerIds.slice(index, index + 100));
+      let ownerIds = [...new Set(scopedOrders.map((order) => order.sales_user_id))];
+      if (teamOwnerIds) ownerIds = [...new Set([...ownerIds, ...teamOwnerIds])];
+      if (account.role === "ADMIN" && selectedOwner === null) {
+        const { data: activeSales, error } = await admin.from("users").select("id")
+          .eq("role", "SALES").eq("status", "ACTIVE");
         if (error) throw error;
-        for (const owner of data || []) ownerNames.set(String(owner.id), { name: String(owner.name || ""), email: String(owner.email || "") });
+        ownerIds = [...new Set([...ownerIds, ...(activeSales || []).map((row) => String(row.id))])];
       }
+      const ownerNames = new Map<string, { name: string; email: string; role: string }>();
+      for (let index = 0; index < ownerIds.length; index += 100) {
+        const { data, error } = await admin.from("users").select("id,name,email,role").in("id", ownerIds.slice(index, index + 100));
+        if (error) throw error;
+        for (const owner of data || []) ownerNames.set(String(owner.id), { name: String(owner.name || ""), email: String(owner.email || ""), role: String(owner.role || "") });
+      }
+      ownerIds = ownerIds.filter((ownerId) => {
+        const owner = ownerNames.get(ownerId);
+        return owner?.role === "SALES" || teamScopeRequested && ownerId === account.id;
+      });
       teamLeaderboard = ownerIds.map((ownerId) => {
         const ownerRows = scopedOrders.filter((order) => order.sales_user_id === ownerId);
         const ownerOrders = orders.filter((order) => order.sales_user_id === ownerId);
         const ownerSummary = summarizePiPerformance(ownerOrders, ownerRows, ownerId);
-        const owner = ownerNames.get(ownerId) || { name: "", email: "" };
+        const owner = ownerNames.get(ownerId) || { name: "", email: "", role: "" };
         return {
           user_id: ownerId, name: owner.name || owner.email || "未命名销售员", email: owner.email,
           orders: ownerSummary.totals.orders, customers: ownerSummary.customers.length, products: ownerSummary.products.length,
