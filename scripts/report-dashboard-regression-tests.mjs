@@ -73,6 +73,7 @@ assert.match(operationsOverview, /report && !warehouse && canViewOrders && canFi
 assert.match(operationsOverview, /!report \? <div className="grid gap-4 lg:grid-cols-2"/, "近期单据待办仅在工作台出现");
 assert.match(dashboard, /业绩快照[\s\S]*已确认 PI[\s\S]*查看完整业绩分析[\s\S]*PerformanceMetric label="成交金额"/, "工作台应以紧凑快照展示成交金额并将完整分析导流至业绩分析");
 assert.doesNotMatch(dashboard, /客户 TOP 5|热销产品 TOP 5/, "客户和产品排名应集中在业绩分析，避免与工作台快照重复");
+assert.ok(dashboard.includes("客户经营与今日行动") && dashboard.includes("cards.slice(4)"), "工作台运营卡片不得回退丢失");
 assert.ok(dashboard.includes('<details open className="mt-3 rounded-xl border bg-white p-3"><summary className="cursor-pointer text-sm font-medium text-slate-700">客户储备与 AI 筛选指标</summary>'), "客户储备与AI指标默认展开");
 assert.ok(dashboard.includes('<details open className="rounded-xl border border-slate-200 bg-white p-3"><summary className="cursor-pointer text-sm font-medium text-slate-600">客户开发辅助分析'), "客户开发辅助分析默认展开");
 assert.ok(dashboard.includes("xl:grid-cols-3") && dashboard.includes("AI筛选分布") && dashboard.includes("销售漏斗") && dashboard.includes("保护到期提醒"), "三个辅助分析模块应在同组的三栏布局");
