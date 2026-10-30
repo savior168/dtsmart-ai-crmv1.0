@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
-const { normalizeManualContacts, splitManualContacts } = await jiti.import(resolve("lib/contacts/manual-contact-list.ts"));
+const { manualContactValues, manualContactColumns, normalizeManualContacts, splitManualContacts } = await jiti.import(resolve("lib/contacts/manual-contact-list.ts"));
 const { CustomerForm } = await jiti.import(resolve("components/customer-form.tsx"));
 const { CustomerContactSummary } = await jiti.import(resolve("components/customer-contact-summary.tsx"));
 const read = (file) => readFileSync(resolve(file), "utf8");
@@ -16,6 +16,8 @@ assert.equal(normalizeManualContacts(["A@Example.com", "a@example.com", "B@examp
 assert.equal(normalizeManualContacts(["wechat-one", "wechat-two"], "wechat"), "wechat-one; wechat-two");
 assert.equal(normalizeManualContacts(["+49 699 043 1261", "+49 699 043 1262"], "whatsapp"), "+49 699 043 1261; +49 699 043 1262");
 assert.deepEqual(splitManualContacts("a@example.com; b@example.com"), ["a@example.com", "b@example.com"]);
+assert.deepEqual(manualContactValues("a@example.com", ["a@example.com", "b@example.com"]), ["a@example.com", "b@example.com"]);
+assert.deepEqual(manualContactColumns({ phone: "+49 699 043 1261; +49 699 043 1262" }).phone_numbers, ["+49 699 043 1261", "+49 699 043 1262"]);
 assert.equal(normalizeManualContacts("a@example.com；b@example.com", "email"), "a@example.com; b@example.com");
 assert.equal(normalizeManualContacts("+49 699 043 1261;+49 699 043 1262", "phone"), "+49 699 043 1261; +49 699 043 1262");
 assert.equal(normalizeManualContacts("wechat-one;wechat-two", "wechat"), "wechat-one; wechat-two");
@@ -41,10 +43,15 @@ for (const destination of ["PRIVATE", "PUBLIC_POOL"]) {
     assert.ok(markup.includes(`aria-label="删除${label}1"`));
   }
 }
+const structuredOnly = { ...customer, phone: "", email: "", whatsapp: "", wechat: "", phone_numbers: ["+49 699 043 1261"], email_addresses: ["a@example.com"], whatsapp_numbers: ["+49 699 043 1263"], wechat_numbers: ["wechat-one"] };
+const structuredMarkup = renderToStaticMarkup(createElement(CustomerForm, { customer: structuredOnly, destination: "PRIVATE", editBasicOnly: true, onDone() {}, onCancel() {} }));
+for (const value of ["+49 699 043 1261", "a@example.com", "+49 699 043 1263", "wechat-one"]) assert.ok(structuredMarkup.includes(value), `legacy JSONB contact echoed: ${value}`);
 const detail = renderToStaticMarkup(createElement(CustomerContactSummary, { customer, source: "original" }));
 for (const value of [...splitManualContacts(customer.phone), ...splitManualContacts(customer.email), ...splitManualContacts(customer.whatsapp)]) {
   assert.ok(detail.includes(value), `customer detail shows ${value}`);
 }
+const structuredDetail = renderToStaticMarkup(createElement(CustomerContactSummary, { customer: structuredOnly, source: "original" }));
+for (const value of ["+49 699 043 1261", "a@example.com", "+49 699 043 1263", "wechat-one"]) assert.ok(structuredDetail.includes(value), `structured contact detail shows ${value}`);
 
 const claimApi = read("app/api/customers/public-pool/claim/route.ts");
 const claimView = read("components/customer-public-pool-view.tsx");
@@ -59,6 +66,7 @@ const createApi = read("app/api/customers/route.ts");
 const editApi = read("app/api/customers/[id]/route.ts");
 for (const api of [createApi, editApi]) assert.match(api, /normalizeManualContacts/, "both create and edit normalize every manual contact");
 const importApi = read("app/api/import/route.ts");
+for (const api of [createApi, editApi, importApi]) assert.match(api, /manualContactColumns/, "all manual writes preserve structured contact columns");
 const importView = read("components/import-view.tsx");
 for (const source of [importApi, importView]) {
   assert.match(source, /for \(const kind of \["phone", "email", "wechat", "whatsapp"\] as const\)/, "import must process all four contact columns");

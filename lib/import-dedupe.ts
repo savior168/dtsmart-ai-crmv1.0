@@ -2,8 +2,11 @@ export type CustomerIdentityInput = {
   company_name?: unknown;
   contact_name?: unknown;
   phone?: unknown;
+  phone_numbers?: unknown;
   whatsapp?: unknown;
+  whatsapp_numbers?: unknown;
   email?: unknown;
+  email_addresses?: unknown;
   website?: unknown;
   google_url?: unknown;
 };
@@ -105,8 +108,11 @@ export function customerPrimaryIdentityKeys(row: CustomerIdentityInput) {
     // are deliberately excluded: spelling differences must never let a second
     // customer master record bypass a real contact match.
     ...normalizeIdentityPhones(row.phone).map((phone) => `phone:${phone}`),
+    ...normalizeIdentityPhones(row.phone_numbers).map((phone) => `phone:${phone}`),
     ...normalizeIdentityPhones(row.whatsapp).map((phone) => `phone:${phone}`),
+    ...normalizeIdentityPhones(row.whatsapp_numbers).map((phone) => `phone:${phone}`),
     ...normalizeIdentityEmails(row.email).map((email) => `email:${email}`),
+    ...normalizeIdentityEmails(row.email_addresses).map((email) => `email:${email}`),
   ]);
 }
 

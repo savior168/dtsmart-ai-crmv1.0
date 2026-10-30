@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       if (String(form.get("action") || "") !== "STAGE") return NextResponse.json({ error: "无效操作" }, { status: 400 });
       const { supabase, account } = await requirePermission("customers.edit");
       const admin = createAdminClient();
-      const customer = await admin.from("customers").select("owner_id,phone,email,wechat,whatsapp").eq("id", id).is("deleted_at", null).maybeSingle();
+      const customer = await admin.from("customers").select("owner_id,phone,phone_numbers,email,email_addresses,wechat,wechat_numbers,whatsapp,whatsapp_numbers").eq("id", id).is("deleted_at", null).maybeSingle();
       if (customer.error) throw customer.error;
       if (!customer.data || !customer.data.owner_id || !canWriteOwnedRecord(account, customer.data.owner_id)) {
         return NextResponse.json({ error: "只能单独修改归属自己的客户阶段；系统管理员可进行有审计记录的数据纠正" }, { status: 403 });

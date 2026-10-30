@@ -7,7 +7,7 @@ import { classifyExistingCustomer, customerIndexIdentityKeys, customerLookupIden
 import { buildPrivateSupplementRows } from "@/lib/customers/private-supplements";
 import { exportOfficialWebsiteText, legacyWebsiteExportPatch } from "@/lib/customers/export-public-channels";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
-import { normalizeManualContacts } from "@/lib/contacts/manual-contact-list";
+import { manualContactColumns, normalizeManualContacts } from "@/lib/contacts/manual-contact-list";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
 import { isCustomerGrade, normalizeCustomerGrade } from "@/lib/customers/customer-grade";
@@ -31,8 +31,13 @@ const customerListFields = [
   "contact_name",
   "country",
   "phone",
+  "phone_numbers",
   "whatsapp",
+  "whatsapp_numbers",
+  "wechat",
+  "wechat_numbers",
   "email",
+  "email_addresses",
   "website",
   "google_url",
   "facebook_url",
@@ -433,7 +438,7 @@ export async function POST(request: NextRequest) {
       const possibleMatches: Record<string, unknown>[] = [];
       for (let from = 0; ; from += 1000) {
         const page = await admin.from("customers")
-          .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at")
+          .select("id,company_name,contact_name,country,phone,phone_numbers,whatsapp,whatsapp_numbers,email,email_addresses,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at")
           .is("deleted_at", null)
           .order("created_at", { ascending: true })
           .range(from, from + 999);
@@ -547,6 +552,7 @@ export async function POST(request: NextRequest) {
       ? { ...clean(body), source: "ADMIN_MANUAL", status: "UNCLAIMED", followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: null, owner_user_id: null, acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", assigned_via: "ADMIN_ASSIGN" }
       : { ...clean(body), source: "MANUAL", status: requestedStage, followup_status: "WAITING_CONTACT", created_by: user.id, owner_id: user.id, owner_user_id: user.id, acquisition_scope: "PRIVATE", pool_status: "CLAIMED", assigned_via: "PRIVATE_CREATE" };
     payload.company_name ??= "";
+    Object.assign(payload, manualContactColumns(body));
     delete payload.destination;
     // 可选 AI 扩展字段由兼容迁移提供；旧版生产表不存在时，手动新增也必须正常完成。
     delete payload.ai_screening_done;

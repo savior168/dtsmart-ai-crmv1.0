@@ -1,13 +1,17 @@
 export type CustomerContactChannels = {
   phone?: unknown;
+  phone_numbers?: unknown;
   email?: unknown;
+  email_addresses?: unknown;
   wechat?: unknown;
+  wechat_numbers?: unknown;
   whatsapp?: unknown;
+  whatsapp_numbers?: unknown;
 };
 
 export function hasCustomerContactMethod(value: CustomerContactChannels) {
-  return [value.phone, value.email, value.wechat, value.whatsapp]
-    .some((channel) => String(channel ?? "").trim().length > 0);
+  return [value.phone, value.email, value.wechat, value.whatsapp, value.phone_numbers, value.email_addresses, value.wechat_numbers, value.whatsapp_numbers]
+    .some((channel) => Array.isArray(channel) ? channel.some((entry) => String(entry ?? "").trim()) : String(channel ?? "").trim().length > 0);
 }
 
 export function customerStageContactError(stage: unknown, value: CustomerContactChannels) {

@@ -82,9 +82,13 @@ type PoolRow = {
   address: string | null;
   industry: string | null;
   phone: string | null;
+  phone_numbers?: string[] | null;
   whatsapp: string | null;
+  whatsapp_numbers?: string[] | null;
   wechat: string | null;
+  wechat_numbers?: string[] | null;
   email: string | null;
+  email_addresses?: string[] | null;
   website_email: string | null;
   website_phone: string | null;
   website: string | null;

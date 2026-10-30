@@ -7,6 +7,21 @@ export function splitManualContacts(value: unknown): string[] {
   return String(value ?? "").split(/[,，;；|\r\n]+/).map((item) => item.trim()).filter(Boolean);
 }
 
+/** Preserve contacts stored by earlier imports in JSONB alongside legacy text. */
+export function manualContactValues(value: unknown, stored: unknown): string[] {
+  const values = [...splitManualContacts(value), ...(Array.isArray(stored) ? stored.flatMap(splitManualContacts) : [])];
+  return [...new Map(values.map((item) => [item.toLowerCase(), item])).values()];
+}
+
+export function manualContactColumns(value: Record<string, unknown>) {
+  return {
+    phone_numbers: splitManualContacts(value.phone),
+    email_addresses: splitManualContacts(value.email),
+    whatsapp_numbers: splitManualContacts(value.whatsapp),
+    wechat_numbers: splitManualContacts(value.wechat),
+  };
+}
+
 export function normalizeManualContacts(value: unknown, kind: ManualContactKind): string {
   const labels = { phone: "联系电话", email: "邮箱", wechat: "微信号码", whatsapp: "WhatsApp号码" };
   const seen = new Set<string>();

@@ -7,7 +7,7 @@ import { readableImportError, sanitizeImportRow } from "@/lib/import-safety";
 import { importedCustomerGrade, importedCustomerStage } from "@/lib/customers/import-profile";
 import { importDeliveryContactError, normalizeImportCountry } from "@/lib/import-parser";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
-import { normalizeManualContacts } from "@/lib/contacts/manual-contact-list";
+import { manualContactColumns, normalizeManualContacts } from "@/lib/contacts/manual-contact-list";
 
 type Row = { company_name?: string; email?: string; phone?: string; import_meta?: Record<string, unknown>; [key: string]: unknown };
 type ImportResult = {
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const existing: Record<string, unknown>[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await admin.from("customers")
-        .select("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,industry,category,source,tags,owner_id,acquisition_scope,pool_status,status,created_at,deleted_at")
+        .select("id,company_name,contact_name,country,phone,phone_numbers,whatsapp,whatsapp_numbers,email,email_addresses,website,google_url,address,industry,category,source,tags,owner_id,acquisition_scope,pool_status,status,created_at,deleted_at")
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .range(from, from + 999);
@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
         for (const kind of ["phone", "email", "wechat", "whatsapp"] as const) {
           item[kind] = normalizeManualContacts(item[kind], kind);
         }
+        Object.assign(item, manualContactColumns(item));
         const current = identity(item);
         const deliveryError = importDeliveryContactError(item);
         if (deliveryError) throw new Error(deliveryError);

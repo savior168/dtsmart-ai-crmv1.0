@@ -6,7 +6,7 @@ import type { Customer } from "@/lib/types";
 import { countryInfo } from "@/lib/countries";
 import { CustomerSocialLinksEditor, type SocialLinkRow, type SocialPlatform } from "@/components/customer-social-links-editor";
 import { AppDialog } from "@/components/ui/app-dialog";
-import { normalizeManualContacts, splitManualContacts, type ManualContactKind } from "@/lib/contacts/manual-contact-list";
+import { manualContactValues, normalizeManualContacts, type ManualContactKind } from "@/lib/contacts/manual-contact-list";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
 import { CUSTOMER_GRADE_DESCRIPTIONS, CUSTOMER_GRADE_OPTIONS, customerGradeDescription } from "@/lib/customers/customer-grade";
 import { displayAddressList, displayShippingContacts, MAX_CUSTOMER_ADDRESSES, validateAddressList, validateShippingContacts, type ShippingContact } from "@/lib/customers/address-list";
@@ -138,10 +138,10 @@ function ShippingContactEditor({ label, values, onChange }: { label: "客户收�
 export function CustomerForm({ customer, verifiedContacts = [], onDone, onCancel, onDirtyChange, onChangeStage, analyzeAfterSave = false, editBasicOnly = false, destination = "PRIVATE" }: { customer?: Customer | null; verifiedContacts?: NonNullable<Customer["verified_contacts"]>; onDone: (customer?: Customer) => void; onCancel: () => void; onDirtyChange?: (dirty: boolean) => void; onChangeStage?: (status: string) => void; analyzeAfterSave?: boolean; editBasicOnly?: boolean; destination?: "PRIVATE" | "PUBLIC_POOL" }) {
   const [form, setForm] = useState<Record<string,string>>({ company_name:customer?.company_name||"",contact_name:customer?.contact_name||"",country:customer?.country?countryInfo(customer.country).name:"",phone:customer?.phone||"",whatsapp:customer?.whatsapp||"",wechat:customer?.wechat||"",email:customer?.email||"",tax_number:customer?.tax_number||"",manual_grade:customer?.manual_grade||"",website:customer?.website||"",google_url:customer?.google_url||"",address:customer?.address||"",shipping_address:customer?.shipping_address||"",forwarder_address:customer?.forwarder_address||"",tally_requirements:customer?.tally_requirements||"",industry:customer?.industry||"",category:customer?.category||"",source:customer?.source||"手动创建",status:customer?.status||(destination==="PRIVATE"?"CLAIMED":"UNCLAIMED"),followup_status:customer?.followup_status||"WAITING_CONTACT",notes:customer?.notes||"" });
   const [contactRows, setContactRows] = useState<Record<ManualContactKind, string[]>>(() => ({
-    phone: splitManualContacts(customer?.phone).length ? splitManualContacts(customer?.phone) : [""],
-    email: splitManualContacts(customer?.email).length ? splitManualContacts(customer?.email) : [""],
-    whatsapp: splitManualContacts(customer?.whatsapp).length ? splitManualContacts(customer?.whatsapp) : [""],
-    wechat: splitManualContacts(customer?.wechat).length ? splitManualContacts(customer?.wechat) : [""],
+    phone: manualContactValues(customer?.phone, customer?.phone_numbers).length ? manualContactValues(customer?.phone, customer?.phone_numbers) : [""],
+    email: manualContactValues(customer?.email, customer?.email_addresses).length ? manualContactValues(customer?.email, customer?.email_addresses) : [""],
+    whatsapp: manualContactValues(customer?.whatsapp, customer?.whatsapp_numbers).length ? manualContactValues(customer?.whatsapp, customer?.whatsapp_numbers) : [""],
+    wechat: manualContactValues(customer?.wechat, customer?.wechat_numbers).length ? manualContactValues(customer?.wechat, customer?.wechat_numbers) : [""],
   }));
   const [shippingContacts, setShippingContacts] = useState<ShippingContact[]>(() => displayShippingContacts(customer?.shipping_contact_entries, displayAddressList(customer?.shipping_addresses, customer?.shipping_address)));
   const [shippingContactsChanged, setShippingContactsChanged] = useState(false);

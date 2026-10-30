@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
     const hasOptionalFields = !optionalProbe.error;
     const optionalSelect = hasOptionalFields ? ",website_email,website_phone,followup_status" : "";
     let query = admin.from("customers").select(
-      exportMode && account.role === "ADMIN" ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,whatsapp,wechat,email,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
+      exportMode && account.role === "ADMIN" ? "*" : `id,company_name,contact_name,country,address,industry,category,phone,phone_numbers,whatsapp,whatsapp_numbers,wechat,wechat_numbers,email,email_addresses,website,google_url,facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls,ai_level,ai_score,ai_score_source,ai_screening_done,ai_status,is_target_customer,business_scope,source,source_batch,source_batch_id,created_by,owner_id,pool_status,acquisition_scope,assigned_via,claimed_at,status,last_contact_time,created_at,updated_at${optionalSelect}`,
       { count: "exact" },
     ).is("deleted_at", null);
     if (selectedIds.length) query = query.in("id", selectedIds);
@@ -359,9 +359,13 @@ export async function GET(request: NextRequest) {
         updated_at: full ? row.updated_at : row.claimed_at,
         contact_name: full ? row.contact_name : null,
         phone: full ? row.phone : null,
+        phone_numbers: full ? row.phone_numbers : null,
         whatsapp: full ? row.whatsapp : null,
+        whatsapp_numbers: full ? row.whatsapp_numbers : null,
         wechat: full ? row.wechat : null,
+        wechat_numbers: full ? row.wechat_numbers : null,
         email: full ? row.email : null,
+        email_addresses: full ? row.email_addresses : null,
         website_phone: full ? websitePhone : null,
         website_email: full ? websiteEmail : null,
         address: full ? row.address : null,
