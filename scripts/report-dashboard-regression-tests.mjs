@@ -42,6 +42,7 @@ assert.match(performanceApi, /account\.role === "SUPERVISOR" && request\.nextUrl
 assert.match(performanceApi, /teamScopeRequested && \(!account\.supervisor_can_view_subordinates \|\| !account\.permissions\.includes\("reports\.data_all"\)\)/, "主管团队业绩必须同时校验直属下级能力与数据权限");
 assert.match(performanceApi, /manager_id", account\.id\).*role", "SALES".*status", "ACTIVE"/, "主管团队聚合仅限本人直属在职销售");
 assert.match(performanceApi, /team_leaderboard: \{ available: account\.role === "SUPERVISOR"/, "团队排行可用状态必须由服务端角色和权限计算");
+assert.match(performanceApi, /teamOwnerIds = \[\.\.\.new Set\(\[account\.id,[\s\S]*ownerIds = \[\.\.\.new Set\(\[\.\.\.ownerIds, \..*activeSales/, "团队榜应保留当前团队且为无成交销售显示零值");
 assert.match(reports, /<small className="block text-slate-500">成交金额<\/small>[\s\S]*¥[\s\S]*\$/, "RMB and USD amounts must use the standard ¥ and $ symbols");
 assert.match(reports, /PI产品毛利[\s\S]*毛利率[\s\S]*产品销售额[\s\S]*PI录入成本/, "PI gross profit, margin, product sales, and PI-entered cost must be shown as one related result");
 assert.doesNotMatch(reports, /成交金额 · 人民币|成交金额 · 美元/, "currency amounts must not be split into separate headline metrics");
