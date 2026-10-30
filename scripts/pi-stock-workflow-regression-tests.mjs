@@ -330,7 +330,7 @@ assert.ok(!piForm.includes("const defaultValidity ="), "新建PI不能自动生�
 assert.ok(piForm.includes('if (!validUntil) { setError("请选择PI有效期"); return; }'), "未选择PI有效期时不得保存");
 assert.ok(piForm.includes('const [paypalRateInput, setPaypalRateInput] = useState("5");'), "PayPal手续费默认5%");
 assert.ok(piForm.indexOf('id="pi-paypal-rate"') < piForm.indexOf("PayPal 手续费（%）"), "PayPal百分比输入框显示在标签之前");
-assert.ok(piForm.includes("onDoubleClick={(event) => event.currentTarget.select()}"), "双击PayPal费率可快速全选编辑");
+assert.ok(piForm.includes("onDoubleClick={() => setEditingPaypalRate(true)}") && piForm.includes("PayPal手续费比例") && piForm.includes("editingPaypalRate ? <input"), "PayPal费率默认显示为可访问的行内文本，双击切换为输入框编辑");
 assert.ok(piForm.includes('link.href = "/templates/pi-line-import-template.xlsx"'), "产品模板下载路径保持有效");
 assert.ok(piForm.includes("async function importExcel(file?: File)") && piForm.includes("importRows(XLSX.utils.sheet_to_json"), "Excel明细导入功能保持有效");
 assert.ok(piForm.includes("async function pasteRows()") && piForm.includes("navigator.clipboard.readText()"), "粘贴表格明细功能保持有效");
