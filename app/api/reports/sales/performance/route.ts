@@ -40,13 +40,35 @@ export async function GET(request: NextRequest) {
     }
     const customerIds = [...new Set(rawOrders.map((order) => order.customer_id).filter((id): id is string => Boolean(id)))];
     const customerNames = new Map<string, string>();
+    const customerCountries = new Map<string, string>();
     for (let index = 0; index < customerIds.length; index += 100) {
-      const { data, error } = await admin.from("customers").select("id,company_name").in("id", customerIds.slice(index, index + 100));
+      const { data, error } = await admin.from("customers").select("id,company_name,country").in("id", customerIds.slice(index, index + 100));
       if (error) throw error;
-      for (const customer of data || []) customerNames.set(customer.id, customer.company_name || "");
+      for (const customer of data || []) {
+        customerNames.set(customer.id, customer.company_name || "");
+        customerCountries.set(customer.id, String(customer.country || "").trim());
+      }
     }
+    const customerOptions = customerIds.map((id) => ({
+      id,
+      label: customerNames.get(id) || rawOrders.find((order) => order.customer_id === id)?.customer_short_name || "未命名客户",
+      country: customerCountries.get(id) || "",
+    })).sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+    const countryOptions = [...new Set(customerOptions.map((customer) => customer.country || "__unknown__"))]
+      .map((value) => ({ value, label: value === "__unknown__" ? "未填写国家/地区" : value }))
+      .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+    const selectedCountry = request.nextUrl.searchParams.get("country") || "";
+    const selectedCustomer = request.nextUrl.searchParams.get("customer_id") || "";
+    const scopedOrders = rawOrders.filter((order) => {
+      if (selectedCustomer && order.customer_id !== selectedCustomer) return false;
+      if (selectedCountry) {
+        const country = customerCountries.get(order.customer_id || "") || "__unknown__";
+        if (country !== selectedCountry) return false;
+      }
+      return true;
+    });
     const itemsByOrder = new Map<string, PiOrderRow["items"]>();
-    const ids = rawOrders.map((order) => order.id);
+    const ids = scopedOrders.map((order) => order.id);
     for (let index = 0; index < ids.length; index += 50) {
       const batch = ids.slice(index, index + 50);
       for (let offset = 0; ; offset += 1000) {
@@ -93,8 +115,9 @@ export async function GET(request: NextRequest) {
       sales_user_id: order.sales_user_id, currency: order.currency, total_amount: Number(order.total_amount || 0),
       confirmed_at: order.confirmed_at, items: (itemsByOrder.get(order.id) || []).map((item) => ({ ...item, procurement_unit_cost_cny: item.line_number == null ? null : procurementByLine.get(String(stockByOrder.get(order.id)) + ":" + String(item.line_number)) ?? null })),
     }));
-    const summary = summarizePiPerformance(orders, rawOrders, selectedOwner);
+    const summary = summarizePiPerformance(orders, scopedOrders, selectedOwner);
     return NextResponse.json({
+      filters: { countries: countryOptions, customers: customerOptions },
       totals: { orders: summary.totals.orders, cny: summary.totals.cny, usd: summary.totals.usd,
         missing_cny: summary.totals.missing_cny, missing_usd: summary.totals.missing_usd,
         product_sales_cny: summary.totals.product_sales_cny, cost_cny: summary.totals.cost_cny, product_profit_cny: summary.totals.product_profit_cny,
