@@ -12,6 +12,7 @@ const dashboardCountryMigration = read("supabase/migrations/202609300005_dashboa
 const dashboardApi = read("app/api/dashboard/stats/route.ts");
 const dashboard = read("components/crm-dashboard.tsx");
 const reports = read("components/sales-reports-view.tsx");
+const performanceApi = read("app/api/reports/sales/performance/route.ts");
 const reportLoader = read("lib/reports/sales.ts");
 const operations = read("components/operations-overview.tsx");
 const orderList = read("components/orders-view.tsx");
@@ -33,7 +34,14 @@ assert.match(dashboardCountryMigration, /previous_grouping text := 'from filtere
 assert.doesNotMatch(dashboardApi, /statusCount\("UNCLAIMED"\)/, "销售漏斗不得展示不属于销售阶段的新客户");
 assert.match(reports, /mode === "performance"[\s\S]*api\/reports\/sales\/performance/, "业绩分析必须使用独立的PI业绩接口");
 assert.match(reports, /mode === "center"[\s\S]*href="\/sales\/performance"/, "报表中心应将PI客户与产品业绩分析独立呈现并提供直达入口");
-assert.match(reports, /客户业绩 TOP 10[\s\S]*产品热销 TOP 10[\s\S]*PI订单核对明细/, "销售业绩分析必须支持客户、产品和PI订单三个维度复盘");
+assert.match(reports, /客户业绩 TOP 10[\s\S]*产品表现 TOP 10[\s\S]*PI订单核对明细/, "销售业绩分析必须支持客户、产品和PI订单三个维度复盘");
+assert.match(reports, /params\.set\("scope", "team"\)/, "主管团队筛选必须显式调用团队范围接口");
+assert.match(reports, /team_leaderboard\.available[\s\S]*setTeamScope\(next\)/, "团队切换按钮必须由服务端权限状态控制");
+assert.match(reports, /团队销售业绩排名[\s\S]*成交金额（¥ \/ \$）[\s\S]*onSelectOwner/, "团队排名需呈现关键业绩并支持下钻到销售员明细");
+assert.match(performanceApi, /account\.role === "SUPERVISOR" && request\.nextUrl\.searchParams\.get\("scope"\) === "team"/, "团队范围只能由主管请求");
+assert.match(performanceApi, /teamScopeRequested && \(!account\.supervisor_can_view_subordinates \|\| !account\.permissions\.includes\("reports\.data_all"\)\)/, "主管团队业绩必须同时校验直属下级能力与数据权限");
+assert.match(performanceApi, /manager_id", account\.id\).*role", "SALES".*status", "ACTIVE"/, "主管团队聚合仅限本人直属在职销售");
+assert.match(performanceApi, /team_leaderboard: \{ available: account\.role === "SUPERVISOR"/, "团队排行可用状态必须由服务端角色和权限计算");
 assert.match(reports, /<small className="block text-slate-500">成交金额<\/small>[\s\S]*¥[\s\S]*\$/, "RMB and USD amounts must use the standard ¥ and $ symbols");
 assert.match(reports, /PI产品毛利[\s\S]*毛利率[\s\S]*产品销售额[\s\S]*PI录入成本/, "PI gross profit, margin, product sales, and PI-entered cost must be shown as one related result");
 assert.doesNotMatch(reports, /成交金额 · 人民币|成交金额 · 美元/, "currency amounts must not be split into separate headline metrics");
