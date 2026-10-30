@@ -73,8 +73,10 @@ assert.match(operationsOverview, /report && !warehouse && canViewOrders && canFi
 assert.match(operationsOverview, /!report \? <div className="grid gap-4 lg:grid-cols-2"/, "近期单据待办仅在工作台出现");
 assert.match(dashboard, /业绩快照[\s\S]*已确认 PI[\s\S]*查看完整业绩分析[\s\S]*PerformanceMetric label="成交金额"/, "工作台应以紧凑快照展示成交金额并将完整分析导流至业绩分析");
 assert.doesNotMatch(dashboard, /客户 TOP 5|热销产品 TOP 5/, "客户和产品排名应集中在业绩分析，避免与工作台快照重复");
-assert.match(dashboard, /<details[^>]*><summary[^>]*>客户开发辅助分析[\s\S]*AI筛选分布[\s\S]*销售漏斗/, "AI分布和销售阶段仅作为默认折叠的辅助分析");
-assert.doesNotMatch(dashboard, /<details[^>]*\bopen\b/i, "AI辅助分析默认收起");
+assert.match(dashboard, /<details open[^>]*><summary[^>]*>客户储备与 AI 筛选指标/, "客户储备与AI指标默认展开");
+assert.match(dashboard, /<details open[^>]*><summary[^>]*>客户开发辅助分析[\\s\\S]*xl:grid-cols-3[\\s\\S]*AI筛选分布[\\s\\S]*销售漏斗[\\s\\S]*保护到期提醒/, "AI分布、销售漏斗和保护提醒默认展开并同组展示");
+assert.equal((dashboard.match(/flex h-\\[290px\\] min-h-0 flex-col overflow-hidden/g) || []).length, 3, "三个辅助分析卡片必须等高");
+assert.match(reports, /formatPerformanceNumber\\(totals\\.cny, 2\\)/, "业绩金额缺失时必须安全格式化，不能触发 toFixed 渲染崩溃");
 assert.doesNotMatch(dashboard, /<th className="px-2 py-2\.5 font-medium">AI等级<\/th>/, "今日跟进表隐藏次要AI等级列");
 assert.match(dashboard, /href="\/sales\/performance"/, "工作台应提供进入完整业绩复盘的入口");
 assert.match(operationsPermissions, /on conflict \(role_code, permission_code\) do nothing/i, "迁移不得覆盖管理员显式关闭的角色权限");
