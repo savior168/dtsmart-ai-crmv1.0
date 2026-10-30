@@ -6,6 +6,7 @@ import type { Customer } from "@/lib/types";
 import { countryInfo } from "@/lib/countries";
 import { CustomerSocialLinksEditor, type SocialLinkRow, type SocialPlatform } from "@/components/customer-social-links-editor";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { ContactChannelIcon } from "@/components/contact-channel-icon";
 import { manualContactValues, normalizeManualContacts, type ManualContactKind } from "@/lib/contacts/manual-contact-list";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
 import { CUSTOMER_GRADE_DESCRIPTIONS, CUSTOMER_GRADE_OPTIONS, customerGradeDescription } from "@/lib/customers/customer-grade";
@@ -91,7 +92,7 @@ const contactKinds: Array<{ key: ManualContactKind; label: string; type: string 
 
 function ManualContactsEditor({ values, onChange }: { values: Record<ManualContactKind, string[]>; onChange: (kind: ManualContactKind, next: string[]) => void }) {
   return <div className="md:col-span-2 grid gap-4 md:grid-cols-2">{contactKinds.map(({ key, label, type }) => <fieldset key={key} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
-    <legend className="px-1 text-sm font-medium text-slate-700">{label}</legend>
+    <legend className="px-1 text-sm font-medium text-slate-700"><span className="inline-flex items-center gap-1.5"><ContactChannelIcon kind={key} size={16}/>{label}</span></legend>
     <div className="space-y-2">{values[key].map((value, index) => <div key={`${key}-${index}`} className="flex items-center gap-2">
       <label className="min-w-0 flex-1"><span className="sr-only">{label}{index + 1}</span><input type={type} aria-label={`${label}${index + 1}`} value={value} onChange={(event) => onChange(key, values[key].map((item, current) => current === index ? event.target.value : item))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label>
       <button type="button" aria-label={`添加${label}${index + 2}`} title="添加一项" disabled={values[key].length >= 20} onClick={() => onChange(key, [...values[key].slice(0, index + 1), "", ...values[key].slice(index + 1)])} className="h-9 w-9 shrink-0 rounded-lg border border-blue-200 bg-white text-lg text-blue-700 disabled:opacity-40">+</button>

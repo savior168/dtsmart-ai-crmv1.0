@@ -52,6 +52,11 @@ for (const value of [...splitManualContacts(customer.phone), ...splitManualConta
 }
 const structuredDetail = renderToStaticMarkup(createElement(CustomerContactSummary, { customer: structuredOnly, source: "original" }));
 for (const value of ["+49 699 043 1261", "a@example.com", "+49 699 043 1263", "wechat-one"]) assert.ok(structuredDetail.includes(value), `structured contact detail shows ${value}`);
+assert.ok(structuredDetail.includes("text-[#07C160]"), "WeChat uses its green brand icon");
+const groupedDetail = renderToStaticMarkup(createElement(CustomerContactSummary, { customer: structuredOnly, source: "all", expandedByDefault: true }));
+const positions = ["电话（", "WhatsApp（", "微信（", "邮箱（"].map((label) => groupedDetail.indexOf(label));
+assert.ok(positions.every((position) => position >= 0) && positions.every((position, index) => index === 0 || position > positions[index - 1]), "contacts group in phone, WhatsApp, WeChat, email order");
+assert.doesNotMatch(read("components/customer-crm-detail-view.tsx"), /<Row label="微信号码">/, "WeChat is not split into a duplicate detail row");
 
 const claimApi = read("app/api/customers/public-pool/claim/route.ts");
 const claimView = read("components/customer-public-pool-view.tsx");

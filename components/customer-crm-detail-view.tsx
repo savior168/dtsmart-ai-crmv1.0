@@ -76,13 +76,12 @@ function CustomerBasicInfo({ data, scoreLabel, gradeLabel, targetLabel }: { data
         <Row label="客户名称">{value(customer.contact_name)}</Row><Row label="国家/地区"><CountryLabel value={customer.country}/></Row>
         <Row label="公司名称">{value(customer.company_name)}</Row><Row label="客户税号">{value(customer.tax_number)}</Row>
         <Row label="客户等级">{customer.manual_grade ? <span title={customerGradeDescription(customer.manual_grade)}>{customer.manual_grade}</span> : value(customer.manual_grade)}</Row>{customer.source_stage_label ? <Row label="导入来源阶段（非流程状态）">{value(customer.source_stage_label)}</Row> : null}{customer.source_grade_label ? <Row label="导入来源等级（非系统等级）">{value(customer.source_grade_label)}</Row> : null}<Row label="AI判定行业">{value(customer.industry || customer.category)}</Row>
-        <Row label="联系方式"><CustomerContactSummary customer={{ ...customer, verified_contacts: data.verified_contacts }} source="all"/></Row>
+        <Row label="联系方式"><CustomerContactSummary customer={{ ...customer, verified_contacts: data.verified_contacts }} source="all" expandedByDefault/></Row>
         <Row label="官网"><CustomerPublicLink value={customer.website} kind="website" size="normal"/></Row>
         <Row label="公开渠道"><CustomerPublicChannels customer={customer}/></Row><Row label="公司地址">{value(customer.address)}</Row>
         {Array.from({ length: addressCount }, (_, index) => <div key={index} className="contents">
           <Row label={`客户收货信息${index + 1}`}>{shipping[index] ? <span className="font-normal">收货人：{value(shippingContacts[index]?.recipient)} · 电话：{value(shippingContacts[index]?.phone)}<br/>地址：{shipping[index]}</span> : "—"}</Row><Row label={`货代收货信息${index + 1}`}>{forwarder[index] ? <span className="font-normal">收货人：{value(forwarderContacts[index]?.recipient)} · 电话：{value(forwarderContacts[index]?.phone)}<br/>地址：{forwarder[index]}</span> : "—"}</Row>
         </div>)}
-        <Row label="微信号码">{value(customer.wechat)}</Row>
         <Row label="理货要求"><span className="whitespace-pre-wrap font-normal leading-6">{value(customer.tally_requirements)}</span></Row>
         <Row label="备注"><span className="whitespace-pre-wrap font-normal leading-6">{value(customer.notes)}</span></Row>
         <Row label="数据来源">{customerSourceLabel(customer.source)}</Row><Row label="创建时间">{new Date(customer.created_at).toLocaleString("zh-CN")}</Row>

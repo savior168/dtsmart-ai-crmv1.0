@@ -122,11 +122,11 @@ assert.match(contactSummary, /display === "phone"[\s\S]*display === "email"/, "�
 assert.match(contactSummary, /valueClass = isNumber \? "whitespace-nowrap" : "min-w-0 flex-1 truncate"/, "电话号码预览不省略，邮箱继续使用紧凑省略行为");
 assert.match(contactSummary, /item\.type === "EMAIL" \|\| item === firstNumber/, "混合联系方式摘要最多显示一个电话号码");
 assert.match(poolView, /field === "phone" && row\.contact_masked === false[\s\S]*CustomerContactSummary/, "有权查看的已认领客户电话也必须使用完整号码摘要，脱敏记录不能展开");
-assert.match(contactSummary, /verified && item\.type === "WHATSAPP"[\s\S]*return 0[\s\S]*verified && item\.type === "PHONE"[\s\S]*return 1[\s\S]*!verified && item\.type === "PHONE"[\s\S]*return 2/, "外贸销售号码预览必须优先展示已核验WhatsApp，再展示已核验和原始电话");
+assert.match(contactSummary, /PHONE:0, WHATSAPP:1, WECHAT:2, EMAIL:3[\s\S]*kindRank\[a\.type\] - kindRank\[b\.type\]/, "联系方式按电话、WhatsApp、微信、邮箱固定顺序展示");
 assert.match(contactSummary, /https:\/\/wa\.me\/\$\{whatsappDigits\}[\s\S]*复制\$\{item\.label\}/, "WhatsApp预览必须可直达对话并支持单条复制");
 assert.match(storedContacts, /splitStoredContactValues[\s\S]*split\(\/[\s\S]*normalizePhoneInternational/, "历史聚合字段中的多个电话或邮箱必须拆分、规范化和去重");
 assert.match(contactSummary, /for \(const value of splitStoredContactValues/, "客户页面必须使用共享的联系方式拆分规则");
-assert.match(contactSummary, /renderGroups[\s\S]*group\.label[\s\S]*renderContact\(item,index\)/, "展开后的联系方式必须通过来源分组展示渠道，不为每条记录重复堆叠来源标记");
+assert.match(contactSummary, /renderGroups[\s\S]*labels\[kind\][\s\S]*entries\.map\(\(item,index\)=>renderContact\(item,index\)\)/, "展开后的联系方式按四种渠道分组，来源在每项保留");
 assert.match(acquisitionCustomerResults, /CustomerContactSummary customer=\{row\} source="all"/, "AI获客客户结果必须显示实际联系方式，而不是仅显示是否可联系状态");
 assert.match(acquisitionCustomersApi, /verified_contacts:verifiedContactsByCustomer\.get\(customerId\)\|\|\[\]/, "AI获客客户结果接口必须一次性返回当前页客户的核验联系方式");
 assert.match(poolView, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");

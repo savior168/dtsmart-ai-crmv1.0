@@ -7,7 +7,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
 const { CustomerContactSummary } = await jiti.import(resolve("components/customer-contact-summary.tsx"));
 const { formatPhoneInternational, normalizePhoneInternational } = await jiti.import(resolve("lib/contacts/phone-normalization.ts"));
-const render = (customer, display = "phone", source = "all") => renderToStaticMarkup(createElement(CustomerContactSummary, { customer: { country: "GB", ...customer }, source, display }));
+const render = (customer, display = "phone", source = "all", expandedByDefault = false) => renderToStaticMarkup(createElement(CustomerContactSummary, { customer: { country: "GB", ...customer }, source, display, expandedByDefault }));
 const visibleText = (html) => html.replace(/<[^>]*>/g, "");
 const phone = (value, type = "PHONE", status = "NEW_VERIFIED", channel = "website") => ({ type, value_raw: value, verification_status: status, source_channel: channel, exact_source_url: "https://example.com/contact" });
 const first = "+447428236591", second = "+441142768352", third = "+441915634827";
@@ -17,15 +17,16 @@ assert.ok(visibleText(legacyDuplicates).includes(formatPhoneInternational("+4411
 assert.doesNotMatch(legacyDuplicates, /另1项/, "同一官网电话的不同国际写法不应重复展示");
 
 const several = render({ verified_contacts: [phone(second), phone(first, "WHATSAPP"), phone(third)] });
-assert.ok(visibleText(several).includes(formatPhoneInternational(first, "GB")), "首个号码必须完整呈现，并保留已核验WhatsApp优先排序");
-assert.ok(!visibleText(several).includes(formatPhoneInternational(second, "GB")), "摘要不再同时挤入第二号码");
+assert.ok(visibleText(several).includes(formatPhoneInternational(second, "GB")), "摘要先显示电话渠道且号码完整");
+assert.ok(!visibleText(several).includes(formatPhoneInternational(first, "GB")), "WhatsApp 留在展开后的第二组");
 assert.ok(!visibleText(several).includes(formatPhoneInternational(third, "GB")), "其余号码留在展开内容");
 assert.ok(visibleText(several).includes("另2项"));
 assert.match(several, /aria-expanded="false"/);
 assert.doesNotMatch(several, /truncate/, "电话摘要不能通过省略号隐藏号码");
 assert.match(several, /flex-wrap/, "空间不足时允许展开入口换行");
-assert.match(several, /href="https:\/\/wa\.me\/447428236591"/);
-assert.match(several, /aria-label="复制官网核验WhatsApp"/);
+const severalExpanded = render({ verified_contacts: [phone(second), phone(first, "WHATSAPP"), phone(third)] }, "phone", "all", true);
+assert.match(severalExpanded, /href="https:\/\/wa\.me\/447428236591"/);
+assert.match(severalExpanded, /aria-label="复制官网核验WhatsApp"/);
 
 const sameNumberChannels = render({ verified_contacts: [phone(first), phone(first, "WHATSAPP")] });
 assert.ok(visibleText(sameNumberChannels).includes("另1项"), "同号电话与WhatsApp仍按既有规则保留两个联系渠道");
