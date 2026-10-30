@@ -53,7 +53,7 @@ const cnyPi = summarizePiPerformance([{
 assert.equal(cnyPi.orders[0].cost_cny, 22600, "PI cost total is entered unit cost × quantity");
 assert.equal(cnyPi.orders[0].product_profit_cny, 4400, "PI gross profit is product revenue minus PI cost total");
 assert.equal(cnyPi.orders[0].product_margin, 4400 / 27000 * 100, "PI margin is gross profit divided by product revenue");
-assert.equal(cnyPi.orders[0].product_profit_usd, 4400 / 6.61, "legacy USD profit uses the approved 6.61 fixed rate");
+assert.ok(Math.abs(cnyPi.orders[0].product_profit_usd - 4400 / 6.61) < 1e-9, "legacy USD profit uses the approved 6.61 fixed rate");
 assert.equal(cnyPi.orders[0].usd_rate_source_snapshot, "HISTORICAL_STANDARD_6_61", "fallback conversion is identified as policy, not a market quote");
 assert.equal(cnyPi.totals.product_margin, 4400 / 27000 * 100);
 assert.equal(result.orders.find((order) => order.id === "usd-native").cost_cny, 400, "sales margin uses PI-entered unit cost × quantity, not later warehouse procurement cost");
