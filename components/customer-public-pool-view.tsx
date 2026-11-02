@@ -14,14 +14,11 @@ import {
   ChevronDown,
   ChevronUp,
   CheckCircle2,
-  Copy,
   Download,
   Eye,
   FileSpreadsheet,
   LoaderCircle,
-  Mail,
   Paperclip,
-  Phone,
   Plus,
   Search,
   Settings2,
@@ -58,10 +55,10 @@ import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { AttachmentPreview } from "@/components/ui/attachment-preview";
-import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { countryInfo } from "@/lib/countries";
+import { hasCustomerContactMethod } from "@/lib/customer-contact-requirement";
 
 type Role = UserRole;
 type Tab =
@@ -80,8 +77,13 @@ type PoolRow = {
   address: string | null;
   industry: string | null;
   phone: string | null;
+  phone_numbers?: string[] | null;
   whatsapp: string | null;
+  whatsapp_numbers?: string[] | null;
+  wechat: string | null;
+  wechat_numbers?: string[] | null;
   email: string | null;
+  email_addresses?: string[] | null;
   website_email: string | null;
   website_phone: string | null;
   website: string | null;
@@ -248,52 +250,6 @@ function fieldLabel(field: CustomerListColumn, tab: Tab) {
   if (tab === "claimed" && field === "company_name") return "客户名称 / 公司名称";
   if (tab === "available" && field === "phone") return "联系号码";
   return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
-}
-
-function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai" }) {
-  const [copied, setCopied] = useState("");
-  type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
-  const iconFor = (type: string) => type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> : <Phone size={14}/>;
-  const originals: DisplayContact[] = [
-    { label: "原始电话", value: row.phone || "未提供", type: "PHONE", icon: <Phone size={14}/>, source: "original" },
-    { label: "原始 WhatsApp", value: row.whatsapp || "未提供", type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" },
-    { label: "原始邮箱", value: row.email || "未提供", type: "EMAIL", icon: <Mail size={14}/>, source: "original" },
-  ];
-  const contactKey = (type: string, value: string) => {
-    if (type === "EMAIL") return `${type}:${value.trim().toLowerCase()}`;
-    return `${type}:${normalizePhoneInternational(value, row.country).replace(/\D/g, "") || value.replace(/\D/g, "")}`;
-  };
-  const originalKeys = new Set(originals.filter((item) => item.value !== "未提供").map((item) => contactKey(item.type, item.value)));
-  const collected: DisplayContact[] = [
-    ...(row.verified_contacts || []).filter((contact) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(contact.verification_status || "")) && ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type || "").toUpperCase()) && String(contact.value_raw || "").trim()).map((contact): DisplayContact => ({
-      label: `${String(contact.source_channel || "public").toLowerCase() === "website" ? "官网" : String(contact.source_channel || "").toLowerCase() === "google_maps" ? "Google Maps" : "公开来源"}核验${String(contact.type).toUpperCase() === "EMAIL" ? "邮箱" : String(contact.type).toUpperCase() === "WHATSAPP" ? "WhatsApp" : "电话"}`,
-      value: String(contact.value_raw).trim(), type: String(contact.type).toUpperCase() as "PHONE" | "EMAIL" | "WHATSAPP", icon: iconFor(String(contact.type).toUpperCase()),
-      source: contact.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified",
-      channel: contact.source_channel, sourceUrl: contact.exact_source_url,
-    })),
-  ];
-  // A discovered contact can also be saved in the compatibility fields. Keep
-  // it visible for older analysis records, while avoiding a second identical
-  // row once the structured customer_contacts record is available.
-  for (const [label, value, type] of [["官网核验电话", row.website_phone, "PHONE"], ["官网核验邮箱", row.website_email, "EMAIL"]] as const) {
-    if (!value || collected.some((item) => contactKey(item.type, item.value) === contactKey(type, value))) continue;
-    collected.push({ label, value, type, icon: iconFor(type), source: "verified", channel: "website" });
-  }
-  const contacts = (source === "original" ? originals : collected)
-    .filter((item, index, all) => source === "original" || (!originalKeys.has(contactKey(item.type, item.value)) && all.findIndex((candidate) => contactKey(candidate.type, candidate.value) === contactKey(item.type, item.value)) === index));
-  if (!contacts.length) return <span className="text-slate-400">—</span>;
-  return <div className="space-y-1">{contacts.map((item, index) => {
-    const muted = item.value === "未提供";
-    const key = `${item.label}:${item.value}:${index}`;
-    const badge = item.source === "original" ? "原始" : item.source === "conflict" ? "待核对" : "已核验";
-    const tone = item.source === "original" ? "bg-slate-100 text-slate-500" : item.source === "conflict" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-amber-700";
-    const display = muted || item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, row.country);
-    const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, row.country).replace(/\D/g, "") : "";
-    const text = whatsappDigits
-      ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 truncate text-[#128C7E] hover:underline">{display}</a>
-      : <span className="min-w-0 flex-1 truncate">{display}</span>;
-    return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n来源：${item.sourceUrl}` : ""}`} className={`flex min-w-0 items-center gap-1.5 text-xs ${muted ? "text-slate-400" : "text-slate-700"}`}><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>{text}<button type="button" disabled={muted} onClick={() => { void navigator.clipboard?.writeText(item.value).then(() => { setCopied(key); window.setTimeout(() => setCopied((current) => current === key ? "" : current), 1400); }).catch(() => undefined); }} aria-label={`复制${item.label}`} title={copied === key ? "已复制" : `复制${item.label}`} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-blue-600 disabled:pointer-events-none disabled:opacity-30">{copied === key ? <CheckCircle2 size={13} className="text-emerald-600"/> : <Copy size={13}/>}</button></span>;
-  })}</div>;
 }
 
 function poolText(row: PoolRow, key: CustomerListColumn) {
@@ -1235,9 +1191,18 @@ function ClaimDialog({
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [missingContactOpen, setMissingContactOpen] = useState(false);
+  const hasContact = hasCustomerContactMethod(row);
+  function chooseStage(next: string) {
+    if (next !== "CLAIMED" && !hasContact) {
+      setMissingContactOpen(true);
+      return;
+    }
+    setStage(next);
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (["FOLLOWING", "DEAL"].includes(stage) && (!row.phone?.trim() || !row.email?.trim())) return setError("意向客户和成交客户必须同时具备联系电话和邮箱，请先补全公海主档");
+    if (stage !== "CLAIMED" && !hasContact) { setMissingContactOpen(true); return; }
     if (stage !== "CLAIMED" && !file) return setError("潜在客户以外的阶段必须上传真实凭证附件");
     setBusy(true);
     setError("");
@@ -1268,8 +1233,8 @@ function ClaimDialog({
     >
       <form onSubmit={submit} className="space-y-4">
         {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"客户名称",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
-        <ClaimChoice label="认领后客户阶段" value={stage} onChange={setStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"已回复或已约到沟通，需上传凭证"},{value:"DEAL",label:"成交客户",description:"已有订单、合同或采购确认，需上传凭证"}]}/>
-        {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">联系电话 <b className="text-rose-600">*</b> · 邮箱 <b className="text-rose-600">*</b>；两项须已在客户主档中填写。</p> : null}
+        <ClaimChoice label="认领后客户阶段" value={stage} onChange={chooseStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"四类联系方式至少一项，并上传凭证"},{value:"DEAL",label:"成交客户",description:"四类联系方式至少一项，并上传凭证"}]}/>
+        {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">电话、邮箱、微信或 WhatsApp 至少填写一项；本阶段还须提交真实联系凭证。</p> : null}
         <ClaimChoice label="实际联系渠道" value={channel} onChange={setChannel} options={[{value:"WHATSAPP",label:"WhatsApp"},{value:"EMAIL",label:"邮箱"},{value:"PHONE",label:"电话"},{value:"LINKEDIN",label:"LinkedIn / 其他社媒"},{value:"OTHER",label:"官网表单 / 其他方式"}]}/>
         <ClaimChoice label="本次真实联系结果" placeholder="请选择联系结果" value={result} onChange={setResult} options={[{value:"已发送首条开发信息，待回复",label:"已发送首条开发信息，待回复"},{value:"已联系到对方，需求待确认",label:"已联系到对方，需求待确认"},{value:"对方要求后续跟进",label:"对方要求后续跟进"},{value:"确认存在采购或合作需求",label:"确认存在采购或合作需求"},{value:"暂不匹配或明确无需求",label:"暂不匹配或明确无需求"},{value:"联系方式无效或无法触达",label:"联系方式无效或无法触达"},{value:"其他真实联系结果",label:"其他真实联系结果"}]}/>
         <label className="block text-sm font-medium">
@@ -1288,6 +1253,7 @@ function ClaimDialog({
         {error ? <ErrorText value={error} /> : null}
         <DialogActions busy={busy} disabled={!result || (stage !== "CLAIMED" && !file)} close={close} label="确认认领" />
       </form>
+      <AppDialog open={missingContactOpen} title="暂不能认领为意向或成交客户" description="该客户暂无电话、邮箱、微信及 WhatsApp。" onClose={() => setMissingContactOpen(false)} width="max-w-md"><p className="text-sm leading-6 text-slate-700">请先认领为潜在客户，再到“我的客户”补全至少一项联系方式，随后变更客户阶段。</p><div className="mt-5 flex justify-end"><button type="button" onClick={() => { setStage("CLAIMED"); setMissingContactOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">按潜在客户认领</button></div></AppDialog>
     </Modal>
   );
 }
@@ -1934,3 +1900,4 @@ function Modal({
     </AppDialog>
   );
 }
+

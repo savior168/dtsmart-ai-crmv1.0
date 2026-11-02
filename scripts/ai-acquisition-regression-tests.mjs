@@ -412,7 +412,7 @@ assert.match(detail,/task\.countries\.length>1[\s\S]*task\.industries\?\.length\
 const scoreBadge=fs.readFileSync(new URL("../components/customer-score-badge.tsx",import.meta.url),"utf8");
 const publicPool=fs.readFileSync(new URL("../components/customer-public-pool-view.tsx",import.meta.url),"utf8");
 const contactSummary=fs.readFileSync(new URL("../components/customer-contact-summary.tsx",import.meta.url),"utf8");
-assert.match(contactSummary,/useState\(false\)[\s\S]*if \(source !== "original"\)[\s\S]*aria-expanded=\{expanded\}[\s\S]*ChevronDown/,"AI核验及合并联系方式必须在获客详情和客户公海中统一默认收起并按需展开");
+assert.match(contactSummary,/expandedByDefault = false[\s\S]*useState\(expandedByDefault\)[\s\S]*if \(source !== "original"\)[\s\S]*aria-expanded=\{expanded\}[\s\S]*ChevronDown/,"公海联系方式默认收起，客户详情可按需默认展开");
 assert.match(contactSummary,/google_maps: "Google Maps"[\s\S]*facebook: "Facebook"[\s\S]*instagram: "Instagram"[\s\S]*linkedin: "LinkedIn"[\s\S]*tiktok: "TikTok"/,"展开联系方式后必须明确标注Google、官网及各社媒来源");
 assert.match(contactSummary,/EXCEL_IMPORT[\s\S]*BATCH_IMPORT[\s\S]*Excel导入[\s\S]*MANUAL_CREATE[\s\S]*手工录入/,"导入与手工客户的来源联系方式必须显示真实录入渠道");
 assert.match(scoreBadge,/score>=80[\s\S]*score>=65[\s\S]*score>=50/,"相似客户页面必须共用统一评分分档样式");
@@ -606,3 +606,4 @@ assert.match(acquisitionReport,/获客质量漏斗[\s\S]*高价值客户摘要[\
 const screeningCreate=fs.readFileSync(new URL("../components/ai-screening/create-task-view.tsx",import.meta.url),"utf8");
 assert.match(screeningCreate,/costLimitOpen[\s\S]*费用保护（可选）[\s\S]*\[&>label\]:hidden/,"AI筛选单任务费用上限必须作为默认收起的高级费用保护设置");
 console.log("AI acquisition regression tests passed");
+

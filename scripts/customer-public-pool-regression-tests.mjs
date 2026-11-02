@@ -73,7 +73,7 @@ assert.match(migration, /CUSTOMER_ACCOUNT_HANDOVER/, "离职交接必须写入�
 assert.match(poolApi, /contact_masked: !full/, "已认领公海客户必须对非归属销售员脱敏");
 assert.equal((poolApi.match(/\.eq\("ai_screening_done", true\)\.gte\("ai_score", 60\)/g) || []).length, 3, "待认领数量、筛选选项和列表/导出必须统一只包含已完成筛选且达到 60 分的客户");
 assert.match(claimApi, /ai_screening_done !== true \|\| customer\.data\.ai_score === null \|\| customer\.data\.ai_score < 60/, "认领接口必须拒绝未筛选和低分客户");
-assert.match(claimApi, /createAdminClient\(\)\.from\("customers"\)[\s\S]*\.eq\("acquisition_scope", "PUBLIC_POOL"\)\.eq\("pool_status", "AVAILABLE"\)[\s\S]*\.eq\("status", "UNCLAIMED"\)\.is\("owner_id", null\)/, "公海可认领客户须通过受限服务端查询核验，不能被销售员主档RLS误判为不存在");
+assert.match(claimApi, /createAdminClient\(\)[\s\S]*admin\.from\("customers"\)[\s\S]*\.eq\("acquisition_scope", "PUBLIC_POOL"\)\.eq\("pool_status", "AVAILABLE"\)[\s\S]*\.eq\("status", "UNCLAIMED"\)\.is\("owner_id", null\)/, "公海可认领客户须通过受限服务端查询核验，不能被销售员主档RLS误判为不存在");
 assert.match(claimEligibility, /revoke all on function public\.claim_public_customer\(uuid,text,text,text,text,text,text,bigint\)/, "废弃的无阶段认领RPC不得继续对客户端开放");
 assert.match(claimEligibility, /current_user_has_business_permission\(''customers\.claim''\)/, "新认领RPC须核验数据库中的实际认领权限");
 assert.match(lowScoreClaimGuard, /before update on public\.customers[\s\S]*SELF_CLAIM[\s\S]*reject_low_score_self_claim/, "数据库必须阻止绕过接口的低分自认领");
@@ -122,17 +122,17 @@ assert.match(contactSummary, /display === "phone"[\s\S]*display === "email"/, "�
 assert.match(contactSummary, /valueClass = isNumber \? "whitespace-nowrap" : "min-w-0 flex-1 truncate"/, "电话号码预览不省略，邮箱继续使用紧凑省略行为");
 assert.match(contactSummary, /item\.type === "EMAIL" \|\| item === firstNumber/, "混合联系方式摘要最多显示一个电话号码");
 assert.match(poolView, /field === "phone" && row\.contact_masked === false[\s\S]*CustomerContactSummary/, "有权查看的已认领客户电话也必须使用完整号码摘要，脱敏记录不能展开");
-assert.match(contactSummary, /verified && item\.type === "WHATSAPP"[\s\S]*return 0[\s\S]*verified && item\.type === "PHONE"[\s\S]*return 1[\s\S]*!verified && item\.type === "PHONE"[\s\S]*return 2/, "外贸销售号码预览必须优先展示已核验WhatsApp，再展示已核验和原始电话");
+assert.match(contactSummary, /PHONE:0, WHATSAPP:1, WECHAT:2, EMAIL:3[\s\S]*kindRank\[a\.type\] - kindRank\[b\.type\]/, "联系方式按电话、WhatsApp、微信、邮箱固定顺序展示");
 assert.match(contactSummary, /https:\/\/wa\.me\/\$\{whatsappDigits\}[\s\S]*复制\$\{item\.label\}/, "WhatsApp预览必须可直达对话并支持单条复制");
 assert.match(storedContacts, /splitStoredContactValues[\s\S]*split\(\/[\s\S]*normalizePhoneInternational/, "历史聚合字段中的多个电话或邮箱必须拆分、规范化和去重");
 assert.match(contactSummary, /for \(const value of splitStoredContactValues/, "客户页面必须使用共享的联系方式拆分规则");
-assert.match(contactSummary, /renderGroups[\s\S]*group\.label[\s\S]*renderContact\(item,index\)/, "展开后的联系方式必须通过来源分组展示渠道，不为每条记录重复堆叠来源标记");
+assert.match(contactSummary, /renderGroups[\s\S]*labels\[kind\][\s\S]*entries\.map\(\(item,index\)=>renderContact\(item,index\)\)/, "展开后的联系方式按四种渠道分组，来源在每项保留");
 assert.match(acquisitionCustomerResults, /CustomerContactSummary customer=\{row\} source="all"/, "AI获客客户结果必须显示实际联系方式，而不是仅显示是否可联系状态");
 assert.match(acquisitionCustomersApi, /verified_contacts:verifiedContactsByCustomer\.get\(customerId\)\|\|\[\]/, "AI获客客户结果接口必须一次性返回当前页客户的核验联系方式");
-assert.match(poolView, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");
-assert.match(poolView, /normalizePhoneInternational\(item\.value, row\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
-assert.match(poolView, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");
-assert.match(poolView, /原始邮箱[\s\S]*未提供/, "待认领列表必须明确原始资料缺失，而不是静默隐藏");
+assert.match(contactSummary, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");
+assert.match(contactSummary, /normalizePhoneInternational\(item\.value, customer\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
+assert.match(poolView, /CustomerContactSummary customer=\{row\} source="all"/, "客户公海须使用共享的四渠道联系方式组件");
+assert.match(contactSummary, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");
 assert.match(poolView, /CustomerPublicChannels[\s\S]*field === "google_url"[\s\S]*CustomerPublicChannels customer=\{row\}/, "待认领列表必须将Google Maps与官方社媒合并为统一公开渠道入口");
 assert.match(acquisitionCustomerResults, /CustomerPublicChannels customer=\{row\}/, "AI获客结果必须与客户公海统一使用Google Maps与官方社媒的公开渠道图标");
 assert.match(poolApi, /facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls/, "客户公海接口必须提供已授权读取的社媒链接字段");
@@ -313,7 +313,7 @@ assert.match(customersApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)[\
 assert.match(customerForm, /stage === "FOLLOWING" && !stageFile[\s\S]*stage === "DEAL" \? "DEAL" : "CLAIMED"/, "手动新增意向需上传凭证，手动新增成交可直接保存");
 assert.match(customerForm, /stage === "DEAL" && result\.status !== "DEAL"[\s\S]*已有客户改为成交/, "重复客户接管不得冒用手动新增免成交凭证例外");
 assert.match(stageWorkflowApi, /customerStageContactError\(status, customer\.data\)[\s\S]*needsEvidence = \["FOLLOWING", "DEAL"\]/, "已有客户无论来源，改意向或成交必须具备联系方式并提交凭证");
-assert.match(read("lib/customer-contact-requirement.ts"), /if \(\(!isFollowing && !isDeal\) \|\| hasCustomerContactMethod\(value\)\) return null[\s\S]*至少填写微信、邮箱或电话其中一项/, "意向和成交客户至少须填写微信、邮箱或电话之一");
+assert.match(read("lib/customer-contact-requirement.ts"), /if \(\(!isFollowing && !isDeal\) \|\| hasCustomerContactMethod\(value\)\) return null[\s\S]*至少填写电话、邮箱、微信或 WhatsApp 其中一项/, "意向和成交客户至少须填写四类联系方式之一");
 assert.match(customersView, /useState<"done" \| "pending" \| "failed" \| "all">\("all"\)/, "我的客户默认展示全部AI分析状态");
 assert.match(poolView, /const activeRequest = useRef<AbortController \| null>\(null\)[\s\S]*setTimeout\(\(\) => controller\.abort\(\), 30_000\)/, "公海批量删除请求必须有等待上限，不能永久卡在处理中");
 assert.match(poolView, /function stopOrClose\(\)[\s\S]*activeRequest\.current\?\.abort\(\)[\s\S]*onClose=\{stopOrClose\}/, "公海删除进行中必须能手动停止发送后续批次并关闭弹窗");
@@ -323,3 +323,4 @@ for (const index of ["ai_acquisition_candidates_staging_customer_idx", "ai_acqui
 }
 
 console.log("customer public-pool regression tests passed");
+

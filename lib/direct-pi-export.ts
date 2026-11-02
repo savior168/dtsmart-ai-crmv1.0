@@ -62,6 +62,7 @@ type DirectPiOrder = {
   delivery_date: string | null;
   currency: string;
   show_dual_currency_prices?: boolean | null;
+  price_display_mode?: "PAYMENT_ONLY" | "CNY_ONLY" | "DUAL" | null;
   fx_rate_cny_to_payment: number;
   payment_method: string | null;
   payment_account_snapshot: string | null;
@@ -166,6 +167,8 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   if (!items.length || items.length > 500) throw new Error("PI产品明细需为1至500行");
   const currency = order.currency.toUpperCase();
   const showDualCurrencyPrices = order.show_dual_currency_prices === true && currency !== "CNY";
+  const singleCurrency = order.price_display_mode === "CNY_ONLY" ? "CNY" : currency;
+  const singleUsesCny = singleCurrency === "CNY";
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error("PI付款币种不正确");
   if (!Number.isFinite(Number(order.fx_rate_cny_to_payment)) || Number(order.fx_rate_cny_to_payment) <= 0) throw new Error("PI汇率不正确");
   if (!order.payment_account_snapshot?.trim()) throw new Error("PI缺少已确认的收款账户");
@@ -254,7 +257,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     ["G", "Description", "G18:H18"],
     ...(showDualCurrencyPrices
       ? [["I", "Unit Price (CNY)"], ["J", `Unit Price (${currency})`], ["K", "Quantity"], ["L", "Amount (CNY)"], ["M", `Amount (${currency})`]] as Array<[string, string]>
-      : [["I", `Unit Price\n(${currency})`], ["J", "Quantity"], ["K", `Amount\n(${currency})`]] as Array<[string, string]>),
+      : [["I", `Unit Price\n(${singleCurrency})`], ["J", "Quantity"], ["K", `Amount\n(${singleCurrency})`]] as Array<[string, string]>),
   ];
   for (const [column, label, range] of headings) {
     set(sheet, `${column}18`, label, ["I", "J", "K", "L", "M"].includes(column) && label !== "Quantity" ? { ...heading, alignment: { horizontal: "right", vertical: "center", wrapText: true } } : heading);
@@ -265,16 +268,16 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
     const item = items[index];
     const values: Array<[string, string | number]> = item ? [
       ["A", index + 1], ["B", item.item_name], ["D", item.brand || ""], ["E", item.model || ""],
-      ["F", item.quality || ""], ["G", item.description || ""], ["I", showDualCurrencyPrices ? Number(item.unit_price_cny) : Number(item.unit_price)],
+      ["F", item.quality || ""], ["G", item.description || ""], ["I", showDualCurrencyPrices || singleUsesCny ? Number(item.unit_price_cny) : Number(item.unit_price)],
       ...(showDualCurrencyPrices ? [["J", Number(item.unit_price)], ["K", Number(item.quantity)]] as Array<[string, number]> : [["J", Number(item.quantity)]] as Array<[string, number]>),
     ] : [["A", ""], ["B", ""], ["D", ""], ["E", ""], ["F", ""], ["G", ""], ["I", ""], ["J", ""], ...(showDualCurrencyPrices ? [["K", ""]] as Array<[string, string]> : [])];
     for (const [column, value] of values) set(sheet, `${column}${row}`, value,
-      column === "I" ? moneyStyle(showDualCurrencyPrices ? "CNY" : currency) : showDualCurrencyPrices && column === "J" ? moneyStyle(currency) : boxed);
+      column === "I" ? moneyStyle(showDualCurrencyPrices ? "CNY" : singleCurrency) : showDualCurrencyPrices && column === "J" ? moneyStyle(currency) : boxed);
     if (item) {
       if (showDualCurrencyPrices) {
         calculated(sheet, `L${row}`, `I${row}*K${row}`, roundMoney(Number(item.unit_price_cny) * Number(item.quantity)), moneyStyle("CNY"));
         calculated(sheet, `M${row}`, `J${row}*K${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
-      } else calculated(sheet, `K${row}`, `I${row}*J${row}`, roundMoney(Number(item.unit_price) * Number(item.quantity)), moneyStyle(currency));
+      } else calculated(sheet, `K${row}`, `I${row}*J${row}`, roundMoney(Number(singleUsesCny ? item.unit_price_cny : item.unit_price) * Number(item.quantity)), moneyStyle(singleCurrency));
     } else { for (const column of showDualCurrencyPrices ? ["L", "M"] : ["K"]) set(sheet, `${column}${row}`, "", boxed); }
     merge(sheet, `B${row}:C${row}`); merge(sheet, `G${row}:H${row}`);
   }
@@ -294,11 +297,11 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
         else set(sheet, `${column}${row}`, amount, moneyStyle(code));
       }
     } else if (row === subtotalRow) {
-      calculated(sheet, `K${row}`, `SUM(K19:K${18 + items.length})`, paid, moneyStyle(currency));
+      calculated(sheet, `K${row}`, `SUM(K19:K${18 + items.length})`, singleUsesCny ? cny : paid, moneyStyle(singleCurrency));
     } else if (row === totalRow) {
-      calculated(sheet, `K${row}`, `SUM(K${subtotalRow}:K${totalRow - 1})`, paid, moneyStyle(currency, true));
+      calculated(sheet, `K${row}`, `SUM(K${subtotalRow}:K${totalRow - 1})`, singleUsesCny ? cny : paid, moneyStyle(singleCurrency, true));
     } else {
-      set(sheet, `K${row}`, paid, moneyStyle(currency));
+      set(sheet, `K${row}`, singleUsesCny ? cny : paid, moneyStyle(singleCurrency));
     }
   }
   set(sheet, `A${paymentHeader}`, "**PAYMENT INFORMATION**", { ...boxed, font: { name: "Arial", sz: 11, bold: true }, fill: { fgColor: { rgb: "F1F5F9" } } }); merge(sheet, `A${paymentHeader}:${showDualCurrencyPrices ? "M" : "K"}${paymentHeader}`);
@@ -320,3 +323,4 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   XLSX.utils.book_append_sheet(book, sheet, "PI");
   return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);
 }
+

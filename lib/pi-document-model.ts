@@ -8,6 +8,7 @@ export type PiDocumentOrder = {
   payment_method?: string | null;
   currency: string;
   show_dual_currency_prices?: boolean | null;
+  price_display_mode?: "PAYMENT_ONLY" | "CNY_ONLY" | "DUAL" | null;
   customer_short_name: string;
   customer_tax_number_snapshot?: string | null;
   customer?: { company_name?: string | null; contact_name?: string | null; tax_number?: string | null } | null;
@@ -78,7 +79,8 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     deliveryAddress: order.delivery_address || "—",
     issueDate,
     currency: order.currency,
-    showDualCurrencyPrices: order.show_dual_currency_prices === true && order.currency !== "CNY",
+    showDualCurrencyPrices: (order.price_display_mode === "DUAL" || (!order.price_display_mode && order.show_dual_currency_prices === true)) && order.currency !== "CNY",
+    priceDisplayMode: order.price_display_mode || (order.show_dual_currency_prices ? "DUAL" : "PAYMENT_ONLY"),
     subtotal: Number(order.subtotal),
     subtotalCny: Number(order.subtotal_cny || 0),
     shippingCost: Number(order.shipping_cost),
@@ -110,3 +112,4 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     })),
   };
 }
+

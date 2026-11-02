@@ -1,5 +1,8 @@
 from copy import copy
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from xml.etree.ElementTree import ParseError
+from zipfile import ZipFile
 from openpyxl.styles import Protection
 
 from openpyxl import load_workbook
@@ -10,17 +13,17 @@ private_path = template_dir / "Customer_Import_Template.xlsx"
 pool_path = template_dir / "Customer_Public_Pool_Import_Template.xlsx"
 
 private_help = [
-    ("必填项", "仅“客户名称”和“国家/地区”必填；公司名称、联系方式及其余资料均可留空。填写的内容会保存到客户资料。"),
-    ("客户阶段", "仅用于“我的客户”；可填写潜在客户、意向客户、已成交客户。留空时按系统默认阶段处理；阶段不是必填项。"),
-    ("客户等级", "仅用于“我的客户”；可填写 S、A、B、C、D。留空不影响导入；AI等级由系统按既定流程产生。"),
+    ("必填项", "仅“客户名称”和“国家/地区”必填；公司名称及其余资料可留空。电话、邮箱、微信、WhatsApp 同一格填写多个时用英文分号 ; 分隔，分别保存到客户资料。"),
+    ("客户阶段", "仅用于“我的客户”；客户阶段不是必填项，留空按系统默认阶段处理。意向客户和已成交客户须有电话、邮箱、微信或 WhatsApp 其中一项，只填一项即可。"),
+    ("客户等级", "仅用于“我的客户”；S ≥ $50,000；KA $30,000–$50,000；MA $10,000–$30,000；A $8,000–$10,000；B $5,000–$8,000；C $2,000–$5,000；D < $2,000。留空不影响导入；AI等级由系统流程维护。"),
     ("地址信息", "客户收货信息和货代收货信息均为选填，收货人、电话、地址可分别填写，未填写的字段留空；已填写的字段会分别保存到客户资料。电话填写时须为有效号码。其他地址单独填写。"),
     ("重复客户", "系统按电话、WhatsApp、同一联系人/公司的邮箱和主体网址等识别重复项；共享邮箱本身不会使不同联系人被合并。请核对预览结果。"),
     ("AI资料", "AI评分、AI等级和分析结论由系统流程维护；导入文件中的来源字段不会覆盖系统生成结果。"),
     ("导入前检查", "仅填写“客户导入模板”工作表；标题行已锁定以防误改，导入列名为系统标准字段，请勿更改、删除、合并或调换。上传前检查必填项、列对应关系及重复/异常提示。"),
 ]
 pool_help = [
-    ("必填项", "仅“客户名称”和“国家/地区”必填；公司名称、联系方式及其余资料均可留空。填写的内容会保存到客户资料。"),
-    ("公海状态", "本模板不提供客户阶段和客户等级列。通过本模板导入的新记录统一进入公海“待认领”状态，不会因来源资料改变公海工作流。"),
+    ("必填项", "仅“客户名称”和“国家/地区”必填；公司名称及其余资料可留空。电话、邮箱、微信、WhatsApp 同一格填写多个时用英文分号 ; 分隔，分别保存到客户资料。"),
+    ("公海状态", "本模板不提供客户阶段和客户等级列。新记录统一进入公海“待认领”状态；认领为意向或成交客户须有电话、邮箱、微信或 WhatsApp 其中一项，无联系方式可先认领为潜在客户。"),
     ("来源状态字段", "如使用其他文件导入了客户阶段或等级，系统仅保留为来源信息，不作为公海状态或系统客户等级，也不改变“待认领”状态。"),
     ("地址信息", "客户收货信息和货代收货信息均为选填，收货人、电话、地址可分别填写，未填写的字段留空；已填写的字段会分别保存到客户资料。电话填写时须为有效号码。其他地址单独填写。"),
     ("重复客户", "系统按电话、WhatsApp、同一联系人/公司的邮箱和主体网址等识别重复项；共享邮箱本身不会使不同联系人被合并。请核对预览结果。"),
@@ -28,7 +31,27 @@ pool_help = [
     ("导入前检查", "仅填写“客户导入模板”工作表；标题行已锁定以防误改，导入列名为系统标准字段，请勿更改、删除、合并或调换。上传前检查必填项、列对应关系及重复/异常提示。"),
 ]
 
-wb = load_workbook(private_path)
+def load_source_template(path):
+    try:
+        return load_workbook(path)
+    except ParseError as error:
+        if "duplicate attribute" not in str(error):
+            raise
+    # Repair the existing malformed instructions sheet before openpyxl reads it.
+    # This is limited to the repeated inline-string type attribute; other XML
+    # errors still fail rather than being silently dropped.
+    with TemporaryDirectory() as temp_dir:
+        repaired = Path(temp_dir) / path.name
+        with ZipFile(path) as source, ZipFile(repaired, "w") as output:
+            for entry in source.infolist():
+                data = source.read(entry.filename)
+                if entry.filename.startswith("xl/worksheets/") and entry.filename.endswith(".xml"):
+                    data = data.replace(b't="inlineStr" t="inlineStr"', b't="inlineStr"')
+                output.writestr(entry, data)
+        return load_workbook(repaired)
+
+
+wb = load_source_template(private_path)
 headers_sheet = wb["客户导入模板"]
 headers = [
     "客户名称*", "公司名称", "国家*", "电话号码", "邮箱号", "whatsapp号码", "wechat号码",
@@ -103,3 +126,4 @@ for validation in list(pool_headers.data_validations.dataValidation):
 pool_wb.save(pool_path)
 protect_template(private_path)
 protect_template(pool_path)
+

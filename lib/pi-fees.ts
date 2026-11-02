@@ -3,11 +3,13 @@ import { linkedPiUnitPrices } from "./pi-line-currency.ts";
 export type PiFeeSource = "CNY" | "PAYMENT";
 export type PiFeeInput = { source: PiFeeSource; amount: number };
 export type PiFeesInput = {
+  shipping?: PiFeeInput;
   last_balance: PiFeeInput;
   discount: PiFeeInput;
   other: PiFeeInput;
   paypal_rate_percent: number;
   show_dual_currency_prices?: boolean;
+  price_display_mode?: "PAYMENT_ONLY" | "CNY_ONLY" | "DUAL";
 };
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -37,7 +39,9 @@ export function calculatePiFees(
   const lastBalance = convertFee(input.last_balance, paymentPerCny);
   const discount = convertFee(input.discount, paymentPerCny);
   const other = convertFee(input.other, paymentPerCny);
-  const shippingPayment = roundMoney(shippingCny * paymentPerCny);
+  const shipping = input.shipping ? convertFee(input.shipping, paymentPerCny) : { cny: shippingCny, payment: roundMoney(shippingCny * paymentPerCny) };
+  if (Math.abs(shipping.cny - shippingCny) > 0.001) throw new Error("运费双币种换算不一致");
+  const shippingPayment = shipping.payment;
   const grossCny = roundMoney(subtotalCny + shippingCny + lastBalance.cny + other.cny);
   const grossPayment = roundMoney(subtotalPayment + shippingPayment + lastBalance.payment + other.payment);
   if (discount.cny > grossCny || discount.payment > grossPayment) {
@@ -60,3 +64,4 @@ export function calculatePiFees(
     totalPayment: roundMoney(basePayment + paypalFee.payment),
   };
 }
+

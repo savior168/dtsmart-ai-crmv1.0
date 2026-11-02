@@ -60,9 +60,10 @@ assert.equal(exampleRows[4][0], "示例联系人");
 assert.equal(exampleRows[4][8], "", "示例不得预设客户阶段");
 const help = XLSX.utils.sheet_to_json(workbook.Sheets["填写说明"], { header: 1, defval: "" });
 assert.match(help[3][1], /仅“客户名称”和“国家\/地区”必填/);
+assert.match(help[3][1], /电话、邮箱、微信、WhatsApp.*英文分号 ; 分隔.*分别保存/, "模板必须说明一格多联系方式的规范分隔符");
 assert.match(help[6][1], /均为选填，收货人、电话、地址可分别填写/);
 assert.match(help[4][1], /客户阶段不是必填项/);
-assert.match(help[4][1], /已成交客户.*微信、邮箱或电话其中一项/);
+assert.match(help[4][1], /意向客户和已成交客户.*电话、邮箱、微信或 WhatsApp 其中一项/);
 assert.match(help[4][1], /只填一项即可/);
 assert.match(help[5][1], /S.*50,000/);
 assert.match(help[5][1], /KA.*30,000.*50,000/);
@@ -112,8 +113,10 @@ for (const [name, xml] of [["我的客户", privateTemplateXml], ["客户公海"
   assert.equal(companyStyle, getCellStyle(xml, "D1"), name + " 公司名称应使用选填列样式");
   assert.notEqual(companyStyle, requiredStyle, name + " 公司名称不能显示成必填红色");
   assert.match(xml, /<sheetProtection[^>]*sheet="1"/, name + " 模板表头应开启防误改保护");
-  assert.doesNotMatch(xml.match(/<sheetProtection[^>]*>/)?.[0] ?? "", /(?:insertRows|insertColumns|deleteRows|deleteColumns)="1"/,
-    name + " 模板保护不应允许插入或删除列/行破坏标准表头");
+  const protection = xml.match(/<sheetProtection[^>]*>/)?.[0] ?? "";
+  for (const action of ["insertRows", "insertColumns", "deleteRows", "deleteColumns"]) {
+    assert.match(protection, new RegExp(`${action}="1"`), name + " 模板保护必须禁止插入或删除列/行破坏标准表头");
+  }
   assert.match(xml, /<c r="A2" s="17"/, name + " 数据行须保持可填写");
 }
 const customerArchive = XLSX.CFB.read(binary, { type: "buffer" });
@@ -218,20 +221,22 @@ for (const row of importedRows) {
 }
 assert.equal(importedRows.length, 13, "13 条不同联系人/公司且共享邮箱的数据应全部通过文件内去重");
 assert.match(importApi, /if \(!text\(item\.contact_name\)\)/);
-assert.match(importApi, /if \(!text\(item\.country\)\)/);
+assert.match(importApi, /normalizeImportCountry\(item\.country\)/);
 assert.doesNotMatch(importApi, /if \(!text\(item\.company_name\)\)/);
 assert.doesNotMatch(importApi, /缺少电话、邮箱、官网或 Google 地图联系方式/);
-assert.match(importApi, /customerStageContactError\(stage, item\)/, "批量导入API须对意向和成交客户执行联系方式服务端校验");
+assert.match(importApi, /customerStageContactError\(stage, \{ phone: item\.phone, email: item\.email, wechat: item\.wechat, whatsapp: item\.whatsapp \}\)/, "批量导入API须对意向和成交客户执行四类联系方式服务端校验");
 assert.match(importView, /customerStageContactError\(item\.import_stage, item\)/, "批量导入预览须显示阶段联系方式错误");
-assert.match(importApi, /customerStageContactError\(stage, \{ phone: item\.phone, email: item\.email, wechat: item\.wechat \}\)/, "批量导入API须显式传入联系人渠道字段");
+assert.match(importView, /sourceRowNumber = Number\.isInteger\(raw\.__rowNum__\)/, "Excel 失败行应显示真实行号");
 assert.match(workflowApi, /customerStageContactError\(status, customer\.data\)/, "阶段变更API须校验联系方式");
 assert.equal(customerStageContactError("FOLLOWING", { wechat: "wx-id" }), null);
 assert.equal(customerStageContactError("DEAL", { email: "person@example.com" }), null);
 assert.equal(customerStageContactError("已成交客户", { phone: "+1 202 555 0100" }), null);
-assert.match(customerStageContactError("FOLLOWING", { wechat: "  ", email: "", phone: "" }) || "", /意向客户.*微信、邮箱或电话/);
+assert.equal(customerStageContactError("FOLLOWING", { whatsapp: "+49 699 043 1261" }), null);
+assert.match(customerStageContactError("FOLLOWING", { wechat: "  ", email: "", phone: "", whatsapp: "" }) || "", /意向客户.*电话、邮箱、微信或 WhatsApp/);
 assert.equal(customerStageContactError("CLAIMED", {}), null);
 assert.doesNotMatch(customerForm, /input\("company_name","公司名称",true\)/, "手动新增公司名称应选填");
 assert.doesNotMatch(customerCreateApi, /if \(!body\.company_name\)/, "服务端不得强制公司名称");
 assert.match(importApi, /source_stage_label = sourceStageLabel/);
 assert.match(importApi, /status: "UNCLAIMED"/);
 console.log("客户导入模板表头、下拉选项及结构化地址兼容映射检查通过。");
+

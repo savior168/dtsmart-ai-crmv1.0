@@ -22,6 +22,7 @@ import {
 import {
   importDeliveryContactError,
   mapImportRow,
+  normalizeImportCountry,
   parseImportFile,
   type ImportRow,
 } from "@/lib/import-parser";
@@ -32,6 +33,7 @@ import { CountryLabel } from "@/components/country-label";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { readableImportError } from "@/lib/import-safety";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
+import { normalizeManualContacts } from "@/lib/contacts/manual-contact-list";
 import { CUSTOMER_GRADE_OPTIONS, customerGradeDescription, isCustomerGrade } from "@/lib/customers/customer-grade";
 
 type PotentialCandidate = {
@@ -433,23 +435,33 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
       try {
         const parsed: ImportRow[] = await parseImportFile(file);
         parsed.forEach((raw, index) => {
+          const sourceRowNumber = Number.isInteger(raw.__rowNum__) ? Number(raw.__rowNum__) + 1 : index + 2;
           const item = {
             ...mapImportRow(raw),
             preview_id: id,
             file_name: fileLabel,
-            row_number: index + 2,
+            row_number: sourceRowNumber,
           } as MappedRow;
+          let contactValidationError = "";
+          try {
+            for (const kind of ["phone", "email", "wechat", "whatsapp"] as const) {
+              item[kind] = normalizeManualContacts(item[kind], kind);
+            }
+          } catch (error) {
+            contactValidationError = error instanceof Error ? error.message : "联系方式格式不正确";
+          }
           const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
           const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !isCustomerGrade(item.manual_grade));
           const deliveryError = importDeliveryContactError(item as ImportRow);
           const contactError = destination === "PRIVATE" ? customerStageContactError(item.import_stage, item) : null;
-          if (!item.contact_name || !item.country || invalidStage || invalidGrade || deliveryError || contactError) {
+          if (!item.contact_name || !normalizeImportCountry(item.country) || contactValidationError || invalidStage || invalidGrade || deliveryError || contactError) {
             bad.push({
               id: badId++,
               file_name: fileLabel,
-              row_number: index + 2,
+              row_number: sourceRowNumber,
               reason: !item.contact_name || !item.country
-                ? "缺少客户名称或国家/地区，已跳过"
+                ? "缺少客户名称或国家/地区无效，已跳过"
+                : contactValidationError ? contactValidationError
                 : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
                 : invalidGrade ? `客户等级只能填写 ${CUSTOMER_GRADE_OPTIONS.join("、")}`
                 : deliveryError ? deliveryError
@@ -465,7 +477,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             bad.push({
               id: badId++,
               file_name: fileLabel,
-              row_number: index + 2,
+              row_number: sourceRowNumber,
               reason: "客户身份重复，仅保留文件中最先出现的数据",
               kind: "duplicate",
               row: item,
@@ -1228,3 +1240,4 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
     </main>
   );
 }
+

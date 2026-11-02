@@ -74,6 +74,9 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   const forwarderPhoneDigits = normalizedForwarderPhone.replace(/\D/g, "");
   if (hasForwarder && (forwarderPhoneDigits.length < 7 || forwarderPhoneDigits.length > 15 || /^(\d)\1+$/.test(forwarderPhoneDigits))) throw new Error("货代收货人电话须为有效的 7 至 15 位号码");
   const fees = parsePiFees(body.fees, String(body.payment_method || ""));
+  if (fees.shipping && Math.abs(Number(linkedPiUnitPrices(fees.shipping.amount.toFixed(2), fees.shipping.source, rate).cny) - shipping) > 0.001) {
+    throw new Error("运费双币种换算不一致，请核对汇率后重试");
+  }
   return {
     p_customer_id: customerId,
     p_warehouse_reference_number: warehouseReferenceNumber,
@@ -98,6 +101,7 @@ function parsePiFees(value: unknown, paymentMethod: string): PiFeesInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请核对PI附加费用");
   const fees = value as Record<string, unknown>;
   if (fees.show_dual_currency_prices !== undefined && typeof fees.show_dual_currency_prices !== "boolean") throw new Error("PI双币种展示选项不正确");
+  if (fees.price_display_mode !== undefined && !["PAYMENT_ONLY", "CNY_ONLY", "DUAL"].includes(String(fees.price_display_mode))) throw new Error("PI报价展示方式不正确");
   const parseCharge = (key: string): PiFeeInput => {
     const raw = fees[key];
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("请核对PI附加费用");
@@ -115,11 +119,13 @@ function parsePiFees(value: unknown, paymentMethod: string): PiFeesInput {
     throw new Error("PayPal手续费百分比须在0%至100%之间，最多四位小数");
   }
   return {
+    shipping: fees.shipping === undefined ? undefined : parseCharge("shipping"),
     last_balance: parseCharge("last_balance"),
     discount: parseCharge("discount"),
     other: parseCharge("other"),
     paypal_rate_percent: paymentMethod === "PayPal" ? rate : 0,
     show_dual_currency_prices: fees.show_dual_currency_prices === true,
+    price_display_mode: fees.price_display_mode as PiFeesInput["price_display_mode"],
   };
 }
 
@@ -129,3 +135,4 @@ export async function requireOwnedPiCustomer(supabase: ServerSupabase, accountId
   if (error) throw error;
   if (!data) throw new Error("只能为归属自己的有效客户创建PI订单");
 }
+

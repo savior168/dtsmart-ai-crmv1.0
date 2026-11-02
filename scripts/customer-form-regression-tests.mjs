@@ -42,25 +42,29 @@ for (const label of ["公司名称", "客户税号", "客户名称", "客户等�
 assert.doesNotMatch(newCustomer, />其他地址</, "客户表单不应再展示其他地址");
 assert.ok(newCustomer.indexOf("客户等级") < newCustomer.indexOf("客户阶段"), "客户阶段应紧随客户等级");
 for (const grade of ["S", "A", "B", "C", "D"]) {
-  assert.match(newCustomer, new RegExp(`value="${grade}"[^>]*>${grade}<`), `客户等级应支持${grade}`);
+  assert.match(newCustomer, new RegExp(`value="${grade}"[^>]*>${grade} — `), `客户等级应支持${grade}`);
 }
 assert.doesNotMatch(newCustomer, /意向佐证凭证/, "默认潜在客户不应要求意向凭证");
-assert.match(formSource, /客户阶段[\s\S]*?意向佐证凭证[\s\S]*?input\("phone"/, "意向佐证入口应紧邻客户阶段且排在联系方式之前");
+assert.match(formSource, /客户阶段[\s\S]*?意向佐证凭证[\s\S]*?ManualContactsEditor values=\{contactRows\}/, "意向佐证入口应排在多项联系方式之前");
 assert.match(formSource, /id="customer-intent-evidence" type="file"[\s\S]*?className="sr-only"/, "意向佐证应使用可访问的定制文件选择入口，不展示浏览器原生控件");
 assert.match(formSource, /stageFile \? "更换文件" : "选择文件"/, "已选凭证应可更换并回显文件名");
-assert.match(formSource, /customerStageContactError\(stage, form\)/, "新增或编辑阶段按微信、邮箱、电话至少一项校验");
+assert.match(formSource, /customerStageContactError\(stage, completedForm\)/, "新增或编辑阶段按微信、邮箱、电话至少一项校验");
 assert.match(formSource, /仅客户名称和国家\/地区为必填项/, "手动新增说明应明确只有客户名称和国家必填");
 assert.doesNotMatch(formSource, /needsBothContacts/, "不得残留旧的电话加邮箱双必填规则");
 assert.match(formSource, /stage === "FOLLOWING" && !stageFile/, "新增意向客户必须提交凭证");
 assert.match(createApi, /!\["CLAIMED", "DEAL"\]\.includes\(requestedStage\)/, "新增意向客户必须先以潜在客户建立主档，再走凭证阶段流程");
 assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不应强制必填");
 assert.doesNotMatch(createApi, /if \(!body\.company_name\)/, "公司名称不是必填项");
+assert.match(createApi, /key === "company_name" \? String\(body\[key\] \?\? ""\)\.trim\(\)/, "手动新增留空公司名称不得转成违反数据库非空约束的 NULL");
+assert.match(createApi, /payload\.company_name \?\?= ""/, "请求省略公司名称时仍应写入空文本");
+assert.doesNotMatch(editApi, /公司名称不能为空/, "编辑客户也应允许清空选填的公司名称");
+assert.match(editApi, /key === "company_name" \? String\(body\[key\] \?\? ""\)\.trim\(\)/, "清空公司名称时须保留数据库可接受的空文本");
 assert.doesNotMatch(createApi, /body\.website, body\.google_url\].some/, "潜在客户与客户公海不应强制要求一般联系方式");
-assert.match(createApi, /requestedStage === "DEAL" && \(!String\(body\.phone \|\| ""\)\.trim\(\) \|\| !String\(body\.email \|\| ""\)\.trim\(\)\)/, "服务端必须校验手动新增成交客户的电话与邮箱");
+assert.match(createApi, /customerStageContactError\(intendedStage, body\)/, "服务端须按电话、微信或邮箱至少一项校验手动新增的意向及成交客户");
 assert.match(createApi, /ownership_disposition: ownership/, "疑似重复候选必须返回服务端核定的归属类型");
 assert.match(createApi, /\.from\("users"\)\.select\("id,name"\)\.in\("id", ownerIds\)/, "仅查询已有归属人的内部姓名，不返回员工邮箱");
 assert.match(createApi, /owner_name: ownership === "OTHER_OWNED_CUSTOMER"/, "仅向已有归属人的候选返回归属姓名");
-assert.match(createApi, /const possibleMatches: Record<string, unknown>\[\] = \[\];[\s\S]*?\.select\("id,company_name,contact_name,country,phone,whatsapp,email,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at"\)\s*\.is\("deleted_at", null\)/, "重复客户精确与疑似匹配均不得包含已软删除客户");
+assert.match(createApi, /const possibleMatches: Record<string, unknown>\[\] = \[\];[\s\S]*?\.select\("id,company_name,contact_name,country,phone,phone_numbers,whatsapp,whatsapp_numbers,email,email_addresses,website,google_url,address,owner_id,acquisition_scope,pool_status,status,created_at"\)\s*\.is\("deleted_at", null\)/, "重复客户精确与疑似匹配均不得包含已软删除客户");
 const candidate = { id: "11111111-1111-4111-8111-111111111111", company_name: "重复候选", ownership_status: "客户公海待认领" };
 const poolCandidate = renderToStaticMarkup(createElement(PotentialDuplicateCandidate, { item: { ...candidate, ownership_disposition: "PUBLIC_POOL_AVAILABLE" } }));
 assert.match(poolCandidate, /customers\/pool\?tab=available&amp;customer=11111111-1111-4111-8111-111111111111/, "可认领候选必须定向定位客户公海");
@@ -157,7 +161,7 @@ assert.match(editApi, /const writable = \[[\s\S]*"company_name", "contact_name",
 const editableCustomerFields = editApi.match(/const writable = \[[\s\S]*?\];/)?.[0] || "";
 assert.doesNotMatch(editableCustomerFields, /product_image|store_name|store_score|review_count/,
   "客户编辑更新及返回字段不能包含 customers 表不存在的商城字段");
-assert.match(detailSource, /CustomerForm customer=\{customer\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onDirtyChange=\{setEditingDirty\} onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
+assert.match(detailSource, /CustomerForm customer=\{customer\} verifiedContacts=\{data\.verified_contacts \|\| \[\]\} destination=\{publicReadOnly\?"PUBLIC_POOL":"PRIVATE"\} editBasicOnly onDirtyChange=\{setEditingDirty\} onChangeStage=\{data\.can_change_stage\?[\s\S]*setStageOpen\(true\)/, "编辑窗口应区分公海与私有客户，阶段选择必须进入留痕流程");
 assert.match(detailSource, /CustomerEditWorkflowSummary customer=\{customer\}[\s\S]*onFollowup=\{\(\)=>exitEditing\("followup"\)\}/, "编辑窗口进入跟进留痕前也须检查未保存修改");
 assert.match(detailSource, /客户名称[\s\S]*国家\/地区[\s\S]*公司名称[\s\S]*客户税号[\s\S]*客户等级/, "客户详情前五项应与编辑表单顺序一致");
 assert.match(detailSource, /displayAddressList\(customer\.shipping_addresses, customer\.shipping_address\)/, "详情须读取完整收货地址列表并兼容旧字段");
@@ -184,6 +188,7 @@ assert.match(followupApiSource, /customer_followup_history[\s\S]*\.select\("[^"]
 assert.match(followupViewSource, /客户名称 \/ 公司名称/, "跟进列表应明确显示对接人与企业主体");
 assert.match(followupViewSource, /item\.customer\?\.contact_name\|\|"—"[\s\S]*item\.customer\?\.company_name\|\|"—"/, "跟进列表应按对接人在前、公司在后的顺序显示，空值不冒用公司名");
 assert.match(dashboardApiSource, /customer_followup_queue[\s\S]*\.select\("[^"]*company_name,contact_name,phone/, "工作台待跟进数据应读取对接人字段");
-assert.match(dashboardViewSource, /客户名称 \/ 公司名称[\s\S]*item\.customer_name \|\| "—"[\s\S]*item\.company_name \|\| "—"/, "工作台待跟进应对接人在前、公司在后");
+assert.match(dashboardViewSource, /客户名称[\s\S]*\{item\.customer_name\}/, "工作台待跟进须显示客户名称，不得以公司名冒充客户名称");
 assert.match(poolSource, /tab === "claimed" && !row\.contact_masked && row\.contact_name/, "公海已认领记录仅在未隐藏联系人时展示对接人");
 console.log("手动新增与编辑客户表单回显、必填和工作流边界回归测试通过。");
+

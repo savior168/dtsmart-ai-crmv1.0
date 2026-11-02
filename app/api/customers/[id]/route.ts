@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
 import { assertOfficialWebsiteUrl, officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
-import { normalizeManualPhone } from "@/lib/contacts/manual-phone";
+import { manualContactColumns, normalizeManualContacts } from "@/lib/contacts/manual-contact-list";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
 import { normalizeCustomerGrade } from "@/lib/customers/customer-grade";
@@ -29,7 +29,7 @@ async function assertNoDuplicateIdentity(customerId: string, payload: Record<str
   const rows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += 1000) {
     const page = await admin.from("customers")
-      .select("id,company_name,phone,whatsapp,email,website,google_url")
+      .select("id,company_name,phone,phone_numbers,whatsapp,whatsapp_numbers,email,email_addresses,website,google_url")
       .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .range(from, from + 999);
@@ -52,10 +52,9 @@ function validateExternalUrl(value: unknown, label: string, host?: RegExp) {
 }
 
 function validateCustomerContactPayload(payload: Record<string, unknown>) {
-  if ("phone" in payload) payload.phone = normalizeManualPhone(payload.phone, "联系电话") || null;
-  const email = String(payload.email || "").trim();
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("邮箱格式不正确");
-  if ("whatsapp" in payload) payload.whatsapp = normalizeManualPhone(payload.whatsapp, "WhatsApp号码") || null;
+  for (const kind of ["phone", "email", "wechat", "whatsapp"] as const) {
+    if (kind in payload) payload[kind] = normalizeManualContacts(payload[kind], kind) || null;
+  }
   validateExternalUrl(payload.website, "官网网址");
   assertOfficialWebsiteUrl(payload.website);
   validateExternalUrl(payload.google_url, "Google 地图网址", /(^|\.)google\.[a-z.]+$|(^|\.)googleusercontent\.com$|(^|\.)goo\.gl$/);
@@ -100,23 +99,26 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const body = await request.json();
     normalizeAddressPayload(body);
-    const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) => [key, body[key] === "" ? null : body[key]]));
+    const payload = Object.fromEntries(writable.filter((key) => key in body).map((key) =>
+      [key, key === "company_name" ? String(body[key] ?? "").trim() : body[key] === "" ? null : body[key]]));
     if (payload.manual_grade != null) {
       const grade = normalizeCustomerGrade(payload.manual_grade);
       if (String(payload.manual_grade).trim() && !grade) throw new Error("客户等级只能选择 S、KA、MA、A、B、C、D");
       payload.manual_grade = grade;
     }
     validateCustomerContactPayload(payload);
-    const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country,phone,whatsapp,email,website,google_url").eq("id", id).single();
+    const { data: customer, error: customerError } = await supabase.from("customers").select("id,owner_id,company_name,country,phone,phone_numbers,whatsapp,whatsapp_numbers,email,email_addresses,website,google_url").eq("id", id).single();
     if (customerError) throw customerError;
     const canEdit = account.role === "ADMIN" || customer.owner_id === user.id;
     if (!canEdit) return NextResponse.json({ error: "只能编辑归属自己的客户原始资料；跨用户数据仅供查看" }, { status: 403 });
     if (!Object.keys(payload).length) return NextResponse.json({ error: "没有可保存的原始资料" }, { status: 400 });
-    if (!(payload.company_name ?? customer.company_name)?.toString().trim()) return NextResponse.json({ error: "公司名称不能为空" }, { status: 400 });
     if (!(payload.country ?? customer.country)?.toString().trim()) return NextResponse.json({ error: "国家/地区不能为空" }, { status: 400 });
     await assertNoDuplicateIdentity(id, payload, customer);
     for (const key of ["phone", "whatsapp", "email"] as const) {
       if (key in payload && String(payload[key] ?? "") === String(customer[key] ?? "")) delete payload[key];
+    }
+    for (const [key, column] of Object.entries({ phone: "phone_numbers", email: "email_addresses", whatsapp: "whatsapp_numbers", wechat: "wechat_numbers" })) {
+      if (key in body) payload[column] = manualContactColumns({ [key]: body[key] })[column as keyof ReturnType<typeof manualContactColumns>];
     }
     const { data, error } = await supabase.from("customers").update(payload).eq("id", id).select(["id", "status", ...writable].join(",")).single();
     if (error) throw error;
@@ -140,3 +142,4 @@ export async function DELETE(_: NextRequest, context: { params: Promise<{ id: st
     return NextResponse.json({ error: error instanceof Error ? error.message : "删除失败" }, { status: 400 });
   }
 }
+

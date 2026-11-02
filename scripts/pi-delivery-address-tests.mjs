@@ -6,27 +6,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
-const { PiDeliveryAddressField, PiOrderForm } = await jiti.import(resolve("components/pi-order-form.tsx"));
+const { PiOrderForm } = await jiti.import(resolve("components/pi-order-form.tsx"));
 const source = await readFile(new URL("../components/pi-order-form.tsx", import.meta.url), "utf8");
-const render = (value, options) => renderToStaticMarkup(createElement(PiDeliveryAddressField, { value, options, onChange: () => {} }));
-
-const withOptions = render("地址二", ["地址一", "地址二"]);
-assert.match(withOptions, /<textarea id="pi-delivery-address"[^>]*>地址二<\/textarea>/, "当前 PI 地址必须留在唯一可编辑地址框中");
-assert.match(withOptions, /aria-label="选择客户收货地址"/, "已保存地址应在输入框内提供选择按钮");
-assert.equal((withOptions.match(/id="pi-delivery-address"/g) || []).length, 1, "不得产生第二行地址输入控件");
-assert.doesNotMatch(withOptions, /<select/, "不应再用第二行下拉框挤高表单");
-assert.doesNotMatch(withOptions, /readOnly/, "从客户资料选择地址后仍可调整本单地址");
-assert.doesNotMatch(render("自定义地址", []), /选择客户收货地址/, "无已保存地址时仅展示自由输入框");
-assert.match(source, /onClick=\{\(\) => \{ onChange\(item\); setOpen\(false\); \}\}/, "选择地址应直接填入同一字段");
-assert.match(source, /PiDeliveryAddressField value=\{address\} options=\{selectedShippingAddresses\} onChange=\{\(value\) => \{ markUnsaved\(\); setAddress\(value\); const selected = selectedShippingContacts\.find/, "选择及手工输入都须更新PI地址并标记未保存，同时匹配对应收货人和电话");
-assert.doesNotMatch(source, /<AppSelect aria-label="选择客户收货地址"/, "不得保留旧第二行地址下拉框");
+assert.match(source, /选择客户资料中的客户收货信息/, "有客户档案收货信息时须能选择完整联系人条目");
+assert.match(source, /收货地址<Required \/><textarea[^>]*value=\{address\} onChange=\{\(event\) => \{ markUnsaved\(\); setAddress\(event\.target\.value\)/, "带入后本单地址仍须允许编辑");
 const emptyForm = renderToStaticMarkup(createElement(PiOrderForm, { initialIsClerk: false }));
 assert.match(emptyForm, /添加客户收货信息/);
 assert.match(emptyForm, /添加货代收货信息/);
-assert.match(source, /选择客户资料中的客户收货信息/, "勾选客户收货信息后须能选择客户档案中的联系人条目");
 assert.match(source, /选择客户资料中的货代收货信息/, "勾选货代收货信息后须能选择客户档案中的货代条目");
 assert.match(source, /setRecipient\(chosen\?\.recipient[\s\S]*setPhone\(chosen\?\.phone[\s\S]*setAddress\(chosen\?\.address/, "选择客户资料后须带入整条收货信息，且输入框保持可编辑");
 assert.match(source, /setForwarderAddress\(chosen\?\.address[\s\S]*setForwarderRecipient\(chosen\?\.recipient[\s\S]*setForwarderPhone\(chosen\?\.phone/, "选择客户资料后须带入整条货代信息，且输入框保持可编辑");
-assert.doesNotMatch(emptyForm, /id="pi-delivery-address"/, "未勾选时不应直接显示客户收货地址输入框");
+assert.doesNotMatch(emptyForm, /placeholder="输入或选择客户资料中的收货地址"/, "未勾选时不应直接显示客户收货地址输入框");
 assert.doesNotMatch(emptyForm, /从客户资料选择/, "未勾选时不应显示货代选择控件");
 console.log("PI single-field delivery address regressions passed.");
+

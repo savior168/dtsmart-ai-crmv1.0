@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
       const idBatches = Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, (index + 1) * 50));
       const details = (await mapExportBatches(idBatches, 4, async (batchIds) => {
         const result = await supabase.from("sales_orders").select(
-          "id,customer_id,prepared_by,order_number,warehouse_reference_number,status,confirmation_method,currency,show_dual_currency_prices,delivery_date,payment_method,customer_short_name,customer_tax_number_snapshot,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,last_balance_cny,last_balance_amount,discount_cny,discount_amount,other_charge_cny,other_charge_amount,paypal_fee_percent,paypal_fee_cny,paypal_fee_amount,payment_account_snapshot,customer:customers(company_name,contact_name,tax_number)",
+          "id,customer_id,prepared_by,order_number,warehouse_reference_number,status,confirmation_method,currency,show_dual_currency_prices,price_display_mode,delivery_date,payment_method,customer_short_name,customer_tax_number_snapshot,shipping_cost,subtotal,total_amount,created_at,confirmed_at,pi_valid_until,seller_company_name,seller_company_address,seller_website,seller_contact_name,seller_contact_phone,seller_contact_email,delivery_recipient,delivery_phone,delivery_email,delivery_address,fx_rate_cny_to_payment,subtotal_cny,shipping_cny,total_cny,last_balance_cny,last_balance_amount,discount_cny,discount_amount,other_charge_cny,other_charge_amount,paypal_fee_percent,paypal_fee_cny,paypal_fee_amount,payment_account_snapshot,customer:customers(company_name,contact_name,tax_number)",
         ).in("id", batchIds);
         if (result.error) throw result.error;
         return result.data || [];
@@ -229,3 +229,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

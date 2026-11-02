@@ -9,9 +9,13 @@ export type Customer = {
   contact_name: string | null;
   country: string | null;
   phone: string | null;
+  phone_numbers?: string[] | null;
   whatsapp: string | null;
+  whatsapp_numbers?: string[] | null;
   wechat?: string | null;
+  wechat_numbers?: string[] | null;
   email: string | null;
+  email_addresses?: string[] | null;
   tax_number?: string | null;
   manual_grade?: CustomerGrade | null;
   website: string | null;
@@ -128,3 +132,4 @@ export type QuoteItem = {
   pricing_rule_snapshot?: Record<string, unknown> | null;
   preparation_requirement?: string | null;
 };
+
