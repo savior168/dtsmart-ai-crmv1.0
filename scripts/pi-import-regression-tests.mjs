@@ -157,3 +157,4 @@ assert.match(form, /submitAfterImportDifferences \? "将保存PI并生成备货�
 assert.match(readFileSync("app/api/orders/import-drafts/route.ts", "utf8"), /matchImportedPaymentAccount[\s\S]*payment_account_id/,
   "付款账户只能服务端唯一精确匹配，并只在导入草稿中保存账户ID而不保留账户明文");
 console.log("PI整单导入模板、必填标记、解析校验及待补全流程回归通过。");
+

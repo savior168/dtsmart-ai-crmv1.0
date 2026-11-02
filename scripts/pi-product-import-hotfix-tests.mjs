@@ -56,3 +56,4 @@ if (sourcePath) {
   assert.ok(fullSource.length > validSource.length, "完整单据应导入第36行及其余产品");
 }
 console.log("PI product import hotfix tests passed");
+
