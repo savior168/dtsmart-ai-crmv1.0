@@ -198,7 +198,7 @@ assert.match(createPiApi, /requireOwnedPiCustomer\(supabase, account\.id, input\
 assert.match(strictOwnerMigration, /customer\.owner_id is distinct from actor\.id/, "数据库创建函数必须对所有角色强制当前归属校验");
 assert.match(strictOwnerMigration, /c\.owner_id=target\.sales_user_id/, "PI提交前必须再次核对客户归属");
 assert.match(piForm, /forceSearch[\s\S]*搜索客户名称或公司名称/, "PI客户下拉即使选项较少也必须可搜索");
-assert.match(piForm, /name="pi-price-display-mode"[\s\S]*checked=\{priceDisplayMode === "PAYMENT_ONLY"\}[\s\S]*\{currency\}报价[\s\S]*人民币 \+ \{currency\}双报价/, "PI报价必须在所选外币与人民币加外币两种展示方式中单选");
+assert.match(piForm, /name="pi-price-display-mode"[\s\S]*checked=\{priceDisplayMode === "PAYMENT_ONLY"\}[\s\S]*\{currency\} 报价[\s\S]*CNY \+ \{currency\} 双报价/, "PI报价必须统一使用国际币种代码，并在所选外币与双币种模式中单选");
 assert.match(piForm, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(22rem,28rem\)\]/, "PI费用汇总须限制宽度，避免空白区域撑开");
 assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
