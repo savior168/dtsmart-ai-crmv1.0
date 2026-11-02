@@ -14,14 +14,11 @@ import {
   ChevronDown,
   ChevronUp,
   CheckCircle2,
-  Copy,
   Download,
   Eye,
   FileSpreadsheet,
   LoaderCircle,
-  Mail,
   Paperclip,
-  Phone,
   Plus,
   Search,
   Settings2,
@@ -39,7 +36,6 @@ import {
 import { AppPagination } from "@/components/ui/app-pagination";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
 import { CustomerContactSummary } from "@/components/customer-contact-summary";
-import { splitManualContacts } from "@/lib/contacts/manual-contact-list";
 import { CustomerPublicChannels } from "@/components/customer-public-channels";
 import { AppTabs } from "@/components/ui/app-tabs";
 import { CustomerForm } from "@/components/customer-form";
@@ -59,7 +55,6 @@ import type { UserRole } from "@/lib/auth/permissions";
 import { appFieldClass } from "@/components/ui/app-list";
 import { customerIndustryDisplay } from "@/lib/customers/industry-display";
 import { AttachmentPreview } from "@/components/ui/attachment-preview";
-import { formatPhoneInternational, normalizePhoneInternational } from "@/lib/contacts/phone-normalization";
 import { SearchableMultiSelectFilter, type SearchableFilterOption } from "@/components/ui/searchable-multi-select-filter";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { countryInfo } from "@/lib/countries";
@@ -255,52 +250,6 @@ function fieldLabel(field: CustomerListColumn, tab: Tab) {
   if (tab === "claimed" && field === "company_name") return "客户名称 / 公司名称";
   if (tab === "available" && field === "phone") return "联系号码";
   return CUSTOMER_LIST_COLUMNS.find((column) => column.key === field)?.label || field;
-}
-
-function ContactLinks({ row, source }: { row: PoolRow; source: "original" | "ai" }) {
-  const [copied, setCopied] = useState("");
-  type DisplayContact = { label: string; value: string; type: "PHONE" | "EMAIL" | "WHATSAPP"; icon: React.ReactNode; source: "original" | "verified" | "conflict"; channel?: string | null; sourceUrl?: string | null };
-  const iconFor = (type: string) => type === "EMAIL" ? <Mail size={14}/> : type === "WHATSAPP" ? <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span> : <Phone size={14}/>;
-  const originals: DisplayContact[] = [
-    ...splitManualContacts(row.phone).map((value): DisplayContact => ({ label: "原始电话", value, type: "PHONE", icon: <Phone size={14}/>, source: "original" })),
-    ...splitManualContacts(row.whatsapp).map((value): DisplayContact => ({ label: "原始 WhatsApp", value, type: "WHATSAPP", icon: <span className="text-[11px] font-bold leading-none text-[#25D366]">WA</span>, source: "original" })),
-    ...splitManualContacts(row.email).map((value): DisplayContact => ({ label: "原始邮箱", value, type: "EMAIL", icon: <Mail size={14}/>, source: "original" })),
-  ];
-  const contactKey = (type: string, value: string) => {
-    if (type === "EMAIL") return `${type}:${value.trim().toLowerCase()}`;
-    return `${type}:${normalizePhoneInternational(value, row.country).replace(/\D/g, "") || value.replace(/\D/g, "")}`;
-  };
-  const originalKeys = new Set(originals.filter((item) => item.value !== "未提供").map((item) => contactKey(item.type, item.value)));
-  const collected: DisplayContact[] = [
-    ...(row.verified_contacts || []).filter((contact) => ["NEW_VERIFIED", "CONFLICTING_VERIFIED"].includes(String(contact.verification_status || "")) && ["PHONE", "EMAIL", "WHATSAPP"].includes(String(contact.type || "").toUpperCase()) && String(contact.value_raw || "").trim()).map((contact): DisplayContact => ({
-      label: `${String(contact.source_channel || "public").toLowerCase() === "website" ? "官网" : String(contact.source_channel || "").toLowerCase() === "google_maps" ? "Google Maps" : "公开来源"}核验${String(contact.type).toUpperCase() === "EMAIL" ? "邮箱" : String(contact.type).toUpperCase() === "WHATSAPP" ? "WhatsApp" : "电话"}`,
-      value: String(contact.value_raw).trim(), type: String(contact.type).toUpperCase() as "PHONE" | "EMAIL" | "WHATSAPP", icon: iconFor(String(contact.type).toUpperCase()),
-      source: contact.verification_status === "CONFLICTING_VERIFIED" ? "conflict" : "verified",
-      channel: contact.source_channel, sourceUrl: contact.exact_source_url,
-    })),
-  ];
-  // A discovered contact can also be saved in the compatibility fields. Keep
-  // it visible for older analysis records, while avoiding a second identical
-  // row once the structured customer_contacts record is available.
-  for (const [label, value, type] of [["官网核验电话", row.website_phone, "PHONE"], ["官网核验邮箱", row.website_email, "EMAIL"]] as const) {
-    if (!value || collected.some((item) => contactKey(item.type, item.value) === contactKey(type, value))) continue;
-    collected.push({ label, value, type, icon: iconFor(type), source: "verified", channel: "website" });
-  }
-  const contacts = (source === "original" ? originals : collected)
-    .filter((item, index, all) => source === "original" || (!originalKeys.has(contactKey(item.type, item.value)) && all.findIndex((candidate) => contactKey(candidate.type, candidate.value) === contactKey(item.type, item.value)) === index));
-  if (!contacts.length) return <span className="text-slate-400">—</span>;
-  return <div className="space-y-1">{contacts.map((item, index) => {
-    const muted = item.value === "未提供";
-    const key = `${item.label}:${item.value}:${index}`;
-    const badge = item.source === "original" ? "原始" : item.source === "conflict" ? "待核对" : "已核验";
-    const tone = item.source === "original" ? "bg-slate-100 text-slate-500" : item.source === "conflict" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-amber-700";
-    const display = muted || item.type === "EMAIL" ? item.value : formatPhoneInternational(item.value, row.country);
-    const whatsappDigits = item.type === "WHATSAPP" && !muted ? normalizePhoneInternational(item.value, row.country).replace(/\D/g, "") : "";
-    const text = whatsappDigits
-      ? <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" title="打开 WhatsApp Web 对话" className="min-w-0 flex-1 truncate text-[#128C7E] hover:underline">{display}</a>
-      : <span className="min-w-0 flex-1 truncate">{display}</span>;
-    return <span key={key} title={`${item.label}：${item.value}${item.sourceUrl ? `\n来源：${item.sourceUrl}` : ""}`} className={`flex min-w-0 items-center gap-1.5 text-xs ${muted ? "text-slate-400" : "text-slate-700"}`}><span className={item.source === "verified" ? "shrink-0 text-emerald-600" : item.source === "conflict" ? "shrink-0 text-amber-600" : "shrink-0 text-slate-400"}>{item.icon}</span><span className={`shrink-0 rounded px-1 py-0.5 text-[10px] leading-none ${tone}`}>{badge}</span>{text}<button type="button" disabled={muted} onClick={() => { void navigator.clipboard?.writeText(item.value).then(() => { setCopied(key); window.setTimeout(() => setCopied((current) => current === key ? "" : current), 1400); }).catch(() => undefined); }} aria-label={`复制${item.label}`} title={copied === key ? "已复制" : `复制${item.label}`} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-blue-600 disabled:pointer-events-none disabled:opacity-30">{copied === key ? <CheckCircle2 size={13} className="text-emerald-600"/> : <Copy size={13}/>}</button></span>;
-  })}</div>;
 }
 
 function poolText(row: PoolRow, key: CustomerListColumn) {
