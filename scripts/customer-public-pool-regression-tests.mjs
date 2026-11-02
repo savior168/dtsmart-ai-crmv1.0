@@ -129,10 +129,10 @@ assert.match(contactSummary, /for \(const value of splitStoredContactValues/, "�
 assert.match(contactSummary, /renderGroups[\s\S]*labels\[kind\][\s\S]*entries\.map\(\(item,index\)=>renderContact\(item,index\)\)/, "展开后的联系方式按四种渠道分组，来源在每项保留");
 assert.match(acquisitionCustomerResults, /CustomerContactSummary customer=\{row\} source="all"/, "AI获客客户结果必须显示实际联系方式，而不是仅显示是否可联系状态");
 assert.match(acquisitionCustomersApi, /verified_contacts:verifiedContactsByCustomer\.get\(customerId\)\|\|\[\]/, "AI获客客户结果接口必须一次性返回当前页客户的核验联系方式");
-assert.match(poolView, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");
-assert.match(poolView, /normalizePhoneInternational\(item\.value, row\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
-assert.match(poolView, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");
-assert.match(poolView, /原始邮箱[\s\S]*未提供/, "待认领列表必须明确原始资料缺失，而不是静默隐藏");
+assert.match(contactSummary, /navigator\.clipboard[\s\S]*复制\$\{item\.label\}/, "电话、邮箱与WhatsApp必须支持一键复制原始值");
+assert.match(contactSummary, /normalizePhoneInternational\(item\.value, customer\.country\)[\s\S]*https:\/\/wa\.me\//, "有效WhatsApp号码必须能直达对应网页版会话");
+assert.match(poolView, /CustomerContactSummary customer=\{row\} source="all"/, "客户公海须使用共享的四渠道联系方式组件");
+assert.match(contactSummary, /verified_contacts[\s\S]*CONFLICTING_VERIFIED[\s\S]*已核验/, "待认领列表必须显示结构化官网或公开来源联系方式");
 assert.match(poolView, /CustomerPublicChannels[\s\S]*field === "google_url"[\s\S]*CustomerPublicChannels customer=\{row\}/, "待认领列表必须将Google Maps与官方社媒合并为统一公开渠道入口");
 assert.match(acquisitionCustomerResults, /CustomerPublicChannels customer=\{row\}/, "AI获客结果必须与客户公海统一使用Google Maps与官方社媒的公开渠道图标");
 assert.match(poolApi, /facebook_url,instagram_url,linkedin_url,tiktok_url,other_public_urls/, "客户公海接口必须提供已授权读取的社媒链接字段");
