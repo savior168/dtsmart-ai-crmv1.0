@@ -872,7 +872,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               </div>
           </div>
           <Metric
-            label="可导入数据"
+            label={stats ? "有效待处理" : "有效记录"}
             value={displayImportable}
             tone="bg-blue-50 text-blue-600"
             icon={<FileSpreadsheet size={18} />}
@@ -884,10 +884,11 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             icon={<CheckCircle2 size={18} />}
             onClick={() => showResult("success")}
           />
-          <Metric label="失败导入" value={displayFailure + (stats?.error_count || 0)} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} onClick={() => showResult("failed")} />
+          <Metric label={stats ? "失败导入" : "待修正行"} value={stats ? displayFailure + stats.error_count : invalidCount} tone="bg-rose-50 text-rose-600" icon={<AlertTriangle size={18} />} onClick={() => stats ? showResult("failed") : setShowFailures(true)} />
           <Metric label="系统重复" value={displayDuplicate} tone="bg-amber-50 text-amber-600" icon={<RefreshCw size={18} />} onClick={() => showResult("duplicate")} />
           <Metric label="归属冲突" value={displayConflict} tone="bg-orange-50 text-orange-600" icon={<ShieldAlert size={18} />} onClick={() => showResult("conflict")} />
         </section>
+        {!stats && invalidCount > 0 ? <div role="status" className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><AlertTriangle size={16} /><span>原文件有 {invalidCount} 条资料未通过校验，已跳过；其余 {rows.length} 条有效记录可继续处理。</span><button type="button" onClick={() => setShowFailures(true)} className="font-medium text-blue-700 underline">查看原文件行号与原因</button></div> : null}
         {error && (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
             <AlertTriangle size={17} /> {error}
@@ -915,7 +916,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               <p className="mt-1 text-sm text-slate-500">
                 {stats
                   ? `成功 ${stats.success_count} 条，重复 ${stats.duplicate_count} 条，失败 ${stats.failed_count} 条，冲突 ${stats.conflict_count || 0} 条`
-                  : previewReady ? `共 ${rows.length} 条可导入数据；已完成全库预检，确认导入后才会写入系统` : `共 ${rows.length} 条待预检数据；预检成功后才能确认导入`}
+                  : previewReady ? `共 ${rows.length} 条有效记录待处理；已完成全库预检，处理后按成功、重复和归属冲突分别统计` : `共 ${rows.length} 条待预检数据；预检成功后才能确认导入`}
               </p>
             </div>
             <div className="flex gap-2">
@@ -940,7 +941,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 size={16} /> 确认导入 {rows.length} 条
+                      <CheckCircle2 size={16} /> 处理 {rows.length} 条有效记录
                     </>
                   )}
                 </button>
@@ -1167,9 +1168,9 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
             <section className="max-h-[80vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b p-5">
                 <div>
-                  <h3 className="text-lg font-semibold">导入失败原因</h3>
+                  <h3 className="text-lg font-semibold">{stats ? "导入失败原因" : "文件校验未通过"}</h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    失败数据不会写入客户表，可修正后重新导入。
+                    未通过校验的数据不会写入客户表，可按原文件行号修正后重新导入。
                   </p>
                 </div>
                 <button
@@ -1180,7 +1181,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                 </button>
               </div>
               <div className="max-h-[60vh] overflow-auto p-5">
-                {failed.some((item) => item.kind === "failure") ? (
+                {failed.some((item) => item.kind === "failure" || item.kind === "error") ? (
                   <table className="w-full text-left text-sm">
                     <thead className="text-slate-500">
                       <tr>
@@ -1190,7 +1191,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
                       </tr>
                     </thead>
                     <tbody>
-                      {failed.filter((item) => item.kind === "failure").map((item) => (
+                      {failed.filter((item) => item.kind === "failure" || item.kind === "error").map((item) => (
                         <tr key={item.id} className="border-t">
                           <td className="py-3">{item.file_name}</td>
                           <td>{item.row_number || "-"}</td>

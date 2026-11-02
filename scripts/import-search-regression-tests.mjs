@@ -45,6 +45,9 @@ assert.match(importRoute, /const country = normalizeImportCountry\(item\.country
 assert.match(previewRoute, /success_count: Math\.max\(0, rows\.length - conflictCount - existingDuplicates\)/, "预检必须逐行统计冲突，不能按不同客户ID虚增预计成功数");
 const importView = readFileSync(resolve("components/import-view.tsx"), "utf8");
 assert.match(importView, /const previewReady = rows\.length > 0 && rows\.every/, "预检失败后不能继续确认导入");
+assert.match(importView, /label=\{stats \? "失败导入" : "待修正行"\}[\s\S]*value=\{stats \? displayFailure \+ stats\.error_count : invalidCount\}/, "提交前必须显示被跳过的无效行数");
+assert.match(importView, /查看原文件行号与原因[\s\S]*item\.kind === "failure" \|\| item\.kind === "error"/, "提交前必须能查看无效源行的行号与原因");
+assert.match(importView, /处理 \{rows\.length\} 条有效记录/, "预检有效行不能被误标为已成功导入");
 assert.match(importView, /return file\.webkitRelativePath\.trim\(\)\.toLowerCase\(\) \|\| fileKey\(file\)/, "不同文件夹中同名文件不得被静默合并");
 assert.match(importView, /const fileLabel = file\.webkitRelativePath[\s\S]*file_name: fileLabel/, "导入结果必须保留可区分同名文件的来源标签");
 assert.match(importView, /href=\{destination === "PUBLIC_POOL" \? "\/customers\/pool" : "\/customers"\}[\s\S]*返回\{destination === "PUBLIC_POOL" \? "客户公海" : "我的客户"\}/, "两个导入入口必须分别返回公海或我的客户");
