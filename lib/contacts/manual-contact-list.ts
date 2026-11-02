@@ -39,3 +39,4 @@ export function normalizeManualContacts(value: unknown, kind: ManualContactKind)
   }
   return normalized.join("; ");
 }
+

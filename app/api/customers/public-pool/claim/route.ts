@@ -52,3 +52,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }
+

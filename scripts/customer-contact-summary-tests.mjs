@@ -49,3 +49,4 @@ assert.match(emails, /truncate/, "邮箱保留原有紧凑显示方式");
 assert.ok(visibleText(emails).includes("展开"));
 assert.ok(visibleText(render({})).includes("—"));
 console.log("电话摘要完整号码、渠道保留、证据入口及冲突保护渲染测试通过。");
+

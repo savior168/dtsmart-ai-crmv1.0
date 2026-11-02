@@ -59,3 +59,4 @@ assert.match(migration, /pg_advisory_xact_lock/);
 assert.match(migration, /before insert on public\.customers/);
 
 console.log("导入、特殊字符搜索、永久删除与用户资料切换回归测试通过。");
+

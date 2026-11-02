@@ -67,3 +67,4 @@ before insert or update of phone, whatsapp, email, phone_numbers, whatsapp_numbe
 for each row execute function public.prevent_duplicate_customer_identity();
 
 commit;
+

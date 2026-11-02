@@ -155,3 +155,4 @@ export function CustomerContactSummary({ customer, source, display = "all", expa
   }
   return <div className="space-y-1">{contacts.map((item, index) => renderContact(item, index))}</div>;
 }
+

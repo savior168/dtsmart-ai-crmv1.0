@@ -28,3 +28,4 @@ before insert or update of status, phone, email, wechat, whatsapp, phone_numbers
 for each row execute function public.require_customer_stage_contacts();
 
 commit;
+

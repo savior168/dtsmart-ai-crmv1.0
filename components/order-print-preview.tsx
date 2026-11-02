@@ -166,3 +166,4 @@ export function OrderPrintPreview({kind,id,initialPayload,embedded=false}:{kind:
     <style jsx global>{`@media print{@page{size:A4 ${kind === "pi" ? "portrait" : "landscape"};margin:0}.print-root{padding:10mm!important}.crm-topbar,aside{display:none!important}.crm-content{min-height:0!important}body{background:#fff!important}thead{display:table-header-group}tr{break-inside:avoid}article{box-shadow:none!important}button{display:none!important}.pi-print-document{width:1100px!important;max-width:none!important;padding:20px!important;zoom:.64;print-color-adjust:exact;-webkit-print-color-adjust:exact}.pi-print-document table{min-width:950px!important}.document-print-batch-page{min-height:0!important;break-after:page}.document-print-batch-page:last-of-type{break-after:auto}}`}</style>
   </main>;
 }
+

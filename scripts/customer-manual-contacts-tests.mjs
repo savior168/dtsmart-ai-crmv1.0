@@ -81,3 +81,4 @@ const migration = read("supabase/migrations/20261030170000_customer_manual_multi
 assert.match(migration, /pg_advisory_xact_lock/);
 assert.match(migration, /lock_keys && public\.customer_manual_identity_keys/, "each saved value must be checked for global duplicates");
 console.log("customer manual contacts tests passed");
+
