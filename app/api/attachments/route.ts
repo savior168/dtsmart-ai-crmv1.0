@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission, requireUser } from "@/lib/auth/current-user";
+import { storageObjectName } from "@/lib/storage-object-key";
 
 const allowed = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"]);
-const safeName = (value: string) => value.normalize("NFKC").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(-160) || "attachment";
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       customerId = data.customer_id;
     }
     const id = crypto.randomUUID();
-    const storagePath = `${account.id}/${quoteId ? `quotes/${quoteId}` : `followups/${followupId}`}/${id}-${safeName(file.name)}`;
+    const storagePath = `${account.id}/${quoteId ? `quotes/${quoteId}` : `followups/${followupId}`}/${storageObjectName(id, file.type)}`;
     const upload = await admin.storage.from("crm-attachments").upload(storagePath, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: false });
     if (upload.error) throw upload.error;
     const inserted = await admin.from("attachments").insert({ id, customer_id: customerId, followup_id: followupId || null, quote_id: quoteId || null, uploaded_by: account.id, filename: file.name, original_filename: file.name, storage_path: storagePath, mime_type: file.type, size_bytes: file.size, kind: quoteId ? "QUOTE" : "FOLLOWUP" }).select("id,filename,mime_type,size_bytes,created_at").single();
@@ -47,3 +47,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: message === "FORBIDDEN" ? 403 : 400 });
   }
 }
+

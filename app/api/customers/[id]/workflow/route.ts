@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { canWriteOwnedRecord, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerStageContactError } from "@/lib/customer-contact-requirement";
+import { storageObjectName } from "@/lib/storage-object-key";
 
 type WorkflowBody = { action?: "RELEASE" | "ASSIGN" | "STAGE" | "FOLLOWUP_STATUS"; reason?: string; user_id?: string; status?: string; followup_status?: string };
 
 const stageEvidenceTypes = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
-const safeName = (value: string) => value.normalize("NFKC").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(-160) || "stage-evidence";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
       let storagePath: string | null = null;
       if (file instanceof File) {
-        storagePath = `${account.id}/stage-evidence/${id}/${crypto.randomUUID()}-${safeName(file.name)}`;
+        storagePath = `${account.id}/stage-evidence/${id}/${storageObjectName(crypto.randomUUID(), file.type)}`;
         const uploaded = await admin.storage.from("crm-attachments").upload(storagePath, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: false });
         if (uploaded.error) throw uploaded.error;
       }
