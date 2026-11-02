@@ -13,7 +13,7 @@ returns public.sales_orders language plpgsql security definer set search_path = 
 declare
   target public.sales_orders;
   result public.sales_orders;
-  balance numeric[]; discount numeric[]; other_fee numeric[];
+  balance numeric[]; discount numeric[]; other_fee numeric[]; shipping_pair numeric[];
   rate_percent numeric; fee_cny numeric(14,2); fee_payment numeric(14,2);
   base_cny numeric(14,2); base_payment numeric(14,2);
 begin
@@ -52,14 +52,20 @@ begin
   balance := public.pi_fee_pair(p_fees->'last_balance', target.fx_rate_cny_to_payment);
   discount := public.pi_fee_pair(p_fees->'discount', target.fx_rate_cny_to_payment);
   other_fee := public.pi_fee_pair(p_fees->'other', target.fx_rate_cny_to_payment);
+  shipping_pair := case when p_fees ? 'shipping'
+    then public.pi_fee_pair(p_fees->'shipping', target.fx_rate_cny_to_payment)
+    else array[target.shipping_cny, target.shipping_cost] end;
+  if abs(shipping_pair[1] - target.shipping_cny) > 0.001 then
+    raise exception '运费双币种换算不一致';
+  end if;
   if coalesce(p_fees->>'paypal_rate_percent', '') !~ '^(0|[1-9][0-9]?|100)(\.[0-9]{1,4})?$' then
     raise exception 'PayPal手续费百分比格式不正确';
   end if;
   rate_percent := (p_fees->>'paypal_rate_percent')::numeric;
   if rate_percent > 100 then raise exception 'PayPal手续费百分比不能超过100%%'; end if;
   if target.payment_method is distinct from 'PayPal' then rate_percent := 0; end if;
-  base_cny := target.subtotal_cny + target.shipping_cny + balance[1] + other_fee[1] - discount[1];
-  base_payment := target.subtotal + target.shipping_cost + balance[2] + other_fee[2] - discount[2];
+  base_cny := target.subtotal_cny + shipping_pair[1] + balance[1] + other_fee[1] - discount[1];
+  base_payment := target.subtotal + shipping_pair[2] + balance[2] + other_fee[2] - discount[2];
   if base_cny < 0 or base_payment < 0 then raise exception '折扣不得超过本单应付金额'; end if;
   fee_cny := round(base_cny * rate_percent / 100, 2);
   fee_payment := round(base_payment * rate_percent / 100, 2);
@@ -67,6 +73,7 @@ begin
     forwarder_address = case when p_fees ? 'forwarder_address' then nullif(btrim(p_fees->>'forwarder_address'), '') else target.forwarder_address end,
     show_dual_currency_prices = coalesce((p_fees->>'show_dual_currency_prices')::boolean, false),
     price_display_mode = coalesce(p_fees->>'price_display_mode', case when coalesce((p_fees->>'show_dual_currency_prices')::boolean, false) then 'DUAL' else 'PAYMENT_ONLY' end),
+    shipping_cny = shipping_pair[1], shipping_cost = shipping_pair[2],
     last_balance_cny = balance[1], last_balance_amount = balance[2], last_balance_source = p_fees->'last_balance'->>'source',
     discount_cny = discount[1], discount_amount = discount[2], discount_source = p_fees->'discount'->>'source',
     other_charge_cny = other_fee[1], other_charge_amount = other_fee[2], other_charge_source = p_fees->'other'->>'source',
@@ -82,6 +89,7 @@ begin
     where id = target.id returning * into result;
   end if;
   update public.quotes set
+    shipping_cny = shipping_pair[1], shipping_cost = shipping_pair[2],
     last_balance_cny = balance[1], last_balance_amount = balance[2], last_balance_source = p_fees->'last_balance'->>'source',
     discount_cny = discount[1], discount_amount = discount[2], discount_source = p_fees->'discount'->>'source',
     other_charge_cny = other_fee[1], other_charge_amount = other_fee[2], other_charge_source = p_fees->'other'->>'source',
@@ -92,4 +100,5 @@ begin
 end $$;
 revoke all on function public.apply_direct_pi_fees(uuid,jsonb) from public, anon, authenticated;
 commit;
+
 

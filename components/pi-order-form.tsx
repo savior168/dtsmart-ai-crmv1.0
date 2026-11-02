@@ -10,7 +10,7 @@ import { cnyPerPayment as inverseRate, paymentPerCny } from "@/lib/pi-exchange-r
 import { countryInfo } from "@/lib/countries";
 import { validPiMoney, validPiQuantity, validPiSellingPrice } from "@/lib/pi-line-values";
 import { linkedPiUnitPrices, type PiUnitPriceSource } from "@/lib/pi-line-currency";
-import { calculatePiFees, type PiFeeSource } from "@/lib/pi-fees";
+import { calculatePiFees, type PiFeeSource, type PiFeesInput } from "@/lib/pi-fees";
 import { PI_PAYMENT_CHANNELS, type PiPaymentChannel } from "@/lib/pi-payment-channel";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
@@ -63,11 +63,12 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const [warehouseReferenceNumber, setWarehouseReferenceNumber] = useState("");
   const [currency, setCurrency] = useState("USD");
-  const [priceDisplayMode, setPriceDisplayMode] = useState<"CNY_ONLY" | "DUAL">("CNY_ONLY");
+  const [priceDisplayMode, setPriceDisplayMode] = useState<"PAYMENT_ONLY" | "DUAL">("PAYMENT_ONLY");
   const [rate, setRate] = useState("");
   const [rateReviewed, setRateReviewed] = useState(false);
   const [rateLoading, setRateLoading] = useState(false);
   const [shippingInput, setShippingInput] = useState("0.00");
+  const [shippingSource, setShippingSource] = useState<PiFeeSource>("CNY");
   const [feeFields, setFeeFields] = useState<Record<FeeKey, FeeField>>({ last_balance: emptyFee(), discount: emptyFee(), other: emptyFee() });
   const [paypalRateInput, setPaypalRateInput] = useState("5");
   const [accountId, setAccountId] = useState("");
@@ -117,7 +118,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const hasOtherPaymentAccount = accounts.some((item) => item.active !== false && item.payment_channel === "OTHER");
   const cnyPerPayment = Number(rate);
   const effectiveRate = paymentPerCny(cnyPerPayment);
-  const shippingCny = Number(shippingInput);
+  const shippingPair = linkedPiUnitPrices(shippingInput, shippingSource, effectiveRate);
+  const shippingCny = Number(shippingPair.cny);
   const selectedCustomer = customers.find((item) => item.id === customerId);
   const selectedShippingAddresses = displayAddressList(selectedCustomer?.shipping_addresses, selectedCustomer?.shipping_address);
   const selectedShippingContacts = displayShippingContacts(selectedCustomer?.shipping_contact_entries, selectedShippingAddresses);
@@ -128,16 +130,17 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     const subtotalPayment = roundMoney(items.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.unit_price_payment || 0)), 0));
     const totalProfitCny = items.every((item) => validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && validPiQuantity(item.quantity))
       ? roundMoney(items.reduce((sum, item) => sum + Number(item.quantity) * (Number(item.unit_price_cny) - Number(item.estimated_unit_cost_cny)), 0)) : null;
-    return { subtotalCny, subtotalPayment, totalProfitCny, shippingPayment: roundMoney(shippingCny * effectiveRate) };
-  }, [items, shippingCny, effectiveRate]);
-  const feeInput = useMemo(() => ({
+    return { subtotalCny, subtotalPayment, totalProfitCny, shippingPayment: Number(shippingPair.payment) };
+  }, [items, shippingPair.payment]);
+  const feeInput = useMemo<PiFeesInput>(() => ({
+    shipping: { source: shippingSource, amount: Number(shippingInput) },
     last_balance: { source: feeFields.last_balance.source, amount: feeFields.last_balance.enabled ? Number(feeFields.last_balance.amount) : 0 },
     discount: { source: feeFields.discount.source, amount: feeFields.discount.enabled ? Number(feeFields.discount.amount) : 0 },
     other: { source: feeFields.other.source, amount: feeFields.other.enabled ? Number(feeFields.other.amount) : 0 },
     paypal_rate_percent: paymentMethod === "PayPal" ? Number(paypalRateInput) : 0,
     show_dual_currency_prices: priceDisplayMode === "DUAL" && currency !== "CNY",
     price_display_mode: currency === "CNY" ? "CNY_ONLY" : priceDisplayMode,
-  }), [feeFields, paymentMethod, paypalRateInput, priceDisplayMode, currency]);
+  }), [feeFields, paymentMethod, paypalRateInput, priceDisplayMode, currency, shippingSource, shippingInput]);
   const feeCalculation = useMemo(() => {
     if (!effectiveRate) return { value: null, error: "请输入有效汇率" };
     try { return { value: calculatePiFees(totals.subtotalCny, totals.subtotalPayment, shippingCny, effectiveRate, paymentMethod, feeInput), error: "" }; }
@@ -264,7 +267,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setAddress(source.delivery_address);
         setUseCustomerDelivery(Boolean(source.delivery_recipient || source.delivery_phone || source.delivery_address));
         if (source.stocking_requirements) setStockingRequirements(source.stocking_requirements);
-        setPriceDisplayMode(source.show_dual_currency_prices ? "DUAL" : "CNY_ONLY");
+        setPriceDisplayMode(source.show_dual_currency_prices ? "DUAL" : "PAYMENT_ONLY");
         if (source.paypal_rate_percent !== undefined) setPaypalRateInput(String(source.paypal_rate_percent));
         setFeeFields({
           last_balance: { source: "CNY", enabled: Boolean(source.last_balance_cny), amount: (source.last_balance_cny || 0).toFixed(2) },
@@ -290,7 +293,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
           setCustomers((current) => [{ id: order.customer_id, company_name: order.customer?.company_name || order.customer_short_name, country: order.destination_country }, ...current]);
         }
         setCurrency(order.currency);
-        setPriceDisplayMode(order.price_display_mode === "DUAL" || order.show_dual_currency_prices === true ? "DUAL" : "CNY_ONLY");
+        setPriceDisplayMode(order.price_display_mode === "DUAL" || order.show_dual_currency_prices === true ? "DUAL" : "PAYMENT_ONLY");
         setRate(String(inverseRate(Number(order.fx_rate_cny_to_payment))));
         setShippingInput(Number(order.shipping_cny).toFixed(2));
         setFeeFields({
@@ -428,7 +431,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       return { last_balance: converted("last_balance"), discount: converted("discount"), other: converted("other") };
     });
     setCurrency(nextCurrency);
-    if (nextCurrency === "CNY") setPriceDisplayMode("CNY_ONLY");
+    if (nextCurrency === "CNY") setPriceDisplayMode("PAYMENT_ONLY");
     setRateReviewed(false);
     const cachedRate = exchangeRates.find((item) => item.currency === nextCurrency)?.business_cny;
     updateRate(cachedRate && cachedRate > 0 ? String(cachedRate) : "", true);
@@ -502,8 +505,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       setError("请选择客户、填写订单编号、付款币种、收款账户及正数汇率"); return;
     }
     if (!availableAccounts.some((account) => account.id === accountId)) { setError("所选收款账户与付款渠道不匹配或已停用，请重新选择"); return; }
-    if (!shippingInput.trim() || !Number.isFinite(shippingCny) || shippingCny < 0 || shippingCny > 999999999999 || !/^\d+(?:\.\d{1,2})?$/.test(shippingInput)) {
-      setError("请输入非负且最多两位小数的人民币运费"); return;
+    if (!shippingInput.trim() || !Number.isFinite(shippingCny) || shippingCny < 0 || shippingCny > 999999999999 || !/^\d+(?:\.\d{1,2})?$/.test(shippingInput) || !shippingPair.cny || !shippingPair.payment) {
+      setError("请输入非负且最多两位小数的运费，并核对汇率"); return;
     }
     if (feeFields.last_balance.enabled && !/^\d+(?:\.\d{1,2})?$/.test(feeFields.last_balance.amount) ||
         feeFields.discount.enabled && !/^\d+(?:\.\d{1,2})?$/.test(feeFields.discount.amount) ||
@@ -602,7 +605,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm">收货人<Required /><input className={field} required maxLength={200} value={forwarderRecipient} onChange={(event) => { markUnsaved(); setForwarderRecipient(event.target.value); }} /></label><label className="text-sm">电话<Required /><input className={field} type="tel" required maxLength={100} value={forwarderPhone} onChange={(event) => { markUnsaved(); setForwarderPhone(event.target.value); }} /></label><label className="text-sm sm:col-span-2">收货地址<Required /><textarea className={`${field} min-h-20 resize-y py-2`} required maxLength={500} value={forwarderAddress} onChange={(event) => { markUnsaved(); setForwarderAddress(event.target.value); }} rows={2} /></label></div></> : <p className="mt-2 text-xs text-slate-500">本单不使用货代收货信息</p>}
       </div>
     </div></section>
-    <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">销售单价可任选 CNY 或{currency ? ` ${currency}` : "付款币种"}录入，另一币种自动换算；成本和利润按 CNY 核算。表格可横向滚动。</p>{currency !== "CNY" ? <fieldset className="mt-3 flex flex-wrap items-center gap-3 text-xs"><legend className="sr-only">PI单据报价显示方式</legend><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"><input type="radio" name="pi-price-display-mode" checked={priceDisplayMode === "CNY_ONLY"} onChange={() => { markUnsaved(); setPriceDisplayMode("CNY_ONLY"); }} />RMB报价</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"><input type="radio" name="pi-price-display-mode" checked={priceDisplayMode === "DUAL"} onChange={() => { markUnsaved(); setPriceDisplayMode("DUAL"); }} />RMB + {currency}报价</label></fieldset> : null}</div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
+    <section className="p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h2 className="font-semibold">PI产品明细</h2><p className="mt-1 text-xs text-slate-500">销售单价可任选 CNY 或{currency ? ` ${currency}` : "付款币种"}录入，另一币种自动换算；成本和利润按 CNY 核算。表格可横向滚动。</p>{currency !== "CNY" ? <fieldset className="mt-3 flex flex-wrap items-center gap-3 text-xs"><legend className="sr-only">PI单据报价显示方式</legend><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"><input type="radio" name="pi-price-display-mode" checked={priceDisplayMode === "PAYMENT_ONLY"} onChange={() => { markUnsaved(); setPriceDisplayMode("PAYMENT_ONLY"); }} />{currency}报价</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"><input type="radio" name="pi-price-display-mode" checked={priceDisplayMode === "DUAL"} onChange={() => { markUnsaved(); setPriceDisplayMode("DUAL"); }} />人民币 + {currency}双报价</label></fieldset> : null}</div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void downloadTemplate()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-blue-700"><FileDown size={16} />下载模板</button><input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void importExcel(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><FileSpreadsheet size={16} />导入Excel</button><button type="button" onClick={() => void pasteRows()} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><ClipboardPaste size={16} />粘贴表格</button><button type="button" onClick={() => { if (items.length < 500) { markUnsaved(); setItems((current) => [...current, newLine()]); } }} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-50 px-3 text-sm text-blue-700"><Plus size={16} />添加产品</button><button type="button" onClick={() => setConfirmClearItems(true)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm text-rose-700"><Trash2 size={16} />清空明细</button></div></div>
       <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[2050px] text-left text-xs"><thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", `销售单价（${currency || "付款币种"}） *`, "数量 *", "销售金额（CNY）", `销售金额（${currency || "付款币种"}）`, "总利润（CNY）", "利润率", "理货要求", "销售备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head.endsWith(" *") ? <>{head.slice(0, -2)}<Required /></> : head}</th>)}</tr></thead><tbody>{items.map((item, index) => <tr key={index} className={`border-t border-slate-100 align-middle ${hasLineContent(item) && missingLineFields(item).length ? "bg-amber-50/70" : ""}`}>
         <td className="px-2 py-1.5">{index + 1}{hasLineContent(item) && missingLineFields(item).length ? <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-amber-700" title={`待补齐：${missingLineFields(item).join("、")}`}>待补齐</span> : null}</td>
         {(["item_name", "brand", "model", "quality", "description"] as const).map((key) => <td key={key} className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行${({ item_name: "产品类型", brand: "产品品牌", model: "产品型号", quality: "产品质量", description: "产品描述" } as const)[key]}`} value={item[key]} invalid={key !== "description" && hasLineContent(item) && !item[key].trim()} onChange={(value) => editLine(index, key, value)} /></td>)}
@@ -622,7 +625,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <div className="mt-3 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm" aria-live="polite"><span>产品总金额（RMB）：<strong>¥{totals.subtotalCny.toFixed(2)}</strong></span><span>产品总利润（RMB）：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : `¥${totals.totalProfitCny.toFixed(2)}`}</strong></span><span>产品总利润率：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : totals.subtotalCny > 0 ? `${(totals.totalProfitCny / totals.subtotalCny * 100).toFixed(2)}%` : "—"}</strong></span></div>
     </section>
     <section className="grid items-stretch gap-5 border-t border-slate-100 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]"><div className={`grid h-full min-w-0 items-stretch gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div className="flex min-w-0 flex-col"><label htmlFor="pi-change-note" className="text-sm">订单变更说明（选填）</label><textarea id="pi-change-note" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" />{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<div className="flex min-w-0 flex-col"><div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="pi-stocking-requirements" className="text-sm">理货要求（选填）</label><button type="button" disabled={!selectedCustomer?.tally_requirements?.trim()} onClick={() => setShowCustomerTally(true)} className="text-xs font-medium text-blue-700 disabled:text-slate-400">查看客户资料理货要求</button></div><textarea id="pi-stocking-requirements" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /></div></div>
-      <div className="min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><h2 className="font-semibold text-slate-900">PI费用汇总</h2><p className="mt-1 text-xs text-slate-500">勾选需要的项目并输入正数金额；人民币与付款币种可任填一栏，另一栏自动换算。未付尾款、其他费用和 PayPal 手续费加收，折扣扣减。</p><div className="mt-4 grid grid-cols-[minmax(7rem,1fr)_minmax(5.5rem,6.5rem)_minmax(5.5rem,6.5rem)] items-center gap-x-2 gap-y-2 text-right tabular-nums text-slate-600"><span></span><span>CNY</span><span>{currency}</span><span className="text-left">产品小计</span><span>¥{totals.subtotalCny.toFixed(2)}</span><span>{totals.subtotalPayment.toFixed(2)}</span><label htmlFor="pi-shipping" className="text-left">运费</label><div className="relative min-w-0"><span aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">¥</span><input id="pi-shipping" aria-label="人民币运费" className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white pl-5 pr-2 text-right" type="text" inputMode="decimal" value={shippingInput} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) setShippingInput(event.target.value); }} onBlur={() => { if (shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} /></div><span>{totals.shippingPayment.toFixed(2)}</span>
+      <div className="min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><h2 className="font-semibold text-slate-900">PI费用汇总</h2><p className="mt-1 text-xs text-slate-500">勾选需要的项目并输入正数金额；人民币与付款币种可任填一栏，另一栏自动换算。运费同样支持双币种输入；未付尾款、其他费用和 PayPal 手续费加收，折扣扣减。</p><div className="mt-4 grid grid-cols-[minmax(7rem,1fr)_minmax(5.5rem,6.5rem)_minmax(5.5rem,6.5rem)] items-center gap-x-2 gap-y-2 text-right tabular-nums text-slate-600"><span></span><span>CNY</span><span>{currency}</span><span className="text-left">产品小计</span><span>¥{totals.subtotalCny.toFixed(2)}</span><span>{totals.subtotalPayment.toFixed(2)}</span><label htmlFor="pi-shipping-cny" className="text-left">运费</label><div className="relative min-w-0"><span aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">¥</span><input id="pi-shipping-cny" aria-label="人民币运费" className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white pl-5 pr-2 text-right" type="text" inputMode="decimal" value={shippingSource === "CNY" ? shippingInput : shippingPair.cny} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) { markUnsaved(); setShippingSource("CNY"); setShippingInput(event.target.value); } }} onBlur={() => { if (shippingSource === "CNY" && shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} /></div><input aria-label={`${currency}运费`} className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-right" type="text" inputMode="decimal" value={shippingSource === "PAYMENT" ? shippingInput : shippingPair.payment} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) { markUnsaved(); setShippingSource("PAYMENT"); setShippingInput(event.target.value); } }} onBlur={() => { if (shippingSource === "PAYMENT" && shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} />
       {([ ["last_balance", "未付尾款"], ["discount", "折扣（扣减）"], ["other", "其他费用"] ] as const).map(([key, label]) => <div key={key} className="contents"><label className="flex items-center gap-1 text-left"><input type="checkbox" checked={feeFields[key].enabled} onChange={(event) => changeFee(key, { enabled: event.target.checked })} />{label}<span className={key === "discount" ? "text-rose-600" : "text-emerald-700"} aria-hidden="true">{key === "discount" ? "−" : "+"}</span></label>{(["CNY", "PAYMENT"] as const).map((source) => <input key={source} aria-label={`${label}${source === "CNY" ? "人民币" : currency}金额`} disabled={!feeFields[key].enabled} className="h-8 min-w-0 rounded border border-slate-300 bg-white px-2 text-right disabled:bg-slate-100" type="text" inputMode="decimal" value={feeDisplay(key, source)} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) changeFee(key, { source, amount: event.target.value }); }} onBlur={() => { const amount = feeFields[key].amount; if (feeFields[key].enabled && amount.trim()) changeFee(key, { amount: Number(amount).toFixed(2) }); }} />)}</div>)}
       {paymentMethod === "PayPal" ? <>
         <label htmlFor="pi-paypal-rate" className="flex min-w-0 items-center gap-1 whitespace-nowrap text-left text-xs">

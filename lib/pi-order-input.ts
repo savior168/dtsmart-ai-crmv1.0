@@ -74,6 +74,9 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   const forwarderPhoneDigits = normalizedForwarderPhone.replace(/\D/g, "");
   if (hasForwarder && (forwarderPhoneDigits.length < 7 || forwarderPhoneDigits.length > 15 || /^(\d)\1+$/.test(forwarderPhoneDigits))) throw new Error("货代收货人电话须为有效的 7 至 15 位号码");
   const fees = parsePiFees(body.fees, String(body.payment_method || ""));
+  if (fees.shipping && Math.abs(Number(linkedPiUnitPrices(fees.shipping.amount.toFixed(2), fees.shipping.source, rate).cny) - shipping) > 0.001) {
+    throw new Error("运费双币种换算不一致，请核对汇率后重试");
+  }
   return {
     p_customer_id: customerId,
     p_warehouse_reference_number: warehouseReferenceNumber,
@@ -116,6 +119,7 @@ function parsePiFees(value: unknown, paymentMethod: string): PiFeesInput {
     throw new Error("PayPal手续费百分比须在0%至100%之间，最多四位小数");
   }
   return {
+    shipping: fees.shipping === undefined ? undefined : parseCharge("shipping"),
     last_balance: parseCharge("last_balance"),
     discount: parseCharge("discount"),
     other: parseCharge("other"),
@@ -131,3 +135,4 @@ export async function requireOwnedPiCustomer(supabase: ServerSupabase, accountId
   if (error) throw error;
   if (!data) throw new Error("只能为归属自己的有效客户创建PI订单");
 }
+
