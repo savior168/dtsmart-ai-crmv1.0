@@ -77,7 +77,7 @@ for (const source of [importApi, importView]) {
   assert.match(source, /for \(const kind of \["phone", "email", "wechat", "whatsapp"\] as const\)/, "import must process all four contact columns");
   assert.match(source, /normalizeManualContacts\(item\[kind\], kind\)/, "import must split, validate and preserve each contact");
 }
-const migration = read("supabase/migrations/20261030170000_customer_manual_multi_contact_identity.sql");
+const migration = read("supabase/migrations/20261102032817_customer_manual_multi_contact_identity_20261030.sql");
 assert.match(migration, /pg_advisory_xact_lock/);
 assert.match(migration, /lock_keys && public\.customer_manual_identity_keys/, "each saved value must be checked for global duplicates");
 console.log("customer manual contacts tests passed");
