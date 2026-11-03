@@ -13,7 +13,8 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
   const shipping = Number(body.shipping_cny ?? 0);
   if (!QUOTE_CURRENCY_CODES.has(currency)) throw new Error("请选择有效的客户付款币种");
   if (!Number.isFinite(rate) || rate <= 0 || rate > 100000000 || Math.abs(rate - Math.round(rate * 1e12) / 1e12) > 1e-12) throw new Error("请输入有效汇率");
-  if (!Number.isFinite(shipping) || shipping < 0 || Math.round(shipping * 100) !== shipping * 100) throw new Error("人民币运费不正确");
+  // Binary floating point makes 322.34 * 100 equal 32233.999999999996.
+  if (!validPiMoney(body.shipping_cny ?? 0)) throw new Error("人民币运费不正确");
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 500) throw new Error("请填写1至500条产品明细");
   const items = body.items.map((raw) => {
     const row = raw as Record<string, unknown>;
