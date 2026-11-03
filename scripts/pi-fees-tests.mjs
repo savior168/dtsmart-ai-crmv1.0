@@ -34,6 +34,18 @@ const foreignShipping = calculatePiFees(0, 0, 6.56, 1 / 6.56, "T/T Bank Transfer
 assert.equal(foreignShipping.shippingPayment, 1, "外币输入的运费须保留原始金额");
 assert.equal(foreignShipping.totalCny, 6.56);
 assert.equal(foreignShipping.totalPayment, 1);
+const preciseFees = calculatePiFees(500, 100, 322.34, 1 / 4.54, "PayPal", {
+  shipping: { source: "PAYMENT", amount: 71 },
+  last_balance: { source: "CNY", amount: 0.29 },
+  discount: { source: "CNY", amount: 0.29 },
+  other: { source: "PAYMENT", amount: 0.29 },
+  paypal_rate_percent: 0.0003,
+});
+assert.equal(preciseFees.shippingPayment, 71, "A$71 运费应换算成 ¥322.34 并保留外币输入");
+assert.equal(preciseFees.lastBalance.cny, 0.29);
+assert.equal(preciseFees.discount.cny, 0.29);
+assert.equal(preciseFees.other.payment, 0.29);
+assert.equal(preciseFees.paypalRatePercent, 0.0003, "合法四位小数手续费率不得因浮点误差被拒");
 const highRateShipping = calculatePiFees(0, 0, 0.01, 200, "T/T Bank Transfer", {
   ...input, shipping: { source: "PAYMENT", amount: 1 },
 });
@@ -42,6 +54,8 @@ assert.throws(() => calculatePiFees(0, 0, 0.02, 200, "T/T Bank Transfer", {
   ...input, shipping: { source: "PAYMENT", amount: 1 },
 }), /运费双币种换算不一致/);
 assert.throws(() => calculatePiFees(100, 20, 0, 0.2, "PayPal", { ...input, other: { source: "CNY", amount: -1 } }), /非负/);
+assert.throws(() => calculatePiFees(100, 20, 0, 0.2, "PayPal", { ...input, other: { source: "CNY", amount: 0.291 } }), /最多两位小数/);
+assert.throws(() => calculatePiFees(100, 20, 0, 0.2, "PayPal", { ...input, paypal_rate_percent: 0.00031 }), /最多四位小数/);
 assert.throws(() => calculatePiFees(1, 1, 0, 1, "PayPal", { ...input, discount: { source: "CNY", amount: 100 } }), /折扣不得超过/);
 assert.throws(() => calculatePiFees(1, 1, 0, 1, "PayPal", { ...input, paypal_rate_percent: 101 }), /PayPal/);
 console.log("PI dual-currency fee calculations passed");

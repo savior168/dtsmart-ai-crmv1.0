@@ -1,4 +1,5 @@
 import { linkedPiUnitPrices } from "./pi-line-currency.ts";
+import { validPiMoney } from "./pi-line-values.ts";
 
 export type PiFeeSource = "CNY" | "PAYMENT";
 export type PiFeeInput = { source: PiFeeSource; amount: number };
@@ -15,8 +16,7 @@ export type PiFeesInput = {
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 function convertFee(input: PiFeeInput, paymentPerCny: number) {
-  if (!Number.isFinite(input.amount) || input.amount < 0 || input.amount > 999999999999 ||
-      roundMoney(input.amount) !== input.amount || !["CNY", "PAYMENT"].includes(input.source)) {
+  if (!validPiMoney(input.amount) || !["CNY", "PAYMENT"].includes(input.source)) {
     throw new Error("附加费用须为非负且最多两位小数的金额");
   }
   const pair = linkedPiUnitPrices(input.amount.toFixed(2), input.source, paymentPerCny);
@@ -51,7 +51,7 @@ export function calculatePiFees(
   const basePayment = roundMoney(grossPayment - discount.payment);
   const paypalRatePercent = paymentMethod === "PayPal" ? input.paypal_rate_percent : 0;
   if (!Number.isFinite(paypalRatePercent) || paypalRatePercent < 0 || paypalRatePercent > 100 ||
-      Math.round(paypalRatePercent * 10000) !== paypalRatePercent * 10000) {
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(String(paypalRatePercent))) {
     throw new Error("PayPal 手续费百分比须在 0% 至 100% 之间，最多四位小数");
   }
   const paypalFee = {

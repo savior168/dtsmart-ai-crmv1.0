@@ -30,4 +30,27 @@ const forwarder = parsePiOrderInput({ ...base, forwarder_recipient: "Bob", forwa
 assert.equal(forwarder.p_fees.forwarder_recipient, "Bob");
 assert.equal(forwarder.p_fees.forwarder_phone, "+8613800138000");
 assert.equal(forwarder.p_fees.forwarder_address, "Warehouse");
+const audRate = Math.round((1 / 4.54) * 1e12) / 1e12;
+const audShipping = parsePiOrderInput({
+  ...base, currency: "AUD", fx_rate_cny_to_payment: audRate, shipping_cny: 322.34,
+  items: [{ ...base.items[0], unit_price_cny: 454, unit_price_payment: 100 }],
+  fees: { ...base.fees, shipping: { source: "PAYMENT", amount: 71 } },
+});
+assert.equal(audShipping.p_shipping_cny, 322.34, "A$71 × 4.54 must save as ¥322.34");
+const preciseCharges = parsePiOrderInput({
+  ...base, shipping_cny: 322.34, payment_method: "PayPal",
+  fees: {
+    shipping: { source: "CNY", amount: 322.34 },
+    last_balance: { source: "CNY", amount: 0.29 },
+    discount: { source: "CNY", amount: 0.29 },
+    other: { source: "CNY", amount: 0.29 },
+    paypal_rate_percent: 0.0003,
+  },
+});
+assert.equal(preciseCharges.p_fees.shipping.amount, 322.34);
+assert.equal(preciseCharges.p_fees.last_balance.amount, 0.29);
+assert.equal(preciseCharges.p_fees.discount.amount, 0.29);
+assert.equal(preciseCharges.p_fees.other.amount, 0.29);
+assert.equal(preciseCharges.p_fees.paypal_rate_percent, 0.0003);
+assert.throws(() => parsePiOrderInput({ ...base, shipping_cny: 322.345 }), /人民币运费不正确/);
 console.log("PI optional customer and forwarder delivery validation passed.");
