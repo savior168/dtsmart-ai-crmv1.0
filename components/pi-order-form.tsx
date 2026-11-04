@@ -16,12 +16,15 @@ import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
 import { hasPiProductHeader, parsePiProductRows } from "@/lib/pi-product-import";
 import { displayAddressList, displayShippingContacts, type ShippingContact } from "@/lib/customers/address-list";
+import { customerDeliveryMatchesForwarder } from "@/lib/orders/pi-delivery-match";
+import { PiRequirementAttachments, type PiRequirementAttachment } from "@/components/pi-requirement-attachments";
 
 type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null; shipping_contact_entries?: ShippingContact[] | null; forwarder_addresses?: string[] | null; forwarder_contact_entries?: ShippingContact[] | null };
 type Salesperson = { id: string; name: string | null };
 type Account = { id: string; label: string; currency: string; instructions: string; payment_channel: PiPaymentChannel; active?: boolean };
 type ExchangeRate = { currency: string; business_cny: number | null; reference_cny?: number | null; source: string; source_url?: string | null; reference_date: string | null; source_updated_at?: string | null };
 type Line = { item_name: string; brand: string; model: string; quality: string; description: string; description_zh: string; quantity: string; unit_price_cny: string; unit_price_payment: string; unit_price_source: PiUnitPriceSource; estimated_unit_cost_cny: string; preparation_requirement: string; internal_note: string };
+type PendingRequirementFile = { key: string; lineIndex: number | null; file: File };
 type FeeKey = "last_balance" | "discount" | "other";
 type FeeField = { enabled: boolean; source: PiFeeSource; amount: string };
 const emptyFee = (): FeeField => ({ enabled: false, source: "CNY", amount: "0.00" });
@@ -48,6 +51,26 @@ function PiLineTextArea({ label, value, onChange, invalid = false }: { label: st
   return <textarea ref={ref} aria-label={label} aria-invalid={invalid} rows={1} className={`min-h-9 w-full min-w-28 resize-y rounded-lg border bg-white px-2 py-2 text-xs leading-5 focus:border-blue-500 focus:outline-none ${invalid ? "border-amber-500" : "border-slate-300"}`} value={value} onChange={(event) => onChange(event.target.value.replace(/\s*\n+\s*/g, " "))} />;
 }
 
+function RequirementImagePicker({ lineIndex, pending, existing, onAdd, onRemove, onRemoveExisting }: {
+  lineIndex: number | null;
+  pending: PendingRequirementFile[];
+  existing: PiRequirementAttachment[];
+  onAdd: (lineIndex: number | null, files: FileList | null) => void;
+  onRemove: (key: string) => void;
+  onRemoveExisting?: (id: string) => void;
+}) {
+  const files = pending.filter((entry) => entry.lineIndex === lineIndex);
+  return <div className="mt-1 min-w-36 text-xs">
+    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-blue-700 hover:bg-blue-50">
+      <Plus size={13}/>上传理货图片（选填）
+      <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label={lineIndex === null ? "整单理货图片" : `第 ${lineIndex + 1} 行理货图片`}
+        onChange={(event) => { onAdd(lineIndex, event.target.files); event.target.value = ""; }}/>
+    </label>
+    {files.map((entry) => <div key={entry.key} className="mt-1 flex items-center gap-1 text-slate-600"><span className="max-w-32 truncate" title={entry.file.name}>{entry.file.name}</span><button type="button" onClick={() => onRemove(entry.key)} aria-label={`移除${entry.file.name}`} className="text-rose-600">移除</button></div>)}
+    {existing.filter((item) => !item.archived && item.display_line_number === (lineIndex === null ? null : lineIndex + 1)).map((item) => <div key={item.id} className="mt-1 flex max-w-48 items-center gap-1"><PiRequirementAttachments attachments={[item]} lineNumber={lineIndex === null ? null : lineIndex + 1}/>{onRemoveExisting ? <button type="button" onClick={() => onRemoveExisting(item.id)} aria-label={`删除${item.filename}`} className="text-rose-600">删除</button> : null}</div>)}
+  </div>;
+}
+
 export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftId, initialIsClerk }: { initialCustomerId?: string; draftOrderId?: string; importDraftId?: string; initialIsClerk: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const customerScopeRequest = useRef(0);
@@ -66,6 +89,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [priceDisplayMode, setPriceDisplayMode] = useState<"PAYMENT_ONLY" | "DUAL">("PAYMENT_ONLY");
   const [rate, setRate] = useState("");
   const [rateReviewed, setRateReviewed] = useState(false);
+  const [rateInfoOpen, setRateInfoOpen] = useState(false);
   const [rateLoading, setRateLoading] = useState(false);
   const [shippingInput, setShippingInput] = useState("0.00");
   const [shippingSource, setShippingSource] = useState<PiFeeSource>("CNY");
@@ -96,6 +120,11 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [canSubmitDraft, setCanSubmitDraft] = useState(true);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [savedDraftId, setSavedDraftId] = useState("");
+  const [savedRevision, setSavedRevision] = useState(0);
+  const [pendingSubmitAfterUpload, setPendingSubmitAfterUpload] = useState(false);
+  const [pendingRequirementFiles, setPendingRequirementFiles] = useState<PendingRequirementFile[]>([]);
+  const [existingRequirementAttachments, setExistingRequirementAttachments] = useState<PiRequirementAttachment[]>([]);
+  const uploadedRequirementKeys = useRef(new Set<string>());
   const [items, setItems] = useState<Line[]>([newLine()]);
   const [confirmClearItems, setConfirmClearItems] = useState(false);
   const [showAccountDetails, setShowAccountDetails] = useState(false);
@@ -318,6 +347,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setUseCustomerDelivery(Boolean(order.delivery_recipient || order.delivery_phone || order.delivery_address));
         setUseForwarderDelivery(Boolean(order.forwarder_address));
         setStockingRequirements(draftBody.stocking_requirements || "");
+        setExistingRequirementAttachments(draftBody.requirement_attachments || []);
         setChangeNote(draftBody.order.confirmation_note || "");
         setInitialChangeNote(draftBody.order.confirmation_note || "");
         setRecalledDraft(draftBody.stock_order?.status === "DRAFT");
@@ -461,6 +491,12 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     const parsed = parsePiProductRows(rows, effectiveRate, currency);
     const imported = parsed.map(({ source_row: _sourceRow, ...item }) => { void _sourceRow; return { ...newLine(), ...item }; });
     if (items.filter(hasLineContent).length + imported.length > 500) throw new Error("每张PI最多500条明细，请分批处理");
+    const retained = items.map((item, index) => hasLineContent(item) ? index : -1).filter((index) => index >= 0);
+    setPendingRequirementFiles((current) => current.flatMap((entry) => {
+      if (entry.lineIndex === null) return [entry];
+      const position = retained.indexOf(entry.lineIndex);
+      return position >= 0 ? [{ ...entry, lineIndex: position }] : [];
+    }));
     setItems((current) => [...current.filter(hasLineContent), ...imported]);
     markUnsaved();
     const incomplete = parsed.flatMap((item, index) => {
@@ -468,6 +504,66 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       return missing.length ? [`原文件第${item.source_row}行：${missing.join("、")}`] : [];
     });
     setError(incomplete.length ? `已导入${imported.length}行产品，以下信息待补全：${incomplete.slice(0, 5).join("；")}${incomplete.length > 5 ? `等${incomplete.length}行` : ""}。补齐后才可保存草稿或提交备货单。` : "");
+  }
+  function addRequirementFiles(lineIndex: number | null, selected: FileList | null) {
+    const files = Array.from(selected || []);
+    if (!files.length) return;
+    if (files.some((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+      || file.size <= 0 || file.size > 15 * 1024 * 1024)) {
+      setError("理货要求附件只支持不超过 15MB 的 JPG、PNG 或 WebP 图片"); return;
+    }
+    markUnsaved();
+    setPendingRequirementFiles((current) => [...current, ...files.map((file) => ({
+      key: crypto.randomUUID(), lineIndex, file,
+    }))]);
+    setError("");
+  }
+  function removeRequirementFile(key: string) {
+    markUnsaved();
+    setPendingRequirementFiles((current) => current.filter((entry) => entry.key !== key));
+  }
+  async function removeExistingRequirementFile(id: string) {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/attachments/${id}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "删除图片失败");
+      setExistingRequirementAttachments((current) => current.filter((item) => item.id !== id));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "删除图片失败"); }
+    finally { setBusy(false); }
+  }
+  async function uploadRequirementFiles(orderId: string) {
+    for (const entry of pendingRequirementFiles) {
+      if (uploadedRequirementKeys.current.has(entry.key)) continue;
+      const form = new FormData();
+      form.set("file", entry.file);
+      if (entry.lineIndex !== null) form.set("line_number", String(entry.lineIndex + 1));
+      const response = await fetch(`/api/orders/${orderId}/requirement-attachments`, { method: "POST", body: form });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`${entry.file.name}：${body.error || "上传失败"}`);
+      uploadedRequirementKeys.current.add(entry.key);
+    }
+  }
+  async function submitSavedDraft(orderId: string, currentRevision: number, submitToWarehouse: boolean) {
+    await uploadRequirementFiles(orderId);
+    if (submitToWarehouse) {
+      const submitResponse = await fetch(`/api/orders/${orderId}/submit`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: currentRevision }),
+      });
+      const submitBody = await submitResponse.json().catch(() => ({}));
+      if (!submitResponse.ok) throw new Error(submitBody.error || "提交仓库失败");
+    }
+    hasUnsavedChanges.current = false;
+    window.location.assign(`/orders/${orderId}`);
+  }
+  async function retrySavedDraft() {
+    if (!savedDraftId || busy) return;
+    setBusy(true); setError("");
+    try { await submitSavedDraft(savedDraftId, savedRevision, pendingSubmitAfterUpload); }
+    catch (cause) { setError(`${cause instanceof Error ? cause.message : "提交失败"}；PI 草稿已保存，可重试或进入详情核对`); }
+    finally { setBusy(false); }
   }
   function downloadTemplate() {
     const link = document.createElement("a");
@@ -516,6 +612,10 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     }
     if (useCustomerDelivery && (!recipient.trim() || !phone.trim() || !address.trim())) { setError("启用客户收货信息后，请填写收货人、电话和收货地址"); return; }
     if (useForwarderDelivery && (!forwarderRecipient.trim() || !forwarderPhone.trim() || !forwarderAddress.trim())) { setError("启用货代收货信息后，请填写收货人、电话和收货地址"); return; }
+    if (useCustomerDelivery && selectedCustomer &&
+      customerDeliveryMatchesForwarder(address, selectedCustomer.forwarder_addresses, selectedCustomer.forwarder_contact_entries)) {
+      setError("客户收货地址与客户档案中的货代地址匹配；请在“货代收货信息”栏选择该地址，勿填入客户收货栏"); return;
+    }
     const invalidRow = items.findIndex((item) => !item.item_name.trim() || !item.brand.trim() || !item.model.trim() || !item.quality.trim() || !validPiQuantity(item.quantity) || !validPiMoney(item.unit_price_cny) || !validPiMoney(item.unit_price_payment) || !validPiMoney(item.estimated_unit_cost_cny));
     if (invalidRow >= 0) {
       setError(`第${invalidRow + 1}行请填写产品、品牌、型号、质量、正整数数量，以及最多两位小数的非负人民币成本和售价`); return;
@@ -554,24 +654,17 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         if (!noteResponse.ok) { setError(`${noteBody.error || "订单变更说明保存失败"}；PI草稿已保存，请进入草稿核对`); return; }
         currentRevision = noteBody.data.pi_revision;
       }
-      if (submitToWarehouse) {
-        const submitResponse = await fetch(`/api/orders/${saved.id}/submit`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision: currentRevision }),
-        });
-        const submitBody = await submitResponse.json().catch(() => ({}));
-        if (!submitResponse.ok) { setError(`${submitBody.error || "提交仓库失败"}；PI草稿已保存，请进入详情核对后重试`); return; }
-      }
-      hasUnsavedChanges.current = false;
-      window.location.assign(`/orders/${saved.id}`);
-    } catch { setError(justSavedId ? "网络异常，草稿可能已保存或提交；请先进入详情核对，勿重复创建" : "网络异常，未确认创建结果；请先检查PI订单列表，避免重复提交"); }
+      setSavedRevision(currentRevision);
+      setPendingSubmitAfterUpload(submitToWarehouse);
+      await submitSavedDraft(saved.id, currentRevision, submitToWarehouse);
+    } catch (cause) { setError(justSavedId ? `${cause instanceof Error ? cause.message : "网络异常"}；PI 草稿已保存，请重试上传/提交或进入详情核对` : "网络异常，未确认创建结果；请先检查PI订单列表，避免重复提交"); }
     finally { setBusy(false); }
   }
 
   return <main className="p-4 lg:p-6" onInputCapture={(event) => { if (!(event.target as HTMLElement).hasAttribute("readonly")) markUnsaved(); }}><div className="mx-auto max-w-[1500px] space-y-5">
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"><div><h1 className="text-xl font-bold">{importDraftId ? "核对并补全导入PI" : draftOrderId ? "编辑PI草稿" : "创建PI订单"}</h1><p className="mt-1 text-sm text-slate-500">{importDraftId ? "请关联本人客户，补齐人民币售价与成本、汇率及收款账户；先生成PI草稿，核对后再提交仓库。" : "客户与价格只录入一次；保存草稿后核对，确认后生成仓库备货单。"}</p></div><Link href={importDraftId ? "/orders/import" : draftOrderId ? `/orders/${draftOrderId}` : "/orders"} className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm hover:bg-slate-50">返回</Link></header>
-    {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}{savedDraftId ? <> · <Link className="font-semibold underline" href={`/orders/${savedDraftId}`}>查看已保存PI</Link></> : null}</div> : null}
+    {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}{savedDraftId ? <> · {savedRevision > 0 ? <><button type="button" disabled={busy} onClick={() => void retrySavedDraft()} className="font-semibold underline disabled:opacity-50">重试上传并继续</button> · </> : null}<Link className="font-semibold underline" href={`/orders/${savedDraftId}`}>查看已保存PI</Link></> : null}</div> : null}
     {isClerk ? <section className="border-b border-slate-100 p-5"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><label className="text-sm">为哪位销售员创建PI<Required /><AppSelect className={field} aria-label="选择PI归属销售员（含主管）" value={salesUserId} disabled={Boolean(draftOrderId)} placeholderValue="" onChange={(event) => void chooseSalesperson(event.target.value)}><option value="">请选择销售员（含主管）</option>{salespeople.map((person) => <option key={person.id} value={person.id}>{person.name || person.id}</option>)}</AppSelect></label></div><p className="mt-2 text-xs text-slate-500">请先选择本单归属的销售员；客户、产品与费用信息将在其客户范围加载完成后开放填写。</p></section> : null}
     <fieldset disabled={isClerk && !salesScopeReady} aria-disabled={isClerk && !salesScopeReady} className={`min-w-0 border-0 p-0 ${isClerk && !salesScopeReady ? "pointer-events-none opacity-50" : ""}`}>
     {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -588,7 +681,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       <label className="text-sm">目的国家<input className={`${field} bg-slate-50 text-slate-600`} value={selectedCustomer?.country ? countryInfo(selectedCustomer.country).name : "客户档案未填写"} readOnly aria-readonly="true" title="从所选客户档案自动带入" /></label>
       <label className="text-sm">订单编号<Required /><input className={field} maxLength={80} value={warehouseReferenceNumber} onChange={(event) => setWarehouseReferenceNumber(event.target.value)} placeholder="例如 D60020733；不可与其他PI重复" /></label>
       <label className="text-sm">客户付款币种<Required /><AppSelect className={field} aria-label="搜索并选择客户付款币种" value={currency} onChange={(event) => changeCurrency(event.target.value)}><option value="">请选择</option>{QUOTE_CURRENCIES.map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}</AppSelect></label>
-      <div className="text-sm"><label htmlFor="pi-fx-rate" className="block">汇率：1 {currency || "付款币种"} = 多少人民币<Required /></label><input id="pi-fx-rate" className={field} type="number" min="0.000001" step="0.000001" value={rate} onChange={(event) => updateRate(event.target.value)} placeholder="例如 7.200000" aria-describedby="pi-rate-reference pi-rate-confirmation" /><div id="pi-rate-reference" className="mt-1 space-y-1 text-xs text-slate-600">{rateLoading ? <p>正在刷新{currency}参考汇率…</p> : null}{(() => { const selectedRate = exchangeRates.find((item) => item.currency === currency); return <>{selectedRate?.business_cny ? <p>系统业务汇率：1 {currency} = {Number(selectedRate.business_cny).toFixed(["USD","EUR","GBP","AUD","CAD","NZD"].includes(currency) ? 2 : 6)} CNY；可按本单实际交易条件调整</p> : null}{selectedRate?.reference_cny ? <p>参考报价：1 {currency} = {selectedRate.reference_cny} CNY{selectedRate.source_updated_at ? ` · 更新于 ${selectedRate.source_updated_at}（北京时间）` : selectedRate.reference_date ? ` · ${selectedRate.reference_date}` : ""}</p> : selectedRate?.source === "UNAVAILABLE" ? <p>暂未获取到可用参考报价；请核对来源并手动填写</p> : null}{selectedRate?.source_url ? <p><a href={selectedRate.source_url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">点击查看{["USD","EUR","GBP","AUD","CAD","NZD"].includes(currency) ? "百度" : "汇率"}参考来源</a></p> : null}</>; })()}<label id="pi-rate-confirmation" className="flex items-start gap-2 pt-1 text-slate-700"><input type="checkbox" checked={rateReviewed} onChange={(event) => setRateReviewed(event.target.checked)} disabled={rateLoading} className="mt-0.5" /><span>{currency === "CNY" ? "我已确认人民币付款币种及本单汇率" : "我已核对参考汇率及来源，并确认本单使用的汇率"} <b className="text-rose-600" aria-label="必选">*</b></span></label></div></div>
+      <div className="text-sm"><div className="flex items-center gap-1"><label htmlFor="pi-fx-rate">汇率：1 {currency || "付款币种"} = 多少人民币<Required /></label><div className="relative" onMouseEnter={() => setRateInfoOpen(true)} onMouseLeave={() => setRateInfoOpen(false)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setRateInfoOpen(false); }}><button type="button" aria-label="查看业务汇率和参考来源" aria-expanded={rateInfoOpen} aria-controls="pi-rate-reference" onClick={() => setRateInfoOpen(true)} onFocus={() => setRateInfoOpen(true)} className="rounded-full px-1 text-blue-600 focus:outline-blue-600">ⓘ</button>{rateInfoOpen ? <div id="pi-rate-reference" role="tooltip" className="absolute left-0 top-7 z-30 w-80 max-w-[calc(100vw-3rem)] space-y-1 rounded-lg border border-blue-200 bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{(() => { const selectedRate = exchangeRates.find((item) => item.currency === currency); return <>{selectedRate?.business_cny ? <p>系统业务汇率：1 {currency} = {Number(selectedRate.business_cny).toFixed(["USD","EUR","GBP","AUD","CAD","NZD"].includes(currency) ? 2 : 6)} CNY；可按本单实际交易条件调整</p> : null}{selectedRate?.reference_cny ? <p>参考报价：1 {currency} = {selectedRate.reference_cny} CNY{selectedRate.source_updated_at ? ` · 更新于 ${selectedRate.source_updated_at}（北京时间）` : selectedRate.reference_date ? ` · ${selectedRate.reference_date}` : ""}</p> : selectedRate?.source === "UNAVAILABLE" ? <p>暂未获取到可用参考报价；请核对来源并手动填写</p> : null}{selectedRate?.source_url ? <a href={selectedRate.source_url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-700 underline">查看{["USD","EUR","GBP","AUD","CAD","NZD"].includes(currency) ? "百度" : "汇率"}参考来源</a> : null}</>; })()}</div> : null}</div></div><input id="pi-fx-rate" className={field} type="number" min="0.000001" step="0.000001" value={rate} onChange={(event) => updateRate(event.target.value)} placeholder="例如 7.200000" aria-describedby="pi-rate-confirmation" /><div className="mt-1 text-xs text-slate-600">{rateLoading ? <p>正在刷新{currency}参考汇率…</p> : null}<label id="pi-rate-confirmation" className="flex items-start gap-2 pt-1 text-slate-700"><input type="checkbox" checked={rateReviewed} onChange={(event) => setRateReviewed(event.target.checked)} disabled={rateLoading} className="mt-0.5" /><span>{currency === "CNY" ? "我已确认人民币付款币种及本单汇率" : "我已核对参考汇率及来源，并确认本单使用的汇率"} <b className="text-rose-600" aria-label="必选">*</b></span></label></div></div>
       <label className="text-sm">PI有效期<Required /><input className={`${field} cursor-pointer`} type="date" value={validUntil} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setValidUntil(event.target.value)} /></label>
       <label className="text-sm">预计交付日期<input className={`${field} cursor-pointer`} type="date" value={deliveryDate} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Keep native typing when the picker is unavailable. */ } }} onChange={(event) => setDeliveryDate(event.target.value)} /></label>
       <div className="text-sm"><label>付款渠道<Required /><AppSelect className={field} value={availablePaymentChannels.includes(paymentMethod as typeof PI_PAYMENT_CHANNELS[number]) || (paymentMethod === "OTHER" && hasOtherPaymentAccount) ? paymentMethod : ""} onChange={(event) => { if (event.target.value !== paymentMethod) { markUnsaved(); setAccountId(""); } setPaymentMethod(event.target.value); }}><option value="">请选择已配置收款账户的付款渠道</option>{availablePaymentChannels.map((method) => <option key={method} value={method}>{method}</option>)}{hasOtherPaymentAccount ? <option value="OTHER">其他渠道（手工填写）</option> : null}</AppSelect></label>{paymentMethod === "OTHER" && hasOtherPaymentAccount ? <input aria-label="其他付款渠道" className={`${field} mt-2`} maxLength={300} value={customPaymentMethod} onChange={(event) => setCustomPaymentMethod(event.target.value)} placeholder="填写实际收款渠道" /> : null}{!availablePaymentChannels.length && !hasOtherPaymentAccount ? <span className="mt-1 block text-xs text-amber-700">当前暂无已启用的收款账户，请联系系统管理员先配置收款账户。</span> : null}</div>
@@ -618,13 +711,13 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         <td className="whitespace-nowrap px-2 py-1.5 font-medium text-blue-700">{validPiMoney(item.unit_price_payment) && validPiQuantity(item.quantity) ? `${currency} ${roundMoney(Number(item.quantity) * Number(item.unit_price_payment)).toFixed(2)}` : "—"}</td>
         <td className={`whitespace-nowrap px-2 py-1.5 ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "text-rose-600" : ""}`}>{validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && validPiQuantity(item.quantity) ? `¥${roundMoney((Number(item.unit_price_cny) - Number(item.estimated_unit_cost_cny)) * Number(item.quantity)).toFixed(2)}` : "—"}</td>
         <td className={`whitespace-nowrap px-2 py-1.5 font-medium ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "text-rose-600" : "text-emerald-700"}`}>{validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && Number(item.unit_price_cny) > 0 ? `${((Number(item.unit_price_cny) - Number(item.estimated_unit_cost_cny)) / Number(item.unit_price_cny) * 100).toFixed(2)}%` : "—"}</td>
-        <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行理货要求`} value={item.preparation_requirement} onChange={(value) => editLine(index, "preparation_requirement", value)} /></td>
+        <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行理货要求`} value={item.preparation_requirement} onChange={(value) => editLine(index, "preparation_requirement", value)} /><RequirementImagePicker lineIndex={index} pending={pendingRequirementFiles} existing={existingRequirementAttachments} onAdd={addRequirementFiles} onRemove={removeRequirementFile} onRemoveExisting={draftOrderId ? removeExistingRequirementFile : undefined}/></td>
         <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行销售备注`} value={item.internal_note} onChange={(value) => editLine(index, "internal_note", value)} /></td>
-        <td className="px-2 py-1.5"><div className="flex gap-2"><button type="button" title="复制该产品行" aria-label={`复制第${index + 1}行`} disabled={items.length >= 500} onClick={() => { markUnsaved(); setItems((current) => [...current.slice(0, index + 1), { ...current[index] }, ...current.slice(index + 1)]); }} className="text-blue-600 disabled:opacity-30"><Copy size={16} /></button><button type="button" title="删除该产品行" aria-label={`删除第${index + 1}行`} disabled={items.length === 1} onClick={() => { markUnsaved(); setItems((current) => current.filter((_, position) => position !== index)); }} className="text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button></div></td>
+        <td className="px-2 py-1.5"><div className="flex gap-2"><button type="button" title="复制该产品行" aria-label={`复制第${index + 1}行`} disabled={items.length >= 500} onClick={() => { if (existingRequirementAttachments.some((entry) => !entry.archived && entry.display_line_number !== null && entry.display_line_number > index + 1)) { setError("后续产品已有理货图片，请先删除对应图片再插入产品行"); return; } markUnsaved(); setItems((current) => [...current.slice(0, index + 1), { ...current[index] }, ...current.slice(index + 1)]); setPendingRequirementFiles((current) => current.map((entry) => entry.lineIndex !== null && entry.lineIndex > index ? { ...entry, lineIndex: entry.lineIndex + 1 } : entry)); }} className="text-blue-600 disabled:opacity-30"><Copy size={16} /></button><button type="button" title="删除该产品行" aria-label={`删除第${index + 1}行`} disabled={items.length === 1} onClick={() => { if (existingRequirementAttachments.some((entry) => !entry.archived && entry.display_line_number !== null && entry.display_line_number >= index + 1)) { setError("本行或后续产品已有理货图片，请先删除对应图片再移除产品行"); return; } markUnsaved(); setItems((current) => current.filter((_, position) => position !== index)); setPendingRequirementFiles((current) => current.flatMap((entry) => entry.lineIndex === index ? [] : [entry.lineIndex !== null && entry.lineIndex > index ? { ...entry, lineIndex: entry.lineIndex - 1 } : entry])); }} className="text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button></div></td>
       </tr>)}</tbody></table></div>
       <div className="mt-3 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm" aria-live="polite"><span>产品总金额（RMB）：<strong>¥{totals.subtotalCny.toFixed(2)}</strong></span><span>产品总利润（RMB）：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : `¥${totals.totalProfitCny.toFixed(2)}`}</strong></span><span>产品总利润率：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : totals.subtotalCny > 0 ? `${(totals.totalProfitCny / totals.subtotalCny * 100).toFixed(2)}%` : "—"}</strong></span></div>
     </section>
-    <section className="grid items-stretch gap-5 border-t border-slate-100 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]"><div className={`grid h-full min-w-0 items-stretch gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div className="flex min-w-0 flex-col"><label htmlFor="pi-change-note" className="text-sm">订单变更说明（选填）</label><textarea id="pi-change-note" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" />{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<div className="flex min-w-0 flex-col"><div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="pi-stocking-requirements" className="text-sm">理货要求（选填）</label><button type="button" disabled={!selectedCustomer?.tally_requirements?.trim()} onClick={() => setShowCustomerTally(true)} className="text-xs font-medium text-blue-700 disabled:text-slate-400">查看客户资料理货要求</button></div><textarea id="pi-stocking-requirements" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /></div></div>
+    <section className="grid items-stretch gap-5 border-t border-slate-100 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]"><div className={`grid h-full min-w-0 items-stretch gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div className="flex min-w-0 flex-col"><label htmlFor="pi-change-note" className="text-sm">订单变更说明（选填）</label><textarea id="pi-change-note" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" />{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<div className="flex min-w-0 flex-col"><div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="pi-stocking-requirements" className="text-sm">整单理货要求（选填）</label><button type="button" disabled={!selectedCustomer?.tally_requirements?.trim()} onClick={() => setShowCustomerTally(true)} className="text-xs font-medium text-blue-700 disabled:text-slate-400">查看客户资料理货要求</button></div><textarea id="pi-stocking-requirements" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /><RequirementImagePicker lineIndex={null} pending={pendingRequirementFiles} existing={existingRequirementAttachments} onAdd={addRequirementFiles} onRemove={removeRequirementFile} onRemoveExisting={draftOrderId ? removeExistingRequirementFile : undefined}/><p className="mt-1 text-xs text-slate-500">多张图片可上传；提交仓库前须全部上传成功，仓库可按单据和产品行查看。</p></div></div>
       <div className="min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><h2 className="font-semibold text-slate-900">PI费用汇总</h2><p className="mt-1 text-xs text-slate-500">勾选需要的项目并输入正数金额；人民币与付款币种可任填一栏，另一栏自动换算。运费同样支持双币种输入；未付尾款、其他费用和 PayPal 手续费加收，折扣扣减。</p><div className="mt-4 grid grid-cols-[minmax(7rem,1fr)_minmax(5.5rem,6.5rem)_minmax(5.5rem,6.5rem)] items-center gap-x-2 gap-y-2 text-right tabular-nums text-slate-600"><span></span><span>CNY</span><span>{currency}</span><span className="text-left">产品小计</span><span>¥{totals.subtotalCny.toFixed(2)}</span><span>{totals.subtotalPayment.toFixed(2)}</span><label htmlFor="pi-shipping-cny" className="text-left">运费</label><div className="relative min-w-0"><span aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">¥</span><input id="pi-shipping-cny" aria-label="人民币运费" className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white pl-5 pr-2 text-right" type="text" inputMode="decimal" value={shippingSource === "CNY" ? shippingInput : shippingPair.cny} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) { markUnsaved(); setShippingSource("CNY"); setShippingInput(event.target.value); } }} onBlur={() => { if (shippingSource === "CNY" && shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} /></div><input aria-label={`${currency}运费`} className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-right" type="text" inputMode="decimal" value={shippingSource === "PAYMENT" ? shippingInput : shippingPair.payment} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) { markUnsaved(); setShippingSource("PAYMENT"); setShippingInput(event.target.value); } }} onBlur={() => { if (shippingSource === "PAYMENT" && shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} />
       {([ ["last_balance", "未付尾款"], ["discount", "折扣（扣减）"], ["other", "其他费用"] ] as const).map(([key, label]) => <div key={key} className="contents"><label className="flex items-center gap-1 text-left"><input type="checkbox" checked={feeFields[key].enabled} onChange={(event) => changeFee(key, { enabled: event.target.checked })} />{label}<span className={key === "discount" ? "text-rose-600" : "text-emerald-700"} aria-hidden="true">{key === "discount" ? "−" : "+"}</span></label>{(["CNY", "PAYMENT"] as const).map((source) => <input key={source} aria-label={`${label}${source === "CNY" ? "人民币" : currency}金额`} disabled={!feeFields[key].enabled} className="h-8 min-w-0 rounded border border-slate-300 bg-white px-2 text-right disabled:bg-slate-100" type="text" inputMode="decimal" value={feeDisplay(key, source)} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) changeFee(key, { source, amount: event.target.value }); }} onBlur={() => { const amount = feeFields[key].amount; if (feeFields[key].enabled && amount.trim()) changeFee(key, { amount: Number(amount).toFixed(2) }); }} />)}</div>)}
       {paymentMethod === "PayPal" ? <>
@@ -643,11 +736,10 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     </div>
     <ConfirmDialog open={pendingLeaveUrl !== ""} title="当前 PI 内容尚未保存" description="离开后，当前尚未保存的填写内容将丢失。建议先保存 PI 草稿。" confirmLabel="放弃填写并离开" danger onCancel={() => setPendingLeaveUrl("")} onConfirm={() => { const url = pendingLeaveUrl; hasUnsavedChanges.current = false; setPendingLeaveUrl(""); window.location.assign(url); }} />
     <ConfirmDialog open={pendingHistoryBack} title="当前 PI 内容尚未保存" description="后退将丢失当前尚未保存的填写内容。建议先保存 PI 草稿。" confirmLabel="放弃填写并后退" danger onCancel={() => setPendingHistoryBack(false)} onConfirm={() => { hasUnsavedChanges.current = false; setPendingHistoryBack(false); window.history.go(-2); }} />
-    <ConfirmDialog open={confirmClearItems} title="确认清空产品明细？" description={`当前表单内的 ${items.length} 行产品将清空。已保存的 PI 草稿不会因此立即改变。`} confirmLabel="确认清空" danger onCancel={() => setConfirmClearItems(false)} onConfirm={() => { markUnsaved(); setItems([newLine()]); setConfirmClearItems(false); }} />
+    <ConfirmDialog open={confirmClearItems} title="确认清空产品明细？" description={`当前表单内的 ${items.length} 行产品将清空。已保存的 PI 草稿不会因此立即改变。`} confirmLabel="确认清空" danger onCancel={() => setConfirmClearItems(false)} onConfirm={() => { setConfirmClearItems(false); if (existingRequirementAttachments.some((entry) => entry.display_line_number !== null)) { setError("产品行已有理货图片，请先逐项删除图片再清空明细"); return; } markUnsaved(); setItems([newLine()]); setPendingRequirementFiles((current) => current.filter((entry) => entry.lineIndex === null)); }} />
     <ConfirmDialog open={confirmSubmit} title="确认提交PI给仓库？" description="系统将先保存当前PI，再生成仓库可见的备货单。提交后不能直接修改产品或价格；仓库未开始备货前可撤回。" confirmLabel="确认并生成备货单" busy={busy} onCancel={() => { if (!busy) setConfirmSubmit(false); }} onConfirm={() => { setConfirmSubmit(false); void create(true); }} />
     <ConfirmDialog open={importDifferences.length > 0} title="导入数据与原Excel不一致" description={importDifferences.join("；") + `。请逐项核对；确认后${submitAfterImportDifferences ? "将保存PI并生成备货单" : "将保存为PI草稿"}。`} confirmLabel={submitAfterImportDifferences ? "已核对，确认生成备货单" : "已核对，保存PI草稿"} busy={busy} onCancel={() => { setImportDifferences([]); setSubmitAfterImportDifferences(false); }} onConfirm={() => { const shouldSubmit = submitAfterImportDifferences; setImportDifferences([]); setSubmitAfterImportDifferences(false); void create(shouldSubmit, true); }} />
     {showAccountDetails && selectedAccount ? <AppDialog title={`${selectedAccount.label} · 收款账户`} description="此账户信息会在保存PI时固化，之后管理员修改账户不会改写已保存的PI。" onClose={() => setShowAccountDetails(false)}><p className="whitespace-pre-wrap break-all text-sm leading-6 text-slate-700">{selectedAccount.instructions}</p></AppDialog> : null}
     {showCustomerTally && selectedCustomer?.tally_requirements ? <AppDialog title="客户资料理货要求" description={`${selectedCustomer.company_name} · 只读参考；复制后可粘贴到本单理货要求或产品明细。`} onClose={() => { setShowCustomerTally(false); setTallyCopyMessage(""); }}><div className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border bg-slate-50 p-3 text-sm leading-6 text-slate-700">{selectedCustomer.tally_requirements}</div><div className="mt-3 flex flex-wrap items-center justify-end gap-3"><span role="status" className="text-xs text-slate-600">{tallyCopyMessage}</span><button type="button" onClick={() => void copyCustomerTally()} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">复制理货要求</button></div></AppDialog> : null}
   </div></main>;
 }
-

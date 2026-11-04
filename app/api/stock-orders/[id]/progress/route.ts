@@ -10,7 +10,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const body = await request.json() as Record<string, unknown>;
     const action = String(body.action || "");
     if (action === "SHIP") throw new Error("请刷新备货页面，从交货代入口逐项选择完整产品行并填写三项人民币费用");
-    if (!["START", "RECEIVE", "PREPARE"].includes(action)) throw new Error("无效的备货动作");
+    if (action === "RECEIVE") throw new Error("请从登记回货入口选择供应商、填写送货单号及本次回货数量");
+    if (!["START", "PREPARE"].includes(action)) throw new Error("无效的备货动作");
     const changes = body.changes;
     if (!Array.isArray(changes) || changes.length > 500 || changes.length === 0
       || changes.some((change) => !change || typeof change !== "object" || typeof change.item_id !== "string"

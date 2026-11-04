@@ -15,6 +15,7 @@ export async function loadStockProgressItems(supabase: ServerSupabase, stockOrde
       const { data, error } = await supabase.from("stock_order_items")
         .select("stock_order_id,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status")
         .in("stock_order_id", ids)
+        .is("pi_amendment_cancelled_at", null)
         .order("stock_order_id")
         .order("line_number")
         .range(offset, offset + 999);

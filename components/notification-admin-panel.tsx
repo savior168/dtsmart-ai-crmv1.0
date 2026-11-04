@@ -7,7 +7,7 @@ import { USER_ROLES, type UserRole } from "@/lib/auth/permissions";
 
 type PolicyRow = NotificationPolicy & { label: string };
 type Announcement = { id: string; title: string; content: string; published_at: string; recipient_roles: UserRole[] | null; recipient_count: number | null };
-const ROLE_LABELS: Record<UserRole, string> = { ADMIN: "系统管理员", SUPERVISOR: "主管", SALES: "销售员", ORDER_CLERK: "跟单员", WAREHOUSE: "仓库员" };
+const ROLE_LABELS: Record<UserRole, string> = { ADMIN: "系统管理员", SUPERVISOR: "主管", SALES: "销售员", ORDER_CLERK: "跟单员", WAREHOUSE: "仓库员", FINANCE: "财务员" };
 const policyGroups = [
   { label: "备货与仓库", types: ["STOCK_ORDER_CREATED", "STOCK_STATUS_CHANGED", "STOCK_PROGRESS_ROUTINE"] },
   { label: "PI 变更", types: ["PI_CHANGE_REQUESTED", "PI_CHANGE_APPLIED", "PI_CHANGE_REJECTED"] },

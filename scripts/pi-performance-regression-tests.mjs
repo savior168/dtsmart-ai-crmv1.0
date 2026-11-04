@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { performanceOwnerFilter, summarizePiPerformance } from "../lib/reports/pi-performance.ts";
+import { performanceOwnerFilter, resolvePiCustomerName, summarizePiPerformance } from "../lib/reports/pi-performance.ts";
 import { formatPerformanceNumber } from "../lib/reports/format.ts";
 
 assert.equal(formatPerformanceNumber(1234.5), "1234.50");
@@ -7,6 +7,10 @@ assert.equal(formatPerformanceNumber(1234, 0), "1234");
 assert.equal(formatPerformanceNumber(null), "—");
 assert.equal(formatPerformanceNumber(undefined), "—");
 assert.equal(formatPerformanceNumber(Number.NaN), "—");
+assert.equal(resolvePiCustomerName("Ifan Aditiya", null, ""), "Ifan Aditiya", "历史 PI 客户快照不能退化成未命名客户");
+assert.equal(resolvePiCustomerName(" Rajue ", "改名后的客户", "LMC/TFS"), "Rajue", "订单核对显示确认时的客户名称快照");
+assert.equal(resolvePiCustomerName(null, "当前联系人", "公司名"), "当前联系人");
+assert.equal(resolvePiCustomerName(null, null, "公司名"), "公司名");
 
 const usdRate = 6.6619;
 const rows = [

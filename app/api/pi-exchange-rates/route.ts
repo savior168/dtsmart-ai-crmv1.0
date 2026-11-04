@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorStatus, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { authErrorStatus, hasPermission, requirePermission, requireUser, writeAudit } from "@/lib/auth/current-user";
 import { QUOTE_CURRENCIES, QUOTE_CURRENCY_CODES } from "@/lib/currencies";
 import { BAIDU_DISCOUNT_CURRENCIES } from "@/lib/pi-rate-sources";
 import { businessRateForCurrency, loadBaiduFinScopeReferenceRates, loadReferenceRates, type RateRule } from "@/lib/pi-exchange-rates";
@@ -26,8 +26,9 @@ export async function GET(request: NextRequest) {
     if (requestedCurrency && !QUOTE_CURRENCY_CODES.has(requestedCurrency)) {
       return NextResponse.json({ error: "币种不正确" }, { status: 400 });
     }
-    const { supabase, account } = await requirePermission("orders.view");
-    const { data, error } = await supabase.from("pi_exchange_rate_rules")
+    const { account } = await requireUser();
+    if (!hasPermission(account, "orders.view") && !hasPermission(account, "pi.rates.view")) throw new Error("FORBIDDEN");
+    const { data, error } = await createAdminClient().from("pi_exchange_rate_rules")
       .select("currency,adjustment_mode,adjustment_value,manual_reference_cny,updated_at");
     if (error) throw error;
     const ruleMap = new Map((data || []).map((item) => [item.currency, item as RateRule]));
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       };
     });
     // PI creators receive the effective rate and its public, verifiable source only.
-    return NextResponse.json({ rates: account.role === "ADMIN"
+    return NextResponse.json({ rates: hasPermission(account, "pi.rates.view")
       ? rates
       : rates.map(({ currency, label, reference_cny, source, source_url, reference_date, source_updated_at, business_cny }) => ({ currency, label, reference_cny, source, source_url, reference_date, source_updated_at, business_cny })) });
   } catch (error) {
@@ -69,7 +70,6 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("pi.rates.manage");
-    if (account.role !== "ADMIN") throw new Error("FORBIDDEN");
     const body = await request.json() as Record<string, unknown>;
     const currency = String(body.currency || "").trim().toUpperCase();
     const mode = String(body.adjustment_mode || "").trim();

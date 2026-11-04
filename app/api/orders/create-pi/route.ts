@@ -3,6 +3,7 @@ import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
 import { parsePiOrderInput, requireOwnedPiCustomer } from "@/lib/pi-order-input";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertPiDeliveryClassification } from "@/lib/orders/pi-delivery-classification";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,7 @@ export async function POST(request: NextRequest) {
       if (customer.error) throw customer.error;
       if (!seller.data || !customer.data || customer.data.owner_id !== salesUserId) throw new Error("所选销售员或主管与客户归属不匹配");
     } else await requireOwnedPiCustomer(supabase, account.id, input.p_customer_id);
+    await assertPiDeliveryClassification(input.p_customer_id, body);
     const { data, error } = await supabase.rpc("create_direct_pi_order_with_fees", { ...input, p_sales_user_id: salesUserId });
     if (error) throw error;
     return NextResponse.json({ data }, { status: 201 });

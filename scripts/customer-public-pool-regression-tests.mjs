@@ -323,4 +323,3 @@ for (const index of ["ai_acquisition_candidates_staging_customer_idx", "ai_acqui
 }
 
 console.log("customer public-pool regression tests passed");
-

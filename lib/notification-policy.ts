@@ -15,6 +15,22 @@ export const NOTIFICATION_TYPES = [
 
 export type NotificationPolicy = { type: string; popup_enabled: boolean; voice_enabled: boolean };
 
+export function isUrgentWarehousePiChange(notice: { type: string }, role: string | undefined) {
+  return role === "WAREHOUSE" && notice.type === "PI_CHANGE_REQUESTED";
+}
+
+export function requiresManualNotificationDismissal(
+  notice: { type: string; title?: string | null; content?: string | null },
+  role: string | undefined,
+) {
+  if (isUrgentWarehousePiChange(notice, role)) return true;
+  return notice.type === "STOCK_STATUS_CHANGED" && (
+    notice.title === "订单已取消" || notice.title === "PI备货单已撤回" ||
+    notice.title === "备货异常已更新" ||
+    Boolean(notice.content?.includes("缺货异常"))
+  );
+}
+
 export function notificationPolicyType(notice: { type: string; title?: string | null }) {
   return notice.type === "STOCK_STATUS_CHANGED" && notice.title === "备货进度已更新"
     ? "STOCK_PROGRESS_ROUTINE" : notice.type;

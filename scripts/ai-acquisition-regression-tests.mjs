@@ -606,4 +606,3 @@ assert.match(acquisitionReport,/获客质量漏斗[\s\S]*高价值客户摘要[\
 const screeningCreate=fs.readFileSync(new URL("../components/ai-screening/create-task-view.tsx",import.meta.url),"utf8");
 assert.match(screeningCreate,/costLimitOpen[\s\S]*费用保护（可选）[\s\S]*\[&>label\]:hidden/,"AI筛选单任务费用上限必须作为默认收起的高级费用保护设置");
 console.log("AI acquisition regression tests passed");
-

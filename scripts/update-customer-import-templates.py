@@ -126,4 +126,3 @@ for validation in list(pool_headers.data_validations.dataValidation):
 pool_wb.save(pool_path)
 protect_template(private_path)
 protect_template(pool_path)
-

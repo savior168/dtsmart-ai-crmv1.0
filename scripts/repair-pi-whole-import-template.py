@@ -36,4 +36,3 @@ try:
     os.replace(temporary_path, path)
 finally:
     temporary_path.unlink(missing_ok=True)
-

@@ -59,4 +59,3 @@ assert.throws(() => calculatePiFees(100, 20, 0, 0.2, "PayPal", { ...input, paypa
 assert.throws(() => calculatePiFees(1, 1, 0, 1, "PayPal", { ...input, discount: { source: "CNY", amount: 100 } }), /折扣不得超过/);
 assert.throws(() => calculatePiFees(1, 1, 0, 1, "PayPal", { ...input, paypal_rate_percent: 101 }), /PayPal/);
 console.log("PI dual-currency fee calculations passed");
-

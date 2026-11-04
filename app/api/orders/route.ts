@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       let query = supabase
         .from("sales_orders")
         .select(
-          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,prepared_by,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
+          "id,order_number,warehouse_reference_number,quote_id,quote_number,confirmation_method,sales_user_id,prepared_by,customer_id,customer_short_name,destination_country,currency,total_amount,status,delivery_date,confirmed_at,pi_revision,created_at,updated_at",
           { count: "exact" },
         )
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
@@ -123,13 +123,13 @@ export async function GET(request: NextRequest) {
       const itemRows = (await mapExportBatches(idBatches, 4, async (batchIds) => {
         const first = await supabase.from("sales_order_items").select(
           "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
-        ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(0, 999);
+        ).in("sales_order_id", batchIds).is("pi_amendment_cancelled_at", null).order("sales_order_id").order("line_number").range(0, 999);
         if (first.error) throw first.error;
         const items = [...(first.data || [])];
         for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
           const next = await supabase.from("sales_order_items").select(
             "sales_order_id,line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
-          ).in("sales_order_id", batchIds).order("sales_order_id").order("line_number").range(offset, offset + 999);
+          ).in("sales_order_id", batchIds).is("pi_amendment_cancelled_at", null).order("sales_order_id").order("line_number").range(offset, offset + 999);
           if (next.error) throw next.error;
           items.push(...(next.data || []));
           if ((next.data || []).length < 1000) break;
@@ -169,6 +169,12 @@ export async function GET(request: NextRequest) {
     const ownerIds = [...new Set(rows.map((item) => item.sales_user_id).filter(Boolean))] as string[];
     const creatorIds = [...new Set(rows.map((item) => item.prepared_by).filter(Boolean))] as string[];
     const orderIds = rows.map((item) => item.id);
+    const candidateCustomerIds = [...new Set(rows.map((item) => item.customer_id).filter(Boolean))] as string[];
+    const visibleCustomers = hasPermission(account, "customers.view") && candidateCustomerIds.length
+      ? await supabase.from("customers").select("id").in("id", candidateCustomerIds)
+      : { data: [], error: null };
+    if (visibleCustomers.error) throw visibleCustomers.error;
+    const accessibleCustomerIds = new Set((visibleCustomers.data || []).map((item) => item.id));
     const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
     const [owners, creators, stockOrders, customerNames] = await Promise.all([
       ownerIds.length
@@ -200,12 +206,13 @@ export async function GET(request: NextRequest) {
       data: rows.map((item) => ({
         ...item,
         customer_name: customerNames.get(item.id) || null,
+        customer_detail_id: accessibleCustomerIds.has(item.customer_id) ? item.customer_id : null,
         owner: ownerById.get(item.sales_user_id) || null,
         creator: item.prepared_by ? creatorById.get(item.prepared_by) || null : null,
         stock: stockByOrderId.get(item.id) || [],
         can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") &&
           hasPermission(account, "orders.delete_draft") &&
-          (account.role === "ADMIN" || item.sales_user_id === account.id) &&
+          (item.prepared_by || item.sales_user_id) === account.id &&
           item.confirmation_method === "DIRECT_PI" && item.status === "DRAFT" &&
           item.confirmed_at === null && !stockByOrderId.has(item.id),
       })),
@@ -229,4 +236,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

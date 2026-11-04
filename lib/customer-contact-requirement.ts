@@ -22,4 +22,3 @@ export function customerStageContactError(stage: unknown, value: CustomerContact
   const label = isFollowing ? "意向客户" : "已成交客户";
   return `${label}至少填写电话、邮箱、微信或 WhatsApp 其中一项`;
 }
-

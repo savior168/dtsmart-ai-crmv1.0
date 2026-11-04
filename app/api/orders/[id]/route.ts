@@ -8,6 +8,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 import { summarizeStockProgress } from "@/lib/stock-progress";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
+import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
 
 export async function GET(
   _: NextRequest,
@@ -48,8 +49,26 @@ export async function GET(
     if (stock.error) throw stock.error;
     if (quote.error) throw quote.error;
     const stockItems = stock.data ? await relatedClient.from("stock_order_items")
-      .select("quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status").eq("stock_order_id", stock.data.id) : null;
+      .select("line_number,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status").eq("stock_order_id", stock.data.id).is("pi_amendment_cancelled_at", null) : null;
     if (stockItems?.error) throw stockItems.error;
+    const amendmentResult = order.data.confirmation_method === "DIRECT_PI"
+      ? await createAdminClient().from("pi_amendment_requests")
+        .select("id,status,base_revision,applied_revision,reason,decision_note,created_at,decided_at,before_items,proposed_items")
+        .eq("sales_order_id", id).order("created_at", { ascending: false }).limit(20)
+      : null;
+    if (amendmentResult?.error) throw amendmentResult.error;
+    const amendments = amendmentResult?.data || [];
+    const appliedCountResult = order.data.confirmation_method === "DIRECT_PI"
+      ? await createAdminClient().from("pi_amendment_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("sales_order_id", id).eq("status", "APPLIED") : null;
+    if (appliedCountResult?.error) throw appliedCountResult.error;
+    const requirementAttachments = order.data.confirmation_method === "DIRECT_PI"
+      ? await createAdminClient().from("attachments")
+        .select("id,filename,mime_type,size_bytes,created_at,pi_line_number_snapshot,pi_product_label_snapshot,sales_order_item_id")
+        .eq("sales_order_id", id).in("kind", ["PI_ORDER_REQUIREMENT", "PI_LINE_REQUIREMENT"])
+        .order("created_at") : null;
+    if (requirementAttachments?.error) throw requirementAttachments.error;
     const receivingProgress = stockItems ? {
       total_items: stockItems.data?.length || 0,
       received_items: (stockItems.data || []).filter((item) => Number(item.received_quantity) >= Number(item.quantity)).length,
@@ -63,31 +82,51 @@ export async function GET(
       ? await relatedClient.from("users").select("name,email").eq("id", order.data.sales_user_id).maybeSingle()
       : null;
     if (clerkOwner?.error) throw clerkOwner.error;
-    const writable = account.role === "ORDER_CLERK"
-      ? order.data.prepared_by === account.id
+    const preparer = order.data.prepared_by ? await createAdminClient().from("users")
+      .select("name,email").eq("id", order.data.prepared_by).maybeSingle() : null;
+    if (preparer?.error) throw preparer.error;
+    const writable = order.data.confirmation_method === "DIRECT_PI"
+      ? (order.data.prepared_by || order.data.sales_user_id) === account.id
       : order.data.sales_user_id === account.id || account.role === "ADMIN";
     return NextResponse.json({
-      order: { ...order.data, owner: clerkOwner?.data || order.data.owner, customer: {
+      order: { ...order.data, owner: clerkOwner?.data || order.data.owner,
+        preparer: preparer?.data || null, customer: {
         ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
         contact_name: customerNames.get(id) || null,
       } },
       items: items.data || [],
       stock_order: stock.data ? { ...stock.data, progress: summarizeStockProgress(stock.data.status, stockItems?.data || []) } : null,
       receiving_progress: receivingProgress,
+      item_progress: stockItems?.data || [],
+      amendments,
+      requirement_attachments: resolvePiRequirementAttachments(requirementAttachments?.data || [], items.data || []),
+      applied_amendment_count: appliedCountResult?.count || 0,
+      can_request_amendment: writable && hasPermission(account, "orders.edit")
+        && order.data.confirmation_method === "DIRECT_PI"
+        && Boolean(stock.data) && ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHORTAGE"].includes(stock.data!.status)
+        && !amendments.some((item) => item.status === "PENDING")
+        && (appliedCountResult?.count || 0) < 3,
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
       can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") && writable &&
         hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
         order.data.status === "DRAFT" && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
-      can_recall: account.role !== "ORDER_CLERK" && writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
+      can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
+      can_review_seller_cost: (order.data.prepared_by || order.data.sales_user_id) === account.id
+        && ["SALES", "SUPERVISOR", "ORDER_CLERK", "ADMIN"].includes(account.role)
+        && hasPermission(account, "orders.cost_review")
+        && order.data.confirmation_method === "DIRECT_PI"
+        && order.data.status === "SHIPPED" && stock.data?.status === "SHIPPED"
+        && Boolean(stockItems?.data?.length)
+        && (stockItems?.data || []).every((item) => Number(item.shipped_quantity) === Number(item.quantity)),
       can_edit:
         account.role !== "ORDER_CLERK" && writable &&
         hasPermission(account, "orders.edit") &&
         order.data.confirmation_method !== "DIRECT_PI" &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),
       can_cancel:
-        account.role !== "ORDER_CLERK" && writable &&
+        writable &&
         hasPermission(account, "orders.cancel") &&
         !(order.data.confirmation_method === "DIRECT_PI" && !["DRAFT", "WAITING_STOCK"].includes(order.data.status)) &&
         !["READY", "SHIPPED", "CANCELLED"].includes(order.data.status),

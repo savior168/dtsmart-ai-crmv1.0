@@ -6,8 +6,11 @@ export function canReadCustomerAiEvidence(input: {
   canViewCustomerEvidence: boolean;
   canViewAiResults: boolean;
 }) {
-  // Full source evidence is reserved for administrators; ownership alone is insufficient.
-  return input.viewerRole === "ADMIN" && (input.canViewCustomerEvidence || input.canViewAiResults);
+  // A grant never widens the customer's record scope: only the owner, an
+  // authorized direct-report supervisor, or an administrator may read it.
+  const inScope = input.viewerRole === "ADMIN"
+    || input.customerOwnerId === input.viewerId || input.isDirectReport;
+  return inScope && (input.canViewCustomerEvidence || input.canViewAiResults);
 }
 
 const CUSTOMER_RESULT_KEYS = [

@@ -3,6 +3,7 @@ import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/cu
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
 import { parsePiOrderInput, requireOwnedPiCustomer } from "@/lib/pi-order-input";
 import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
+import { assertPiDeliveryClassification } from "@/lib/orders/pi-delivery-classification";
 
 type Context = { params: Promise<{ id: string }> };
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -18,6 +19,7 @@ export async function POST(request: NextRequest, context: Context) {
     if (!Number.isSafeInteger(revision) || revision < 1) throw new Error("导入草稿版本不正确，请刷新");
     const input = parsePiOrderInput(body);
     await requireOwnedPiCustomer(supabase, account.id, input.p_customer_id);
+    await assertPiDeliveryClassification(input.p_customer_id, body);
     const { data: draft, error: draftError } = await supabase.from("pi_import_drafts")
       .select("id,owner_id,payload,revision,status").eq("id", id).eq("owner_id", account.id).maybeSingle();
     if (draftError) throw draftError;

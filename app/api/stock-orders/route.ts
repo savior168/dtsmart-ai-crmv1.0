@@ -24,7 +24,7 @@ const SORT_COLUMNS = {
 export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("stock.view");
-    const canViewProcurement = account.role === "WAREHOUSE"
+    const canViewProcurement = ["WAREHOUSE", "ADMIN"].includes(account.role)
       && hasPermission(account, "stock.procurement.edit");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
           ).in("id", batchIds),
           supabase.from("stock_order_items").select(
             "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
-          ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(0, 999),
+          ).in("stock_order_id", batchIds).is("pi_amendment_cancelled_at", null).order("stock_order_id").order("line_number").range(0, 999),
           supabase.from("stock_order_events").select("stock_order_id,created_at").in("stock_order_id", batchIds).eq("to_status", "SHIPPED").order("created_at", { ascending: false }).order("id").range(0, 999),
         ]);
         if (details.error) throw details.error;
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
         for (let offset = items.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
           const next = await supabase.from("stock_order_items").select(
             "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note",
-          ).in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(offset, offset + 999);
+          ).in("stock_order_id", batchIds).is("pi_amendment_cancelled_at", null).order("stock_order_id").order("line_number").range(offset, offset + 999);
           if (next.error) throw next.error;
           items.push(...(next.data || []));
           if ((next.data || []).length < 1000) break;
@@ -133,13 +133,13 @@ export async function GET(request: NextRequest) {
           const sensitive = createAdminClient();
           const purchaseRows = await sensitive.from("stock_order_items")
             .select("stock_order_id,line_number,procurement_cost,procurement_cost_confirmed,warehouse_note")
-            .in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(0, 999);
+            .in("stock_order_id", batchIds).is("pi_amendment_cancelled_at", null).order("stock_order_id").order("line_number").range(0, 999);
           if (purchaseRows.error) throw purchaseRows.error;
           const procurementItems = [...(purchaseRows.data || [])];
           for (let offset = procurementItems.length; offset > 0 && offset % 1000 === 0; offset += 1000) {
             const next = await sensitive.from("stock_order_items")
               .select("stock_order_id,line_number,procurement_cost,procurement_cost_confirmed,warehouse_note")
-              .in("stock_order_id", batchIds).order("stock_order_id").order("line_number").range(offset, offset + 999);
+              .in("stock_order_id", batchIds).is("pi_amendment_cancelled_at", null).order("stock_order_id").order("line_number").range(offset, offset + 999);
             if (next.error) throw next.error;
             procurementItems.push(...(next.data || []));
             if ((next.data || []).length < 1000) break;
@@ -209,6 +209,18 @@ export async function GET(request: NextRequest) {
     const clerkOwnerIds = [...new Set((data || []).map((item) => item.sales_user_id).filter(Boolean))];
     const preparerIds = [...new Set((data || []).map((item) => item.pi_prepared_by).filter(Boolean))];
     const customerNames = await loadOrderCustomerNames((data || []).map((item) => item.sales_order_id));
+    const linkedOrderIds = [...new Set((data || []).map((item) => item.sales_order_id).filter(Boolean))] as string[];
+    const linkedCustomers = hasPermission(account, "customers.view") && linkedOrderIds.length
+      ? await createAdminClient().from("sales_orders").select("id,customer_id").in("id", linkedOrderIds)
+      : { data: [], error: null };
+    if (linkedCustomers.error) throw linkedCustomers.error;
+    const customerIds = [...new Set((linkedCustomers.data || []).map((item) => item.customer_id).filter(Boolean))] as string[];
+    const visibleCustomers = customerIds.length
+      ? await supabase.from("customers").select("id").in("id", customerIds)
+      : { data: [], error: null };
+    if (visibleCustomers.error) throw visibleCustomers.error;
+    const accessibleCustomerIds = new Set((visibleCustomers.data || []).map((item) => item.id));
+    const customerIdByOrder = new Map((linkedCustomers.data || []).map((item) => [item.id, item.customer_id]));
     const clerkOwners = clerkOwnerIds.length
       ? await createAdminClient().from("users").select("id,name,email").in("id", clerkOwnerIds)
       : { data: [], error: null };
@@ -221,6 +233,7 @@ export async function GET(request: NextRequest) {
     const preparerById = new Map((preparers.data || []).map((user) => [user.id, user]));
     return NextResponse.json({ data: (data || []).map((item) => ({ ...item,
       customer_name: customerNames.get(item.sales_order_id) || null,
+      customer_detail_id: accessibleCustomerIds.has(customerIdByOrder.get(item.sales_order_id)) ? customerIdByOrder.get(item.sales_order_id) : null,
       sales: clerkOwnerById.get(item.sales_user_id) || null,
       preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),

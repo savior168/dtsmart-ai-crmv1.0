@@ -1,6 +1,6 @@
 import { canViewSubordinateData, isSubordinateDataPermission } from "./supervisor-data-scope.ts";
 
-export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE"] as const;
+export const USER_ROLES = ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE", "FINANCE"] as const;
 export const ACCOUNT_STATUSES = ["PENDING", "ACTIVE", "REJECTED", "DISABLED", "DEPARTED", "LOCKED"] as const;
 
 export type BuiltinUserRole = (typeof USER_ROLES)[number];
@@ -40,7 +40,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "customers.renew.review", label: "审核下属续期", group: "客户中心", description: "审核直属销售员第三次及之后的保护续期", kind: "ACTION" },
   { code: "customers.assign", label: "分配公海客户", group: "客户中心", description: "仅分配尚未认领或离职待分配客户", kind: "ACTION", core: true },
   { code: "customers.handover", label: "离职客户交接", group: "客户中心", description: "将停用或离职账号的客户整批释放或交接", kind: "ACTION", core: true },
-  { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户中心", description: "查看客户AI完整分析依据；普通角色仅查看客户详情中的结论摘要", kind: "ACTION", core: true },
+  { code: "customers.ai_evidence_view", label: "查看AI分析依据", group: "客户中心", description: "查看有权访问客户的AI完整分析依据；默认仅管理员开启", kind: "ACTION" },
 
   { code: "imports.view", label: "客户导入", group: "客户中心", description: "进入客户导入并查看导入批次", kind: "PAGE" },
   { code: "imports.create", label: "执行数据导入", group: "客户中心", description: "预览并提交客户文件导入", kind: "ACTION" },
@@ -75,8 +75,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
   { code: "products.view", label: "商品资料", group: "商品中心", description: "进入商品资料并搜索可报价SKU", kind: "PAGE" },
   { code: "products.categories.view", label: "商品分类", group: "商品中心", description: "进入商品分类页面并查看分类状态", kind: "PAGE" },
-  { code: "products.categories.manage", label: "维护商品分类", group: "商品中心", description: "新增、编辑、启用或停用商品分类", kind: "ACTION", core: true },
-  { code: "products.manage", label: "维护商品资料", group: "商品中心", description: "新增、编辑、启用或停用商品主档", kind: "ACTION", core: true },
+  { code: "products.categories.manage", label: "维护商品分类", group: "商品中心", description: "新增、编辑、启用或停用商品分类", kind: "ACTION" },
+  { code: "products.manage", label: "维护商品资料", group: "商品中心", description: "新增、编辑、启用或停用商品主档", kind: "ACTION" },
   { code: "pricebooks.view", label: "产品价格表", group: "商品中心", description: "进入产品价格表并查看有效销售参考价", kind: "PAGE" },
   { code: "pricebooks.rules.view", label: "销售报价设置", group: "商品中心", description: "查看内部报价汇率、加价率和最低毛利规则", kind: "PAGE", core: true },
   { code: "pricebooks.sales.view", label: "查看销售参考价", group: "商品中心", description: "查看已发布美元销售参考价；不包含采购成本和利润底线", kind: "DATA" },
@@ -101,11 +101,16 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员可查看全部；主管还需单独开启下属数据开关，且仅能只读查看直属下属订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
+  { code: "orders.cost_review", label: "复核本人创建PI的销售成本", group: "销售管理", description: "整单交货代后，仅创建该PI的销售员、主管或跟单员可逐项修正销售预估成本；不显示实际采购价", kind: "ACTION" },
   { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅归属销售员或系统管理员可删除从未提交仓库的PI草稿；已提交历史不可删除", kind: "ACTION" },
   { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
   { code: "stock.view", label: "备货单", group: "采购管理", description: "查看允许范围内的采购备货单", kind: "PAGE" },
+  { code: "suppliers.view", label: "供应商档案", group: "采购管理", description: "查看供应商档案；仓库仅获取可选代码", kind: "PAGE" },
+  { code: "suppliers.manage", label: "维护供应商档案", group: "采购管理", description: "新增、修改和停用供应商档案", kind: "ACTION" },
+  { code: "supplier.reconciliation.view", label: "供应商对账", group: "采购管理", description: "按供应商和日期核对送货单、PI分配及应付款", kind: "PAGE" },
+  { code: "supplier.reconciliation.manage", label: "登记供应商付款", group: "采购管理", description: "按已核对的送货单登记不可删除的付款流水", kind: "ACTION" },
   { code: "stock.preview", label: "预览备货单", group: "采购管理", description: "打开备货单预览页面；正式单据的导出仍需导出权限", kind: "ACTION" },
   { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
@@ -114,17 +119,18 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "stock.submit", label: "确认备货草稿", group: "采购管理", description: "仓库员确认历史报价产生的备货草稿；PI由销售确认后自动提交", kind: "ACTION" },
   { code: "stock.export", label: "导出备货单", group: "采购管理", description: "按备货模板导出备货Excel", kind: "ACTION" },
 
-  { code: "pi.rates.view", label: "汇率设置", group: "PI财务设置", description: "查看PI参考汇率和业务汇率规则", kind: "PAGE", core: true },
-  { code: "pi.rates.manage", label: "维护汇率规则", group: "PI财务设置", description: "维护PI业务汇率规则和手工参考价", kind: "ACTION", core: true },
-  { code: "pi.accounts.view", label: "收款账户", group: "PI财务设置", description: "查看全部PI收款账户及启停状态", kind: "PAGE", core: true },
-  { code: "pi.accounts.manage", label: "维护收款账户", group: "PI财务设置", description: "新增、编辑及启停PI收款账户", kind: "ACTION", core: true },
+  { code: "pi.rates.view", label: "汇率设置", group: "PI财务设置", description: "查看PI参考汇率和业务汇率规则", kind: "PAGE" },
+  { code: "pi.rates.manage", label: "维护汇率规则", group: "PI财务设置", description: "维护PI业务汇率规则和手工参考价", kind: "ACTION" },
+  { code: "pi.accounts.view", label: "收款账户", group: "PI财务设置", description: "查看全部PI收款账户及启停状态", kind: "PAGE" },
+  { code: "pi.accounts.manage", label: "维护收款账户", group: "PI财务设置", description: "新增、编辑及启停PI收款账户", kind: "ACTION" },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },
+  { code: "reports.actual_profit.view", label: "查看实际毛利和纯利", group: "报表中心", description: "查看按真实回货采购价及整单三项费用计算的实际毛利、纯利及利润率；不改变可查看的订单范围", kind: "DATA" },
   { code: "reports.export", label: "导出报表", group: "报表中心", description: "导出允许范围内的报表", kind: "ACTION" },
 
-  { code: "costs.view", label: "费用中心", group: "系统管理", description: "查看全部第三方API费用及明细", kind: "PAGE", core: true },
-  { code: "costs.export", label: "导出费用明细", group: "系统管理", description: "导出统一API费用台账", kind: "ACTION", core: true },
+  { code: "costs.view", label: "费用中心", group: "系统管理", description: "查看全部第三方API费用及明细；默认仅管理员开启", kind: "PAGE" },
+  { code: "costs.export", label: "导出费用明细", group: "系统管理", description: "导出统一API费用台账", kind: "ACTION" },
 
   { code: "notifications.view", label: "查看站内通知", group: "站内通知", description: "查看并处理发送给本人的业务通知", kind: "PAGE" },
 
@@ -140,6 +146,12 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
 export const PERMISSION_CODES = new Set(PERMISSION_CATALOG.map((item) => item.code));
 export const CORE_PERMISSION_CODES = new Set(PERMISSION_CATALOG.filter((item) => item.core).map((item) => item.code));
+
+// Historical quote documents remain readable through legacy routes, but the
+// retired module is not an assignable menu in the current PI-first workflow.
+export function isRetiredPermission(code: string) {
+  return code.startsWith("quotes.");
+}
 
 export function isKnownPermission(code: string) {
   return PERMISSION_CODES.has(code);
@@ -165,6 +177,8 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("quotes.")) return "quotes.view";
   if (code.startsWith("orders.")) return "orders.view";
   if (code.startsWith("stock.")) return "stock.view";
+  if (code.startsWith("suppliers.")) return "suppliers.view";
+  if (code.startsWith("supplier.reconciliation.")) return "supplier.reconciliation.view";
   if (code.startsWith("pi.rates.")) return "pi.rates.view";
   if (code.startsWith("pi.accounts.")) return "pi.accounts.view";
   if (code.startsWith("reports.")) return "reports.view";
@@ -189,7 +203,6 @@ export function evaluatePermission(account: PermissionAccount, permission: strin
   if (account.role === "ADMIN") return true;
   if (account.role === "SUPERVISOR" && !canViewSubordinateData(account)
     && isSubordinateDataPermission(permission)) return false;
-  if (account.role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(permission)) return false;
   const pagePermission = permissionPageCode(permission);
   if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
   if (!account.permissions.includes(permission)) return false;
@@ -226,13 +239,14 @@ export const ROLE_LABELS: Record<BuiltinUserRole, string> & Record<string, strin
   SALES: "销售员",
   ORDER_CLERK: "跟单员",
   WAREHOUSE: "仓库员",
+  FINANCE: "财务员",
 };
 
 export function isOrderClerkForbiddenPermission(permission: string) {
-  return permission.startsWith("customers.") && !["customers.view", "customers.data_all"].includes(permission)
-    || permission.startsWith("stock.") && !["stock.view", "stock.data_all"].includes(permission)
-    || permission.startsWith("quotes.")
-    || ["orders.cancel", "orders.delete_draft", "orders.import"].includes(permission);
+  // Legacy UI call sites still consult this predicate. All ordinary grants now
+  // flow through the same catalog and page/action checks as other roles.
+  void permission;
+  return false;
 }
 
 export const STATUS_LABELS: Record<AccountStatus, string> = {
