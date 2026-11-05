@@ -55,4 +55,3 @@ for (const kind of Object.keys(multi)) {
 assert.throws(() => normalizeManualContacts("good@example.com;bad-email", "email"), /邮箱格式不正确/);
 assert.throws(() => normalizeManualContacts("+49 699 043 1261;bad-number", "phone"), /联系电话格式不正确/);
 console.log(`customer fixture parsed: ${rows.length} rows, ${accepted.length} accepted, ${rejected.length} rejected with source row numbers`);
-

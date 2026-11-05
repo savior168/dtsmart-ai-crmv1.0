@@ -12,8 +12,7 @@ type CorrectionChange = {
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.update");
-    if (account.role !== "WAREHOUSE" && account.role !== "ADMIN") throw new Error("FORBIDDEN");
+    const { supabase } = await requirePermission("stock.update");
     const { id } = await context.params;
     const body = await request.json() as { changes?: CorrectionChange[]; expected_updated_at?: unknown; reason?: unknown };
     const changes = body.changes;
@@ -25,6 +24,16 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         || (change.revert_start !== undefined && typeof change.revert_start !== "boolean"))) {
       throw new Error("请选择有效产品并填写正确的累计回货数、理货数和供应商编码");
     }
+    const current = await supabase.from("stock_order_items")
+      .select("id,received_quantity,warehouse_supplier_code")
+      .eq("stock_order_id", id).in("id", changes.map((change) => String(change.item_id)));
+    if (current.error) throw current.error;
+    const currentById = new Map((current.data || []).map((item) => [item.id, item]));
+    if (changes.some((change) => {
+      const item = currentById.get(String(change.item_id));
+      return !item || change.received_quantity !== item.received_quantity
+        || change.supplier_code !== (item.warehouse_supplier_code || "");
+    })) throw new Error("回货数量及供应商代码不能在进度更正中直接修改；请使用带送货单的冲正流程");
     const expected = String(body.expected_updated_at || "");
     if (!Number.isFinite(Date.parse(expected))) throw new Error("备货单版本无效，请刷新后重试");
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";

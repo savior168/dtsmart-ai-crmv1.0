@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Keep the two performance leaderboards scannable without dropping ranks 6–10. */
+section:has(> header select[aria-label="客户排名依据"]) > .divide-y,
+section:has(> header select[aria-label="产品排名依据"]) > .divide-y {
+  max-height: 25rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+section:has(> header select[aria-label="客户排名依据"]) > .divide-y > button,
+section:has(> header select[aria-label="产品排名依据"]) > .divide-y > button {
+  padding-block: .55rem;
+}
+
+
 :root {
   color-scheme: light;
   --crm-primary: #2563eb;

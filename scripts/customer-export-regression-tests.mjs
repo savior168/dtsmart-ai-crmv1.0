@@ -192,4 +192,3 @@ assert.match(customersView, /selectedBatches[\s\S]*params\.append\("selected_id"
 const customerWorkspacePanels = await readFile(new URL("../components/customer-workspace-panels-v2.tsx", import.meta.url), "utf8");
 assert.equal([...customerWorkspacePanels.matchAll(/canExport \? <button[^\n]*导出当前筛选/g)].length, 2, "客户保护和冲突工作区的导出入口也必须受客户导出权限控制");
 console.log("客户导出回归测试通过。");
-

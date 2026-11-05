@@ -19,6 +19,7 @@ import {
   Phone,
   RefreshCw,
   ShieldCheck,
+  ShoppingCart,
   Sparkles,
   UploadCloud,
   UserRoundPlus,
@@ -28,6 +29,7 @@ import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { UserScopeSelect } from "@/components/user-scope-select";
 import { CountryLabel } from "@/components/country-label";
 import { businessRange } from "@/lib/reports/business-date-range";
+import { BUSINESS_DATE_PRESETS, businessDatePreset, type BusinessDatePreset } from "@/lib/reports/date-presets";
 
 function Link(props: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={false} {...props} />;
@@ -38,7 +40,7 @@ type FunnelRow = { label: string; value: number; percentage: number };
 type CountryRow = { name: string; count: number; percentage: number };
 type ProtectionRow = { id: string; customer_id: string; customer_name: string; country: string | null; expires_at: string; days: number };
 type FollowupRow = { id: string; customer_id: string; customer_name: string; phone: string | null; email: string | null; country: string | null; ai_level: string | null; last_followup: string | null; followup_time: string | null; type: string; status: string; protection_days: number | null };
-type ActivityRow = { id: string; action: string; text: string; created_at: string };
+type ActivityRow = { id: string; action: string; text: string; created_at: string; href?: string };
 type DashboardData = {
   range: { from: string; to: string };
   filters: { countries: string[] };
@@ -49,6 +51,7 @@ type DashboardData = {
   protections: ProtectionRow[];
   followups: FollowupRow[];
   activities: ActivityRow[];
+  activity_mode?: "STOCK_PROGRESS" | "CUSTOMER";
 };
 type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number; missing_profit_usd_orders?: number } };
 
@@ -56,11 +59,6 @@ const panelClass = "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3p
 const gradeColors: Record<string, string> = { A: "#20c56b", B: "#2f80ed", C: "#8358ed", D: "#f5a623", 未筛选: "#cbd5e1" };
 const statusLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: "潜在客户", FOLLOWING: "意向客户", QUOTE: "报价中", DEAL: "已成交", RELEASED: "无效客户" };
 const typeLabels: Record<string, string> = { EMAIL: "邮件", WHATSAPP: "whatsapp", PHONE: "电话", LINKEDIN: "LinkedIn", OTHER: "其他" };
-function localDate(value: Date) {
-  const offset = value.getTimezoneOffset() * 60000;
-  return new Date(value.getTime() - offset).toISOString().slice(0, 10);
-}
-
 function number(value: number) { return new Intl.NumberFormat("zh-CN").format(value); }
 function money(value: number) { return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
 
@@ -120,8 +118,9 @@ function DashboardHeader({ title, href }: { title: string; href: string }) {
 
 export function CrmDashboard({ showPerformance = true }: { showPerformance?: boolean }) {
   const now = useMemo(() => new Date(), []);
-  const [from, setFrom] = useState(() => localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
-  const [to, setTo] = useState(() => localDate(now));
+  const [from, setFrom] = useState(() => businessDatePreset("month", now).from);
+  const [to, setTo] = useState(() => businessDatePreset("month", now).to);
+  const [selectedPreset, setSelectedPreset] = useState<BusinessDatePreset | "">("month");
   const [country, setCountry] = useState("");
   const [scopeUserId, setScopeUserId] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
@@ -174,8 +173,15 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
   }, [load]);
 
   function reset() {
-    setFrom(localDate(new Date(now.getFullYear(), now.getMonth(), 1)));
-    setTo(localDate(now)); setCountry(""); setScopeUserId("");
+    const current = businessDatePreset("month", new Date());
+    setFrom(current.from); setTo(current.to); setSelectedPreset("month"); setCountry(""); setScopeUserId("");
+  }
+
+  function selectPreset(value: string) {
+    if (!value) { setSelectedPreset(""); return; }
+    const preset = value as BusinessDatePreset;
+    const next = businessDatePreset(preset);
+    setFrom(next.from); setTo(next.to); setSelectedPreset(preset);
   }
 
   const cards = data ? [
@@ -201,7 +207,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
     <main className="dashboard-page min-h-[calc(100vh-64px)] bg-[#f8fafc] px-4 py-4 xl:px-5">
       <div className="mx-auto max-w-[1660px]">
         <section className="mb-4 flex flex-wrap items-center gap-3">
-          <CompactDateRange label="统计日期" from={from} to={to} onFromChange={setFrom} onToChange={setTo} className="shadow-sm"/>
+          <CompactDateRange label="统计日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset} className="shadow-sm"/>
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
           <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
@@ -244,7 +250,21 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
 
           <section className="mt-4 grid gap-3 xl:grid-cols-[1.12fr_1fr]">
             <article className={`${panelClass} dashboard-reveal min-h-[310px] overflow-hidden`} style={{ animationDelay: "300ms" }}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">今日待跟进（{data.totals.today_followups}）</h3><Link href="/followups" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="overflow-x-auto"><table className="w-full min-w-[690px] text-left text-xs"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-4 py-2.5 font-medium">客户名称</th><th className="px-2 py-2.5 font-medium">国家</th><th className="px-2 py-2.5 font-medium">上次跟进</th><th className="px-2 py-2.5 font-medium">跟进时间</th><th className="px-2 py-2.5 font-medium">跟进方式</th><th className="px-2 py-2.5 font-medium">状态</th><th className="px-3 py-2.5 font-medium">操作</th></tr></thead><tbody>{data.followups.length ? data.followups.map((item) => <tr key={item.id} className="border-t border-slate-100 hover:bg-blue-50/40"><td className="max-w-40 truncate px-4 py-2.5 font-medium">{item.customer_name}</td><td className="px-2 py-2.5"><CountryLabel value={item.country} /></td><td className="px-2 py-2.5 text-slate-500">{item.last_followup ? new Date(item.last_followup).toLocaleDateString("zh-CN") : "未跟进"}</td><td className="px-2 py-2.5 font-medium text-orange-600">{item.followup_time ? new Date(item.followup_time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "-"}</td><td className="px-2 py-2.5">{typeLabels[item.type] || item.type}</td><td className="px-2 py-2.5"><span className="rounded bg-orange-50 px-2 py-1 text-orange-600">{statusLabels[item.status] || item.status}</span></td><td className="px-3 py-2.5"><div className="flex gap-2 text-blue-600">{item.phone?<a href={`tel:${item.phone}`} aria-label={`拨打 ${item.phone}`} title={item.phone}><Phone size={15} /></a>:<Phone size={15} className="text-slate-300" aria-label="无可用电话"/>}{item.email?<a href={`mailto:${item.email}`} aria-label={`发送邮件给 ${item.email}`} title={item.email}><Mail size={15} /></a>:<Mail size={15} className="text-slate-300" aria-label="无可用邮箱"/>}<Link href={`/customers/${item.customer_id}`} aria-label="查看客户跟进"><MessageSquareText size={15} /></Link></div></td></tr>) : <tr><td colSpan={7} className="h-[175px] text-center text-slate-400">今天没有待跟进任务</td></tr>}</tbody></table></div><footer className="flex h-12 items-center justify-between border-t border-slate-100 px-4 text-xs text-slate-500"><span>共 {data.totals.today_followups} 条</span><div className="flex items-center gap-1"><button type="button" disabled className="grid h-8 w-8 place-items-center rounded border border-slate-200 disabled:opacity-40"><ChevronLeft size={15} /></button><button type="button" className="h-8 min-w-8 rounded bg-blue-600 px-2 text-white">1</button><button type="button" disabled className="grid h-8 w-8 place-items-center rounded border border-slate-200 disabled:opacity-40"><ChevronRight size={15} /></button><select aria-label="每页条数" className="ml-2 h-8 rounded border border-slate-200 px-2"><option>5条/页</option></select></div></footer></article>
-            <article className={`${panelClass} min-h-[310px]`}><div className="flex h-12 items-center justify-between px-4"><h3 className="text-[15px] font-semibold">最近动态</h3><Link href="/customers" className="text-xs font-medium text-blue-600">查看全部</Link></div><div className="space-y-0 px-4">{data.activities.length ? data.activities.map((item, index) => { const Icon = item.action.includes("AI") ? Sparkles : item.action.includes("FOLLOWUP") ? UsersRound : item.action.includes("STAGE") ? FileText : index % 2 ? CalendarDays : UserRoundPlus; const colors = item.action.includes("AI") ? "bg-violet-500" : item.action.includes("FOLLOWUP") ? "bg-emerald-500" : item.action.includes("STAGE") ? "bg-orange-500" : "bg-blue-500"; return <div key={item.id} className="flex items-center gap-3 py-3 text-xs"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-white ${colors}`}><Icon size={15} /></span><p className="min-w-0 flex-1 text-slate-700">{item.text}</p><time className="shrink-0 text-slate-400">{relativeTime(item.created_at)}</time></div>; }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>暂无最近动态</p></div></div>}</div></article>
+            <article className={`${panelClass} min-h-[310px]`}>
+              <div className="flex h-12 items-center justify-between px-4">
+                <h3 className="text-[15px] font-semibold">{data.activity_mode === "STOCK_PROGRESS" ? "最近备货动态" : "最近动态"}</h3>
+                <Link href={data.activity_mode === "STOCK_PROGRESS" ? "/stock-orders" : "/customers"} className="text-xs font-medium text-blue-600">查看全部</Link>
+              </div>
+              <div className="divide-y divide-slate-100 px-4">
+                {data.activities.length ? data.activities.map((item, index) => {
+                  const Icon = item.action === "STOCK_PROGRESS" ? ShoppingCart : item.action.includes("AI") ? Sparkles : item.action.includes("FOLLOWUP") ? UsersRound : item.action.includes("STAGE") ? FileText : index % 2 ? CalendarDays : UserRoundPlus;
+                  const colors = item.action === "STOCK_PROGRESS" ? "bg-cyan-500" : item.action.includes("AI") ? "bg-violet-500" : item.action.includes("FOLLOWUP") ? "bg-emerald-500" : item.action.includes("STAGE") ? "bg-orange-500" : "bg-blue-500";
+                  const content = <><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-white ${colors}`}><Icon size={15} /></span><p className="min-w-0 flex-1 break-words text-slate-700">{item.text || "动态内容暂不可用"}</p><time className="shrink-0 text-slate-400">{relativeTime(item.created_at)}</time></>;
+                  return item.href ? <Link key={item.id} href={item.href} className="flex items-start gap-3 py-3 text-xs hover:text-blue-700">{content}</Link>
+                    : <div key={item.id} className="flex items-start gap-3 py-3 text-xs">{content}</div>;
+                }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>暂无最近动态</p></div></div>}
+              </div>
+            </article>
           </section>
         </> : null}
       </div>

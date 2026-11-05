@@ -205,4 +205,3 @@ export function customerImportIdentityKeys(row: CustomerIdentityInput) {
     ...customerFallbackIdentityKeys({ ...row, company_name: entity }),
   ]);
 }
-

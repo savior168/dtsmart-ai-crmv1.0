@@ -6,8 +6,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { supabase, account } = await requirePermission("stock.prepare");
-    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("只有仓库员可以完善备货单");
+    const { supabase } = await requirePermission("stock.prepare");
     const { id } = await params;
     const { data: stock, error: stockError } = await supabase.from("stock_orders")
       .select("status,warehouse_reference_number").eq("id", id).single();

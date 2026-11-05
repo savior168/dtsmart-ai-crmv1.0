@@ -27,6 +27,7 @@ export async function GET(
           "line_number,item_name,brand,model,quality,description,quantity,unit_price,unit_price_cny",
         )
         .eq("sales_order_id", id)
+        .is("pi_amendment_cancelled_at", null)
         .order("line_number"),
     ]);
     if (order.error) throw order.error;
@@ -72,4 +73,3 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
-

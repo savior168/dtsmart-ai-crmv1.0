@@ -17,6 +17,10 @@ export function performanceOwnerFilter(role: string, actorId: string, selectedOw
   return selectedOwner ? [selectedOwner] : role === "ADMIN" ? null : [actorId];
 }
 
+export function resolvePiCustomerName(snapshot: string | null, currentName: string | null, companyName: string | null) {
+  return snapshot?.trim() || currentName?.trim() || companyName?.trim() || "未命名客户";
+}
+
 function positive(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;

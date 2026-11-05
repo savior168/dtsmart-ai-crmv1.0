@@ -8,6 +8,7 @@ import { DASHBOARD_BASE_DATE, dashboardBusinessDateKey, dashboardDefaultDateRang
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
+import { dashboardStockActivityText } from "@/lib/dashboard-stock-activity";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
@@ -130,10 +131,10 @@ export async function GET(request: NextRequest) {
     if (stockActivityMode) {
       const stockOwnerId = await requestedOwnerId(request, account, "stock.data_all");
       let stockQuery = supabase.from("stock_orders_with_pi_preparer")
-        .select("id,sales_order_id,customer_short_name,stock_number,warehouse_reference_number,status,pi_updated_at")
+        .select("id,sales_order_id,customer_short_name,stock_number,warehouse_reference_number,status,updated_at")
         .in("status", ["WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE"])
-        .gte("pi_updated_at", fromDate.toISOString()).lt("pi_updated_at", exclusiveTo.toISOString())
-        .order("pi_updated_at", { ascending: false }).order("id", { ascending: true }).limit(5);
+        .gte("updated_at", fromDate.toISOString()).lt("updated_at", exclusiveTo.toISOString())
+        .order("updated_at", { ascending: false }).order("id", { ascending: true }).limit(5);
       if (stockOwnerId) stockQuery = stockQuery.eq("sales_user_id", stockOwnerId);
       if (countryValues.length) stockQuery = stockQuery.in("destination_country", countryValues);
       const stockRows = await stockQuery;
@@ -142,10 +143,15 @@ export async function GET(request: NextRequest) {
       const customerNames = await loadOrderCustomerNames((stockRows.data || []).map((row) => row.sales_order_id));
       activities = (stockRows.data || []).map((row) => {
         const progress = summarizeStockProgress(row.status, progressItems.get(row.id) || []);
-        return { id: row.id, action: "STOCK_PROGRESS", text: "", created_at: row.pi_updated_at,
-          href: `/orders/${row.sales_order_id}`, stock_href: `/stock-orders/${row.id}`,
-          pi_number: row.warehouse_reference_number || "未编号", customer_name: customerNames.get(row.sales_order_id) || "",
-          company_name: row.customer_short_name || "", status_label: stockProgressLabel(progress), progress };
+        return { id: row.id, action: "STOCK_PROGRESS",
+          text: dashboardStockActivityText({
+            piNumber: row.warehouse_reference_number || "未编号",
+            customerName: customerNames.get(row.sales_order_id) || row.customer_short_name || "未命名客户",
+            statusLabel: stockProgressLabel(progress), orderedUnits: progress.ordered_units,
+            receivedUnits: progress.received_units, preparedUnits: progress.prepared_units,
+            shippedUnits: progress.shipped_units,
+          }),
+          created_at: row.updated_at, href: `/stock-orders/${row.id}` };
       });
     }
 

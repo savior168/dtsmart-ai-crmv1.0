@@ -4,11 +4,10 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.update");
-    if (account.role !== "WAREHOUSE" && account.role !== "ADMIN") throw new Error("FORBIDDEN");
+    const { supabase } = await requirePermission("stock.update");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
-    if (body.stage !== "RECEIVED" && body.stage !== "READY_TO_SHIP") throw new Error("请选择有效的批量进度");
+    if (body.stage !== "READY_TO_SHIP") throw new Error("回货须逐项登记供应商和送货单；此处仅可批量完成理货");
     if (!Array.isArray(body.item_ids) || body.item_ids.length < 1 || body.item_ids.length > 500
       || body.item_ids.some((value) => typeof value !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value))
       || new Set(body.item_ids).size !== body.item_ids.length) throw new Error("请选择1至500项不重复的产品");

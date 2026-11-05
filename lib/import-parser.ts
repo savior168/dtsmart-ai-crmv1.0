@@ -235,4 +235,3 @@ export function importDeliveryContactError(row: ImportRow) {
   }
   return "";
 }
-

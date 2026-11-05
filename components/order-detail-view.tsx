@@ -10,9 +10,12 @@ import { CountryLabel } from "@/components/country-label";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { StockProgress } from "@/lib/stock-progress";
 import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
+import { PiAmendmentSalesPanel } from "@/components/pi-amendment-panels";
+import { ArchivedPiRequirementAttachments, PiRequirementAttachments, type PiRequirementAttachment } from "@/components/pi-requirement-attachments";
+import type { PiAmendmentRecord } from "@/lib/orders/pi-amendment-view";
 
-function PiInternalTextCell({ text, fallback, label, lineNumber }: {
-  text: string | null; fallback: string; label: string; lineNumber: number;
+function PiInternalTextCell({ text, fallback, label, lineNumber, attachments = [] }: {
+  text: string | null; fallback: string; label: string; lineNumber: number; attachments?: PiRequirementAttachment[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const content = text?.trim() || fallback;
@@ -20,6 +23,7 @@ function PiInternalTextCell({ text, fallback, label, lineNumber }: {
   return <td className="min-w-[180px] max-w-[260px] px-3 py-2 align-top">
     <span className={`block min-w-0 leading-5 ${canExpand && !expanded ? "line-clamp-2 break-words" : "max-h-40 overflow-y-auto whitespace-pre-wrap break-words"}`} title={canExpand && !expanded ? content : undefined}>{content}</span>
     {canExpand ? <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-label={`${expanded ? "收起" : "展开"}第 ${lineNumber} 项${label}`} className="mt-1 text-xs font-medium text-blue-700 hover:underline">{expanded ? "收起" : "展开"}</button> : null}
+    {attachments.length ? <PiRequirementAttachments attachments={attachments} lineNumber={lineNumber} className="mt-1"/> : null}
   </td>;
 }
 type Payload = {
@@ -66,7 +70,9 @@ type Payload = {
     status: SalesOrderStatus;
     confirmed_at: string | null;
     pi_revision: number;
+    created_at: string;
     owner?: { name?: string | null; email?: string } | null;
+    preparer?: { name?: string | null; email?: string } | null;
   };
   items: Array<{
     id: string;
@@ -76,6 +82,7 @@ type Payload = {
     model: string | null;
     quality: string | null;
     description: string | null;
+    description_zh: string | null;
     quantity: number;
     unit_price: number;
     unit_price_cny: number | null;
@@ -83,13 +90,21 @@ type Payload = {
     preparation_requirement: string | null;
     internal_note: string | null;
     amount: number;
+    pi_amendment_cancelled_at?: string | null;
   }>;
   stock_order: { id: string; stock_number: string; status: string; progress: StockProgress } | null;
   receiving_progress: { total_items: number; received_items: number; ordered_units: number; received_units: number } | null;
+  item_progress: Array<{ line_number: number; received_quantity: number; shipped_quantity: number }>;
+  amendments: PiAmendmentRecord[];
+  requirement_attachments: PiRequirementAttachment[];
+  stocking_requirements: string;
+  applied_amendment_count: number;
+  can_request_amendment: boolean;
   can_edit_draft: boolean;
   can_delete_draft: boolean;
   can_submit: boolean;
   can_recall: boolean;
+  can_review_seller_cost: boolean;
   can_edit: boolean;
   can_cancel: boolean;
   can_export: boolean;
@@ -110,7 +125,7 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
     { label: "PayPal 手续费（加收）", payment: Number(o.paypal_fee_amount || 0), cny: toCny(o.paypal_fee_cny, Number(o.paypal_fee_amount || 0)) },
   ].filter((row) => row.label === "产品小计" || row.payment !== 0 || (row.cny !== null && row.cny !== 0));
   const totalCny = toCny(o.total_cny, Number(o.total_amount));
-  const hasCustomerDelivery = Boolean(o.delivery_recipient || o.delivery_phone || o.delivery_email || o.delivery_address || o.delivery_date);
+  const hasCustomerDelivery = Boolean(o.delivery_recipient || o.delivery_phone || o.delivery_email || o.delivery_address);
   const hasForwarder = Boolean(o.forwarder_recipient || o.forwarder_phone || o.forwarder_address);
   const detailClass = "group min-w-0 rounded-lg border border-slate-200 bg-white";
   const summaryClass = "flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm";
@@ -134,7 +149,6 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
             {o.delivery_phone ? <><dt>电话</dt><dd className="break-words">{o.delivery_phone}</dd></> : null}
             {o.delivery_email ? <><dt>邮箱</dt><dd className="break-all">{o.delivery_email}</dd></> : null}
             {o.delivery_address ? <><dt>地址</dt><dd className="break-words">{o.delivery_address}</dd></> : null}
-            {o.delivery_date ? <><dt>预计交付</dt><dd>{o.delivery_date}</dd></> : null}
           </dl> : <p className="text-xs text-slate-500">未填写</p>}
         </section>
         <section className="min-w-0">
@@ -145,6 +159,7 @@ function PiInfoCards({ order: o }: { order: Payload["order"] }) {
             {o.forwarder_address ? <><dt>地址</dt><dd className="break-words">{o.forwarder_address}</dd></> : null}
           </dl> : <p className="text-xs text-slate-500">未填写</p>}
         </section>
+        {o.delivery_date ? <p className="text-xs text-slate-600 sm:col-span-2">订单预计交付：{o.delivery_date}</p> : null}
       </div>
     </details>
     <details className={detailClass}>
@@ -188,6 +203,7 @@ export function OrderDetailView({ id }: { id: string }) {
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallReason, setRecallReason] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [costReview, setCostReview] = useState<{ itemId: string; lineNumber: number; expected: number; revised: string; reason: string } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
@@ -237,6 +253,21 @@ export function OrderDetailView({ id }: { id: string }) {
     }
     router.push("/orders");
     router.refresh();
+  }
+  async function submitCostReview() {
+    if (!costReview) return;
+    setBusy(true);
+    const response = await fetch(`/api/orders/${id}/cost-review`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: costReview.itemId,
+        expected_unit_cost_cny: costReview.expected,
+        revised_unit_cost_cny: costReview.revised, reason: costReview.reason }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok) { setError(body.error || "销售成本复核失败"); return; }
+    setCostReview(null);
+    await load();
   }
   if (loading && !data)
     return (
@@ -296,8 +327,8 @@ export function OrderDetailView({ id }: { id: string }) {
         <section className="rounded-xl border bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
             <div>
-              <h1 className="text-xl font-bold">{directPi ? "PI订单" : "历史销售订单"} {o.order_number}</h1>
-              <p className="mt-1 text-sm text-slate-500">{directPi ? "客户订单编号" : "报价编号"}：<span className="font-semibold text-slate-800">{directPi ? o.warehouse_reference_number : o.quote_number}</span> · 销售员：{o.owner?.name || o.owner?.email || "-"}</p>
+              <h1 className="text-xl font-bold">{directPi ? `订单编号：${o.warehouse_reference_number || "未填写"}` : `历史销售订单 ${o.order_number}`}</h1>
+              <p className="mt-1 text-sm text-slate-500">{directPi ? <>PI订单：{o.order_number} · 销售员：{o.owner?.name || o.owner?.email || "—"} · 制单人：{o.preparer?.name || o.preparer?.email || o.owner?.name || "—"} · 创建时间：{new Date(o.created_at).toLocaleString("zh-CN")}</> : <>报价编号：{o.quote_number} · 销售员：{o.owner?.name || o.owner?.email || "—"}</>}</p>
             </div>
             <AppStatusBadge status={o.status} tone={directPi && (PI_EXECUTING_STATUSES as readonly string[]).includes(o.status) ? "violet" : undefined}>{directPi ? piOrderStatusLabel(o.status) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>
@@ -310,11 +341,13 @@ export function OrderDetailView({ id }: { id: string }) {
             <div className="grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">客户名称（本单快照）</p><p className="mt-1 text-lg font-semibold text-slate-900">{o.customer_name_snapshot?.trim() || "历史未留存"}</p><p className="text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="break-words text-sm text-slate-600">客户税号（本单）：{o.customer_tax_number_snapshot?.trim() || "历史未留存"}</p><div className="text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-bold tabular-nums text-blue-800"><span>{totalCny === null ? "RMB —" : `¥${Number(totalCny).toFixed(2)}`}</span>{o.currency !== "CNY" ? <span className="text-base">{o.currency} {Number(o.total_amount).toFixed(2)}</span> : null}</p></div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 产品毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">产品毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 不含运费</p></div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 销售口径毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 按销售成本估计/复核值计算，不含仓库费用</p></div>
             </div>
             <PiInfoCards order={o} />
           </> : <div className="grid gap-4 p-5 md:grid-cols-5">{[["客户名称", o.customer?.contact_name?.trim() || "未填写"], ["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span>{data.can_view_stock ? <Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link> : null}</div> : null}
+          {directPi ? <section className="border-t px-5 py-3 text-sm"><h2 className="font-semibold">整单理货要求</h2><p className="mt-1 whitespace-pre-wrap break-words text-slate-700">{data.stocking_requirements || "常规理货"}</p><PiRequirementAttachments attachments={data.requirement_attachments || []} lineNumber={null} className="mt-2"/></section> : null}
+          {directPi ? <div className="px-5 pb-3"><ArchivedPiRequirementAttachments attachments={data.requirement_attachments || []}/></div> : null}
           <div className="overflow-x-auto border-y">
             <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>
               <thead className="bg-slate-50 text-xs">
@@ -327,7 +360,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     directPi ? "产品质量" : "质量",
                     directPi ? "产品描述" : "客户描述",
                     "数量",
-                    ...(directPi ? ["销售单价（人民币）", "成本单价（人民币）", "利润率"] : []),
+                    ...(directPi ? ["销售单价（人民币）", "销售成本（预估/复核）", "销售毛利率"] : []),
                     "单价",
                     "金额",
                     ...(directPi ? ["理货要求", "销售备注"] : []),
@@ -340,22 +373,22 @@ export function OrderDetailView({ id }: { id: string }) {
               </thead>
               <tbody>
                 {data.items.map((i) => (
-                  <tr key={i.id} className="border-t">
+                  <tr key={i.id} className={`border-t ${i.pi_amendment_cancelled_at ? "bg-rose-50 text-rose-700 line-through" : ""}`}>
                     <td className="px-3 py-3">{i.line_number}</td>
-                    <td className="px-3 py-3 font-medium">{i.item_name}</td>
+                    <td className="px-3 py-3 font-medium">{i.item_name}{i.pi_amendment_cancelled_at ? <span className="ml-2 rounded bg-rose-100 px-1 text-xs no-underline">已删除</span> : null}</td>
                     <td className="px-3 py-3">{i.brand || "-"}</td>
                     <td className="px-3 py-3">{i.model || "-"}</td>
                     <td className="px-3 py-3">{i.quality || "-"}</td>
                     <td className="px-3 py-3">{i.description || "-"}</td>
                     <td className="px-3 py-3">{i.quantity}</td>
-                    {directPi ? <><td className="px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}</td><td className="px-3 py-3">{Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}</td></> : null}
+                    {directPi ? <><td className="px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{data.can_review_seller_cost && !i.pi_amendment_cancelled_at && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}</td></> : null}
                     <td className="px-3 py-3">
                       {o.currency} {Number(i.unit_price).toFixed(2)}
                     </td>
                     <td className="px-3 py-3 font-semibold">
                       {o.currency} {Number(i.amount).toFixed(2)}
                     </td>
-                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number}/><PiInternalTextCell text={i.internal_note} fallback="—" label="销售备注" lineNumber={i.line_number}/></> : null}
+                    {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number} attachments={data.requirement_attachments || []}/><PiInternalTextCell text={i.internal_note} fallback="—" label="销售备注" lineNumber={i.line_number}/></> : null}
                   </tr>
                 ))}
               </tbody>
@@ -373,6 +406,17 @@ export function OrderDetailView({ id }: { id: string }) {
             </table>
           </div>
           {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p></div> : null}
+          {directPi && o.status !== "DRAFT" ? <PiAmendmentSalesPanel orderId={id} revision={o.pi_revision}
+            items={data.items.filter((item) => !item.pi_amendment_cancelled_at).map((item) => ({ id: item.id, line_number: item.line_number,
+              item_name: item.item_name, brand: item.brand || "", model: item.model || "",
+              quality: item.quality || "", description: item.description || "",
+              description_zh: item.description_zh || "", preparation_requirement: item.preparation_requirement || "",
+              internal_note: item.internal_note || "", quantity: Number(item.quantity),
+              unit_price_cny: Number(item.unit_price_cny || 0),
+              estimated_unit_cost_cny: Number(item.estimated_unit_cost_cny || 0) }))}
+            progress={data.item_progress} amendments={data.amendments}
+            appliedCount={data.applied_amendment_count}
+            canRequest={data.can_request_amendment} onUpdated={load}/> : null}
           {!directPi ? <section className="grid gap-4 p-5 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1.5 block text-slate-600">预计交付日期</span>
@@ -429,6 +473,15 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
+        <AppDialog open={costReview !== null} title="复核销售预估成本" description="整单交货代后可更正您录入的成本估计；不修改已发货 PI 产品、供应商采购价或送货单，也不计入订单变更次数。主管另按实际采购记录核算实际毛利。" onClose={() => { if (!busy) setCostReview(null); }} width="max-w-md">
+          {costReview ? <form onSubmit={(event) => { event.preventDefault(); void submitCostReview(); }} className="space-y-3 text-sm">
+            <p>第 {costReview.lineNumber} 项 · 原成本 ¥{costReview.expected.toFixed(2)}/件</p>
+            <label className="block">复核后成本 ¥/件<input required type="number" min="0" max="999999999999.99" step="0.01" value={costReview.revised} onChange={(event) => setCostReview((current) => current && { ...current, revised: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
+            <label className="block">复核原因（必填）<textarea required maxLength={500} value={costReview.reason} onChange={(event) => setCostReview((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border px-3 py-2" /></label>
+            {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
+            <DialogActions busy={busy} onCancel={() => setCostReview(null)} confirmLabel="确认更新预估成本" />
+          </form> : null}
+        </AppDialog>
         <AppDialog open={deleteOpen} title="删除未提交的PI草稿" description="仅从未提交过、也未生成备货单的草稿可删除；删除后无法恢复。" onClose={() => setDeleteOpen(false)} width="max-w-md">
           <p className="text-sm text-slate-700">确认删除 PI {o.order_number} 及其产品明细吗？</p>
           <form onSubmit={(event) => { event.preventDefault(); void deleteDraft(); }}><DialogActions busy={busy} onCancel={() => setDeleteOpen(false)} confirmLabel="确认删除草稿" tone="danger"/></form>

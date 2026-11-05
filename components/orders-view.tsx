@@ -32,6 +32,7 @@ type Row = {
   can_delete_draft: boolean;
   customer_short_name: string;
   customer_name: string | null;
+  customer_detail_id: string | null;
   destination_country: string | null;
   currency: string;
   total_amount: number;
@@ -324,8 +325,8 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                           {row.confirmation_method !== "DIRECT_PI" ? <span className="ml-2 text-xs font-normal text-slate-500">历史订单</span> : null}
                         </td>
                         <td className="max-w-[144px] px-3 py-3 text-xs">{stock ? canViewStock ? <Link href={`/stock-orders/${stock.id}`} className="block truncate font-medium text-blue-600 hover:underline" onClick={(event) => event.stopPropagation()} title={`${stock.stock_number} · ${row.status === "DRAFT" ? "查看原备货记录" : "查看备货单"}`}>{stock.stock_number}</Link> : <span className="block truncate text-slate-500" title={stock.stock_number}>{stock.stock_number}</span> : <span className="text-slate-400">—</span>}</td>
-                        <td className="px-4 py-3 font-medium text-slate-900">{row.customer_name || <span className="font-normal text-slate-400">未填写</span>}</td>
-                        <td className="px-4 py-3">{row.customer_short_name}</td>
+                        <td className="px-4 py-3 font-medium text-slate-900">{row.customer_name ? row.customer_detail_id ? <Link href={`/customers/${row.customer_detail_id}`} onClick={(event) => event.stopPropagation()} className="text-blue-700 hover:underline">{row.customer_name}</Link> : row.customer_name : <span className="font-normal text-slate-400">未填写</span>}</td>
+                        <td className="px-4 py-3">{row.customer_detail_id && row.customer_short_name ? <Link href={`/customers/${row.customer_detail_id}`} onClick={(event) => event.stopPropagation()} className="text-blue-700 hover:underline">{row.customer_short_name}</Link> : row.customer_short_name}</td>
                         <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}

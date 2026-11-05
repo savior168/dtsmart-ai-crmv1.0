@@ -19,4 +19,3 @@ assert.match(source, /setForwarderAddress\(chosen\?\.address[\s\S]*setForwarderR
 assert.doesNotMatch(emptyForm, /placeholder="输入或选择客户资料中的收货地址"/, "未勾选时不应直接显示客户收货地址输入框");
 assert.doesNotMatch(emptyForm, /从客户资料选择/, "未勾选时不应显示货代选择控件");
 console.log("PI single-field delivery address regressions passed.");
-

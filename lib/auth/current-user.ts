@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, USER_ROLES, evaluatePermission, isOrderClerkForbiddenPermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, USER_ROLES, evaluatePermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 import { isTimedLockActive } from "@/lib/auth/lockout";
 import { canViewSubordinateData } from "@/lib/auth/supervisor-data-scope";
 
@@ -99,8 +99,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
       const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
       permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
     }
-    permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code))
-      && !(role === "ORDER_CLERK" && isOrderClerkForbiddenPermission(code)));
+    permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code)));
   }
   const account: CurrentAccount = {
     id: data.id,
@@ -173,6 +172,9 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
     if (!data) throw new Error("FORBIDDEN");
     return requested;
   }
+  if (account.role !== "SUPERVISOR") {
+    return !requested || requested.toLowerCase() === "all" ? null : requested;
+  }
   // 主管仅能读本人和直属下级；权限判断必须在服务端执行，不能只依赖
   // 下拉选项的前端限制。暂不提供“全员”或跨主管聚合范围。
   if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
@@ -186,7 +188,7 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
 export async function requestedPiCreatorId(request: Request, account: CurrentAccount, dataPermission: string) {
   const requested = new URL(request.url).searchParams.get("creator_id")?.trim() || "";
   if (!requested || requested.toLowerCase() === "all") return null;
-  if (!["ADMIN", "ORDER_CLERK"].includes(account.role) || !hasPermission(account, dataPermission)
+  if (!hasPermission(account, dataPermission)
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested)) {
     throw new Error("FORBIDDEN");
   }

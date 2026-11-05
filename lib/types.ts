@@ -132,4 +132,3 @@ export type QuoteItem = {
   pricing_rule_snapshot?: Record<string, unknown> | null;
   preparation_requirement?: string | null;
 };
-

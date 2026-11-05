@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const permissionCatalog = read("lib/auth/permissions.ts");
+assert.match(read("app/api/reports/sales/performance/route.ts"), /hasPermission\(account, "reports\.actual_profit\.view"\)/,
+  "实际毛利和纯利必须在服务端按独立数据权限判定，不能仅靠角色或前端隐藏");
 assert.match(permissionCatalog, /export function normalizeRole[\s\S]*throw new Error\("UNKNOWN_ROLE"\)/, "未知角色必须拒绝登录，不能默认为销售员");
 const sidebar = read("components/app-shell.tsx");
 assert.match(read("components/password-auth-form.tsx"), /function goToApp\(\) \{[\s\S]*?router\.replace\("\/"\)/, "登录成功应先进入按当前账号权限选路的首页");
@@ -38,9 +40,9 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
 }
 const piExchangeRateApi = read("app/api/pi-exchange-rates/route.ts");
-const publicRateProjection = piExchangeRateApi.match(/rates: account\.role === "ADMIN"\s*\?\s*rates\s*:\s*rates\.map\(\(\{ ([^}]+) \}\) => \(\{ ([^}]+) \}\)\)/);
-assert.ok(publicRateProjection, "销售可读取可核对的公开汇率来源，但响应字段必须白名单化");
-assert.equal(publicRateProjection[1], "currency, label, reference_cny, source, source_url, reference_date, source_updated_at, business_cny", "销售不得读取管理员的手工汇率或调整规则");
+const publicRateProjection = piExchangeRateApi.match(/rates: hasPermission\(account, "pi\.rates\.view"\)\s*\?\s*rates\s*:\s*rates\.map\(\(\{ ([^}]+) \}\) => \(\{ ([^}]+) \}\)\)/);
+assert.ok(publicRateProjection, "未获PI汇率设置权限的销售仍可读取业务报价，但响应字段必须白名单化");
+assert.equal(publicRateProjection[1], "currency, label, reference_cny, source, source_url, reference_date, source_updated_at, business_cny", "未获PI汇率设置权限的销售不得读取手工汇率或调整规则");
 assert.equal(publicRateProjection[2], publicRateProjection[1], "普通用户响应只能包含明确允许的汇率字段");
 for (const [code, page, api, method] of [
   ["pi.rates.view", "app/settings/pi-exchange-rates/page.tsx", null, null],
@@ -48,7 +50,7 @@ for (const [code, page, api, method] of [
   ["pi.rates.manage", null, "app/api/pi-exchange-rates/route.ts", "PATCH"],
   ["pi.accounts.manage", null, "app/api/pi-payment-accounts/route.ts", "POST"],
 ]) {
-  assert.match(permissionCatalog, new RegExp(`code: "${code.replaceAll(".", "\\.")}"[^\\n]*core: true`), `${code} 必须是管理员专属权限`);
+  assert.match(permissionCatalog, new RegExp(`code: "${code.replaceAll(".", "\\.")}"[^\\n]*kind: "(?:PAGE|ACTION)" \\}`), `${code} 必须由管理员显式配置且默认不下放`);
   if (page) assert.match(read(page), new RegExp(`requirePermission\\("${code.replaceAll(".", "\\.")}\\"\\)`), `${page} 必须校验页面权限`);
   if (api) assert.match(read(api), new RegExp(`export async function ${method}[\\s\\S]*requirePermission\\("${code.replaceAll(".", "\\.")}\\"\\)`), `${api} 必须校验操作权限`);
 }
@@ -97,14 +99,23 @@ for (const page of ["app/ai-screening/results/page.tsx", "app/ai-screening/failu
 assert.match(read("app/ai-screening/new/page.tsx"), /protectPage\("ai\.tasks\.create"\)/, "AI筛选新建页须校验创建权限");
 assert.match(read("components/customers-view.tsx"), /canCreate && <Link[\s\S]*href="\/customers\/new"[\s\S]*canImport && <Link[\s\S]*href="\/import\?destination=private"/, "我的客户新增和导入入口须分别遵循有效权限");
 assert.match(read("app/api/ai/tasks/route.ts"), /can_control_tasks: hasPermission\(account, "ai\.tasks\.control"\)[\s\S]*can_view_results: hasPermission\(account, "ai\.results\.view"\)/, "AI任务列表需返回控制和结果权限供前端隐藏对应入口");
-assert.match(read("lib/auth/current-user.ts"), /permissions = permissions\.filter\([\s\S]*role === "ORDER_CLERK" && isOrderClerkForbiddenPermission\(code\)/, "跟单员的历史授权不能出现在会话权限和菜单中");
-assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");
-assert.match(roleApi, /请先开启所属页面权限，再开启数据范围或功能按钮/, "服务端必须拒绝父页面关闭时直接开启子权限");
-assert.match(roleApi, /const isPagePermission = pagePermission === permission[\s\S]*pageChildren[\s\S]*changes = \[[\s\S]*roleCannotUseCrossUserData[\s\S]*item\.kind === "DATA"[\s\S]*onConflict: "role_code,permission_code"/, "页面总开关必须在服务端原子同步全部可配置子权限，并保持角色数据边界");
+assert.match(read("lib/auth/current-user.ts"), /permissions = permissions\.filter\(\(code\) => !CORE_PERMISSION_CODES\.has\(code\)/, "会话必须保留管理员专属权限隔离");
+assert.doesNotMatch(read("lib/auth/current-user.ts"), /role === "ORDER_CLERK" && isOrderClerkForbiddenPermission\(code\)/, "跟单员的普通权限不得被角色硬编码覆盖管理员授权");
+assert.match(roleApi, /const changes = rolePermissionChanges\(permission, enabled\)/, "角色权限接口须使用已测试的父子开关规则");
+assert.doesNotMatch(roleApi, /permission_code: pagePermission, enabled: true/, "子权限开关不得自动改动父页面");
+assert.doesNotMatch(roleApi, /roleCannotUseCrossUserData|该角色不能获得此跨用户数据权限/, "跨用户数据授权不得被角色硬编码禁止");
 assert.match(roleApi, /NextResponse\.json\(\{ ok: true, changes \}\)/, "角色权限接口必须向前端返回实际同步结果");
+assert.match(roleApi, /catalog: PERMISSION_CATALOG\.filter\(\(item\) => !isRetiredPermission\(item\.code\)\)/, "角色页面不得展示已退役报价模块");
+assert.doesNotMatch(read("app/api/admin/users/[id]/permissions/route.ts"), /effect === "ALLOW" && pagePermission !== permission/, "用户单独授权子权限不得改动父页面");
+assert.doesNotMatch(sidebar, /href: "\/quotes"/, "退役报价模块不得出现在当前侧栏");
+assert.match(sidebar, /href: "\/suppliers", permission: "suppliers\.view" \}/, "供应商档案菜单应按权限而非硬编码角色显示");
+assert.match(sidebar, /href: "\/supplier-reconciliation", permission: "supplier\.reconciliation\.view" \}/, "供应商对账菜单应按权限而非硬编码角色显示");
 
 const adminPanels = read("components/admin-settings-panels.tsx");
 assert.match(adminPanels, /const changes=Array\.isArray\(body\.changes\)[\s\S]*new Map\(changes\.map[\s\S]*changed\.get\(row\.permission_code\)/, "角色权限前端必须使用后端实际变更同步父子开关状态");
+assert.match(adminPanels, /const effective=evaluatePermission\(\{role:user\.role,permissions:\[\.\.\.effectiveCodes\],supervisor_can_view_subordinates:payload\?\.user\.supervisor_can_view_subordinates\},item\.code\)/, "用户权限最终生效列须使用服务端同源判断及主管范围开关");
+assert.match(adminPanels, /disabled=\{Boolean\(saving\)\} onClick=\{\(\)=>setRole\(item\.code\)\}/, "权限保存期间不得切换角色造成并发误操作");
+assert.match(adminPanels, /const locked=!roleDefinitions[\s\S]*\|\|Boolean\(saving\)/, "角色子权限保存期间须锁定同一权限面板");
 
 const importPage = read("app/import/page.tsx");
 assert.match(importPage, /canCreate=\{hasPermission\(account, "imports\.create"\)\}/, "导入页面必须将执行权限传给前端");
@@ -122,21 +133,22 @@ assert.ok(!existsSync(resolve("public/templates/客户导入模板.xlsx")), "公
 const evidencePage = "app/(customer-evidence)/ai-screening/customers/[customerId]/evidence/page.tsx";
 assert.ok(existsSync(resolve(process.cwd(), evidencePage)), "客户AI分析依据必须位于独立权限布局");
 assert.ok(!existsSync(resolve(process.cwd(), "app/ai-screening/customers/[customerId]/evidence/page.tsx")), "客户依据页不能再继承AI任务布局");
-assert.match(read(evidencePage), /protectPage\("customers\.ai_evidence_view"\)/, "完整客户依据页面必须使用管理员级权限");
+assert.match(read(evidencePage), /protectPage\("customers\.ai_evidence_view"\)/, "完整客户依据页面必须校验独立权限");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
 assert.match(evidenceApi, /canReadCustomerAiEvidence\(\{[\s\S]*customerOwnerId: customer\.data\.owner_id[\s\S]*isDirectReport/, "客户依据授权必须以当前归属人和直属下属为准");
-assert.match(evidenceApi, /\}\)\) throw new Error\("FORBIDDEN"\)/, "无客户归属或依据权限者必须被拒绝");
+assert.match(evidenceApi, /if \(!canReadOwnedCustomer && \(!requestedTaskId \|\| !canReadAiResults\)\) throw new Error\("FORBIDDEN"\)/, "无客户依据权限者只能进入有权限的指定任务校验");
+assert.match(evidenceApi, /if \(!canReadOwnedCustomer && !canViewTask\) throw new Error\("FORBIDDEN"\)/, "未核实任务归属与客户关联不得读取依据");
 assert.match(evidenceApi, /if \(canViewTask\) resultQuery = resultQuery\.eq\("task_id", requestedTaskId\)/, "仅已授权任务可读取指定任务结果");
 assert.match(evidenceApi, /can_view_task: canViewTask && account\.role === "ADMIN"/, "客户依据页面不能将共享任务入口暴露给普通角色");
 assert.match(evidenceApi, /presentCustomerAiEvidenceResult\(result\.data, account\.role === "ADMIN"\)/, "非管理员不能返回任务费用等原始结果字段");
-assert.match(read("app/api/customers/[id]/crm/route.ts"), /fullAiEvidenceAccess = account\.role === "ADMIN"[\s\S]*ai_facts: canViewAiEvidence \? aiFacts : \[\]/, "客户详情仅能向管理员返回完整依据");
+assert.match(read("app/api/customers/[id]/crm/route.ts"), /fullAiEvidenceAccess = hasPermission\(account, "customers\.ai_evidence_view"\)[\s\S]*ai_facts: canViewAiEvidence \? aiFacts : \[\]/, "客户详情必须按独立授权和归属范围返回完整依据");
 const evidenceView = read("components/ai-screening/evidence-view.tsx");
 assert.match(evidenceView, /data\?\.can_view_task&&taskId/, "客户归属访问不能显示任务详情和报告入口");
 assert.match(evidenceView, /data\?\.can_view_task\?<p>总令牌/, "客户归属访问不能展示任务实际费用");
 const customerCrm = read("components/customer-crm-detail-view.tsx");
 assert.match(customerCrm, /data\.can_view_ai_evidence&&customer\.ai_screening_done/, "客户详情入口必须遵循服务端依据权限");
 assert.doesNotMatch(customerCrm, /data\.ai_result\.task_id/, "客户详情进入依据时不能附带无权查看的任务编号");
-assert.match(read("lib/auth/permissions.ts"), /code: "customers\.ai_evidence_view"[^\n]*core: true/, "完整客户依据必须为管理员级权限");
+assert.match(read("lib/auth/permissions.ts"), /code: "customers\.ai_evidence_view"[^\n]*kind: "ACTION" \}/, "客户AI依据须允许管理员按角色或用户授权");
 assert.match(read("lib/auth/permissions.ts"), /code: "ai\.acquisition\.view"[^\n]*core: true[\s\S]*code: "ai\.tasks\.view"[^\n]*core: true/, "非管理员不得因旧授权进入AI菜单");
 const rawAiReadBoundary = read("supabase/migrations/202610100003_ai_raw_admin_read_boundary.sql");
 for (const table of ["tasks", "task_items", "results", "evidence"]) {
@@ -144,6 +156,16 @@ for (const table of ["tasks", "task_items", "results", "evidence"]) {
 }
 assert.match(read("lib/auth/permissions.ts"), /CORE_PERMISSION_CODES\.has\(permission\) \|\| CORE_PERMISSION_CODES\.has\(pagePermission\)/, "旧权限授权不得绕过核心页面及子功能");
 assert.match(read("lib/auth/current-user.ts"), /return evaluatePermission\(account, permission\)/, "服务端权限判定须复用角色矩阵的同一规则");
+assert.match(read("app/settings/costs/page.tsx"), /canExport=\{hasPermission\(account,"costs\.export"\)\}/, "费用中心导出按钮须按独立权限显示");
+assert.match(read("components/cost-center-view.tsx"), /\{canExport\?<a href=\{`\/api\/cost-center\/export/, "费用中心不可向只读账号显示导出入口");
+const piRatesApi = read("app/api/pi-exchange-rates/route.ts");
+const piAccountsApi = read("app/api/pi-payment-accounts/route.ts");
+assert.match(piRatesApi, /requirePermission\("pi\.rates\.manage"\)/, "修改PI汇率必须验证独立操作权限");
+assert.match(piRatesApi, /supabase\.from\("pi_exchange_rate_rules"\)\.upsert/, "汇率修改须使用当前账号并接受RLS校验");
+assert.match(piAccountsApi, /requirePermission\("pi\.accounts\.manage"\)/, "维护收款账户必须验证独立操作权限");
+assert.match(piAccountsApi, /supabase\.from\("pi_payment_accounts"\)/, "收款账户写入须使用当前账号并接受RLS校验");
+assert.doesNotMatch(piRatesApi, /account\.role !== "ADMIN"/, "PI汇率操作不得另设不可配置的角色锁");
+assert.doesNotMatch(piAccountsApi, /account\.role !== "ADMIN"/, "PI账户操作不得另设不可配置的角色锁");
 assert.match(customerCrm, /if \(!data\.can_view_ai_evidence\) return/, "普通角色AI分析页签只展示业务摘要");
 
 console.log("Permission contract regression tests passed.");

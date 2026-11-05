@@ -5,6 +5,7 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { DASHBOARD_BASE_DATE, dashboardBusinessDateKey, dashboardDefaultDateRange, dashboardDatePresetRange } = await jiti.import("../lib/dashboard-date-range.ts");
+const { businessDatePreset } = await jiti.import("../lib/reports/date-presets.ts");
 const { countryFilterRawValues } = await jiti.import("../lib/countries.ts");
 const day = new Date("2026-10-10T04:00:00.000Z");
 assert.equal(DASHBOARD_BASE_DATE, "2026-08-01");
@@ -21,8 +22,9 @@ const api = await readFile(new URL("../app/api/dashboard/stats/route.ts", import
 const ui = await readFile(new URL("../components/crm-dashboard.tsx", import.meta.url), "utf8");
 assert.match(api, /new Date\(`\$\{DASHBOARD_BASE_DATE\}T00:00:00\+08:00`\)/, "接口省略日期时须与页面默认口径一致");
 assert.match(api, /const exclusiveTo = new Date\(toDate\.getTime\(\) \+ 24 \* 60 \* 60 \* 1000\)/, "接口结束日须包含北京时间整日");
-assert.match(ui, /useState\(\(\) => localDate\(new Date\(now\.getFullYear\(\), now\.getMonth\(\), 1\)\)\)/, "工作台默认从本月首日统计");
-assert.match(ui, /setFrom\(localDate\(new Date\(now\.getFullYear\(\), now\.getMonth\(\), 1\)\)\)/, "工作台重置须回到本月首日");
+assert.deepEqual(businessDatePreset("month", day), { from: "2026-10-01", to: "2026-10-10" }, "工作台与业绩分析共用北京时间的本月预设");
+assert.match(ui, /useState\(\(\) => businessDatePreset\("month", now\)\.from\)/, "工作台默认从本月首日统计");
+assert.match(ui, /const current = businessDatePreset\("month", new Date\(\)\);[\s\S]*setFrom\(current\.from\); setTo\(current\.to\)/, "工作台重置须回到本月首日至今日");
 assert.match(ui, /<CompactDateRange label="统计日期" from=\{from\} to=\{to\}/, "工作台须提供紧凑且可编辑的起止日期");
 const compactDateRange = await readFile(new URL("../components/ui/compact-date-range.tsx", import.meta.url), "utf8");
 assert.match(compactDateRange, /aria-label=\{fromLabel\}/, "开始日期须有明确的辅助技术标签");

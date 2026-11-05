@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/current-user";
+import { hasPermission, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 async function access(id: string) {
   const { account } = await requireUser();
   const admin = createAdminClient();
-  const { data: attachment, error } = await admin.from("attachments").select("id,customer_id,uploaded_by,followup_id,quote_id,stock_order_id,filename,storage_path,mime_type").eq("id", id).single();
+  const { data: attachment, error } = await admin.from("attachments").select("id,customer_id,uploaded_by,followup_id,quote_id,stock_order_id,sales_order_id,filename,storage_path,mime_type").eq("id", id).single();
   if (error || !attachment) throw error || new Error("附件不存在");
 
   let allowed = account.role === "ADMIN";
@@ -27,6 +27,18 @@ async function access(id: string) {
   if (attachment.stock_order_id) {
     const stock = await admin.from("stock_orders").select("sales_user_id").eq("id", attachment.stock_order_id).single();
     allowed ||= await canReadOwner(stock.data?.sales_user_id) || account.role === "WAREHOUSE";
+  }
+  if (attachment.sales_order_id) {
+    const order = await admin.from("sales_orders").select("sales_user_id,prepared_by").eq("id", attachment.sales_order_id).single();
+    if (order.error) throw order.error;
+    allowed ||= Boolean(hasPermission(account, "orders.view")
+      && (order.data.prepared_by === account.id || await canReadOwner(order.data.sales_user_id)));
+    if (account.role === "WAREHOUSE" && hasPermission(account, "stock.view")) {
+      const stock = await admin.from("stock_orders").select("id,status")
+        .eq("sales_order_id", attachment.sales_order_id).maybeSingle();
+      if (stock.error) throw stock.error;
+      allowed ||= Boolean(stock.data && stock.data.status !== "DRAFT");
+    }
   }
   if (attachment.followup_id && !attachment.customer_id) {
     const followup = await admin.from("followups").select("customer:customers!inner(owner_id)").eq("id", attachment.followup_id).single();
@@ -65,6 +77,14 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
       const quote = await admin.from("quotes").select("status").eq("id", attachment.quote_id).single();
       if (quote.error) throw quote.error;
       if (!["DRAFT", "GENERATED"].includes(quote.data.status)) throw new Error("报价发送后附件作为业务凭证保留，不能删除");
+    }
+    if (attachment.sales_order_id) {
+      const order = await admin.from("sales_orders")
+        .select("status,prepared_by,sales_user_id")
+        .eq("id", attachment.sales_order_id).single();
+      if (order.error) throw order.error;
+      if (order.data.status !== "DRAFT" || (order.data.prepared_by || order.data.sales_user_id) !== account.id)
+        throw new Error("只有 PI 创建人可在草稿阶段删除理货附件");
     }
     const removed = await admin.storage.from("crm-attachments").remove([attachment.storage_path]);
     if (removed.error) throw removed.error;

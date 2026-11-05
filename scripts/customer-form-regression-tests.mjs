@@ -191,4 +191,3 @@ assert.match(dashboardApiSource, /customer_followup_queue[\s\S]*\.select\("[^"]*
 assert.match(dashboardViewSource, /客户名称[\s\S]*\{item\.customer_name\}/, "工作台待跟进须显示客户名称，不得以公司名冒充客户名称");
 assert.match(poolSource, /tab === "claimed" && !row\.contact_masked && row\.contact_name/, "公海已认领记录仅在未隐藏联系人时展示对接人");
 console.log("手动新增与编辑客户表单回显、必填和工作流边界回归测试通过。");
-

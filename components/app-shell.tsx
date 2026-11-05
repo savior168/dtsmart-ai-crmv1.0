@@ -29,7 +29,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 import { notificationVoiceText } from "@/lib/notification-voice";
 import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "@/lib/notification-toast";
-import { defaultNotificationPolicy, notificationPolicyType, type NotificationPolicy } from "@/lib/notification-policy";
+import { defaultNotificationPolicy, isUrgentWarehousePiChange, notificationPolicyType, requiresManualNotificationDismissal, type NotificationPolicy } from "@/lib/notification-policy";
 
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
@@ -64,18 +64,20 @@ const menu = [
   },
   { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
     { label: "备货单", href: "/stock-orders", permission: "stock.view" },
+    { label: "供应商档案", href: "/suppliers", permission: "suppliers.view" },
+    { label: "供应商对账", href: "/supplier-reconciliation", permission: "supplier.reconciliation.view" },
   ] },
   { label: "PI财务设置", icon: Settings, defaultHref: "/settings/pi-exchange-rates", children: [
     { label: "汇率设置", href: "/settings/pi-exchange-rates", permission: "pi.rates.view" },
     { label: "收款账户", href: "/settings/pi-payment-accounts", permission: "pi.accounts.view" },
   ] },
   { label: "报表中心", href: "/reports", icon: BarChart3, permission: "reports.view" },
+  { label: "通知中心", href: "/notifications", icon: Bell, permission: "notifications.view" },
   {
     label: "系统管理", icon: Settings, defaultHref: "/settings", children: [
       { label: "用户与权限", href: "/settings/users", permission: "system.users.view" },
       { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
       { label: "操作日志", href: "/settings/audit", permission: "system.audit.view" },
-      { label: "通知与公告", href: "/settings/notifications", permission: "system.notifications.view" },
       { label: "安全设置", href: "/settings/security", permission: "system.security.view" },
     ],
   },
@@ -127,6 +129,8 @@ const pageTitles: Array<[RegExp, string]> = [
   [/^\/sales\/performance$/, "销售管理 / 业绩分析"],
   [/^\/stock-orders\/[^/]+$/, "采购管理 / 备货单详情"],
   [/^\/stock-orders$/, "采购管理 / 备货单"],
+  [/^\/suppliers$/, "采购管理 / 供应商档案"],
+  [/^\/supplier-reconciliation$/, "采购管理 / 供应商对账"],
   [/^\/reports$/, "报表中心"],
   [/^\/settings\/costs$/, "系统管理 / 费用中心"],
   [/^\/settings\/pi-exchange-rates$/, "PI财务设置 / 汇率设置"],
@@ -418,7 +422,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     business_phone: string;
     business_email: string;
     avatar_url: string;
-    role: "ADMIN" | "SUPERVISOR" | "SALES" | "ORDER_CLERK" | "WAREHOUSE";
+    role: "ADMIN" | "SUPERVISOR" | "SALES" | "ORDER_CLERK" | "WAREHOUSE" | "FINANCE";
     must_change_password: boolean;
     permissions: string[];
   } | null>(null);
@@ -455,7 +459,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const email = String(body.email || "").trim();
       const name = String(body.name || "").trim() || email.split("@")[0] || "用户";
-      setProfile({ name, email, phone: String(body.phone || "").trim(), business_phone: String(body.business_phone || "").trim(), business_email: String(body.business_email || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : body.role === "ORDER_CLERK" ? "ORDER_CLERK" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
+      setProfile({ name, email, phone: String(body.phone || "").trim(), business_phone: String(body.business_phone || "").trim(), business_email: String(body.business_email || "").trim(), avatar_url: String(body.avatar_url || ""), role: body.role === "ADMIN" ? "ADMIN" : body.role === "SUPERVISOR" ? "SUPERVISOR" : body.role === "WAREHOUSE" ? "WAREHOUSE" : body.role === "ORDER_CLERK" ? "ORDER_CLERK" : body.role === "FINANCE" ? "FINANCE" : "SALES", must_change_password: Boolean(body.must_change_password), permissions: Array.isArray(body.permissions) ? body.permissions.map(String) : [] });
     } catch {
       // 短暂网络异常时保留已经核验的当前用户，避免菜单切换时闪回占位账号。
     }
@@ -475,7 +479,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         const shown=new Set<string>(JSON.parse(window.sessionStorage.getItem(storageKey)||"[]"));
         const fresh=next.filter(item=>shouldShowNotificationToast(item,shown,sessionStartedAt));
         const incoming=fresh.filter(item=>
-          (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).popup_enabled).slice(0,3);
+          (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).popup_enabled)
+          .sort((left,right)=>Number(isUrgentWarehousePiChange(right,profile?.role))-Number(isUrgentWarehousePiChange(left,profile?.role)))
+          .slice(0,3);
         fresh.forEach(item=>shown.add(item.id));
         window.sessionStorage.setItem(storageKey,JSON.stringify([...shown].slice(-200)));
         if (profile?.email) {
@@ -483,10 +489,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           const voiceSeen=new Set<string>(JSON.parse(window.localStorage.getItem(voiceSeenKey)||"[]"));
           const voiceFresh=next.filter(item=>shouldShowNotificationToast(item,voiceSeen,sessionStartedAt));
           const unseen=voiceFresh.filter(item=>
-            (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).voice_enabled);
+            (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).voice_enabled
+            && (voiceEnabledRef.current || isUrgentWarehousePiChange(item,profile?.role)));
           voiceFresh.forEach(item=>voiceSeen.add(item.id));
           window.localStorage.setItem(voiceSeenKey,JSON.stringify([...voiceSeen].slice(-300)));
-          if (voiceEnabledRef.current && "speechSynthesis" in window) {
+          if ("speechSynthesis" in window) {
             const spoken=unseen.map(item=>({item,words:notificationVoiceText(item)}))
               .filter(({item,words})=>words && Date.now()-new Date(item.created_at).getTime()<=60*60*1000)
               .slice(0,3);
@@ -503,7 +510,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         }
       }
     } catch { /* 保留已加载通知 */ }
-  },[profile?.email]);
+  },[profile?.email,profile?.role]);
   const openNotice = useCallback(async (item:ShellNotice) => {
     if(!item.read_at)await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id,action:"READ"})});
     setToastNotices(current=>current.filter(notice=>notice.id!==item.id));setNoticeOpen(false);void loadNotices();if(item.href)router.push(item.href);
@@ -592,11 +599,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [canLoadNotices, loadNotices]);
   useEffect(() => {
-    if (!toastNotices.length) return;
+    const autoDismiss = toastNotices.filter(item=>!requiresManualNotificationDismissal(item,profile?.role));
+    if (!autoDismiss.length) return;
     // Dismissing a pop-up must not mark its notification as read.
-    const timer = window.setTimeout(() => toastNotices.forEach(item => void dismissToast(item)), 8000);
+    const timer = window.setTimeout(() => autoDismiss.forEach(item => void dismissToast(item)), 30000);
     return () => window.clearTimeout(timer);
-  }, [toastNotices, dismissToast]);
+  }, [toastNotices, dismissToast, profile?.role]);
   useEffect(() => {
     if (profile?.must_change_password) setModal("password");
   }, [profile?.must_change_password]);
@@ -697,7 +705,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {menu.map((item) => {
           const Icon = item.icon;
           if ("children" in item) {
-            const children = item.children.filter((child) => canSeePermission(child.permission) && (!("roles" in child) || !profile || child.roles.includes(profile.role as "ADMIN" | "SUPERVISOR" | "SALES")));
+            const children = item.children.filter((child) => canSeePermission(child.permission) && (!("roles" in child) || !profile || (child.roles as readonly string[]).includes(profile.role)));
             if (!children.length) return null;
             const selected = children.some((child) => !("disabled" in child && child.disabled) && isActive(path, child.href, fromPool));
             const expanded = !collapsed && (expandedGroups.has(item.label) || selected);

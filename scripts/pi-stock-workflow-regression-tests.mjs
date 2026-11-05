@@ -13,6 +13,14 @@ const quantityMigration = read("supabase/migrations/20261015180000_stock_quantit
 const batchMigration = read("supabase/migrations/20261015201000_stock_bulk_physical_progress.sql");
 const correctionMigration = read("supabase/migrations/20261015210000_stock_item_progress_correction.sql");
 const shipmentMigration = read("supabase/migrations/20261016080000_stock_line_shipments.sql");
+const receiptFoundation = read("supabase/migrations/20261102060000_supplier_receipt_ledger.sql");
+const receiptCutover = read("supabase/migrations/20261104000000_enforce_supplier_receipt_documents.sql");
+const permissionAlignment = read("supabase/migrations/20261105094015_stock_permission_alignment.sql");
+const financePermissions = read("supabase/migrations/20261102060002_finance_role_supplier_permissions.sql");
+assert.doesNotMatch(receiptFoundation, /create trigger stock_receipt_requires_supplier_document/i,
+  "预览验收前不能阻断正式站旧回货入口");
+assert.match(receiptCutover, /legacy_quantity = 0[\s\S]*create trigger stock_receipt_requires_supplier_document/i,
+  "切换时应先核准过渡期回货基线，再强制要求送货单");
 const piMigration = read("supabase/migrations/20261013074814_pi_order_direct_creation.sql");
 const detail = read("app/api/stock-orders/[id]/route.ts");
 const batchRoute = read("app/api/stock-orders/[id]/batch-progress/route.ts");
@@ -23,7 +31,10 @@ assert.match(read("app/api/customers/[id]/route.ts"), /account\.role !== "ORDER_
 assert.match(read("app/api/customers/[id]/crm/route.ts"), /account\.role !== "ORDER_CLERK" && isPublicUnclaimed\(customer\)/, "跟单员不可通过CRM详情接口读取未归属公海客户");
 assert.match(read("supabase/migrations/20261018010000_order_clerk_assigned_customer_boundary.sql"), /as restrictive for select to authenticated[\s\S]*owner_id is not null/, "数据库须限制跟单员只读已归属客户");
 assert.match(batchRoute, /requirePermission\("stock\.update"\)/, "批量备货操作必须校验仓库权限");
-assert.match(batchRoute, /account\.role !== "WAREHOUSE" && account\.role !== "ADMIN"/, "销售员不得直接批量修改备货实物进度");
+assert.doesNotMatch(batchRoute, /account\.role !== "WAREHOUSE" && account\.role !== "ADMIN"/, "备货批量操作不应再由角色名写死拦截");
+assert.match(permissionAlignment, /stock\.data_all[\s\S]*scope\.sales_user_id=actor\.id/, "数据库操作须限定全部备货授权或本人单据");
+assert.match(permissionAlignment, /stock_order_dashboard\(\)[\s\S]*scope_id:=case when actor\.role=''SUPERVISOR'' then actor\.id when public\.current_user_has_business_permission\(''stock\.data_all''\)/, "备货看板须按数据权限控制范围并保留主管现有边界");
+assert.match(financePermissions, /'WAREHOUSE','stock\.data_all',true[\s\S]*'stock\.procurement\.edit'\)\) permissions/, "迁移须保留仓库原有全量数据权限并关闭其他角色原本无效的备货动作");
 assert.match(batchMigration, /p_stage not in \('RECEIVED','READY_TO_SHIP'\)/, "批量快捷操作只允许实物已回齐或理货完成");
 assert.match(batchMigration, /public\.record_stock_progress\(p_stock_order_id,'RECEIVE'/, "批量理货完成须先记录实物回货");
 assert.match(batchMigration, /public\.record_stock_progress\(p_stock_order_id,'PREPARE'/, "批量理货完成须沿用已有数量约束、进度汇总及审计");
@@ -33,11 +44,11 @@ assert.match(correctionMigration, /line\.preparation_status <> 'PREPARING'[\s\S]
 assert.match(read("app/api/stock-orders/[id]/corrections/route.ts"), /requirePermission\("stock\.update"\)[\s\S]*correct_stock_item_progress/, "更正接口必须验证仓库更新权限并走受控数据库事务");
 assert.match(read("components/stock-order-detail-view.tsx"), /更正进度[\s\S]*更正原因（必填）[\s\S]*确认更正并记入流水/, "仓库员应有清晰的单项进度更正入口且必须填写原因");
 assert.match(read("app/api/stock-orders/[id]/route.ts"), /customer_short_name,destination_country,delivery_recipient,delivery_address/, "备货详情应从对应备货单快照读取收件人与收货地址");
-assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dt[^>]*>收货人<\/dt><dd[^>]*>\{o\.delivery_recipient[\s\S]*<dt[^>]*>收货地址<\/dt><dd[^>]*>\{o\.delivery_address/, "仓库详情摘要应清晰显示收货人和收货地址");
-assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*货代收货[\s\S]*整单实物进度[\s\S]*整单理货要求/, "备货详情应先显示客户与货代收货信息，右侧显示实物进度和理货要求");
+assert.match(read("components/stock-order-detail-view.tsx"), /aria-label="货代收货信息"[\s\S]*仓库交货依据[\s\S]*aria-label="客户收货信息"[\s\S]*仅供参考/, "仓库详情必须分开显示货代和客户收货信息，并明确货代才是交货依据");
+assert.match(read("components/stock-order-detail-view.tsx"), /货代收货信息[\s\S]*客户收货信息[\s\S]*整单实物进度[\s\S]*整单理货要求/, "备货详情应先显示货代和客户收货模块，右侧显示实物进度和理货要求");
 assert.match(read("components/stock-order-detail-view.tsx"), /grid gap-3 border-b p-4 lg:grid-cols-2/, "备货详情顶部两栏应并排对齐且保持紧凑");
 assert.match(read("components/stock-order-detail-view.tsx"), /0% 阶段保留图例颜色，但不占进度条宽度/, "零占比阶段须保留可辨认的图例但不得伪造进度条宽度");
-assert.match(read("components/stock-order-detail-view.tsx"), /客户与收货信息[\s\S]*<dl className="grid grid-cols-2[\s\S]*className="col-span-2 min-w-0"/, "收货资料应紧凑分列，长地址跨列显示");
+assert.match(read("components/stock-order-detail-view.tsx"), /<dl className="grid grid-cols-2[\s\S]*rounded-lg border border-blue-200[\s\S]*rounded-lg border border-slate-200/, "客户资料保持紧凑，货代与客户收货各自独立成卡");
 assert.match(read("components/stock-order-detail-view.tsx"), /border-l-4 px-4 py-3[\s\S]*border-l-amber-400 text-amber-900/, "整单理货要求应紧凑展示并使用橙色边框强调");
 assert.match(read("components/stock-order-detail-view.tsx"), /min-w-\[1880px\][\s\S]*border-r border-slate-100 px-2 py-2[\s\S]*<br\/>交货代[\s\S]*<td className="px-3 py-2">/, "单项进度数量摘要不得不换行溢出并覆盖理货要求列");
 assert.match(read("components/stock-progress-cell.tsx"), /flex h-1 overflow-hidden rounded-full[\s\S]*overflow-x-auto[\s\S]*min-w-\[320px\] grid-cols-5[\s\S]*bucket\.shortLabel[\s\S]*value\.units\}件·\{value\.percent\}%/, "列表与详情的五个进度阶段应保持同一行，窄屏仅在图例内部横向滚动");
@@ -81,7 +92,7 @@ const orderDetailView = read("components/order-detail-view.tsx");
 assert.match(orderDetailView, /<header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">/, "PI标题与状态标签应垂直居中对齐且保持紧凑");
 assert.match(orderDetailView, /客户税号（本单）：\{o\.customer_tax_number_snapshot\?\.trim\(\) \|\| "历史未留存"\}/, "PI详情应显示本单客户税号快照，历史空值不得回填现值");
 assert.match(orderDetailView, /grid gap-2 border-t px-5 py-2 xl:grid-cols-2[\s\S]*<details className=\{detailClass\}[\s\S]*收货信息[\s\S]*付款与费用明细[\s\S]*费用项目及金额/, "PI下方信息区应以紧凑可折叠双列呈现收货及费用信息");
-assert.match(orderDetailView, /grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3[\s\S]*客户应付总额[\s\S]*产品销售额 \/ 产品毛利/, "PI顶部摘要仅保留客户、应付金额、销售额/毛利三项");
+assert.match(orderDetailView, /grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3[\s\S]*客户应付总额[\s\S]*产品销售额 \/ 销售口径毛利/, "PI顶部摘要仅保留客户、应付金额、销售额/销售口径毛利三项");
 assert.doesNotMatch(orderDetailView, /StockProgressCell/, "PI详情顶部不重复显示备货进度卡片，进度统一在备货单页面查看");
 assert.match(orderDetailView, /费用项目[\s\S]*RMB[\s\S]*\{o\.currency !== "CNY" \?[\s\S]*row\.cny[\s\S]*row\.payment\.toFixed/, "PI费用明细应先显示人民币，再显示付款币种，CNY订单避免重复列");
 assert.doesNotMatch(orderDetailView, /查看费用明细 ↓/, "PI费用明细已在下排卡片显示，不应出现多余的锚点入口");
@@ -137,7 +148,7 @@ assert.match(piForm, /window\.addEventListener\("beforeunload", warnBeforeUnload
 assert.match(piForm, /document\.addEventListener\("click", interceptLink, true\)/, "未保存PI遇到站内导航应先拦截");
 assert.match(piForm, /window\.addEventListener\("popstate", interceptBack\)/, "未保存PI遇到浏览器后退应提醒");
 assert.match(piForm, /当前 PI 内容尚未保存[\s\S]*放弃填写并离开/, "离开提示应明确说明未保存内容会丢失并允许取消");
-assert.match(piForm, /hasUnsavedChanges\.current = false;\s*window\.location\.assign\(`\/orders\/\$\{saved\.id\}`\)/, "成功保存后跳转详情不应再次提示未保存");
+assert.match(piForm, /async function submitSavedDraft[\s\S]*await uploadRequirementFiles\(orderId\)[\s\S]*hasUnsavedChanges\.current = false;\s*window\.location\.assign\(`\/orders\/\$\{orderId\}`\)/, "理货附件上传及提交成功后跳转详情不应再次提示未保存");
 assert.match(piForm, /aria-label="搜索客户名称或公司名称并选择PI客户"[^>]*placeholderValue=""/, "未选择PI客户时应显示占位提示样式");
 assert.match(piForm, /data-search-text=\{`\$\{customer\.contact_name \|\| ""\} \$\{customer\.company_name \|\| ""\}`\}/, "PI客户选项应同时按客户名称和公司名称搜索");
 assert.match(piForm, /data-secondary-label=\{customer\.company_name \|\| ""\}>\{customer\.contact_name\?\.trim\(\) \|\| "未填写客户名称"\}/, "PI选中值仅显示客户名称，公司名称只作候选辅助信息");
@@ -202,7 +213,7 @@ assert.match(piForm, /name="pi-price-display-mode"[\s\S]*checked=\{priceDisplayM
 assert.match(piForm, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(22rem,28rem\)\]/, "PI费用汇总须限制宽度，避免空白区域撑开");
 assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "清空产品明细必须使用统一确认弹窗");
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
-assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*account\.role === "ADMIN"/, "PI基础资料接口必须存在并返回管理员维护权限");
+assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*hasPermission\(account, "pi\.accounts\.manage"\)/, "PI基础资料接口必须返回实际可配置的维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
 assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与实际制单人");
 assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">所属销售员/, "PI列表所属销售员标题应完整显示在一行");
@@ -251,7 +262,7 @@ assert.match(stockListApi, /customer_name: customerNames\.get\(item\.sales_order
 assert.match(orderListView, /客户名称[\s\S]*公司名称[\s\S]*row\.customer_name[\s\S]*row\.customer_short_name/, "PI列表必须优先显示对接人，再显示公司");
 assert.match(read("components/stock-orders-view.tsx"), /客户名称[\s\S]*公司名称[\s\S]*row\.customer_name[\s\S]*row\.customer_short_name/, "备货列表必须优先显示对接人，再显示公司");
 assert.match(read("components/order-print-preview.tsx"), /\[\["客户名称（本单快照）"[\s\S]*customer_name_snapshot[\s\S]*\["公司名称", stock\.order\.customer_short_name/, "备货预览及PDF必须优先显示本单客户名称快照");
-assert.match(orderListView, /<td className="max-w-\[144px\] px-3 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_short_name\}[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
+assert.match(orderListView, /<td className="max-w-\[144px\] px-3 py-3 text-xs">\{stock \? canViewStock \? <Link href=\{`\/stock-orders\/\$\{stock\.id\}`\}[\s\S]*<td className="px-4 py-3">\{row\.customer_detail_id[\s\S]*<StockProgressCell progress=\{stock\.progress\}\/>/, "PI列表备货单号需独立可点，进度列只显示实物进度");
 const piRowActions = orderListView.split('<RowActionMenu ariaLabel={`订单 ')[1]?.split("</RowActionMenu>")[0] || "";
 assert.match(piRowActions, /预览[\s\S]*导出 Excel[\s\S]*导出 PDF[\s\S]*删除草稿/, "PI单项预览和Excel/PDF导出应统一收纳在更多菜单");
 assert.match(progressCellView, /grid min-w-\[320px\] grid-cols-5[\s\S]*bucket\.shortLabel[\s\S]*value\.units[\s\S]*value\.percent/, "PI及备货单列表与详情应在同一行完整显示五阶段件数和百分比");
@@ -362,7 +373,7 @@ assert.match(piForm, /key === "discount" \? "−" : "\+"/, "PI费用项目应明
 assert.match(read("components/order-print-preview.tsx"), /"UNPAID BALANCE:"/, "PI预览应以未付尾款命名");
 
 for (const source of [detail, exportRoute]) {
-  assert.doesNotMatch(source, /unit_price|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润");
+  assert.doesNotMatch(source, /(?:^|[,\s])unit_price\b|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润；授权仓库采购单价除外");
   assert.match(source, /estimated_unit_cost_cny,quantity,received_quantity/, "普通明细查询只读取PI成本预算及实物进度");
   assert.match(source, /createAdminClient\(\)\.from\("stock_order_items"\)[\s\S]*procurement_cost,procurement_cost_confirmed,warehouse_note/, "采购字段须通过服务端管理员客户端仅向授权角色补充读取");
   assert.match(source, /received_quantity[,a-z_]*warehouse_supplier_code/, "仓库回货和供应商编码应可查看");
@@ -392,7 +403,7 @@ assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','
 assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
 assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
 assert.match(stockView, /采购价（人民币\/件）[\s\S]*成本差价（人民币\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
-assert.match(detail, /const canViewProcurement = account\.role === "WAREHOUSE"/, "采购敏感字段只能由仓库角色加载");
+assert.match(detail, /const canViewProcurement = hasPermission\(account, "stock\.procurement\.edit"\)/, "采购敏感字段只按独立授权加载，不受角色名硬编码限制");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");
 assert.doesNotMatch(order, /stock_order_expenses|packaging_cost_cny|shipping_expenses_cny/, "销售订单详情不得返回仓库整单费用");
@@ -615,4 +626,3 @@ assert.doesNotMatch(`${sheet.I18.v} ${sheet.K18.v}`, /RMB|CNY|人民币/i, "客�
 assert.throws(() => buildDirectPiWorkbook({ ...orderFixture, subtotal: 19999 }, [itemFixture]), /金额与订单汇总不一致/);
 assert.throws(() => buildDirectPiWorkbook(orderFixture, [{ ...itemFixture, unit_price: 19999 }]), /换算单价不正确/);
 console.log("PI备货价格隔离、回货数量校验、阶段流转和销售进度静态回归通过。");
-

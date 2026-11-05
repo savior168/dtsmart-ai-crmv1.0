@@ -49,7 +49,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (verifiedContacts.error) throw verifiedContacts.error;
     const decisionMakers = await admin.from("customer_decision_makers").select("id,full_name,job_title,role_type,contact_type,contact_value,exact_source_url,source_excerpt,verification_status,confidence,verified_at").eq("customer_id",id).eq("verification_status","SOURCE_VERIFIED").order("confidence",{ascending:false}).order("verified_at",{ascending:false});
     if(decisionMakers.error)console.warn("[customer-crm] verified decision makers unavailable",{customer_id:id,code:decisionMakers.error.code,message:decisionMakers.error.message});
-    const fullAiEvidenceAccess = account.role === "ADMIN" && hasPermission(account, "customers.ai_evidence_view");
+    const fullAiEvidenceAccess = hasPermission(account, "customers.ai_evidence_view");
     const evidence = fullAiEvidenceAccess && latestAi.data ? await admin.from("ai_screening_evidence").select("id,channel,title,normalized_fact,content,original_excerpt,source_url,evidence_type,evidence_confidence,metadata,fetched_at").eq("result_id", latestAi.data.id).order("fetched_at", { ascending: false }) : { data: [], error: null };
     if (evidence.error) throw evidence.error;
     const aiFacts = (evidence.data || []).filter((item) => {

@@ -89,10 +89,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
       viewerId: user.id, viewerRole: account.role, customerOwnerId: customer.data.owner_id,
       isDirectReport, canViewCustomerEvidence, canViewAiResults: false,
     });
-    if (!canReadCustomerAiEvidence({
-      viewerId: user.id, viewerRole: account.role, customerOwnerId: customer.data.owner_id,
-      isDirectReport, canViewCustomerEvidence, canViewAiResults: canReadAiResults,
-    })) throw new Error("FORBIDDEN");
+    if (!canReadOwnedCustomer && (!requestedTaskId || !canReadAiResults)) throw new Error("FORBIDDEN");
     let canViewTask = false;
     if (requestedTaskId && canReadAiResults) {
       const task = await admin.from("ai_screening_tasks").select("id,user_id").eq("id", requestedTaskId).maybeSingle();
@@ -111,7 +108,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cus
         }
       }
     }
-    if (!canViewTask && requestedTaskId && !canReadOwnedCustomer) throw new Error("FORBIDDEN");
+    if (!canReadOwnedCustomer && !canViewTask) throw new Error("FORBIDDEN");
     let resultQuery = admin.from("ai_screening_results").select("*,task:ai_screening_tasks(id,name,task_number,user_id)").eq("customer_id", customerId).eq("writeback_status", "COMPLETED");
     if (canViewTask) resultQuery = resultQuery.eq("task_id", requestedTaskId);
     else resultQuery = resultQuery.eq("is_latest_valid", true);

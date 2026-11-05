@@ -4,8 +4,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.update");
-    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("无仓库更新权限");
+    const { supabase } = await requirePermission("stock.update");
     const { id } = await context.params;
     const body = await request.json();
     const expectedUpdatedAt = String(body.expected_updated_at || "");

@@ -4,5 +4,5 @@ import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 export default async function CostSettingsPage() {
   const { account } = await requirePermission("costs.view");
   const canViewAiUsage = hasPermission(account,"ai.usage.view") || hasPermission(account,"ai.acquisition.usage.view");
-  return <CostCenterView embedded canViewAiUsage={canViewAiUsage} />;
+  return <CostCenterView embedded canViewAiUsage={canViewAiUsage} canExport={hasPermission(account,"costs.export")} />;
 }

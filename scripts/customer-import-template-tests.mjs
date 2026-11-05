@@ -239,4 +239,3 @@ assert.doesNotMatch(customerCreateApi, /if \(!body\.company_name\)/, "服务端�
 assert.match(importApi, /source_stage_label = sourceStageLabel/);
 assert.match(importApi, /status: "UNCLAIMED"/);
 console.log("客户导入模板表头、下拉选项及结构化地址兼容映射检查通过。");
-

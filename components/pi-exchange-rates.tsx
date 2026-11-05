@@ -11,11 +11,11 @@ function sourceLabel(rate: Rate) {
   if (rate.source === "BAIDU_FINSCOPE") return `百度 FinScope 报价 ${rate.source_updated_at || rate.reference_date || ""}`;
   if (rate.source === "CFETS") return `中国外汇交易中心（人民银行授权）${rate.reference_date}`;
   if (rate.source === "AGGREGATED") return `Frankfurter 多来源汇总 ${rate.reference_date}`;
-  if (rate.source === "MANUAL") return `管理员录入 ${rate.updated_at ? new Date(rate.updated_at).toLocaleDateString("zh-CN") : ""}`;
+  if (rate.source === "MANUAL") return `手工参考价 ${rate.updated_at ? new Date(rate.updated_at).toLocaleDateString("zh-CN") : ""}`;
   return rate.source === "IDENTITY" ? "本币" : "无可用近期来源";
 }
 
-export function PiExchangeRates() {
+export function PiExchangeRates({ canManage }: { canManage: boolean }) {
   const [rates, setRates] = useState<Rate[]>([]);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function PiExchangeRates() {
     setManual(rate.manual_reference_cny == null ? "" : String(rate.manual_reference_cny)); setError("");
   }
   async function save() {
-    if (!editing || busy) return;
+    if (!canManage || !editing || busy) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/pi-exchange-rates", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currency: editing, adjustment_mode: mode, adjustment_value: Number(value), manual_reference_cny: manual }) });
@@ -51,10 +51,10 @@ export function PiExchangeRates() {
   const selected = rates.find((rate) => rate.currency === editing);
   const visible = rates.filter((rate) => `${rate.currency} ${rate.label}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1500px] space-y-4">
-    <header><h1 className="text-2xl font-bold">PI汇率设置</h1><p className="mt-1 text-sm text-slate-600">美元、欧元、英镑、澳元、加元和新西兰元默认采用百度 FinScope 报价，参考汇率四舍五入至 2 位小数后减 ¥0.10；管理员可为新 PI 修改默认业务规则，销售也可按实际交易条件调整并确认本单汇率。PI创建时展示报价更新时间与核对链接。其他币种沿用现有来源与管理员规则。所有参考报价仅供业务核对，不代表银行成交价；已保存 PI 保留本单确认的汇率快照。</p></header>
+    <header><h1 className="text-2xl font-bold">PI汇率设置</h1><p className="mt-1 text-sm text-slate-600">美元、欧元、英镑、澳元、加元和新西兰元默认采用百度 FinScope 报价，参考汇率四舍五入至 2 位小数后减 ¥0.10；有维护权限的账号可为新 PI 修改默认业务规则，销售也可按实际交易条件调整并确认本单汇率。PI创建时展示报价更新时间与核对链接。其他币种沿用现有来源与业务规则。所有参考报价仅供业务核对，不代表银行成交价；已保存 PI 保留本单确认的汇率快照。</p></header>
     {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     <section className="rounded-xl border bg-white p-4"><label className="text-sm">搜索币种<input className={`${input} mt-1`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入币种代码或名称" /></label>
-      <div className="mt-3 divide-y">{visible.map((rate) => <div key={rate.currency} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"><div><b>{rate.currency} · {rate.label}</b><p className="mt-1 text-slate-600">市场参考：{rate.reference_cny == null ? "暂无" : `1 ${rate.currency} = ${showRate(rate.reference_cny)} CNY`} · {sourceLabel(rate)}{rate.source_url ? <> · <a href={rate.source_url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">核对来源</a></> : null}</p><p className="text-blue-700">业务汇率：{rate.business_cny == null ? "未配置" : `1 ${rate.currency} = ${showRate(rate.business_cny)} CNY`}{rate.currency === "CNY" ? "（人民币固定 1:1）" : rate.adjustment_mode === "FIXED" ? "（固定业务汇率）" : rate.adjustment_mode === "PERCENT" ? `（参考价调整 ${rate.adjustment_value >= 0 ? "+" : ""}${showRate(rate.adjustment_value)}%）` : `（参考价两位小数后 ${rate.adjustment_value >= 0 ? "+" : ""}${showRate(rate.adjustment_value)}）`}</p></div>{rate.currency === "CNY" ? <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">固定 1:1</span> : <button type="button" onClick={() => edit(rate)} className="rounded-lg border px-3 py-2">设置规则</button>}</div>)}</div>
+      <div className="mt-3 divide-y">{visible.map((rate) => <div key={rate.currency} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"><div><b>{rate.currency} · {rate.label}</b><p className="mt-1 text-slate-600">市场参考：{rate.reference_cny == null ? "暂无" : `1 ${rate.currency} = ${showRate(rate.reference_cny)} CNY`} · {sourceLabel(rate)}{rate.source_url ? <> · <a href={rate.source_url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">核对来源</a></> : null}</p><p className="text-blue-700">业务汇率：{rate.business_cny == null ? "未配置" : `1 ${rate.currency} = ${showRate(rate.business_cny)} CNY`}{rate.currency === "CNY" ? "（人民币固定 1:1）" : rate.adjustment_mode === "FIXED" ? "（固定业务汇率）" : rate.adjustment_mode === "PERCENT" ? `（参考价调整 ${rate.adjustment_value >= 0 ? "+" : ""}${showRate(rate.adjustment_value)}%）` : `（参考价两位小数后 ${rate.adjustment_value >= 0 ? "+" : ""}${showRate(rate.adjustment_value)}）`}</p></div>{rate.currency === "CNY" ? <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">固定 1:1</span> : canManage ? <button type="button" onClick={() => edit(rate)} className="rounded-lg border px-3 py-2">设置规则</button> : null}</div>)}</div>
     </section>
     {selected ? <AppDialog title={`${selected.currency} · ${selected.label} 业务汇率规则`} description="修改后只影响新建PI；已有PI保留原汇率快照。" onClose={() => setEditing(null)} width="max-w-3xl"><div className="grid gap-4 md:grid-cols-2">
       <label className="text-sm">计算方式<AppSelect className={input} disabled={selected.currency === "CNY"} value={mode} onChange={(event) => setMode(event.target.value as Rate["adjustment_mode"])}><option value="OFFSET">参考价 + 固定差额</option><option value="PERCENT">参考价 × (1 + 百分比)</option><option value="FIXED">固定业务汇率</option></AppSelect></label>

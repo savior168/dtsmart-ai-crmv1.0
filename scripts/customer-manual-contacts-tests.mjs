@@ -82,4 +82,3 @@ assert.match(migration, /pg_advisory_xact_lock/);
 assert.match(migration, /lock_keys && public\.customer_manual_identity_keys/, "each saved value must be checked for global duplicates");
 assert.match(read("supabase/migrations/20261102033953_restrict_customer_identity_trigger_execute.sql"), /revoke all on function public\.prevent_duplicate_customer_identity\(\) from public, anon, authenticated/, "identity trigger must not be exposed as a client RPC");
 console.log("customer manual contacts tests passed");
-
