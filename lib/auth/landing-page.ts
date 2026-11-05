@@ -5,6 +5,7 @@ const LANDING_PAGES = [
   ["products.categories.view", "/products/categories"],
   ["pricebooks.view", "/products/prices"],
   ["pricebooks.rules.view", "/products/pricing"],
+  ["pricebooks.import", "/products/import"],
   ["customers.view", "/customers/pool"],
   ["followups.view", "/followups"],
   ["ai.acquisition.view", "/ai-acquisition"],
