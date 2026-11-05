@@ -34,7 +34,9 @@ for (const [, href, permission] of sidebar.matchAll(/href: "(\/[^"]*)"[^\n]*perm
     || source.includes(`requirePermission("${permission}")`));
   if (href === "/" && permission === "dashboard.view") {
     const home = read(page);
-    assert.match(home, /await protectPage\("dashboard\.view"\)/, "首页必须由服务端验证登录状态及工作台权限");
+    assert.match(home, /await protectAuthenticatedPage\(\)/, "首页必须由服务端验证登录状态");
+    assert.match(home, /!hasPermission\(account, "dashboard\.view"\)/, "工作台内容必须仍按权限保护");
+    assert.match(home, /redirect\(firstAuthorizedPage\(/, "无工作台权限的用户应转向有权访问的页面");
     continue;
   }
   assert.ok(guarded, `${href} 菜单权限 ${permission} 必须由页面或布局在服务端校验`);
