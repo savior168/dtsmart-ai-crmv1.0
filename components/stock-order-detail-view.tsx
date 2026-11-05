@@ -977,7 +977,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
               <p className="rounded-lg bg-blue-50 p-3 text-blue-900">本次交接 {shipmentDraft.itemIds.length} 项、{items.filter((item) => shipmentDraft.itemIds.includes(item.id)).reduce((sum, item) => sum + Number(item.quantity), 0)} 件。请先核对实物和交接凭证。</p>
               <label className="block">货代交接信息（必填）<textarea required maxLength={1000} value={shipmentDraft.note} onChange={(event) => setShipmentDraft((current) => current && { ...current, note: event.target.value })} placeholder="货代名称、交接时间、运单号或交接凭证" className="mt-1 min-h-20 w-full rounded-lg border px-3 py-2"/></label>
               <div className="grid gap-3 sm:grid-cols-3">{([
-                ["packaging", "包装费用"], ["procurement", "采购其他费用"], ["shipping", "出货其他费用"],
+                ["packaging", "包装费用"], ["shipping", "出货费用"], ["procurement", "其他费用"],
               ] as const).map(([key, label]) => <label key={key}>{label}（人民币）<input required inputMode="decimal" type="number" min="0" max="999999999999.99" step="0.01" value={shipmentDraft[key]} onChange={(event) => setShipmentDraft((current) => current && { ...current, [key]: event.target.value })} placeholder="未发生填0" className="mt-1 h-10 w-full rounded-lg border px-3"/></label>)}</div>
               {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
               <div className="flex justify-end gap-2 border-t pt-4"><button type="button" disabled={busy} onClick={() => { setShipmentDraft(null); setError(""); }} className="rounded-lg border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white disabled:opacity-40">{busy ? "正在记录…" : "确认交货代并保存费用"}</button></div>
@@ -1071,11 +1071,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <section className="mx-5 mb-5 rounded-xl border bg-slate-50 p-4 text-sm">
               <h2 className="font-semibold">累计交货代费用（内部 · 人民币）</h2>
               <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-slate-700">
-                <span>包装：¥{Number(data.expenses.packaging_cost_cny).toFixed(2)}</span>
-                <span>采购发生：¥{Number(data.expenses.procurement_expenses_cny).toFixed(2)}</span>
-                <span>出货发生：¥{Number(data.expenses.shipping_expenses_cny).toFixed(2)}</span>
+                <span>包装费用：¥{Number(data.expenses.packaging_cost_cny).toFixed(2)}</span>
+                <span>出货费用：¥{Number(data.expenses.shipping_expenses_cny).toFixed(2)}</span>
+                <span>其他费用：¥{Number(data.expenses.procurement_expenses_cny).toFixed(2)}</span>
               </div>
-              {data.shipments?.length ? <div className="mt-3 space-y-2 border-t pt-3">{data.shipments.map((shipment) => <div key={shipment.id} className="rounded-lg border bg-white p-3"><p className="font-medium">{new Date(shipment.created_at).toLocaleString("zh-CN")} · {shipment.item_ids.length} 项完整产品行</p><p className="mt-1 break-words text-slate-600">{shipment.handoff_note}</p><p className="mt-1 text-slate-600">包装 ¥{Number(shipment.packaging_cost_cny).toFixed(2)} · 采购其他 ¥{Number(shipment.procurement_expenses_cny).toFixed(2)} · 出货其他 ¥{Number(shipment.shipping_expenses_cny).toFixed(2)}</p></div>)}</div> : null}
+              {data.shipments?.length ? <div className="mt-3 space-y-2 border-t pt-3">{data.shipments.map((shipment) => <div key={shipment.id} className="rounded-lg border bg-white p-3"><p className="font-medium">{new Date(shipment.created_at).toLocaleString("zh-CN")} · {shipment.item_ids.length} 项完整产品行</p><p className="mt-1 break-words text-slate-600">{shipment.handoff_note}</p><p className="mt-1 text-slate-600">包装费用 ¥{Number(shipment.packaging_cost_cny).toFixed(2)} · 出货费用 ¥{Number(shipment.shipping_expenses_cny).toFixed(2)} · 其他费用 ¥{Number(shipment.procurement_expenses_cny).toFixed(2)}</p></div>)}</div> : null}
             </section>
           ) : null}
           <section className="border-t p-5">
@@ -1112,3 +1112,4 @@ export function StockOrderDetailView({ id }: { id: string }) {
     </main>
   );
 }
+
