@@ -79,8 +79,13 @@ for (const item of PERMISSION_CATALOG) {
 const migration = readFileSync(new URL("../supabase/migrations/20261102060002_finance_role_supplier_permissions.sql", import.meta.url), "utf8");
 const dbPages = [...migration.matchAll(/when p_permission like '([^']+)%' then '([^']+)'/g)]
   .map((match) => ({ prefix: match[1], page: match[2] }));
+const notificationParentMigration = readFileSync(new URL("../supabase/migrations/20261105094016_notification_permission_parent.sql", import.meta.url), "utf8");
+assert.match(notificationParentMigration, /old_rule constant text := 'when p_permission like ''system\.notifications\.%'' then ''system\.notifications\.view'''/);
+assert.match(notificationParentMigration, /new_rule constant text := 'when p_permission like ''system\.notifications\.%'' then ''notifications\.view'''/);
+assert.match(notificationParentMigration, /old_core_pages constant text := '''system\.roles\.view'',''system\.notifications\.view'''/);
+const effectiveDbPages = dbPages.map((item) => item.prefix === "system.notifications." ? { ...item, page: "notifications.view" } : item);
 for (const item of PERMISSION_CATALOG.filter((entry) => !isRetiredPermission(entry.code))) {
-  const dbPage = dbPages.find((entry) => item.code.startsWith(entry.prefix))?.page || item.code;
+  const dbPage = effectiveDbPages.find((entry) => item.code.startsWith(entry.prefix))?.page || item.code;
   assert.equal(dbPage, permissionPageCode(item.code), `${item.code} 的数据库页面权限映射与应用不一致`);
 }
 const coreSection = migration.match(/if p_permission=any\(array\[([\s\S]*?)\]\) or page_code=any\(array\[/)?.[1];
@@ -91,6 +96,7 @@ assert.deepEqual(dbCore, appCore, "数据库管理员专属权限清单必须与
 const corePageSection = migration.match(/or page_code=any\(array\[([\s\S]*?)\]\) then return false/)?.[1];
 assert.ok(corePageSection, "database permission guard must block children of admin-only pages");
 const dbCorePages = [...corePageSection.matchAll(/'([^']+)'/g)].map((match) => match[1]).sort();
+const effectiveDbCorePages = dbCorePages.filter((code) => code !== "system.notifications.view");
 const appCorePages = PERMISSION_CATALOG.filter((item) => item.core && item.kind === "PAGE").map((item) => item.code).sort();
-assert.deepEqual(dbCorePages, appCorePages, "数据库管理员专属页面清单必须与应用一致");
+assert.deepEqual(effectiveDbCorePages, appCorePages, "数据库管理员专属页面清单必须与应用一致");
 console.log(`Permission matrix passed: ${cases.length} focused cases plus ${PERMISSION_CATALOG.length} catalog entries across four non-admin roles.`);

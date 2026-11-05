@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, authErrorStatus, clearPermissionCache } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, USER_ROLES, isKnownPermission, isRetiredPermission, permissionPageCode } from "@/lib/auth/permissions";
+import { rolePermissionChanges } from "@/lib/auth/role-permission-changes";
 import { CUSTOM_ROLES_ENABLED, readRoleDefinitions, resolveConfigurableRole } from "@/lib/auth/role-registry";
 
 const CUSTOM_ROLE_CODE = /^[A-Z][A-Z0-9_]{1,39}$/;
@@ -92,22 +93,8 @@ export async function PATCH(request: NextRequest) {
     if (!await resolveConfigurableRole(admin, role)) return NextResponse.json({ error: "角色无效或已停用" }, { status: 400 });
     if (role === "ADMIN") return NextResponse.json({ error: "系统管理员核心权限不可关闭" }, { status: 400 });
     if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(permissionPageCode(permission))) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
-    const pagePermission = permissionPageCode(permission);
-    const isPagePermission = pagePermission === permission;
-    const pageChildren = isPagePermission && !enabled
-      ? PERMISSION_CATALOG.filter((item) => item.code !== permission && permissionPageCode(item.code) === permission && !item.core)
-      : [];
     const now = new Date().toISOString();
-    // Granting a child opens only its page and that child in one upsert.
-    // Opening a page alone never grants unrelated actions or data scopes.
-    const changes = [
-      { permission_code: permission, enabled },
-      ...(!isPagePermission && enabled ? [{ permission_code: pagePermission, enabled: true }] : []),
-      ...pageChildren.map((item) => ({
-        permission_code: item.code,
-        enabled: false,
-      })),
-    ];
+    const changes = rolePermissionChanges(permission, enabled);
     const { error } = await admin.from("role_permission_settings").upsert(
       changes.map((change) => ({ role_code: role, ...change, updated_by: user.id, updated_at: now })),
       { onConflict: "role_code,permission_code" },

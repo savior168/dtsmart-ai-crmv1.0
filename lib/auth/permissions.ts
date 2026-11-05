@@ -187,7 +187,7 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("system.users.")) return "system.users.view";
   if (code.startsWith("system.roles.")) return "system.roles.view";
   if (code.startsWith("system.audit.")) return "system.audit.view";
-  if (code.startsWith("system.notifications.")) return "system.notifications.view";
+  if (code.startsWith("system.notifications.")) return "notifications.view";
   if (code.startsWith("system.security.")) return "system.security.view";
   return code;
 }

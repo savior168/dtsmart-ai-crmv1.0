@@ -54,10 +54,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).eq("permission_code", permission);
       if (error) throw error;
     } else {
-      const pagePermission = permissionPageCode(permission);
-      const changes = [permission, ...(effect === "ALLOW" && pagePermission !== permission ? [pagePermission] : [])];
       const { error } = await admin.from("user_permission_overrides").upsert(
-        changes.map((code) => ({ user_id: id, permission_code: code, effect, updated_by: user.id, updated_at: new Date().toISOString() })),
+        [{ user_id: id, permission_code: permission, effect, updated_by: user.id, updated_at: new Date().toISOString() }],
         { onConflict: "user_id,permission_code" },
       );
       if (error) throw error;

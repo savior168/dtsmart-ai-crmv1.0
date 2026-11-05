@@ -101,13 +101,12 @@ assert.match(read("components/customers-view.tsx"), /canCreate && <Link[\s\S]*hr
 assert.match(read("app/api/ai/tasks/route.ts"), /can_control_tasks: hasPermission\(account, "ai\.tasks\.control"\)[\s\S]*can_view_results: hasPermission\(account, "ai\.results\.view"\)/, "AI任务列表需返回控制和结果权限供前端隐藏对应入口");
 assert.match(read("lib/auth/current-user.ts"), /permissions = permissions\.filter\(\(code\) => !CORE_PERMISSION_CODES\.has\(code\)/, "会话必须保留管理员专属权限隔离");
 assert.doesNotMatch(read("lib/auth/current-user.ts"), /role === "ORDER_CLERK" && isOrderClerkForbiddenPermission\(code\)/, "跟单员的普通权限不得被角色硬编码覆盖管理员授权");
-assert.match(roleApi, /const pagePermission = permissionPageCode\(permission\)/, "角色权限接口必须解析所属页面");
-assert.match(roleApi, /!isPagePermission && enabled \? \[\{ permission_code: pagePermission, enabled: true \}\]/, "开启子权限时须同步开启父页面");
-assert.match(roleApi, /const pageChildren = isPagePermission && !enabled[\s\S]*changes = \[[\s\S]*enabled: false[\s\S]*onConflict: "role_code,permission_code"/, "关闭页面须同步关闭子权限，开启页面不得自动开放所有操作或数据");
+assert.match(roleApi, /const changes = rolePermissionChanges\(permission, enabled\)/, "角色权限接口须使用已测试的父子开关规则");
+assert.doesNotMatch(roleApi, /permission_code: pagePermission, enabled: true/, "子权限开关不得自动改动父页面");
 assert.doesNotMatch(roleApi, /roleCannotUseCrossUserData|该角色不能获得此跨用户数据权限/, "跨用户数据授权不得被角色硬编码禁止");
 assert.match(roleApi, /NextResponse\.json\(\{ ok: true, changes \}\)/, "角色权限接口必须向前端返回实际同步结果");
 assert.match(roleApi, /catalog: PERMISSION_CATALOG\.filter\(\(item\) => !isRetiredPermission\(item\.code\)\)/, "角色页面不得展示已退役报价模块");
-assert.match(read("app/api/admin/users/[id]/permissions/route.ts"), /changes = \[permission, \.\.\.\(effect === "ALLOW" && pagePermission !== permission \? \[pagePermission\] : \[\]\)\]/, "用户单独授权子权限时须同步开启父页面");
+assert.doesNotMatch(read("app/api/admin/users/[id]/permissions/route.ts"), /effect === "ALLOW" && pagePermission !== permission/, "用户单独授权子权限不得改动父页面");
 assert.doesNotMatch(sidebar, /href: "\/quotes"/, "退役报价模块不得出现在当前侧栏");
 assert.match(sidebar, /href: "\/suppliers", permission: "suppliers\.view" \}/, "供应商档案菜单应按权限而非硬编码角色显示");
 assert.match(sidebar, /href: "\/supplier-reconciliation", permission: "supplier\.reconciliation\.view" \}/, "供应商对账菜单应按权限而非硬编码角色显示");
