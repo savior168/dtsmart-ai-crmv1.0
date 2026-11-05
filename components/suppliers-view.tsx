@@ -110,10 +110,9 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
       {error && !draft ? <p role="alert" className="mt-3 rounded bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1500px] table-fixed text-left text-sm">
-          <colgroup><col className="w-[132px]"/><col className="w-[130px]"/><col className="w-[130px]"/><col className="w-[270px]"/><col className="w-[125px]"/><col className="w-[160px]"/><col className="w-[210px]"/><col className="w-[115px]"/><col className="w-[228px]"/></colgroup>
-          <thead className="bg-slate-50 text-slate-600"><tr className="border-b">{["操作", "供应商代码", "英文简称", "主供产品", "商务条件", "供应商简称", "合作程度", "售后服务", "价格优势"].map((label, index) => <th key={label} scope="col" className={`whitespace-nowrap px-3 py-3 ${index === 0 ? "sticky left-0 z-10 bg-slate-50" : ""}`}>{label}</th>)}</tr></thead>
+          <colgroup><col className="w-[130px]"/><col className="w-[130px]"/><col className="w-[270px]"/><col className="w-[125px]"/><col className="w-[160px]"/><col className="w-[210px]"/><col className="w-[115px]"/><col className="w-[228px]"/><col className="w-[132px]"/></colgroup>
+          <thead className="bg-slate-50 text-slate-600"><tr className="border-b">{["供应商代码", "英文简称", "主供产品", "商务条件", "供应商简称", "合作程度", "售后服务", "价格优势", "操作"].map((label) => <th key={label} scope="col" className={`whitespace-nowrap px-3 py-3 ${label === "操作" ? "sticky right-0 z-10 bg-slate-50" : ""}`}>{label}</th>)}</tr></thead>
           <tbody>{visible.map((row) => <tr key={row.id} className="group border-b last:border-0 hover:bg-slate-50/60">
-            <td className="sticky left-0 z-10 bg-white px-3 py-3 group-hover:bg-slate-50">{canManage ? <div className="flex items-center gap-1 whitespace-nowrap"><button type="button" onClick={() => edit(row)} className="rounded-md border px-2 py-1 text-xs text-blue-700 hover:bg-blue-50" aria-label={`编辑供应商 ${row.system_code}`}>编辑</button>{row.is_active ? <button type="button" onClick={() => setDeactivating(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50" aria-label={`停用供应商 ${row.system_code}`}>停用</button> : null}</div> : <span className="text-slate-400">—</span>}</td>
             <td className="whitespace-nowrap px-3 py-3 font-medium">{row.system_code}{!row.is_active ? <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">停用</span> : null}</td>
             <td className="truncate px-3 py-3" title={row.english_short_name || ""}>{row.english_short_name || "—"}</td>
             <td className="truncate px-3 py-3" title={row.main_products || ""}>{row.main_products || "—"}</td>
@@ -122,6 +121,7 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
             <td className="truncate px-3 py-3" title={row.cooperation_note || ""}>{row.cooperation_note || "—"}</td>
             <td className="truncate px-3 py-3" title={row.after_sales_note || ""}>{row.after_sales_note || "—"}</td>
             <td className="truncate px-3 py-3" title={row.price_advantage_note || ""}>{row.price_advantage_note || "—"}</td>
+            <td className="sticky right-0 z-10 whitespace-nowrap bg-white px-3 py-3 group-hover:bg-slate-50">{canManage ? <div className="flex items-center gap-1"><button type="button" onClick={() => edit(row)} className="rounded-md border px-2 py-1 text-xs text-blue-700 hover:bg-blue-50" aria-label={`编辑供应商 ${row.system_code}`}>编辑</button>{row.is_active ? <button type="button" onClick={() => setDeactivating(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50" aria-label={`停用供应商 ${row.system_code}`}>停用</button> : null}</div> : <span className="text-slate-400">—</span>}</td>
           </tr>)}</tbody>
         </table>
         {!loading && !filtered.length ? <p className="py-8 text-center text-sm text-slate-500">没有匹配的供应商</p> : null}
