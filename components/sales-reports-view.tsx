@@ -12,6 +12,7 @@ import { businessRange } from "@/lib/reports/business-date-range";
 import { BUSINESS_DATE_PRESETS, businessDatePreset, type BusinessDatePreset } from "@/lib/reports/date-presets";
 import { formatPerformanceNumber } from "@/lib/reports/format";
 import { teamContribution } from "@/lib/reports/team-contribution";
+import { STOCK_STATUS_LABELS, type StockOrderStatus } from "@/lib/types";
 
 type Report = { profile: { role: string }; totals: SalesMetrics; ranking: SalesRankingRow[]; breakdowns: SalesBreakdowns };
 type PerformanceCustomer = { id: string | null; label: string; order_count: number; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number; cost_cny: number; product_profit_cny: number; product_profit_usd: number; product_sales_cny: number; missing_profit_orders: number; missing_profit_usd_orders: number; product_margin: number | null };
@@ -58,7 +59,7 @@ export function SalesReportsView({ mode = "center" }: { mode?: "center" | "perfo
       <details id="operations-trend" className="mt-5 scroll-mt-4 rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold text-slate-800">展开过程分析 · 客户阶段、跟进、报价与备货</summary><p className="mt-1 text-xs text-slate-500">次要运营指标默认收起；需要分析销售过程时再展开，不与业绩结果混排。</p>
         <section className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.35fr]"><BusinessMotion totals={report.totals} /><TrendPulse rows={report.breakdowns.trend} /></section>
         <section className="mt-4 grid gap-4 xl:grid-cols-2"><DonutPanel title="AI等级分布" rows={report.breakdowns.ai_levels} tone="blue" /><StageFlowPanel rows={report.breakdowns.customer_stages} /></section>
-        <section className="mt-4 grid gap-4 xl:grid-cols-3"><DonutPanel title="跟进方式" rows={report.breakdowns.followup_types} tone="violet" /><StatusGridPanel title="报价状态" rows={report.breakdowns.quote_statuses} tone="amber" /><StatusGridPanel title="备货状态" rows={report.breakdowns.stock_statuses} tone="emerald" /></section>
+        <section className="mt-4 grid gap-4 xl:grid-cols-3"><DonutPanel title="跟进方式" rows={report.breakdowns.followup_types} tone="violet" /><StatusGridPanel title="报价状态" rows={report.breakdowns.quote_statuses} tone="amber" /><StatusGridPanel title="备货状态" rows={report.breakdowns.stock_statuses.map((row) => ({ ...row, label: STOCK_STATUS_LABELS[row.label as StockOrderStatus] || row.label }))} tone="emerald" /></section>
         <div id="sales-rankings" className="scroll-mt-4"><RankingTable rows={report.ranking} /></div>
       </details></> : null}
   </div></main>;

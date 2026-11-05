@@ -10,6 +10,7 @@ for (const path of [
   "../lib/stock-progress-query.ts",
   "../app/api/orders/[id]/route.ts",
   "../app/api/stock-orders/[id]/export/route.ts",
+  "../app/api/stock-orders/[id]/route.ts",
   "../app/api/stock-orders/route.ts",
 ]) {
   const route = readFileSync(new URL(path, import.meta.url), "utf8");

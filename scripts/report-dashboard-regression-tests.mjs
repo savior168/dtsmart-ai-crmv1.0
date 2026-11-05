@@ -14,6 +14,11 @@ assert.match(dashboardApi, /text: dashboardStockActivityText\(/, "最近备货�
 assert.match(dashboardApi, /\.gte\("updated_at".*\.lt\("updated_at"/, "最近备货动态应使用备货更新时间");
 const dashboard = read("components/crm-dashboard.tsx");
 const reports = read("components/sales-reports-view.tsx");
+assert.match(
+  reports,
+  /stock_statuses\.map\(\(row\) => \(\{ \.\.\.row, label: STOCK_STATUS_LABELS\[row\.label as StockOrderStatus\] \|\| row\.label \}\)\)/,
+  "报表备货状态必须沿用备货单统一中文标签",
+);
 const performanceApi = read("app/api/reports/sales/performance/route.ts");
 assert.match(performanceApi, /\.select\("id,order_number,warehouse_reference_number,customer_id,customer_short_name,customer_name_snapshot,/, "业绩明细必须查询 PI 客户名称快照");
 assert.match(performanceApi, /customer_name: resolvePiCustomerName\(order\.customer_name_snapshot,/, "订单客户名称必须优先显示 PI 快照");
