@@ -23,6 +23,14 @@ const emptyDraft: Draft = { system_code: "", legacy_code: "", short_name: "", en
   price_advantage_note: "", is_active: true };
 const cycleLabels: Record<string, string> = { CASH: "现金结", WEEKLY: "周结", SEMI_MONTHLY: "半月结",
   MONTHLY: "月结", NET_DAYS: "按天账期", OTHER: "其他", UNSET: "待补充" };
+type SortKey = "system_code" | "short_name" | "english_short_name" | "settlement_cycle" | "main_products";
+const supplierCollator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
+const supplierColumns: { label: string; sortKey?: SortKey }[] = [
+  { label: "供应商代码", sortKey: "system_code" }, { label: "供应商名称", sortKey: "short_name" },
+  { label: "英文简称", sortKey: "english_short_name" }, { label: "商务条件", sortKey: "settlement_cycle" },
+  { label: "主供产品", sortKey: "main_products" }, { label: "售后服务" },
+  { label: "合作程度" }, { label: "优势" }, { label: "操作" },
+];
 
 export function SuppliersView({ canManage }: { canManage: boolean }) {
   const [rows, setRows] = useState<Supplier[]>([]);
@@ -31,6 +39,8 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [sortKey, setSortKey] = useState<SortKey>("system_code");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [deactivating, setDeactivating] = useState<Supplier | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,8 +70,20 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
     && (statusFilter === "ALL" || row.is_active === (statusFilter === "ACTIVE"))
     && [row.system_code, row.short_name, row.english_short_name, row.main_products,
       row.settlement_terms_original, row.cooperation_note, row.after_sales_note, row.price_advantage_note]
-      .some((value) => String(value || "").toLowerCase().includes(query.trim().toLowerCase())));
+      .some((value) => String(value || "").toLowerCase().includes(query.trim().toLowerCase())))
+    .sort((left, right) => {
+      const value = (row: Supplier) => sortKey === "settlement_cycle"
+        ? row.settlement_terms_original || cycleLabels[row.settlement_cycle] || row.settlement_cycle
+        : String(row[sortKey] || "");
+      const compared = supplierCollator.compare(value(left), value(right)) || supplierCollator.compare(left.system_code, right.system_code);
+      return sortDirection === "asc" ? compared : -compared;
+    });
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
+  function toggleSort(key: SortKey) {
+    setSortDirection((current) => sortKey === key && current === "asc" ? "desc" : "asc");
+    setSortKey(key);
+    setPage(1);
+  }
   function edit(row: Supplier) {
     setDraft({ id: row.id, system_code: row.system_code, legacy_code: row.legacy_code || "",
       short_name: row.short_name || "", english_short_name: row.english_short_name || "",
@@ -110,16 +132,16 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
       {error && !draft ? <p role="alert" className="mt-3 rounded bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1500px] table-fixed text-left text-sm">
-          <colgroup><col className="w-[130px]"/><col className="w-[130px]"/><col className="w-[270px]"/><col className="w-[125px]"/><col className="w-[160px]"/><col className="w-[210px]"/><col className="w-[115px]"/><col className="w-[228px]"/><col className="w-[132px]"/></colgroup>
-          <thead className="bg-slate-50 text-slate-600"><tr className="border-b">{["供应商代码", "英文简称", "主供产品", "商务条件", "供应商简称", "合作程度", "售后服务", "价格优势", "操作"].map((label) => <th key={label} scope="col" className={`whitespace-nowrap px-3 py-3 ${label === "操作" ? "sticky right-0 z-10 bg-slate-50" : ""}`}>{label}</th>)}</tr></thead>
+          <colgroup><col className="w-[130px]"/><col className="w-[160px]"/><col className="w-[130px]"/><col className="w-[125px]"/><col className="w-[270px]"/><col className="w-[115px]"/><col className="w-[210px]"/><col className="w-[228px]"/><col className="w-[132px]"/></colgroup>
+          <thead className="bg-slate-50 text-slate-600"><tr className="border-b">{supplierColumns.map((column) => <th key={column.label} scope="col" aria-sort={column.sortKey ? sortKey === column.sortKey ? sortDirection === "asc" ? "ascending" : "descending" : "none" : undefined} className={`whitespace-nowrap px-3 py-3 ${column.label === "操作" ? "sticky right-0 z-10 bg-slate-50" : ""}`}>{column.sortKey ? <button type="button" onClick={() => { if (column.sortKey) toggleSort(column.sortKey); }} className="inline-flex items-center gap-1 hover:text-blue-700" aria-label={`${column.label}排序`}>{column.label}<span aria-hidden="true" className={sortKey === column.sortKey ? "text-blue-600" : "text-slate-400"}>{sortKey === column.sortKey ? sortDirection === "asc" ? "↑" : "↓" : "↕"}</span></button> : column.label}</th>)}</tr></thead>
           <tbody>{visible.map((row) => <tr key={row.id} className="group border-b last:border-0 hover:bg-slate-50/60">
             <td className="whitespace-nowrap px-3 py-3 font-medium">{row.system_code}{!row.is_active ? <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">停用</span> : null}</td>
-            <td className="truncate px-3 py-3" title={row.english_short_name || ""}>{row.english_short_name || "—"}</td>
-            <td className="truncate px-3 py-3" title={row.main_products || ""}>{row.main_products || "—"}</td>
-            <td className="truncate px-3 py-3" title={row.settlement_terms_original || ""}>{row.settlement_terms_original || (row.settlement_cycle === "NET_DAYS" ? `${row.settlement_days}天` : cycleLabels[row.settlement_cycle] || row.settlement_cycle)}</td>
             <td className="truncate px-3 py-3" title={row.short_name || ""}>{row.short_name || "—"}</td>
-            <td className="truncate px-3 py-3" title={row.cooperation_note || ""}>{row.cooperation_note || "—"}</td>
+            <td className="truncate px-3 py-3" title={row.english_short_name || ""}>{row.english_short_name || "—"}</td>
+            <td className="truncate px-3 py-3" title={row.settlement_terms_original || ""}>{row.settlement_terms_original || (row.settlement_cycle === "NET_DAYS" ? `${row.settlement_days}天` : cycleLabels[row.settlement_cycle] || row.settlement_cycle)}</td>
+            <td className="truncate px-3 py-3" title={row.main_products || ""}>{row.main_products || "—"}</td>
             <td className="truncate px-3 py-3" title={row.after_sales_note || ""}>{row.after_sales_note || "—"}</td>
+            <td className="truncate px-3 py-3" title={row.cooperation_note || ""}>{row.cooperation_note || "—"}</td>
             <td className="truncate px-3 py-3" title={row.price_advantage_note || ""}>{row.price_advantage_note || "—"}</td>
             <td className="sticky right-0 z-10 whitespace-nowrap bg-white px-3 py-3 group-hover:bg-slate-50">{canManage ? <div className="flex items-center gap-1"><button type="button" onClick={() => edit(row)} className="rounded-md border px-2 py-1 text-xs text-blue-700 hover:bg-blue-50" aria-label={`编辑供应商 ${row.system_code}`}>编辑</button>{row.is_active ? <button type="button" onClick={() => setDeactivating(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50" aria-label={`停用供应商 ${row.system_code}`}>停用</button> : null}</div> : <span className="text-slate-400">—</span>}</td>
           </tr>)}</tbody>
