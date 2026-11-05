@@ -108,9 +108,9 @@ export async function GET(
         && (appliedCountResult?.count || 0) < 3,
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
-      can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") && writable &&
+      can_delete_draft: writable &&
         hasPermission(account, "orders.delete_draft") && order.data.confirmation_method === "DIRECT_PI" &&
-        order.data.status === "DRAFT" && !stock.data,
+        order.data.status === "DRAFT" && order.data.confirmed_at === null && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
       can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
       can_review_seller_cost: (order.data.prepared_by || order.data.sales_user_id) === account.id

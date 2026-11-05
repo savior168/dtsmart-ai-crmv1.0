@@ -210,8 +210,7 @@ export async function GET(request: NextRequest) {
         owner: ownerById.get(item.sales_user_id) || null,
         creator: item.prepared_by ? creatorById.get(item.prepared_by) || null : null,
         stock: stockByOrderId.get(item.id) || [],
-        can_delete_draft: (account.role === "SALES" || account.role === "ADMIN") &&
-          hasPermission(account, "orders.delete_draft") &&
+        can_delete_draft: hasPermission(account, "orders.delete_draft") &&
           (item.prepared_by || item.sales_user_id) === account.id &&
           item.confirmation_method === "DIRECT_PI" && item.status === "DRAFT" &&
           item.confirmed_at === null && !stockByOrderId.has(item.id),

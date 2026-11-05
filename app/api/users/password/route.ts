@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { requireUser, writeAudit } from "@/lib/auth/current-user";
+import { authErrorStatus, requireUser, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest) {
@@ -28,6 +28,10 @@ export async function POST(request: NextRequest) {
     await writeAudit(supabase, user.id, "USER_PASSWORD_UPDATE", "user", user.id, {});
     return NextResponse.json({ ok: true, message: "登录密码已同步更新" });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "密码修改失败" }, { status: 400 });
+    const rawMessage = error instanceof Error ? error.message : "密码修改失败";
+    const message = rawMessage === "UNAUTHORIZED" || rawMessage === "SESSION_REVOKED"
+      ? "登录状态已失效，请重新登录后再修改密码"
+      : rawMessage;
+    return NextResponse.json({ error: message }, { status: authErrorStatus(rawMessage) || 400 });
   }
 }

@@ -41,4 +41,18 @@ assert.equal(matchActiveSupplierCode(activeSuppliers, "1007"), undefined,
 const stockView = readFileSync(new URL("../components/stock-order-detail-view.tsx", import.meta.url), "utf8");
 assert.match(stockView, /在此新增供应商档案/);
 assert.match(stockView, /selectedSupplier\.id !== receiptDraft\.supplierId/);
+const supplierUpdateRoute = readFileSync(new URL("../app/api/suppliers/[id]/route.ts", import.meta.url), "utf8");
+assert.match(supplierUpdateRoute, /linked\.count && \(changingCode \|\| changingLegacyCode\)/,
+  "已有送货单只锁定供应商代码，不锁定商务条件变更");
+assert.doesNotMatch(supplierUpdateRoute, /changingExistingSettlement|completingSettlement/,
+  "待补充或已确定的商务条件均可按最新协议更新");
+const supplierView = readFileSync(new URL("../components/suppliers-view.tsx", import.meta.url), "utf8");
+assert.match(supplierView, /商务条件可按最新约定调整/);
+const termsMigration = readFileSync(new URL("../supabase/migrations/20261105100000_supplier_terms_editable_snapshot.sql", import.meta.url), "utf8");
+assert.match(termsMigration, /settlement_cycle_snapshot/);
+assert.match(termsMigration, /snapshot_supplier_settlement_terms/);
+assert.match(termsMigration, /settlement_terms_snapshot/);
+assert.match(termsMigration, /coalesce\(d\.settlement_cycle_snapshot,s\.settlement_cycle\)/);
+assert.match(termsMigration, /group by supplier_id,system_code,short_name,english_short_name,settlement_cycle,settlement_days,settlement_terms_original\) x\)/,
+  "供应商对账按历史商务条件分组时必须包含快照字段，避免查询运行时报错");
 console.log("supplier input validation tests passed");

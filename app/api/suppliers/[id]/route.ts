@@ -37,10 +37,13 @@ export async function PATCH(request: NextRequest, context: Context) {
     const input = parseSupplierInput(body, old.data.is_active);
     const linked = await admin.from("supplier_delivery_notes").select("id", { count: "exact", head: true }).eq("supplier_id", id);
     if (linked.error) throw linked.error;
-    const changingSystemCode = input.settlement_cycle !== old.data.settlement_cycle
-      || Boolean(input.system_code && input.system_code !== old.data.system_code);
-    const changingIdentity = changingSystemCode || input.legacy_code !== old.data.legacy_code;
-    if (changingIdentity && linked.count) throw new Error("该供应商已有送货单，不能变更结算类型、系统代码或历史档案代码；请停用旧档案并新建供应商");
+    const changingCode = Boolean(input.system_code && input.system_code !== old.data.system_code);
+    const changingLegacyCode = input.legacy_code !== old.data.legacy_code;
+    if (linked.count && (changingCode || changingLegacyCode)) {
+      throw new Error("该供应商已有送货单，供应商代码不可修改；商务条件可调整，历史送货单保留原记录");
+    }
+    const changingSystemCode = changingCode || (input.settlement_cycle === "CASH"
+      && old.data.settlement_cycle !== "CASH" && !old.data.system_code);
     let systemCode = old.data.system_code;
     if (changingSystemCode) {
       if (input.settlement_cycle === "CASH" && !input.system_code) {

@@ -102,8 +102,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员可查看全部；主管还需单独开启下属数据开关，且仅能只读查看直属下属订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
   { code: "orders.cost_review", label: "复核本人创建PI的销售成本", group: "销售管理", description: "整单交货代后，仅创建该PI的销售员、主管或跟单员可逐项修正销售预估成本；不显示实际采购价", kind: "ACTION" },
-  { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅归属销售员或系统管理员可删除从未提交仓库的PI草稿；已提交历史不可删除", kind: "ACTION" },
-  { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "填写原因并联动取消未结束订单和备货单", kind: "ACTION" },
+  { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅有授权且属于本人创建范围、从未提交仓库的PI草稿可删除；已提交历史不可删除", kind: "ACTION" },
+  { code: "orders.cancel", label: "取消本人订单", group: "销售管理", description: "仅有授权且属于本人可操作范围的未结束订单可取消，并填写原因联动备货单", kind: "ACTION" },
   { code: "orders.export", label: "导出销售订单", group: "销售管理", description: "导出允许范围内的订单明细", kind: "ACTION" },
 
   { code: "stock.view", label: "备货单", group: "采购管理", description: "查看允许范围内的采购备货单", kind: "PAGE" },

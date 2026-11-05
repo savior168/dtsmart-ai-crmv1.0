@@ -150,7 +150,7 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
       </div>
       <AppPagination page={page} pageSize={pageSize} total={filtered.length} itemLabel="家供应商" onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }}/>
     </div>
-    <AppDialog open={draft !== null} title={draft?.id ? "编辑供应商" : "新增供应商"} description="已关联送货单的供应商代码与结算类型不可直接修改；可停用旧档案并新建。" onClose={() => { if (!busy) { setDraft(null); setError(""); } }}>
+    <AppDialog open={draft !== null} title={draft?.id ? "编辑供应商" : "新增供应商"} description="已有 PI 或送货单关联时供应商代码不可修改；商务条件可按最新约定调整，新条件仅用于后续回货，历史送货单保留记录时条件。" onClose={() => { if (!busy) { setDraft(null); setError(""); } }}>
       {draft ? <form onSubmit={(event) => { event.preventDefault(); void save(); }} className="space-y-3 text-sm"><div className="grid gap-3 sm:grid-cols-2">
         <label>供应商代码{draft.settlement_cycle === "CASH" ? "（无代码时自动生成）" : "（必填）"}<input required={draft.settlement_cycle !== "CASH"} value={draft.system_code} placeholder={draft.settlement_cycle === "CASH" ? "已有代码请填写；留空自动生成" : "填写供应商代码"} onChange={(event) => field("system_code", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>英文简称<input value={draft.english_short_name} onChange={(event) => field("english_short_name", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
