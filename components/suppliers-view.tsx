@@ -122,7 +122,7 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1500px] space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-semibold">供应商档案</h1><p className="mt-1 text-sm text-slate-600">已有供应商代码直接沿用；仅无代码的现金结供应商自动生成 CASH 编号。</p></div>
       {canManage ? <button onClick={() => setDraft({ ...emptyDraft })} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">新增供应商</button> : null}</div>
-    <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4"><div className="flex flex-wrap items-end gap-3"><label className="min-w-64 flex-1 text-sm text-slate-600">搜索供应商代码、简称、产品或评价
+    <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4"><div className="flex flex-wrap items-end gap-3"><label className="min-w-64 flex-1 text-sm text-slate-600">搜索供应商代码、名称、产品或评价
       <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
       <label className="text-sm text-slate-600">商务条件<select value={cycleFilter} onChange={(event) => { setCycleFilter(event.target.value); setPage(1); }} className="mt-1 block h-10 rounded-lg border bg-white px-3"><option value="ALL">全部商务条件</option>{Object.entries(cycleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
       <label className="text-sm text-slate-600">档案状态<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="mt-1 block h-10 rounded-lg border bg-white px-3"><option value="ALL">全部状态</option><option value="ACTIVE">启用</option><option value="INACTIVE">停用</option></select></label>
@@ -156,7 +156,7 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
         <label>英文简称<input value={draft.english_short_name} onChange={(event) => field("english_short_name", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>主供产品（必填）<input required value={draft.main_products} onChange={(event) => field("main_products", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>商务条件（必填）<select required value={draft.settlement_cycle} onChange={(event) => setDraft((current) => current && { ...current, settlement_cycle: event.target.value, settlement_days: event.target.value === "NET_DAYS" ? "15" : "", settlement_terms_original: event.target.value === "NET_DAYS" ? "15天" : cycleLabels[event.target.value] || "" })} className="mt-1 h-10 w-full rounded border px-3"><option value="" disabled>请选择结算方式</option>{Object.entries(cycleLabels).filter(([code]) => code !== "UNSET" || draft.id).map(([code, label]) => <option value={code} key={code}>{code === "NET_DAYS" ? "15天" : label}</option>)}</select></label>
-        <label>供应商简称<input value={draft.short_name} onChange={(event) => field("short_name", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
+        <label>供应商名称<input value={draft.short_name} onChange={(event) => field("short_name", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>合作程度<input value={draft.cooperation_note} onChange={(event) => field("cooperation_note", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>售后服务<input value={draft.after_sales_note} onChange={(event) => field("after_sales_note", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>价格优势<input value={draft.price_advantage_note} onChange={(event) => field("price_advantage_note", event.target.value)} className="mt-1 h-10 w-full rounded border px-3"/></label>
@@ -168,3 +168,4 @@ export function SuppliersView({ canManage }: { canManage: boolean }) {
     <ConfirmDialog open={deactivating !== null} title="停用供应商？" description={`停用 ${deactivating?.system_code || ""} 后不可用于新回货，已有送货单和对账记录不受影响。`} confirmLabel="确认停用" busy={busy} onCancel={() => setDeactivating(null)} onConfirm={() => void deactivate()}/>
   </div></main>;
 }
+
