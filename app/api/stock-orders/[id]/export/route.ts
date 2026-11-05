@@ -12,8 +12,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   try {
     const { supabase, account } = await requirePermission("stock.export");
     const { id } = await context.params;
-    const canViewProcurement = ["WAREHOUSE", "ADMIN"].includes(account.role)
-      && hasPermission(account, "stock.procurement.edit");
+    const canViewProcurement = hasPermission(account, "stock.procurement.edit");
     const [{ data: order, error }, { data: items, error: itemError }, { data: shippedEvents, error: eventError }] = await Promise.all([
       supabase.from("stock_orders").select("sales_order_id,sales_user_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).single(),
       supabase.from("stock_order_items").select("id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code,preparation_requirement,internal_note").eq("stock_order_id", id).is("pi_amendment_cancelled_at", null).order("line_number"),

@@ -12,8 +12,7 @@ type CorrectionChange = {
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.update");
-    if (account.role !== "WAREHOUSE" && account.role !== "ADMIN") throw new Error("FORBIDDEN");
+    const { supabase } = await requirePermission("stock.update");
     const { id } = await context.params;
     const body = await request.json() as { changes?: CorrectionChange[]; expected_updated_at?: unknown; reason?: unknown };
     const changes = body.changes;

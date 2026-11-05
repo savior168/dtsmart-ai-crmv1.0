@@ -24,8 +24,7 @@ const SORT_COLUMNS = {
 export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("stock.view");
-    const canViewProcurement = ["WAREHOUSE", "ADMIN"].includes(account.role)
-      && hasPermission(account, "stock.procurement.edit");
+    const canViewProcurement = hasPermission(account, "stock.procurement.edit");
     const params = request.nextUrl.searchParams;
     const exporting = params.get("export") === "1";
     const selectedIds = params.getAll("id");
@@ -49,7 +48,7 @@ export async function GET(request: NextRequest) {
         headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" },
       });
     }
-    const ownerId = account.role === "WAREHOUSE" ? null : await requestedOwnerId(request, account, "stock.data_all");
+    const ownerId = await requestedOwnerId(request, account, "stock.data_all");
     const creatorId = await requestedPiCreatorId(request, account, "stock.data_all");
     const page = Math.max(1, Math.floor(Number(params.get("page") || 1) || 1));
     const requestedPageSize = Number(params.get("page_size") || 20);
@@ -237,7 +236,7 @@ export async function GET(request: NextRequest) {
       sales: clerkOwnerById.get(item.sales_user_id) || null,
       preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),
-      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: ["WAREHOUSE","ADMIN"].includes(account.role) && hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: account.role === "WAREHOUSE" || hasPermission(account, "stock.data_all") });
+      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: hasPermission(account, "stock.data_all") });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单列表加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

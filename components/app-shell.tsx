@@ -78,7 +78,6 @@ const menu = [
       { label: "用户与权限", href: "/settings/users", permission: "system.users.view" },
       { label: "费用中心", href: "/settings/costs", permission: "costs.view" },
       { label: "操作日志", href: "/settings/audit", permission: "system.audit.view" },
-      { label: "通知与公告", href: "/settings/notifications", permission: "system.notifications.view" },
       { label: "安全设置", href: "/settings/security", permission: "system.security.view" },
     ],
   },

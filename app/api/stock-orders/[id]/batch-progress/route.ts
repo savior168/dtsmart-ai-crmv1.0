@@ -4,8 +4,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.update");
-    if (account.role !== "WAREHOUSE" && account.role !== "ADMIN") throw new Error("FORBIDDEN");
+    const { supabase } = await requirePermission("stock.update");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
     if (body.stage !== "READY_TO_SHIP") throw new Error("回货须逐项登记供应商和送货单；此处仅可批量完成理货");

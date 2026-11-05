@@ -15,6 +15,8 @@ const correctionMigration = read("supabase/migrations/20261015210000_stock_item_
 const shipmentMigration = read("supabase/migrations/20261016080000_stock_line_shipments.sql");
 const receiptFoundation = read("supabase/migrations/20261102060000_supplier_receipt_ledger.sql");
 const receiptCutover = read("supabase/migrations/20261104000000_enforce_supplier_receipt_documents.sql");
+const permissionAlignment = read("supabase/migrations/20261105094015_stock_permission_alignment.sql");
+const financePermissions = read("supabase/migrations/20261102060002_finance_role_supplier_permissions.sql");
 assert.doesNotMatch(receiptFoundation, /create trigger stock_receipt_requires_supplier_document/i,
   "预览验收前不能阻断正式站旧回货入口");
 assert.match(receiptCutover, /legacy_quantity = 0[\s\S]*create trigger stock_receipt_requires_supplier_document/i,
@@ -29,7 +31,10 @@ assert.match(read("app/api/customers/[id]/route.ts"), /account\.role !== "ORDER_
 assert.match(read("app/api/customers/[id]/crm/route.ts"), /account\.role !== "ORDER_CLERK" && isPublicUnclaimed\(customer\)/, "跟单员不可通过CRM详情接口读取未归属公海客户");
 assert.match(read("supabase/migrations/20261018010000_order_clerk_assigned_customer_boundary.sql"), /as restrictive for select to authenticated[\s\S]*owner_id is not null/, "数据库须限制跟单员只读已归属客户");
 assert.match(batchRoute, /requirePermission\("stock\.update"\)/, "批量备货操作必须校验仓库权限");
-assert.match(batchRoute, /account\.role !== "WAREHOUSE" && account\.role !== "ADMIN"/, "销售员不得直接批量修改备货实物进度");
+assert.doesNotMatch(batchRoute, /account\.role !== "WAREHOUSE" && account\.role !== "ADMIN"/, "备货批量操作不应再由角色名写死拦截");
+assert.match(permissionAlignment, /stock\.data_all[\s\S]*scope\.sales_user_id=actor\.id/, "数据库操作须限定全部备货授权或本人单据");
+assert.match(permissionAlignment, /stock_order_dashboard\(\)[\s\S]*scope_id:=case when actor\.role=''SUPERVISOR'' then actor\.id when public\.current_user_has_business_permission\(''stock\.data_all''\)/, "备货看板须按数据权限控制范围并保留主管现有边界");
+assert.match(financePermissions, /'WAREHOUSE','stock\.data_all',true[\s\S]*'stock\.procurement\.edit'\)\) permissions/, "迁移须保留仓库原有全量数据权限并关闭其他角色原本无效的备货动作");
 assert.match(batchMigration, /p_stage not in \('RECEIVED','READY_TO_SHIP'\)/, "批量快捷操作只允许实物已回齐或理货完成");
 assert.match(batchMigration, /public\.record_stock_progress\(p_stock_order_id,'RECEIVE'/, "批量理货完成须先记录实物回货");
 assert.match(batchMigration, /public\.record_stock_progress\(p_stock_order_id,'PREPARE'/, "批量理货完成须沿用已有数量约束、进度汇总及审计");
@@ -398,7 +403,7 @@ assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','
 assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
 assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
 assert.match(stockView, /采购价（人民币\/件）[\s\S]*成本差价（人民币\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
-assert.match(detail, /const canViewProcurement = \["WAREHOUSE", "ADMIN"\]\.includes\(account\.role\)[\s\S]*hasPermission\(account, "stock\.procurement\.edit"\)/, "采购敏感字段仅可由获授权的仓库或管理员加载，不能泄露给销售或主管");
+assert.match(detail, /const canViewProcurement = hasPermission\(account, "stock\.procurement\.edit"\)/, "采购敏感字段只按独立授权加载，不受角色名硬编码限制");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");
 assert.doesNotMatch(order, /stock_order_expenses|packaging_cost_cny|shipping_expenses_cny/, "销售订单详情不得返回仓库整单费用");

@@ -25,6 +25,22 @@ insert into public.role_permission_settings(role_code, permission_code, enabled)
 values ('ORDER_CLERK','orders.cancel',false)
 on conflict (role_code, permission_code) do update set enabled = false;
 
+-- The warehouse historically sees and manages every active stock order even
+-- though its stock.data_all row is absent. Materialize that effective grant.
+insert into public.role_permission_settings(role_code, permission_code, enabled)
+values ('WAREHOUSE','stock.data_all',true)
+on conflict (role_code, permission_code) do update set enabled = true;
+
+-- SALES/SUPERVISOR (and any other non-warehouse role) may have stored stock
+-- action flags that the old role checks always blocked. Normalize only those
+-- previously ineffective flags before removing the old guards, so this
+-- migration does not silently expose purchase prices or warehouse writes.
+insert into public.role_permission_settings(role_code, permission_code, enabled)
+select role_code, permission_code, false
+from (values ('SALES'),('SUPERVISOR'),('ORDER_CLERK'),('FINANCE')) roles(role_code)
+cross join (values ('stock.update'),('stock.prepare'),('stock.submit'),('stock.procurement.edit')) permissions(permission_code)
+on conflict (role_code, permission_code) do update set enabled = false;
+
 -- These two historical grants were masked by application-level core checks.
 -- Persist their effective disabled state before making permissions editable,
 -- otherwise removing the mask would silently grant access to SALES/SUPERVISOR.

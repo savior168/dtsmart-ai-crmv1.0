@@ -5,8 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.update");
-    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("FORBIDDEN");
+    const { supabase } = await requirePermission("stock.update");
     const { id } = await params;
     const body = await request.json();
     const requestId = String(body.request_id || "");

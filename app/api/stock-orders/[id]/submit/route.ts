@@ -6,8 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { supabase, account } = await requirePermission("stock.submit");
-    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("只有仓库员可以提交备货草稿");
+    const { supabase } = await requirePermission("stock.submit");
     const { id } = await params;
     const { data: stock, error: stockError } = await supabase.from("stock_orders")
       .select("status,warehouse_reference_number").eq("id", id).single();

@@ -5,7 +5,6 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, account } = await requirePermission("stock.update");
-    if (account.role !== "WAREHOUSE" && account.role !== "ADMIN") throw new Error("FORBIDDEN");
     if (!hasPermission(account, "stock.procurement.edit")) throw new Error("无采购核价权限");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;

@@ -10,8 +10,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   try {
     const { supabase, account } = await requirePermission("stock.view");
     const { id } = await context.params;
-    const canViewProcurement = ["WAREHOUSE", "ADMIN"].includes(account.role)
-      && hasPermission(account, "stock.procurement.edit");
+    const canViewProcurement = hasPermission(account, "stock.procurement.edit");
     const [{ data: order, error }, { data: items, error: itemError }, { data: events, count: eventCount, error: eventError }] = await Promise.all([
       supabase.from("stock_orders").select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,delivery_recipient,delivery_address,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).maybeSingle(),
       supabase.from("stock_order_items").select("id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,warehouse_supplier_code,preparation_requirement,internal_note,preparation_status,pi_amendment_cancelled_at").eq("stock_order_id", id).order("line_number"),
@@ -92,7 +91,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     let shipments = null;
     let receipts: Array<{ id: string; stock_order_item_id: string; quantity: number; purchase_unit_price_cny: number; note_number: string; document_date: string; supplier_code: string; correction_of: string | null; remaining_quantity: number }> = [];
     let shipmentFeatureReady = false;
-    if (["WAREHOUSE", "ADMIN"].includes(account.role)) {
+    if (hasPermission(account, "stock.update")) {
       const [expenseResult, shipmentResult] = await Promise.all([
         supabase.from("stock_order_expenses")
           .select("packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,updated_at")
@@ -138,7 +137,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
           supplier_code: note ? codesById.get(note.supplier_id) || "" : "" };
       });
     }
-    const warehouseEditor = ["WAREHOUSE", "ADMIN"].includes(account.role);
+    const warehouseEditor = hasPermission(account, "stock.update")
+      || hasPermission(account, "stock.prepare") || hasPermission(account, "stock.submit");
     const recalledPi = order.status === "DRAFT" && Boolean(order.warehouse_reference_number);
     const transitions:Record<string,string[]>={WAITING:["PREPARING","SHORTAGE","CANCELLED"],PREPARING:["RECEIVED","SHORTAGE","CANCELLED"],RECEIVED:["SORTING","SHORTAGE","CANCELLED"],SORTING:["READY_TO_SHIP","SHORTAGE","CANCELLED"],READY_TO_SHIP:["SHIPPED","CANCELLED"],SHORTAGE:["PREPARING","CANCELLED"],DRAFT:[],SHIPPED:[],READY:[],CANCELLED:[]};
     return NextResponse.json({ order: { ...order, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)), requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_edit_procurement: canViewProcurement && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });

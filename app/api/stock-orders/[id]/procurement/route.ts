@@ -4,8 +4,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase, account } = await requirePermission("stock.procurement.edit");
-    if (account.role !== "WAREHOUSE") throw new Error("无采购核价权限");
+    const { supabase } = await requirePermission("stock.procurement.edit");
     const { id } = await context.params;
     const body = await request.json();
     if (!Array.isArray(body.items)) throw new Error("采购价明细格式不正确");
