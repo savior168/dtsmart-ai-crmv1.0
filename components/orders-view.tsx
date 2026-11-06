@@ -16,12 +16,12 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
+import { PI_EXECUTING_STATUSES, piOrderStatusLabel, stockProgressLabel } from "@/lib/stock-progress";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
-const CURRENT_PI_STATUSES = ["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"] as const;
+const CURRENT_PI_STATUSES = ["DRAFT", "STOCK_DRAFT", "ACTIVE", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED"] as const;
 type Row = {
   id: string;
   order_number: string;
@@ -245,7 +245,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {k === "ACTIVE" ? "已提交仓库（执行中）" : piOrderStatusLabel(k)}
+                {k === "ACTIVE" ? "全部仓库处理中" : piOrderStatusLabel(k)}
               </option>
             ))}
           </AppSelect>
@@ -315,7 +315,10 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                       ? row.stock[0]
                       : row.stock;
                     const statusLabel = row.confirmation_method === "DIRECT_PI"
-                      ? piOrderStatusLabel(row.status) : SALES_ORDER_STATUS_LABELS[row.status];
+                      ? stock && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status)
+                        ? stockProgressLabel(stock.progress)
+                        : piOrderStatusLabel(row.status)
+                      : SALES_ORDER_STATUS_LABELS[row.status];
                     return (
                       <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
                         {canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}

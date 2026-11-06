@@ -11,6 +11,7 @@ for (const [value, code, name] of [
 ]) assert.deepEqual(countryInfo(value), { code, name });
 assert.deepEqual(countryInfo(null), { code: "", name: "未知地区" });
 assert.deepEqual(countryInfo("未核实地区"), { code: "", name: "未核实地区" }, "未识别原始值不得猜测成其他国家");
+assert.deepEqual(countryInfo("迪拜"), { code: "AE", name: "阿拉伯联合酋长国" }, "迪拜地区名应规范显示为阿联酋并使用对应国旗");
 const filters = countryFilterOptions(["IE", "爱尔兰", "ES", "GB"]);
 assert.equal(filters.length, 3, "国家筛选应将代码与中文名称合为同一项");
 assert.deepEqual(filters[0], { value: "IE", label: "爱尔兰", count: 2 });
@@ -27,6 +28,9 @@ for (const path of [
   "components/customers-view.tsx", "components/customer-public-pool-view.tsx",
   "components/followups-view.tsx", "components/crm-dashboard.tsx",
   "components/customer-workspace-panels.tsx", "components/customer-workspace-panels-v2.tsx",
+  "components/customer-form.tsx",
+  "components/pi-order-form.tsx", "components/ui/searchable-multi-select-filter.tsx",
+  "components/ai-acquisition/create-view.tsx",
   "components/ai-acquisition/customer-results.tsx", "components/ai-acquisition/task-detail.tsx",
   "components/ai-acquisition/task-report.tsx", "components/ai-acquisition/task-center.tsx",
 ]) {
@@ -34,5 +38,6 @@ for (const path of [
   assert.match(read(path), /<CountryLabel\b[^>]*\bvalue=/, `${path} 应使用统一国家显示`);
 }
 assert.doesNotMatch(read("components/followups-view.tsx"), /\{item\.customer\?\.country\|\|/, "跟进列表不得直接显示国家原始代码");
+assert.match(read("components/customer-form.tsx"), /backgroundImage: `url\(https:\/\/flagcdn\.com/, "客户资料编辑国家输入应在识别到国家时显示对应国旗");
 assert.doesNotMatch(read("components/crm-dashboard.tsx"), /function CountryLabel|function CountryFlag/, "工作台不得维护另一套国家展示组件");
 console.log("country display regression tests passed");

@@ -129,13 +129,14 @@ assert.equal(excelImported.length, 1);
 assert.equal(excelImported[0].item_name, "LCD");
 assert.equal(excelImported[0].unit_price_payment, "18.00");
 assert.equal(excelImported[0].description, "产品描述");
-assert.deepEqual(parsePiProductRows([excelRows[1]], 0.15).map(({ source_row: _row, ...line }) => line), excelImported.map(({ source_row: _row, ...line }) => line), "无表头复制的数据区域仍按标准列序解析");
+const omitSourceRow = ({ source_row, ...line }) => { void source_row; return line; };
+assert.deepEqual(parsePiProductRows([excelRows[1]], 0.15).map(omitSourceRow), excelImported.map(omitSourceRow), "无表头复制的数据区域仍按标准列序解析");
 assert.throws(() => parsePiProductRows([excelRows[2]], 0.15), /1至500条产品明细/, "模板空白公式行不得误判为明细");
 assert.deepEqual(parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", ""]], 0.15).map((line) => [line.item_name, line.estimated_unit_cost_cny, line.unit_price_cny, line.quantity]), [["LCD", "", "", ""]], "缺少产品必填价格或数量须保留行供用户补齐");
 const formSource = readFileSync("components/pi-order-form.tsx", "utf8");
 assert.match(formSource, /parsePiProductRows\(rows, selectedRate, selectedCurrency\)/, "PI导入入口须调用共享解析器和所选付款币种");
 assert.match(formSource, /prepareImportRows\(productSheet\.rows\)/, "Excel上传须选中产品明细表进入共享导入处理");
-assert.match(formSource, /prepareImportRows\(\(await navigator\.clipboard\.readText\(\)\)\.split\(/, "剪贴板粘贴须进入同一共享处理");
+assert.match(formSource, /prepareImportRows\(parsePiClipboardTsv\(await navigator\.clipboard\.readText\(\)\)\)/, "剪贴板粘贴须解析Excel TSV后进入同一共享处理");
 
 const route = readFileSync("app/api/orders/import-template/route.ts", "utf8");
 const view = readFileSync("components/pi-import-view.tsx", "utf8");
