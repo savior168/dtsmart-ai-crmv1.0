@@ -23,10 +23,20 @@ assert.match(receiptCutover, /legacy_quantity = 0[\s\S]*create trigger stock_rec
   "切换时应先核准过渡期回货基线，再强制要求送货单");
 const piMigration = read("supabase/migrations/20261013074814_pi_order_direct_creation.sql");
 const detail = read("app/api/stock-orders/[id]/route.ts");
+const stockListRoute = read("app/api/stock-orders/route.ts");
 const batchRoute = read("app/api/stock-orders/[id]/batch-progress/route.ts");
 const exportRoute = read("app/api/stock-orders/[id]/export/route.ts");
 const receiving = read("app/api/stock-orders/[id]/receiving/route.ts");
 const order = read("app/api/orders/[id]/route.ts");
+const orderListRoute = read("app/api/orders/route.ts");
+const piListView = read("components/orders-view.tsx");
+const stockListView = read("components/stock-orders-view.tsx");
+assert.match(orderListRoute, /params\.get\("sort_by"\) \|\| "created_at"/);
+assert.match(stockListRoute, /params\.get\("sort_by"\) \|\| "created_at"/);
+assert.match(piListView, /useState\("created_at"\)/);
+assert.match(stockListView, /useState\("created_at"\)/);
+assert.doesNotMatch(piListView, /更新时间/);
+assert.doesNotMatch(stockListView, /更新时间/);
 assert.match(read("app/api/customers/[id]/route.ts"), /account\.role !== "ORDER_CLERK" && publicUnclaimed/, "跟单员不可通过单条客户接口读取未归属公海客户");
 assert.match(read("app/api/customers/[id]/crm/route.ts"), /account\.role !== "ORDER_CLERK" && isPublicUnclaimed\(customer\)/, "跟单员不可通过CRM详情接口读取未归属公海客户");
 assert.match(read("supabase/migrations/20261018010000_order_clerk_assigned_customer_boundary.sql"), /as restrictive for select to authenticated[\s\S]*owner_id is not null/, "数据库须限制跟单员只读已归属客户");
@@ -122,7 +132,7 @@ const lineTemplateBook = XLSX.read(lineTemplateBytes, { type: "buffer", cellForm
 assert.deepEqual(lineTemplateBook.SheetNames, ["PI产品明细"], "产品模板只保留可直接导入的八列明细");
 const lineTemplateSheet = lineTemplateBook.Sheets["PI产品明细"];
 assert.equal(lineTemplateSheet["!ref"], "A1:H501", "模板须容纳500条产品");
-assert.deepEqual(XLSX.utils.sheet_to_json(lineTemplateSheet, { header: 1, range: 0 })[0], ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "成本单价（CNY） *", "销售单价（CNY或USD） *", "数量 *"], "必填列与创建PI的产品导入要求一致");
+assert.deepEqual(XLSX.utils.sheet_to_json(lineTemplateSheet, { header: 1, range: 0 })[0], ["产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "成本单价（CNY） *", "销售单价（CNY或付款币种） *", "数量 *"], "必填列与创建PI的产品导入要求一致");
 const piProductImport = read("lib/pi-product-import.ts");
 assert.match(piForm, /const invalidRow = items\.findIndex/, "导入缺项产品可进入明细，但保存草稿或提交前须逐行严格校验");
 assert.match(piProductImport, /row\[columns\[field\]/, "导入器须按识别到的表头列读取，兼容完整PI文件");
@@ -173,7 +183,6 @@ assert.match(read("components/stock-orders-view.tsx"), /<CompactDateRange label=
 assert.match(orderListView, /hover:bg-slate-50 xl:ml-auto/, "PI重置按钮应在空间足够时靠筛选行末尾显示");
 const progressCellView = read("components/stock-progress-cell.tsx");
 const stockListApi = read("app/api/stock-orders/route.ts");
-const stockListView = read("components/stock-orders-view.tsx");
 for (const [view, title] of [[orderListView, "PI"], [stockListView, "备货单"]]) {
   assert.match(view, /response\.status===401|r\.status === 401/, `${title}列表必须识别登录失效`);
   assert.match(view, /setSelectedIds\(\[\]\)/, `${title}列表登录失效时必须清除旧选择`);
@@ -215,7 +224,7 @@ assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "�
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*hasPermission\(account, "pi\.accounts\.manage"\)/, "PI基础资料接口必须返回实际可配置的维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
-assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与实际制单人");
+assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
 assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">所属销售员/, "PI列表所属销售员标题应完整显示在一行");
 assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
 assert.doesNotMatch(orderListView, /历史\/异常筛选|按订单类型筛选|包含历史销售订单/, "PI列表不应再提供冗余历史及单据类型筛选");
@@ -283,7 +292,7 @@ for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockL
 }
 assert.match(orderListApi, /currency[\s\S]*type === "PI"/, "PI列表必须按币种和业务类型筛选");
 assert.doesNotMatch(stockListView, /报价编号|quote_number/, "备货单列表不得继续展示旧报价编号");
-assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="更新时间"[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表须依次展示所属销售员与 PI 制单人");
+assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
 assert.match(stockListView, /<th[^>]*>所属销售员<\/th>[\s\S]*<th[^>]*>制单人<\/th>/, "所有可查看备货单的角色都应看到所属销售员和制单人列");
 assert.match(orderListView, /<th[^>]*>所属销售员<\/th>[\s\S]*<th[^>]*>制单人<\/th>/, "所有可查看PI的角色都应看到所属销售员和制单人列");
 assert.match(stockListView, /row\.warehouse_reference_number \|\| row\.order_number/, "仓库列表必须优先显示销售填写的业务订单编号");
@@ -338,7 +347,7 @@ assert.ok(piForm.includes('const [paypalRateInput, setPaypalRateInput] = useStat
 assert.ok(piForm.includes('id="pi-paypal-rate"') && piForm.includes('PayPal 手续费（'), "PayPal百分比应直接显示在费用行的标签内");
 assert.ok(piForm.includes('setPaypalRateInput(event.target.value)') && !piForm.includes('onDoubleClick={() => setEditingPaypalRate(true)}'), "PayPal费率应直接可编辑，无须双击切换");
 assert.ok(piForm.includes('link.href = "/templates/pi-line-import-template.xlsx"'), "产品模板下载路径保持有效");
-assert.ok(piForm.includes("async function importExcel(file?: File)") && piForm.includes("hasPiProductHeader(sheet.rows)") && piForm.includes("importRows(productSheet.rows)"), "Excel明细导入须定位并解析真正的产品页");
+assert.ok(piForm.includes("async function importExcel(file?: File)") && piForm.includes("hasPiProductHeader(sheet.rows)") && piForm.includes("prepareImportRows(productSheet.rows)"), "Excel明细导入须定位并解析真正的产品页");
 assert.ok(piForm.includes("async function pasteRows()") && piForm.includes("navigator.clipboard.readText()"), "粘贴表格明细功能保持有效");
 assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*editUnitPrice\(index, "CNY"/, "人民币单价输入须同步换算外币");
 assert.match(piForm, /第\$\{index \+ 1\}行\$\{currency\}单价[\s\S]*editUnitPrice\(index, "PAYMENT"/, "外币单价输入须同步换算人民币");

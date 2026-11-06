@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasPermission, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { storageObjectName } from "@/lib/storage-object-key";
-import { isPiRequirementImage, PI_REQUIREMENT_IMAGE_LIMIT } from "@/lib/pi-requirement-image";
+import { isPiRequirementImage, PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE, PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER, PI_REQUIREMENT_IMAGE_LIMIT } from "@/lib/pi-requirement-image";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File) || !imageTypes.has(file.type) || file.size <= 0
-      || file.size > PI_REQUIREMENT_IMAGE_LIMIT) throw new Error("请选择不超过 15MB 的 JPG、PNG 或 WebP 图片");
+      || file.size > PI_REQUIREMENT_IMAGE_LIMIT) throw new Error("请选择不超过 5MB 的 JPG、PNG 或 WebP 图片");
     const content = Buffer.from(await file.arrayBuffer());
     if (!isPiRequirementImage(content, file.type)) throw new Error("图片内容与文件类型不符，请重新选择原始图片");
     const lineValue = String(form.get("line_number") || "").trim();
@@ -34,6 +34,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .select("id,line_number,item_name,brand,model,quality").eq("sales_order_id", orderId).eq("line_number", lineNumber).maybeSingle();
     if (lineResult?.error) throw lineResult.error;
     if (lineNumber !== null && !lineResult?.data) throw new Error("产品行不存在，请刷新 PI 后重试");
+    if (lineNumber === null) {
+      const countResult = await admin.from("attachments").select("id", { count: "exact", head: true })
+        .eq("sales_order_id", orderId).eq("kind", "PI_ORDER_REQUIREMENT");
+      if (countResult.error) throw countResult.error;
+      if ((countResult.count || 0) >= PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER) {
+        throw new Error(`整单理货要求最多上传 ${PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER} 张图片`);
+      }
+    } else {
+      const countResult = await admin.from("attachments").select("id", { count: "exact", head: true })
+        .eq("sales_order_id", orderId).eq("kind", "PI_LINE_REQUIREMENT").eq("pi_line_number_snapshot", lineNumber);
+      if (countResult.error) throw countResult.error;
+      if ((countResult.count || 0) >= PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE) {
+        throw new Error(`每个产品项最多上传 ${PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE} 张理货图片`);
+      }
+    }
 
     const attachmentId = crypto.randomUUID();
     const storagePath = `${account.id}/pi-requirements/${orderId}/${storageObjectName(attachmentId, file.type)}`;

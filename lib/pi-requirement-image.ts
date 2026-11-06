@@ -1,4 +1,6 @@
-export const PI_REQUIREMENT_IMAGE_LIMIT = 15 * 1024 * 1024;
+export const PI_REQUIREMENT_IMAGE_LIMIT = 5 * 1024 * 1024;
+export const PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER = 5;
+export const PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE = 3;
 
 export function isPiRequirementImage(bytes: Uint8Array, mimeType: string) {
   if (bytes.byteLength === 0 || bytes.byteLength > PI_REQUIREMENT_IMAGE_LIMIT) return false;
