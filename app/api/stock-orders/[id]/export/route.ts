@@ -7,8 +7,9 @@ import { documentExportFilename } from "@/lib/export-file-name";
 import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { warehousePiAmendment, type PiAmendmentRecord } from "@/lib/orders/pi-amendment-view";
+import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
 
-export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, account } = await requirePermission("stock.export");
     const { id } = await context.params;
@@ -32,8 +33,15 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       exportItems = exportItems.map((item) => ({ ...item, ...procurementById.get(item.id) }));
     }
     const customerNames = await loadOrderCustomerNames([order.sales_order_id], true);
-    const piNote = await createAdminClient().from("sales_orders").select("confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone").eq("id", order.sales_order_id).single();
-    if (piNote.error) throw piNote.error;
+    const admin = createAdminClient();
+    const [{ data: piNote, error: piNoteError }, { data: requirementRows, error: requirementError }, { data: piItems, error: piItemsError }] = await Promise.all([
+      admin.from("sales_orders").select("confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone").eq("id", order.sales_order_id).single(),
+      admin.from("attachments").select("id,filename,mime_type,size_bytes,created_at,pi_line_number_snapshot,pi_product_label_snapshot,sales_order_item_id").eq("sales_order_id", order.sales_order_id).in("kind", ["PI_ORDER_REQUIREMENT", "PI_LINE_REQUIREMENT"]).order("created_at"),
+      admin.from("sales_order_items").select("id,line_number,item_name,brand,model,quality").eq("sales_order_id", order.sales_order_id),
+    ]);
+    if (piNoteError) throw piNoteError;
+    if (requirementError) throw requirementError;
+    if (piItemsError) throw piItemsError;
     const amendmentResult = await createAdminClient().from("pi_amendment_requests")
       .select("*").eq("stock_order_id", id).in("status", ["PENDING", "APPLIED"])
       .order("created_at", { ascending: true });
@@ -52,14 +60,18 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const salesOwner = !order.salesperson && order.sales_user_id ? await createAdminClient().from("users")
       .select("name,email").eq("id", order.sales_user_id).maybeSingle() : null;
     if (salesOwner?.error) throw salesOwner.error;
+    const requirementAttachments = resolvePiRequirementAttachments(requirementRows || [], piItems || [])
+      .filter((item) => !item.archived)
+      .map((item) => ({ id: item.id, filename: item.filename, lineNumber: item.display_line_number,
+        url: new URL(`/api/attachments/${item.id}?preview=1`, request.url).toString() }));
     const buffer = await buildStockWorkbook({ ...order, customer_name: customerNames.get(order.sales_order_id) || null,
       salesperson: order.salesperson || salesOwner?.data || null,
-      order_change_note: [piNote.data.confirmation_note, ...amendmentNotes].filter(Boolean).join("\n"),
-      forwarder_address: piNote.data.forwarder_address,
-      forwarder_recipient: piNote.data.forwarder_recipient,
-      forwarder_phone: piNote.data.forwarder_phone,
+      order_change_note: [piNote.confirmation_note, ...amendmentNotes].filter(Boolean).join("\n"),
+      forwarder_address: piNote.forwarder_address,
+      forwarder_recipient: piNote.forwarder_recipient,
+      forwarder_phone: piNote.forwarder_phone,
       shipped_at: shippedEvents?.[0]?.created_at || null,
-      status_label: stockProgressLabel(summarizeStockProgress(order.status, items || [])) } as never, exportItems as never, { includeProcurement: canViewProcurement });
+      status_label: stockProgressLabel(summarizeStockProgress(order.status, items || [])) } as never, exportItems as never, { includeProcurement: canViewProcurement, requirementAttachments });
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
