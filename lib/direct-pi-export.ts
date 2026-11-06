@@ -95,6 +95,8 @@ type DirectPiItem = {
   unit_price: number;
 };
 
+type DirectPiRequirementAttachment = { id: string; filename: string; lineNumber: number | null; url: string };
+
 const border = { style: "thin" as const, color: { rgb: "475569" } };
 const blue = "173EA9";
 const base: CellStyle = { font: { name: "Arial", sz: 10 }, alignment: { vertical: "center" } };
@@ -163,7 +165,7 @@ function moneyStyle(currency: string, highlighted = false): CellStyle {
 }
 
 /** Build only the customer-visible PI. Never import the internal workbook or its external links. */
-export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[]) {
+export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[], requirementAttachments: DirectPiRequirementAttachment[] = []) {
   if (!items.length || items.length > 500) throw new Error("PI产品明细需为1至500行");
   const currency = order.currency.toUpperCase();
   const showDualCurrencyPrices = order.show_dual_currency_prices === true && currency !== "CNY";
@@ -321,5 +323,19 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   outline(sheet, `A19:${showDualCurrencyPrices ? "M" : "K"}${totalRow}`);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "PI");
+  if (requirementAttachments.length) {
+    const attachmentSheet = XLSX.utils.aoa_to_sheet([
+      ["理货要求图片附件（请登录 DTS 后点击文件名预览）"],
+      [],
+      ["范围", "产品项", "文件名（点击预览）"],
+      ...requirementAttachments.map((attachment) => [
+        attachment.lineNumber === null ? "整单理货要求" : "单项理货要求",
+        attachment.lineNumber === null ? "—" : `第 ${attachment.lineNumber} 项`,
+        { v: attachment.filename, l: { Target: attachment.url, Tooltip: "在 DTS 中打开原始理货要求图片" } },
+      ]),
+    ]);
+    attachmentSheet["!cols"] = [{ wch: 20 }, { wch: 18 }, { wch: 48 }];
+    XLSX.utils.book_append_sheet(book, attachmentSheet, "理货图片附件");
+  }
   return addPiLogo(XLSX.write(book, { bookType: "xlsx", type: "array", compression: true }) as Uint8Array);
 }

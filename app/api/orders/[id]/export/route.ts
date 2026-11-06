@@ -6,8 +6,9 @@ import { buildDirectPiWorkbook } from "@/lib/direct-pi-export";
 import { documentExportFilename } from "@/lib/export-file-name";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
+import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
 export async function GET(
-  _: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -45,8 +46,23 @@ export async function GET(
     const businessNumber = order.data.confirmation_method === "DIRECT_PI"
       ? order.data.warehouse_reference_number || order.data.order_number
       : order.data.order_number;
+    let requirementAttachments: Array<{ id: string; filename: string; lineNumber: number | null; url: string }> = [];
+    if (order.data.confirmation_method === "DIRECT_PI") {
+      const admin = createAdminClient();
+      const [{ data: attachmentRows, error: attachmentError }, { data: piItems, error: piItemsError }] = await Promise.all([
+        admin.from("attachments").select("id,filename,mime_type,size_bytes,created_at,pi_line_number_snapshot,pi_product_label_snapshot,sales_order_item_id")
+          .eq("sales_order_id", id).in("kind", ["PI_ORDER_REQUIREMENT", "PI_LINE_REQUIREMENT"]).order("created_at"),
+        admin.from("sales_order_items").select("id,line_number,item_name,brand,model,quality").eq("sales_order_id", id),
+      ]);
+      if (attachmentError) throw attachmentError;
+      if (piItemsError) throw piItemsError;
+      requirementAttachments = resolvePiRequirementAttachments(attachmentRows || [], piItems || [])
+        .filter((item) => !item.archived)
+        .map((item) => ({ id: item.id, filename: item.filename, lineNumber: item.display_line_number,
+          url: new URL(`/api/attachments/${item.id}?preview=1`, request.url).toString() }));
+    }
     const workbook = order.data.confirmation_method === "DIRECT_PI" ? buildDirectPiWorkbook(
-      { ...documentOrder, order_number: businessNumber } as never, (items.data || []) as never,
+      { ...documentOrder, order_number: businessNumber } as never, (items.data || []) as never, requirementAttachments,
     ) : await buildQuoteWorkbook(
       {
         ...documentOrder,

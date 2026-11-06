@@ -430,6 +430,15 @@ const orderFixture = {
 const itemFixture = { line_number: 1, item_name: "Part", brand: "MAC", model: "A1", quality: "ORG", description: "Black", quantity: 1,
   unit_price_cny: 100, unit_price: 20000, estimated_unit_cost_cny: 31, internal_note: "PRIVATE-WAREHOUSE", warehouse_supplier_code: "PRIVATE-SUPPLIER" };
 const workbook = buildDirectPiWorkbook(orderFixture, [itemFixture]);
+const piWithAttachments = XLSX.read(buildDirectPiWorkbook(orderFixture, [itemFixture], [
+  { id: "attachment-whole", filename: "whole-order.png", lineNumber: null, url: "https://dtsmart.example/api/attachments/attachment-whole?preview=1" },
+  { id: "attachment-line", filename: "item-1.png", lineNumber: 1, url: "https://dtsmart.example/api/attachments/attachment-line?preview=1" },
+]), { type: "array" });
+assert.ok(piWithAttachments.Sheets["理货图片附件"], "PI 导出应单独提供理货图片附件页");
+assert.equal(piWithAttachments.Sheets["理货图片附件"].C4.v, "whole-order.png");
+assert.equal(piWithAttachments.Sheets["理货图片附件"].C4.l.Target, "https://dtsmart.example/api/attachments/attachment-whole?preview=1");
+assert.equal(piWithAttachments.Sheets["理货图片附件"].A5.v, "单项理货要求");
+assert.equal(piWithAttachments.Sheets["理货图片附件"].C5.l.Target, "https://dtsmart.example/api/attachments/attachment-line?preview=1");
 const archive = XLSX.CFB.read(Buffer.from(workbook), { type: "buffer" });
 assert.equal(archive.FullPaths.some((path) => /externalLinks/i.test(path)), false, "客户PI不得保留源模板的外部工作簿链接");
 const logo = XLSX.CFB.find(archive, "/xl/media/image.png");
