@@ -14,6 +14,7 @@ import {
 } from "@/components/ai-screening/ui";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { ScheduleControl } from "@/components/ai-screening/schedule-control";
+import { CountryLabel } from "@/components/country-label";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const splitBulkValues = (text: string) => text.split(/[\r\n,，;；|]+/).map((item)=>item.trim()).filter(Boolean);
@@ -117,7 +118,7 @@ function CountryPicker({
                     onClick={() => onChange(value.filter((item) => item !== code))}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700"
                   >
-                    {COUNTRY_NAMES.of(code) || code}
+                    <CountryLabel value={code} className="!text-xs" />
                     <X size={11} />
                   </button>
                 ))}
@@ -205,7 +206,7 @@ function CountryPicker({
                             : "hover:bg-slate-50"
                         }`}
                       >
-                        <span className="truncate">{COUNTRY_NAMES.of(code)}</span>
+                        <span className="truncate"><CountryLabel value={code} className="!text-xs" /></span>
                         {checked ? <Check size={14} /> : null}
                       </button>
                     );
@@ -566,7 +567,7 @@ export function AcquisitionCreateView() {
             <b className="text-slate-700">实际搜索词预览</b><span className="ml-2 text-slate-500">每国最多 32 条表达；此处不是 API 调用次数。</span>
             <div className="mt-1 space-y-1">{searchPlans.map((plan)=>{
               const localCount=plan.terms.filter((term)=>acquisitionSearchLanguage(plan.country,term)!=="en").length;
-              return <details key={plan.country} className="rounded-md bg-white/70 px-2 py-1"><summary className="cursor-pointer text-blue-700">{COUNTRY_NAMES.of(plan.country)||plan.country}：{plan.terms.length} 条（本地语种 {localCount}）；{plan.unplannedKeywords.length?<b className="text-amber-700">未纳入 {plan.unplannedKeywords.length} 个关键词，建议拆分任务</b>:"每个所填词至少纳入一条表达"}</summary><ol className="mt-1 list-inside list-decimal space-y-0.5 text-slate-600">{plan.terms.map((term)=><li key={term}>{term}<span className="ml-1 text-slate-400">{acquisitionSearchLanguage(plan.country,term)==="en"?"英语":"本地语种"}</span></li>)}</ol>{plan.unplannedKeywords.length?<p className="mt-1 text-amber-700">未纳入：{plan.unplannedKeywords.join("、")}</p>:null}</details>;
+              return <details key={plan.country} className="rounded-md bg-white/70 px-2 py-1"><summary className="cursor-pointer text-blue-700"><CountryLabel value={plan.country} className="!text-xs"/>：{plan.terms.length} 条（本地语种 {localCount}）；{plan.unplannedKeywords.length?<b className="text-amber-700">未纳入 {plan.unplannedKeywords.length} 个关键词，建议拆分任务</b>:"每个所填词至少纳入一条表达"}</summary><ol className="mt-1 list-inside list-decimal space-y-0.5 text-slate-600">{plan.terms.map((term)=><li key={term}>{term}<span className="ml-1 text-slate-400">{acquisitionSearchLanguage(plan.country,term)==="en"?"英语":"本地语种"}</span></li>)}</ol>{plan.unplannedKeywords.length?<p className="mt-1 text-amber-700">未纳入：{plan.unplannedKeywords.join("、")}</p>:null}</details>;
             })}</div>
           </div> : null}
           {keywordRecommendations.length ? <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-medium text-slate-500">精准关键词推荐 <span className="font-normal text-slate-400">· 已随目标行业自动补入，可继续增删</span></span><span className="flex items-center gap-3"><button type="button" disabled={keywordRecommendations.every((keyword)=>form.keywords.includes(keyword))||form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:[...new Set([...current.keywords,...keywordRecommendations])].slice(0,MAX_ACQUISITION_KEYWORDS)}))} className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400">补齐全部推荐</button>{keywordRecommendationGroups.length>4?<button type="button" aria-expanded={showAllKeywordGroups} onClick={()=>setShowAllKeywordGroups((current)=>!current)} className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline">{showAllKeywordGroups?"收起":"查看全部"}<ChevronDown size={13} className={`transition ${showAllKeywordGroups?"rotate-180":""}`}/></button>:null}</span></div><div className={`space-y-3 ${showAllKeywordGroups?"max-h-[360px] overflow-y-auto pr-1":""}`}>{visibleKeywordRecommendationGroups.map((group)=>{const originalIndex=keywordRecommendationGroups.findIndex((item)=>item.industry===group.industry);return <div key={group.industry} className="grid gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]"><div className="pt-1.5 text-xs font-medium text-slate-600"><span className="mr-1 text-slate-400">{originalIndex+1}.</span>{group.industry}</div><div className="flex flex-wrap items-center gap-2">{group.keywords.map((keyword)=>{const selected=form.keywords.includes(keyword);return <button key={`${group.industry}:${keyword}`} type="button" aria-pressed={selected} disabled={!selected&&form.keywords.length>=MAX_ACQUISITION_KEYWORDS} onClick={()=>setForm((current)=>({...current,keywords:selected?current.keywords.filter((item)=>item!==keyword):[...current.keywords,keyword]}))} className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition disabled:opacity-40 ${selected?"border-blue-400 bg-blue-50 font-medium text-blue-700":"border-slate-200 bg-white text-slate-600 hover:border-blue-300"}`}>{selected?<Check size={12}/>:<Plus size={12}/>} {keyword}</button>})}</div></div>})}</div>{keywordRecommendationGroups.length>4&&!showAllKeywordGroups?<p className="mt-3 text-xs text-slate-400">默认展示前 4 个目标行业，可展开选择其余 {keywordRecommendationGroups.length-4} 个行业的推荐词。</p>:<p className="mt-3 text-xs text-slate-400">推荐词只细化对应行业，不会放宽本次目标行业范围；可手动增删。</p>}</div>:null}
@@ -627,7 +628,7 @@ export function AcquisitionCreateView() {
         ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行",""],
         ["获客模式",form.cost_mode==="FREE_ONLY"?"标准获客":"智能获客",""],
         ["任务费用上限",form.cost_mode==="FREE_ONLY"?"$0.00":form.task_cost_limit_usd?`$${Number(form.task_cost_limit_usd).toFixed(2)}`:"继承全局上限",""],
-      ].map(([label,value,title])=><div key={label} className="flex justify-between gap-[10px] border-b border-dashed border-[#dbe2ec] py-[7px]"><dt className="shrink-0 text-[#6f7c90]">{label}</dt><dd title={title||undefined} className="max-w-[190px] break-words text-right font-semibold">{value}</dd></div>)}</dl><p className={`mt-2 text-xs leading-5 ${invalid?"text-amber-700":"text-slate-500"}`}>{invalid?"请完整填写任务名称、目标行业、搜索关键词、国家/地区和有效执行时间。":"仅通过目标、在营、证据、联系方式和系统去重门槛的客户进入公海。"}</p><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} mt-[14px] w-full justify-center`}>{form.schedule_type==="scheduled"?"预约并创建":"创建并自动执行"}</button><button type="button" disabled={!hasDraftContent} onClick={saveDraft} className={`${button} mt-2 w-full justify-center`}>{hasSavedDraft?"更新草稿":"暂存草稿"}</button></aside>
+      ].map(([label,value,title])=><div key={label} className="flex justify-between gap-[10px] border-b border-dashed border-[#dbe2ec] py-[7px]"><dt className="shrink-0 text-[#6f7c90]">{label}</dt><dd title={title||undefined} className="max-w-[190px] break-words text-right font-semibold">{label==="目标国家/地区"&&form.countries.length<=2?form.countries.length?form.countries.map((code)=><CountryLabel key={code} value={code} className="!text-xs"/>):value:value}</dd></div>)}</dl><p className={`mt-2 text-xs leading-5 ${invalid?"text-amber-700":"text-slate-500"}`}>{invalid?"请完整填写任务名称、目标行业、搜索关键词、国家/地区和有效执行时间。":"仅通过目标、在营、证据、联系方式和系统去重门槛的客户进入公海。"}</p><button type="button" disabled={invalid} onClick={()=>setConfirm(true)} className={`${primaryButton} mt-[14px] w-full justify-center`}>{form.schedule_type==="scheduled"?"预约并创建":"创建并自动执行"}</button><button type="button" disabled={!hasDraftContent} onClick={saveDraft} className={`${button} mt-2 w-full justify-center`}>{hasSavedDraft?"更新草稿":"暂存草稿"}</button></aside>
       </div>
       {node}
       <ConfirmDialog open={cancelConfirm} title="返回任务中心？" description="已经暂存的草稿会保留；当前未再次暂存的修改将丢失。" confirmLabel="确认返回" onClose={()=>setCancelConfirm(false)} onConfirm={()=>router.push("/ai-acquisition")}/>
@@ -674,7 +675,7 @@ export function AcquisitionCreateView() {
               ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"立即执行"],
               ["获客模式",form.cost_mode === "FREE_ONLY"?"标准获客":"智能获客"],
               ["费用保护",form.cost_mode === "FREE_ONLY"?"禁止正金额调用":form.task_cost_limit_usd?`任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"遵循全局上限"],
-            ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{value}</dd></div>)}
+            ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{label==="国家/地区"&&form.countries.length<=2?form.countries.length?form.countries.map((code)=><CountryLabel key={code} value={code} className="!text-xs"/>):value:value}</dd></div>)}
           </dl>
           <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5"><summary className="cursor-pointer font-medium text-slate-700">查看已选行业和关键词</summary><div className="mt-2 space-y-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-600"><p><b className="text-slate-700">目标行业：</b>{form.industries.join("、")}</p><p><b className="text-slate-700">搜索关键词：</b>{form.keywords.join("、")}</p></div></details>
           <p className="rounded-lg bg-blue-50 px-3.5 py-2.5 text-xs leading-5 text-blue-800">任务由云端工作流执行；创建成功后可关闭页面，任务会按计划继续。</p>

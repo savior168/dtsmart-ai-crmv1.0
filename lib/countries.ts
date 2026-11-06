@@ -5,6 +5,7 @@ const aliases: Record<string, string> = {
   阿联酋: "AE", UAE: "AE", "UNITED ARAB EMIRATES": "AE", 德国: "DE", GERMANY: "DE", 法国: "FR", FRANCE: "FR",
   意大利: "IT", ITALY: "IT", 爱尔兰: "IE", IRELAND: "IE", 挪威: "NO", NORWAY: "NO", 厄瓜多尔: "EC", ECUADOR: "EC",
   澳大利亚: "AU", AUSTRALIA: "AU", 加拿大: "CA", CANADA: "CA", 日本: "JP", JAPAN: "JP", 韩国: "KR", "SOUTH KOREA": "KR",
+  迪拜: "AE", DUBAI: "AE", 阿布扎比: "AE", "ABU DHABI": "AE",
 };
 const displayNames = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const englishDisplayNames = new Intl.DisplayNames(["en"], { type: "region" });

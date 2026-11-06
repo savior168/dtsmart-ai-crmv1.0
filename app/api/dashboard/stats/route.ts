@@ -9,6 +9,7 @@ import { loadStockProgressItems } from "@/lib/stock-progress-query";
 import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { dashboardStockActivityText } from "@/lib/dashboard-stock-activity";
+import { STOCK_STATUS_LABELS } from "@/lib/types";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
@@ -139,14 +140,51 @@ export async function GET(request: NextRequest) {
       if (countryValues.length) stockQuery = stockQuery.in("destination_country", countryValues);
       const stockRows = await stockQuery;
       if (stockRows.error) throw stockRows.error;
-      const progressItems = await loadStockProgressItems(supabase, (stockRows.data || []).map((row) => row.id));
-      const customerNames = await loadOrderCustomerNames((stockRows.data || []).map((row) => row.sales_order_id));
+      const stocks = stockRows.data || [];
+      const stockIds = stocks.map((row) => row.id);
+      const orderIds = [...new Set(stocks.map((row) => row.sales_order_id).filter(Boolean))];
+      const [progressItems, customerNames, ordersResult, eventsResult] = await Promise.all([
+        loadStockProgressItems(supabase, stockIds),
+        loadOrderCustomerNames(orderIds),
+        orderIds.length
+          ? followupReader.from("sales_orders").select("id,warehouse_reference_number").in("id", orderIds)
+          : Promise.resolve({ data: [], error: null }),
+        stockIds.length
+          ? followupReader.from("stock_order_events").select("stock_order_id,from_status,to_status,note,created_by,created_at").in("stock_order_id", stockIds).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(2000)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (ordersResult.error) throw ordersResult.error;
+      if (eventsResult.error) throw eventsResult.error;
+      const orderNumbers = new Map((ordersResult.data || []).map((order) => [order.id, order.warehouse_reference_number?.trim() || ""]));
+      const latestEvents = new Map<string, (typeof eventsResult.data)[number]>();
+      for (const row of stocks) {
+        const matchingEvent = (eventsResult.data || []).find((event) => event.stock_order_id === row.id
+          && Math.abs(Date.parse(event.created_at) - Date.parse(row.updated_at)) <= 2_000);
+        if (matchingEvent) latestEvents.set(row.id, matchingEvent);
+      }
+      const actorIds = [...new Set([...latestEvents.values()].map((event) => event.created_by).filter(Boolean))];
+      const actorsResult = actorIds.length
+        ? await followupReader.from("users").select("id,name,email").in("id", actorIds)
+        : { data: [], error: null };
+      if (actorsResult.error) throw actorsResult.error;
+      const actors = new Map((actorsResult.data || []).map((actor) => [actor.id, actor.name?.trim() || actor.email?.trim() || "操作人未记录"]));
       activities = (stockRows.data || []).map((row) => {
         const progress = summarizeStockProgress(row.status, progressItems.get(row.id) || []);
+        const event = latestEvents.get(row.id);
+        const previousStatus = event?.from_status ? STOCK_STATUS_LABELS[event.from_status as keyof typeof STOCK_STATUS_LABELS] || event.from_status : "";
+        const nextStatus = event?.to_status ? STOCK_STATUS_LABELS[event.to_status as keyof typeof STOCK_STATUS_LABELS] || event.to_status : "";
+        const note = String(event?.note || "").replace(/[\r\n<>]/g, " ").replace(/\s+/g, " ").trim();
+        const actionDetail = note
+          ? `更新备货信息：${note}`
+          : previousStatus && nextStatus
+            ? `将备货状态从${previousStatus}更新为${nextStatus}`
+            : `更新了备货进度至${stockProgressLabel(progress)}`;
         return { id: row.id, action: "STOCK_PROGRESS",
           text: dashboardStockActivityText({
-            piNumber: row.warehouse_reference_number || "未编号",
+            orderNumber: orderNumbers.get(row.sales_order_id) || row.warehouse_reference_number || "订单号未记录",
             customerName: customerNames.get(row.sales_order_id) || row.customer_short_name || "未命名客户",
+            actorName: event ? actors.get(event.created_by) || "操作人未记录" : "操作人未记录",
+            actionDetail,
             statusLabel: stockProgressLabel(progress), orderedUnits: progress.ordered_units,
             receivedUnits: progress.received_units, preparedUnits: progress.prepared_units,
             shippedUnits: progress.shipped_units,
