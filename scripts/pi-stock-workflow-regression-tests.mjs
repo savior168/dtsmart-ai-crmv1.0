@@ -348,7 +348,7 @@ assert.ok(piForm.includes('id="pi-paypal-rate"') && piForm.includes('PayPal 手�
 assert.ok(piForm.includes('setPaypalRateInput(event.target.value)') && !piForm.includes('onDoubleClick={() => setEditingPaypalRate(true)}'), "PayPal费率应直接可编辑，无须双击切换");
 assert.ok(piForm.includes('link.href = "/templates/pi-line-import-template.xlsx"'), "产品模板下载路径保持有效");
 assert.ok(piForm.includes("async function importExcel(file?: File)") && piForm.includes("hasPiProductHeader(sheet.rows)") && piForm.includes("prepareImportRows(productSheet.rows)"), "Excel明细导入须定位并解析真正的产品页");
-assert.ok(piForm.includes("async function pasteRows()") && piForm.includes("navigator.clipboard.readText()"), "粘贴表格明细功能保持有效");
+assert.ok(piForm.includes("async function pasteRows()") && piForm.includes("navigator.clipboard?.readText") && piForm.includes("setPasteFallbackOpen(true)"), "粘贴表格需有剪贴板 API 与手动粘贴兜底");
 assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*editUnitPrice\(index, "CNY"/, "人民币单价输入须同步换算外币");
 assert.match(piForm, /第\$\{index \+ 1\}行\$\{currency\}单价[\s\S]*editUnitPrice\(index, "PAYMENT"/, "外币单价输入须同步换算人民币");
 assert.match(piForm, /validPiMoney\(item\.unit_price_payment\)[\s\S]*Number\(item\.unit_price_payment\)/, "外币销售金额须使用外币单价计算");
