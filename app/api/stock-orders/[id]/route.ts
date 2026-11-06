@@ -90,6 +90,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     let expenses = null;
     let shipments = null;
     let receipts: Array<{ id: string; stock_order_item_id: string; quantity: number; purchase_unit_price_cny: number; note_number: string; document_date: string; supplier_code: string; correction_of: string | null; remaining_quantity: number }> = [];
+    let deliveryNotes: Array<{ id: string; supplier_code: string; note_number: string; document_date: string; attachments: Array<{ id: string; filename: string; mime_type: string | null; size_bytes: number | null; created_at: string }> }> = [];
     let shipmentFeatureReady = false;
     if (hasPermission(account, "stock.update")) {
       const [expenseResult, shipmentResult] = await Promise.all([
@@ -121,8 +122,18 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       const suppliers = supplierIds.length ? await admin.from("suppliers")
         .select("id,system_code").in("id", supplierIds) : { data: [], error: null };
       if (suppliers.error) throw suppliers.error;
+      const noteAttachments = noteIds.length ? await admin.from("attachments")
+        .select("id,supplier_delivery_note_id,filename,mime_type,size_bytes,created_at")
+        .in("supplier_delivery_note_id", noteIds).order("created_at") : { data: [] as Array<{ id: string; supplier_delivery_note_id: string | null; filename: string; mime_type: string; size_bytes: number; created_at: string }>, error: null };
+      if (noteAttachments.error) throw noteAttachments.error;
       const notesById = new Map((notes.data || []).map((row) => [row.id, row]));
       const codesById = new Map((suppliers.data || []).map((row) => [row.id, row.system_code]));
+      const attachmentsByNoteId = new Map<string, NonNullable<typeof noteAttachments.data>>();
+      for (const row of noteAttachments.data || []) {
+        const list = attachmentsByNoteId.get(row.supplier_delivery_note_id!) || [];
+        list.push(row);
+        attachmentsByNoteId.set(row.supplier_delivery_note_id!, list);
+      }
       const reversedById = new Map<string, number>();
       for (const row of allocations.data || []) if (row.correction_of) {
         reversedById.set(row.correction_of, (reversedById.get(row.correction_of) || 0) - row.quantity);
@@ -136,12 +147,15 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
           note_number: note?.note_number || "", document_date: note?.document_date || "",
           supplier_code: note ? codesById.get(note.supplier_id) || "" : "" };
       });
+      deliveryNotes = (notes.data || []).map((note) => ({ id: note.id,
+        supplier_code: codesById.get(note.supplier_id) || "", note_number: note.note_number,
+        document_date: note.document_date, attachments: attachmentsByNoteId.get(note.id) || [] }));
     }
     const warehouseEditor = hasPermission(account, "stock.update")
       || hasPermission(account, "stock.prepare") || hasPermission(account, "stock.submit");
     const recalledPi = order.status === "DRAFT" && Boolean(order.warehouse_reference_number);
     const transitions:Record<string,string[]>={WAITING:["PREPARING","SHORTAGE","CANCELLED"],PREPARING:["RECEIVED","SHORTAGE","CANCELLED"],RECEIVED:["SORTING","SHORTAGE","CANCELLED"],SORTING:["READY_TO_SHIP","SHORTAGE","CANCELLED"],READY_TO_SHIP:["SHIPPED","CANCELLED"],SHORTAGE:["PREPARING","CANCELLED"],DRAFT:[],SHIPPED:[],READY:[],CANCELLED:[]};
-    return NextResponse.json({ order: { ...order, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)), requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_edit_procurement: canViewProcurement && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });
+    return NextResponse.json({ order: { ...order, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)), requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, delivery_notes: deliveryNotes, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account,"stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_edit_procurement: canViewProcurement && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_upload_delivery_note_files: hasPermission(account, "stock.update") && canViewProcurement, can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

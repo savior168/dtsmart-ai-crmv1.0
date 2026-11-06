@@ -1783,7 +1783,7 @@ function AssignmentHistory({ refreshKey }: { refreshKey: number }) {
           <tbody className="divide-y">
             {rows.map((row) => (
               <tr key={row.id}>
-                <td className="px-4 py-4"><b className="block font-medium">{row.customer?.company_name || "—"}</b><small className="mt-1 block text-slate-500">{row.customer?.country || "—"}{row.customer?.phone ? ` · ${row.customer.phone}` : ""}</small><small className="block text-slate-400">{row.customer?.email || row.customer?.address || "—"}</small></td>
+                <td className="px-4 py-4"><b className="block font-medium">{row.customer?.company_name || "—"}</b><small className="mt-1 flex flex-wrap items-center gap-x-2 text-slate-500"><CountryLabel value={row.customer?.country}/>{row.customer?.phone ? <span>{row.customer.phone}</span> : null}</small><small className="block text-slate-400">{row.customer?.email || row.customer?.address || "—"}</small></td>
                 <td className="px-4 py-4"><span className="block font-mono text-xs text-blue-700">{row.batch_number}</span><small className="mt-1 block text-slate-500">{row.batch_name}</small></td>
                 <td className="px-4 py-4">
                   {row.reason_type === "ACCOUNT_HANDOVER"
