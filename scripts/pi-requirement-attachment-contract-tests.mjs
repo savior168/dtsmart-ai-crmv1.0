@@ -8,6 +8,10 @@ const form = read("components/pi-order-form.tsx");
 const warehouse = read("app/api/stock-orders/[id]/route.ts");
 const orderList = read("app/api/orders/route.ts");
 const stockList = read("app/api/stock-orders/route.ts");
+const attachmentView = read("components/pi-requirement-attachments.tsx");
+const printPreview = read("components/order-print-preview.tsx");
+const stockExport = read("app/api/stock-orders/[id]/export/route.ts");
+const piExport = read("app/api/orders/[id]/export/route.ts");
 
 assert.match(upload, /order\.status !== "DRAFT"/);
 assert.match(upload, /\(order\.prepared_by \|\| order\.sales_user_id\) !== account\.id/);
@@ -29,4 +33,11 @@ assert.match(download, /account\.role === "WAREHOUSE" && hasPermission\(account,
 assert.match(download, /stock\.data && stock\.data\.status !== "DRAFT"/);
 assert.match(orderList, /hasPermission\(account, "customers\.view"\)[\s\S]*supabase\.from\("customers"\)\.select\("id"\)/);
 assert.match(stockList, /hasPermission\(account, "customers\.view"\)[\s\S]*supabase\.from\("customers"\)\.select\("id"\)/);
+assert.match(attachmentView, /<Image src=\{`\/api\/attachments\/\$\{item\.id\}\?preview=1`\}[^>]*unoptimized loading="eager"/, "理货附件详情应内嵌即时可见缩略图并保持点击查看原图入口");
+assert.match(printPreview, /理货要求图片附件（内部备货参考）[\s\S]*PiRequirementAttachments/, "PI 预览打印应展示整单和单项理货图片");
+assert.match(printPreview, /PiRequirementAttachments attachments=\{stock\.requirement_attachments \|\| \[\]\} lineNumber=\{null\}/, "备货单打印应展示整单图片附件");
+assert.match(printPreview, /lineNumber=\{item\.line_number\} className="mt-1"/, "备货单打印应将附件放在对应产品行");
+assert.match(stockExport, /requirementAttachments = resolvePiRequirementAttachments[\s\S]*url: new URL\(`\/api\/attachments\/\$\{item\.id\}\?preview=1`/);
+assert.match(piExport, /requirementAttachments = resolvePiRequirementAttachments[\s\S]*url: new URL\(`\/api\/attachments\/\$\{item\.id\}\?preview=1`/);
+assert.match(piExport, /buildDirectPiWorkbook\([\s\S]*requirementAttachments/);
 console.log("PI requirement attachment and customer-link contracts passed");

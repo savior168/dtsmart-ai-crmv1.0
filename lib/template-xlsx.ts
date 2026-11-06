@@ -256,7 +256,7 @@ export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteIte
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
 
-export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { procurement_cost_confirmed?: boolean; estimated_unit_cost_cny?: number | null; received_quantity?: number; warehouse_supplier_code?: string | null; internal_note?: string | null; warehouse_note?: string | null })[], options: { includeProcurement?: boolean } = {}) {
+export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { procurement_cost_confirmed?: boolean; estimated_unit_cost_cny?: number | null; received_quantity?: number; warehouse_supplier_code?: string | null; internal_note?: string | null; warehouse_note?: string | null })[], options: { includeProcurement?: boolean; requirementAttachments?: Array<{ id: string; filename: string; lineNumber: number | null; url: string }> } = {}) {
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
@@ -336,6 +336,23 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
       for (const column of ["P", "Q", "R"]) xml = withProcurementBorder(xml, `${column}${row}`, styles.procurementBorderStyles);
     }
   }
-  return finishTemplate(opened.cfb, opened.entry, xml);
+  const buffer = finishTemplate(opened.cfb, opened.entry, xml);
+  const attachments = options.requirementAttachments || [];
+  if (!attachments.length) return buffer;
+  const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true, cellFormula: true });
+  const rows: (string | { v: string; l: { Target: string; Tooltip: string } })[][] = [
+    ["理货要求图片附件（请登录 DTS 后点击文件名预览）"],
+    [],
+    ["范围", "产品项", "文件名（点击预览）"],
+    ...attachments.map((attachment) => [
+      attachment.lineNumber === null ? "整单理货要求" : "单项理货要求",
+      attachment.lineNumber === null ? "—" : `第 ${attachment.lineNumber} 项`,
+      { v: attachment.filename, l: { Target: attachment.url, Tooltip: "在 DTS 中打开原始理货要求图片" } },
+    ]),
+  ];
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  sheet["!cols"] = [{ wch: 20 }, { wch: 18 }, { wch: 48 }];
+  XLSX.utils.book_append_sheet(workbook, sheet, "理货图片附件");
+  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx", cellStyles: true }) as Uint8Array);
 }
 

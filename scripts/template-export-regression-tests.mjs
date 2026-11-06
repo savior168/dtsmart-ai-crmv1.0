@@ -70,6 +70,10 @@ const stockData = {
   salesperson: { name: "Eva", email: "eva@example.com" },
 };
 const stockBuffer = await buildStockWorkbook(stockData, items);
+const stockWithRequirementImagesBuffer = await buildStockWorkbook(stockData, items, { requirementAttachments: [
+  { id: "attachment-line-1", filename: "line-1.png", lineNumber: 1, url: "https://crm.example/api/attachments/attachment-line-1?preview=1" },
+  { id: "attachment-order-1", filename: "order.png", lineNumber: null, url: "https://crm.example/api/attachments/attachment-order-1?preview=1" },
+] });
 const warehouseStockBuffer = await buildStockWorkbook(stockData,
   items.map((item) => ({ ...item, procurement_cost_confirmed: true, warehouse_note: "SUPPLIER-INTERNAL-NOTE" })),
   { includeProcurement: true });
@@ -99,6 +103,15 @@ for (let offset = 0; offset < streamedArchive.length && streamedArchive.readUInt
   offset += 30 + nameLength + extraLength + streamedArchive.readUInt32LE(offset + 18);
 }
 assert.deepEqual(archivedNames, manyFiles.map((file) => file.name), "批量导出必须完整包含超过一页的筛选结果且中文文件名正确");
+const attachmentWorkbook = XLSX.read(stockWithRequirementImagesBuffer, { type: "buffer" });
+assert.ok(attachmentWorkbook.SheetNames.includes("理货图片附件"), "备货单 Excel 应包含独立理货图片附件页");
+const attachmentSheet = attachmentWorkbook.Sheets["理货图片附件"];
+assert.equal(attachmentSheet.A4.v, "单项理货要求");
+assert.equal(attachmentSheet.B4.v, "第 1 项");
+assert.equal(attachmentSheet.C4.v, "line-1.png");
+assert.equal(attachmentSheet.C4.l?.Target, "https://crm.example/api/attachments/attachment-line-1?preview=1", "单项图片附件应链接回受权限保护的原图预览");
+assert.equal(attachmentSheet.A5.v, "整单理货要求");
+assert.equal(attachmentSheet.C5.l?.Target, "https://crm.example/api/attachments/attachment-order-1?preview=1");
 const bounded = await mapExportBatches(Array.from({ length: 12 }, (_, index) => index), 4, async (index) => index * 2);
 assert.deepEqual(bounded, Array.from({ length: 12 }, (_, index) => index * 2));
 for (const routePath of ["app/api/orders/route.ts", "app/api/stock-orders/route.ts"]) {
