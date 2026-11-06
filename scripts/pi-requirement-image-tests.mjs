@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isPiRequirementImage, PI_REQUIREMENT_IMAGE_LIMIT } from "../lib/pi-requirement-image.ts";
+import { isPiRequirementImage, PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE, PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER, PI_REQUIREMENT_IMAGE_LIMIT } from "../lib/pi-requirement-image.ts";
 
 const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
 const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -10,4 +10,7 @@ assert.equal(isPiRequirementImage(webp, "image/webp"), true);
 assert.equal(isPiRequirementImage(png, "image/jpeg"), false);
 assert.equal(isPiRequirementImage(Buffer.from("<script>alert(1)</script>"), "image/png"), false);
 assert.equal(isPiRequirementImage(new Uint8Array(PI_REQUIREMENT_IMAGE_LIMIT + 1), "image/png"), false);
+assert.equal(PI_REQUIREMENT_IMAGE_LIMIT, 5 * 1024 * 1024);
+assert.equal(PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE, 3);
+assert.equal(PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER, 5);
 console.log("PI requirement image validation tests passed");

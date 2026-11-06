@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     const pageSize = [10, 20, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 20;
     const status = params.get("status")?.trim() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
-    const sortBy = params.get("sort_by") || "updated_at";
+    const sortBy = params.get("sort_by") || "created_at";
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";

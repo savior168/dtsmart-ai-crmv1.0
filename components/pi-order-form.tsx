@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardPaste, Copy, FileDown, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
+import { ClipboardPaste, Copy, FileDown, FileImage, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppDialog, ConfirmDialog } from "@/components/ui/app-dialog";
@@ -14,10 +14,11 @@ import { calculatePiFees, type PiFeeSource, type PiFeesInput } from "@/lib/pi-fe
 import { PI_PAYMENT_CHANNELS, type PiPaymentChannel } from "@/lib/pi-payment-channel";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { ImportedPiDocument } from "@/lib/pi-document-import";
-import { hasPiProductHeader, parsePiProductRows } from "@/lib/pi-product-import";
+import { derivePiCnyRate, detectPiPaymentCurrency, hasPiProductHeader, parsePiProductRows } from "@/lib/pi-product-import";
 import { displayAddressList, displayShippingContacts, type ShippingContact } from "@/lib/customers/address-list";
 import { customerDeliveryMatchesForwarder } from "@/lib/orders/pi-delivery-match";
 import { PiRequirementAttachments, type PiRequirementAttachment } from "@/components/pi-requirement-attachments";
+import { PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE, PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER, PI_REQUIREMENT_IMAGE_LIMIT } from "@/lib/pi-requirement-image";
 
 type Customer = { id: string; company_name: string; country?: string | null; contact_name?: string | null; tax_number?: string | null; tally_requirements?: string | null; phone?: string | null; email?: string | null; address?: string | null; shipping_address?: string | null; shipping_addresses?: string[] | null; shipping_contact_entries?: ShippingContact[] | null; forwarder_addresses?: string[] | null; forwarder_contact_entries?: ShippingContact[] | null };
 type Salesperson = { id: string; name: string | null };
@@ -60,9 +61,9 @@ function RequirementImagePicker({ lineIndex, pending, existing, onAdd, onRemove,
   onRemoveExisting?: (id: string) => void;
 }) {
   const files = pending.filter((entry) => entry.lineIndex === lineIndex);
-  return <div className="mt-1 min-w-36 text-xs">
-    <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-blue-700 hover:bg-blue-50">
-      <Plus size={13}/>上传理货图片（选填）
+  return <div className="min-w-0 text-xs">
+    <label title="上传理货图片（选填）" className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-blue-200 bg-blue-50/70 px-2 text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-200">
+      <FileImage size={15} aria-hidden="true"/><span className="whitespace-nowrap">上传图片</span>
       <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label={lineIndex === null ? "整单理货图片" : `第 ${lineIndex + 1} 行理货图片`}
         onChange={(event) => { onAdd(lineIndex, event.target.files); event.target.value = ""; }}/>
     </label>
@@ -487,8 +488,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
       if (requestId === currencyRateRequest.current) setRateLoading(false);
     }
   }
-  function importRows(rows: unknown[][]) {
-    const parsed = parsePiProductRows(rows, effectiveRate, currency);
+  function importRows(rows: unknown[][], selectedRate = effectiveRate, selectedCurrency = currency) {
+    const parsed = parsePiProductRows(rows, selectedRate, selectedCurrency);
     const imported = parsed.map(({ source_row: _sourceRow, ...item }) => { void _sourceRow; return { ...newLine(), ...item }; });
     if (items.filter(hasLineContent).length + imported.length > 500) throw new Error("每张PI最多500条明细，请分批处理");
     const retained = items.map((item, index) => hasLineContent(item) ? index : -1).filter((index) => index >= 0);
@@ -505,12 +506,54 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     });
     setError(incomplete.length ? `已导入${imported.length}行产品，以下信息待补全：${incomplete.slice(0, 5).join("；")}${incomplete.length > 5 ? `等${incomplete.length}行` : ""}。补齐后才可保存草稿或提交备货单。` : "");
   }
+  async function prepareImportRows(rows: unknown[][]) {
+    const selectedCurrency = detectPiPaymentCurrency(rows) || currency;
+    const documentRate = derivePiCnyRate(rows, selectedCurrency);
+    let selectedCnyRate = documentRate || (selectedCurrency === currency ? cnyPerPayment : selectedCurrency === "CNY" ? 1 : 0);
+    if (!selectedCnyRate) {
+      const response = await fetch(`/api/pi-exchange-rates?currency=${encodeURIComponent(selectedCurrency)}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `${selectedCurrency}业务汇率获取失败`);
+      selectedCnyRate = Number((body.rates || []).find((item: ExchangeRate) => item.currency === selectedCurrency)?.business_cny || 0);
+    }
+    if (!Number.isFinite(selectedCnyRate) || selectedCnyRate <= 0) throw new Error(`${selectedCurrency}暂无有效业务汇率，请先选择付款币种并填写本单汇率后重试`);
+    const selectedPaymentRate = paymentPerCny(selectedCnyRate);
+    // Validate all rows before changing the PI form; invalid imports must not mutate existing work.
+    parsePiProductRows(rows, selectedPaymentRate, selectedCurrency);
+    if (selectedCurrency !== currency || (documentRate && Math.abs(cnyPerPayment - documentRate) > 0.000001)) {
+      if (!effectiveRate && Object.values(feeFields).some((fee) => fee.enabled && fee.source === "PAYMENT" && Number(fee.amount) > 0)) {
+        throw new Error("请先填写当前币种的有效汇率，或将外币附加费用改为人民币，再导入其他币种的产品");
+      }
+      setFeeFields((current) => {
+        const converted = (key: FeeKey): FeeField => {
+          const fee = current[key];
+          return fee.source === "PAYMENT" && effectiveRate
+            ? { ...fee, source: "CNY", amount: fee.amount === "" ? "" : roundMoney(Number(fee.amount) / effectiveRate).toFixed(2) }
+            : fee;
+        };
+        return { last_balance: converted("last_balance"), discount: converted("discount"), other: converted("other") };
+      });
+      setCurrency(selectedCurrency);
+      if (selectedCurrency === "CNY") setPriceDisplayMode("PAYMENT_ONLY");
+      else if (documentRate) setPriceDisplayMode("DUAL");
+      updateRate(String(selectedCnyRate), selectedCurrency !== currency);
+    }
+    importRows(rows, selectedPaymentRate, selectedCurrency);
+  }
   function addRequirementFiles(lineIndex: number | null, selected: FileList | null) {
     const files = Array.from(selected || []);
     if (!files.length) return;
+    {
+      const currentCount = pendingRequirementFiles.filter((entry) => entry.lineIndex === lineIndex).length
+        + existingRequirementAttachments.filter((entry) => !entry.archived && entry.display_line_number === (lineIndex === null ? null : lineIndex + 1)).length;
+      const limit = lineIndex === null ? PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_ORDER : PI_REQUIREMENT_IMAGE_COUNT_LIMIT_PER_LINE;
+      if (currentCount + files.length > limit) {
+        setError(`${lineIndex === null ? "整单理货要求" : "每个产品项"}最多上传 ${limit} 张图片，请减少本次选择或先移除已有图片`); return;
+      }
+    }
     if (files.some((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type)
-      || file.size <= 0 || file.size > 15 * 1024 * 1024)) {
-      setError("理货要求附件只支持不超过 15MB 的 JPG、PNG 或 WebP 图片"); return;
+      || file.size <= 0 || file.size > PI_REQUIREMENT_IMAGE_LIMIT)) {
+      setError("理货图片仅支持 JPG、PNG 或 WebP，单张大小须大于 0 且不超过 5MB"); return;
     }
     markUnsaved();
     setPendingRequirementFiles((current) => [...current, ...files.map((file) => ({
@@ -581,12 +624,12 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         || sheets.find((sheet) => hasPiProductHeader(sheet.rows))
         || (sheets.length === 1 ? sheets[0] : null);
       if (!productSheet) throw new Error("未找到产品明细表头，请核对产品类型、品牌、型号、质量、成本、售价和数量列");
-      importRows(productSheet.rows);
+      await prepareImportRows(productSheet.rows);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Excel导入失败"); }
     if (fileRef.current) fileRef.current.value = "";
   }
   async function pasteRows() {
-    try { importRows((await navigator.clipboard.readText()).split(/\r?\n/).map((line) => line.split("\t"))); }
+    try { await prepareImportRows((await navigator.clipboard.readText()).split(/\r?\n/).map((line) => line.split("\t"))); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "读取剪贴板失败"); }
   }
   async function create(submitToWarehouse = false, acknowledgeDifferences = false) {
@@ -711,13 +754,13 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         <td className="whitespace-nowrap px-2 py-1.5 font-medium text-blue-700">{validPiMoney(item.unit_price_payment) && validPiQuantity(item.quantity) ? `${currency} ${roundMoney(Number(item.quantity) * Number(item.unit_price_payment)).toFixed(2)}` : "—"}</td>
         <td className={`whitespace-nowrap px-2 py-1.5 ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "text-rose-600" : ""}`}>{validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && validPiQuantity(item.quantity) ? `¥${roundMoney((Number(item.unit_price_cny) - Number(item.estimated_unit_cost_cny)) * Number(item.quantity)).toFixed(2)}` : "—"}</td>
         <td className={`whitespace-nowrap px-2 py-1.5 font-medium ${validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && !validPiSellingPrice(item.unit_price_cny, item.estimated_unit_cost_cny) ? "text-rose-600" : "text-emerald-700"}`}>{validPiMoney(item.unit_price_cny) && validPiMoney(item.estimated_unit_cost_cny) && Number(item.unit_price_cny) > 0 ? `${((Number(item.unit_price_cny) - Number(item.estimated_unit_cost_cny)) / Number(item.unit_price_cny) * 100).toFixed(2)}%` : "—"}</td>
-        <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行理货要求`} value={item.preparation_requirement} onChange={(value) => editLine(index, "preparation_requirement", value)} /><RequirementImagePicker lineIndex={index} pending={pendingRequirementFiles} existing={existingRequirementAttachments} onAdd={addRequirementFiles} onRemove={removeRequirementFile} onRemoveExisting={draftOrderId ? removeExistingRequirementFile : undefined}/></td>
+        <td className="px-1.5 py-1.5"><div className="flex min-w-56 items-start gap-1.5"><div className="min-w-0 flex-1"><PiLineTextArea label={`第${index + 1}行理货要求`} value={item.preparation_requirement} onChange={(value) => editLine(index, "preparation_requirement", value)} /></div><RequirementImagePicker lineIndex={index} pending={pendingRequirementFiles} existing={existingRequirementAttachments} onAdd={addRequirementFiles} onRemove={removeRequirementFile} onRemoveExisting={draftOrderId ? removeExistingRequirementFile : undefined}/></div></td>
         <td className="px-1.5 py-1.5"><PiLineTextArea label={`第${index + 1}行销售备注`} value={item.internal_note} onChange={(value) => editLine(index, "internal_note", value)} /></td>
         <td className="px-2 py-1.5"><div className="flex gap-2"><button type="button" title="复制该产品行" aria-label={`复制第${index + 1}行`} disabled={items.length >= 500} onClick={() => { if (existingRequirementAttachments.some((entry) => !entry.archived && entry.display_line_number !== null && entry.display_line_number > index + 1)) { setError("后续产品已有理货图片，请先删除对应图片再插入产品行"); return; } markUnsaved(); setItems((current) => [...current.slice(0, index + 1), { ...current[index] }, ...current.slice(index + 1)]); setPendingRequirementFiles((current) => current.map((entry) => entry.lineIndex !== null && entry.lineIndex > index ? { ...entry, lineIndex: entry.lineIndex + 1 } : entry)); }} className="text-blue-600 disabled:opacity-30"><Copy size={16} /></button><button type="button" title="删除该产品行" aria-label={`删除第${index + 1}行`} disabled={items.length === 1} onClick={() => { if (existingRequirementAttachments.some((entry) => !entry.archived && entry.display_line_number !== null && entry.display_line_number >= index + 1)) { setError("本行或后续产品已有理货图片，请先删除对应图片再移除产品行"); return; } markUnsaved(); setItems((current) => current.filter((_, position) => position !== index)); setPendingRequirementFiles((current) => current.flatMap((entry) => entry.lineIndex === index ? [] : [entry.lineIndex !== null && entry.lineIndex > index ? { ...entry, lineIndex: entry.lineIndex - 1 } : entry])); }} className="text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button></div></td>
       </tr>)}</tbody></table></div>
       <div className="mt-3 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm" aria-live="polite"><span>产品总金额（RMB）：<strong>¥{totals.subtotalCny.toFixed(2)}</strong></span><span>产品总利润（RMB）：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : `¥${totals.totalProfitCny.toFixed(2)}`}</strong></span><span>产品总利润率：<strong className={totals.totalProfitCny !== null && totals.totalProfitCny < 0 ? "text-rose-600" : ""}>{totals.totalProfitCny === null ? "待填写成本" : totals.subtotalCny > 0 ? `${(totals.totalProfitCny / totals.subtotalCny * 100).toFixed(2)}%` : "—"}</strong></span></div>
     </section>
-    <section className="grid items-stretch gap-5 border-t border-slate-100 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]"><div className={`grid h-full min-w-0 items-stretch gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div className="flex min-w-0 flex-col"><label htmlFor="pi-change-note" className="text-sm">订单变更说明（选填）</label><textarea id="pi-change-note" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" />{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<div className="flex min-w-0 flex-col"><div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="pi-stocking-requirements" className="text-sm">整单理货要求（选填）</label><button type="button" disabled={!selectedCustomer?.tally_requirements?.trim()} onClick={() => setShowCustomerTally(true)} className="text-xs font-medium text-blue-700 disabled:text-slate-400">查看客户资料理货要求</button></div><textarea id="pi-stocking-requirements" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /><RequirementImagePicker lineIndex={null} pending={pendingRequirementFiles} existing={existingRequirementAttachments} onAdd={addRequirementFiles} onRemove={removeRequirementFile} onRemoveExisting={draftOrderId ? removeExistingRequirementFile : undefined}/><p className="mt-1 text-xs text-slate-500">多张图片可上传；提交仓库前须全部上传成功，仓库可按单据和产品行查看。</p></div></div>
+    <section className="grid items-stretch gap-5 border-t border-slate-100 p-5 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]"><div className={`grid h-full min-w-0 items-stretch gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 ${recalledDraft ? "lg:grid-cols-2" : ""}`}>{recalledDraft ? <div className="flex min-w-0 flex-col"><label htmlFor="pi-change-note" className="text-sm">订单变更说明（选填）</label><textarea id="pi-change-note" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="每行填写一项变更，保存后自动按 1、2、3 编号" />{changeNote.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-500">{numberedPiChangeNote(changeNote)}</p> : null}</div> : null}<div className="flex min-w-0 flex-col"><div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="pi-stocking-requirements" className="text-sm">整单理货要求（选填）</label><button type="button" disabled={!selectedCustomer?.tally_requirements?.trim()} onClick={() => setShowCustomerTally(true)} className="text-xs font-medium text-blue-700 disabled:text-slate-400">查看客户资料理货要求</button></div><textarea id="pi-stocking-requirements" className={`${field} min-h-48 flex-1 py-2`} rows={6} maxLength={2000} value={stockingRequirements} onChange={(event) => setStockingRequirements(event.target.value)} placeholder="本栏位详细说明标签/印章/保护膜等作业的要求，无要求则备注常规理货" /><RequirementImagePicker lineIndex={null} pending={pendingRequirementFiles} existing={existingRequirementAttachments} onAdd={addRequirementFiles} onRemove={removeRequirementFile} onRemoveExisting={draftOrderId ? removeExistingRequirementFile : undefined}/><p className="mt-1 text-xs text-slate-500">整单最多 5 张；每个产品项最多 3 张；单张不超过 5MB。提交仓库前须全部上传成功。</p></div></div>
       <div className="min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><h2 className="font-semibold text-slate-900">PI费用汇总</h2><p className="mt-1 text-xs text-slate-500">勾选需要的项目并输入正数金额；人民币与付款币种可任填一栏，另一栏自动换算。运费同样支持双币种输入；未付尾款、其他费用和 PayPal 手续费加收，折扣扣减。</p><div className="mt-4 grid grid-cols-[minmax(7rem,1fr)_minmax(5.5rem,6.5rem)_minmax(5.5rem,6.5rem)] items-center gap-x-2 gap-y-2 text-right tabular-nums text-slate-600"><span></span><span>CNY</span><span>{currency}</span><span className="text-left">产品小计</span><span>¥{totals.subtotalCny.toFixed(2)}</span><span>{totals.subtotalPayment.toFixed(2)}</span><label htmlFor="pi-shipping-cny" className="text-left">运费</label><div className="relative min-w-0"><span aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">¥</span><input id="pi-shipping-cny" aria-label="人民币运费" className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white pl-5 pr-2 text-right" type="text" inputMode="decimal" value={shippingSource === "CNY" ? shippingInput : shippingPair.cny} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) { markUnsaved(); setShippingSource("CNY"); setShippingInput(event.target.value); } }} onBlur={() => { if (shippingSource === "CNY" && shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} /></div><input aria-label={`${currency}运费`} className="h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-right" type="text" inputMode="decimal" value={shippingSource === "PAYMENT" ? shippingInput : shippingPair.payment} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) { markUnsaved(); setShippingSource("PAYMENT"); setShippingInput(event.target.value); } }} onBlur={() => { if (shippingSource === "PAYMENT" && shippingInput.trim()) setShippingInput(Number(shippingInput).toFixed(2)); }} />
       {([ ["last_balance", "未付尾款"], ["discount", "折扣（扣减）"], ["other", "其他费用"] ] as const).map(([key, label]) => <div key={key} className="contents"><label className="flex items-center gap-1 text-left"><input type="checkbox" checked={feeFields[key].enabled} onChange={(event) => changeFee(key, { enabled: event.target.checked })} />{label}<span className={key === "discount" ? "text-rose-600" : "text-emerald-700"} aria-hidden="true">{key === "discount" ? "−" : "+"}</span></label>{(["CNY", "PAYMENT"] as const).map((source) => <input key={source} aria-label={`${label}${source === "CNY" ? "人民币" : currency}金额`} disabled={!feeFields[key].enabled} className="h-8 min-w-0 rounded border border-slate-300 bg-white px-2 text-right disabled:bg-slate-100" type="text" inputMode="decimal" value={feeDisplay(key, source)} onChange={(event) => { if (/^\d*(?:\.\d{0,2})?$/.test(event.target.value)) changeFee(key, { source, amount: event.target.value }); }} onBlur={() => { const amount = feeFields[key].amount; if (feeFields[key].enabled && amount.trim()) changeFee(key, { amount: Number(amount).toFixed(2) }); }} />)}</div>)}
       {paymentMethod === "PayPal" ? <>

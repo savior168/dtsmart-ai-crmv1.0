@@ -33,7 +33,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   const [q,setQ]=useState("");
   const [status,setStatus]=useState(initialFilters.status||"");
   const [country,setCountry]=useState("");
-  const [sortBy,setSortBy]=useState("updated_at");
+  const [sortBy,setSortBy]=useState("created_at");
   const [sortDir,setSortDir]=useState<"asc"|"desc">("desc");
   const [dateFrom,setDateFrom]=useState(initialFilters.dateFrom||"");
   const [dateTo,setDateTo]=useState(initialFilters.dateTo||"");
@@ -117,7 +117,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
       {data?.profile.role!=="WAREHOUSE"?<UserScopeSelect permission="stock.data_all" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>:null}
       {canFilterCreator ? <UserScopeSelect permission="stock.data_all" kind="pi_creator" value={creatorId} onChange={value=>{setCreatorId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
       <CompactDateRange label="创建日期" fromLabel="备货单创建开始日期" toLabel="备货单创建结束日期" from={dateFrom} to={dateTo} onFromChange={value=>{setDateFrom(value);setPage(1)}} onToChange={value=>{setDateTo(value);setPage(1)}}/>
-      <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("updated_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
+      <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("created_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
     </AppFilterBar>
     {data?.can_export?<div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式备货单；可跨页选择，最多50张</span><RowActionMenu ariaLabel={`批量导出备货单，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>void exportSelected()}>{exportBusy?"正在导出…":"导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>window.open(`/stock-orders/batch-preview?${selectedIds.map(id=>`id=${encodeURIComponent(id)}`).join("&")}`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div>:null}
     {error?<div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}{sessionExpired?<Link href="/login?next=%2Fstock-orders" className="ml-2 font-semibold underline">前往登录</Link>:null}</div>:null}
@@ -134,7 +134,6 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
           <th className="w-[360px] min-w-[352px] px-4 py-3 font-medium">备货进度</th>
           <th className="px-4 py-3 font-medium">所属销售员</th>
           <th className="px-4 py-3 font-medium">制单人</th>
-          <SortHeader label="更新时间" column="updated_at"/>
           <SortHeader label="创建时间" column="created_at"/>
           <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
         </tr></thead>
@@ -150,7 +149,6 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
             <td className="w-[360px] min-w-[352px] px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
             <td className="px-4 py-3">{row.sales?.name||row.sales?.email||"-"}</td>
             <td className="px-4 py-3">{row.preparer?.name||row.preparer?.email||"未记录"}</td>
-            <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
             <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.created_at).toLocaleString("zh-CN")}</td>
             <td className="sticky right-0 z-10 bg-white px-4 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)] group-hover:bg-blue-50"><div className="flex items-center gap-2"><Link href={`/stock-orders/${row.id}`} className="whitespace-nowrap font-medium text-blue-600 hover:underline">{row.status==="DRAFT"&&row.warehouse_reference_number?"查看撤回记录":row.status==="DRAFT"&&["WAREHOUSE","ADMIN"].includes(data?.profile.role||"")?"完善备货信息":"查看详情"}</Link><RowActionMenu ariaLabel={`备货单 ${row.warehouse_reference_number||row.order_number} 的更多操作`} label="更多">{data?.can_preview?<RowActionItem onClick={()=>router.push(`/stock-orders/${row.id}/preview`)}>预览{row.status==="DRAFT"?"草稿":" / 打印"}</RowActionItem>:null}{data?.can_export&&!["DRAFT","CANCELLED"].includes(row.status)?<><RowActionItem disabled={singleExportId!==null} onClick={()=>void exportOne(row)}>{singleExportId===row.id?"导出中…":"导出 Excel"}</RowActionItem><RowActionItem onClick={()=>window.open(`/stock-orders/${row.id}/preview?export=pdf`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></>:null}</RowActionMenu></div></td>
           </tr>) : <tr><td colSpan={tableColumns} className="h-56 text-center text-slate-400">暂无备货单</td></tr>}</tbody>

@@ -55,7 +55,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
   const [status, setStatus] = useState(initialFilters.status || "");
   const [currency, setCurrency] = useState("");
   const [country, setCountry] = useState("");
-  const [sortBy, setSortBy] = useState("updated_at");
+  const [sortBy, setSortBy] = useState("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [dateFrom, setDateFrom] = useState(initialFilters.dateFrom || "");
   const [dateTo, setDateTo] = useState(initialFilters.dateTo || "");
@@ -264,7 +264,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
               setStatus("");
               setCurrency("");
               setCountry("");
-              setSortBy("updated_at");
+              setSortBy("created_at");
               setSortDir("desc");
               setDateFrom("");
               setDateTo("");
@@ -305,7 +305,6 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                     <th className="w-[360px] min-w-[352px] px-4 py-3 font-medium">备货进度</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th>
-                    <SortHeader label="更新时间" column="updated_at"/>
                     <SortHeader label="创建时间" column="created_at"/>
                     <th className="sticky right-0 z-20 bg-slate-50 px-4 py-3 font-medium shadow-[-6px_0_10px_-10px_rgba(15,23,42,.45)]">操作</th>
                   </tr>
@@ -337,7 +336,6 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3">{row.owner?.name || row.owner?.email || "-"}</td>
                         <td className="whitespace-nowrap px-4 py-3">{row.creator?.name || row.creator?.email || "未记录"}</td>
-                        <td className="px-4 py-3 text-xs text-slate-500">{new Date(row.updated_at).toLocaleString("zh-CN")}</td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           {new Date(row.created_at).toLocaleString("zh-CN")}
                         </td>

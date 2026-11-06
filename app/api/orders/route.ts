@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     const currency = params.get("currency")?.trim().toUpperCase() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
     const type = params.get("type")?.trim() || "";
-    const sortBy = params.get("sort_by") || "updated_at";
+    const sortBy = params.get("sort_by") || "created_at";
     const sortDir = params.get("sort_dir") || "desc";
     const dateFrom = params.get("date_from")?.trim() || "";
     const dateTo = params.get("date_to")?.trim() || "";

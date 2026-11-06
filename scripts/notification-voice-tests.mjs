@@ -32,6 +32,9 @@ assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "订
 assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "Jamie 更新订单 D60058756：第5项回货0→10；" }), /D60058756/);
 assert.match(notificationVoiceText({ type: "REGISTRATION_REVIEW" }), /账户审核/);
 assert.match(notificationVoiceText({ type: "STOCK_ORDER_CREATED", content: "PI订单 WH-001 已提交仓库" }), /WH-001/);
+assert.match(notificationVoiceText({ type: "STOCK_ORDER_CREATED", content: "Xavia：为 Eva 提交订单 D60058756 的备货单，请及时安排备货。" }), /Xavia.*Eva.*D60058756/);
+assert.match(notificationVoiceText({ type: "PI_CHANGE_APPLIED", content: "Xavia：确认并同步了PI订单变更，订单号 D60058756；说明：客户增加2件。变更已同步至备货单，请核对最新明细。" }), /Xavia.*D60058756/);
+assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "Amy：对订单 D60058756 执行备货操作：第5项回货0→10。请及时查看并按需处理。" }), /Amy.*D60058756.*第5项回货/);
 assert.match(notificationVoiceText({ type: "PI_CHANGE_REQUESTED" }), /PI 订单变更待确认/);
 assert.doesNotMatch(notificationVoiceText({ type: "STOCK_ORDER_CREATED", metadata: { order_number: "X@secret" } }), /secret/);
 assert.match(notificationVoiceText({ type: "STOCK_STATUS_CHANGED", content: "备货状态已更新为缺货异常" }), /缺货异常/);
@@ -49,16 +52,18 @@ assert.notEqual(notificationToastSessionKey("sales@example.com"), notificationTo
 assert.equal(notificationDisplayContent("Amy 更新订单 D60058756：WAITING→PREPARING"), "Amy 更新订单 D60058756：待仓库接单→采购中");
 assert.equal(notificationDisplayContent("订单 D60058756：READY_TO_SHIP→SHIPPED"), "订单 D60058756：已理货待交货代→已交货代");
 assert.equal(notificationDisplayContent("WAITING_FOR_REVIEW"), "WAITING_FOR_REVIEW", "不应改写非备货状态文本");
-assert.equal(notificationToastSummary({ type: "STOCK_ORDER_CREATED", metadata: { order_number: "D60058756" } }), "销售员提交了新备货单 D60058756，请及时安排备货。");
-assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 更新订单 D60058756：第5项回货0→10；" }), "Amy 更新了订单 D60058756 的备货状态，请查看。");
-assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 更正订单 D60058756：第5项理货10→5；" }), "Amy 更正了订单 D60058756 的备货进度，请核对。");
-assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "PI备货单已撤回", content: "PI订单 D60058756 已撤回，请勿继续备货" }), "销售员撤回了 PI 备货单 D60058756，请停止备货并核对。");
-assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "订单已取消", content: "订单 D60058756 已取消" }), "销售员取消了订单 D60058756，请及时核对。");
-assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "备货单已确认", content: "Amy 已确认订单 D60058756 的备货单。" }), "Amy 确认了订单 D60058756 的备货单，请查看。");
+assert.equal(notificationToastSummary({ type: "STOCK_ORDER_CREATED", metadata: { order_number: "D60058756" }, content: "Xavia 为 Eva 提交了订单 D60058756 的备货单，请及时安排备货。" }), "Xavia 为 Eva 提交了订单 D60058756 的备货单，请及时安排备货。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 对订单 D60058756 执行备货操作：第5项回货0→10；。请及时查看并按需处理。" }), "Amy 对订单 D60058756 执行备货操作：第5项回货0→10；。请及时查看并按需处理。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", content: "Amy 对订单 D60058756 执行备货操作：第5项理货10→5；原因：实物复核。请及时查看并按需处理。" }), "Amy 对订单 D60058756 执行备货操作：第5项理货10→5；原因：实物复核。请及时查看并按需处理。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "PI备货单已撤回", content: "Eva 撤回了订单 D60058756 的备货单，请停止备货。" }), "Eva 撤回了订单 D60058756 的备货单，请停止备货。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "订单已取消", content: "Eva 取消了订单 D60058756：客户取消采购。" }), "Eva 取消了订单 D60058756：客户取消采购。");
+assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "备货单已确认", content: "Amy 确认了订单 D60058756 的备货单。" }), "Amy 确认了订单 D60058756 的备货单。");
+assert.equal(notificationToastSummary({ type: "PI_CHANGE_APPLIED", content: "Amy 确认并同步了PI订单变更，订单号 D60058756；说明：客户增加2件。变更已同步至备货单，请核对最新明细。" }), "Amy 确认并同步了PI订单变更，订单号 D60058756；说明：客户增加2件。变更已同步至备货单，请核对最新明细。");
 assert.equal(notificationToastSummary({ type: "CUSTOMER_ADMIN_ASSIGNED", content: "管理员分配了 3 个客户" }), "管理员向您分配了 3 个客户，请及时跟进。");
 assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "管理员发布了系统公告，请查看。");
 assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), action_status: "PENDING" }).length < 120);
 const notificationPanel = readFileSync("components/notification-admin-panel.tsx", "utf8");
+const notificationApi = readFileSync("app/api/notifications/route.ts", "utf8");
 const announcementApi = readFileSync("app/api/admin/notifications/announcements/route.ts", "utf8");
 const announcementListApi = readFileSync("app/api/admin/notifications/route.ts", "utf8");
 const audienceMigration = readFileSync("supabase/migrations/20261016140000_role_targeted_announcements.sql", "utf8");
@@ -76,5 +81,11 @@ assert.match(announcementListApi, /recipient_roles,recipient_count/, "公告历�
 assert.match(audienceMigration, /actor\.role <> 'ADMIN'[\s\S]*u\.status = 'ACTIVE' and \(normalized_roles is null or u\.role = any\(normalized_roles\)\)/, "数据库必须再次校验管理员并只向匹配角色的启用用户送达");
 assert.match(audienceMigration, /on conflict \(request_id\) do nothing[\s\S]*ANNOUNCEMENT_REQUEST_CONFLICT[\s\S]*NO_ACTIVE_RECIPIENTS/, "公告发布必须保证幂等及非空收件人");
 assert.match(audienceMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\]\)[\s\S]*from public, anon, authenticated/, "定向公告函数不得向匿名用户开放");
+assert.match(notificationApi, /eq\("recipient_id", user\.id\)[\s\S]*enrichOperationNotices/, "通知仍须先按当前收件人隔离，再补充操作上下文");
+assert.match(notificationApi, /stock_order_events[\s\S]*created_by[\s\S]*cleanName\(actor\.name, actor\.email\)/, "备货操作弹框必须根据真实事件操作者用户名生成文案");
+assert.match(notificationApi, /\$\{cleanName\(actor\.name, actor\.email\)\}：为 \$\{cleanName\(sales\?\.name, "用户"\)\} 提交订单/, "代提交时须展示制单人与归属人的用户名，但不显示角色名");
+assert.match(notificationApi, /\$\{cleanName\(actor\.name, actor\.email\)\}：对订单 \$\{number\} 执行备货操作：\$\{detail\}/, "备货操作提醒必须包含操作者用户名、业务订单号和具体事件内容");
+assert.doesNotMatch(notificationApi, /actorRole\(|（制单人）|归属销售员|请仓库|请销售员/, "操作通知不应展示角色名称");
+assert.match(notificationApi, /PI_CHANGE_APPLIED[\s\S]*decided_by[\s\S]*确认并同步了PI订单变更/, "PI变更处理提醒必须列出实际处理人和操作结果");
 console.log("notification voice whitelist tests passed");
 
