@@ -65,6 +65,38 @@ export function hasPiProductHeader(rows: unknown[][]): boolean {
   return findHeader(rows.map((row) => row.map(text))) !== null;
 }
 
+/** Parse Excel-style TSV, preserving quoted tabs/newlines inside a cell. */
+export function parsePiClipboardTsv(source: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (character === '"') {
+      if (quoted && source[index + 1] === '"') { field += '"'; index++; }
+      else if (quoted) quoted = false;
+      else if (!field) quoted = true;
+      else field += character;
+      continue;
+    }
+    if (quoted) {
+      if (character === "\r" && source[index + 1] === "\n") { field += "\n"; index++; }
+      else field += character;
+      continue;
+    }
+    if (character === "\t") { row.push(field); field = ""; continue; }
+    if (character === "\r" || character === "\n") {
+      if (character === "\r" && source[index + 1] === "\n") index++;
+      row.push(field); rows.push(row); row = []; field = ""; continue;
+    }
+    field += character;
+  }
+  if (quoted) throw new Error("剪贴板表格引号未闭合，请重新复制产品明细区域后重试");
+  if (field || row.length || source.endsWith("\t")) { row.push(field); rows.push(row); }
+  return rows.filter((values) => values.some((value) => value.trim()));
+}
+
 /** Prefer the PI's explicit PAYMENT/METHOD field; otherwise use a unique price prefix. */
 export function detectPiPaymentCurrency(rows: unknown[][]): string | null {
   const cells = rows.map((row) => row.map(text));
@@ -110,25 +142,34 @@ export function derivePiCnyRate(rows: unknown[][], paymentCurrency: string): num
   if (paymentCurrency === "CNY") return null;
   const cells = rows.map((row) => row.map(text));
   const header = findHeader(cells);
-  if (!header || header.cnyPriceColumn === undefined || header.paymentPriceColumn === undefined) return null;
-  const headingCode = headerCurrency(cells[header.index][header.paymentPriceColumn]);
+  const inferred = !header ? inferHeaderlessDualColumns(cells, paymentCurrency) : null;
+  const cnyPriceColumn = header?.cnyPriceColumn ?? inferred?.cnyPriceColumn;
+  const paymentPriceColumn = header?.paymentPriceColumn ?? inferred?.paymentPriceColumn;
+  if (cnyPriceColumn === undefined || paymentPriceColumn === undefined) return null;
+  const headingCode = header ? headerCurrency(cells[header.index][paymentPriceColumn]) : paymentCurrency;
   if (headingCode !== paymentCurrency) throw new Error(`产品外币单价列为 ${headingCode || "未知币种"}，与付款币种 ${paymentCurrency} 不一致`);
   const quotes: Array<{ row: number; cny: number; payment: number }> = [];
-  for (let index = header.index + 1; index < cells.length && quotes.length < 500; index++) {
+  const firstDataIndex = header ? header.index + 1 : cells.findIndex((row) => row.some(Boolean));
+  for (let index = firstDataIndex; index < cells.length && quotes.length < 500; index++) {
     const row = cells[index];
     if (row.some((value) => /^(?:SUBTOTAL|小计|TOTAL|合计)\s*[:：]?$/i.test(value))) break;
-    const cnyText = row[header.cnyPriceColumn] || "";
-    const paymentText = row[header.paymentPriceColumn] || "";
+    const cnyText = row[cnyPriceColumn] || "";
+    const paymentText = row[paymentPriceColumn] || "";
     if (!cnyText && !paymentText) continue;
-    if (!cnyText || !paymentText) throw new Error(`第${index + 1}行双币种单价不完整，请同时填写 CNY 和 ${paymentCurrency}`);
+    // Incomplete rows are still imported for in-form completion; derive the
+    // document rate only from rows that provide both unit-price currencies.
+    if (!cnyText || !paymentText) continue;
     const cny = moneyToken(cnyText, index + 1, "人民币单价", "CNY");
     const payment = moneyToken(paymentText, index + 1, "外币单价", paymentCurrency);
     if (cny.currency !== "CNY" || payment.currency !== paymentCurrency || cny.amount <= 0 || payment.amount <= 0) throw new Error(`第${index + 1}行双币种单价币种或金额不正确`);
     quotes.push({ row: index + 1, cny: cny.amount, payment: payment.amount });
   }
   if (!quotes.length) return null;
-  const rate = Math.round((quotes[0].cny / quotes[0].payment) * 1_000_000) / 1_000_000;
-  const inconsistent = quotes.find(({ cny, payment }) => Math.abs(cny - roundMoney(payment * rate)) > 0.02);
+  const rate = Math.round((quotes[0].cny / quotes[0].payment) * 100) / 100;
+  const inconsistent = quotes.find(({ cny, payment }) => {
+    const lineRate = Math.round((cny / payment) * 100) / 100;
+    return lineRate !== rate || Math.abs(cny - roundMoney(payment * rate)) > Math.max(0.02, payment * 0.005 + 0.005);
+  });
   if (inconsistent) throw new Error(`第${inconsistent.row}行双币种单价与首行反推汇率 ${rate} 不一致，请核对该行价格或汇率后重新导入`);
   return rate;
 }
@@ -143,6 +184,61 @@ function moneyToken(value: string, row: number, field: string, defaultCurrency: 
   return { currency, amount };
 }
 
+/** Infer a headerless dual-price PI table (unit prices + optional amount columns). */
+function inferHeaderlessDualColumns(rows: string[][], paymentCurrency: string) {
+  for (const row of rows) {
+    const tagged = row.map((value, column) => {
+      const prefix = value.normalize("NFKC").match(moneyPrefix)?.[1];
+      return prefix ? { column, currency: currencyFromPrefix(prefix) } : null;
+    }).filter((value): value is { column: number; currency: string } => Boolean(value));
+    const pairs = tagged.flatMap((foreignUnit) => foreignUnit.currency === paymentCurrency
+      ? tagged.filter((cnyUnit) => cnyUnit.currency === "CNY" && cnyUnit.column !== foreignUnit.column)
+        .map((cnyUnit) => ({ cnyUnit, foreignUnit, end: Math.max(cnyUnit.column, foreignUnit.column) }))
+      : []);
+    let selected: { cnyUnit: typeof tagged[number]; foreignUnit: typeof tagged[number]; quantityColumn: number; costColumn: number } | null = null;
+    for (const pair of pairs.sort((left, right) => left.end - right.end)) {
+      const nextMoneyColumn = tagged.filter((value) => value.column > pair.end).reduce((minimum, value) => Math.min(minimum, value.column), Number.POSITIVE_INFINITY);
+      const quantityColumn = row.findIndex((value, column) => column > pair.end && column < nextMoneyColumn && validPiQuantity(value));
+      if (quantityColumn < 0) continue;
+      const costColumn = tagged.filter((value) => value.currency === "CNY" && value.column > quantityColumn).at(-1)?.column;
+      if (costColumn === undefined) continue;
+      selected = { ...pair, quantityColumn, costColumn };
+      break;
+    }
+    if (!selected) continue;
+    return {
+      columns: { item_name: 0, brand: 1, model: 2, quality: 3, description: 4, price: selected.foreignUnit.column, quantity: selected.quantityColumn, cost: selected.costColumn } satisfies Columns,
+      cnyPriceColumn: selected.cnyUnit.column,
+      paymentPriceColumn: selected.foreignUnit.column,
+    };
+  }
+  return null;
+}
+
+/** Infer a compact no-header layout with one tagged unit-price column. */
+function inferHeaderlessSingleColumns(rows: string[][], paymentCurrency: string) {
+  for (const row of rows) {
+    const tagged = row.map((value, column) => {
+      const prefix = value.normalize("NFKC").match(moneyPrefix)?.[1];
+      return prefix ? { column, currency: currencyFromPrefix(prefix) } : null;
+    }).filter((value): value is { column: number; currency: string } => Boolean(value));
+    const candidates = tagged.filter((value) => value.currency === paymentCurrency);
+    for (const price of candidates) {
+      const nextMoneyColumn = tagged.filter((value) => value.column > price.column).reduce((minimum, value) => Math.min(minimum, value.column), Number.POSITIVE_INFINITY);
+      const quantityColumn = row.findIndex((value, column) => column > price.column && column < nextMoneyColumn && validPiQuantity(value));
+      if (quantityColumn < 0) continue;
+      const precedingCost = tagged.filter((value) => value.currency !== paymentCurrency && value.column < price.column).at(-1)
+        || tagged.filter((value) => value.column < price.column).at(-1);
+      const trailingCost = tagged.filter((value) => value.currency === "CNY" && value.column > quantityColumn).at(-1);
+      return {
+        columns: { item_name: 0, brand: 1, model: 2, quality: 3, description: 4, price: price.column, quantity: quantityColumn, cost: (precedingCost || trailingCost)?.column } satisfies Columns,
+        paymentPriceColumn: price.column,
+      };
+    }
+  }
+  return null;
+}
+
 /** One strict parser for the concise template, legacy templates and copied PI product tables. */
 export function parsePiProductRows(rows: unknown[][], paymentPerCny: number, paymentCurrency = "USD"): ParsedPiProductLine[] {
   if (!Number.isFinite(paymentPerCny) || paymentPerCny <= 0) throw new Error("请先选择付款币种并填写有效汇率，再导入产品明细");
@@ -152,18 +248,27 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number, pay
   if (firstIndex < 0) throw new Error("请导入1至500条产品明细");
   if (!recognized && cells[firstIndex].some((value) => /PI基本信息|PI整单导入模板/.test(value))) throw new Error("未识别产品表头，请核对文件中的产品明细区域");
   const first = cells[recognized?.index ?? firstIndex];
+  const numberedPiSource = !recognized && /^\d+$/.test(first[0] || "") && first.length >= 12;
+  const detectedCurrency = !recognized ? detectPiPaymentCurrency(cells) : null;
+  const inferredDual = !recognized && !numberedPiSource ? inferHeaderlessDualColumns(cells.slice(firstIndex), detectedCurrency || paymentCurrency) : null;
+  const inferredSingle = !recognized && !numberedPiSource && !inferredDual ? inferHeaderlessSingleColumns(cells.slice(firstIndex), detectedCurrency || paymentCurrency) : null;
+  if ((inferredDual || inferredSingle) && detectedCurrency && detectedCurrency !== paymentCurrency) {
+    throw new Error(`第${firstIndex + 1}行价格币种与PI付款币种 ${paymentCurrency} 不一致，请选择正确付款币种或改填人民币价格`);
+  }
   const oldLegacy = !recognized && first[0] === "产品名称";
   const oldWide = !recognized && (oldLegacy || first.length >= 14);
-  const piSource = !recognized && !oldWide && /^\d+$/.test(first[0] || "") && first.length >= 12;
+  const piSource = !recognized && !oldWide && numberedPiSource;
   const piSourceWithoutNumber = !recognized && !oldWide && !piSource && first.length >= 11 && Boolean(first[2]) && Boolean(first[7]);
   let columns: Columns;
   if (recognized) columns = recognized.columns;
+  else if (inferredDual) columns = inferredDual.columns;
+  else if (inferredSingle) columns = inferredSingle.columns;
   else if (piSource) columns = { item_name: 1, brand: 3, model: 4, quality: 5, description: 6, price: 8, quantity: 9, cost: 11 };
   else if (piSourceWithoutNumber) columns = { item_name: 0, brand: 2, model: 3, quality: 4, description: 5, price: 7, quantity: 8, cost: 10 };
   else if (oldLegacy) columns = { item_name: 0, brand: 1, model: 2, quality: 3, description: 4, description_zh: 5, quantity: 6, price: 7, cost: 8, preparation_requirement: 9 };
   else if (oldWide) columns = { item_name: 0, brand: 1, model: 2, quality: 3, description: 4, description_zh: 5, cost: 6, price: 7, quantity: 8, preparation_requirement: 12, internal_note: 13 };
   else columns = { item_name: 0, brand: 1, model: 2, quality: 3, description: 4, cost: 5, price: 6, quantity: 7 };
-  if (columns.cost === undefined) throw new Error("产品表缺少成本单价列，请补齐后导入");
+  if (columns.cost === undefined && !inferredSingle && !inferredDual) throw new Error("产品表缺少成本单价列，请补齐后导入");
   const start = recognized ? recognized.index + 1 : oldLegacy ? firstIndex + 1 : firstIndex;
   const imported: ParsedPiProductLine[] = [];
   for (let index = start; index < cells.length; index++) {
@@ -171,7 +276,8 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number, pay
     if (row.some((value) => /^(?:SUBTOTAL|小计|TOTAL|合计)\s*[:：]?$/i.test(value))) break;
     const read = (field: Field) => text(row[columns[field] ?? -1]);
     const item_name = read("item_name"), brand = read("brand"), model = read("model"), quality = read("quality");
-    const costText = read("cost"), priceText = recognized?.paymentPriceColumn !== undefined ? text(row[recognized.paymentPriceColumn]) : read("price"), quantityText = read("quantity");
+    const paymentPriceColumn = recognized?.paymentPriceColumn ?? inferredDual?.paymentPriceColumn ?? inferredSingle?.paymentPriceColumn;
+    const costText = read("cost"), priceText = paymentPriceColumn !== undefined ? text(row[paymentPriceColumn]) : read("price"), quantityText = read("quantity");
     if (![item_name, brand, model, quality, read("description"), costText, priceText, quantityText].some(Boolean)) continue;
     const sourceRow = index + 1;
     if (quantityText && !validPiQuantity(quantityText)) throw new Error(`第${sourceRow}行数量须填写正整数`);
@@ -181,7 +287,8 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number, pay
       throw new Error(`第${sourceRow}行价格币种与PI付款币种 ${paymentCurrency} 不一致，请选择正确付款币种或改填人民币价格`);
     }
     const costCny = cost ? roundMoney(cost.currency !== "CNY" ? cost.amount / paymentPerCny : cost.amount) : null;
-    const pairedCnyText = recognized?.cnyPriceColumn !== undefined && recognized.paymentPriceColumn !== undefined ? text(row[recognized.cnyPriceColumn]) : "";
+    const cnyPriceColumn = recognized?.cnyPriceColumn ?? inferredDual?.cnyPriceColumn;
+    const pairedCnyText = cnyPriceColumn !== undefined && paymentPriceColumn !== undefined ? text(row[cnyPriceColumn]) : "";
     const pairedCny = pairedCnyText ? moneyToken(pairedCnyText, sourceRow, "人民币单价", "CNY") : null;
     if (pairedCny && pairedCny.currency !== "CNY") throw new Error(`第${sourceRow}行人民币单价须填写 CNY 金额`);
     if (pairedCny && price && Math.abs(pairedCny.amount - roundMoney(price.amount / paymentPerCny)) > 0.02) throw new Error(`第${sourceRow}行双币种单价与本单汇率不一致，请核对后导入`);

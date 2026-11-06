@@ -33,7 +33,7 @@ assert.match(download, /account\.role === "WAREHOUSE" && hasPermission\(account,
 assert.match(download, /stock\.data && stock\.data\.status !== "DRAFT"/);
 assert.match(orderList, /hasPermission\(account, "customers\.view"\)[\s\S]*supabase\.from\("customers"\)\.select\("id"\)/);
 assert.match(stockList, /hasPermission\(account, "customers\.view"\)[\s\S]*supabase\.from\("customers"\)\.select\("id"\)/);
-assert.match(attachmentView, /<Image src=\{`\/api\/attachments\/\$\{item\.id\}\?preview=1`\}[^>]*unoptimized loading="eager"/, "理货附件详情应内嵌即时可见缩略图并保持点击查看原图入口");
+assert.match(attachmentView, /const src = `\/api\/attachments\/\$\{item\.id\}\?preview=1`[\s\S]*<Image src=\{src\}[^>]*unoptimized loading="eager"/, "理货附件详情应内嵌即时可见缩略图并保持点击查看原图入口");
 assert.match(printPreview, /理货要求图片附件（内部备货参考）[\s\S]*PiRequirementAttachments/, "PI 预览打印应展示整单和单项理货图片");
 assert.match(printPreview, /PiRequirementAttachments attachments=\{stock\.requirement_attachments \|\| \[\]\} lineNumber=\{null\}/, "备货单打印应展示整单图片附件");
 assert.match(printPreview, /lineNumber=\{item\.line_number\} className="mt-1"/, "备货单打印应将附件放在对应产品行");
