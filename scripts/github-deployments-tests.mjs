@@ -34,4 +34,9 @@ assert.ok(requested.every(item => !item.init.headers.Authorization), "public rep
 assert.ok(requested[0].url.searchParams.get("environment") === "Production");
 
 await assert.rejects(() => listVerifiedVercelProductionDeployments({ repository: "bad", from: "2026-11-07", to: "2026-11-07", fetcher }), /owner\/repo/);
+await assert.rejects(() => listVerifiedVercelProductionDeployments({
+  repository: "savior168/dtsmart-ai-crmv1.0", from: "2026-11-07", to: "2026-11-07",
+  fetcher: async () => new Response("Not Found", { status: 404 }),
+}), /返回 404.*私有仓库.*GITHUB_TOKEN/);
 console.log("GitHub Vercel production deployment filtering tests passed");
+

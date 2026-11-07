@@ -63,6 +63,7 @@ assert.equal(notificationToastSummary({ type: "CUSTOMER_ADMIN_ASSIGNED", content
 assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "管理员发布了系统公告，请查看。");
 assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), action_status: "PENDING" }).length < 120);
 const notificationPanel = readFileSync("components/notification-admin-panel.tsx", "utf8");
+const releaseSummaryApi = readFileSync("app/api/admin/notifications/release-summary/route.ts", "utf8");
 const notificationApi = readFileSync("app/api/notifications/route.ts", "utf8");
 const announcementApi = readFileSync("app/api/admin/notifications/announcements/route.ts", "utf8");
 const announcementListApi = readFileSync("app/api/admin/notifications/route.ts", "utf8");
@@ -74,6 +75,11 @@ for (const label of ["备货与仓库", "PI 变更", "客户与账号待办", "�
 }
 assert.match(notificationPanel, /policies\.filter\(row => group\.types\.includes\(row\.type\)\)[\s\S]*<details key=\{group\.label\}/, "通知分类应可折叠且保留各类型开关");
 assert.match(notificationPanel, /所有启用用户[\s\S]*指定角色[\s\S]*USER_ROLES\.map/, "公告必须可以选择全员或指定角色");
+assert.match(notificationPanel, /useState<ReleaseCategory>\("ALL"\)/, "发布记录生成器默认应汇总全部通知类型");
+assert.match(notificationPanel, /value=\{announcementType\}[\s\S]*Object\.entries\(RELEASE_CATEGORIES\)/, "通知类型下拉框必须包含全部类型选项");
+assert.match(releaseSummaryApi, /if \(!githubToken\)[\s\S]*私有 GitHub 仓库/, "私有仓库摘要必须要求服务端只读令牌，避免误报 404");
+assert.match(releaseSummaryApi, /rawCategory === "ALL" \|\| commit\.category === rawCategory/, "全部通知类型应聚合所有已部署提交类别");
+assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments[\s\S]*deploymentBySha[\s\S]*\/commits\/\$\{encodeURIComponent\(shaKey\)\}/, "摘要只能读取并总结已在指定时间段部署到 Vercel Production 的 GitHub commit SHA，不可依据本地改动");
 assert.match(notificationPanel, /audience === "ALL" \? null : selectedRoles/, "发布请求必须包含明确的接收范围");
 assert.match(notificationPanel, /接收范围：\{item\.recipient_roles/, "公告历史必须显示实际接收范围");
 assert.match(announcementApi, /requireAdmin\(\)[\s\S]*recipientRoles[\s\S]*USER_ROLES\.includes[\s\S]*p_recipient_roles: recipientRoles/, "只有管理员可发布，且服务端必须校验并传递角色范围");
@@ -88,4 +94,5 @@ assert.match(notificationApi, /\$\{cleanName\(actor\.name, actor\.email\)\}：�
 assert.doesNotMatch(notificationApi, /actorRole\(|（制单人）|归属销售员|请仓库|请销售员/, "操作通知不应展示角色名称");
 assert.match(notificationApi, /PI_CHANGE_APPLIED[\s\S]*decided_by[\s\S]*确认并同步了PI订单变更/, "PI变更处理提醒必须列出实际处理人和操作结果");
 console.log("notification voice whitelist tests passed");
+
 

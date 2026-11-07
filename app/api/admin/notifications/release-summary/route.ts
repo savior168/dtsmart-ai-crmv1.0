@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     const repository = process.env.GITHUB_REPOSITORY || "savior168/dtsmart-ai-crmv1.0";
     const [owner, repo] = repository.split("/");
     if (!owner || !repo || repository.split("/").length !== 2) return NextResponse.json({ error: "GITHUB_REPOSITORY 配置格式应为 owner/repo" }, { status: 500, headers: jsonHeaders });
+    if (!githubToken) return NextResponse.json({ error: "缺少服务端 GITHUB_TOKEN，无法读取私有 GitHub 仓库及 Vercel 正式部署记录；请为 Vercel Production 配置具备该仓库只读权限的令牌。" }, { status: 503, headers: jsonHeaders });
 
     const productionDeployments = await listVerifiedVercelProductionDeployments({ repository, from, to, token: githubToken });
     const deploymentBySha = new Map<string, VerifiedProductionDeployment>();
@@ -44,7 +45,9 @@ export async function GET(request: NextRequest) {
 
     const details = await Promise.all([...deploymentBySha.entries()].map(async ([shaKey, deployment]) => {
       const detailResponse = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(shaKey)}`, { headers: { ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}), Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, cache: "no-store" });
-      if (!detailResponse.ok) throw new Error(`GitHub 提交详情读取失败（HTTP ${detailResponse.status}）`);
+      if (!detailResponse.ok) throw new Error(detailResponse.status === 404
+        ? `GitHub 返回 404：无法访问 ${repository} 的提交 ${shaKey.slice(0, 7)}。请确认 GITHUB_REPOSITORY 正确，并检查 GITHUB_TOKEN 是否有该私有仓库的只读代码权限。`
+        : `GitHub 提交详情读取失败（HTTP ${detailResponse.status}）`);
       const detail = await detailResponse.json() as GitHubCommitDetail;
       const sha = (detail.sha || shaKey).slice(0, 7);
       const message = (detail.commit?.message || "").split(/\r?\n/)[0].trim().slice(0, 100) || `提交 ${sha}`;
@@ -62,12 +65,13 @@ export async function GET(request: NextRequest) {
     const generated = buildReleaseAnnouncement(releases, from, to, roles, rawCategory as ReleaseCategory);
     const selectedRoleSet = new Set<string>(roles || []);
     const roleMatches = (commit: ReleaseCommit) => !selectedRoleSet.size || commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => selectedRoleSet.has(role));
-    const matched = releases.filter(commit => commit.category === rawCategory && roleMatches(commit));
+    const matched = releases.filter(commit => (rawCategory === "ALL" || commit.category === rawCategory) && roleMatches(commit));
     return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: releases.map(({ sha, message, url, deploymentUrl, affectedRoles }) => ({ sha, message, url, deploymentUrl, affectedRoles })), source: "GitHub commits matched by SHA to Vercel Production successful deployment statuses in the selected release window" }, { headers: jsonHeaders });
   } catch (error) {
     const message = error instanceof Error ? error.message : "发布记录读取失败";
     const authStatus = authErrorStatus(message);
-    const status = authStatus || (/^GitHub .*读取失败/.test(message) ? 502 : 400);
+    const status = authStatus || (/^GitHub .*读取失败|^GitHub .*返回 404/.test(message) ? 502 : 400);
     return NextResponse.json({ error: message }, { status, headers: jsonHeaders });
   }
 }
+

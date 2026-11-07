@@ -85,7 +85,9 @@ export async function listVerifiedVercelProductionDeployments({
     url.searchParams.set("per_page", String(PER_PAGE));
     url.searchParams.set("page", String(page));
     const response = await fetcher(url, { headers, cache: "no-store" });
-    if (!response.ok) throw new Error(`GitHub 正式部署记录读取失败（HTTP ${response.status}）`);
+    if (!response.ok) throw new Error(response.status === 404
+      ? `GitHub 正式部署记录返回 404：无法访问私有仓库 ${repository}，请检查服务端 GITHUB_TOKEN 仓库权限。`
+      : `GitHub 正式部署记录读取失败（HTTP ${response.status}）`);
     const rows = await response.json() as GitHubDeployment[];
     if (!Array.isArray(rows)) throw new Error("GitHub 正式部署记录格式无效");
     deploymentRows.push(...rows);
@@ -106,7 +108,9 @@ export async function listVerifiedVercelProductionDeployments({
   const verified = await Promise.all(candidates.map(async deployment => {
     const statusUrl = `${base}/deployments/${deployment.id}/statuses?per_page=${PER_PAGE}`;
     const response = await fetcher(statusUrl, { headers, cache: "no-store" });
-    if (!response.ok) throw new Error(`GitHub 部署状态读取失败（HTTP ${response.status}）`);
+    if (!response.ok) throw new Error(response.status === 404
+      ? `GitHub 部署状态返回 404：无法访问仓库 ${repository} 的部署记录，请检查服务端 GITHUB_TOKEN 的 Deployments/Statuses 读取权限。`
+      : `GitHub 部署状态读取失败（HTTP ${response.status}）`);
     const statuses = await response.json() as GitHubDeploymentStatus[];
     if (!Array.isArray(statuses)) throw new Error("GitHub 部署状态格式无效");
     const success = statuses.find(status => status.state === "success" && isInRange(status.created_at, start, endExclusive));
@@ -118,3 +122,4 @@ export async function listVerifiedVercelProductionDeployments({
 
   return verified.filter((item): item is VerifiedProductionDeployment => item !== null);
 }
+

@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
-import { buildReleaseAnnouncement, inferAffectedRoles, inferReleaseCategory } from "../lib/notifications/release-announcement.ts";
+import { buildReleaseAnnouncement, inferAffectedRoles, inferReleaseCategory, inferReleaseModules } from "../lib/notifications/release-announcement.ts";
 
 const customerRoles = inferAffectedRoles(["app/api/customers/public-pool/claim/route.ts", "components/customer-public-pool-view.tsx"]);
 assert.ok(customerRoles.includes("SALES") && customerRoles.includes("SUPERVISOR"));
 const stockRoles = inferAffectedRoles(["app/stock-orders/[id]/page.tsx"]);
 assert.ok(stockRoles.includes("WAREHOUSE") && stockRoles.includes("ORDER_CLERK"));
+assert.deepEqual(inferAffectedRoles(["scripts/one-off-maintenance.mjs"]), [], "unknown files must not be guessed as relevant to every selected role");
+assert.deepEqual(inferAffectedRoles(["lib/auth/current-user.ts"]), ["ALL"], "shared authorization changes affect all roles");
+assert.ok(inferAffectedRoles(["components/crm-dashboard.tsx"]).includes("WAREHOUSE"), "workbench changes must be included for each dashboard role");
 assert.equal(inferReleaseCategory("fix: prevent invalid customer claim"), "BUG_FIX");
 assert.equal(inferReleaseCategory("feat: add supplier reconciliation"), "FEATURE");
 assert.equal(inferReleaseCategory("优化工作台客户模块"), "OPTIMIZATION");
 assert.equal(inferReleaseCategory("security: enforce permission guard"), "SECURITY");
+assert.deepEqual(inferReleaseModules(["app/api/orders/[id]/change/route.ts", "components/stock-order-detail.tsx"]), ["PI订单与订单变更", "备货单与仓库"]);
+assert.deepEqual(inferReleaseModules(["components/crm-dashboard.tsx"]), ["工作台与数据总览"]);
 
 const releases = [
   { sha: "abc1234", message: "修复公海客户认领渠道判断", url: "https://github.com/example/repo/commit/abc1234", deployedAt: "2026-11-07T02:00:00Z", files: ["app/api/customers/public-pool/claim/route.ts"], deploymentUrl: "https://prod.example", affectedRoles: customerRoles, category: "BUG_FIX" },
@@ -20,7 +25,14 @@ assert.match(salesSummary.content, /公海客户认领/);
 assert.doesNotMatch(salesSummary.content, /仓库入库进度/);
 assert.match(salesSummary.content, /Vercel 成功的正式部署记录/);
 const featureSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "FEATURE");
-assert.match(featureSummary.content, /未发现符合此类型/);
+assert.match(featureSummary.content, /未发现符合筛选条件/);
+const allSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "ALL");
+assert.match(allSummary.title, /正式发布变更摘要/);
+assert.match(allSummary.content, /客户与客户公海/);
+assert.match(allSummary.content, /问题修复：修复公海客户认领渠道判断/);
+assert.doesNotMatch(allSummary.content, /仓库入库进度/);
+const allAudienceSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", null, "ALL");
+assert.match(allAudienceSummary.content, /仓库入库进度展示/);
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 30 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
   deployedAt: "2026-11-07T02:00:00Z", files: [], deploymentUrl: `https://${"deployment".repeat(8)}.vercel.app`,
@@ -38,3 +50,4 @@ const boundarySummary = buildReleaseAnnouncement(Array.from({ length: 10 }, (_, 
 assert.ok(boundarySummary.content.length <= 4000, `boundary summary too long: ${boundarySummary.content.length}`);
 
 console.log("GitHub/Vercel 发布公告分类、角色筛选与来源内容回归测试通过");
+
