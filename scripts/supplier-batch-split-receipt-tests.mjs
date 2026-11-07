@@ -16,6 +16,12 @@ assert.doesNotMatch(route, /new Set\(lines\.map\(\(line\) => line\.stock_order_i
   "接口必须允许同一产品在一个批次拆分多条供应商/送货单来源");
 assert.match(view, /function addBatchReceiptSource\(itemId: string\)/,
   "批量登记界面必须支持为产品行增加供应商/送货单来源");
+assert.match(view, /本批统一来源（同一供应商\/送货单时填写一次）/,
+  "同一批次来源应有独立的一次性输入区，避免在每个产品行重复录入");
+assert.match(view, /function applyBatchSourceToAll\(\)[\s\S]*batchReceiptSourceDraft\.supplierId[\s\S]*batchReceiptSourceDraft\.noteNumber[\s\S]*documentDate: batchReceiptSourceDraft\.documentDate/,
+  "统一来源应用必须把供应商、送货单号和日期复制到所有产品行");
+assert.match(view, /来源不同的产品可在下方逐项修改/,
+  "特殊来源仍必须允许产品行单独修改");
 assert.match(view, /rowId: crypto\.randomUUID\(\)[\s\S]*setBatchReceiptDraft\(\(current\) => current \? \[\.\.\.current, \{/,
   "重复产品来源必须拥有独立行标识并可分别编辑");
 assert.match(view, /const invalidAggregate = batchReceiptDraft\.some\([\s\S]*total > item\.quantity - item\.received_quantity/,
