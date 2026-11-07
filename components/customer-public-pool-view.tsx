@@ -119,6 +119,7 @@ type PoolRow = {
   protection?: { expire_date?: string; extension_count?: number } | null;
   my_supplements?: Array<{ id: string; field_name: string; value_raw: string; source_type: string; source_batch?: string | null; source_row?: number | null; created_at: string }>;
   verified_contacts?: Array<{ type: string; value_raw: string; source_channel?: string | null; exact_source_url?: string | null; verification_status?: string | null; contact_status?: string | null; captured_at?: string | null }>;
+  has_customer_contact_method?: boolean;
 };
 type AssignmentOptions = {
   assignees: Owner[];
@@ -1228,10 +1229,22 @@ function ClaimDialog({
   return (
     <Modal
       title="认领客户"
-      subtitle={`${row.company_name} · 潜在和意向客户保护90天，成交客户永久保护；潜在客户无需凭证，认领为意向或成交客户须上传可核验凭证。`}
+      subtitle="核对客户资料并选择认领阶段；意向或成交阶段须提交凭证。"
       close={close}
     >
       <form onSubmit={submit} className="space-y-4">
+        <section className="rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-white p-4">
+          <p className="text-xs font-medium text-slate-500">正在认领</p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+            <h3 className="min-w-0 break-words text-lg font-semibold leading-6 text-slate-900">{displayCustomerName(row.company_name)}</h3>
+            {row.ai_score != null ? <CustomerScoreBadge score={row.ai_score} level={row.ai_level}/> : null}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+            <span><CountryLabel value={row.country}/></span>
+            {row.industry ? <span className="truncate" title={row.industry}>{row.industry}</span> : null}
+          </div>
+          <p className="mt-3 border-t border-blue-100 pt-2 text-xs leading-5 text-slate-500">潜在和意向客户保护 90 天；成交客户永久保护。潜在客户无需凭证，意向或成交客户需上传可核验凭证。</p>
+        </section>
         {row.my_supplements?.length ? <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><b className="text-sm text-slate-800">我的补充资料</b><span className="text-xs text-blue-700">仅自己可见 · 不覆盖公海原资料</span></div><div className="grid gap-2 sm:grid-cols-2">{row.my_supplements.map((item)=><div key={item.id} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="mr-2 text-slate-500">{{contact_name:"客户名称",phone:"电话",whatsapp:"whatsapp",email:"邮箱",website:"官网",google_url:"Google Maps",address:"地址"}[item.field_name]||item.field_name}</span><span className="break-all text-slate-800">{item.value_raw}</span>{item.source_batch?<small className="mt-1 block text-slate-400">{item.source_batch}{item.source_row?` · 第 ${item.source_row} 行`:""}</small>:null}</div>)}</div></section>:null}
         <ClaimChoice label="认领后客户阶段" value={stage} onChange={chooseStage} options={[{value:"CLAIMED",label:"潜在客户",description:"完成首触达，先进入销售跟进"},{value:"FOLLOWING",label:"意向客户",description:"四类联系方式至少一项，并上传凭证"},{value:"DEAL",label:"成交客户",description:"四类联系方式至少一项，并上传凭证"}]}/>
         {["FOLLOWING", "DEAL"].includes(stage) ? <p className="text-xs text-slate-600">电话、邮箱、微信或 WhatsApp 至少填写一项；本阶段还须提交真实联系凭证。</p> : null}
@@ -1253,7 +1266,7 @@ function ClaimDialog({
         {error ? <ErrorText value={error} /> : null}
         <DialogActions busy={busy} disabled={!result || (stage !== "CLAIMED" && !file)} close={close} label="确认认领" />
       </form>
-      <AppDialog open={missingContactOpen} title="暂不能认领为意向或成交客户" description="该客户暂无电话、邮箱、微信及 WhatsApp。" onClose={() => setMissingContactOpen(false)} width="max-w-md"><p className="text-sm leading-6 text-slate-700">请先认领为潜在客户，再到“我的客户”补全至少一项联系方式，随后变更客户阶段。</p><div className="mt-5 flex justify-end"><button type="button" onClick={() => { setStage("CLAIMED"); setMissingContactOpen(false); }} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">按潜在客户认领</button></div></AppDialog>
+      <AppDialog open={missingContactOpen} title="暂不能认领为意向或成交客户" description="这两个阶段需至少有一种可联系渠道，并提交凭证。" onClose={() => setMissingContactOpen(false)} width="max-w-md"><div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">当前客户档案中未识别到电话、邮箱、微信或 WhatsApp。四项任选一项即可，不需要全部填写。</div><p className="mt-3 text-sm leading-6 text-slate-600">可先按潜在客户认领，再到“我的客户”补充联系方式后升级阶段。</p><div className="mt-5 flex justify-end"><button type="button" onClick={() => { setStage("CLAIMED"); setMissingContactOpen(false); }} className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700">按潜在客户认领</button></div></AppDialog>
     </Modal>
   );
 }

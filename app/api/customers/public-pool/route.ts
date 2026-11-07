@@ -305,11 +305,12 @@ export async function GET(request: NextRequest) {
     const rows = (result.data || []) as unknown as PoolDbRow[];
     const ownerIds = [...new Set(rows.flatMap((item) => [item.owner_id, item.created_by]).filter(Boolean))] as string[];
     const customerIds = rows.map((item) => item.id);
-    const [owners, protections, supplements, verifiedContacts, previousReleases] = await Promise.all([
+    const [owners, protections, supplements, verifiedContacts, contactPresence, previousReleases] = await Promise.all([
       ownerIds.length ? admin.from("users").select("id,name,email").in("id", ownerIds) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_protection").select("customer_id,owner_id,expire_date,status,extension_count,start_date").in("customer_id", customerIds).order("start_date", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_private_supplements").select("id,customer_id,field_name,value_raw,source_type,source_batch,source_row,created_at").eq("submitted_by", account.id).in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       customerIds.length ? admin.from("customer_contacts").select("customer_id,type,value_raw,source_channel,exact_source_url,verification_status,contact_status,captured_at").in("customer_id", customerIds).in("verification_status", ["MATCHED_ORIGINAL", "NEW_VERIFIED", "CONFLICTING_VERIFIED"]).order("captured_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      tab === "available" && customerIds.length ? admin.from("customer_contacts").select("customer_id,type,value_raw").in("customer_id", customerIds).in("type", ["PHONE", "EMAIL", "WECHAT", "WHATSAPP"]) : Promise.resolve({ data: [], error: null }),
       tab === "available" && customerIds.length ? admin.from("customer_claims").select("customer_id,owner_name,released_at,release_reason,created_at").eq("action", "RELEASE").in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ]);
     if (owners.error) throw owners.error;
@@ -319,6 +320,8 @@ export async function GET(request: NextRequest) {
     // rollout that temporarily cannot expose this optional table must never
     // make the entire customer public pool unavailable.
     const verifiedContactsData = verifiedContacts.error ? [] : verifiedContacts.data || [];
+    if (contactPresence.error && tab === "available") throw new Error("无法核对公海客户联系方式，请稍后重试");
+    const customersWithSavedContact = new Set((contactPresence.data || []).filter((item) => String(item.value_raw || "").trim()).map((item) => item.customer_id));
     // Only the most recent release is relevant to a new claimant. Keep prior
     // claim cycles and private follow-up details out of the pool list.
     const latestReleaseByCustomer = new Map<string, { at: string; by: string; reason: string }>();
@@ -382,6 +385,7 @@ export async function GET(request: NextRequest) {
         protection: full ? protectionByCustomer.get(row.id) || null : null,
         my_supplements: supplementsByCustomer.get(row.id) || [],
         verified_contacts: full ? verifiedContactsByCustomer.get(row.id) || [] : [],
+        has_customer_contact_method: tab === "available" && customersWithSavedContact.has(row.id),
         can_claim: tab === "available" && hasPermission(account, "customers.claim") && ["SALES", "SUPERVISOR", "ADMIN"].includes(account.role),
         last_release: tab === "available" ? latestReleaseByCustomer.get(row.id) || null : null,
         // 未认领公海客户对所有具备客户查看权限的用户开放基础详情；

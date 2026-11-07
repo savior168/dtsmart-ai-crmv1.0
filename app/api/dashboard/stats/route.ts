@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
           ? followupReader.from("sales_orders").select("id,warehouse_reference_number").in("id", orderIds)
           : Promise.resolve({ data: [], error: null }),
         stockIds.length
-          ? followupReader.from("stock_order_events").select("stock_order_id,from_status,to_status,note,created_by,created_at").in("stock_order_id", stockIds).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(2000)
+          ? followupReader.from("stock_order_events").select("stock_order_id,from_status,to_status,created_by,created_at").in("stock_order_id", stockIds).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(2000)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (ordersResult.error) throw ordersResult.error;
@@ -173,12 +173,9 @@ export async function GET(request: NextRequest) {
         const event = latestEvents.get(row.id);
         const previousStatus = event?.from_status ? STOCK_STATUS_LABELS[event.from_status as keyof typeof STOCK_STATUS_LABELS] || event.from_status : "";
         const nextStatus = event?.to_status ? STOCK_STATUS_LABELS[event.to_status as keyof typeof STOCK_STATUS_LABELS] || event.to_status : "";
-        const note = String(event?.note || "").replace(/[\r\n<>]/g, " ").replace(/\s+/g, " ").trim();
-        const actionDetail = note
-          ? `更新备货信息：${note}`
-          : previousStatus && nextStatus
-            ? `将备货状态从${previousStatus}更新为${nextStatus}`
-            : `更新了备货进度至${stockProgressLabel(progress)}`;
+        const actionDetail = previousStatus && nextStatus && previousStatus !== nextStatus
+          ? `状态：${previousStatus} → ${nextStatus}`
+          : "更新备货信息";
         return { id: row.id, action: "STOCK_PROGRESS",
           text: dashboardStockActivityText({
             orderNumber: orderNumbers.get(row.sales_order_id) || row.warehouse_reference_number || "订单号未记录",

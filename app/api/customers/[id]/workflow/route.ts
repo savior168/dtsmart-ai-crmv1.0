@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       if (String(form.get("action") || "") !== "STAGE") return NextResponse.json({ error: "无效操作" }, { status: 400 });
       const { supabase, account } = await requirePermission("customers.edit");
       const admin = createAdminClient();
-      const customer = await admin.from("customers").select("owner_id,phone,phone_numbers,email,email_addresses,wechat,wechat_numbers,whatsapp,whatsapp_numbers").eq("id", id).is("deleted_at", null).maybeSingle();
+      const customer = await admin.from("customers").select("owner_id,status,phone,phone_numbers,email,email_addresses,wechat,wechat_numbers,whatsapp,whatsapp_numbers").eq("id", id).is("deleted_at", null).maybeSingle();
       if (customer.error) throw customer.error;
       if (!customer.data || !customer.data.owner_id || !canWriteOwnedRecord(account, customer.data.owner_id)) {
         return NextResponse.json({ error: "只能单独修改归属自己的客户阶段；系统管理员可进行有审计记录的数据纠正" }, { status: 403 });
@@ -26,7 +26,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       const reason = String(form.get("reason") || "").trim();
       const file = form.get("file");
       if (!["CLAIMED", "FOLLOWING", "DEAL"].includes(status)) return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
-      const contactError = customerStageContactError(status, customer.data);
+      if (customer.data.status === "DEAL" && status !== "DEAL") return NextResponse.json({ error: "已成交客户阶段已锁定，不能降级为潜在或意向客户；如确属录入错误，请联系系统管理员核查审计记录" }, { status: 409 });
+      const contactRows = await admin.from("customer_contacts").select("type,value_raw")
+        .eq("customer_id", id).in("type", ["PHONE", "EMAIL", "WECHAT", "WHATSAPP"]);
+      if (contactRows.error) throw new Error("无法核对客户联系方式，请稍后重试");
+      const hasSavedContact = (contactRows.data || []).some((item) => String(item.value_raw || "").trim().length > 0);
+      const contactError = customerStageContactError(status, { ...customer.data, has_customer_contact_method: hasSavedContact });
       if (contactError) return NextResponse.json({ error: `${contactError}，请先编辑客户资料` }, { status: 400 });
       const needsEvidence = ["FOLLOWING", "DEAL"].includes(status);
       if (!reason) return NextResponse.json({ error: "请填写真实、可追溯的阶段变更原因" }, { status: 400 });

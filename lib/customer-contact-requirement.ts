@@ -7,9 +7,12 @@ export type CustomerContactChannels = {
   wechat_numbers?: unknown;
   whatsapp?: unknown;
   whatsapp_numbers?: unknown;
+  /** Presence-only signal for contact rows stored in customer_contacts. */
+  has_customer_contact_method?: unknown;
 };
 
 export function hasCustomerContactMethod(value: CustomerContactChannels) {
+  if (value.has_customer_contact_method === true) return true;
   return [value.phone, value.email, value.wechat, value.whatsapp, value.phone_numbers, value.email_addresses, value.wechat_numbers, value.whatsapp_numbers]
     .some((channel) => Array.isArray(channel) ? channel.some((entry) => String(entry ?? "").trim()) : String(channel ?? "").trim().length > 0);
 }

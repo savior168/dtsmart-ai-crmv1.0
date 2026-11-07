@@ -23,7 +23,7 @@ assert.match(customerUpdate, /account\.role === "ADMIN" \|\| customer\.owner_id 
 const customerBatch = read("app/api/customers/batch/route.ts");
 const customerDelete = read("lib/customers/soft-delete.ts");
 assert.match(customerBatch, /allowAll: account\.role === "ADMIN"/, "批量删除只有系统管理员可跨归属人操作");
-assert.match(customerDelete, /allowAll \|\| customer\.owner_id === userId/, "主管与销售员批量删除必须限定本人客户");
+assert.match(customerDelete, /allowAll \|\| \(customer\.owner_id === userId && nonAdminDeletableStage\)/, "非管理员只能永久删除本人潜在客户，意向/报价/成交阶段必须保留");
 const followupUpdate = read("app/api/followups/[id]/route.ts");
 assert.match(followupUpdate, /rpc\("correct_customer_followup"/, "跟进修改必须使用原子更正事务");
 assert.match(read("supabase/migrations/202609300001_customer_followup_queue.sql"), /actor\.role <> 'ADMIN' and \(f\.user_id <> actor\.id or c\.owner_id is distinct from actor\.id\)/, "跟进修改必须同时校验创建人和当前客户归属，主管跨用户只读");

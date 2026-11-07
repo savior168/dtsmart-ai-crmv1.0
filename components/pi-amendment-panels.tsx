@@ -94,7 +94,7 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
       {draft ? <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="space-y-3 text-sm">
         <div className="max-h-[50vh] overflow-auto rounded-lg border border-slate-200">
           <table className="w-full min-w-[2050px] text-left text-xs">
-            <thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（CNY） *", `销售单价（${currency || "付款币种"}） *`, "数量 *", "销售金额（CNY）", `销售金额（${currency || "付款币种"}）`, "总利润（CNY）", "利润率", "理货要求", "销售备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head}</th>)}</tr></thead>
+            <thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（¥） *", ...(currency !== "CNY" ? [`销售单价（${currency || "付款币种"}）`] : []), "数量 *", "销售金额（¥）", ...(currency !== "CNY" ? [`销售金额（${currency || "付款币种"}）`] : []), "总利润（¥）", "利润率", "理货要求", "销售备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head}</th>)}</tr></thead>
             <tbody>{draft.map((row, index) => {
               const isLocked = locked.has(row.id);
               const isExisting = row.line_number !== null;
@@ -109,10 +109,10 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
                 {textCell("item_name", "产品类型")}{textCell("brand", "产品品牌")}{textCell("model", "产品型号")}{textCell("quality", "产品质量")}{textCell("description", "产品描述", true)}{textCell("description_zh", "产品质量/描述中文（展示给后端）", true)}
                 <td className="px-1.5 py-1.5"><input disabled={isLocked || isExisting} aria-label={`第${index + 1}行成本单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.estimated_unit_cost_cny)} onChange={(event) => edit(index, "estimated_unit_cost_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
                 <td className="px-1.5 py-1.5"><input disabled={isLocked || isExisting} aria-label={`第${index + 1}行销售单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.unit_price_cny)} onChange={(event) => edit(index, "unit_price_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
-                <td className="whitespace-nowrap px-2 py-1.5">{currency} {paymentPrice.toFixed(2)}</td>
+                {currency !== "CNY" ? <td className="whitespace-nowrap px-2 py-1.5">{currency} {paymentPrice.toFixed(2)}</td> : null}
                 <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行数量`} type="number" min="1" step="1" value={qty} onChange={(event) => edit(index, "quantity", Number(event.target.value))} className={`${inputClass} w-20`} /></td>
                 <td className="whitespace-nowrap px-2 py-1.5 font-medium">¥{(sale * qty).toFixed(2)}</td>
-                <td className="whitespace-nowrap px-2 py-1.5 font-medium text-blue-700">{currency} {(paymentPrice * qty).toFixed(2)}</td>
+                {currency !== "CNY" ? <td className="whitespace-nowrap px-2 py-1.5 font-medium text-blue-700">{currency} {(paymentPrice * qty).toFixed(2)}</td> : null}
                 <td className="whitespace-nowrap px-2 py-1.5">¥{((sale - cost) * qty).toFixed(2)}</td>
                 <td className="whitespace-nowrap px-2 py-1.5">{sale > 0 ? `${((sale - cost) / sale * 100).toFixed(2)}%` : "—"}</td>
                 <td className="min-w-56 px-1.5 py-1.5"><input disabled={isLocked || isExisting} aria-label={`第${index + 1}行理货要求`} value={row.preparation_requirement || ""} onChange={(event) => edit(index, "preparation_requirement", event.target.value)} className={`${inputClass} w-52`} /></td>

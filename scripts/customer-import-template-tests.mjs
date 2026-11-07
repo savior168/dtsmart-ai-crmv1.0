@@ -31,7 +31,7 @@ assert.match(customerForm, /<ShippingContactEditor label="客户收货信息" va
 assert.match(customerForm, /<ShippingContactEditor label="货代收货信息" values=\{forwarderContacts\}/, "货代收货信息须使用同样的三字段结构");
 assert.match(customerForm, /CUSTOMER_GRADE_OPTIONS\.map\(\(grade\)/, "手动新增客户须提供七档客户等级");
 assert.match(customerTypes, /manual_grade\?: CustomerGrade \| null/, "Customer 类型须与七档等级共享定义");
-assert.doesNotMatch(customerForm, /includes\(stage\)/, "客户等级/联系方式提示不得引用未定义阶段变量");
+assert.match(customerForm, /includes\(form\.status\)[\s\S]*至少填写电话/, "联系方式说明应根据表单当前阶段展示，不得引用提交函数内的局部变量");
 assert.match(customerForm, /title=\{customerGradeDescription\(form\.manual_grade\)\}/, "手动客户等级须悬浮显示业绩区间");
 assert.match(customersView, /title=\{customerGradeDescription\(customer\.manual_grade\)\}/, "客户列表等级字母须悬浮显示业绩区间");
 assert.match(customerDetail, /title=\{customerGradeDescription\(customer\.manual_grade\)\}/, "客户详情等级字母须悬浮显示业绩区间");
@@ -227,7 +227,7 @@ assert.doesNotMatch(importApi, /缺少电话、邮箱、官网或 Google 地图�
 assert.match(importApi, /customerStageContactError\(stage, \{ phone: item\.phone, email: item\.email, wechat: item\.wechat, whatsapp: item\.whatsapp \}\)/, "批量导入API须对意向和成交客户执行四类联系方式服务端校验");
 assert.match(importView, /customerStageContactError\(item\.import_stage, item\)/, "批量导入预览须显示阶段联系方式错误");
 assert.match(importView, /sourceRowNumber = Number\.isInteger\(raw\.__rowNum__\)/, "Excel 失败行应显示真实行号");
-assert.match(workflowApi, /customerStageContactError\(status, customer\.data\)/, "阶段变更API须校验联系方式");
+assert.match(workflowApi, /customer_contacts[\s\S]*customerStageContactError\(status, \{ \.\.\.customer\.data, has_customer_contact_method: hasSavedContact \}\)/, "阶段变更API须同时校验客户主表与联系方式记录表");
 assert.equal(customerStageContactError("FOLLOWING", { wechat: "wx-id" }), null);
 assert.equal(customerStageContactError("DEAL", { email: "person@example.com" }), null);
 assert.equal(customerStageContactError("已成交客户", { phone: "+1 202 555 0100" }), null);

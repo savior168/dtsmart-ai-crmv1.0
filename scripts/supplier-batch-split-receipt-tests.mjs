@@ -36,5 +36,16 @@ assert.match(view, /const invalidAggregate = batchReceiptDraft\.some\([\s\S]*tot
   "前端必须按产品汇总校验多供应来源数量不超过剩余未回数");
 assert.match(view, /＋ 拆分来源/,
   "仓库员必须能直观添加同一产品的其他供应商或送货单");
+assert.match(view, /supplierCodeSearchOptions[\s\S]*搜索或输入供应商代码/,
+  "供应商代码搜索候选必须只展示代码并提供空值占位");
+assert.equal((view.match(/<AppSelect aria-label=.*供应商代码[\s\S]*?allowCustomValue/g) || []).length, 3,
+  "单项登记、本批统一来源及产品来源行必须复用系统 AppSelect 搜索匹配控件并允许手工输入");
+assert.doesNotMatch(view, /<datalist|list="(?:receipt|batch-receipt)-supplier-codes"/,
+  "供应商代码选择不得退回浏览器原生 datalist 控件");
+const appSelect = readFileSync("components/ui/app-select.tsx", "utf8");
+assert.match(appSelect, /allowCustomValue = false[\s\S]*chooseCustomValue[\s\S]*使用输入代码/,
+  "系统统一下拉必须支持确认使用手动输入代码");
+assert.match(appSelect, /onKeyDown=\{\(event\) => event\.stopPropagation\(\)\}[\s\S]*使用输入代码/,
+  "键盘确认手动输入代码时不得误选候选项");
 
 console.log("supplier batch split receipt tests passed");

@@ -410,16 +410,16 @@ export async function POST(request: NextRequest) {
     validateManualContactInput(body);
     const publicPool = body.destination === "PUBLIC_POOL";
     const requestedStage = publicPool ? "UNCLAIMED" : String(body.status || "CLAIMED").toUpperCase();
-    if (!publicPool && !["CLAIMED", "DEAL"].includes(requestedStage)) {
+    if (!publicPool && requestedStage !== "CLAIMED") {
       return NextResponse.json({ error: requestedStage === "FOLLOWING"
         ? "意向客户必须先创建潜在客户，再提交真实佐证凭证完成阶段变更"
-        : "无效客户阶段" }, { status: 400 });
+        : requestedStage === "DEAL" ? "成交客户必须先创建潜在客户，再提交真实佐证凭证完成阶段变更" : "无效客户阶段" }, { status: 400 });
     }
     const intendedStage = publicPool ? "UNCLAIMED" : String(body.requested_stage || requestedStage).toUpperCase();
     if (!publicPool && !["CLAIMED", "FOLLOWING", "DEAL"].includes(intendedStage)) {
       return NextResponse.json({ error: "无效客户阶段" }, { status: 400 });
     }
-    if (!publicPool && intendedStage !== requestedStage && !(requestedStage === "CLAIMED" && intendedStage === "FOLLOWING")) {
+    if (!publicPool && intendedStage !== requestedStage && !(requestedStage === "CLAIMED" && ["FOLLOWING", "DEAL"].includes(intendedStage))) {
       return NextResponse.json({ error: "客户阶段与新增流程不一致，请刷新页面后重试" }, { status: 400 });
     }
     const contactError = customerStageContactError(intendedStage, body);
@@ -567,7 +567,7 @@ export async function POST(request: NextRequest) {
     }
     if (error) throw error;
     await writeAudit(supabase, user.id, "CUSTOMER_CREATE", "customer", data.id, { company_name: data.company_name, destination: publicPool ? "PUBLIC_POOL" : "PRIVATE", stage: requestedStage });
-    return NextResponse.json(data, { status: 201 });
+    return NextResponse.json({ ...data, created: true }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "新增失败" }, { status: 400 });
   }

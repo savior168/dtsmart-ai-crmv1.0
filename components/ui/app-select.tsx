@@ -36,6 +36,8 @@ export function AppSelect({
   id,
   title,
   forceSearch = false,
+  allowCustomValue = false,
+  searchMaxLength,
   openOnMount = false,
   placeholderValue,
   "aria-label": ariaLabel,
@@ -50,6 +52,8 @@ export function AppSelect({
   id?: string;
   title?: string;
   forceSearch?: boolean;
+  allowCustomValue?: boolean;
+  searchMaxLength?: number;
   openOnMount?: boolean;
   placeholderValue?: string;
   "aria-label"?: string;
@@ -117,6 +121,15 @@ export function AppSelect({
     trigger.current?.focus();
   }
 
+  function chooseCustomValue() {
+    const customValue = search.trim().toUpperCase();
+    if (!allowCustomValue || !customValue) return;
+    setInvalid(false);
+    onChange({ target: { value: customValue } });
+    setOpen(false);
+    trigger.current?.focus();
+  }
+
   useEffect(() => {
     if (!open) return;
     const outside = (event: MouseEvent) => {
@@ -157,11 +170,12 @@ export function AppSelect({
       else if (event.key === "Home") { event.preventDefault(); setActiveIndex(0); optionButtons.current[0]?.focus(); }
       else if (event.key === "End") { event.preventDefault(); const last = filtered.length - 1; setActiveIndex(last); optionButtons.current[last]?.focus(); }
       else if (event.key === "Enter" && filtered[activeIndex]) { event.preventDefault(); choose(filtered[activeIndex]); }
+      else if (event.key === "Enter" && allowCustomValue && search.trim()) { event.preventDefault(); chooseCustomValue(); }
     }}
   >
     {searchable ? <label className="relative mb-1 block shrink-0">
       <Search size={15} className="pointer-events-none absolute left-2.5 top-2.5 text-slate-400"/>
-      <input ref={searchInput} value={search} onChange={(event) => { setSearch(event.target.value); setActiveIndex(0); }} placeholder="搜索选项" aria-label={`搜索${ariaLabel || "选项"}`} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-2 text-sm outline-none focus:border-blue-500"/>
+      <input ref={searchInput} value={search} maxLength={searchMaxLength} onChange={(event) => { setSearch(event.target.value); setActiveIndex(0); }} placeholder={allowCustomValue ? "搜索已有项，或输入新值" : "搜索选项"} aria-label={`搜索${ariaLabel || "选项"}`} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-2 text-sm outline-none focus:border-blue-500"/>
     </label> : null}
     <div id={listId} role="listbox" aria-label={ariaLabel || "选择选项"} className="min-h-0 overflow-y-auto">
       {filtered.map((option, index) => <button
@@ -177,6 +191,8 @@ export function AppSelect({
       ><span className="min-w-0"><span className="block break-words">{option.label}</span>{option.secondaryLabel ? <span className="block break-words text-xs font-normal text-slate-500">{option.secondaryLabel}</span> : null}</span>{option.value === selectedValue ? <span aria-hidden="true" className="shrink-0 text-blue-600">✓</span> : null}</button>)}
       {!filtered.length ? <p className="px-3 py-5 text-center text-sm text-slate-400">没有匹配的选项</p> : null}
     </div>
+    {allowCustomValue && search.trim() && search.trim().toUpperCase() !== selectedValue ? <button type="button" onKeyDown={(event) => event.stopPropagation()} onClick={chooseCustomValue}
+      className="mt-1 shrink-0 rounded-lg border-t border-slate-100 px-3 py-2 text-left text-sm font-medium text-blue-700 hover:bg-blue-50">使用输入代码：{search.trim().toUpperCase()}</button> : null}
   </div> : null;
 
   return <span className={`relative inline-flex min-w-0 align-middle ${className.includes("w-full") ? "w-full" : ""}`}>
@@ -191,7 +207,7 @@ export function AppSelect({
       onChange={() => undefined}
       onInvalid={(event) => { event.preventDefault(); setInvalid(true); trigger.current?.focus(); }}
       className="pointer-events-none absolute h-px w-px opacity-0"
-    >{children}</select>
+    >{allowCustomValue && selectedValue && !options.some((option) => option.value === selectedValue) ? <option value={selectedValue}>{selectedValue}</option> : null}{children}</select>
     <button
       ref={trigger}
       type="button"
@@ -213,7 +229,7 @@ export function AppSelect({
         } else if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); }
       }}
       className={`inline-flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm outline-none transition hover:border-blue-300 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${isPlaceholder ? "text-slate-400" : "text-slate-700"} ${invalid ? "border-rose-400" : ""} ${className}`}
-    ><span className="min-w-0 truncate">{selected?.label || options[0]?.label || "请选择"}</span><ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/></button>
+    ><span className="min-w-0 truncate">{selected?.label || (allowCustomValue && selectedValue ? selectedValue : options[0]?.label) || "请选择"}</span><ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/></button>
     {typeof document !== "undefined" ? createPortal(popup, document.body) : null}
   </span>;
 }

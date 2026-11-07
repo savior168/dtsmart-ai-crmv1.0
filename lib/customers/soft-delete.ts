@@ -45,11 +45,24 @@ export async function permanentlyDeleteCustomers({
   const linkedIds = new Set([...(quoteLinks.data || []), ...(orderLinks.data || [])].map((item) => item.customer_id));
   const allowedIds = uniqueIds.filter((id) => {
     const customer = visibleById.get(id);
-    return Boolean(customer && !linkedIds.has(id) && (allowAll || customer.owner_id === userId));
+    const nonAdminDeletableStage = customer?.status === "CLAIMED" || customer?.status === "UNCLAIMED";
+    return Boolean(customer && !linkedIds.has(id) && (allowAll || (customer.owner_id === userId && nonAdminDeletableStage)));
   });
   const failures: Failure[] = uniqueIds
     .filter((id) => !allowedIds.includes(id))
-    .map((id) => ({ id, ok: false, error: linkedIds.has(id) ? "客户已有报价或订单记录，为保证业务凭证完整不可物理删除；请通过客户阶段继续流转" : "客户不存在、已删除或您没有删除权限" }));
+    .map((id) => {
+      const customer = visibleById.get(id);
+      const error = linkedIds.has(id)
+        ? "客户已有报价或订单记录，为保证业务凭证完整不可物理删除；请通过客户阶段继续流转"
+        : !customer
+          ? "客户不存在、已删除或您没有删除权限"
+          : !allowAll && ["FOLLOWING", "QUOTE", "DEAL"].includes(customer.status)
+            ? "意向、报价中及已成交客户不可由非系统管理员永久删除；如需清理意向客户，请先填写原因将阶段退回潜在客户"
+            : !allowAll && customer.owner_id !== userId
+              ? "只能永久删除归属自己的潜在客户"
+              : "客户当前阶段不可永久删除";
+      return { id, ok: false as const, error };
+    });
   if (!allowedIds.length) return { successIds: [] as string[], failures };
 
   // AI acquisition candidates keep historical task provenance after a

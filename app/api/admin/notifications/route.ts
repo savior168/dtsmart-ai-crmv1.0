@@ -3,13 +3,35 @@ import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NOTIFICATION_TYPES } from "@/lib/notification-policy";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await requireAdmin();
     const admin = createAdminClient();
+    const params = request.nextUrl.searchParams;
+    const from = params.get("from") || "";
+    const to = params.get("to") || "";
+    const isValidDate = (value: string) => {
+      if (!value) return true;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00Z`);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if (!isValidDate(from) || !isValidDate(to) || (from && to && from > to)) {
+      return NextResponse.json({ error: "公告日期范围无效" }, { status: 400 });
+    }
     const [policies, announcements] = await Promise.all([
       admin.from("notification_delivery_policies").select("type,popup_enabled,voice_enabled,updated_at"),
-      admin.from("system_announcements").select("id,title,content,published_at,published_by,recipient_roles,recipient_count").order("published_at", { ascending: false }).limit(20),
+      (() => {
+        let query = admin.from("system_announcements").select("id,title,content,published_at,published_by,recipient_roles,recipient_count").order("published_at", { ascending: false }).limit(100);
+        if (from) query = query.gte("published_at", `${from}T00:00:00+08:00`);
+        if (to) {
+          const next = new Date(`${to}T00:00:00Z`);
+          next.setUTCDate(next.getUTCDate() + 1);
+          const exclusiveEnd = `${next.toISOString().slice(0, 10)}T00:00:00+08:00`;
+          query = query.lt("published_at", exclusiveEnd);
+        }
+        return query;
+      })(),
     ]);
     if (policies.error) throw policies.error;
     if (announcements.error) throw announcements.error;
