@@ -4,6 +4,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 import { STOCK_STATUS_LABELS } from "@/lib/types";
 import { COUNTRY_OPTIONS, countryFilterRawValues } from "@/lib/countries";
 import { buildStockWorkbook } from "@/lib/template-xlsx";
+import { loadStockExportRequirementImages } from "@/lib/orders/stock-export-requirement-images";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "@/lib/batch-xlsx-zip";
 import { STOCK_EXECUTING_STATUSES, stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadStockProgressItems } from "@/lib/stock-progress-query";
@@ -181,6 +182,7 @@ export async function GET(request: NextRequest) {
       }
       const exportedAt = new Date();
       const customerNames = await loadOrderCustomerNames(rows.map((row) => row.sales_order_id), true);
+      const requirementImagesByOrder = await loadStockExportRequirementImages(createAdminClient(), details.map((detail) => detail.sales_order_id), request.url);
       const files: Array<{ name: string; data: ArrayBuffer | Uint8Array }> = [];
       for (const row of rows) {
         const detail = detailById.get(row.id);
@@ -194,7 +196,10 @@ export async function GET(request: NextRequest) {
             forwarder_recipient: piNoteById.get(detail.sales_order_id)?.forwarder_recipient || null,
             forwarder_phone: piNoteById.get(detail.sales_order_id)?.forwarder_phone || null,
             shipped_at: shippedByStockId.get(row.id) || null,
-            status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never, { includeProcurement: canViewProcurement }) });
+            status_label: stockProgressLabel(summarizeStockProgress(detail.status, items)) } as never, items as never, {
+            includeProcurement: canViewProcurement,
+            requirementAttachments: requirementImagesByOrder.get(detail.sales_order_id) || [],
+          }) });
       }
       const zip = buildWorkbookZip(files);
       return new NextResponse(streamZipBytes(zip), { headers: {

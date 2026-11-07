@@ -85,7 +85,7 @@ assert.match(shipmentMigration, /p_packaging_cost_cny is null[\s\S]*p_procuremen
 assert.match(shipmentMigration, /i\.prepared_quantity=i\.quantity[\s\S]*i\.shipped_quantity=0[\s\S]*selected_count<>cardinality\(p_item_ids\)/, "只允许将已完成理货且尚未交接的完整产品行发货");
 assert.match(read("app/api/stock-orders/[id]/ship/route.ts"), /requirePermission\("stock\.update"\)[\s\S]*record_stock_shipment/, "发货接口必须校验仓库权限并走受控事务");
 assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /action === "SHIP"\) throw/, "旧HTTP发货入口应提示刷新并禁止免费用发货");
-assert.match(read("components/stock-order-detail-view.tsx"), /选中 \{selectedItems\.length\} 项交货代[\s\S]*确认交货代并保存费用/, "仓库应能选择完整产品行并录入本次交接费用");
+assert.match(read("components/stock-order-detail-view.tsx"), /onClick=\{\(\) => openShipment\(selectedItems\)\}[\s\S]*交货代/, "仓库应能选择完整产品行进入交货代费用确认流程");
 const stamp = new Date("2026-10-16T07:00:01.000Z");
 assert.equal(documentExportFilename("PI-123", "PI订单", "xlsx", stamp), "PI-123_PI订单_20261016-150001.xlsx");
 assert.equal(documentExportFilename("BH-456", "备货单", "pdf", stamp), "BH-456_备货单_20261016-150001.pdf");
@@ -226,7 +226,7 @@ assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
 assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
 assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">所属销售员/, "PI列表所属销售员标题应完整显示在一行");
-assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "ACTIVE", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应包含草稿、执行中、已交货代、缺货异常及已取消");
+assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "STOCK_DRAFT", "ACTIVE", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应与备货进度一致并明确区分仓库处理阶段");
 assert.doesNotMatch(orderListView, /历史\/异常筛选|按订单类型筛选|包含历史销售订单/, "PI列表不应再提供冗余历史及单据类型筛选");
 assert.match(orderListView, /new URLSearchParams\(\{ page: String\(page\), page_size: String\(pageSize\), type: "PI" \}\)/, "PI列表移除类型选项后仍必须仅查询PI单据");
 assert.match(stockListView, /STOCK_FILTER_STATUSES = \["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "OTHER", "CANCELLED", "READY"\]/, "备货单单一状态筛选必须覆盖当前、异常与历史状态");
@@ -243,7 +243,7 @@ for (const api of [orderListApi, stockListApi]) {
   assert.match(api, /normalizeDocumentSearch\(params\.get\("q"\)\)/, "列表和导出须共用规范化搜索词");
   assert.match(api, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"[\s\S]*"order_number"[\s\S]*"customer_short_name"[\s\S]*"delivery_phone"[\s\S]*"delivery_email"/, "单据搜索须覆盖PI号、备货单号、公司快照和收货联系方式");
 }
-assert.match(orderListView, /k === "ACTIVE" \? "已提交仓库（执行中）"/, "执行中筛选应对应待接单至待交货代的订单状态");
+assert.match(orderListView, /stock && \(PI_EXECUTING_STATUSES as readonly string\[\]\)\.includes\(row\.status\)[\s\S]*stockProgressLabel\(stock\.progress\)/, "PI订单状态应显示实时备货阶段而不再笼统显示执行中");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
 assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "销售备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和销售备注放在产品明细最后两列");
@@ -348,7 +348,7 @@ assert.ok(piForm.includes('id="pi-paypal-rate"') && piForm.includes('PayPal 手�
 assert.ok(piForm.includes('setPaypalRateInput(event.target.value)') && !piForm.includes('onDoubleClick={() => setEditingPaypalRate(true)}'), "PayPal费率应直接可编辑，无须双击切换");
 assert.ok(piForm.includes('link.href = "/templates/pi-line-import-template.xlsx"'), "产品模板下载路径保持有效");
 assert.ok(piForm.includes("async function importExcel(file?: File)") && piForm.includes("hasPiProductHeader(sheet.rows)") && piForm.includes("prepareImportRows(productSheet.rows)"), "Excel明细导入须定位并解析真正的产品页");
-assert.ok(piForm.includes("async function pasteRows()") && piForm.includes("navigator.clipboard.readText()"), "粘贴表格明细功能保持有效");
+assert.ok(piForm.includes("async function pasteRows()") && piForm.includes("navigator.clipboard?.readText") && piForm.includes("setPasteFallbackOpen(true)"), "粘贴表格需有剪贴板 API 与手动粘贴兜底");
 assert.match(piForm, /第\$\{index \+ 1\}行人民币单价[\s\S]*editUnitPrice\(index, "CNY"/, "人民币单价输入须同步换算外币");
 assert.match(piForm, /第\$\{index \+ 1\}行\$\{currency\}单价[\s\S]*editUnitPrice\(index, "PAYMENT"/, "外币单价输入须同步换算人民币");
 assert.match(piForm, /validPiMoney\(item\.unit_price_payment\)[\s\S]*Number\(item\.unit_price_payment\)/, "外币销售金额须使用外币单价计算");
@@ -356,7 +356,7 @@ assert.match(piForm, /const newLine = \(\): Line => \(\{[^\n]*quantity: ""/, "�
 const piFeeMigration = read("supabase/migrations/20261017130000_pi_dual_currency_fees.sql");
 assert.match(piFeeMigration, /update public\.quote_items qi set[\s\S]*unit_price = input\.unit_price_payment,[\s\S]*update public\.sales_order_items soi set[\s\S]*unit_price = qi\.unit_price/, "外币单价必须同步到报价及销售产品行，由数据库生成金额列");
 assert.doesNotMatch(piFeeMigration, /update public\.(?:quote_items|sales_order_items) (?:qi|soi) set\s+[^;]*?\bamount\s*=/, "产品行金额是数据库生成列，不能直接赋值");
-assert.match(piForm, /countryInfo\(selectedCustomer\.country\)\.name/, "目的国家只显示中文名称而不附加国家代码");
+assert.match(piForm, /<CountryLabel value=\{selectedCustomer\.country\}/, "目的国家展示应显示对应国旗和规范国家名称");
 assert.match(piForm, /recalledDraft \? <div className="flex min-w-0 flex-col">[\s\S]*订单变更说明/, "订单变更说明只在撤回后编辑PI时显示");
 assert.match(piForm, /客户及货代收货信息（选填）[\s\S]*默认不添加[\s\S]*xl:grid-cols-2[\s\S]*添加客户收货信息[\s\S]*选择客户资料中的收货信息[\s\S]*收货人[\s\S]*电话[\s\S]*收货地址[\s\S]*添加货代收货信息[\s\S]*选择客户资料中的货代收货信息/, "客户与货代收货信息应选填、默认关闭并清晰分区");
 assert.match(piForm, /selectedShippingContacts\.map\(\(item, index\)/, "PI应提供客户收货档案单选列表");

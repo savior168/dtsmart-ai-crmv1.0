@@ -7,7 +7,7 @@ import { documentExportFilename } from "@/lib/export-file-name";
 import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { warehousePiAmendment, type PiAmendmentRecord } from "@/lib/orders/pi-amendment-view";
-import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
+import { loadStockExportRequirementImages } from "@/lib/orders/stock-export-requirement-images";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -34,14 +34,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     }
     const customerNames = await loadOrderCustomerNames([order.sales_order_id], true);
     const admin = createAdminClient();
-    const [{ data: piNote, error: piNoteError }, { data: requirementRows, error: requirementError }, { data: piItems, error: piItemsError }] = await Promise.all([
-      admin.from("sales_orders").select("confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone").eq("id", order.sales_order_id).single(),
-      admin.from("attachments").select("id,filename,mime_type,size_bytes,created_at,pi_line_number_snapshot,pi_product_label_snapshot,sales_order_item_id").eq("sales_order_id", order.sales_order_id).in("kind", ["PI_ORDER_REQUIREMENT", "PI_LINE_REQUIREMENT"]).order("created_at"),
-      admin.from("sales_order_items").select("id,line_number,item_name,brand,model,quality").eq("sales_order_id", order.sales_order_id),
-    ]);
+    const { data: piNote, error: piNoteError } = await admin.from("sales_orders")
+      .select("confirmation_note,forwarder_address,forwarder_recipient,forwarder_phone")
+      .eq("id", order.sales_order_id).single();
     if (piNoteError) throw piNoteError;
-    if (requirementError) throw requirementError;
-    if (piItemsError) throw piItemsError;
     const amendmentResult = await createAdminClient().from("pi_amendment_requests")
       .select("*").eq("stock_order_id", id).in("status", ["PENDING", "APPLIED"])
       .order("created_at", { ascending: true });
@@ -60,10 +56,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const salesOwner = !order.salesperson && order.sales_user_id ? await createAdminClient().from("users")
       .select("name,email").eq("id", order.sales_user_id).maybeSingle() : null;
     if (salesOwner?.error) throw salesOwner.error;
-    const requirementAttachments = resolvePiRequirementAttachments(requirementRows || [], piItems || [])
-      .filter((item) => !item.archived)
-      .map((item) => ({ id: item.id, filename: item.filename, lineNumber: item.display_line_number,
-        url: new URL(`/api/attachments/${item.id}?preview=1`, request.url).toString() }));
+    const requirementAttachmentsByOrder = await loadStockExportRequirementImages(admin, [order.sales_order_id], request.url);
+    const requirementAttachments = requirementAttachmentsByOrder.get(order.sales_order_id) || [];
     const buffer = await buildStockWorkbook({ ...order, customer_name: customerNames.get(order.sales_order_id) || null,
       salesperson: order.salesperson || salesOwner?.data || null,
       order_change_note: [piNote.confirmation_note, ...amendmentNotes].filter(Boolean).join("\n"),

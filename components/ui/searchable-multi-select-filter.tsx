@@ -3,6 +3,7 @@
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { CountryLabel } from "@/components/country-label";
 
 export type SearchableFilterOption = {
   value: string;
@@ -47,6 +48,9 @@ export function SearchableMultiSelectFilter({
     : value.length === 1
       ? options.find((item) => item.value === value[0])?.label || value[0]
       : `${label}（${value.length}）`;
+  const selectedCountry = /国家/.test(label) && value.length === 1
+    ? options.find((item) => item.value === value[0])
+    : null;
   const total = showCounts ? options.reduce((sum, item) => sum + Math.max(0, Number(item.count || 0)), 0) : 0;
 
   function toggle(next: string) {
@@ -95,7 +99,7 @@ export function SearchableMultiSelectFilter({
           const selected = value.includes(item.value);
           return <button key={item.value} type="button" role="option" aria-selected={selected} onClick={() => toggle(item.value)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${selected ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"}`}>
             <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"}`}>{selected ? <Check size={11}/> : null}</span>
-            <span className="min-w-0 flex-1 truncate" title={item.label || item.value}>{item.label || item.value}</span>
+            <span className="min-w-0 flex-1 truncate" title={item.label || item.value}>{/国家/.test(label) ? <CountryLabel value={item.value} className="!text-sm" /> : item.label || item.value}</span>
             {showCounts && item.count != null ? <small className="shrink-0 text-slate-400">{item.count}</small> : null}
           </button>;
         })}
@@ -109,7 +113,7 @@ export function SearchableMultiSelectFilter({
 
   return <div className={`relative min-w-0 ${className}`}>
     <button ref={trigger} type="button" aria-label={`${label}筛选`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => setOpen((current) => !current)} className="flex h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 outline-none transition hover:border-blue-300 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100">
-      <span className="truncate">{selectedLabel}</span>
+      <span className="truncate">{selectedCountry ? <CountryLabel value={selectedCountry.value} className="!text-sm" /> : selectedLabel}</span>
       <ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}/>
     </button>
     {typeof document !== "undefined" ? createPortal(dropdown, document.body) : null}

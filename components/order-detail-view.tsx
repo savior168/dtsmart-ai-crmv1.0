@@ -407,11 +407,13 @@ export function OrderDetailView({ id }: { id: string }) {
           </div>
           {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p></div> : null}
           {directPi && o.status !== "DRAFT" ? <PiAmendmentSalesPanel orderId={id} revision={o.pi_revision}
+            currency={o.currency} fxRate={Number(o.fx_rate_cny_to_payment || 0)}
             items={data.items.filter((item) => !item.pi_amendment_cancelled_at).map((item) => ({ id: item.id, line_number: item.line_number,
               item_name: item.item_name, brand: item.brand || "", model: item.model || "",
               quality: item.quality || "", description: item.description || "",
               description_zh: item.description_zh || "", preparation_requirement: item.preparation_requirement || "",
               internal_note: item.internal_note || "", quantity: Number(item.quantity),
+              unit_price_payment: Number(item.unit_price || 0),
               unit_price_cny: Number(item.unit_price_cny || 0),
               estimated_unit_cost_cny: Number(item.estimated_unit_cost_cny || 0) }))}
             progress={data.item_progress} amendments={data.amendments}

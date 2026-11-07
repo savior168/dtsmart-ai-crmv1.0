@@ -93,8 +93,5 @@ export function stockItemProgress(item: PhysicalStockItem) {
 export const PI_EXECUTING_STATUSES = ["WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"] as const;
 export const STOCK_EXECUTING_STATUSES = ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP"] as const;
 export function piOrderStatusLabel(status: string) {
-  if ((PI_EXECUTING_STATUSES as readonly string[]).includes(status)) {
-    return "已提交仓库（执行中）";
-  }
   return SALES_ORDER_STATUS_LABELS[status as SalesOrderStatus] || status;
 }
