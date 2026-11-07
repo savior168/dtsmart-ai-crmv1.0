@@ -511,15 +511,16 @@ export function StockOrderDetailView({ id }: { id: string }) {
       setSupplierOptions(options);
       const today = new Date().toLocaleDateString("en-CA");
       const drafts = eligible.map((item): BatchReceiptLine => {
-        const prior = (data?.receipts || []).find((receipt) => receipt.stock_order_item_id === item.id && !receipt.correction_of && receipt.remaining_quantity > 0);
-        const code = prior?.supplier_code || item.warehouse_supplier_code || "";
         return {
           rowId: crypto.randomUUID(),
           itemId: item.id,
-          supplierCode: code,
-          supplierId: options.find((supplier) => supplier.system_code === code)?.id || "",
-          noteNumber: prior?.note_number || "",
-          documentDate: prior?.document_date || today,
+          // A product's legacy/default supplier is not proof of this receipt's source.
+          // Require an explicit source for every receipt batch to avoid silently
+          // attributing new physical goods to a stale supplier or delivery note.
+          supplierCode: "",
+          supplierId: "",
+          noteNumber: "",
+          documentDate: today,
           quantity: String(item.quantity - item.received_quantity),
           unitPrice: item.procurement_cost_confirmed && typeof item.procurement_cost === "number" ? item.procurement_cost.toFixed(2) : "",
           cashPaidReported: "",
@@ -1124,8 +1125,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     const item = items.find((row) => row.id === line.itemId);
                     const supplier = matchActiveSupplierCode(supplierOptions, line.supplierCode);
                     if (!item) return null;
+                    const itemSourceRows = batchReceiptDraft.filter((candidate) => candidate.itemId === item.id);
+                    const sourceIndex = itemSourceRows.findIndex((candidate) => candidate.rowId === line.rowId) + 1;
                     return <tr key={line.rowId} className="border-t align-top">
-                      <td className="max-w-48 px-2 py-2"><strong>第 {item.line_number} 项</strong><span className="mt-1 block break-words text-slate-600">{[item.item_name, item.brand, item.model, item.quality].filter(Boolean).join(" · ")}</span></td>
+                      <td className="max-w-48 px-2 py-2"><strong>产品第 {item.line_number} 项 · 来源 {sourceIndex}/{itemSourceRows.length}</strong><span className="mt-1 block break-words text-slate-600">{[item.item_name, item.brand, item.model, item.quality].filter(Boolean).join(" · ")}</span>{itemSourceRows.length > 1 ? <small className="mt-1 block text-cyan-800">同一 PI 产品拆分采购；各来源回货数量合计不得超过剩余未回数</small> : null}</td>
                       <td className="px-2 py-2 pt-4 text-right tabular-nums">{item.quantity - item.received_quantity}</td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项本次回货数量`} required type="number" min={1} max={item.quantity - item.received_quantity} step={1} value={line.quantity} onChange={(event) => updateBatchReceiptLine(line.rowId, { quantity: event.target.value })} className="h-9 w-24 rounded border px-2 text-right"/></td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项供应商代码`} required list="batch-receipt-supplier-codes" autoComplete="off" maxLength={40} value={line.supplierCode} onChange={(event) => {
@@ -1136,7 +1139,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项送货日期`} required type="date" max={new Date().toLocaleDateString("en-CA")} value={line.documentDate} onChange={(event) => updateBatchReceiptLine(line.rowId, { documentDate: event.target.value })} className="h-9 w-36 rounded border px-2"/></td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项采购单价`} required inputMode="decimal" value={line.unitPrice} onChange={(event) => updateBatchReceiptLine(line.rowId, { unitPrice: event.target.value })} className="h-9 w-28 rounded border px-2 text-right"/></td>
                       <td className="px-2 py-2">{supplier?.settlement_cycle === "CASH" ? <input aria-label={`第 ${item.line_number} 项现场已付现金金额`} inputMode="decimal" placeholder="选填" value={line.cashPaidReported} onChange={(event) => updateBatchReceiptLine(line.rowId, { cashPaidReported: event.target.value })} className="h-9 w-28 rounded border px-2 text-right"/> : <span className="text-slate-400">—</span>}</td>
-                      <td className="px-2 py-2"><div className="flex flex-col items-start gap-1"><button type="button" onClick={() => addBatchReceiptSource(item.id)} disabled={busy || batchReceiptDraft.length >= 500} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">＋ 添加来源</button>{batchReceiptDraft.filter((candidate) => candidate.itemId === item.id).length > 1 ? <button type="button" onClick={() => removeBatchReceiptSource(line.rowId)} disabled={busy} className="whitespace-nowrap text-rose-700 hover:underline disabled:opacity-40">移除此来源</button> : null}</div></td>
+                      <td className="px-2 py-2"><div className="flex flex-col items-start gap-1"><button type="button" title="为同一 PI 产品增加一条供应商/送货单分配，不会增加订单产品数量" onClick={() => addBatchReceiptSource(item.id)} disabled={busy || batchReceiptDraft.length >= 500} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">＋ 拆分来源</button><small className="max-w-32 text-slate-500">同一产品多供应商/多送货单时使用</small>{itemSourceRows.length > 1 ? <button type="button" onClick={() => removeBatchReceiptSource(line.rowId)} disabled={busy} className="whitespace-nowrap text-rose-700 hover:underline disabled:opacity-40">移除此来源</button> : null}</div></td>
                     </tr>;
                   })}</tbody>
                 </table>

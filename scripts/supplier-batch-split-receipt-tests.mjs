@@ -22,11 +22,19 @@ assert.match(view, /function applyBatchSourceToAll\(\)[\s\S]*batchReceiptSourceD
   "统一来源应用必须把供应商、送货单号和日期复制到所有产品行");
 assert.match(view, /来源不同的产品可在下方逐项修改/,
   "特殊来源仍必须允许产品行单独修改");
+assert.match(view, /supplierCode: "",\s*supplierId: "",\s*noteNumber: "",\s*documentDate: today/,
+  "新的回货分配不得继承可能过期的默认供应商代码或旧送货单号");
+assert.doesNotMatch(view, /prior\?\.supplier_code \|\| item\.warehouse_supplier_code/,
+  "不得把产品档案上的历史供应商代码误当成本次实际采购来源");
+assert.match(view, /产品第 \{item\.line_number\} 项 · 来源 \{sourceIndex\}\/\{itemSourceRows\.length\}/,
+  "同一 PI 产品拆分多条来源时必须标明这是来源分配而非新增订单产品");
+assert.match(view, /title="为同一 PI 产品增加一条供应商\/送货单分配，不会增加订单产品数量"/,
+  "添加来源操作必须明确说明仅增加来源分配，不增加订单产品数量");
 assert.match(view, /rowId: crypto\.randomUUID\(\)[\s\S]*setBatchReceiptDraft\(\(current\) => current \? \[\.\.\.current, \{/,
   "重复产品来源必须拥有独立行标识并可分别编辑");
 assert.match(view, /const invalidAggregate = batchReceiptDraft\.some\([\s\S]*total > item\.quantity - item\.received_quantity/,
   "前端必须按产品汇总校验多供应来源数量不超过剩余未回数");
-assert.match(view, /＋ 添加来源/,
+assert.match(view, /＋ 拆分来源/,
   "仓库员必须能直观添加同一产品的其他供应商或送货单");
 
 console.log("supplier batch split receipt tests passed");
