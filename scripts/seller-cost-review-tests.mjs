@@ -31,7 +31,7 @@ assert.deepEqual(sellerCostReviewLineNumbers(
   [{ stock_order_item_id: "stock-a", quantity: 3, purchase_unit_price_cny: 120 }],
 ), [], "cancelled amendment lines are excluded");
 
-const migration = readFileSync("supabase/migrations/20261107120000_gate_seller_cost_review_by_actual_purchase.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20261107084928_gate_seller_cost_review_by_actual_purchase.sql", "utf8");
 assert.match(migration, /target\.warehouse_reference_number/, "notification uses the user-entered D reference");
 assert.match(migration, /string_agg\(s\.line_number::text/, "notification identifies affected product lines");
 assert.match(migration, /target\.prepared_by,target\.sales_user_id/, "notifications target preparer and owner");
