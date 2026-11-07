@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import XLSX from "xlsx";
+import sharp from "sharp";
+import { unzipSync } from "fflate";
 import { buildQuoteWorkbook, buildStockWorkbook } from "../lib/template-xlsx.ts";
 import { buildWorkbookZip, mapExportBatches, streamZipBytes } from "../lib/batch-xlsx-zip.ts";
 
@@ -70,9 +72,11 @@ const stockData = {
   salesperson: { name: "Eva", email: "eva@example.com" },
 };
 const stockBuffer = await buildStockWorkbook(stockData, items);
+const testThumbnail = new Uint8Array(await sharp({ create: { width: 4, height: 3, channels: 3, background: "white" } }).jpeg().toBuffer());
 const stockWithRequirementImagesBuffer = await buildStockWorkbook(stockData, items, { requirementAttachments: [
-  { id: "attachment-line-1", filename: "line-1.png", lineNumber: 1, url: "https://crm.example/api/attachments/attachment-line-1?preview=1" },
-  { id: "attachment-order-1", filename: "order.png", lineNumber: null, url: "https://crm.example/api/attachments/attachment-order-1?preview=1" },
+  { id: "attachment-line-1", filename: "line-1.png", lineNumber: 1, url: "https://crm.example/api/attachments/attachment-line-1?preview=1", thumbnail: testThumbnail },
+  { id: "attachment-line-2", filename: "line-2.png", lineNumber: 1, url: "https://crm.example/api/attachments/attachment-line-2?preview=1", thumbnail: testThumbnail },
+  { id: "attachment-order-1", filename: "order.png", lineNumber: null, url: "https://crm.example/api/attachments/attachment-order-1?preview=1", thumbnail: testThumbnail },
 ] });
 const warehouseStockBuffer = await buildStockWorkbook(stockData,
   items.map((item) => ({ ...item, procurement_cost_confirmed: true, warehouse_note: "SUPPLIER-INTERNAL-NOTE" })),
@@ -104,14 +108,21 @@ for (let offset = 0; offset < streamedArchive.length && streamedArchive.readUInt
 }
 assert.deepEqual(archivedNames, manyFiles.map((file) => file.name), "批量导出必须完整包含超过一页的筛选结果且中文文件名正确");
 const attachmentWorkbook = XLSX.read(stockWithRequirementImagesBuffer, { type: "buffer" });
-assert.ok(attachmentWorkbook.SheetNames.includes("理货图片附件"), "备货单 Excel 应包含独立理货图片附件页");
-const attachmentSheet = attachmentWorkbook.Sheets["理货图片附件"];
-assert.equal(attachmentSheet.A4.v, "单项理货要求");
-assert.equal(attachmentSheet.B4.v, "第 1 项");
-assert.equal(attachmentSheet.C4.v, "line-1.png");
-assert.equal(attachmentSheet.C4.l?.Target, "https://crm.example/api/attachments/attachment-line-1?preview=1", "单项图片附件应链接回受权限保护的原图预览");
-assert.equal(attachmentSheet.A5.v, "整单理货要求");
-assert.equal(attachmentSheet.C5.l?.Target, "https://crm.example/api/attachments/attachment-order-1?preview=1");
+const originalStockWorkbook = XLSX.read(stockBuffer, { type: "buffer" });
+const stockSheetName = originalStockWorkbook.SheetNames[0];
+assert.deepEqual(attachmentWorkbook.SheetNames, originalStockWorkbook.SheetNames, "添加图片不得重排或新增工作表，必须保留原备货单布局");
+const attachmentParts = unzipSync(new Uint8Array(stockWithRequirementImagesBuffer));
+const originalParts = unzipSync(new Uint8Array(stockBuffer));
+assert.equal(Buffer.from(attachmentParts["xl/workbook.xml"]).toString(), Buffer.from(originalParts["xl/workbook.xml"]).toString(), "加图前后工作簿结构应完全一致");
+assert.equal(attachmentWorkbook.Sheets[stockSheetName].N13.v, "理货要求：Label\n销售备注：Keep dry\n理货图片：2 张，点击缩略图查看原图", "产品行图片提示应留在原理货要求单元格");
+assert.match(attachmentWorkbook.Sheets[stockSheetName].K4.v, /理货图片：1 张，点击缩略图查看原图/, "整单图片提示应留在原整单理货要求单元格");
+const drawingXml = Buffer.from(attachmentParts["xl/drawings/drawing1.xml"]).toString();
+const drawingRels = Buffer.from(attachmentParts["xl/drawings/_rels/drawing1.xml.rels"]).toString();
+assert.equal((drawingXml.match(/<xdr:pic>/g) || []).length, 3, "单项与整单缩略图均应嵌入原工作表");
+assert.match(drawingXml, /第 1 项理货要求：line-1\.png/);
+assert.match(drawingXml, /整单理货要求：order\.png/);
+assert.match(drawingRels, /Target="https:\/\/crm\.example\/api\/attachments\/attachment-line-1\?preview=1" TargetMode="External"/, "缩略图应链接回受权限保护的原图预览");
+assert.ok(Object.keys(attachmentParts).filter((path) => path.startsWith("xl/media/")).length === 3, "导出应真实嵌入缩略图图片文件");
 const bounded = await mapExportBatches(Array.from({ length: 12 }, (_, index) => index), 4, async (index) => index * 2);
 assert.deepEqual(bounded, Array.from({ length: 12 }, (_, index) => index * 2));
 for (const routePath of ["app/api/orders/route.ts", "app/api/stock-orders/route.ts"]) {

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { strToU8, unzipSync, zipSync } from "fflate";
 import type { QuoteItem } from "@/lib/types";
 
 // SheetJS 0.18 is CommonJS. Loading it through Node's explicit ESM bridge
@@ -212,6 +213,102 @@ function withRowHeight(xml: string, row: number, height: number) {
   return xml.replace(new RegExp(`(<row\\b[^>]*\\br="${row}"[^>]*\\bht=")([^"]+)(")`), `$1${height}$3`);
 }
 
+type StockRequirementImage = { id: string; filename: string; lineNumber: number | null; url: string; thumbnail: Uint8Array; rowIndex?: number };
+
+function xmlPart(parts: Record<string, Uint8Array>, partPath: string) {
+  const content = parts[partPath];
+  if (!content) throw new Error(`备货模板缺少 ${partPath}`);
+  return Buffer.from(content).toString("utf8");
+}
+
+function columnPixels(sheetXml: string, columnIndex: number) {
+  const columnNumber = columnIndex + 1;
+  for (const column of sheetXml.match(/<(?:x:)?col\b[^>]*\/?\s*>/g) || []) {
+    const min = Number(column.match(/\bmin="(\d+)"/)?.[1]);
+    const max = Number(column.match(/\bmax="(\d+)"/)?.[1]);
+    const width = Number(column.match(/\bwidth="([\d.]+)"/)?.[1]);
+    if (columnNumber >= min && columnNumber <= max && Number.isFinite(width)) return Math.max(1, Math.round(width * 7 + 5));
+  }
+  return 64;
+}
+
+function rowPixels(sheetXml: string, rowIndex: number) {
+  const rowNumber = rowIndex + 1;
+  const row = (sheetXml.match(/<(?:x:)?row\b[^>]*>/g) || []).find((candidate) => Number(candidate.match(/\br="(\d+)"/)?.[1]) === rowNumber);
+  const height = Number(row?.match(/\bht="([\d.]+)"/)?.[1]);
+  return Number.isFinite(height) && height > 0 ? Math.max(1, Math.ceil(height * 96 / 72)) : 20;
+}
+
+function axisMarker(sheetXml: string, columnIndex: number, rowIndex: number, xPixels: number, yPixels: number) {
+  let col = columnIndex;
+  let colOffset = xPixels;
+  while (colOffset >= columnPixels(sheetXml, col)) {
+    colOffset -= columnPixels(sheetXml, col);
+    col += 1;
+  }
+  let row = rowIndex;
+  let rowOffset = yPixels;
+  while (rowOffset >= rowPixels(sheetXml, row)) {
+    rowOffset -= rowPixels(sheetXml, row);
+    row += 1;
+  }
+  const emu = (pixels: number) => Math.round(pixels * 9525);
+  return { col, row, colOffset: emu(colOffset), rowOffset: emu(rowOffset) };
+}
+
+function addStockRequirementImages(buffer: Buffer, attachments: StockRequirementImage[]) {
+  if (!attachments.length) return buffer;
+  const parts = unzipSync(new Uint8Array(buffer));
+  const worksheetPath = "xl/worksheets/sheet1.xml";
+  let worksheet = xmlPart(parts, worksheetPath);
+  if (/<(?:x:)?drawing\b/.test(worksheet)) throw new Error("备货模板已有绘图层，不能安全添加理货图片");
+  const sheetRelsPath = "xl/worksheets/_rels/sheet1.xml.rels";
+  const rels = parts[sheetRelsPath] ? xmlPart(parts, sheetRelsPath) : '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  const nextRelId = [...rels.matchAll(/\bId="rId(\d+)"/g)].reduce((max, match) => Math.max(max, Number(match[1])), 0) + 1;
+  const drawingRelId = `rId${nextRelId}`;
+  const drawingRelationship = `<Relationship Id="${drawingRelId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>`;
+  parts[sheetRelsPath] = strToU8(rels.replace("</Relationships>", `${drawingRelationship}</Relationships>`));
+  if (!/\bxmlns:r=/.test(worksheet)) worksheet = worksheet.replace(/<((?:x:)?worksheet)\b/, '<$1 xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+  const drawingTag = `<drawing r:id="${drawingRelId}"/>`;
+  worksheet = /<(?:x:)?extLst\b/.test(worksheet)
+    ? worksheet.replace(/<(?:x:)?extLst\b/, `${drawingTag}<extLst`)
+    : worksheet.replace("</worksheet>", `${drawingTag}</worksheet>`);
+  parts[worksheetPath] = strToU8(worksheet);
+
+  const drawingRels: string[] = [];
+  const anchors: string[] = [];
+  attachments.forEach((attachment, index) => {
+    const safeUrl = new URL(attachment.url);
+    if (!["https:", "http:"].includes(safeUrl.protocol)) throw new Error("理货图片预览链接格式不正确");
+    const mediaName = `stock-requirement-${String(index + 1).padStart(4, "0")}.jpg`;
+    parts[`xl/media/${mediaName}`] = attachment.thumbnail;
+    const imageRelId = `rId${index + 1}`;
+    const hyperlinkRelId = `rId${attachments.length + index + 1}`;
+    drawingRels.push(`<Relationship Id="${imageRelId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName}"/>`);
+    drawingRels.push(`<Relationship Id="${hyperlinkRelId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escapeXml(safeUrl.toString())}" TargetMode="External"/>`);
+
+    const wholeOrder = attachment.lineNumber === null;
+    const rowIndex = wholeOrder ? 6 : attachment.rowIndex ?? 12 + Number(attachment.lineNumber) - 1;
+    const columnIndex = wholeOrder ? 10 : 13;
+    const imageIndex = attachments.slice(0, index).filter((item) => item.lineNumber === attachment.lineNumber).length;
+    const startX = wholeOrder ? 4 + imageIndex * 78 : [4, 80, columnPixels(worksheet, 13) + 4][imageIndex % 3];
+    const startY = wholeOrder ? 4 : 5 + Math.floor(imageIndex / 3) * 54;
+    const from = axisMarker(worksheet, columnIndex, rowIndex, startX, startY);
+    const to = axisMarker(worksheet, columnIndex, rowIndex, startX + 72, startY + 48);
+    const marker = (tag: "from" | "to", point: typeof from) => `<xdr:${tag}><xdr:col>${point.col}</xdr:col><xdr:colOff>${point.colOffset}</xdr:colOff><xdr:row>${point.row}</xdr:row><xdr:rowOff>${point.rowOffset}</xdr:rowOff></xdr:${tag}>`;
+    const name = escapeXml(attachment.filename);
+    const description = escapeXml(`${wholeOrder ? "整单理货要求" : `第 ${attachment.lineNumber} 项理货要求`}：${attachment.filename}。点击打开原图；选中图片可拖拽调整大小。`);
+    anchors.push(`<xdr:twoCellAnchor editAs="oneCell">${marker("from", from)}${marker("to", to)}<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${index + 1}" name="理货要求图片 ${index + 1} - ${name}" descr="${description}"><a:hlinkClick r:id="${hyperlinkRelId}" tooltip="点击打开原始理货要求图片"/></xdr:cNvPr><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="${imageRelId}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="685800" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>`);
+  });
+  parts["xl/drawings/drawing1.xml"] = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors.join("")}</xdr:wsDr>`);
+  parts["xl/drawings/_rels/drawing1.xml.rels"] = strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${drawingRels.join("")}</Relationships>`);
+  let contentTypes = xmlPart(parts, "[Content_Types].xml");
+  if (!/<Default\b[^>]*\bExtension="jpg"/.test(contentTypes)) contentTypes = contentTypes.replace("</Types>", '<Default Extension="jpg" ContentType="image/jpeg"/></Types>');
+  contentTypes = contentTypes.replace("</Types>", '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>');
+  parts["[Content_Types].xml"] = strToU8(contentTypes);
+  return Buffer.from(zipSync(parts, { level: 6 }));
+}
+
 export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteItem[]) {
   const opened = await openTemplate(PI_TEMPLATE);
   const extra = Math.max(0, items.length - 9);
@@ -256,7 +353,7 @@ export async function buildQuoteWorkbook(quote: QuoteExportData, items: QuoteIte
   return finishTemplate(opened.cfb, opened.entry, xml);
 }
 
-export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { procurement_cost_confirmed?: boolean; estimated_unit_cost_cny?: number | null; received_quantity?: number; warehouse_supplier_code?: string | null; internal_note?: string | null; warehouse_note?: string | null })[], options: { includeProcurement?: boolean; requirementAttachments?: Array<{ id: string; filename: string; lineNumber: number | null; url: string }> } = {}) {
+export async function buildStockWorkbook(stock: StockExportData, items: (QuoteItem & { line_number?: number; procurement_cost_confirmed?: boolean; estimated_unit_cost_cny?: number | null; received_quantity?: number; warehouse_supplier_code?: string | null; internal_note?: string | null; warehouse_note?: string | null })[], options: { includeProcurement?: boolean; requirementAttachments?: StockRequirementImage[] } = {}) {
   if (items.length > 987) throw new Error("备货模板最多支持987条产品明细");
   const opened = await openTemplate(STOCK_TEMPLATE);
   let xml = opened.xml;
@@ -267,7 +364,7 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     ["B3", stock.salesperson?.name || stock.salesperson?.email || ""], ["E3", stock.created_at.slice(0, 10)],
     ["G3", stock.warehouse_reference_number || stock.order_number], ["H3", stock.customer_name?.trim() || "历史未留存"], ["K3", /^[A-Z]{2}$/.test(stock.destination_country || "") ? new Intl.DisplayNames(["zh-CN"], { type: "region" }).of(stock.destination_country || "") || stock.destination_country : stock.destination_country || ""],
     ["M3", stock.expected_ready_at?.slice(0, 10) || ""], ["N3", stock.shipped_at?.slice(0, 10) || ""],
-    ["K4", stock.stocking_requirements?.trim() || "常规理货"],
+    ["K4", [stock.stocking_requirements?.trim() || "常规理货", (options.requirementAttachments || []).some((attachment) => attachment.lineNumber === null) ? `理货图片：${options.requirementAttachments?.filter((attachment) => attachment.lineNumber === null).length} 张，点击缩略图查看原图` : ""].filter(Boolean).join("\n")],
     ["C5", changes[0] || ""], ["C6", changes[1] || ""], ["C7", changes.slice(2).join("；")],
     ["D9", [`货代收货信息：`, `收货人：${stock.forwarder_recipient || "未填写"}`, `电话：${stock.forwarder_phone || "未填写"}`, `地址：${stock.forwarder_address || "未填写"}`].join("\n")],
     ["B9", "货代收货信息：\n＊收货人（姓名/电话）\n＊详细收货地址："],
@@ -304,7 +401,8 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     const row = 13 + index;
     const item = items[index];
     const warehouseDescription = item?.description_zh?.trim() || "";
-    const warehouseAttention = item ? [item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "", item.internal_note ? `销售备注：${item.internal_note}` : ""].filter(Boolean).join("\n") : "";
+    const lineAttachments = item ? (options.requirementAttachments || []).filter((attachment) => attachment.lineNumber === (item.line_number ?? index + 1)) : [];
+    const warehouseAttention = item ? [item.preparation_requirement ? `理货要求：${item.preparation_requirement}` : "", item.internal_note ? `销售备注：${item.internal_note}` : "", lineAttachments.length ? `理货图片：${lineAttachments.length} 张，点击缩略图查看原图` : ""].filter(Boolean).join("\n") : "";
     const valuesForRow: Array<[string, unknown]> = item ? [
       [`B${row}`, index + 1], [`C${row}`, item.product_type_snapshot || item.item_name || ""], [`E${row}`, item.brand || ""], [`F${row}`, item.model || ""],
       [`G${row}`, item.quality || ""], [`H${row}`, item.description || ""], [`J${row}`, typeof item.estimated_unit_cost_cny === "number" && Number.isFinite(item.estimated_unit_cost_cny) ? Number(item.estimated_unit_cost_cny) : ""],
@@ -327,7 +425,8 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
       const attentionLines = warehouseAttention.split("\n").reduce((total, line) => total + Math.max(1, Math.ceil(line.length / 34)), 0);
       const warehouseNoteLines = item?.warehouse_note ? Math.max(1, Math.ceil(item.warehouse_note.length / 24)) : 0;
       const lines = Math.max(Math.ceil(warehouseDescription.length / 28), attentionLines, warehouseNoteLines);
-      if (lines > 0) xml = withRowHeight(xml, row, Math.max(28, 18 + lines * 11));
+      const imageRows = Math.ceil(lineAttachments.length / 3);
+      if (lines > 0 || imageRows > 0) xml = withRowHeight(xml, row, Math.max(28, 18 + lines * 11, imageRows ? 44 * imageRows : 0));
     }
   }
   if (options.includeProcurement) {
@@ -337,22 +436,14 @@ export async function buildStockWorkbook(stock: StockExportData, items: (QuoteIt
     }
   }
   const buffer = finishTemplate(opened.cfb, opened.entry, xml);
-  const attachments = options.requirementAttachments || [];
-  if (!attachments.length) return buffer;
-  const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true, cellFormula: true });
-  const rows: (string | { v: string; l: { Target: string; Tooltip: string } })[][] = [
-    ["理货要求图片附件（请登录 DTS 后点击文件名预览）"],
-    [],
-    ["范围", "产品项", "文件名（点击预览）"],
-    ...attachments.map((attachment) => [
-      attachment.lineNumber === null ? "整单理货要求" : "单项理货要求",
-      attachment.lineNumber === null ? "—" : `第 ${attachment.lineNumber} 项`,
-      { v: attachment.filename, l: { Target: attachment.url, Tooltip: "在 DTS 中打开原始理货要求图片" } },
-    ]),
-  ];
-  const sheet = XLSX.utils.aoa_to_sheet(rows);
-  sheet["!cols"] = [{ wch: 20 }, { wch: 18 }, { wch: 48 }];
-  XLSX.utils.book_append_sheet(workbook, sheet, "理货图片附件");
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx", cellStyles: true }) as Uint8Array);
+  const lineRows = new Map(items.map((item, index) => [item.line_number ?? index + 1, 12 + index]));
+  const attachments = (options.requirementAttachments || []).map((attachment) => ({
+    ...attachment,
+    rowIndex: attachment.lineNumber === null ? undefined : lineRows.get(attachment.lineNumber),
+  }));
+  if (attachments.some((attachment) => attachment.lineNumber !== null && attachment.rowIndex === undefined)) {
+    throw new Error("理货图片关联的产品项不存在，请刷新备货单后重试导出");
+  }
+  return addStockRequirementImages(buffer, attachments);
 }
 

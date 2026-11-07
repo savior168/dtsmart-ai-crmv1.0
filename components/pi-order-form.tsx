@@ -137,6 +137,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const [importRevision, setImportRevision] = useState(0);
   const [importDifferences, setImportDifferences] = useState<string[]>([]);
   const [submitAfterImportDifferences, setSubmitAfterImportDifferences] = useState(false);
+  const [pasteFallbackOpen, setPasteFallbackOpen] = useState(false);
+  const [pasteFallbackText, setPasteFallbackText] = useState("");
   const [revision, setRevision] = useState(1);
   const [error, setError] = useState("");
   const hasUnsavedChanges = useRef(false);
@@ -628,9 +630,32 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Excel导入失败"); }
     if (fileRef.current) fileRef.current.value = "";
   }
+  async function importPastedText(text: string) {
+    if (!text.trim()) {
+      setError("剪贴板内容为空，请复制产品明细表格后再粘贴");
+      return false;
+    }
+    try {
+      await prepareImportRows(parsePiClipboardTsv(text));
+      setPasteFallbackOpen(false);
+      setPasteFallbackText("");
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法识别表格内容，请检查产品明细列和金额格式后重试");
+      return false;
+    }
+  }
   async function pasteRows() {
-    try { await prepareImportRows(parsePiClipboardTsv(await navigator.clipboard.readText())); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "读取剪贴板失败"); }
+    setError("");
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("clipboard-unavailable");
+      if (!document.hasFocus()) window.focus();
+      const text = await navigator.clipboard.readText();
+      await importPastedText(text);
+    } catch {
+      setPasteFallbackText("");
+      setPasteFallbackOpen(true);
+    }
   }
   async function create(submitToWarehouse = false, acknowledgeDifferences = false) {
     if (busy) return;
@@ -784,5 +809,6 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     <ConfirmDialog open={importDifferences.length > 0} title="导入数据与原Excel不一致" description={importDifferences.join("；") + `。请逐项核对；确认后${submitAfterImportDifferences ? "将保存PI并生成备货单" : "将保存为PI草稿"}。`} confirmLabel={submitAfterImportDifferences ? "已核对，确认生成备货单" : "已核对，保存PI草稿"} busy={busy} onCancel={() => { setImportDifferences([]); setSubmitAfterImportDifferences(false); }} onConfirm={() => { const shouldSubmit = submitAfterImportDifferences; setImportDifferences([]); setSubmitAfterImportDifferences(false); void create(shouldSubmit, true); }} />
     {showAccountDetails && selectedAccount ? <AppDialog title={`${selectedAccount.label} · 收款账户`} description="此账户信息会在保存PI时固化，之后管理员修改账户不会改写已保存的PI。" onClose={() => setShowAccountDetails(false)}><p className="whitespace-pre-wrap break-all text-sm leading-6 text-slate-700">{selectedAccount.instructions}</p></AppDialog> : null}
     {showCustomerTally && selectedCustomer?.tally_requirements ? <AppDialog title="客户资料理货要求" description={`${selectedCustomer.company_name} · 只读参考；复制后可粘贴到本单理货要求或产品明细。`} onClose={() => { setShowCustomerTally(false); setTallyCopyMessage(""); }}><div className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border bg-slate-50 p-3 text-sm leading-6 text-slate-700">{selectedCustomer.tally_requirements}</div><div className="mt-3 flex flex-wrap items-center justify-end gap-3"><span role="status" className="text-xs text-slate-600">{tallyCopyMessage}</span><button type="button" onClick={() => void copyCustomerTally()} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">复制理货要求</button></div></AppDialog> : null}
+    {pasteFallbackOpen ? <AppDialog title="粘贴产品明细" description="浏览器暂时无法直接读取剪贴板。请点击下方输入框并按 Ctrl+V；只复制产品明细表格即可，无需复制 PI 抬头。系统会继续自动识别币种、汇率和各产品列。" onClose={() => { setPasteFallbackOpen(false); setPasteFallbackText(""); }} width="max-w-3xl">{error ? <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}<textarea autoFocus aria-label="粘贴产品明细表格" value={pasteFallbackText} onChange={(event) => setPasteFallbackText(event.target.value)} rows={10} placeholder="点击此处后按 Ctrl+V 粘贴 Excel 产品明细" className="w-full rounded-lg border border-slate-300 p-3 font-mono text-xs leading-5 focus:border-blue-500 focus:outline-none"/><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => { setPasteFallbackOpen(false); setPasteFallbackText(""); }} className="h-10 rounded-lg border border-slate-200 px-4 text-sm">取消</button><button type="button" onClick={() => void importPastedText(pasteFallbackText)} className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">识别并导入</button></div></AppDialog> : null}
   </div></main>;
 }

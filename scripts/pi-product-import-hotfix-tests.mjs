@@ -133,8 +133,14 @@ for (const currency of QUOTE_CURRENCY_CODES) {
 }
 const formSource = readFileSync("components/pi-order-form.tsx", "utf8");
 assert.match(formSource, /await prepareImportRows\(productSheet\.rows\)/, "Excel button must use the tested parser");
-assert.match(formSource, /await prepareImportRows\(parsePiClipboardTsv\(await navigator\.clipboard\.readText\(\)\)\)/, "paste button must parse Excel clipboard TSV with quoted multiline cells");
-assert.match(formSource, /catch \(cause\) \{ setError\(cause instanceof Error \? cause\.message : "读取剪贴板失败"\); \}/, "paste errors must be shown to the user");
+assert.match(formSource, /await importPastedText\(text\)/, "clipboard text must use the shared PI paste parser and currency inference flow");
+assert.match(formSource, /navigator\.clipboard\?\.readText/, "clipboard API must be feature-detected");
+assert.match(formSource, /setPasteFallbackOpen\(true\)/, "clipboard focus or permission failures must open the manual paste fallback");
+assert.match(formSource, /role="dialog"|title="粘贴产品明细"/, "manual paste fallback must be presented in an accessible dialog");
+assert.match(formSource, /按 Ctrl\+V/, "manual paste fallback must explain how to paste without exposing browser errors");
+assert.match(formSource, /role="alert" className="mb-3 rounded-lg border border-rose-200/, "paste validation errors must be visible inside the fallback dialog");
+assert.match(formSource, /无法识别表格内容，请检查产品明细列和金额格式后重试/, "parser errors must use a localized, actionable message");
+assert.doesNotMatch(formSource, /catch \(cause\) \{ setError\(cause instanceof Error \? cause\.message : "读取剪贴板失败"\); \}/, "native clipboard exceptions must not leak raw English browser errors");
 assert.match(formSource, /以下信息待补全/, "incomplete imported rows must show the user their source row and missing fields");
 assert.match(formSource, /const invalidRow = items\.findIndex/, "saving and submitting must still block incomplete lines");
 

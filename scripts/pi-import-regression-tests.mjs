@@ -136,7 +136,8 @@ assert.deepEqual(parsePiProductRows([["LCD", "IPH", "IP17", "OLED", "", "", "", 
 const formSource = readFileSync("components/pi-order-form.tsx", "utf8");
 assert.match(formSource, /parsePiProductRows\(rows, selectedRate, selectedCurrency\)/, "PI导入入口须调用共享解析器和所选付款币种");
 assert.match(formSource, /prepareImportRows\(productSheet\.rows\)/, "Excel上传须选中产品明细表进入共享导入处理");
-assert.match(formSource, /prepareImportRows\(parsePiClipboardTsv\(await navigator\.clipboard\.readText\(\)\)\)/, "剪贴板粘贴须解析Excel TSV后进入同一共享处理");
+assert.match(formSource, /await importPastedText\(text\)/, "剪贴板粘贴须解析Excel TSV后进入同一共享处理");
+assert.match(formSource, /setPasteFallbackOpen\(true\)/, "剪贴板读取失败时须提供手动粘贴兜底");
 
 const route = readFileSync("app/api/orders/import-template/route.ts", "utf8");
 const view = readFileSync("components/pi-import-view.tsx", "utf8");

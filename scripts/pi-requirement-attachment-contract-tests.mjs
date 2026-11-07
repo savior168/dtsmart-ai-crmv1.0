@@ -11,6 +11,7 @@ const stockList = read("app/api/stock-orders/route.ts");
 const attachmentView = read("components/pi-requirement-attachments.tsx");
 const printPreview = read("components/order-print-preview.tsx");
 const stockExport = read("app/api/stock-orders/[id]/export/route.ts");
+const stockExportImages = read("lib/orders/stock-export-requirement-images.ts");
 const piExport = read("app/api/orders/[id]/export/route.ts");
 
 assert.match(upload, /order\.status !== "DRAFT"/);
@@ -37,7 +38,10 @@ assert.match(attachmentView, /const src = `\/api\/attachments\/\$\{item\.id\}\?p
 assert.match(printPreview, /理货要求图片附件（内部备货参考）[\s\S]*PiRequirementAttachments/, "PI 预览打印应展示整单和单项理货图片");
 assert.match(printPreview, /PiRequirementAttachments attachments=\{stock\.requirement_attachments \|\| \[\]\} lineNumber=\{null\}/, "备货单打印应展示整单图片附件");
 assert.match(printPreview, /lineNumber=\{item\.line_number\} className="mt-1"/, "备货单打印应将附件放在对应产品行");
-assert.match(stockExport, /requirementAttachments = resolvePiRequirementAttachments[\s\S]*url: new URL\(`\/api\/attachments\/\$\{item\.id\}\?preview=1`/);
+assert.match(stockExport, /loadStockExportRequirementImages\(admin, \[order\.sales_order_id\], request\.url\)/, "单份备货单导出应使用受保护的图片处理器");
+assert.match(stockExportImages, /storage\.from\("crm-attachments"\)\.download\(attachment\.storage_path\)/, "导出缩略图必须从私有存储读取真实原图");
+assert.match(stockExportImages, /resize\(68, 44[\s\S]*jpeg\(\{ quality: 70/);
+assert.match(stockExportImages, /new URL\(`\/api\/attachments\/\$\{attachment\.id\}\?preview=1`, requestUrl\)/, "缩略图必须链接到受权限保护的预览路由");
 assert.match(piExport, /requirementAttachments = resolvePiRequirementAttachments[\s\S]*url: new URL\(`\/api\/attachments\/\$\{item\.id\}\?preview=1`/);
 assert.match(piExport, /buildDirectPiWorkbook\([\s\S]*requirementAttachments/);
 console.log("PI requirement attachment and customer-link contracts passed");
