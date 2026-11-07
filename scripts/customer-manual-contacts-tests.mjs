@@ -60,7 +60,7 @@ assert.doesNotMatch(read("components/customer-crm-detail-view.tsx"), /<Row label
 
 const claimApi = read("app/api/customers/public-pool/claim/route.ts");
 const claimView = read("components/customer-public-pool-view.tsx");
-assert.match(claimApi, /customerStageContactError\(stage, customer\.data\)/, "intention or deal claim requires one of four contacts");
+assert.match(claimApi, /customer_contacts[\s\S]*customerStageContactError\(stage, \{ \.\.\.customer\.data, has_customer_contact_method: hasSavedContact \}\)/, "intention or deal claim requires one of four contacts across legacy and saved contact records");
 assert.match(claimApi, /先认领为潜在客户/, "missing contacts should guide a potential-stage claim");
 assert.doesNotMatch(claimView, /customerHasClaimContacts/, "claim UI must not block missing contacts");
 assert.match(claimApi, /requirePermission\("customers\.claim"\)/);

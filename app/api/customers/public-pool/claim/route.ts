@@ -25,7 +25,14 @@ export async function POST(request: NextRequest) {
     if (customer.data.ai_screening_done !== true || customer.data.ai_score === null || customer.data.ai_score < 60) {
       return NextResponse.json({ error: "客户须完成 AI 分析且评分达到 60 分后才能认领" }, { status: 409 });
     }
-    const contactError = customerStageContactError(stage, customer.data);
+    // AI/imported contact rows may be stored in customer_contacts instead of
+    // the legacy customer columns. Include those records in the same
+    // four-channel OR gate used by the claim UI and private-customer workflow.
+    const contactRows = await admin.from("customer_contacts").select("type,value_raw")
+      .eq("customer_id", customerId).in("type", ["PHONE", "EMAIL", "WECHAT", "WHATSAPP"]);
+    if (contactRows.error) throw new Error("无法核对客户联系方式，请稍后重试");
+    const hasSavedContact = (contactRows.data || []).some((item) => String(item.value_raw || "").trim().length > 0);
+    const contactError = customerStageContactError(stage, { ...customer.data, has_customer_contact_method: hasSavedContact });
     if (contactError) return NextResponse.json({ error: `${contactError}；请先认领为潜在客户，补全联系方式后再变更阶段` }, { status: 400 });
     const fileValue = form.get("file");
     if (stage !== "CLAIMED" && !(fileValue instanceof File)) return NextResponse.json({ error: "潜在客户以外的阶段必须上传真实凭证附件" }, { status: 400 });

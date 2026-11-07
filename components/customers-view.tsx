@@ -150,7 +150,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [, setProtectedSelected] = useState<Set<string>>(new Set());
+  const [protectedSelected, setProtectedSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Customer | null>(null);
   const [fields, setFields] = useState<ColumnKey[]>(defaults);
   const [draft, setDraft] = useState<ColumnKey[]>(defaults);
@@ -499,7 +499,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
         for (const item of pageItems) {
           const id = String(item.id);
           ids.add(id);
-          if (["QUOTE", "DEAL"].includes(String(item.status || ""))) protectedIds.add(id);
+          if (["FOLLOWING", "QUOTE", "DEAL"].includes(String(item.status || ""))) protectedIds.add(id);
         }
         if (!pageItems.length && ids.size < total) throw new Error(`全选中断：已读取 ${ids.size}/${total} 条，请刷新后重试`);
         currentPage += 1;
@@ -922,7 +922,8 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
             </button>
             <span className="ml-auto text-sm text-slate-600">已选择 {selected.size} 项</span>
             <button
-              disabled={crossUserReadOnly || !selected.size}
+              disabled={crossUserReadOnly || !selected.size || (currentRole !== "ADMIN" && protectedSelected.size > 0)}
+              title={currentRole !== "ADMIN" && protectedSelected.size > 0 ? "意向、报价中及已成交客户不可永久删除；请先将意向客户退回潜在阶段" : undefined}
               onClick={() => {
                 setDeleteIds([...selected]);
               }}
@@ -959,7 +960,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                             else next.add(row.id);
                             setProtectedSelected((current) => {
                               const statuses = new Set(current);
-                              if (["QUOTE", "DEAL"].includes(row.status)) statuses.add(row.id);
+                              if (!allPage && ["FOLLOWING", "QUOTE", "DEAL"].includes(row.status)) statuses.add(row.id);
                               else statuses.delete(row.id);
                               return statuses;
                             });
@@ -1012,7 +1013,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                             else next.add(row.id);
                             setProtectedSelected((protectedCurrent) => {
                               const protectedNext = new Set(protectedCurrent);
-                              if (next.has(row.id) && ["QUOTE", "DEAL"].includes(row.status)) protectedNext.add(row.id);
+                              if (next.has(row.id) && ["FOLLOWING", "QUOTE", "DEAL"].includes(row.status)) protectedNext.add(row.id);
                               else protectedNext.delete(row.id);
                               return protectedNext;
                             });
@@ -1085,7 +1086,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
                         <RowActionItem onClick={() => router.push(`/customers/${row.id}?action=followup`)}>新增跟进</RowActionItem>
                         <RowActionItem onClick={() => router.push(`/customers/${row.id}?action=stage`)}>更新客户阶段</RowActionItem>
                         {(currentRole === "ADMIN" || row.owner_id === defaultScopeUserId) && row.status !== "DEAL" ? <RowActionItem tone="warning" onClick={() => { setReleaseTarget(row);setReleaseReason("");setReleaseAcknowledged(false); }}>释放到公海</RowActionItem> : null}
-                        {!crossUserReadOnly ? <RowActionItem tone="danger" onClick={() => setDeleteIds([row.id])}>永久删除</RowActionItem> : null}
+                        {!crossUserReadOnly && (currentRole === "ADMIN" || ["CLAIMED", "UNCLAIMED"].includes(row.status)) ? <RowActionItem tone="danger" onClick={() => setDeleteIds([row.id])}>永久删除</RowActionItem> : null}
                       </RowActionMenu> : null}
                       </div>
                     </td>

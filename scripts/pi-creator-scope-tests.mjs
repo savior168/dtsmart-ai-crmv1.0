@@ -24,8 +24,10 @@ assert.match(migration, /create function public\.review_shipped_pi_seller_cost[\
   "post-shipment seller cost review must be creator-only");
 assert.match(detailApi, /confirmation_method === "DIRECT_PI"[\s\S]*\(order\.data\.prepared_by \|\| order\.data\.sales_user_id\) === account\.id/,
   "PI detail actions must use creator scope");
-assert.match(detailApi, /can_review_seller_cost: \(order\.data\.prepared_by \|\| order\.data\.sales_user_id\) === account\.id/,
-  "seller cost review button must not be offered to another user");
+assert.match(detailApi, /const costReviewAccess = \(order\.data\.prepared_by \|\| order\.data\.sales_user_id\) === account\.id/,
+  "seller cost review access must retain the PI creator scope");
+assert.match(detailApi, /can_review_seller_cost: costReviewAccess/,
+  "seller cost review button must follow the server-side creator access decision");
 assert.match(detailApi, /can_cancel:\s*writable &&\s*hasPermission\(account, "orders\.cancel"\)/,
   "the cancel button must obey the configured grant and creator scope rather than a role ban");
 assert.match(migration, /PI cancel clerk guard changed; manual review required/,

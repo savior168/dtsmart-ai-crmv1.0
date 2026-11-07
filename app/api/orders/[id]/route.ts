@@ -9,6 +9,7 @@ import { summarizeStockProgress } from "@/lib/stock-progress";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
+import { sellerCostReviewLineNumbers } from "@/lib/orders/seller-cost-review";
 
 export async function GET(
   _: NextRequest,
@@ -88,6 +89,34 @@ export async function GET(
     const writable = order.data.confirmation_method === "DIRECT_PI"
       ? (order.data.prepared_by || order.data.sales_user_id) === account.id
       : order.data.sales_user_id === account.id || account.role === "ADMIN";
+    let sellerCostReviewLineNumbersResult: number[] = [];
+    const costReviewAccess = (order.data.prepared_by || order.data.sales_user_id) === account.id
+      && ["SALES", "SUPERVISOR", "ORDER_CLERK", "ADMIN"].includes(account.role)
+      && hasPermission(account, "orders.cost_review")
+      && order.data.confirmation_method === "DIRECT_PI"
+      && order.data.status === "SHIPPED" && stock.data?.status === "SHIPPED"
+      && Boolean(stockItems?.data?.length)
+      && (stockItems?.data || []).every((item) => Number(item.shipped_quantity) === Number(item.quantity));
+    if (costReviewAccess && stock.data) {
+      const admin = createAdminClient();
+      const stockLinesResult = await admin.from("stock_order_items")
+        .select("id,line_number,quantity,pi_amendment_cancelled_at")
+        .eq("stock_order_id", stock.data.id).is("pi_amendment_cancelled_at", null);
+      if (stockLinesResult.error) throw stockLinesResult.error;
+      const stockLines = stockLinesResult.data || [];
+      const stockLineIds = stockLines.map((item) => item.id);
+      const receiptResult = stockLineIds.length
+        ? await admin.from("supplier_receipt_allocations")
+          .select("stock_order_item_id,quantity,purchase_unit_price_cny")
+          .in("stock_order_item_id", stockLineIds)
+        : { data: [], error: null };
+      if (receiptResult.error) throw receiptResult.error;
+      sellerCostReviewLineNumbersResult = sellerCostReviewLineNumbers(
+        stockLines,
+        items.data || [],
+        receiptResult.data || [],
+      );
+    }
     return NextResponse.json({
       order: { ...order.data, owner: clerkOwner?.data || order.data.owner,
         preparer: preparer?.data || null, customer: {
@@ -113,13 +142,8 @@ export async function GET(
         order.data.status === "DRAFT" && order.data.confirmed_at === null && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
       can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
-      can_review_seller_cost: (order.data.prepared_by || order.data.sales_user_id) === account.id
-        && ["SALES", "SUPERVISOR", "ORDER_CLERK", "ADMIN"].includes(account.role)
-        && hasPermission(account, "orders.cost_review")
-        && order.data.confirmation_method === "DIRECT_PI"
-        && order.data.status === "SHIPPED" && stock.data?.status === "SHIPPED"
-        && Boolean(stockItems?.data?.length)
-        && (stockItems?.data || []).every((item) => Number(item.shipped_quantity) === Number(item.quantity)),
+      can_review_seller_cost: costReviewAccess && sellerCostReviewLineNumbersResult.length > 0,
+      seller_cost_review_line_numbers: sellerCostReviewLineNumbersResult,
       can_edit:
         account.role !== "ORDER_CLERK" && writable &&
         hasPermission(account, "orders.edit") &&
