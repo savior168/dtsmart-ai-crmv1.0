@@ -94,6 +94,7 @@ type BatchReceiptLine = {
   cashPaidReported: string;
   note: string;
 };
+type BatchReceiptSourceDraft = { supplierId: string; supplierCode: string; noteNumber: string; documentDate: string };
 type SupplierOption = { id: string; system_code: string; settlement_cycle: string };
 type Receipt = { id: string; stock_order_item_id: string; supplier_code: string; note_number: string;
   document_date: string; quantity: number; purchase_unit_price_cny: number;
@@ -190,6 +191,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
   const [shipmentDraft, setShipmentDraft] = useState<ShipmentDraft | null>(null);
   const [receiptDraft, setReceiptDraft] = useState<ReceiptDraft | null>(null);
   const [batchReceiptDraft, setBatchReceiptDraft] = useState<BatchReceiptLine[] | null>(null);
+  const [batchReceiptSourceDraft, setBatchReceiptSourceDraft] = useState<BatchReceiptSourceDraft>({ supplierId: "", supplierCode: "", noteNumber: "", documentDate: new Date().toLocaleDateString("en-CA") });
   const [reverseDraft, setReverseDraft] = useState<{ receipt: Receipt; quantity: string; reason: string } | null>(null);
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
   const [supplierCodeInput, setSupplierCodeInput] = useState("");
@@ -509,21 +511,23 @@ export function StockOrderDetailView({ id }: { id: string }) {
       setSupplierOptions(options);
       const today = new Date().toLocaleDateString("en-CA");
       const drafts = eligible.map((item): BatchReceiptLine => {
-        const prior = (data?.receipts || []).find((receipt) => receipt.stock_order_item_id === item.id && !receipt.correction_of && receipt.remaining_quantity > 0);
-        const code = prior?.supplier_code || item.warehouse_supplier_code || "";
         return {
           rowId: crypto.randomUUID(),
           itemId: item.id,
-          supplierCode: code,
-          supplierId: options.find((supplier) => supplier.system_code === code)?.id || "",
-          noteNumber: prior?.note_number || "",
-          documentDate: prior?.document_date || today,
+          // A product's legacy/default supplier is not proof of this receipt's source.
+          // Require an explicit source for every receipt batch to avoid silently
+          // attributing new physical goods to a stale supplier or delivery note.
+          supplierCode: "",
+          supplierId: "",
+          noteNumber: "",
+          documentDate: today,
           quantity: String(item.quantity - item.received_quantity),
           unitPrice: item.procurement_cost_confirmed && typeof item.procurement_cost === "number" ? item.procurement_cost.toFixed(2) : "",
           cashPaidReported: "",
           note: "",
         };
       });
+      setBatchReceiptSourceDraft({ supplierId: "", supplierCode: "", noteNumber: "", documentDate: today });
       setBatchReceiptDraft(drafts);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "供应商代码加载失败");
@@ -550,11 +554,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
     });
   }
   function applyBatchSourceToAll() {
-    if (!batchReceiptDraft?.length) return;
-    const first = batchReceiptDraft[0];
+    if (!batchReceiptDraft?.length || !batchReceiptSourceDraft.supplierId || !batchReceiptSourceDraft.noteNumber.trim()) return;
     setBatchReceiptDraft((current) => current?.map((line) => ({ ...line,
-      supplierId: first.supplierId, supplierCode: first.supplierCode,
-      noteNumber: first.noteNumber, documentDate: first.documentDate,
+      supplierId: batchReceiptSourceDraft.supplierId, supplierCode: batchReceiptSourceDraft.supplierCode,
+      noteNumber: batchReceiptSourceDraft.noteNumber.trim(), documentDate: batchReceiptSourceDraft.documentDate,
     })) || null);
   }
   async function confirmBatchReceipt() {
@@ -1104,11 +1107,16 @@ export function StockOrderDetailView({ id }: { id: string }) {
               <div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setReceiptDraft(null)} className="rounded-lg border px-4 py-2">取消</button><button type="submit" disabled={busy || !receiptDraft.supplierId} className="rounded-lg bg-cyan-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "正在保存…" : "确认登记回货"}</button></div>
             </form> : null}
           </AppDialog>
-          <AppDialog open={batchReceiptDraft !== null} title="批量登记产品回货" width="max-w-7xl" description="每个产品项单独绑定供应商代码、纸质送货单号、日期、数量和采购单价；可使用多个供应商及送货单。全批在一个事务内提交，任何一项失败都不会部分入账。" onClose={() => { if (!busy) { setBatchReceiptDraft(null); setError(""); } }}>
+          <AppDialog open={batchReceiptDraft !== null} title="批量登记产品回货" width="max-w-7xl" description="同一供应商和送货单可统一填写一次并应用到本批产品；不同来源可在对应产品行单独修改或添加。全批在一个事务内提交，任何一项失败都不会部分入账。" onClose={() => { if (!busy) { setBatchReceiptDraft(null); setError(""); } }}>
             {batchReceiptDraft?.length ? <form onSubmit={(event) => { event.preventDefault(); void confirmBatchReceipt(); }} className="space-y-4 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-100 bg-cyan-50 p-3">
-                <p className="text-xs leading-5 text-cyan-950">快捷方式：填写第 1 项来源后，可一键复制供应商、送货单号和日期到所有选中项；数量和价格仍逐项核对。特殊情况可直接逐行选择不同供应商或送货单。</p>
-                <button type="button" onClick={applyBatchSourceToAll} disabled={busy || !batchReceiptDraft[0]?.supplierId || !batchReceiptDraft[0]?.noteNumber.trim()} className="h-9 shrink-0 rounded-lg border border-cyan-300 bg-white px-3 text-cyan-900 disabled:opacity-40">将第 1 项供应商/送货单应用到全部</button>
+              <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><strong className="text-cyan-950">本批统一来源（同一供应商/送货单时填写一次）</strong><p className="mt-1 text-xs text-cyan-900">应用后会填入所有已选产品；来源不同的产品可在下方逐项修改，或使用“添加来源”拆分多家供应商/多张送货单。回货数量、采购单价和现金实付仍逐项核对。</p></div></div>
+                <div className="grid gap-2 md:grid-cols-[1fr_1.2fr_180px_auto] md:items-end">
+                  <label className="text-xs text-slate-700">供应商代码<input aria-label="本批统一供应商代码" required list="batch-receipt-supplier-codes" autoComplete="off" maxLength={40} value={batchReceiptSourceDraft.supplierCode} onChange={(event) => { const code = event.target.value.toUpperCase(); setBatchReceiptSourceDraft((current) => ({ ...current, supplierCode: code, supplierId: matchActiveSupplierCode(supplierOptions, code)?.id || "" })); }} className="mt-1 h-9 w-full rounded border bg-white px-2"/>{batchReceiptSourceDraft.supplierCode && !batchReceiptSourceDraft.supplierId ? <small className="text-amber-700">代码未匹配启用档案</small> : null}</label>
+                  <label className="text-xs text-slate-700">供应商纸质送货单号<input aria-label="本批统一送货单号" required maxLength={100} value={batchReceiptSourceDraft.noteNumber} onChange={(event) => setBatchReceiptSourceDraft((current) => ({ ...current, noteNumber: event.target.value }))} className="mt-1 h-9 w-full rounded border bg-white px-2"/></label>
+                  <label className="text-xs text-slate-700">送货日期<input aria-label="本批统一送货日期" required type="date" max={new Date().toLocaleDateString("en-CA")} value={batchReceiptSourceDraft.documentDate} onChange={(event) => setBatchReceiptSourceDraft((current) => ({ ...current, documentDate: event.target.value }))} className="mt-1 h-9 w-full rounded border bg-white px-2"/></label>
+                  <button type="button" onClick={applyBatchSourceToAll} disabled={busy || !batchReceiptSourceDraft.supplierId || !batchReceiptSourceDraft.noteNumber.trim() || !batchReceiptSourceDraft.documentDate} className="h-9 rounded-lg border border-cyan-300 bg-white px-3 text-cyan-900 disabled:opacity-40">应用到本批产品</button>
+                </div>
               </div>
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full min-w-[1280px] text-left text-xs">
@@ -1117,8 +1125,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     const item = items.find((row) => row.id === line.itemId);
                     const supplier = matchActiveSupplierCode(supplierOptions, line.supplierCode);
                     if (!item) return null;
+                    const itemSourceRows = batchReceiptDraft.filter((candidate) => candidate.itemId === item.id);
+                    const sourceIndex = itemSourceRows.findIndex((candidate) => candidate.rowId === line.rowId) + 1;
                     return <tr key={line.rowId} className="border-t align-top">
-                      <td className="max-w-48 px-2 py-2"><strong>第 {item.line_number} 项</strong><span className="mt-1 block break-words text-slate-600">{[item.item_name, item.brand, item.model, item.quality].filter(Boolean).join(" · ")}</span></td>
+                      <td className="max-w-48 px-2 py-2"><strong>产品第 {item.line_number} 项 · 来源 {sourceIndex}/{itemSourceRows.length}</strong><span className="mt-1 block break-words text-slate-600">{[item.item_name, item.brand, item.model, item.quality].filter(Boolean).join(" · ")}</span>{itemSourceRows.length > 1 ? <small className="mt-1 block text-cyan-800">同一 PI 产品拆分采购；各来源回货数量合计不得超过剩余未回数</small> : null}</td>
                       <td className="px-2 py-2 pt-4 text-right tabular-nums">{item.quantity - item.received_quantity}</td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项本次回货数量`} required type="number" min={1} max={item.quantity - item.received_quantity} step={1} value={line.quantity} onChange={(event) => updateBatchReceiptLine(line.rowId, { quantity: event.target.value })} className="h-9 w-24 rounded border px-2 text-right"/></td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项供应商代码`} required list="batch-receipt-supplier-codes" autoComplete="off" maxLength={40} value={line.supplierCode} onChange={(event) => {
@@ -1129,7 +1139,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项送货日期`} required type="date" max={new Date().toLocaleDateString("en-CA")} value={line.documentDate} onChange={(event) => updateBatchReceiptLine(line.rowId, { documentDate: event.target.value })} className="h-9 w-36 rounded border px-2"/></td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项采购单价`} required inputMode="decimal" value={line.unitPrice} onChange={(event) => updateBatchReceiptLine(line.rowId, { unitPrice: event.target.value })} className="h-9 w-28 rounded border px-2 text-right"/></td>
                       <td className="px-2 py-2">{supplier?.settlement_cycle === "CASH" ? <input aria-label={`第 ${item.line_number} 项现场已付现金金额`} inputMode="decimal" placeholder="选填" value={line.cashPaidReported} onChange={(event) => updateBatchReceiptLine(line.rowId, { cashPaidReported: event.target.value })} className="h-9 w-28 rounded border px-2 text-right"/> : <span className="text-slate-400">—</span>}</td>
-                      <td className="px-2 py-2"><div className="flex flex-col items-start gap-1"><button type="button" onClick={() => addBatchReceiptSource(item.id)} disabled={busy || batchReceiptDraft.length >= 500} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">＋ 添加来源</button>{batchReceiptDraft.filter((candidate) => candidate.itemId === item.id).length > 1 ? <button type="button" onClick={() => removeBatchReceiptSource(line.rowId)} disabled={busy} className="whitespace-nowrap text-rose-700 hover:underline disabled:opacity-40">移除此来源</button> : null}</div></td>
+                      <td className="px-2 py-2"><div className="flex flex-col items-start gap-1"><button type="button" title="为同一 PI 产品增加一条供应商/送货单分配，不会增加订单产品数量" onClick={() => addBatchReceiptSource(item.id)} disabled={busy || batchReceiptDraft.length >= 500} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">＋ 拆分来源</button><small className="max-w-32 text-slate-500">同一产品多供应商/多送货单时使用</small>{itemSourceRows.length > 1 ? <button type="button" onClick={() => removeBatchReceiptSource(line.rowId)} disabled={busy} className="whitespace-nowrap text-rose-700 hover:underline disabled:opacity-40">移除此来源</button> : null}</div></td>
                     </tr>;
                   })}</tbody>
                 </table>
