@@ -337,7 +337,8 @@ assert.doesNotMatch(piInput, /description_zh:[^\n]*join\(" \/ "\)/, "仓库中�
 const optionalDescriptionMigration = read("supabase/migrations/20261020032135_pi_optional_warehouse_description.sql");
 assert.match(optionalDescriptionMigration, /create_direct_pi_order[\s\S]*update_direct_pi_draft/, "新建与编辑PI数据库函数须同步接受空中文描述");
 assert.doesNotMatch(piForm, /从商品库添加|searchProducts|productQuery/, "PI录入不应再显示商品库搜索模块");
-assert.match(piForm, /"成本单价（CNY） \*", "销售单价（CNY） \*", `销售单价（\$\{currency \|\| "付款币种"\}） \*`, "数量 \*", "销售金额（CNY）", `销售金额（\$\{currency \|\| "付款币种"\}）`/, "PI录入列头须按CNY、付款币种、数量、双币金额排列");
+assert.ok(piForm.includes('"销售单价（¥） *", ...(currency !== "CNY" ? [`销售单价（'), "PI录入单币种时使用带符号的唯一单价列，外币时按需显示付款币种列");
+assert.ok(piForm.includes('"销售金额（¥）", ...(currency !== "CNY" ? [`销售金额（'), "PI录入单币种时使用带符号的唯一金额列，外币时按需显示付款币种金额");
 assert.match(piForm, /产品总金额（RMB）[\s\S]*产品总利润（RMB）/, "产品明细底部必须展示总金额和总利润");
 assert.match(piForm, /产品总利润率：[\s\S]*totals\.totalProfitCny \/ totals\.subtotalCny \* 100/, "整单利润率必须按产品利润除以产品销售额计算");
 assert.ok(piForm.includes('const [validUntil, setValidUntil] = useState("");'), "新建PI有效期默认留空");
