@@ -27,7 +27,7 @@ export function NotificationAdminPanel() {
   const [success, setSuccess] = useState("");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [announcementType, setAnnouncementType] = useState<ReleaseCategory>("FEATURE");
+  const [announcementType, setAnnouncementType] = useState<ReleaseCategory>("ALL");
   const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
   const [releaseFrom, setReleaseFrom] = useState(today);
   const [releaseTo, setReleaseTo] = useState(today);
@@ -174,4 +174,5 @@ export function NotificationAdminPanel() {
     <section className="rounded-xl border bg-white p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">公告发布记录</h2><p className="mt-1 text-xs text-slate-500">按公告发布时间筛选，最多显示 100 条。</p></div><div className="flex flex-wrap items-end gap-2"><label className="text-xs text-slate-500">从<input type="date" value={historyFrom} onChange={event => setHistoryFrom(event.target.value)} className="mt-1 block h-9 rounded-lg border px-2 text-sm text-slate-800"/></label><label className="text-xs text-slate-500">至<input type="date" value={historyTo} onChange={event => setHistoryTo(event.target.value)} className="mt-1 block h-9 rounded-lg border px-2 text-sm text-slate-800"/></label><button type="button" onClick={() => setAppliedHistoryRange({ from: historyFrom, to: historyTo })} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-slate-700 hover:bg-slate-50"><Search size={15}/>筛选</button><button type="button" onClick={() => { setHistoryFrom(""); setHistoryTo(""); setAppliedHistoryRange({ from: "", to: "" }); }} className="h-9 rounded-lg border px-3 text-sm text-slate-600">重置</button></div></div><div className="mt-3 divide-y">{announcements.map(item => <article key={item.id} className="py-3"><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{item.title}</b><time className="text-xs text-slate-400">{new Date(item.published_at).toLocaleString("zh-CN")}</time></div><p className="mt-1 text-xs text-slate-500">接收范围：{item.recipient_roles?.length ? item.recipient_roles.map(role => ROLE_LABELS[role] || role).join("、") : "所有启用用户"}{item.recipient_count !== null ? ` · ${item.recipient_count} 人` : ""}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-600">{item.content}</p></article>)}{!announcements.length ? <p className="py-5 text-sm text-slate-400">当前日期范围内暂无已发布公告</p> : null}</div></section>
   </div></div>;
 }
+
 
