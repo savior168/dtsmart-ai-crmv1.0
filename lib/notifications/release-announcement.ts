@@ -10,7 +10,23 @@ export type ReleaseCommit = {
   deploymentUrl: string;
   affectedRoles: UserRole[] | ["ALL"];
   category: ReleaseCommitCategory;
+  changeItems?: string[];
 };
+
+/** Do not put raw commit messages into user-facing announcements. */
+export function extractVerifiedChangeItems(message: string, details = ""): string[] {
+  const source = `${message}\n${details}`;
+  const known: Array<[RegExp, string]> = [
+    [/PI image (?:picker|upload).*sidebar|PI image picker.*app shell/i, "修复创建 PI 时上传理货图片导致左侧菜单移位的问题"],
+    [/sidebar width|sidebar compact|form overflow.*sidebar/i, "修复左侧菜单宽度及 PI 表单横向溢出导致的布局异常"],
+    [/resilient workbench loading|harden dashboard/i, "提升工作台数据加载失败时的自动恢复能力"],
+    [/configurable performance permissions/i, "业绩分析按已配置的角色与用户权限控制访问"],
+    [/release announcements? from verified production deployments|release evidence source|github\/vercel release announcement|release announcement accuracy|release summaries/i, "公告草稿仅汇总已匹配 GitHub 提交的 Vercel 正式部署记录"],
+  ];
+  const items = known.filter(([pattern]) => pattern.test(source)).map(([, summary]) => summary);
+  const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line));
+  return [...new Set([...chinese, ...items])];
+}
 
 export type ReleaseCategory = "ALL" | "FEATURE" | "BUG_FIX" | "OPTIMIZATION" | "MAINTENANCE" | "SECURITY" | "GENERAL";
 export type ReleaseCommitCategory = Exclude<ReleaseCategory, "ALL">;
@@ -96,7 +112,7 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
   const matchingCategory = commits.filter(commit => selectedCategory === "ALL" || commit.category === selectedCategory);
   const targeted = selectedRoles?.length ? matchingCategory.filter(commit => commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => role !== "ALL" && selectedRoles.includes(role))) : matchingCategory;
   const moduleNames = [...new Set(targeted.flatMap(commit => inferReleaseModules(commit.files, selectedRoles)))];
-  const subjects = moduleNames.length ? moduleNames : [...new Set(targeted.map(commit => commit.message).filter(Boolean))];
+  const subjects = moduleNames.length ? moduleNames : ["系统更新"];
   const subject = subjects.slice(0, 3).join("、") + (subjects.length > 3 ? `等${subjects.length}个功能模块` : "");
   const title = targeted.length
     ? `${category.icon} ${from}至${to}正式发布｜${subject || "系统更新"}（${targeted.length}条提交）`.slice(0, 120)
@@ -104,22 +120,23 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
   if (!targeted.length) {
     return { title, content: `${category.icon} ${category.label}\n📅 统计周期：${from} 至 ${to}\n👥 接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}\n\n该周期内未发现符合筛选条件、且已在 Vercel 正式环境成功部署的 GitHub 提交。` };
   }
-  const grouped = new Map<string, ReleaseCommit[]>();
+  const grouped = new Map<string, string[]>();
   for (const commit of targeted) {
     const modules = inferReleaseModules(commit.files, selectedRoles);
     const labels = modules.length ? modules : [commit.affectedRoles.includes("ALL") ? "全系统通用变更" : "功能范围待核对"];
-    for (const label of labels) grouped.set(label, [...(grouped.get(label) || []), commit]);
+    const items = commit.changeItems?.length ? commit.changeItems : extractVerifiedChangeItems(commit.message, commit.details);
+    if (!items.length) throw new Error(`提交 ${commit.sha} 缺少可核实的中文变更说明，无法准确生成公告；请在发布记录中补充说明后重试。`);
+    const label = labels[0];
+    grouped.set(label, [...new Set([...(grouped.get(label) || []), ...items])]);
   }
   const lines = [
-    `${category.icon} ${category.label}`,
-    `📅 统计周期：${from} 至 ${to}`,
-    `👥 影响范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}`,
-    `🔎 依据：下列改动均来自 GitHub 提交，并已按提交 SHA 匹配所选时段内 Vercel Production READY 部署；类型根据提交说明归类。`,
+    `发布期间：${from} 至 ${to}`,
+    `接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}`,
   ];
-  const footer = `✅ 共 ${targeted.length} 个不同的正式发布提交；下方证据明细可逐项核对。`;
+  const footer = `以上内容对应 ${targeted.length} 次正式发布；提交与部署依据可在页面展开核对。`;
   const entries = [...grouped.entries()].flatMap(([module, items]) => [
-    `🔹 ${module}`,
-    ...items.map(item => `• ${RELEASE_CATEGORIES[item.category].label}：${item.message}${item.details ? `；${item.details}` : ""}（影响：${item.affectedRoles.includes("ALL") ? "所有角色" : item.affectedRoles.map(role => ROLE_LABELS[role]).join("、") || "待确认"}）`),
+    `${module}：`,
+    ...items.map(item => `• ${item}`),
   ]);
   const join = (selected: string[], truncated: boolean) => [
     ...lines,

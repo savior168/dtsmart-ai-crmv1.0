@@ -5,6 +5,7 @@ import { BellRing, LoaderCircle, Megaphone, Search, Sparkles } from "lucide-reac
 import type { NotificationPolicy } from "@/lib/notification-policy";
 import { USER_ROLES, type UserRole } from "@/lib/auth/permissions";
 import { RELEASE_CATEGORIES, type ReleaseCategory } from "@/lib/notifications/release-announcement";
+import { ANNOUNCEMENT_TEMPLATES, buildOperationalAnnouncement, type AnnouncementTemplate } from "@/lib/notifications/announcement-templates";
 
 type PolicyRow = NotificationPolicy & { label: string };
 type Announcement = { id: string; title: string; content: string; published_at: string; recipient_roles: UserRole[] | null; recipient_count: number | null };
@@ -29,6 +30,12 @@ export function NotificationAdminPanel() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [announcementType, setAnnouncementType] = useState<ReleaseCategory>("ALL");
+  const [template, setTemplate] = useState<AnnouncementTemplate>("NONE");
+  const [templateScope, setTemplateScope] = useState("");
+  const [templateStart, setTemplateStart] = useState("");
+  const [templateEnd, setTemplateEnd] = useState("");
+  const [templateImpact, setTemplateImpact] = useState("");
+  const [templateAction, setTemplateAction] = useState("");
   const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
   const [releaseFrom, setReleaseFrom] = useState(today);
   const [releaseTo, setReleaseTo] = useState(today);
@@ -155,6 +162,23 @@ export function NotificationAdminPanel() {
     }
   }
 
+  function generateOperationalNotice() {
+    if (template === "NONE") return;
+    try {
+      const draft = buildOperationalAnnouncement({ template, scope: templateScope, start: templateStart, end: templateEnd, impact: templateImpact, action: templateAction });
+      setTitle(draft.title);
+      setContent(draft.content);
+      setGeneratedSource("");
+      setReleaseEvidence([]);
+      setConfirming(false);
+      requestId.current = null;
+      setError("");
+      setSuccess("公告模板已填入，请核对时间、影响范围与操作指引后发布。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "公告模板内容不完整");
+    }
+  }
+
   const otherPolicies = policies.filter(row => !policyGroups.some(group => group.types.includes(row.type)));
   const visibleGroups = otherPolicies.length ? [...policyGroups, { label: "其他通知", types: otherPolicies.map(row => row.type) }] : policyGroups;
   const audienceLabel = audience === "ALL" ? "所有启用中的系统用户" : selectedRoles.map(role => ROLE_LABELS[role]).join("、");
@@ -172,7 +196,22 @@ export function NotificationAdminPanel() {
         </details>;
       })}</div>}
     </section>
-    <section className="rounded-xl border bg-white p-4 sm:p-5"><h2 className="flex items-center gap-2 font-semibold"><Megaphone size={18} className="text-blue-600"/>发布系统公告</h2><p className="mt-1 text-sm text-slate-500">按公告类型生成规范标题与分点正文，再由管理员核对后发布。只发送给发布时符合范围的启用用户，操作会留痕；请勿包含密码或敏感客户资料。</p><div className="mt-4 space-y-3">
+    <section className="rounded-xl border bg-white p-4 sm:p-5"><h2 className="flex items-center gap-2 font-semibold"><Megaphone size={18} className="text-blue-600"/>发布系统公告</h2><p className="mt-1 text-sm text-slate-500">发布变更摘要或运营公告前，请核对事实、影响范围及接收对象；请勿包含密码或敏感客户资料。</p><div className="mt-4 space-y-3">
+      <fieldset className="rounded-lg border border-slate-200 p-3">
+        <legend className="px-1 text-sm font-medium">常用运营公告模板</legend>
+        <p className="mb-3 text-xs text-slate-500">维护、暂停、恢复及故障公告仅依据管理员填写的实际情况生成，不从代码提交推测服务状态。</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-sm">公告模板<select value={template} onChange={event => setTemplate(event.target.value as AnnouncementTemplate)} className="mt-1 block h-10 w-full rounded-lg border bg-white px-3">{Object.entries(ANNOUNCEMENT_TEMPLATES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          {template !== "NONE" ? <>
+            <label className="text-sm">影响范围<input value={templateScope} onChange={event => setTemplateScope(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border px-3" placeholder="例如：PI订单与备货单"/></label>
+            <label className="text-sm">{template === "SERVICE_RESTORED" ? "恢复时间" : template === "INCIDENT" ? "发现时间" : "开始时间"}<input type="datetime-local" value={templateStart} onChange={event => setTemplateStart(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border px-3"/></label>
+            {template === "MAINTENANCE" || template === "SERVICE_PAUSE" ? <label className="text-sm">预计结束时间<input type="datetime-local" value={templateEnd} min={templateStart || undefined} onChange={event => setTemplateEnd(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border px-3"/></label> : null}
+            <label className="text-sm">实际影响或当前状态<input value={templateImpact} onChange={event => setTemplateImpact(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border px-3" placeholder="例如：维护期间部分操作不可用"/></label>
+            <label className="text-sm">用户操作<input value={templateAction} onChange={event => setTemplateAction(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border px-3" placeholder="例如：请提前保存正在编辑的单据"/></label>
+            <div className="flex items-end"><button type="button" onClick={generateOperationalNotice} className="h-10 w-full rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 hover:bg-blue-100">生成运营公告草稿</button></div>
+          </> : null}
+        </div>
+      </fieldset>
       <fieldset className="rounded-lg border border-slate-200 p-3 text-sm"><legend className="px-1 font-medium">接收范围</legend><div className="flex flex-wrap gap-x-6 gap-y-2"><label className="flex items-center gap-2"><input type="radio" name="announcement-audience" checked={audience === "ALL"} onChange={() => { setAudience("ALL"); invalidateGeneratedDraft(); }}/>所有启用用户</label><label className="flex items-center gap-2"><input type="radio" name="announcement-audience" checked={audience === "ROLES"} onChange={() => { setAudience("ROLES"); invalidateGeneratedDraft(); }}/>指定角色</label></div>{audience === "ROLES" ? <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t pt-3">{USER_ROLES.map(role => <label key={role} className="flex items-center gap-2"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={event => { setSelectedRoles(current => event.target.checked ? [...current, role] : current.filter(value => value !== role)); invalidateGeneratedDraft(); }}/>{ROLE_LABELS[role]}</label>)}</div> : null}<p className="mt-2 text-xs text-slate-500">按发布时的角色发送；之后角色变化不会补发或撤回。指定角色至少选择一项。</p></fieldset>
       <fieldset className="rounded-lg border border-slate-200 p-3"><legend className="px-1 text-sm font-medium">按发布记录生成内容</legend><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm">通知类型<select value={announcementType} onChange={event => { setAnnouncementType(event.target.value as ReleaseCategory); invalidateGeneratedDraft(); }} className="mt-1 block h-10 w-full rounded-lg border bg-white px-3">{Object.entries(RELEASE_CATEGORIES).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}</select></label>
