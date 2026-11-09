@@ -62,6 +62,9 @@ assert.match(testOnly.content, /未发现符合筛选条件/);
 const mixedAnnouncementAndSidebar = buildReleaseAnnouncement([{ ...releases[0], message: "修复公告按角色和类型筛选及侧栏换行 (#60)", details: "修复公告变更归类与侧栏菜单换行", files: ["components/app-shell.tsx", "lib/notifications/release-announcement.ts"], affectedRoles: ["ALL"] }], "2026-11-09", "2026-11-09", ["SALES", "ORDER_CLERK"], "ALL");
 assert.match(mixedAnnouncementAndSidebar.content, /修复左侧菜单换行/);
 assert.doesNotMatch(mixedAnnouncementAndSidebar.content, /公告变更归类|公告按角色/);
+assert.match(mixedAnnouncementAndSidebar.content, /全局界面与基础配置：\n• 修复左侧菜单换行/);
+const finalAnnouncementFix = buildReleaseAnnouncement([{ ...releases[0], message: "Split mixed announcement and sidebar release notes (#62)", files: ["lib/notifications/release-announcement.ts"], category: "GENERAL" }], "2026-11-09", "2026-11-09", ["ADMIN"], "ALL");
+assert.match(finalAnnouncementFix.content, /修复公告草稿对混合提交的角色筛选/);
 assert.ok(extractVerifiedChangeItems("Merge DTS release integration").some(item => item.includes("备货单")));
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
