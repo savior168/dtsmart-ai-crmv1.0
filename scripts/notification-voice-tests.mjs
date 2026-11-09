@@ -79,8 +79,8 @@ assert.match(notificationPanel, /useState<ReleaseCategory>\("ALL"\)/, "发布记
 assert.match(notificationPanel, /value=\{announcementType\}[\s\S]*Object\.entries\(RELEASE_CATEGORIES\)/, "通知类型下拉框必须包含全部类型选项");
 assert.match(releaseSummaryApi, /if \(!githubToken\)[\s\S]*私有 GitHub 提交记录/, "私有仓库摘要必须要求服务端只读 GitHub 令牌");
 assert.match(releaseSummaryApi, /if \(!githubToken\)[\s\S]*GITHUB_TOKEN/, "私有仓库摘要必须校验服务端 GitHub 只读令牌");
-assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments/, "正式部署记录应从 GitHub 中 Vercel 写入的 Production deployment 记录获取，不额外要求 Vercel 令牌");
-assert.doesNotMatch(releaseSummaryApi, /VERCEL_TOKEN/, "正式环境不应因部署摘要额外要求独立 Vercel 令牌");
+assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments/, "正式部署记录应读取 Vercel 项目 Production READY 记录");
+assert.match(releaseSummaryApi, /VERCEL_TOKEN/, "正式发布记录必须使用服务端 Vercel 只读令牌以区分生产与预览部署");
 assert.match(releaseSummaryApi, /rawCategory === "ALL" \|\| commit\.category === rawCategory/, "全部通知类型应聚合所有已部署提交类别");
 assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments[\s\S]*deploymentBySha[\s\S]*\/commits\/\$\{encodeURIComponent\(shaKey\)\}/, "摘要只能读取并总结已在指定时间段部署到 Vercel Production 的 GitHub commit SHA，不可依据本地改动");
 assert.match(notificationPanel, /audience === "ALL" \? null : selectedRoles/, "发布请求必须包含明确的接收范围");

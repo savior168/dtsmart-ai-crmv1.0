@@ -11,6 +11,7 @@ assert.match(permissionCatalog, /export function normalizeRole[\s\S]*throw new E
 const sidebar = read("components/app-shell.tsx");
 assert.match(read("components/password-auth-form.tsx"), /function goToApp\(\) \{[\s\S]*?router\.replace\("\/"\)/, "登录成功应先进入按当前账号权限选路的首页");
 assert.match(read("app/supabase-test/page.tsx"), /export default async function SupabaseTestPage\(\) \{\s*await protectPage\("system\.users\.view"\)/, "数据库连接诊断页必须有管理员页面守卫");
+assert.match(read("app/notifications/page.tsx"), /await protectPage\("notifications\.view"\)/, "站内通知页面必须在未登录时跳转登录，并按页面权限处理拒绝访问");
 for (const [page, permission] of [
   ["app/settings/users/page.tsx", "system.users.view"],
   ["app/settings/roles/page.tsx", "system.roles.view"],
