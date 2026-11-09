@@ -22,6 +22,7 @@ export function extractVerifiedChangeItems(message: string, details = ""): strin
     [/resilient workbench loading|harden dashboard/i, "提升工作台数据加载失败时的自动恢复能力"],
     [/configurable performance permissions/i, "业绩分析按已配置的角色与用户权限控制访问"],
     [/release announcements? from verified production deployments|release evidence source|github\/vercel release announcement|release announcement accuracy|release summaries/i, "公告草稿仅汇总已匹配 GitHub 提交的 Vercel 正式部署记录"],
+    [/verified release notices and operational templates/i, "公告草稿改用中文功能摘要，并新增维护预告、维护中、暂停服务、恢复服务及故障通知模板"],
   ];
   const items = known.filter(([pattern]) => pattern.test(source)).map(([, summary]) => summary);
   const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line));

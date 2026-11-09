@@ -39,6 +39,7 @@ assert.doesNotMatch(allSummary.content, /仓库入库进度/);
 const allAudienceSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", null, "ALL");
 assert.match(allAudienceSummary.content, /仓库入库进度展示/);
 const englishItems = extractVerifiedChangeItems("Harden dashboard, permissions, and release summaries", "Add resilient workbench loading, honor configurable performance permissions, and generate release announcements from verified production deployments.");
+assert.match(extractVerifiedChangeItems("Improve verified release notices and operational templates")[0], /维护中/);
 assert.deepEqual(englishItems, ["提升工作台数据加载失败时的自动恢复能力", "业绩分析按已配置的角色与用户权限控制访问", "公告草稿仅汇总已匹配 GitHub 提交的 Vercel 正式部署记录"]);
 const englishSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Fix PI image upload shifting the sidebar", details: "Co-authored-by: example", files: ["components/pi-order-form.tsx"], changeItems: extractVerifiedChangeItems("Fix PI image upload shifting the sidebar") }], "2026-11-09", "2026-11-09", null, "ALL");
 assert.match(englishSummary.content, /修复创建 PI 时上传理货图片/);
