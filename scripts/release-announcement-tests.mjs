@@ -44,9 +44,25 @@ assert.deepEqual(englishItems, ["提升工作台数据加载失败时的自动�
 const englishSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Fix PI image upload shifting the sidebar", details: "Co-authored-by: example", files: ["components/pi-order-form.tsx"], changeItems: extractVerifiedChangeItems("Fix PI image upload shifting the sidebar") }], "2026-11-09", "2026-11-09", null, "ALL");
 assert.match(englishSummary.content, /修复创建 PI 时上传理货图片/);
 assert.doesNotMatch(englishSummary.content, /Fix PI image|Co-authored/);
+const mixedModuleSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Harden dashboard, permissions, and release summaries", details: "Add resilient workbench loading, honor configurable performance permissions, and generate release announcements from verified production deployments.", files: ["components/crm-dashboard.tsx", "app/sales/performance/page.tsx", "components/notification-admin-panel.tsx"], affectedRoles: ["ALL"] }], "2026-11-09", "2026-11-09", null, "ALL");
+assert.match(mixedModuleSummary.content, /工作台与数据总览：\n• 提升工作台/);
+assert.match(mixedModuleSummary.content, /业绩与报表：\n• 业绩分析/);
+assert.match(mixedModuleSummary.content, /通知与公告：\n• 公告草稿/);
+assert.doesNotMatch(mixedModuleSummary.content, /通知与公告：\n• 提升工作台/);
+const salesOnly = buildReleaseAnnouncement([{ ...releases[0], message: "完善正式发布摘要与运营公告模板", files: ["components/notification-admin-panel.tsx"], affectedRoles: ["ALL"] }, { ...releases[0], message: "Merge DTS release integration", details: "Merge release branch with PI, supplier, stock and export fixes", files: ["components/pi-order-form.tsx", "components/stock-order-detail-view.tsx", "components/supplier-delivery-note-files.tsx", "components/crm-dashboard.tsx"], affectedRoles: ["ALL"] }], "2026-11-07", "2026-11-07", ["SALES", "ORDER_CLERK"], "ALL");
+assert.doesNotMatch(salesOnly.content, /公告草稿|供应商送货单/);
+assert.match(salesOnly.content, /PI 产品明细导入/);
+assert.match(salesOnly.content, /工作台备货动态/);
+const mergeFeature = buildReleaseAnnouncement([{ ...releases[0], message: "Merge DTS release integration", details: "Merge release branch with PI, supplier, stock and export fixes", files: ["components/pi-order-form.tsx", "components/stock-order-detail-view.tsx", "components/supplier-delivery-note-files.tsx"], category: "GENERAL", affectedRoles: ["ALL"] }], "2026-11-07", "2026-11-07", ["WAREHOUSE"], "FEATURE");
+assert.match(mergeFeature.content, /备货单支持批量登记/);
+assert.match(mergeFeature.content, /供应商送货单支持上传/);
+assert.doesNotMatch(mergeFeature.content, /PI 产品明细导入|工作台备货动态/);
+const testOnly = buildReleaseAnnouncement([{ ...releases[0], message: "Fix seller cost review migration test reference", files: ["scripts/seller-cost-review-tests.mjs"] }], "2026-11-07", "2026-11-07", null, "ALL");
+assert.match(testOnly.content, /未发现符合筛选条件/);
+assert.ok(extractVerifiedChangeItems("Merge DTS release integration").some(item => item.includes("备货单")));
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
-  deployedAt: "2026-11-07T02:00:00Z", files: [], deploymentUrl: `https://${"deployment".repeat(8)}.vercel.app`,
+  deployedAt: "2026-11-07T02:00:00Z", files: ["components/customer-form.tsx"], deploymentUrl: `https://${"deployment".repeat(8)}.vercel.app`,
   affectedRoles: customerRoles, category: "BUG_FIX",
 })), "2026-11-07", "2026-11-07", null, "BUG_FIX");
 assert.ok(longSummary.content.length <= 4000, `generated content too long: ${longSummary.content.length}`);
@@ -55,7 +71,7 @@ assert.equal((longSummary.content.match(/• 修复客户和订单功能异常/g
 const boundarySummary = buildReleaseAnnouncement(Array.from({ length: 10 }, (_, index) => ({
   sha: `boundary${index}`, message: `修复客户和订单功能异常 ${index} `.repeat(12).slice(0, 100),
   url: `https://github.com/${"very-long-owner-name/very-long-repository-name/commit/"}${index}${"a".repeat(40)}`,
-  deployedAt: "2026-11-07T02:00:00Z", files: [], deploymentUrl: `https://${"long-deployment-name-".repeat(5)}${index}.vercel.app`,
+  deployedAt: "2026-11-07T02:00:00Z", files: ["components/customer-form.tsx"], deploymentUrl: `https://${"long-deployment-name-".repeat(5)}${index}.vercel.app`,
   affectedRoles: customerRoles, category: "BUG_FIX",
 })), "2026-11-01", "2026-11-07", null, "BUG_FIX");
 assert.ok(boundarySummary.content.length <= 4000, `boundary summary too long: ${boundarySummary.content.length}`);

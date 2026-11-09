@@ -18,11 +18,19 @@ export function extractVerifiedChangeItems(message: string, details = ""): strin
   const source = `${message}\n${details}`;
   const known: Array<[RegExp, string]> = [
     [/PI image (?:picker|upload).*sidebar|PI image picker.*app shell/i, "修复创建 PI 时上传理货图片导致左侧菜单移位的问题"],
-    [/sidebar width|sidebar compact|form overflow.*sidebar/i, "修复左侧菜单宽度及 PI 表单横向溢出导致的布局异常"],
+    [/sidebar width|sidebar compact/i, "修复左侧菜单宽度异常"],
+    [/form overflow.*sidebar/i, "修复 PI 表单横向溢出导致的布局异常"],
     [/resilient workbench loading|harden dashboard/i, "提升工作台数据加载失败时的自动恢复能力"],
     [/configurable performance permissions/i, "业绩分析按已配置的角色与用户权限控制访问"],
     [/release announcements? from verified production deployments|release evidence source|github\/vercel release announcement|release announcement accuracy|release summaries/i, "公告草稿仅汇总已匹配 GitHub 提交的 Vercel 正式部署记录"],
     [/verified release notices and operational templates/i, "公告草稿改用中文功能摘要，并新增维护预告、维护中、暂停服务、恢复服务及故障通知模板"],
+    [/merge dts release integration/i, "备货单支持批量登记多产品回货及按供应商、送货单记录来源"],
+    [/merge dts release integration/i, "供应商送货单支持上传纸质凭证并用于对账核对"],
+    [/merge dts release integration/i, "PI 产品明细导入与粘贴增强币种、数量及金额识别"],
+    [/merge dts release integration/i, "备货单导出保留原有格式并展示理货图片"],
+    [/merge dts release integration/i, "工作台备货动态展示具体操作与进度"],
+    [/preserve stock workbook layout and embed tally thumbnails/i, "备货单导出保留原有格式并展示理货图片"],
+    [/preserve stock workbook layout and embed tally thumbnails/i, "PI 产品明细导入与粘贴增强币种、数量及金额识别"],
   ];
   const items = known.filter(([pattern]) => pattern.test(source)).map(([, summary]) => summary);
   const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line));
@@ -92,6 +100,51 @@ export function inferReleaseModules(paths: string[], selectedRoles?: UserRole[] 
   return [...modules];
 }
 
+function moduleForChangeItem(item: string, availableModules: string[]): string {
+  const rules: Array<[RegExp, string]> = [
+    [/公告|通知|发布摘要|发布记录/, "通知与公告"],
+    [/^备货单/, "备货单与仓库"],
+    [/供应商|送货单|对账/, "供应商与供应商对账"],
+    [/备货|回货|仓库/, "备货单与仓库"],
+    [/PI|订单|理货图片/, "PI订单与订单变更"],
+    [/工作台|数据加载/, "工作台与数据总览"],
+    [/业绩|报表/, "业绩与报表"],
+    [/侧栏|菜单宽度|横向溢出|布局/, "全局界面与基础配置"],
+  ];
+  const matched = rules.find(([pattern, label]) => pattern.test(item) && availableModules.includes(label));
+  return matched?.[1] || availableModules[0] || "功能范围待核对";
+}
+
+function changeAffectsRoles(item: string, module: string, selectedRoles: UserRole[] | null): boolean {
+  if (!selectedRoles?.length) return true;
+  // Editing and publishing announcements is an administrator action; receiving
+  // a notice does not make changes to the admin composer relevant to recipients.
+  if (module === "通知与公告" && /公告草稿|运营公告|发布摘要|发布记录|公告模板/.test(item)) {
+    return selectedRoles.includes("ADMIN");
+  }
+  const rule = MODULE_PATHS.find(entry => entry.label === module);
+  return !rule || rule.roles.some(role => selectedRoles.includes(role));
+}
+
+function categoryForChangeItem(item: string, fallback: ReleaseCommitCategory): ReleaseCommitCategory {
+  if (/^(修复|纠正|更正)/.test(item)) return "BUG_FIX";
+  if (/^(新增|增加|上线)/.test(item) || /支持(?:批量|上传|导入|多币种)/.test(item)) return "FEATURE";
+  if (/^(优化|完善|提升|改进)/.test(item) || /增强|保留原有格式/.test(item)) return "OPTIMIZATION";
+  return fallback;
+}
+
+export function selectReleaseChanges(commits: ReleaseCommit[], selectedRoles: UserRole[] | null, selectedCategory: ReleaseCategory): ReleaseCommit[] {
+  return commits.flatMap(commit => {
+    if (!commit.files.some(file => /^(app|components|lib|supabase)\//.test(file))) return [];
+    const modules = inferReleaseModules(commit.files);
+    const items = commit.changeItems?.length ? commit.changeItems : extractVerifiedChangeItems(commit.message, commit.details);
+    const changeItems = items.filter(item =>
+      (selectedCategory === "ALL" || categoryForChangeItem(item, commit.category) === selectedCategory)
+      && changeAffectsRoles(item, moduleForChangeItem(item, modules), selectedRoles));
+    return changeItems.length ? [{ ...commit, changeItems }] : [];
+  });
+}
+
 export function inferReleaseCategory(message: string): ReleaseCommitCategory {
   const value = message.toLowerCase();
   if (/(security|vulnerab|权限|安全|认证|鉴权)/i.test(value)) return "SECURITY";
@@ -110,26 +163,24 @@ export function explainEmptyReleaseMatch(deploymentsChecked: number, commitsChec
 
 export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string, to: string, selectedRoles: UserRole[] | null, selectedCategory: ReleaseCategory) {
   const category = RELEASE_CATEGORIES[selectedCategory];
-  const matchingCategory = commits.filter(commit => selectedCategory === "ALL" || commit.category === selectedCategory);
-  const targeted = selectedRoles?.length ? matchingCategory.filter(commit => commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => role !== "ALL" && selectedRoles.includes(role))) : matchingCategory;
-  const moduleNames = [...new Set(targeted.flatMap(commit => inferReleaseModules(commit.files, selectedRoles)))];
-  const subjects = moduleNames.length ? moduleNames : ["系统更新"];
-  const subject = subjects.slice(0, 3).join("、") + (subjects.length > 3 ? `等${subjects.length}个功能模块` : "");
-  const title = targeted.length
-    ? `${category.icon} ${from}至${to}正式发布｜${subject || "系统更新"}（${targeted.length}条提交）`.slice(0, 120)
-    : `${category.icon} ${category.title}｜${from} 至 ${to}`;
+  const targeted = selectReleaseChanges(commits, selectedRoles, selectedCategory);
   if (!targeted.length) {
-    return { title, content: `${category.icon} ${category.label}\n📅 统计周期：${from} 至 ${to}\n👥 接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}\n\n该周期内未发现符合筛选条件、且已在 Vercel 正式环境成功部署的 GitHub 提交。` };
+    return { title: `${category.icon} ${category.title}｜${from} 至 ${to}`, content: `${category.icon} ${category.label}\n📅 统计周期：${from} 至 ${to}\n👥 接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}\n\n该周期内未发现符合筛选条件、且已在 Vercel 正式环境成功部署的 GitHub 提交。` };
   }
   const grouped = new Map<string, string[]>();
   for (const commit of targeted) {
-    const modules = inferReleaseModules(commit.files, selectedRoles);
+    const modules = inferReleaseModules(commit.files);
     const labels = modules.length ? modules : [commit.affectedRoles.includes("ALL") ? "全系统通用变更" : "功能范围待核对"];
     const items = commit.changeItems?.length ? commit.changeItems : extractVerifiedChangeItems(commit.message, commit.details);
     if (!items.length) throw new Error(`提交 ${commit.sha} 缺少可核实的中文变更说明，无法准确生成公告；请在发布记录中补充说明后重试。`);
-    const label = labels[0];
-    grouped.set(label, [...new Set([...(grouped.get(label) || []), ...items])]);
+    for (const item of items) {
+      const label = moduleForChangeItem(item, labels);
+      grouped.set(label, [...new Set([...(grouped.get(label) || []), item])]);
+    }
   }
+  const moduleNames = [...grouped.keys()];
+  const subject = moduleNames.slice(0, 3).join("、") + (moduleNames.length > 3 ? `等${moduleNames.length}个功能模块` : "");
+  const title = `${category.icon} ${from}至${to}正式发布｜${subject}（${targeted.length}条提交）`.slice(0, 120);
   const lines = [
     `发布期间：${from} 至 ${to}`,
     `接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}`,
