@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildReleaseAnnouncement, explainEmptyReleaseMatch, inferAffectedRoles, inferReleaseCategory, inferReleaseModules } from "../lib/notifications/release-announcement.ts";
+import { buildReleaseAnnouncement, explainEmptyReleaseMatch, extractVerifiedChangeItems, inferAffectedRoles, inferReleaseCategory, inferReleaseModules } from "../lib/notifications/release-announcement.ts";
 
 const customerRoles = inferAffectedRoles(["app/api/customers/public-pool/claim/route.ts", "components/customer-public-pool-view.tsx"]);
 assert.ok(customerRoles.includes("SALES") && customerRoles.includes("SUPERVISOR"));
@@ -25,26 +25,32 @@ assert.match(salesSummary.title, /🛠️/);
 assert.match(salesSummary.title, /客户与客户公海/);
 assert.match(salesSummary.content, /公海客户认领/);
 assert.match(salesSummary.content, /四种联系方式/);
-assert.match(salesSummary.content, /影响：销售员、主管/);
-assert.match(salesSummary.content, /🔹 客户与客户公海/);
+assert.match(salesSummary.content, /接收范围：销售员/);
+assert.match(salesSummary.content, /客户与客户公海：/);
 assert.doesNotMatch(salesSummary.content, /仓库入库进度/);
-assert.match(salesSummary.content, /Vercel Production READY 部署/);
+assert.doesNotMatch(salesSummary.content, /Production READY/);
 const featureSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "FEATURE");
 assert.match(featureSummary.content, /未发现符合筛选条件/);
 const allSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "ALL");
 assert.match(allSummary.title, /正式发布/);
 assert.match(allSummary.content, /客户与客户公海/);
-assert.match(allSummary.content, /问题修复：修复公海客户认领渠道判断/);
+assert.match(allSummary.content, /• 修复公海客户认领渠道判断/);
 assert.doesNotMatch(allSummary.content, /仓库入库进度/);
 const allAudienceSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", null, "ALL");
 assert.match(allAudienceSummary.content, /仓库入库进度展示/);
+const englishItems = extractVerifiedChangeItems("Harden dashboard, permissions, and release summaries", "Add resilient workbench loading, honor configurable performance permissions, and generate release announcements from verified production deployments.");
+assert.match(extractVerifiedChangeItems("Improve verified release notices and operational templates")[0], /维护中/);
+assert.deepEqual(englishItems, ["提升工作台数据加载失败时的自动恢复能力", "业绩分析按已配置的角色与用户权限控制访问", "公告草稿仅汇总已匹配 GitHub 提交的 Vercel 正式部署记录"]);
+const englishSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Fix PI image upload shifting the sidebar", details: "Co-authored-by: example", files: ["components/pi-order-form.tsx"], changeItems: extractVerifiedChangeItems("Fix PI image upload shifting the sidebar") }], "2026-11-09", "2026-11-09", null, "ALL");
+assert.match(englishSummary.content, /修复创建 PI 时上传理货图片/);
+assert.doesNotMatch(englishSummary.content, /Fix PI image|Co-authored/);
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
   deployedAt: "2026-11-07T02:00:00Z", files: [], deploymentUrl: `https://${"deployment".repeat(8)}.vercel.app`,
   affectedRoles: customerRoles, category: "BUG_FIX",
 })), "2026-11-07", "2026-11-07", null, "BUG_FIX");
 assert.ok(longSummary.content.length <= 4000, `generated content too long: ${longSummary.content.length}`);
-assert.match(longSummary.content, /已按长度限制收敛/);
+assert.equal((longSummary.content.match(/• 修复客户和订单功能异常/g) || []).length, 1, "repeated release messages should be deduplicated");
 
 const boundarySummary = buildReleaseAnnouncement(Array.from({ length: 10 }, (_, index) => ({
   sha: `boundary${index}`, message: `修复客户和订单功能异常 ${index} `.repeat(12).slice(0, 100),
