@@ -65,6 +65,9 @@ assert.doesNotMatch(mixedAnnouncementAndSidebar.content, /公告变更归类|公
 assert.match(mixedAnnouncementAndSidebar.content, /全局界面与基础配置：\n• 修复左侧菜单换行/);
 const finalAnnouncementFix = buildReleaseAnnouncement([{ ...releases[0], message: "Split mixed announcement and sidebar release notes (#62)", files: ["lib/notifications/release-announcement.ts"], category: "GENERAL" }], "2026-11-09", "2026-11-09", ["ADMIN"], "ALL");
 assert.match(finalAnnouncementFix.content, /修复公告草稿对混合提交的角色筛选/);
+const mixedCostReview = buildReleaseAnnouncement([{ ...releases[0], message: "修复销售成本复核提示，并合并此发布批次中已测试的客户流程、供应商及通知摘要改动。", files: ["components/pi-order-detail.tsx", "components/notification-admin-panel.tsx"], category: "BUG_FIX" }], "2026-11-09", "2026-11-09", ["SALES", "ORDER_CLERK"], "ALL");
+assert.match(mixedCostReview.content, /PI订单与订单变更：\n• 修复销售成本复核提示/);
+assert.doesNotMatch(mixedCostReview.content, /通知摘要|此发布批次|通知与公告：/);
 assert.ok(extractVerifiedChangeItems("Merge DTS release integration").some(item => item.includes("备货单")));
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
