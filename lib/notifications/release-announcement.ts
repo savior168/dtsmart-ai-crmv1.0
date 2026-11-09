@@ -33,6 +33,7 @@ export function extractVerifiedChangeItems(message: string, details = ""): strin
     [/preserve stock workbook layout and embed tally thumbnails/i, "PI 产品明细导入与粘贴增强币种、数量及金额识别"],
     [/公告.*(?:及|与)侧栏|公告变更归类与侧栏菜单换行/i, "修复公告变更归类和角色筛选"],
     [/公告.*(?:及|与)侧栏|公告变更归类与侧栏菜单换行/i, "修复左侧菜单换行"],
+    [/split mixed announcement and sidebar release notes/i, "修复公告草稿对混合提交的角色筛选"],
   ];
   const items = known.filter(([pattern]) => pattern.test(source)).map(([, summary]) => summary);
   const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line) && !/公告.*(?:及|与)侧栏/.test(line));
@@ -80,7 +81,7 @@ const MODULE_PATHS: Array<{ label: string; roles: UserRole[]; pattern: RegExp }>
   { label: "业绩与报表", roles: ["SALES", "SUPERVISOR", "FINANCE", "ADMIN"], pattern: /(^|\/)(reports?|sales\/performance|sales-performance|sales-reports|costs?)(\/|\.|$)/i },
   { label: "通知与公告", roles: ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE", "FINANCE"], pattern: /(^|\/)(notifications?|notification-[^/]*|announcements?)(\/|\.|$)/i },
   { label: "系统设置与权限", roles: ["ADMIN"], pattern: /(^|\/)(settings|middleware|lib\/auth)(\/|\.|$)|^app\/api\/admin\/(users|roles|permissions)(\/|\.|$)/i },
-  { label: "全局界面与基础配置", roles: ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE", "FINANCE"], pattern: /(^|\/)(app\/globals?\.css|components\/ui|package\.json|next\.config\.[^/]+|tailwind\.config\.[^/]+|tsconfig\.json)$/i },
+  { label: "全局界面与基础配置", roles: ["ADMIN", "SUPERVISOR", "SALES", "ORDER_CLERK", "WAREHOUSE", "FINANCE"], pattern: /(^|\/)(app\/globals?\.css|components\/app-shell\.tsx|components\/ui|package\.json|next\.config\.[^/]+|tailwind\.config\.[^/]+|tsconfig\.json)$/i },
 ];
 
 export function inferAffectedRoles(paths: string[]): UserRole[] | ["ALL"] {
@@ -121,7 +122,7 @@ function changeAffectsRoles(item: string, module: string, selectedRoles: UserRol
   if (!selectedRoles?.length) return true;
   // Editing and publishing announcements is an administrator action; receiving
   // a notice does not make changes to the admin composer relevant to recipients.
-  if (module === "通知与公告" && /公告|发布摘要|发布记录/.test(item)) {
+  if (module === "通知与公告" && /公告|发布摘要|发布记录|发布提交|变更类型筛选/.test(item)) {
     return selectedRoles.includes("ADMIN");
   }
   const rule = MODULE_PATHS.find(entry => entry.label === module);
