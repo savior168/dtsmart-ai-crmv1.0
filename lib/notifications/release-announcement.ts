@@ -3,6 +3,7 @@ import type { UserRole } from "@/lib/auth/permissions";
 export type ReleaseCommit = {
   sha: string;
   message: string;
+  details?: string;
   url: string;
   deployedAt: string;
   files: string[];
@@ -50,8 +51,8 @@ const MODULE_PATHS: Array<{ label: string; pattern: RegExp }> = [
   { label: "备货单与仓库", pattern: /(^|\/)(stock-orders?|stock-order-[^/]*|warehouse)(\/|\.|$)/i },
   { label: "供应商与供应商对账", pattern: /(^|\/)(suppliers?|supplier-[^/]*|supplier-reconciliation|reconciliation)(\/|\.|$)/i },
   { label: "业绩与报表", pattern: /(^|\/)(reports?|sales\/performance|sales-performance|sales-reports|costs?)(\/|\.|$)/i },
-  { label: "通知与公告", pattern: /(^|\/)(notifications?|announcements?)(\/|\.|$)/i },
-  { label: "系统设置与权限", pattern: /(^|\/)(settings|api\/admin|middleware|lib\/auth)(\/|\.|$)/i },
+  { label: "通知与公告", pattern: /(^|\/)(notifications?|notification-[^/]*|announcements?)(\/|\.|$)/i },
+  { label: "系统设置与权限", pattern: /(^|\/)(settings|middleware|lib\/auth)(\/|\.|$)|^app\/api\/admin\/(users|roles|permissions)(\/|\.|$)/i },
   { label: "全局界面与基础配置", pattern: /(^|\/)(app\/globals?\.css|components\/ui|package\.json|next\.config\.[^/]+|tailwind\.config\.[^/]+|tsconfig\.json)$/i },
 ];
 
@@ -80,11 +81,22 @@ export function inferReleaseCategory(message: string): ReleaseCommitCategory {
   return "GENERAL";
 }
 
+export function explainEmptyReleaseMatch(deploymentsChecked: number, commitsChecked: number) {
+  if (deploymentsChecked === 0) return "所选时间内没有核验到 Vercel 正式环境成功部署记录，因此未生成公告草稿。请调整日期范围，或检查 GitHub 部署记录读取权限。";
+  if (commitsChecked === 0) return `已核验 ${deploymentsChecked} 条正式部署状态，但没有找到可关联的 GitHub 提交，未生成公告草稿。请检查仓库配置与提交读取权限。`;
+  return `已核验 ${deploymentsChecked} 条正式部署状态、关联 ${commitsChecked} 条 GitHub 提交，但没有提交符合当前角色与通知类型筛选；未生成公告草稿。请调整筛选条件。`;
+}
+
 export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string, to: string, selectedRoles: UserRole[] | null, selectedCategory: ReleaseCategory) {
   const category = RELEASE_CATEGORIES[selectedCategory];
   const matchingCategory = commits.filter(commit => selectedCategory === "ALL" || commit.category === selectedCategory);
   const targeted = selectedRoles?.length ? matchingCategory.filter(commit => commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => role !== "ALL" && selectedRoles.includes(role))) : matchingCategory;
-  const title = `${category.icon} ${category.title}｜${from} 至 ${to}`;
+  const moduleNames = [...new Set(targeted.flatMap(commit => inferReleaseModules(commit.files)))];
+  const subjects = moduleNames.length ? moduleNames : [...new Set(targeted.map(commit => commit.message).filter(Boolean))];
+  const subject = subjects.slice(0, 3).join("、") + (subjects.length > 3 ? `等${subjects.length}个功能模块` : "");
+  const title = targeted.length
+    ? `${category.icon} ${from}至${to}正式发布｜${subject || "系统更新"}（${targeted.length}条提交）`.slice(0, 120)
+    : `${category.icon} ${category.title}｜${from} 至 ${to}`;
   if (!targeted.length) {
     return { title, content: `${category.icon} ${category.label}\n📅 统计周期：${from} 至 ${to}\n👥 接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}\n\n该周期内未发现符合筛选条件、且已在 Vercel 正式环境成功部署的 GitHub 提交。` };
   }
@@ -105,7 +117,13 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
     ...items.flatMap((item, index) => {
       const modules = inferReleaseModules(item.files);
       const moduleLabel = modules.length ? modules.join("、") : "功能范围待核对";
-      return [`${index + 1}. ${moduleLabel}｜${RELEASE_CATEGORIES[item.category].label}：${item.message}（上线：${new Date(item.deployedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}）`, `   ↳ GitHub: ${item.url}`, `   ↳ Vercel: ${item.deploymentUrl}`];
+      return [
+        `${index + 1}. ${moduleLabel}｜${RELEASE_CATEGORIES[item.category].label}：${item.message}`,
+        ...(item.details ? [`   ↳ 提交说明：${item.details}`] : []),
+        `   ↳ 正式上线：${new Date(item.deployedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}`,
+        `   ↳ GitHub: ${item.url}`,
+        `   ↳ Vercel: ${item.deploymentUrl}`,
+      ];
     }),
   ]);
   const join = (selected: string[], truncated: boolean) => [
@@ -132,4 +150,3 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
   }
   return { title, content: join(selectedEntries, false) };
 }
-
