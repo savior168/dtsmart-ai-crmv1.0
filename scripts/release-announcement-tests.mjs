@@ -44,6 +44,11 @@ assert.deepEqual(englishItems, ["提升工作台数据加载失败时的自动�
 const englishSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Fix PI image upload shifting the sidebar", details: "Co-authored-by: example", files: ["components/pi-order-form.tsx"], changeItems: extractVerifiedChangeItems("Fix PI image upload shifting the sidebar") }], "2026-11-09", "2026-11-09", null, "ALL");
 assert.match(englishSummary.content, /修复创建 PI 时上传理货图片/);
 assert.doesNotMatch(englishSummary.content, /Fix PI image|Co-authored/);
+const mixedModuleSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Harden dashboard, permissions, and release summaries", details: "Add resilient workbench loading, honor configurable performance permissions, and generate release announcements from verified production deployments.", files: ["components/crm-dashboard.tsx", "app/sales/performance/page.tsx", "components/notification-admin-panel.tsx"], affectedRoles: ["ALL"] }], "2026-11-09", "2026-11-09", null, "ALL");
+assert.match(mixedModuleSummary.content, /工作台与数据总览：\n• 提升工作台/);
+assert.match(mixedModuleSummary.content, /业绩与报表：\n• 业绩分析/);
+assert.match(mixedModuleSummary.content, /通知与公告：\n• 公告草稿/);
+assert.doesNotMatch(mixedModuleSummary.content, /通知与公告：\n• 提升工作台/);
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
   deployedAt: "2026-11-07T02:00:00Z", files: [], deploymentUrl: `https://${"deployment".repeat(8)}.vercel.app`,

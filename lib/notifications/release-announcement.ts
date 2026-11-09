@@ -18,7 +18,8 @@ export function extractVerifiedChangeItems(message: string, details = ""): strin
   const source = `${message}\n${details}`;
   const known: Array<[RegExp, string]> = [
     [/PI image (?:picker|upload).*sidebar|PI image picker.*app shell/i, "修复创建 PI 时上传理货图片导致左侧菜单移位的问题"],
-    [/sidebar width|sidebar compact|form overflow.*sidebar/i, "修复左侧菜单宽度及 PI 表单横向溢出导致的布局异常"],
+    [/sidebar width|sidebar compact/i, "修复左侧菜单宽度异常"],
+    [/form overflow.*sidebar/i, "修复 PI 表单横向溢出导致的布局异常"],
     [/resilient workbench loading|harden dashboard/i, "提升工作台数据加载失败时的自动恢复能力"],
     [/configurable performance permissions/i, "业绩分析按已配置的角色与用户权限控制访问"],
     [/release announcements? from verified production deployments|release evidence source|github\/vercel release announcement|release announcement accuracy|release summaries/i, "公告草稿仅汇总已匹配 GitHub 提交的 Vercel 正式部署记录"],
@@ -92,6 +93,19 @@ export function inferReleaseModules(paths: string[], selectedRoles?: UserRole[] 
   return [...modules];
 }
 
+function moduleForChangeItem(item: string, availableModules: string[]): string {
+  const rules: Array<[RegExp, string]> = [
+    [/公告|通知|发布摘要|发布记录/, "通知与公告"],
+    [/PI|订单|理货图片/, "PI订单与订单变更"],
+    [/备货|仓库|回货/, "备货单与仓库"],
+    [/工作台|数据加载/, "工作台与数据总览"],
+    [/业绩|报表/, "业绩与报表"],
+    [/侧栏|菜单宽度|横向溢出|布局/, "全局界面与基础配置"],
+  ];
+  const matched = rules.find(([pattern, label]) => pattern.test(item) && availableModules.includes(label));
+  return matched?.[1] || availableModules[0] || "功能范围待核对";
+}
+
 export function inferReleaseCategory(message: string): ReleaseCommitCategory {
   const value = message.toLowerCase();
   if (/(security|vulnerab|权限|安全|认证|鉴权)/i.test(value)) return "SECURITY";
@@ -112,14 +126,8 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
   const category = RELEASE_CATEGORIES[selectedCategory];
   const matchingCategory = commits.filter(commit => selectedCategory === "ALL" || commit.category === selectedCategory);
   const targeted = selectedRoles?.length ? matchingCategory.filter(commit => commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => role !== "ALL" && selectedRoles.includes(role))) : matchingCategory;
-  const moduleNames = [...new Set(targeted.flatMap(commit => inferReleaseModules(commit.files, selectedRoles)))];
-  const subjects = moduleNames.length ? moduleNames : ["系统更新"];
-  const subject = subjects.slice(0, 3).join("、") + (subjects.length > 3 ? `等${subjects.length}个功能模块` : "");
-  const title = targeted.length
-    ? `${category.icon} ${from}至${to}正式发布｜${subject || "系统更新"}（${targeted.length}条提交）`.slice(0, 120)
-    : `${category.icon} ${category.title}｜${from} 至 ${to}`;
   if (!targeted.length) {
-    return { title, content: `${category.icon} ${category.label}\n📅 统计周期：${from} 至 ${to}\n👥 接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}\n\n该周期内未发现符合筛选条件、且已在 Vercel 正式环境成功部署的 GitHub 提交。` };
+    return { title: `${category.icon} ${category.title}｜${from} 至 ${to}`, content: `${category.icon} ${category.label}\n📅 统计周期：${from} 至 ${to}\n👥 接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}\n\n该周期内未发现符合筛选条件、且已在 Vercel 正式环境成功部署的 GitHub 提交。` };
   }
   const grouped = new Map<string, string[]>();
   for (const commit of targeted) {
@@ -127,9 +135,14 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
     const labels = modules.length ? modules : [commit.affectedRoles.includes("ALL") ? "全系统通用变更" : "功能范围待核对"];
     const items = commit.changeItems?.length ? commit.changeItems : extractVerifiedChangeItems(commit.message, commit.details);
     if (!items.length) throw new Error(`提交 ${commit.sha} 缺少可核实的中文变更说明，无法准确生成公告；请在发布记录中补充说明后重试。`);
-    const label = labels[0];
-    grouped.set(label, [...new Set([...(grouped.get(label) || []), ...items])]);
+    for (const item of items) {
+      const label = moduleForChangeItem(item, labels);
+      grouped.set(label, [...new Set([...(grouped.get(label) || []), item])]);
+    }
   }
+  const moduleNames = [...grouped.keys()];
+  const subject = moduleNames.slice(0, 3).join("、") + (moduleNames.length > 3 ? `等${moduleNames.length}个功能模块` : "");
+  const title = `${category.icon} ${from}至${to}正式发布｜${subject}（${targeted.length}条提交）`.slice(0, 120);
   const lines = [
     `发布期间：${from} 至 ${to}`,
     `接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}`,
