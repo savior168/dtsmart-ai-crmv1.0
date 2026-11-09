@@ -12,7 +12,6 @@ const PERFORMANCE_STATUSES = ["CONFIRMED", "STOCK_DRAFT", "WAITING_STOCK", "PREP
 export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("reports.view");
-    if (!["ADMIN", "SUPERVISOR", "SALES"].includes(account.role)) throw new Error("FORBIDDEN");
     const from = request.nextUrl.searchParams.get("from");
     const to = request.nextUrl.searchParams.get("to");
     if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) {

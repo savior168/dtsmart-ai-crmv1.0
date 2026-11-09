@@ -59,7 +59,7 @@ const menu = [
   {
     label: "销售管理", icon: ClipboardList, defaultHref: "/orders", children: [
       { label: "PI订单", href: "/orders", permission: "orders.view" },
-      { label: "业绩分析", href: "/sales/performance", permission: "reports.view", roles: ["ADMIN", "SUPERVISOR", "SALES"] },
+      { label: "业绩分析", href: "/sales/performance", permission: "reports.view" },
     ],
   },
   { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
@@ -705,7 +705,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {menu.map((item) => {
           const Icon = item.icon;
           if ("children" in item) {
-            const children = item.children.filter((child) => canSeePermission(child.permission) && (!("roles" in child) || !profile || (child.roles as readonly string[]).includes(profile.role)));
+            const children = item.children.filter((child) => canSeePermission(child.permission));
             if (!children.length) return null;
             const selected = children.some((child) => !("disabled" in child && child.disabled) && isActive(path, child.href, fromPool));
             const expanded = !collapsed && (expandedGroups.has(item.label) || selected);
