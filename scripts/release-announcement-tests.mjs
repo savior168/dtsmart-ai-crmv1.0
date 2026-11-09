@@ -25,9 +25,10 @@ assert.match(salesSummary.title, /🛠️/);
 assert.match(salesSummary.title, /客户与客户公海/);
 assert.match(salesSummary.content, /公海客户认领/);
 assert.match(salesSummary.content, /四种联系方式/);
-assert.match(salesSummary.content, /正式上线：/);
+assert.match(salesSummary.content, /影响：销售员、主管/);
+assert.match(salesSummary.content, /🔹 客户与客户公海/);
 assert.doesNotMatch(salesSummary.content, /仓库入库进度/);
-assert.match(salesSummary.content, /Vercel 成功的正式部署记录/);
+assert.match(salesSummary.content, /Vercel Production READY 部署/);
 const featureSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "FEATURE");
 assert.match(featureSummary.content, /未发现符合筛选条件/);
 const allSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "ALL");
@@ -37,7 +38,7 @@ assert.match(allSummary.content, /问题修复：修复公海客户认领渠道�
 assert.doesNotMatch(allSummary.content, /仓库入库进度/);
 const allAudienceSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", null, "ALL");
 assert.match(allAudienceSummary.content, /仓库入库进度展示/);
-const longSummary = buildReleaseAnnouncement(Array.from({ length: 30 }, (_, index) => ({
+const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
   deployedAt: "2026-11-07T02:00:00Z", files: [], deploymentUrl: `https://${"deployment".repeat(8)}.vercel.app`,
   affectedRoles: customerRoles, category: "BUG_FIX",
@@ -52,7 +53,7 @@ const boundarySummary = buildReleaseAnnouncement(Array.from({ length: 10 }, (_, 
   affectedRoles: customerRoles, category: "BUG_FIX",
 })), "2026-11-01", "2026-11-07", null, "BUG_FIX");
 assert.ok(boundarySummary.content.length <= 4000, `boundary summary too long: ${boundarySummary.content.length}`);
-assert.match(explainEmptyReleaseMatch(0, 0), /没有核验到 Vercel 正式环境成功部署记录/);
+assert.match(explainEmptyReleaseMatch(0, 0), /Vercel 项目记录中.*没有匹配到.*Production READY 部署/);
 assert.match(explainEmptyReleaseMatch(2, 0), /没有找到可关联的 GitHub 提交/);
 assert.match(explainEmptyReleaseMatch(2, 1), /没有提交符合当前角色与通知类型筛选/);
 

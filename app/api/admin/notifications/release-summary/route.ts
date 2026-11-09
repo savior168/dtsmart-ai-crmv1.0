@@ -34,14 +34,13 @@ export async function GET(request: NextRequest) {
     const repository = process.env.GITHUB_REPOSITORY || "savior168/dtsmart-ai-crmv1.0";
     const [owner, repo] = repository.split("/");
     if (!owner || !repo || repository.split("/").length !== 2) return NextResponse.json({ error: "GITHUB_REPOSITORY 配置格式应为 owner/repo" }, { status: 500, headers: jsonHeaders });
-    if (!githubToken) return NextResponse.json({ error: "缺少服务端 GITHUB_TOKEN，无法读取私有 GitHub 仓库及 Vercel 正式部署记录；请为 Vercel Production 配置具备该仓库只读权限的令牌。" }, { status: 503, headers: jsonHeaders });
-
+    if (!githubToken) return NextResponse.json({ error: "缺少服务端 GITHUB_TOKEN，无法读取私有 GitHub 提交记录；请为 Vercel Production 配置具备该仓库读取权限的令牌。" }, { status: 503, headers: jsonHeaders });
     const productionDeployments = await listVerifiedVercelProductionDeployments({ repository, from, to, token: githubToken });
     const deploymentBySha = new Map<string, VerifiedProductionDeployment>();
     for (const deployment of productionDeployments) {
       if (!deploymentBySha.has(deployment.sha)) deploymentBySha.set(deployment.sha, deployment);
     }
-    if (deploymentBySha.size > 10) return NextResponse.json({ error: "所选时段已部署改动超过 10 项，请缩小日期范围后生成，避免公告遗漏或超长。" }, { status: 400, headers: jsonHeaders });
+    if (deploymentBySha.size > 40) return NextResponse.json({ error: "所选时段包含超过 40 个不同的正式发布提交，单条公告无法完整清晰呈现。请缩小日期范围后生成，系统不会静默省略变更。" }, { status: 400, headers: jsonHeaders });
 
     const details = await Promise.all([...deploymentBySha.entries()].map(async ([shaKey, deployment]) => {
       const detailResponse = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(shaKey)}`, { headers: { ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}), Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, cache: "no-store" });
@@ -55,7 +54,7 @@ export async function GET(request: NextRequest) {
       const message = rawTitle.trim().slice(0, 100) || `提交 ${sha}`;
       const details = rawDetails
         .filter(line => !/^\s*(co-authored-by|signed-off-by|reviewed-by):/i.test(line))
-        .join(" ").replace(/\s+/g, " ").trim().slice(0, 500);
+        .join(" ").replace(/\s+/g, " ").trim().slice(0, 220);
       return {
         sha,
         message,
@@ -73,11 +72,12 @@ export async function GET(request: NextRequest) {
     const roleMatches = (commit: ReleaseCommit) => !selectedRoleSet.size || commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => selectedRoleSet.has(role));
     const matched = releases.filter(commit => (rawCategory === "ALL" || commit.category === rawCategory) && roleMatches(commit));
     if (!matched.length) return NextResponse.json({ error: explainEmptyReleaseMatch(productionDeployments.length, releases.length), deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: 0 }, { status: 422, headers: jsonHeaders });
-    return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: releases.map(({ sha, message, url, deploymentUrl, affectedRoles }) => ({ sha, message, url, deploymentUrl, affectedRoles })), source: "GitHub commits matched by SHA to Vercel Production successful deployment statuses in the selected release window" }, { headers: jsonHeaders });
+    if (generated.content.includes("摘要已按长度限制收敛")) return NextResponse.json({ error: "符合条件的正式发布变更过多，摘要无法完整放入公告。为避免漏报，请缩小日期范围后重新生成。", deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: matched.length }, { status: 422, headers: jsonHeaders });
+    return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: matched.map(({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles }) => ({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles })), source: "GitHub Production deployment records written by Vercel, verified by successful Vercel deployment URL and exact Git commit SHA in the selected release window" }, { headers: jsonHeaders });
   } catch (error) {
     const message = error instanceof Error ? error.message : "发布记录读取失败";
     const authStatus = authErrorStatus(message);
-    const status = authStatus || (/^GitHub .*读取失败|^GitHub .*返回 404/.test(message) ? 502 : 400);
+    const status = authStatus || (/^(GitHub|Vercel) /.test(message) ? 502 : 400);
     return NextResponse.json({ error: message }, { status, headers: jsonHeaders });
   }
 }

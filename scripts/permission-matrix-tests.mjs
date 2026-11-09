@@ -54,6 +54,11 @@ const cases = [
   ["主管撤销实际利润权限后不可见", account("SUPERVISOR", ["reports.view"]), "reports.actual_profit.view", false],
   ["销售员只有报表页不可见实际利润", account("SALES", ["reports.view"]), "reports.actual_profit.view", false],
   ["仓库员不能仅凭实际利润权限绕过报表页", account("WAREHOUSE", ["reports.actual_profit.view"]), "reports.actual_profit.view", false],
+  ["仓库员可由管理员单独授权查看业绩分析", account("WAREHOUSE", ["reports.view"]), "reports.view", true],
+  ["跟单员可由管理员单独授权查看业绩分析", account("ORDER_CLERK", ["reports.view"]), "reports.view", true],
+  ["财务角色可由管理员单独授权查看业绩分析", account("FINANCE", ["reports.view"]), "reports.view", true],
+  ["自定义角色可由管理员单独授权查看业绩分析", account("CUSTOM_ROLE", ["reports.view"]), "reports.view", true],
+  ["未获报表页面授权的角色仍不能查看业绩分析", account("WAREHOUSE", []), "reports.view", false],
 ];
 for (const [label, user, permission, expected] of cases) {
   assert.equal(evaluatePermission(user, permission), expected, label);
@@ -77,6 +82,21 @@ for (const item of PERMISSION_CATALOG) {
   }
 }
 const migration = readFileSync(new URL("../supabase/migrations/20261102060002_finance_role_supplier_permissions.sql", import.meta.url), "utf8");
+const sidebar = readFileSync(new URL("../components/app-shell.tsx", import.meta.url), "utf8");
+const performancePage = readFileSync(new URL("../app/sales/performance/page.tsx", import.meta.url), "utf8");
+const performanceApi = readFileSync(new URL("../app/api/reports/sales/performance/route.ts", import.meta.url), "utf8");
+assert.match(sidebar, /label: "业绩分析", href: "\/sales\/performance", permission: "reports\.view"/,
+  "业绩分析菜单必须只由 reports.view 权限控制");
+assert.doesNotMatch(sidebar, /label: "业绩分析"[^\n]*roles:/,
+  "业绩分析菜单不得再叠加固定角色白名单");
+assert.match(performancePage, /protectPage\("reports\.view"\)/,
+  "业绩分析页面必须由 reports.view 页面权限守卫保护");
+assert.doesNotMatch(performancePage, /account\.role|redirect\(/,
+  "业绩分析页面不得用角色白名单覆盖管理员配置的页面授权");
+assert.match(performanceApi, /requirePermission\("reports\.view"\)/,
+  "业绩分析接口必须校验 reports.view 权限");
+assert.doesNotMatch(performanceApi, /\["ADMIN",\s*"SUPERVISOR",\s*"SALES"\]\.includes\(account\.role\)/,
+  "业绩分析接口不得再叠加固定角色白名单");
 const dbPages = [...migration.matchAll(/when p_permission like '([^']+)%' then '([^']+)'/g)]
   .map((match) => ({ prefix: match[1], page: match[2] }));
 const notificationParentMigration = readFileSync(new URL("../supabase/migrations/20261105094016_notification_permission_parent.sql", import.meta.url), "utf8");
