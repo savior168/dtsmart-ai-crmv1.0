@@ -182,5 +182,6 @@ assert.match(publicPool, /flex items-center justify-center gap-2 whitespace-nowr
 const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /const effectiveWidth = collapsed \? 76 : 224;/, "侧栏展开宽度应固定为协调的 224px，刷新不应改变布局");
 assert.doesNotMatch(appShell, /dtsmart-sidebar-width|cursor-col-resize/, "侧栏宽度不得受旧浏览器缓存或拖拽状态影响");
+assert.match(read("components/pi-order-form.tsx"), /type="file"[^\n]*className="sr-only !fixed left-0 top-0"[^\n]*第 \$\{lineIndex \+ 1\} 行理货图片/, "表格内单项理货图片选择器必须固定在视口安全位置，不能触发页面横向滚动");
 
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");
