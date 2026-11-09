@@ -126,13 +126,21 @@ function changeAffectsRoles(item: string, module: string, selectedRoles: UserRol
   return !rule || rule.roles.some(role => selectedRoles.includes(role));
 }
 
+function categoryForChangeItem(item: string, fallback: ReleaseCommitCategory): ReleaseCommitCategory {
+  if (/^(修复|纠正|更正)/.test(item)) return "BUG_FIX";
+  if (/^(新增|增加|上线)/.test(item) || /支持(?:批量|上传|导入|多币种)/.test(item)) return "FEATURE";
+  if (/^(优化|完善|提升|改进)/.test(item) || /增强|保留原有格式/.test(item)) return "OPTIMIZATION";
+  return fallback;
+}
+
 export function selectReleaseChanges(commits: ReleaseCommit[], selectedRoles: UserRole[] | null, selectedCategory: ReleaseCategory): ReleaseCommit[] {
   return commits.flatMap(commit => {
-    if (selectedCategory !== "ALL" && commit.category !== selectedCategory) return [];
     if (!commit.files.some(file => /^(app|components|lib|supabase)\//.test(file))) return [];
     const modules = inferReleaseModules(commit.files);
     const items = commit.changeItems?.length ? commit.changeItems : extractVerifiedChangeItems(commit.message, commit.details);
-    const changeItems = items.filter(item => changeAffectsRoles(item, moduleForChangeItem(item, modules), selectedRoles));
+    const changeItems = items.filter(item =>
+      (selectedCategory === "ALL" || categoryForChangeItem(item, commit.category) === selectedCategory)
+      && changeAffectsRoles(item, moduleForChangeItem(item, modules), selectedRoles));
     return changeItems.length ? [{ ...commit, changeItems }] : [];
   });
 }

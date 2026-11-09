@@ -53,6 +53,10 @@ const salesOnly = buildReleaseAnnouncement([{ ...releases[0], message: "完善�
 assert.doesNotMatch(salesOnly.content, /公告草稿|供应商送货单/);
 assert.match(salesOnly.content, /PI 产品明细导入/);
 assert.match(salesOnly.content, /工作台备货动态/);
+const mergeFeature = buildReleaseAnnouncement([{ ...releases[0], message: "Merge DTS release integration", details: "Merge release branch with PI, supplier, stock and export fixes", files: ["components/pi-order-form.tsx", "components/stock-order-detail-view.tsx", "components/supplier-delivery-note-files.tsx"], category: "GENERAL", affectedRoles: ["ALL"] }], "2026-11-07", "2026-11-07", ["WAREHOUSE"], "FEATURE");
+assert.match(mergeFeature.content, /备货单支持批量登记/);
+assert.match(mergeFeature.content, /供应商送货单支持上传/);
+assert.doesNotMatch(mergeFeature.content, /PI 产品明细导入|工作台备货动态/);
 const testOnly = buildReleaseAnnouncement([{ ...releases[0], message: "Fix seller cost review migration test reference", files: ["scripts/seller-cost-review-tests.mjs"] }], "2026-11-07", "2026-11-07", null, "ALL");
 assert.match(testOnly.content, /未发现符合筛选条件/);
 assert.ok(extractVerifiedChangeItems("Merge DTS release integration").some(item => item.includes("备货单")));
