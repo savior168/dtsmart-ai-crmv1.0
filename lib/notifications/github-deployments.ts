@@ -101,8 +101,7 @@ export async function listVerifiedVercelProductionDeployments({
     row.production_environment === true &&
     Boolean(row.id) &&
     /^[0-9a-f]{40}$/i.test(row.sha) &&
-    isInRange(row.created_at, start, endExclusive) &&
-    (row.creator?.login || "").toLowerCase().includes("vercel"),
+    isInRange(row.created_at, start, endExclusive),
   );
 
   const verified = await Promise.all(candidates.map(async deployment => {
@@ -113,13 +112,14 @@ export async function listVerifiedVercelProductionDeployments({
       : `GitHub 部署状态读取失败（HTTP ${response.status}）`);
     const statuses = await response.json() as GitHubDeploymentStatus[];
     if (!Array.isArray(statuses)) throw new Error("GitHub 部署状态格式无效");
-    const success = statuses.find(status => status.state === "success" && isInRange(status.created_at, start, endExclusive));
-    if (!success) return null;
-    const deploymentUrl = success.environment_url || success.target_url || "";
+    const latestStatus = [...statuses].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    if (!latestStatus || latestStatus.state !== "success" || !isInRange(latestStatus.created_at, start, endExclusive)) return null;
+    const deploymentUrl = latestStatus.environment_url || latestStatus.target_url || "";
     if (!isVercelUrl(deploymentUrl)) return null;
-    return { sha: deployment.sha.toLowerCase(), deploymentUrl, deployedAt: success.created_at };
+    return { sha: deployment.sha.toLowerCase(), deploymentUrl, deployedAt: latestStatus.created_at };
   }));
 
-  return verified.filter((item): item is VerifiedProductionDeployment => item !== null);
+  return verified
+    .filter((item): item is VerifiedProductionDeployment => item !== null)
+    .sort((a, b) => Date.parse(b.deployedAt) - Date.parse(a.deployedAt));
 }
-

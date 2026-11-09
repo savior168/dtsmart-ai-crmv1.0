@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { USER_ROLES } from "@/lib/auth/permissions";
-import { buildReleaseAnnouncement, inferAffectedRoles, inferReleaseCategory, RELEASE_CATEGORIES, type ReleaseCategory, type ReleaseCommit } from "@/lib/notifications/release-announcement";
+import { buildReleaseAnnouncement, explainEmptyReleaseMatch, inferAffectedRoles, inferReleaseCategory, RELEASE_CATEGORIES, type ReleaseCategory, type ReleaseCommit } from "@/lib/notifications/release-announcement";
 import { listVerifiedVercelProductionDeployments, type VerifiedProductionDeployment } from "@/lib/notifications/github-deployments";
 
 type GitHubCommitDetail = { sha?: string; html_url?: string; commit?: { message?: string }; files?: Array<{ filename?: string }> };
@@ -50,10 +50,16 @@ export async function GET(request: NextRequest) {
         : `GitHub 提交详情读取失败（HTTP ${detailResponse.status}）`);
       const detail = await detailResponse.json() as GitHubCommitDetail;
       const sha = (detail.sha || shaKey).slice(0, 7);
-      const message = (detail.commit?.message || "").split(/\r?\n/)[0].trim().slice(0, 100) || `提交 ${sha}`;
+      const rawMessage = (detail.commit?.message || "").replace(/\r/g, "");
+      const [rawTitle = "", ...rawDetails] = rawMessage.split("\n");
+      const message = rawTitle.trim().slice(0, 100) || `提交 ${sha}`;
+      const details = rawDetails
+        .filter(line => !/^\s*(co-authored-by|signed-off-by|reviewed-by):/i.test(line))
+        .join(" ").replace(/\s+/g, " ").trim().slice(0, 500);
       return {
         sha,
         message,
+        ...(details ? { details } : {}),
         url: detail.html_url || `https://github.com/${owner}/${repo}/commit/${shaKey}`,
         deployedAt: deployment.deployedAt,
         files: (detail.files || []).map(file => file.filename || "").filter(Boolean),
@@ -66,6 +72,7 @@ export async function GET(request: NextRequest) {
     const selectedRoleSet = new Set<string>(roles || []);
     const roleMatches = (commit: ReleaseCommit) => !selectedRoleSet.size || commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => selectedRoleSet.has(role));
     const matched = releases.filter(commit => (rawCategory === "ALL" || commit.category === rawCategory) && roleMatches(commit));
+    if (!matched.length) return NextResponse.json({ error: explainEmptyReleaseMatch(productionDeployments.length, releases.length), deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: 0 }, { status: 422, headers: jsonHeaders });
     return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: releases.map(({ sha, message, url, deploymentUrl, affectedRoles }) => ({ sha, message, url, deploymentUrl, affectedRoles })), source: "GitHub commits matched by SHA to Vercel Production successful deployment statuses in the selected release window" }, { headers: jsonHeaders });
   } catch (error) {
     const message = error instanceof Error ? error.message : "发布记录读取失败";
@@ -74,4 +81,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status, headers: jsonHeaders });
   }
 }
-

@@ -125,18 +125,24 @@ export function NotificationAdminPanel() {
     setGenerating(true);
     setError("");
     setSuccess("");
+    setTitle("");
+    setContent("");
+    setGeneratedSource("");
+    setConfirming(false);
+    requestId.current = null;
     try {
       const query = new URLSearchParams({ from: releaseFrom, to: releaseTo, category: announcementType });
       if (audience === "ROLES") selectedRoles.forEach(role => query.append("role", role));
       const response = await fetch(`/api/admin/notifications/release-summary?${query}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "GitHub/Vercel 发布记录读取失败");
+      if (!body.matched_count) throw new Error("没有符合条件的正式发布变更，未生成公告草稿。请调整时间、角色或通知类型后重试。");
       setTitle(body.title || "");
       setContent(body.content || "");
       setGeneratedSource(body.source || "");
       setConfirming(false);
       requestId.current = null;
-      setSuccess(`已依据 ${body.commit_count ?? 0} 条 GitHub 提交与 ${body.deployments_checked ?? 0} 条正式部署记录生成草稿；请核对后发布。`);
+      setSuccess(`已依据 ${body.matched_count} 条匹配的 GitHub 提交与 ${body.deployments_checked ?? 0} 条正式部署记录生成摘要；请核对后发布。`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "GitHub/Vercel 发布记录读取失败");
     } finally {
@@ -174,5 +180,4 @@ export function NotificationAdminPanel() {
     <section className="rounded-xl border bg-white p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">公告发布记录</h2><p className="mt-1 text-xs text-slate-500">按公告发布时间筛选，最多显示 100 条。</p></div><div className="flex flex-wrap items-end gap-2"><label className="text-xs text-slate-500">从<input type="date" value={historyFrom} onChange={event => setHistoryFrom(event.target.value)} className="mt-1 block h-9 rounded-lg border px-2 text-sm text-slate-800"/></label><label className="text-xs text-slate-500">至<input type="date" value={historyTo} onChange={event => setHistoryTo(event.target.value)} className="mt-1 block h-9 rounded-lg border px-2 text-sm text-slate-800"/></label><button type="button" onClick={() => setAppliedHistoryRange({ from: historyFrom, to: historyTo })} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm text-slate-700 hover:bg-slate-50"><Search size={15}/>筛选</button><button type="button" onClick={() => { setHistoryFrom(""); setHistoryTo(""); setAppliedHistoryRange({ from: "", to: "" }); }} className="h-9 rounded-lg border px-3 text-sm text-slate-600">重置</button></div></div><div className="mt-3 divide-y">{announcements.map(item => <article key={item.id} className="py-3"><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{item.title}</b><time className="text-xs text-slate-400">{new Date(item.published_at).toLocaleString("zh-CN")}</time></div><p className="mt-1 text-xs text-slate-500">接收范围：{item.recipient_roles?.length ? item.recipient_roles.map(role => ROLE_LABELS[role] || role).join("、") : "所有启用用户"}{item.recipient_count !== null ? ` · ${item.recipient_count} 人` : ""}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-600">{item.content}</p></article>)}{!announcements.length ? <p className="py-5 text-sm text-slate-400">当前日期范围内暂无已发布公告</p> : null}</div></section>
   </div></div>;
 }
-
 
