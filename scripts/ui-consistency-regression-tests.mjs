@@ -180,7 +180,8 @@ assert.match(publicPool, /grid h-8 w-8 shrink-0 place-items-center/, "客户公�
 assert.match(publicPool, /aria-label=\{`查看\$\{row\.company_name\}详情`}/, "客户公海详情图标必须保留可访问名称");
 assert.match(publicPool, /flex items-center justify-center gap-2 whitespace-nowrap/, "客户公海行操作必须统一居中排列");
 const appShell = read("components/app-shell.tsx");
-assert.match(appShell, /const effectiveWidth = collapsed \? 76 : 224;/, "侧栏展开宽度应固定为协调的 224px，刷新不应改变布局");
+assert.match(appShell, /const effectiveWidth = collapsed \? 76 : 232;/, "侧栏展开宽度应固定为协调的 232px，刷新不应改变布局");
+assert.match(appShell, /min-h-screen w-full min-w-0 overflow-x-clip/, "主内容横向溢出不得把应用壳层和左侧菜单推出视口");
 assert.doesNotMatch(appShell, /dtsmart-sidebar-width|cursor-col-resize/, "侧栏宽度不得受旧浏览器缓存或拖拽状态影响");
 
 console.log("统一弹框、分页和客户阶段交互回归测试通过。");

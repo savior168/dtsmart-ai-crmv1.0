@@ -652,7 +652,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const titleParts = title.split(" / ");
   // Keep the expanded sidebar at the established design width. It must not
   // inherit stale browser storage and unexpectedly widen after a refresh.
-  const effectiveWidth = collapsed ? 76 : 224;
+  const effectiveWidth = collapsed ? 76 : 232;
   const sidebarDark = sidebarMode === "dark";
   // Do not turn a transient profile refresh into an empty sidebar.  The API
   // remains the permission boundary; this only keeps the shell usable while
@@ -710,8 +710,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             const expanded = !collapsed && (expandedGroups.has(item.label) || selected);
             if (collapsed) return <Link key={item.label} href={children.find((child) => !("disabled" in child && child.disabled))?.href || item.defaultHref} prefetch={false} title={item.label} className={`flex items-center justify-center rounded-lg px-2 py-3 transition ${selected ? sidebarDark ? "bg-slate-800 text-blue-300" : "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}><Icon size={21} strokeWidth={1.8}/><span className="sr-only">{item.label}</span></Link>;
             return <div key={item.label} className="space-y-1">
-              <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => { const next = new Set(current); if (next.has(item.label)) next.delete(item.label); else next.add(item.label); return next; })} className={`flex w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition ${selected ? sidebarDark ? "bg-slate-800 font-semibold text-white" : "bg-blue-50 font-semibold text-blue-700" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}>
-                <Icon size={21} strokeWidth={1.8}/><span className="min-w-0 flex-1 text-[15px]">{item.label}</span><ChevronDown size={16} className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}/>
+              <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => { const next = new Set(current); if (next.has(item.label)) next.delete(item.label); else next.add(item.label); return next; })} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${selected ? sidebarDark ? "bg-slate-800 font-semibold text-white" : "bg-blue-50 font-semibold text-blue-700" : sidebarDark ? "text-slate-300 hover:bg-slate-800 hover:text-white" : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"}`}>
+                <Icon size={21} strokeWidth={1.8}/><span className="flex-1 whitespace-nowrap text-[14px]">{item.label}</span><ChevronDown size={16} className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}/>
               </button>
               {expanded ? <div className={`space-y-1 border-l ${sidebarDark ? "border-slate-700" : "border-slate-200"} ml-7 pl-3`}>{children.map((child) => { if ("disabled" in child && child.disabled) return <div key={child.href} aria-disabled="true" title="该功能已预留，本期暂不开发" className={`flex cursor-not-allowed items-center justify-between rounded-lg px-3 py-2.5 text-[14px] ${sidebarDark ? "text-slate-600" : "text-slate-400"}`}><span>{child.label}</span><small className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">规划中</small></div>; const childSelected = isActive(path, child.href, fromPool); return <Link key={child.href} href={child.href} prefetch={false} aria-current={childSelected ? "page" : undefined} className={`block rounded-lg px-3 py-2.5 text-[14px] transition ${childSelected ? sidebarDark ? "bg-slate-800 font-semibold text-blue-300" : "bg-blue-50 font-semibold text-blue-700 ring-1 ring-inset ring-blue-100" : sidebarDark ? "text-slate-400 hover:bg-slate-800 hover:text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}>{child.label}</Link>; })}</div> : null}
             </div>;
@@ -749,7 +749,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     </>
   );
   return (
-    <div className="min-h-screen bg-[#f7f9fc] text-slate-900 lg:flex">
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[#f7f9fc] text-slate-900 lg:flex">
       <aside
         style={{ width: effectiveWidth }}
         className={`sticky top-0 hidden h-screen shrink-0 self-start overflow-hidden border-r transition-[width] duration-200 lg:block ${sidebarDark ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}
@@ -897,7 +897,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             ) : null}
           </div>
         </header>
-        <div className="crm-content min-h-[calc(100vh-64px)]">{children}</div>
+        <div className="crm-content min-h-[calc(100vh-64px)] min-w-0 max-w-full">{children}</div>
       </div>
       {toastNotices.length ? <aside aria-live="polite" className="fixed bottom-5 right-5 z-[70] flex max-h-[calc(100dvh-2.5rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto">{toastNotices.map(item => <article key={item.id} className="rounded-xl border border-blue-100 bg-white p-4 shadow-2xl"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600"><Bell size={18}/></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="text-sm">{item.title}</b>{item.action_status === "PENDING" ? <small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small> : null}</div><p className="mt-1 text-xs leading-5 text-slate-600">{notificationToastSummary(item)}</p><time className="mt-1 block text-[11px] text-slate-400" dateTime={item.created_at} title={new Date(item.created_at).toLocaleString("zh-CN")}>操作时间 {new Date(item.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</time><div className="mt-3 flex gap-2">{item.href ? <button type="button" onClick={() => void openNotice(item)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white">立即查看</button> : null}<button type="button" onClick={() => void dismissToast(item)} className="rounded-lg border px-3 py-1.5 text-xs text-slate-600">稍后查看</button></div></div><button type="button" aria-label="关闭通知弹框，保留未读" title="关闭弹框，通知仍保留在通知中心" onClick={() => void dismissToast(item)} className="text-slate-400"><X size={17}/></button></div></article>)}</aside> : null}
       {modal && profile ? (
