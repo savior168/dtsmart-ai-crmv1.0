@@ -28,7 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 import { notificationVoiceText } from "@/lib/notification-voice";
-import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "@/lib/notification-toast";
+import { announcementTone, notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "@/lib/notification-toast";
 import { defaultNotificationPolicy, isUrgentWarehousePiChange, notificationPolicyType, requiresManualNotificationDismissal, type NotificationPolicy } from "@/lib/notification-policy";
 
 const menu = [
@@ -899,7 +899,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="crm-content min-h-[calc(100vh-64px)]">{children}</div>
       </div>
-      {toastNotices.length ? <aside aria-live="polite" className="fixed bottom-5 right-5 z-[70] flex max-h-[calc(100dvh-2.5rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto">{toastNotices.map(item => <article key={item.id} className="rounded-xl border border-blue-100 bg-white p-4 shadow-2xl"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600"><Bell size={18}/></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="text-sm">{item.title}</b>{item.action_status === "PENDING" ? <small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small> : null}</div><p className="mt-1 text-xs leading-5 text-slate-600">{notificationToastSummary(item)}</p><time className="mt-1 block text-[11px] text-slate-400" dateTime={item.created_at} title={new Date(item.created_at).toLocaleString("zh-CN")}>操作时间 {new Date(item.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</time><div className="mt-3 flex gap-2">{item.href ? <button type="button" onClick={() => void openNotice(item)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white">立即查看</button> : null}<button type="button" onClick={() => void dismissToast(item)} className="rounded-lg border px-3 py-1.5 text-xs text-slate-600">稍后查看</button></div></div><button type="button" aria-label="关闭通知弹框，保留未读" title="关闭弹框，通知仍保留在通知中心" onClick={() => void dismissToast(item)} className="text-slate-400"><X size={17}/></button></div></article>)}</aside> : null}
+      {toastNotices.length ? <aside aria-live="polite" className="fixed bottom-5 right-5 z-[70] flex max-h-[calc(100dvh-2.5rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto">{toastNotices.map(item => {
+        const tone = announcementTone(item);
+        const appearance = {
+          information: "border-blue-100 bg-white text-blue-600 bg-blue-50",
+          warning: "border-amber-300 bg-amber-50 text-amber-700 bg-amber-100",
+          critical: "border-rose-300 bg-rose-50 text-rose-700 bg-rose-100",
+          success: "border-emerald-300 bg-emerald-50 text-emerald-700 bg-emerald-100",
+        }[tone].split(" ");
+        return <article key={item.id} className={`rounded-xl border p-4 shadow-2xl ${appearance[0]} ${appearance[1]}`}><div className="flex items-start gap-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${appearance[3]} ${appearance[2]}`}><Bell size={18}/></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="text-sm">{item.title}</b>{item.action_status === "PENDING" ? <small className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">待处理</small> : null}</div><p className="mt-1 text-xs leading-5 text-slate-600">{notificationToastSummary(item)}</p><time className="mt-1 block text-[11px] text-slate-400" dateTime={item.created_at} title={new Date(item.created_at).toLocaleString("zh-CN")}>操作时间 {new Date(item.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</time><div className="mt-3 flex gap-2">{item.href ? <button type="button" onClick={() => void openNotice(item)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white">立即查看</button> : null}<button type="button" onClick={() => void dismissToast(item)} className="rounded-lg border bg-white px-3 py-1.5 text-xs text-slate-600">稍后查看</button></div></div><button type="button" aria-label="关闭通知弹框，保留未读" title="关闭弹框，通知仍保留在通知中心" onClick={() => void dismissToast(item)} className="text-slate-400"><X size={17}/></button></div></article>;
+      })}</aside> : null}
       {modal && profile ? (
         <ProfileModal
           type={modal}

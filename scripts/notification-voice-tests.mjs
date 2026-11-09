@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { notificationVoiceText } from "../lib/notification-voice.ts";
-import { notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
+import { announcementTone, notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
 import { defaultNotificationPolicy, isUrgentWarehousePiChange, notificationPolicyType, requiresManualNotificationDismissal } from "../lib/notification-policy.ts";
 
 assert.match(notificationVoiceText({ type: "FOLLOWUP_DUE", content: "Call buyer" }), /跟进提醒/);
@@ -16,6 +16,19 @@ assert.equal(requiresManualNotificationDismissal({ type: "PI_CHANGE_REQUESTED" }
 assert.equal(requiresManualNotificationDismissal({ type: "STOCK_STATUS_CHANGED", title: "备货异常已更新" }, "SALES"), true);
 assert.equal(requiresManualNotificationDismissal({ type: "STOCK_STATUS_CHANGED", title: "备货状态已更新", content: "缺货异常" }, "ORDER_CLERK"), true);
 assert.equal(requiresManualNotificationDismissal({ type: "STOCK_STATUS_CHANGED", title: "备货状态已更新", content: "已备齐" }, "SALES"), false);
+for (const [title, tone, manual] of [
+  ["系统维护预告｜PI订单", "information", false],
+  ["系统维护中｜PI订单", "warning", true],
+  ["服务暂停通知｜PI订单", "critical", true],
+  ["系统故障通知｜PI订单", "critical", true],
+  ["服务恢复通知｜PI订单", "success", false],
+  ["📋 正式发布变更摘要", "information", false],
+]) {
+  const notice = { type: "SYSTEM_ANNOUNCEMENT", title };
+  assert.equal(announcementTone(notice), tone);
+  assert.equal(requiresManualNotificationDismissal(notice, "SALES"), manual);
+}
+assert.match(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT", title: "系统维护中", content: "请先保存正在编辑的单据" }), /请先保存/);
 assert.equal(defaultNotificationPolicy("STOCK_PROGRESS_ROUTINE").popup_enabled, false);
 assert.equal(notificationPolicyType({ type: "STOCK_STATUS_CHANGED", title: "备货进度已更新" }), "STOCK_PROGRESS_ROUTINE");
 assert.equal(notificationPolicyType({ type: "STOCK_STATUS_CHANGED", title: "备货异常已更新" }), "STOCK_STATUS_CHANGED");
@@ -60,7 +73,7 @@ assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "�
 assert.equal(notificationToastSummary({ type: "STOCK_STATUS_CHANGED", title: "备货单已确认", content: "Amy 确认了订单 D60058756 的备货单。" }), "Amy 确认了订单 D60058756 的备货单。");
 assert.equal(notificationToastSummary({ type: "PI_CHANGE_APPLIED", content: "Amy 确认并同步了PI订单变更，订单号 D60058756；说明：客户增加2件。变更已同步至备货单，请核对最新明细。" }), "Amy 确认并同步了PI订单变更，订单号 D60058756；说明：客户增加2件。变更已同步至备货单，请核对最新明细。");
 assert.equal(notificationToastSummary({ type: "CUSTOMER_ADMIN_ASSIGNED", content: "管理员分配了 3 个客户" }), "管理员向您分配了 3 个客户，请及时跟进。");
-assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "管理员发布了系统公告，请查看。");
+assert.equal(notificationToastSummary({ type: "SYSTEM_ANNOUNCEMENT" }), "请查看公告详情。");
 assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), action_status: "PENDING" }).length < 120);
 const notificationPanel = readFileSync("components/notification-admin-panel.tsx", "utf8");
 const releaseSummaryApi = readFileSync("app/api/admin/notifications/release-summary/route.ts", "utf8");
@@ -81,7 +94,7 @@ assert.match(releaseSummaryApi, /if \(!githubToken\)[\s\S]*私有 GitHub 提交�
 assert.match(releaseSummaryApi, /if \(!githubToken\)[\s\S]*GITHUB_TOKEN/, "私有仓库摘要必须校验服务端 GitHub 只读令牌");
 assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments/, "正式部署记录应读取 Vercel 项目 Production READY 记录");
 assert.match(releaseSummaryApi, /VERCEL_TOKEN/, "正式发布记录必须使用服务端 Vercel 只读令牌以区分生产与预览部署");
-assert.match(releaseSummaryApi, /rawCategory === "ALL" \|\| commit\.category === rawCategory/, "全部通知类型应聚合所有已部署提交类别");
+assert.match(releaseSummaryApi, /selectReleaseChanges\(releases, roles, rawCategory as ReleaseCategory\)/, "全部通知类型应在已核验提交中按变更项筛选");
 assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments[\s\S]*deploymentBySha[\s\S]*\/commits\/\$\{encodeURIComponent\(shaKey\)\}/, "摘要只能读取并总结已在指定时间段部署到 Vercel Production 的 GitHub commit SHA，不可依据本地改动");
 assert.match(notificationPanel, /audience === "ALL" \? null : selectedRoles/, "发布请求必须包含明确的接收范围");
 assert.match(notificationPanel, /接收范围：\{item\.recipient_roles/, "公告历史必须显示实际接收范围");

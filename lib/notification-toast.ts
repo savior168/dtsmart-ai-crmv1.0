@@ -1,6 +1,18 @@
 type ToastCandidate = { id: string; read_at: string | null; dismissed_at: string | null; deliver_at: string };
 type ToastMessage = { type: string; title?: string; content?: string | null; action_status?: string; metadata?: Record<string, unknown> | null };
 
+export type AnnouncementTone = "information" | "warning" | "critical" | "success";
+
+/** Use the published title, not arbitrary body words, to avoid elevating a release note into an incident. */
+export function announcementTone(notice: { type: string; title?: string | null }): AnnouncementTone {
+  if (notice.type !== "SYSTEM_ANNOUNCEMENT") return "information";
+  const title = notice.title || "";
+  if (/^系统故障通知|^服务暂停通知/.test(title)) return "critical";
+  if (/^系统维护中/.test(title)) return "warning";
+  if (/^服务恢复通知/.test(title)) return "success";
+  return "information";
+}
+
 const stockStageLabels: Record<string, string> = {
   DRAFT: "待完善备货信息", WAITING: "待仓库接单", PREPARING: "采购中",
   RECEIVED: "已回齐待理货", SORTING: "理货中", READY_TO_SHIP: "已理货待交货代",
@@ -48,7 +60,7 @@ export function notificationToastSummary(item: ToastMessage) {
     return `PI 订单变更${order}已退回，请处理。`;
   }
   if (item.type === "REGISTRATION_REVIEW") return "新用户提交了账号申请，请管理员及时审核。";
-  if (item.type === "SYSTEM_ANNOUNCEMENT") return "管理员发布了系统公告，请查看。";
+  if (item.type === "SYSTEM_ANNOUNCEMENT") return content.length > 150 ? `${content.slice(0, 149)}…` : content || "请查看公告详情。";
   if (item.type === "CUSTOMER_ADMIN_ASSIGNED") {
     const count = content.match(/分配了\s*(\d+)\s*个客户/)?.[1];
     return `管理员向您分配了${count ? ` ${count} 个` : "新"}客户，请及时跟进。`;

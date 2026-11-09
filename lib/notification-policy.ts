@@ -1,3 +1,5 @@
+import { announcementTone } from "./notification-toast.ts";
+
 export const NOTIFICATION_TYPES = [
   { type: "STOCK_ORDER_CREATED", label: "新备货单", popup: true, voice: true },
   { type: "STOCK_STATUS_CHANGED", label: "整单备货状态与异常", popup: true, voice: true },
@@ -24,6 +26,7 @@ export function requiresManualNotificationDismissal(
   role: string | undefined,
 ) {
   if (isUrgentWarehousePiChange(notice, role)) return true;
+  if (notice.type === "SYSTEM_ANNOUNCEMENT") return ["critical", "warning"].includes(announcementTone(notice));
   return notice.type === "STOCK_STATUS_CHANGED" && (
     notice.title === "订单已取消" || notice.title === "PI备货单已撤回" ||
     notice.title === "备货异常已更新" ||
