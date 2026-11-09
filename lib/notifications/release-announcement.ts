@@ -36,7 +36,9 @@ export function extractVerifiedChangeItems(message: string, details = ""): strin
     [/split mixed announcement and sidebar release notes/i, "修复公告草稿对混合提交的角色筛选"],
   ];
   const items = known.filter(([pattern]) => pattern.test(source)).map(([, summary]) => summary);
-  const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line) && !/公告.*(?:及|与)侧栏/.test(line));
+  const chinese = source.split(/[\n；;]+/)
+    .map(line => line.split(/，并合并此发布批次/)[0].trim())
+    .filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line) && !/公告.*(?:及|与)侧栏/.test(line));
   return [...new Set([...chinese, ...items])];
 }
 
@@ -109,7 +111,7 @@ function moduleForChangeItem(item: string, availableModules: string[]): string {
     [/^备货单/, "备货单与仓库"],
     [/供应商|送货单|对账/, "供应商与供应商对账"],
     [/备货|回货|仓库/, "备货单与仓库"],
-    [/PI|订单|理货图片/, "PI订单与订单变更"],
+    [/PI|订单|理货图片|销售成本复核/, "PI订单与订单变更"],
     [/工作台|数据加载/, "工作台与数据总览"],
     [/业绩|报表/, "业绩与报表"],
     [/侧栏|菜单宽度|横向溢出|布局/, "全局界面与基础配置"],
