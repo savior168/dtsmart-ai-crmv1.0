@@ -52,6 +52,7 @@ type DashboardData = {
   followups: FollowupRow[];
   activities: ActivityRow[];
   activity_mode?: "STOCK_PROGRESS" | "CUSTOMER";
+  activity_warning?: string;
 };
 type PerformanceSummary = { totals?: { orders?: number; cny?: number; usd?: number; product_profit_cny?: number; product_profit_usd?: number; product_margin?: number | null; missing_cny?: number; missing_usd?: number; missing_profit_orders?: number; missing_profit_usd_orders?: number } };
 
@@ -61,6 +62,55 @@ const statusLabels: Record<string, string> = { UNCLAIMED: "待认领", CLAIMED: 
 const typeLabels: Record<string, string> = { EMAIL: "邮件", WHATSAPP: "whatsapp", PHONE: "电话", LINKEDIN: "LinkedIn", OTHER: "其他" };
 function number(value: number) { return new Intl.NumberFormat("zh-CN").format(value); }
 function money(value: number) { return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
+
+function retryDelay(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(new DOMException("Request aborted", "AbortError"));
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    function abort() {
+      window.clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("Request aborted", "AbortError"));
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function fetchDashboard(url: string, signal: AbortSignal): Promise<DashboardData> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, { cache: "no-store", signal });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      lastError = error;
+      if (!(error instanceof TypeError) || attempt === 2) break;
+      await retryDelay(300 * (attempt + 1), signal);
+      continue;
+    }
+
+    const body = await response.json().catch(() => null) as (Partial<DashboardData> & { error?: string; retryable?: boolean }) | null;
+    if (response.ok) {
+      if (!body || !body.totals || !Array.isArray(body.distribution) || !Array.isArray(body.activities)) {
+        throw new Error("工作台返回数据格式异常，请重新加载");
+      }
+      return body as DashboardData;
+    }
+
+    lastError = new Error(body?.error || (response.status >= 500 ? "工作台数据暂时繁忙，请稍后重试" : "工作台数据加载失败"));
+    const retryable = response.status === 429 || response.status === 503 || body?.retryable === true;
+    if (!retryable || attempt === 2) throw lastError;
+    await retryDelay(300 * (attempt + 1), signal);
+  }
+
+  if (signal.aborted) throw new DOMException("Request aborted", "AbortError");
+  if (lastError instanceof TypeError) throw new Error("网络连接暂时不稳定，已自动重试，请检查网络后重新加载");
+  throw lastError instanceof Error ? lastError : new Error("工作台数据加载失败，请重新加载");
+}
 
 function relativeTime(value: string) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
@@ -145,15 +195,17 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
     const performanceParams = new URLSearchParams(businessRange(from, to));
     if (scopeUserId) performanceParams.set("user_id", scopeUserId);
     const performanceTask = showPerformance ? (async () => {
-      const response = await fetch(`/api/reports/sales/performance?${performanceParams}`, { cache: "no-store", signal: controller.signal });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "PI业绩加载失败");
-      if (request === requestId.current) setPerformance(body);
+      try {
+        const response = await fetch(`/api/reports/sales/performance?${performanceParams}`, { cache: "no-store", signal: controller.signal });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "PI业绩加载失败");
+        if (request === requestId.current) setPerformance(body);
+      } catch (reason) {
+        if (!controller.signal.aborted && request === requestId.current) setPerformanceError(reason instanceof Error ? reason.message : "PI业绩加载失败");
+      }
     })() : Promise.resolve();
     try {
-      const response = await fetch(`/api/dashboard/stats?${params}`, { cache: "no-store", signal: controller.signal });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "工作台数据加载失败");
+      const body = await fetchDashboard(`/api/dashboard/stats?${params}`, controller.signal);
       if (request !== requestId.current) return;
       setData(body);
       setProtectionPage(1);
@@ -162,9 +214,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
     } finally {
       if (request === requestId.current) setLoading(false);
     }
-    performanceTask.catch((reason) => {
-      if (!controller.signal.aborted && request === requestId.current) setPerformanceError(reason instanceof Error ? reason.message : "PI业绩加载失败");
-    });
+    void performanceTask;
   }, [country, from, scopeUserId, showPerformance, to]);
 
   useEffect(() => {
@@ -217,7 +267,8 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
           <Link href="/quotes/new" className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700"><FileText size={16}/>创建报价</Link>
         </section>
 
-        {error ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
+        {error && data ? <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800"><span>{error}，当前保留上次成功加载的数据。</span><button type="button" onClick={() => void load()} className="shrink-0 font-medium underline">重新加载</button></div> : null}
+        {error && !data ? <section className={`${panelClass} grid min-h-56 place-items-center p-8 text-center`}><div><BellRing className="mx-auto text-rose-500" /><p role="alert" className="mt-3 text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">重新加载</button></div></section> : loading && !data ? <section className={`${panelClass} grid min-h-[520px] place-items-center`}><div className="text-center text-sm text-slate-500"><LoaderCircle className="mx-auto animate-spin text-blue-600" /><p className="mt-3">正在加载工作台数据…</p></div></section> : data ? <>
           {showPerformance ? <section className={`${panelClass} mt-4 overflow-hidden p-4 dashboard-reveal`}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-600">业绩快照</p><h2 className="mt-1 text-[17px] font-semibold text-slate-900">已确认 PI</h2><p className="mt-1 text-xs text-slate-500">结果概览；客户、产品排名与订单复盘统一在业绩分析查看。</p></div><Link href="/sales/performance" className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">查看完整业绩分析 <ChevronRight size={14}/></Link></div>
             {performanceError ? <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">业绩快照暂不可用：{performanceError}</p> : null}
@@ -262,7 +313,7 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
                   const content = <><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-white ${colors}`}><Icon size={15} /></span><p title={item.text || "动态内容暂不可用"} aria-label={item.text || "动态内容暂不可用"} className="line-clamp-2 min-w-0 flex-1 text-slate-700">{item.text || "动态内容暂不可用"}</p><time className="shrink-0 text-slate-400">{relativeTime(item.created_at)}</time></>;
                   return item.href ? <Link key={item.id} href={item.href} className="flex items-start gap-3 py-3 text-xs hover:text-blue-700">{content}</Link>
                     : <div key={item.id} className="flex items-start gap-3 py-3 text-xs">{content}</div>;
-                }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>暂无最近动态</p></div></div>}
+                }) : <div className="grid h-52 place-items-center text-sm text-slate-400"><div className="text-center"><MessageSquareText className="mx-auto mb-2 text-slate-300" /><p>{data.activity_warning || "暂无最近动态"}</p></div></div>}
               </div>
             </article>
           </section>

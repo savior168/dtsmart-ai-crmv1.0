@@ -4,7 +4,6 @@ export type GitHubDeployment = {
   environment: string;
   production_environment?: boolean;
   created_at: string;
-  creator?: { login?: string; type?: string };
 };
 
 type GitHubDeploymentStatus = {
@@ -48,9 +47,10 @@ function requestHeaders(token?: string) {
 }
 
 /**
- * Vercel's GitHub integration records production deployments/statuses in the
- * repository's Deployments API. This lets the release summary work without
- * adding Vercel service credentials to the application environment.
+ * Vercel's GitHub integration writes Production deployments and their status
+ * URLs to this repository's Deployments API. A deployment counts only when its
+ * latest status succeeded, is in the requested Shanghai date window, and links
+ * to Vercel. This uses the already configured server-side GitHub read token.
  */
 export async function listVerifiedVercelProductionDeployments({
   repository,
@@ -72,7 +72,7 @@ export async function listVerifiedVercelProductionDeployments({
   const end = new Date(`${to}T00:00:00+08:00`);
   end.setUTCDate(end.getUTCDate() + 1);
   const endExclusive = end.getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(endExclusive)) throw new Error("发布日期范围无效");
+  if (!Number.isFinite(start) || !Number.isFinite(endExclusive) || start >= endExclusive) throw new Error("发布日期范围无效");
 
   const base = `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const headers = requestHeaders(token);
@@ -86,7 +86,7 @@ export async function listVerifiedVercelProductionDeployments({
     url.searchParams.set("page", String(page));
     const response = await fetcher(url, { headers, cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 404
-      ? `GitHub 正式部署记录返回 404：无法访问私有仓库 ${repository}，请检查服务端 GITHUB_TOKEN 仓库权限。`
+      ? `GitHub 正式部署记录返回 404：无法访问私有仓库 ${repository}，请检查服务端 GITHUB_TOKEN 仓库及 Deployments 读取权限。`
       : `GitHub 正式部署记录读取失败（HTTP ${response.status}）`);
     const rows = await response.json() as GitHubDeployment[];
     if (!Array.isArray(rows)) throw new Error("GitHub 正式部署记录格式无效");
@@ -119,7 +119,9 @@ export async function listVerifiedVercelProductionDeployments({
     return { sha: deployment.sha.toLowerCase(), deploymentUrl, deployedAt: latestStatus.created_at };
   }));
 
-  return verified
-    .filter((item): item is VerifiedProductionDeployment => item !== null)
-    .sort((a, b) => Date.parse(b.deployedAt) - Date.parse(a.deployedAt));
+  const latestBySha = new Map<string, VerifiedProductionDeployment>();
+  for (const item of verified.filter((value): value is VerifiedProductionDeployment => value !== null).sort((a, b) => Date.parse(b.deployedAt) - Date.parse(a.deployedAt))) {
+    if (!latestBySha.has(item.sha)) latestBySha.set(item.sha, item);
+  }
+  return [...latestBySha.values()];
 }
