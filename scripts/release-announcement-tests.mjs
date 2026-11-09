@@ -59,6 +59,9 @@ assert.match(mergeFeature.content, /供应商送货单支持上传/);
 assert.doesNotMatch(mergeFeature.content, /PI 产品明细导入|工作台备货动态/);
 const testOnly = buildReleaseAnnouncement([{ ...releases[0], message: "Fix seller cost review migration test reference", files: ["scripts/seller-cost-review-tests.mjs"] }], "2026-11-07", "2026-11-07", null, "ALL");
 assert.match(testOnly.content, /未发现符合筛选条件/);
+const mixedAnnouncementAndSidebar = buildReleaseAnnouncement([{ ...releases[0], message: "修复公告按角色和类型筛选及侧栏换行 (#60)", details: "修复公告变更归类与侧栏菜单换行", files: ["components/app-shell.tsx", "lib/notifications/release-announcement.ts"], affectedRoles: ["ALL"] }], "2026-11-09", "2026-11-09", ["SALES", "ORDER_CLERK"], "ALL");
+assert.match(mixedAnnouncementAndSidebar.content, /修复左侧菜单换行/);
+assert.doesNotMatch(mixedAnnouncementAndSidebar.content, /公告变更归类|公告按角色/);
 assert.ok(extractVerifiedChangeItems("Merge DTS release integration").some(item => item.includes("备货单")));
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,

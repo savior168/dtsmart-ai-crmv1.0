@@ -31,9 +31,11 @@ export function extractVerifiedChangeItems(message: string, details = ""): strin
     [/merge dts release integration/i, "工作台备货动态展示具体操作与进度"],
     [/preserve stock workbook layout and embed tally thumbnails/i, "备货单导出保留原有格式并展示理货图片"],
     [/preserve stock workbook layout and embed tally thumbnails/i, "PI 产品明细导入与粘贴增强币种、数量及金额识别"],
+    [/公告.*(?:及|与)侧栏|公告变更归类与侧栏菜单换行/i, "修复公告变更归类和角色筛选"],
+    [/公告.*(?:及|与)侧栏|公告变更归类与侧栏菜单换行/i, "修复左侧菜单换行"],
   ];
   const items = known.filter(([pattern]) => pattern.test(source)).map(([, summary]) => summary);
-  const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line));
+  const chinese = source.split(/[\n；;]+/).map(line => line.trim()).filter(line => /[\u3400-\u9fff]{4}/.test(line) && !/^(依据|统计周期|影响范围|co-authored)/i.test(line) && !/公告.*(?:及|与)侧栏/.test(line));
   return [...new Set([...chinese, ...items])];
 }
 
@@ -119,7 +121,7 @@ function changeAffectsRoles(item: string, module: string, selectedRoles: UserRol
   if (!selectedRoles?.length) return true;
   // Editing and publishing announcements is an administrator action; receiving
   // a notice does not make changes to the admin composer relevant to recipients.
-  if (module === "通知与公告" && /公告草稿|运营公告|发布摘要|发布记录|公告模板/.test(item)) {
+  if (module === "通知与公告" && /公告|发布摘要|发布记录/.test(item)) {
     return selectedRoles.includes("ADMIN");
   }
   const rule = MODULE_PATHS.find(entry => entry.label === module);
