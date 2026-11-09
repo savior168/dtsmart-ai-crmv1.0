@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { USER_ROLES } from "@/lib/auth/permissions";
 import { buildReleaseAnnouncement, explainEmptyReleaseMatch, inferAffectedRoles, inferReleaseCategory, RELEASE_CATEGORIES, type ReleaseCategory, type ReleaseCommit } from "@/lib/notifications/release-announcement";
-import { listVerifiedVercelProductionDeployments, type VerifiedProductionDeployment } from "@/lib/notifications/github-deployments";
+import { listVerifiedVercelProductionDeployments, type VerifiedProductionDeployment } from "@/lib/notifications/vercel-deployments";
 
 type GitHubCommitDetail = { sha?: string; html_url?: string; commit?: { message?: string }; files?: Array<{ filename?: string }> };
 
@@ -32,10 +32,13 @@ export async function GET(request: NextRequest) {
 
     const githubToken = process.env.GITHUB_TOKEN;
     const repository = process.env.GITHUB_REPOSITORY || "savior168/dtsmart-ai-crmv1.0";
+    const vercelToken = process.env.VERCEL_TOKEN;
+    const vercelProjectId = process.env.VERCEL_PROJECT_ID || "prj_OdMeIyuLeG6nQSVDv8lZYtpec0Zs";
+    const vercelTeamId = process.env.VERCEL_TEAM_ID || "team_Lsmdz5pCNu0aVM6wNJIqr07E";
     const [owner, repo] = repository.split("/");
     if (!owner || !repo || repository.split("/").length !== 2) return NextResponse.json({ error: "GITHUB_REPOSITORY 配置格式应为 owner/repo" }, { status: 500, headers: jsonHeaders });
     if (!githubToken) return NextResponse.json({ error: "缺少服务端 GITHUB_TOKEN，无法读取私有 GitHub 提交记录；请为 Vercel Production 配置具备该仓库读取权限的令牌。" }, { status: 503, headers: jsonHeaders });
-    const productionDeployments = await listVerifiedVercelProductionDeployments({ repository, from, to, token: githubToken });
+    const productionDeployments = await listVerifiedVercelProductionDeployments({ repository, from, to, token: vercelToken, projectId: vercelProjectId, teamId: vercelTeamId });
     const deploymentBySha = new Map<string, VerifiedProductionDeployment>();
     for (const deployment of productionDeployments) {
       if (!deploymentBySha.has(deployment.sha)) deploymentBySha.set(deployment.sha, deployment);
@@ -73,11 +76,11 @@ export async function GET(request: NextRequest) {
     const matched = releases.filter(commit => (rawCategory === "ALL" || commit.category === rawCategory) && roleMatches(commit));
     if (!matched.length) return NextResponse.json({ error: explainEmptyReleaseMatch(productionDeployments.length, releases.length), deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: 0 }, { status: 422, headers: jsonHeaders });
     if (generated.content.includes("摘要已按长度限制收敛")) return NextResponse.json({ error: "符合条件的正式发布变更过多，摘要无法完整放入公告。为避免漏报，请缩小日期范围后重新生成。", deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: matched.length }, { status: 422, headers: jsonHeaders });
-    return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: matched.map(({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles }) => ({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles })), source: "GitHub Production deployment records written by Vercel, verified by successful Vercel deployment URL and exact Git commit SHA in the selected release window" }, { headers: jsonHeaders });
+    return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: matched.map(({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles }) => ({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles })), source: "Vercel Production READY deployment records matched to the exact GitHub repository and commit SHA in the selected release window" }, { headers: jsonHeaders });
   } catch (error) {
     const message = error instanceof Error ? error.message : "发布记录读取失败";
     const authStatus = authErrorStatus(message);
-    const status = authStatus || (/^(GitHub|Vercel) /.test(message) ? 502 : 400);
+    const status = authStatus || (message.startsWith("缺少服务端 VERCEL_TOKEN") ? 503 : /^(GitHub|Vercel) /.test(message) ? 502 : 400);
     return NextResponse.json({ error: message }, { status, headers: jsonHeaders });
   }
 }

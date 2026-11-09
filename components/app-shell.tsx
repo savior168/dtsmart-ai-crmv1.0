@@ -410,7 +410,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     setFromPool(new URLSearchParams(window.location.search).get("from") === "pool");
   }, [path]);
   const router = useRouter();
-  const [sidebarWidth, setSidebarWidth] = useState(248);
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<"light" | "dark">("light");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -614,8 +613,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const saved = window.localStorage.getItem("dtsmart-sidebar-mode");
     setSidebarMode(saved === "dark" ? "dark" : "light");
-    const savedWidth = Number(window.localStorage.getItem("dtsmart-sidebar-width") || 248);
-    setSidebarWidth(Math.max(232, Math.min(320, savedWidth)));
     setCollapsed(window.localStorage.getItem("dtsmart-sidebar-collapsed") === "1");
   }, []);
   useEffect(() => {
@@ -653,7 +650,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     : null;
   const title = pageTitleOverride || contextualCustomerTitle || pageTitles.find(([pattern]) => pattern.test(path))?.[1] || "智客云";
   const titleParts = title.split(" / ");
-  const effectiveWidth = collapsed ? 76 : sidebarWidth;
+  // Keep the expanded sidebar at the established design width. It must not
+  // inherit stale browser storage and unexpectedly widen after a refresh.
+  const effectiveWidth = collapsed ? 76 : 224;
   const sidebarDark = sidebarMode === "dark";
   // Do not turn a transient profile refresh into an empty sidebar.  The API
   // remains the permission boundary; this only keeps the shell usable while
@@ -756,29 +755,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         className={`sticky top-0 hidden h-screen shrink-0 self-start overflow-hidden border-r transition-[width] duration-200 lg:block ${sidebarDark ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}
       >
         {sidebar}
-        {!collapsed ? (
-          <div
-            onMouseDown={(event) => {
-              const startX = event.clientX;
-              const initial = sidebarWidth;
-              const move = (moveEvent: MouseEvent) =>
-                setSidebarWidth(
-                  Math.max(
-                    232,
-                    Math.min(320, initial + moveEvent.clientX - startX),
-                  ),
-                );
-              const stop = () => {
-                setSidebarWidth((value) => { window.localStorage.setItem("dtsmart-sidebar-width",String(value)); return value; });
-                removeEventListener("mousemove", move);
-                removeEventListener("mouseup", stop);
-              };
-              addEventListener("mousemove", move);
-              addEventListener("mouseup", stop);
-            }}
-            className="absolute inset-y-0 right-0 w-1 cursor-col-resize hover:bg-blue-200"
-          />
-        ) : null}
       </aside>
       {mobileOpen ? (
         <div
