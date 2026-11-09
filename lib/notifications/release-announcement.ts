@@ -17,6 +17,32 @@ export type ReleaseCommit = {
 export function extractVerifiedChangeItems(message: string, details = ""): string[] {
   const source = `${message}\n${details}`;
   const known: Array<[RegExp, string]> = [
+    [/improve dts role-based performance reporting/i, "新增按角色查看销售业绩分析与排名"],
+    [/improve dts dashboard and complete sales performance analysis/i, "完善工作台业绩概览及客户、产品销售分析"],
+    [/improve dts dashboard and complete sales performance analysis/i, "完善业绩分析的销售额、产品毛利与汇率快照统计"],
+    [/prioritize sales performance on dashboard/i, "工作台优先展示已确认 PI 的核心业绩"],
+    [/fix performance owner-switch render error/i, "修复业绩分析切换归属人时的页面报错"],
+    [/clarify pi cost-based sales performance summary/i, "明确 PI 业绩按产品销售价与录入成本计算预估毛利"],
+    [/fix pi validity default and paypal fee display/i, "修复 PI 有效期默认值与 PayPal 手续费展示"],
+    [/use baidu finscope rates for pi currency selection/i, "PI 币种选择使用百度参考汇率"],
+    [/configure baidu business fx defaults/i, "调整 PI 业务汇率默认值配置"],
+    [/fix urgent pi import, quote display and customer contact workflows/i, "修复 PI 产品导入与报价展示"],
+    [/fix urgent pi import, quote display and customer contact workflows/i, "完善客户多联系方式录入与客户公海认领"],
+    [/show invalid customer import rows before submission/i, "客户批量导入前显示不合格行及原因"],
+    [/fix pi shipping and fee decimal validation/i, "修复 PI 运费及其他费用的小数校验"],
+    [/merge dts supplier reconciliation and pi workflow release/i, "新增供应商档案与商务条件维护"],
+    [/merge dts supplier reconciliation and pi workflow release/i, "新增按供应商、送货单、PI 产品关联的采购对账"],
+    [/merge dts supplier reconciliation and pi workflow release/i, "新增 PI 订单变更及备货同步，仓库开始处理后最多变更三次"],
+    [/merge dts supplier reconciliation and pi workflow release/i, "新增交货代后的销售成本复核入口"],
+    [/merge dts supplier reconciliation and pi workflow release/i, "区分销售预估毛利与按实际采购价计算的实际利润"],
+    [/merge dts supplier reconciliation and pi workflow release/i, "完善系统角色、数据与功能权限配置"],
+    [/complete pi import and notification release fixes/i, "完善 PI 产品明细导入、通知发布与登录后有权限页面跳转"],
+    [/complete pi import and supplier workflow updates/i, "完善 PI 产品明细导入及供应商采购流程"],
+    [/show pi requirement images in details and exports/i, "PI 与备货单详情及导出展示理货要求图片"],
+    [/include standalone pricebook import in authorized landing|route users to an authorized landing page/i, "修复用户登录后停留在无权限页面的问题"],
+    [/improve github\/vercel release announcement summaries/i, "公告草稿按 GitHub 提交与 Vercel 正式部署记录生成"],
+    [/fix: make customer import templates editable/i, "修复客户导入模板的编辑体验"],
+    [/restrict direct execution of customer identity trigger/i, "收紧客户身份校验函数的直接执行权限"],
     [/PI image (?:picker|upload).*sidebar|PI image picker.*app shell/i, "修复创建 PI 时上传理货图片导致左侧菜单移位的问题"],
     [/sidebar width|sidebar compact/i, "修复左侧菜单宽度异常"],
     [/form overflow.*sidebar/i, "修复 PI 表单横向溢出导致的布局异常"],
@@ -108,13 +134,16 @@ export function inferReleaseModules(paths: string[], selectedRoles?: UserRole[] 
 function moduleForChangeItem(item: string, availableModules: string[]): string {
   const rules: Array<[RegExp, string]> = [
     [/公告|通知|发布摘要|发布记录/, "通知与公告"],
+    [/系统角色|功能权限|数据权限|身份校验/, "系统设置与权限"],
+    [/登录|无权限页面|侧栏|菜单宽度|横向溢出|布局/, "全局界面与基础配置"],
+    [/客户|公海/, "客户与客户公海"],
+    [/工作台|数据加载/, "工作台与数据总览"],
+    [/业绩|报表|预估毛利|实际利润/, "业绩与报表"],
+    [/^PI|^新增 PI|^完善 PI|^修复 PI|^销售成本复核|^新增交货代/, "PI订单与订单变更"],
     [/^备货单/, "备货单与仓库"],
     [/供应商|送货单|对账/, "供应商与供应商对账"],
     [/备货|回货|仓库/, "备货单与仓库"],
-    [/PI|订单|理货图片|销售成本复核/, "PI订单与订单变更"],
-    [/工作台|数据加载/, "工作台与数据总览"],
-    [/业绩|报表/, "业绩与报表"],
-    [/侧栏|菜单宽度|横向溢出|布局/, "全局界面与基础配置"],
+    [/PI|订单|理货图片|销售成本复核|交货代/, "PI订单与订单变更"],
   ];
   const matched = rules.find(([pattern, label]) => pattern.test(item) && availableModules.includes(label));
   return matched?.[1] || availableModules[0] || "功能范围待核对";
@@ -122,6 +151,7 @@ function moduleForChangeItem(item: string, availableModules: string[]): string {
 
 function changeAffectsRoles(item: string, module: string, selectedRoles: UserRole[] | null): boolean {
   if (!selectedRoles?.length) return true;
+  if (/实际利润/.test(item)) return selectedRoles.some(role => ["ADMIN", "SUPERVISOR", "FINANCE"].includes(role));
   // Editing and publishing announcements is an administrator action; receiving
   // a notice does not make changes to the admin composer relevant to recipients.
   if (module === "通知与公告" && /公告|发布摘要|发布记录|发布提交|变更类型筛选/.test(item)) {
@@ -186,21 +216,21 @@ export function buildReleaseAnnouncement(commits: ReleaseCommit[], from: string,
   const moduleNames = [...grouped.keys()];
   const subject = moduleNames.slice(0, 3).join("、") + (moduleNames.length > 3 ? `等${moduleNames.length}个功能模块` : "");
   const title = `${category.icon} ${from}至${to}正式发布｜${subject}（${targeted.length}条提交）`.slice(0, 120);
-  const lines = [
-    `发布期间：${from} 至 ${to}`,
-    `接收范围：${selectedRoles?.length ? selectedRoles.map(role => ROLE_LABELS[role]).join("、") : "所有启用用户"}`,
-  ];
-  const footer = `以上内容对应 ${targeted.length} 次正式发布；提交与部署依据可在页面展开核对。`;
+  // The date and audience are already explicit in the composer and title. Keep
+  // the published body focused on changes users can act on.
+  const moduleIcons: Record<string, string> = {
+    "客户与客户公海": "👥", "工作台与数据总览": "📊", "AI获客与筛选": "✨",
+    "PI订单与订单变更": "📋", "备货单与仓库": "📦", "供应商与供应商对账": "🧾",
+    "业绩与报表": "📈", "通知与公告": "🔔", "系统设置与权限": "🔐",
+    "全局界面与基础配置": "🖥️",
+  };
   const entries = [...grouped.entries()].flatMap(([module, items]) => [
-    `${module}：`,
+    `${moduleIcons[module] || "•"} ${module}`,
     ...items.map(item => `• ${item}`),
   ]);
   const join = (selected: string[], truncated: boolean) => [
-    ...lines,
-    "",
     ...selected,
     ...(truncated ? ["", "⚠️ 摘要已按长度限制收敛；如需查看全部改动，请缩小统计日期范围后重新生成。"] : []),
-    footer,
   ].join("\n");
   const selectedEntries: string[] = [];
   let truncated = false;

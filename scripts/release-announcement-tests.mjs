@@ -25,8 +25,8 @@ assert.match(salesSummary.title, /🛠️/);
 assert.match(salesSummary.title, /客户与客户公海/);
 assert.match(salesSummary.content, /公海客户认领/);
 assert.match(salesSummary.content, /四种联系方式/);
-assert.match(salesSummary.content, /接收范围：销售员/);
-assert.match(salesSummary.content, /客户与客户公海：/);
+assert.doesNotMatch(salesSummary.content, /发布期间：|接收范围：/);
+assert.match(salesSummary.content, /👥 客户与客户公海/);
 assert.doesNotMatch(salesSummary.content, /仓库入库进度/);
 assert.doesNotMatch(salesSummary.content, /Production READY/);
 const featureSummary = buildReleaseAnnouncement(releases, "2026-11-07", "2026-11-07", ["SALES"], "FEATURE");
@@ -45,10 +45,10 @@ const englishSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Fix
 assert.match(englishSummary.content, /修复创建 PI 时上传理货图片/);
 assert.doesNotMatch(englishSummary.content, /Fix PI image|Co-authored/);
 const mixedModuleSummary = buildReleaseAnnouncement([{ ...releases[0], message: "Harden dashboard, permissions, and release summaries", details: "Add resilient workbench loading, honor configurable performance permissions, and generate release announcements from verified production deployments.", files: ["components/crm-dashboard.tsx", "app/sales/performance/page.tsx", "components/notification-admin-panel.tsx"], affectedRoles: ["ALL"] }], "2026-11-09", "2026-11-09", null, "ALL");
-assert.match(mixedModuleSummary.content, /工作台与数据总览：\n• 提升工作台/);
-assert.match(mixedModuleSummary.content, /业绩与报表：\n• 业绩分析/);
-assert.match(mixedModuleSummary.content, /通知与公告：\n• 公告草稿/);
-assert.doesNotMatch(mixedModuleSummary.content, /通知与公告：\n• 提升工作台/);
+assert.match(mixedModuleSummary.content, /📊 工作台与数据总览\n• 提升工作台/);
+assert.match(mixedModuleSummary.content, /📈 业绩与报表\n• 业绩分析/);
+assert.match(mixedModuleSummary.content, /🔔 通知与公告\n• 公告草稿/);
+assert.doesNotMatch(mixedModuleSummary.content, /🔔 通知与公告\n• 提升工作台/);
 const salesOnly = buildReleaseAnnouncement([{ ...releases[0], message: "完善正式发布摘要与运营公告模板", files: ["components/notification-admin-panel.tsx"], affectedRoles: ["ALL"] }, { ...releases[0], message: "Merge DTS release integration", details: "Merge release branch with PI, supplier, stock and export fixes", files: ["components/pi-order-form.tsx", "components/stock-order-detail-view.tsx", "components/supplier-delivery-note-files.tsx", "components/crm-dashboard.tsx"], affectedRoles: ["ALL"] }], "2026-11-07", "2026-11-07", ["SALES", "ORDER_CLERK"], "ALL");
 assert.doesNotMatch(salesOnly.content, /公告草稿|供应商送货单/);
 assert.match(salesOnly.content, /PI 产品明细导入/);
@@ -62,12 +62,23 @@ assert.match(testOnly.content, /未发现符合筛选条件/);
 const mixedAnnouncementAndSidebar = buildReleaseAnnouncement([{ ...releases[0], message: "修复公告按角色和类型筛选及侧栏换行 (#60)", details: "修复公告变更归类与侧栏菜单换行", files: ["components/app-shell.tsx", "lib/notifications/release-announcement.ts"], affectedRoles: ["ALL"] }], "2026-11-09", "2026-11-09", ["SALES", "ORDER_CLERK"], "ALL");
 assert.match(mixedAnnouncementAndSidebar.content, /修复左侧菜单换行/);
 assert.doesNotMatch(mixedAnnouncementAndSidebar.content, /公告变更归类|公告按角色/);
-assert.match(mixedAnnouncementAndSidebar.content, /全局界面与基础配置：\n• 修复左侧菜单换行/);
+assert.match(mixedAnnouncementAndSidebar.content, /🖥️ 全局界面与基础配置\n• 修复左侧菜单换行/);
 const finalAnnouncementFix = buildReleaseAnnouncement([{ ...releases[0], message: "Split mixed announcement and sidebar release notes (#62)", files: ["lib/notifications/release-announcement.ts"], category: "GENERAL" }], "2026-11-09", "2026-11-09", ["ADMIN"], "ALL");
 assert.match(finalAnnouncementFix.content, /修复公告草稿对混合提交的角色筛选/);
 const mixedCostReview = buildReleaseAnnouncement([{ ...releases[0], message: "修复销售成本复核提示，并合并此发布批次中已测试的客户流程、供应商及通知摘要改动。", files: ["components/pi-order-detail.tsx", "components/notification-admin-panel.tsx"], category: "BUG_FIX" }], "2026-11-09", "2026-11-09", ["SALES", "ORDER_CLERK"], "ALL");
-assert.match(mixedCostReview.content, /PI订单与订单变更：\n• 修复销售成本复核提示/);
-assert.doesNotMatch(mixedCostReview.content, /通知摘要|此发布批次|通知与公告：/);
+assert.match(mixedCostReview.content, /📋 PI订单与订单变更\n• 修复销售成本复核提示/);
+assert.doesNotMatch(mixedCostReview.content, /通知摘要|此发布批次|🔔 通知与公告/);
+const historical = [
+  ["86b2d87", "feat: improve DTS role-based performance reporting", ["app/sales/performance/page.tsx"]],
+  ["4b0b09d", "Improve DTS dashboard and complete sales performance analysis", ["components/crm-dashboard.tsx", "app/sales/performance/page.tsx"]],
+  ["ad44fc7", "Merge DTS supplier reconciliation and PI workflow release", ["app/suppliers/page.tsx", "app/supplier-reconciliation/page.tsx", "components/pi-order-detail.tsx", "components/stock-order-detail-view.tsx", "components/user-permissions.tsx"]],
+  ["31c5999", "Merge DTS release integration", ["components/stock-order-detail-view.tsx", "components/pi-order-form.tsx", "components/supplier-delivery-note-files.tsx", "components/crm-dashboard.tsx"]],
+].map(([sha, message, files]) => ({ ...releases[0], sha, message, details: "", files, category: inferReleaseCategory(message), changeItems: extractVerifiedChangeItems(message) }));
+const historicalSummary = buildReleaseAnnouncement(historical, "2026-10-29", "2026-11-07", null, "ALL");
+for (const phrase of ["业绩分析", "工作台", "供应商档案", "采购对账", "最多变更三次", "批量登记多产品回货"]) {
+  assert.match(historicalSummary.content, new RegExp(phrase), `historical summary omitted ${phrase}`);
+}
+assert.doesNotMatch(historicalSummary.content, /发布期间：|接收范围：|Merge DTS|Improve DTS/);
 assert.ok(extractVerifiedChangeItems("Merge DTS release integration").some(item => item.includes("备货单")));
 const longSummary = buildReleaseAnnouncement(Array.from({ length: 80 }, (_, index) => ({
   sha: `long${index}`, message: "修复客户和订单功能异常".repeat(8), url: `https://github.com/example/repo/commit/${index}${"a".repeat(80)}`,
