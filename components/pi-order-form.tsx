@@ -64,7 +64,7 @@ function RequirementImagePicker({ lineIndex, pending, existing, onAdd, onRemove,
   return <div className="min-w-0 text-xs">
     <label title="上传理货图片（选填）" className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-blue-200 bg-blue-50/70 px-2 text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-200">
       <FileImage size={15} aria-hidden="true"/><span className="whitespace-nowrap">上传图片</span>
-      <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label={lineIndex === null ? "整单理货图片" : `第 ${lineIndex + 1} 行理货图片`}
+      <input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only !fixed left-0 top-0" aria-label={lineIndex === null ? "整单理货图片" : `第 ${lineIndex + 1} 行理货图片`}
         onChange={(event) => { onAdd(lineIndex, event.target.files); event.target.value = ""; }}/>
     </label>
     {files.map((entry) => <div key={entry.key} className="mt-1 flex items-center gap-1 text-slate-600"><span className="max-w-32 truncate" title={entry.file.name}>{entry.file.name}</span><button type="button" onClick={() => onRemove(entry.key)} aria-label={`移除${entry.file.name}`} className="text-rose-600">移除</button></div>)}
