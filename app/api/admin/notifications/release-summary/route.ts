@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { USER_ROLES } from "@/lib/auth/permissions";
-import { buildReleaseAnnouncement, explainEmptyReleaseMatch, extractVerifiedChangeItems, inferAffectedRoles, inferReleaseCategory, RELEASE_CATEGORIES, type ReleaseCategory, type ReleaseCommit } from "@/lib/notifications/release-announcement";
+import { buildReleaseAnnouncement, explainEmptyReleaseMatch, extractVerifiedChangeItems, inferAffectedRoles, inferReleaseCategory, selectReleaseChanges, RELEASE_CATEGORIES, type ReleaseCategory, type ReleaseCommit } from "@/lib/notifications/release-announcement";
 import { listVerifiedVercelProductionDeployments, type VerifiedProductionDeployment } from "@/lib/notifications/vercel-deployments";
 
 type GitHubCommitDetail = { sha?: string; html_url?: string; commit?: { message?: string }; files?: Array<{ filename?: string }> };
@@ -72,9 +72,7 @@ export async function GET(request: NextRequest) {
     }));
     const releases: ReleaseCommit[] = details.map(commit => ({ ...commit, affectedRoles: inferAffectedRoles(commit.files) }));
     const generated = buildReleaseAnnouncement(releases, from, to, roles, rawCategory as ReleaseCategory);
-    const selectedRoleSet = new Set<string>(roles || []);
-    const roleMatches = (commit: ReleaseCommit) => !selectedRoleSet.size || commit.affectedRoles.includes("ALL") || commit.affectedRoles.some(role => selectedRoleSet.has(role));
-    const matched = releases.filter(commit => (rawCategory === "ALL" || commit.category === rawCategory) && roleMatches(commit));
+    const matched = selectReleaseChanges(releases, roles, rawCategory as ReleaseCategory);
     if (!matched.length) return NextResponse.json({ error: explainEmptyReleaseMatch(productionDeployments.length, releases.length), deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: 0 }, { status: 422, headers: jsonHeaders });
     if (generated.content.includes("摘要已按长度限制收敛")) return NextResponse.json({ error: "符合条件的正式发布变更过多，摘要无法完整放入公告。为避免漏报，请缩小日期范围后重新生成。", deployments_checked: productionDeployments.length, commit_count: releases.length, matched_count: matched.length }, { status: 422, headers: jsonHeaders });
     return NextResponse.json({ ...generated, commit_count: releases.length, matched_count: matched.length, deployments_checked: productionDeployments.length, commits: matched.map(({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles }) => ({ sha, message, details, category, files, deployedAt, url, deploymentUrl, affectedRoles })), source: "已按仓库与提交编号核对 GitHub 提交及 Vercel 正式部署" }, { headers: jsonHeaders });
