@@ -10,5 +10,9 @@ export default async function Home() {
   if (!hasPermission(account, "dashboard.view")) {
     redirect(firstAuthorizedPage((permission) => hasPermission(account, permission)) || "/access-denied");
   }
-  return account.role === "WAREHOUSE" ? <WarehouseDashboard /> : <CrmDashboard showPerformance={["ADMIN", "SUPERVISOR", "SALES"].includes(account.role) && hasPermission(account, "reports.view")} />;
+  return account.role === "WAREHOUSE" ? <WarehouseDashboard /> : <CrmDashboard
+    showPerformance={["ADMIN", "SUPERVISOR", "SALES"].includes(account.role) && hasPermission(account, "reports.view")}
+    canImportCustomers={hasPermission(account, "imports.create")}
+    canCreateAiScreening={account.role === "ADMIN"}
+  />;
 }

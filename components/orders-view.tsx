@@ -245,7 +245,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {k === "ACTIVE" ? "全部仓库处理中" : piOrderStatusLabel(k)}
+                {k === "ACTIVE" ? "仓库处理中（所有在途阶段）" : piOrderStatusLabel(k)}
               </option>
             ))}
           </AppSelect>
@@ -333,7 +333,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status} tone={row.confirmation_method === "DIRECT_PI" && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? "violet" : undefined}>{statusLabel}</AppStatusBadge></td>
+                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status}>{statusLabel}</AppStatusBadge></td>
                         <td className="min-w-[352px] px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>

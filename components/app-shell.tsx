@@ -723,7 +723,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebar = (
     <>
       <div
-        className={`flex h-[76px] items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-6"}`}
+        className={`flex h-16 items-center border-b ${sidebarDark ? "border-slate-800" : "border-slate-100"} ${collapsed ? "justify-center px-3" : "px-6"}`}
       >
         <Link href="/" prefetch={false} className="flex min-w-0 items-center gap-2.5">
           <Image
@@ -746,7 +746,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </Link>
       </div>
-      <nav className="h-[calc(100vh-196px)] space-y-2 overflow-y-auto px-3 py-4">
+      <nav className="h-[calc(100vh-184px)] space-y-2 overflow-y-auto px-3 py-4">
         {menu.map((item) => {
           const Icon = item.icon;
           if ("children" in item) {

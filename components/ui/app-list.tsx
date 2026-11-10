@@ -10,7 +10,7 @@ export function AppResetButton({ onClick, disabled = false }: { onClick: () => v
   return <button type="button" onClick={onClick} disabled={disabled} className="h-10 shrink-0 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">重置</button>;
 }
 
-type StatusTone = "neutral" | "info" | "success" | "warning" | "danger" | "violet";
+type StatusTone = "neutral" | "info" | "success" | "warning" | "danger" | "violet" | "teal";
 
 const tones: Record<StatusTone, string> = {
   neutral: "bg-slate-100 text-slate-700 ring-slate-200",
@@ -19,14 +19,17 @@ const tones: Record<StatusTone, string> = {
   warning: "bg-amber-50 text-amber-800 ring-amber-200",
   danger: "bg-rose-50 text-rose-700 ring-rose-200",
   violet: "bg-violet-50 text-violet-700 ring-violet-200",
+  teal: "bg-teal-50 text-teal-700 ring-teal-200",
 };
 
 export function statusTone(status: string): StatusTone {
-  if (["DEAL", "CONFIRMED", "READY", "COMPLETED", "ACTIVE", "APPROVED"].includes(status)) return "success";
-  if (["SHORTAGE", "EXPIRED", "PENDING", "WAITING", "WAITING_STOCK", "FOLLOWUP_REQUIRED"].includes(status)) return "warning";
-  if (["CANCELLED", "FAILED", "REJECTED", "RELEASED", "DISABLED", "DEPARTED"].includes(status)) return "danger";
-  if (["FOLLOWING", "PREPARING"].includes(status)) return "violet";
-  if (["DRAFT", "SUPERSEDED", "UNCLAIMED"].includes(status)) return "neutral";
+  if (["DEAL", "READY", "READY_TO_SHIP", "SHIPPED", "COMPLETED", "ACTIVE", "APPROVED"].includes(status)) return "success";
+  if (["SHORTAGE", "EXPIRED", "PENDING", "PREPARING", "FOLLOWUP_REQUIRED"].includes(status)) return "warning";
+  if (["FAILED", "REJECTED", "RELEASED", "DISABLED", "DEPARTED"].includes(status)) return "danger";
+  if (["FOLLOWING", "SORTING"].includes(status)) return "violet";
+  if (["DRAFT", "STOCK_DRAFT", "CANCELLED", "SUPERSEDED", "UNCLAIMED"].includes(status)) return "neutral";
+  if (["RECEIVED"].includes(status)) return "teal";
+  if (["WAITING", "WAITING_STOCK", "CONFIRMED"].includes(status)) return "info";
   return "info";
 }
 

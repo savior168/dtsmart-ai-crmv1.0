@@ -323,6 +323,23 @@ assert.match(read("lib/customer-contact-requirement.ts"), /if \(\(!isFollowing &
 assert.match(read("lib/customer-contact-requirement.ts"), /has_customer_contact_method\?: unknown[\s\S]*if \(value\.has_customer_contact_method === true\)/, "客户阶段校验必须把客户联系方式记录表中已保存的渠道计入四选一判断");
 assert.match(read("app/api/customers/public-pool/claim/route.ts"), /customer_contacts[\s\S]*PHONE.*EMAIL.*WECHAT.*WHATSAPP[\s\S]*has_customer_contact_method: hasSavedContact/, "公海认领服务端必须将客户联系方式记录表中的四类渠道计入资格判断");
 assert.match(read("app/api/customers/public-pool/route.ts"), /contactPresence[\s\S]*has_customer_contact_method: tab === "available" && customersWithSavedContact\.has\(row\.id\)/, "公海列表必须仅向可认领客户下发联系方式存在标记，供前端准确提示");
+assert.match(
+  poolApi,
+  /const \[owners, protections, supplements, verifiedContacts, contactPresence, previousReleases\] = await Promise\.all\([\s\S]*?if \(lookup\.error\) console\.warn\(\`\[public-pool\] \$\{name\} enrichment unavailable\`/,
+  "公海列表辅助信息查询失败不得阻断客户主列表返回",
+);
+assert.match(
+  poolApi,
+  /if \(contactPresence\.error && tab === "available"\) \{[\s\S]*?hasCustomerContactMethod\(row\)[\s\S]*?customersWithSavedContact\.add\(row\.id\)/,
+  "联系方式辅助索引失败时使用主档字段降级展示",
+);
+assert.match(poolApi, /subordinate scope lookup unavailable; limiting to own records/, "主管团队范围查询失败必须留有安全降级日志");
+assert.match(
+  poolApi,
+  /const directReportIds = new Set\(account\.role === "SUPERVISOR" && account\.supervisor_can_view_subordinates && !directReports\.error \? \(directReports\.data \|\| \[\]\)\.map/,
+  "主管团队范围查询失败时必须安全降级为本人数据而非整页失败或扩大权限",
+);
+assert.match(poolApi, /authStatus \|\| 500/, "公海服务端异常须作为服务端错误报告，不能误报为客户端请求错误");
 assert.match(poolView, /这两个阶段需至少有一种可联系渠道[\s\S]*四项任选一项即可，不需要全部填写/, "无联系方式提示必须明确四选一而非误导成四项全填");
 assert.match(poolView, /正在认领[\s\S]*displayCustomerName\(row\.company_name\)[\s\S]*CountryLabel value=\{row\.country\}/, "认领弹框须醒目显示公司名称和国家，帮助用户确认目标客户");
 assert.match(read("app/api/customers/[id]/workflow/route.ts"), /customer_contacts[\s\S]*has_customer_contact_method: hasSavedContact/, "我的客户阶段变更 API 也须识别客户联系方式记录表中的任一渠道");
