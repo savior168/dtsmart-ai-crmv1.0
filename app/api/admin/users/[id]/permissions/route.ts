@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, isRetiredPermission, normalizeRole, permissionPageCode } from "@/lib/auth/permissions";
+import { userPermissionChanges } from "@/lib/auth/role-permission-changes";
 
 type OverrideEffect = "ALLOW" | "DENY" | "INHERIT";
 
@@ -50,12 +51,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { data: target, error: targetError } = await admin.from("users").select("id,name,email,role").eq("id", id).maybeSingle();
     if (targetError || !target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (normalizeRole(target.role) === "ADMIN") return NextResponse.json({ error: "系统管理员固定拥有全部权限" }, { status: 400 });
+    const changes = userPermissionChanges(permission, effect);
     if (effect === "INHERIT") {
-      const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).eq("permission_code", permission);
+      const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).in("permission_code", changes.map((item) => item.permission_code));
       if (error) throw error;
     } else {
       const { error } = await admin.from("user_permission_overrides").upsert(
-        [{ user_id: id, permission_code: permission, effect, updated_by: user.id, updated_at: new Date().toISOString() }],
+        changes.map((item) => ({ user_id: id, ...item, updated_by: user.id, updated_at: new Date().toISOString() })),
         { onConflict: "user_id,permission_code" },
       );
       if (error) throw error;
@@ -65,7 +67,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       action: "ADMIN_USER_PERMISSION_UPDATE",
       target_type: "user",
       target_id: id,
-      content: { target_name: target.name, target_email: target.email, permission, effect },
+      content: { target_name: target.name, target_email: target.email, permission, effect, affected_permissions: changes.map((item) => item.permission_code) },
     });
     return NextResponse.json({ ok: true });
   } catch (error) {

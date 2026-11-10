@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarRange } from "lucide-react";
+import { AppSelect } from "@/components/ui/app-select";
 
 export function CompactDateRange({
   from,
@@ -54,10 +55,10 @@ export function CompactDateRange({
       />
       {presets?.length && onPresetChange ? <>
         <span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-200" />
-        <select aria-label={`${label}快捷范围`} value={selectedPreset} onChange={(event) => onPresetChange(event.target.value)} className="h-full max-w-[100px] shrink-0 border-0 bg-transparent px-2 text-xs font-medium text-blue-700 outline-none">
+        <AppSelect aria-label={`${label}快捷范围`} value={selectedPreset} onChange={(event) => onPresetChange(event.target.value)} className="h-full max-w-[100px] shrink-0 border-0 bg-transparent px-2 text-xs font-medium text-blue-700 outline-none">
           <option value="">自定义</option>
           {presets.map((preset) => <option key={preset.value} value={preset.value} title={preset.title}>{preset.label}</option>)}
-        </select>
+        </AppSelect>
       </> : null}
     </fieldset>
   );

@@ -180,7 +180,7 @@ const preservedLegacy = legacyWebsiteExportPatch({
 assert.deepEqual(preservedLegacy.other_public_urls, ["https://youtube.com/@previous", "https://facebook.com/old"], "已有平台主页时历史链接仍需保留，不得覆盖新链接");
 
 const customersApi = await readFile(new URL("../app/api/customers/route.ts", import.meta.url), "utf8");
-assert.match(customersApi, /requirePermission\(exportMode \? "customers.export" : "customers.view"\)/, "下载完整客户资料须校验导出权限");
+assert.match(customersApi, /requirePermission\(exportMode \? "customers.export" : "customers.mine.view"\)/, "下载完整客户资料须校验导出权限");
 assert.match(customersApi, /exportMode \? exportOfficialWebsiteText\(rawWebsite\) : officialWebsiteUrl\(rawWebsite\)/, "仅导出时兼容裸域名官网，不改普通列表语义");
 assert.match(customersApi, /exportMode \? legacyWebsiteExportPatch\(normalized, rawWebsite\) : \{\}/, "历史公开平台网址仅在导出路径补齐");
 assert.match(customersApi, /account\.role !== "ADMIN"[\s\S]*company_scale_evidence: null/, "普通角色的客户接口不得返回原始规模依据");

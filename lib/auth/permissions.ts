@@ -26,7 +26,9 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "dashboard.view", label: "查看工作台", group: "工作台", description: "进入工作台并查看业务概览", kind: "PAGE" },
   { code: "dashboard.data_all", label: "查看全部工作台数据", group: "工作台", description: "可切换归属人并查看全部销售数据", kind: "DATA" },
 
-  { code: "customers.view", label: "客户公海与我的客户", group: "客户中心", description: "进入客户公海、我的客户及客户详情，并可勾选当前可见的筛选结果；导出、分配、删除另行授权", kind: "PAGE" },
+  { code: "customers.view", label: "客户资料", group: "客户中心", description: "查看有权访问的客户详情；公海与我的客户列表分别授权", kind: "PAGE" },
+  { code: "customers.pool.view", label: "客户公海", group: "客户中心", description: "进入客户公海并查看可认领客户", kind: "PAGE" },
+  { code: "customers.mine.view", label: "我的客户", group: "客户中心", description: "进入我的客户并查看授权范围内的客户", kind: "PAGE" },
   { code: "customers.data_all", label: "查看全部客户数据", group: "客户中心", description: "可按归属人查看全部客户", kind: "DATA" },
   { code: "customers.create", label: "新增客户", group: "客户中心", description: "手动创建客户资料", kind: "ACTION" },
   { code: "customers.edit", label: "编辑客户", group: "客户中心", description: "编辑有权访问的客户基本资料", kind: "ACTION" },
@@ -125,6 +127,9 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "pi.accounts.manage", label: "维护收款账户", group: "PI财务设置", description: "新增、编辑及启停PI收款账户", kind: "ACTION" },
 
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
+  { code: "sales.performance.view", label: "业绩分析", group: "销售管理", description: "进入业绩分析查看已确认 PI 的销售走势、客户与产品表现", kind: "PAGE" },
+  { code: "sales.performance.data_all", label: "查看团队业绩", group: "销售管理", description: "在业务授权范围内切换归属人并查看团队业绩", kind: "DATA" },
+  { code: "sales.performance.actual_profit.view", label: "查看业绩实际利润", group: "销售管理", description: "查看实际采购成本口径的毛利与纯利，仍受订单数据范围限制", kind: "DATA" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },
   { code: "reports.actual_profit.view", label: "查看实际毛利和纯利", group: "报表中心", description: "查看按真实回货采购价及整单三项费用计算的实际毛利、纯利及利润率；不改变可查看的订单范围", kind: "DATA" },
   { code: "reports.export", label: "导出报表", group: "报表中心", description: "导出允许范围内的报表", kind: "ACTION" },
@@ -165,6 +170,10 @@ export function isKnownPermission(code: string) {
 export function permissionPageCode(code: string) {
   if (code.endsWith(".view") && PERMISSION_CATALOG.some((item) => item.code === code && item.kind === "PAGE")) return code;
   if (code.startsWith("dashboard.")) return "dashboard.view";
+  if (code.startsWith("customers.pool.")) return "customers.pool.view";
+  if (code.startsWith("customers.mine.")) return "customers.mine.view";
+  if (code === "customers.claim" || code === "customers.assign") return "customers.pool.view";
+  if (["customers.create", "customers.edit", "customers.delete", "customers.export", "customers.batch_edit", "customers.release", "customers.renew", "customers.renew.review", "customers.data_all"].includes(code)) return "customers.mine.view";
   if (code.startsWith("customers.")) return "customers.view";
   if (code.startsWith("imports.")) return "imports.view";
   if (code.startsWith("ai.acquisition.")) return "ai.acquisition.view";
@@ -182,6 +191,7 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("pi.rates.")) return "pi.rates.view";
   if (code.startsWith("pi.accounts.")) return "pi.accounts.view";
   if (code.startsWith("reports.")) return "reports.view";
+  if (code.startsWith("sales.performance.")) return "sales.performance.view";
   if (code.startsWith("costs.")) return "costs.view";
   if (code.startsWith("notifications.")) return "notifications.view";
   if (code.startsWith("system.users.")) return "system.users.view";
@@ -206,6 +216,10 @@ export function evaluatePermission(account: PermissionAccount, permission: strin
   const pagePermission = permissionPageCode(permission);
   if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
   if (!account.permissions.includes(permission)) return false;
+  // Customer lists are independent menu permissions, but both still require
+  // the shared customer-detail access gate used by the layout and RLS.
+  if (permission !== "customers.view" && permission.startsWith("customers.")
+    && !account.permissions.includes("customers.view")) return false;
   return pagePermission === permission || account.permissions.includes(pagePermission);
 }
 

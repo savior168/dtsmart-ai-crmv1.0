@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const permissionCatalog = read("lib/auth/permissions.ts");
-assert.match(read("app/api/reports/sales/performance/route.ts"), /hasPermission\(account, "reports\.actual_profit\.view"\)/,
+assert.match(read("app/api/reports/sales/performance/route.ts"), /hasPermission\(account, "sales\.performance\.actual_profit\.view"\)/,
   "实际毛利和纯利必须在服务端按独立数据权限判定，不能仅靠角色或前端隐藏");
 assert.match(permissionCatalog, /export function normalizeRole[\s\S]*throw new Error\("UNKNOWN_ROLE"\)/, "未知角色必须拒绝登录，不能默认为销售员");
 const sidebar = read("components/app-shell.tsx");

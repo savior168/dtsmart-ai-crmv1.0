@@ -10,7 +10,9 @@ const optionalText = (value: unknown, max: number) => {
 export function parseSupplierInput(value: unknown, previousIsActive = true) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("供应商资料格式不正确");
   const body = value as Record<string, unknown>;
-  const settlementCycle = String(body.settlement_cycle || "UNSET").toUpperCase();
+  const requestedCycle = String(body.settlement_cycle || "UNSET").toUpperCase();
+  const settlementCycle = requestedCycle === "NET_DAYS" && Number(body.settlement_days) === 15
+    ? "SEMI_MONTHLY" : requestedCycle;
   if (!SETTLEMENT_CYCLES.includes(settlementCycle as SettlementCycle)) throw new Error("结算方式不正确");
   if (body.is_active !== undefined && typeof body.is_active !== "boolean") throw new Error("供应商启用状态不正确");
   const isActive = body.is_active === undefined ? previousIsActive : body.is_active;
@@ -36,7 +38,7 @@ export function parseSupplierInput(value: unknown, previousIsActive = true) {
     main_products: mainProducts,
     settlement_cycle: settlementCycle as SettlementCycle,
     settlement_days: settlementDays,
-    settlement_terms_original: optionalText(body.settlement_terms_original, 200),
+    settlement_terms_original: settlementCycle === "SEMI_MONTHLY" ? "半月结（15天）" : optionalText(body.settlement_terms_original, 200),
     cooperation_note: optionalText(body.cooperation_note, 2000),
     after_sales_note: optionalText(body.after_sales_note, 2000),
     price_advantage_note: optionalText(body.price_advantage_note, 2000),

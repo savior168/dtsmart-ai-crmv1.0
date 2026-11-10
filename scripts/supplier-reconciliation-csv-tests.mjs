@@ -38,4 +38,16 @@ assert.match(reconciliationView, /for \(let page = 1; page <= 10000; page\+\+\)[
   "the finance supplier filter must load every supplier page, not only the first 200 records");
 assert.match(reconciliationView, /全历史另有[\s\S]*?此数不受上方日期筛选影响/,
   "historical receipts without delivery-note sources must not be presented as date-filtered balances");
+assert.match(reconciliationView, /CompactDateRange label="送货日期"[\s\S]*?presets=\{BUSINESS_DATE_PRESETS\}/,
+  "supplier reconciliation must share the dashboard date control and presets");
+assert.match(reconciliationView, /onClick=\{\(\) => showSupplierNotes\(supplier\.supplier_id\)\}/,
+  "supplier summary must drill into that supplier's actual purchase details");
+assert.match(reconciliationView, /<h2 className="font-semibold">采购明细<\/h2>/,
+  "delivery-note-level rows must be clearly identified as purchase details");
+assert.match(reconciliationView, /setFilters\(\(current\) => \(\{ \.\.\.current, supplierId: id \}\)\)/,
+  "supplier drill-down must apply the server-side supplier filter, not only filter one loaded page");
+assert.match(reconciliationView, /缺纸单图片[\s\S]*?待录纸单金额[\s\S]*?金额有差异/,
+  "purchase details must flag missing paper evidence and amount discrepancies separately");
+assert.match(reconciliationView, /groups\.map\(\(group\)[\s\S]*?group\.items\.map/,
+  "one physical delivery note must group multiple product allocations by PI without merging separate notes");
 console.log("Supplier reconciliation CSV tests passed");

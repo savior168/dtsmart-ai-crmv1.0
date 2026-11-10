@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { countryFilterOptions, countryFilterRawValues, countrySearchTokens } from "@/lib/countries";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -127,7 +127,8 @@ function validateManualContactInput(body: Record<string, unknown>) {
 export async function GET(request: NextRequest) {
   try {
     const exportMode = request.nextUrl.searchParams.get("export") === "1";
-    const { supabase, account } = await requirePermission(exportMode ? "customers.export" : "customers.view");
+    const { supabase, account } = await requirePermission(exportMode ? "customers.export" : "customers.mine.view");
+    if (!hasPermission(account, "customers.view")) return NextResponse.json({ error: "当前账号没有客户中心访问权限" }, { status: 403 });
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
     const idsOnly = request.nextUrl.searchParams.get("ids_only") === "true";
     const selectedIds = [...new Set(request.nextUrl.searchParams.getAll("selected_id"))];

@@ -30,6 +30,7 @@ import { uploadAvatar, validateAvatar } from "@/lib/avatar-upload";
 import { notificationVoiceText } from "@/lib/notification-voice";
 import { announcementTone, notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "@/lib/notification-toast";
 import { defaultNotificationPolicy, isUrgentWarehousePiChange, notificationPolicyType, requiresManualNotificationDismissal, type NotificationPolicy } from "@/lib/notification-policy";
+import { evaluatePermission } from "@/lib/auth/permissions";
 
 const menu = [
   { label: "工作台", href: "/", icon: LayoutDashboard, permission: "dashboard.view" },
@@ -44,8 +45,8 @@ const menu = [
   },
   {
     label: "客户中心", icon: UsersRound, defaultHref: "/customers/pool", children: [
-      { label: "客户公海", href: "/customers/pool", permission: "customers.view" },
-      { label: "我的客户", href: "/customers", permission: "customers.view" },
+      { label: "客户公海", href: "/customers/pool", permission: "customers.pool.view" },
+      { label: "我的客户", href: "/customers", permission: "customers.mine.view" },
       { label: "跟进管理", href: "/followups", permission: "followups.view" },
     ],
   },
@@ -59,7 +60,7 @@ const menu = [
   {
     label: "销售管理", icon: ClipboardList, defaultHref: "/orders", children: [
       { label: "PI订单", href: "/orders", permission: "orders.view" },
-      { label: "业绩分析", href: "/sales/performance", permission: "reports.view" },
+      { label: "业绩分析", href: "/sales/performance", permission: "sales.performance.view" },
     ],
   },
   { label: "采购管理", icon: ShoppingCart, defaultHref: "/stock-orders", children: [
@@ -657,7 +658,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Do not turn a transient profile refresh into an empty sidebar.  The API
   // remains the permission boundary; this only keeps the shell usable while
   // the current session profile is still loading or a request briefly fails.
-  const canSeePermission = (permission: string) => !profile || profile.role === "ADMIN" || profile.permissions.includes(permission);
+  const canSeePermission = (permission: string) => !profile || evaluatePermission({
+    role: profile.role,
+    permissions: profile.permissions,
+    // The menu contains page permissions only. Subordinate data is still
+    // checked separately by the server when a report is requested.
+    supervisor_can_view_subordinates: true,
+  }, permission);
   function toggleSidebarMode() {
     const next = sidebarDark ? "light" : "dark";
     setSidebarMode(next);

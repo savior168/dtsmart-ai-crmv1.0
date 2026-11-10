@@ -56,7 +56,7 @@ assert.match(reports, /team_leaderboard\.available[\s\S]*setTeamScope\(next\)/, 
 assert.match(reports, /function TeamLeaderboard[\s\S]*团队销售业绩排名[\s\S]*成交金额[\s\S]*onSelectOwner\(row\.user_id\)/, "紧凑团队榜须呈现成交额并支持下钻到销售员明细");
 assert.match(reports, /function TeamLeaderboard[\s\S]*团队成交贡献[\s\S]*团队毛利贡献[\s\S]*rows\.map/, "团队排名须显示每个成员的成交与毛利贡献占比");
 assert.match(performanceApi, /account\.role === "SUPERVISOR" && request\.nextUrl\.searchParams\.get\("scope"\) === "team"/, "团队范围只能由主管请求");
-assert.match(performanceApi, /teamScopeRequested && \(!account\.supervisor_can_view_subordinates \|\| !account\.permissions\.includes\("reports\.data_all"\)\)/, "主管团队业绩必须同时校验直属下级能力与数据权限");
+assert.match(performanceApi, /teamScopeRequested && \(!account\.supervisor_can_view_subordinates \|\| !hasPermission\(account, "sales\.performance\.data_all"\)\)/, "主管团队业绩必须同时校验直属下级能力与数据权限");
 assert.match(performanceApi, /manager_id", account\.id\).*role", "SALES".*status", "ACTIVE"/, "主管团队聚合仅限本人直属在职销售");
 assert.match(performanceApi, /team_leaderboard: \{ available: account\.role === "SUPERVISOR"/, "团队排行可用状态必须由服务端角色和权限计算");
 assert.match(performanceApi, /\.in\("role", \["SALES", "SUPERVISOR"\]\)/, "管理员业绩榜须包含主管本人 PI，不能只列 SALES 角色");
@@ -68,7 +68,11 @@ assert.match(performanceApi, /trends: \{ granularity: trendGranularity, periods:
 assert.match(reports, /销售员业绩走势[\s\S]*高业绩客户下单走势/, "业绩分析须提供销售员与重点客户走势");
 assert.match(reports, /悬停数据点查看金额与单数/, "走势需支持核对单期成交金额与订单数");
 assert.match(reports, /<h3 className="text-sm font-medium text-slate-600">成交额<\/h3>[\s\S]*¥[\s\S]*\$/, "RMB and USD amounts must use the standard ¥ and $ symbols");
-assert.match(reports, /PI 产品毛利[\s\S]*毛利率[\s\S]*产品销售额[\s\S]*PI 录入成本/, "PI gross profit, margin, product sales, and PI-entered cost must be shown as one related result");
+assert.match(reports, /PI 产品毛利[\s\S]*毛利率[\s\S]*产品销售额[\s\S]*销售录入成本/, "PI gross profit, margin, product sales, and PI-entered cost must be shown as one related result");
+assert.match(reports, /在当前业绩明细中搜索[\s\S]*<AppPagination/, "PI 明细必须支持本地检索并保留统一分页");
+assert.match(reports, /performance\.actual_totals \? <><td[\s\S]*actual_net_profit_cny/, "逐单实际纯利只向已获授权的视图展示");
+assert.match(performanceApi, /hasPermission\(account, "sales\.performance\.actual_profit\.view"\)[\s\S]*actualTotals =/, "实际利润只在独立授权后计算");
+assert.match(performanceApi, /actual_profit: actualByOrder\.has\(row\.id\)[\s\S]*actual_net_profit_cny[\s\S]*actual_net_margin/, "逐单响应只能提供必要的纯利字段，不得回传采购成本");
 assert.doesNotMatch(reports, /成交金额 · 人民币|成交金额 · 美元/, "currency amounts must not be split into separate headline metrics");
 assert.match(dashboard, /PerformanceMetric label="成交金额"/, "dashboard performance snapshot must group the sales amount metric");
 assert.match(countryMigration, /country_rows as \([\s\S]*?group by 1\s*\)/, "国家分组必须先返回全部原始值，不能在标准化前截断 TOP10");

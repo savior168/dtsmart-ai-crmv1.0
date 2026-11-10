@@ -30,7 +30,8 @@ const poolOptionsCache = new Map<string, { expiresAt: number; payload: Record<st
 
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requirePermission("customers.view");
+    const { account } = await requirePermission("customers.pool.view");
+    if (!hasPermission(account, "customers.view")) return NextResponse.json({ error: "当前账号没有客户中心访问权限" }, { status: 403 });
     const admin = createAdminClient();
     const params = request.nextUrl.searchParams;
     const tab = params.get("tab") || "available";

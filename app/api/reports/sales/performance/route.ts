@@ -11,17 +11,17 @@ const PERFORMANCE_STATUSES = ["CONFIRMED", "STOCK_DRAFT", "WAITING_STOCK", "PREP
 
 export async function GET(request: NextRequest) {
   try {
-    const { account } = await requirePermission("reports.view");
+    const { account } = await requirePermission("sales.performance.view");
     const from = request.nextUrl.searchParams.get("from");
     const to = request.nextUrl.searchParams.get("to");
     if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) {
       return NextResponse.json({ error: "无效日期范围" }, { status: 400 });
     }
     const teamScopeRequested = account.role === "SUPERVISOR" && request.nextUrl.searchParams.get("scope") === "team";
-    if (teamScopeRequested && (!account.supervisor_can_view_subordinates || !account.permissions.includes("reports.data_all"))) {
+    if (teamScopeRequested && (!account.supervisor_can_view_subordinates || !hasPermission(account, "sales.performance.data_all"))) {
       return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
     }
-    const selectedOwner = await requestedOwnerId(request, account, "reports.data_all");
+    const selectedOwner = await requestedOwnerId(request, account, "sales.performance.data_all");
     const admin = createAdminClient();
     // requestedOwnerId validates every non-admin selection against the direct
     // report relationship and the live role permission before privileged reads.
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
       actual_net_sales_cny: number; actual_net_margin: number | null;
       pending_expense_orders: number;
     } | null = null;
-    if (hasPermission(account, "reports.actual_profit.view")) {
+    if (hasPermission(account, "sales.performance.actual_profit.view")) {
       const stockItemIds = [...new Set([...stockItemByLine.values()].map((item) => item.id))];
       const allocations: ReceiptAllocation[] = [];
       let receiptLedgerAvailable = true;
@@ -287,7 +287,7 @@ export async function GET(request: NextRequest) {
       filters: { countries: countryOptions, customers: customerOptions },
       ...(actualTotals ? { actual_totals: actualTotals } : {}),
       trends: { granularity: trendGranularity, periods: trendPeriods, sellers: sellerTrends, top_customers: customerTrends, top_products: productTrends },
-      team_leaderboard: { available: account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && account.permissions.includes("reports.data_all"), selected: includeTeamLeaderboard, rows: teamLeaderboard },
+      team_leaderboard: { available: account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && hasPermission(account, "sales.performance.data_all"), selected: includeTeamLeaderboard, rows: teamLeaderboard },
       totals: { orders: summary.totals.orders, cny: summary.totals.cny, usd: summary.totals.usd,
         missing_cny: summary.totals.missing_cny, missing_usd: summary.totals.missing_usd,
         product_sales_cny: summary.totals.product_sales_cny, cost_cny: summary.totals.cost_cny, product_profit_cny: summary.totals.product_profit_cny,
@@ -309,6 +309,10 @@ export async function GET(request: NextRequest) {
         currency: row.currency, total_amount: row.total_amount, total_cny: row.total_cny, total_usd: row.total_usd,
         product_sales_cny: row.product_sales_cny, product_profit_cny: row.product_profit_cny, product_profit_usd: row.product_profit_usd,
         product_margin: row.product_margin, missing_cost_lines: row.missing_cost_lines, actual_cost_lines: row.actual_cost_lines,
+        ...(actualTotals ? { actual_profit: actualByOrder.has(row.id) ? {
+          actual_net_profit_cny: actualByOrder.get(row.id)!.actual_net_profit_cny,
+          actual_net_margin: actualByOrder.get(row.id)!.actual_net_margin,
+        } : null } : {}),
         estimated_cost_lines: row.estimated_cost_lines, missing_profit_usd: row.missing_profit_usd,
         usd_cny_rate_snapshot: row.usd_cny_rate_snapshot, usd_rate_source_snapshot: row.usd_rate_source_snapshot,
         usd_rate_reference_date_snapshot: row.usd_rate_reference_date_snapshot, usd_rate_synced_at_snapshot: row.usd_rate_synced_at_snapshot,

@@ -164,7 +164,7 @@ assert.match(searchableMultiSelect, /showCounts = false[\s\S]*showCounts && item
 assert.doesNotMatch(orderApi, /stock:stock_orders\(/, "销售订单列表不得使用存在双外键歧义的嵌套关系");
 assert.match(orderApi, /\.in\("sales_order_id", orderIds\)/, "备货单应按明确 sales_order_id 查询并合并");
 assert.match(sidebar, /dtsmart-sidebar-collapsed/, "侧栏收起状态应跨页面持久化");
-assert.match(sidebar, /!profile \|\| profile\.role === "ADMIN"/, "侧栏在当前用户资料短暂加载或刷新失败时不得被清空");
+assert.match(sidebar, /!profile \|\| evaluatePermission\(/, "侧栏在资料短暂加载失败时保持可用，核验成功后按共享权限判定菜单");
 assert.match(sidebar, /href: "\/customers\/pool"/, "客户中心必须提供客户公海入口");
 assert.doesNotMatch(sidebar, /label: "客户导入"/, "客户中心不得保留含义不清的独立客户导入二级菜单");
 assert.match(poolView, /CUSTOMER_LIST_COLUMNS[\s\S]*CUSTOMER_LIST_DEFAULT_COLUMNS[\s\S]*customerListSortField/, "客户公海和我的客户必须共用字段及排序规则");
@@ -184,7 +184,7 @@ assert.match(listFields, /"company_name",[\s\S]*"country",[\s\S]*"ai_score"/, "�
 assert.match(listFields, /migrateCustomerIdentityColumnOrder[\s\S]*countryIndex === scoreIndex \+ 1/, "旧版浏览器保存的相邻旧顺序必须平滑迁移，且不得覆盖主动自定义顺序");
 assert.match(poolView, /available: \["company_name", "country", "ai_score"[\s\S]*claimed: \["company_name", "country", "ai_score"[\s\S]*pending: \["company_name", "country", "ai_score"/, "客户公海各列表必须统一为公司名称、国家地区、AI评分");
 assert.match(poolView, /role === "ADMIN"[\s\S]*新增客户[\s\S]*手动新增[\s\S]*destination=public[\s\S]*导出筛选结果/, "公海管理员必须使用与我的客户一致的新增、导入和导出操作布局");
-assert.match(poolPage, /protectPage\("customers\.view"\)[\s\S]*initialRole=\{account\.role\}/, "管理员操作入口不能依赖公海列表成功加载后才显示");
+assert.match(poolPage, /protectPage\("customers\.pool\.view"\)[\s\S]*initialRole=\{account\.role\}/, "管理员操作入口不能依赖公海列表成功加载后才显示");
 assert.doesNotMatch(poolView, /RefreshCw|>刷新<\//, "公海顶部不得堆叠无必要的刷新按钮");
 assert.match(poolApi, /exportMode && !hasPermission\(account, "customers\.pool\.export"\)/, "公海导出请求必须在服务端限制为拥有公海导出权限的用户");
 assert.match(customersApi, /destination === "PUBLIC_POOL"[\s\S]*account\.role !== "ADMIN"[\s\S]*status: "UNCLAIMED"[\s\S]*owner_id: null[\s\S]*pool_status: "AVAILABLE"/, "管理员新增公海客户必须生成无归属待认领记录");

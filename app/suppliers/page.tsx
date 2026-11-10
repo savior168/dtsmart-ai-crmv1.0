@@ -4,5 +4,5 @@ import { hasPermission } from "@/lib/auth/current-user";
 
 export default async function SuppliersPage() {
   const { account } = await protectPage("suppliers.view");
-  return <SuppliersView canManage={hasPermission(account, "suppliers.manage")} />;
+  return <SuppliersView canManage={hasPermission(account, "suppliers.manage")} isAdmin={account.role === "ADMIN"} />;
 }

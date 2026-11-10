@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parseSupplierInput } from "../lib/suppliers/input.ts";
+import { isHalfMonthSettlement, settlementDisplay } from "../lib/suppliers/settlement.ts";
 import { matchActiveSupplierCode } from "../lib/suppliers/match-code.ts";
 
 const cash = parseSupplierInput({
@@ -27,7 +28,12 @@ assert.throws(() => parseSupplierInput({ settlement_cycle: "MONTHLY", main_produ
 assert.throws(() => parseSupplierInput({ settlement_cycle: "UNSET", main_products: "电池" }), /商务条件/);
 assert.throws(() => parseSupplierInput({ settlement_cycle: "CASH" }), /主供产品/);
 assert.throws(() => parseSupplierInput({ settlement_cycle: "NET_DAYS", settlement_days: 0, main_products: "LCD", legacy_code: "123" }), /天数/);
-assert.equal(parseSupplierInput({ settlement_cycle: "NET_DAYS", settlement_days: 15, main_products: "LCD", system_code: "A15" }).settlement_days, 15);
+assert.equal(parseSupplierInput({ settlement_cycle: "NET_DAYS", settlement_days: 15, main_products: "LCD", system_code: "A15" }).settlement_cycle, "SEMI_MONTHLY");
+assert.equal(parseSupplierInput({ settlement_cycle: "NET_DAYS", settlement_days: 30, main_products: "LCD", system_code: "A30" }).settlement_days, 30);
+assert.equal(isHalfMonthSettlement("NET_DAYS", 15), true);
+assert.equal(isHalfMonthSettlement("NET_DAYS", 30), false);
+assert.equal(settlementDisplay("NET_DAYS", 15, "15天"), "半月结（15天）");
+assert.equal(settlementDisplay("SEMI_MONTHLY", null, "半月结"), "半月结（15天）");
 const supplierRoute = readFileSync(new URL("../app/api/suppliers/route.ts", import.meta.url), "utf8");
 assert.match(supplierRoute, /codeOnly \? "id,system_code,settlement_cycle,is_active" : "\*"/,
   "仓库员代码列表必须返回启用状态，但不能泄露供应商名称");
@@ -48,6 +54,12 @@ assert.doesNotMatch(supplierUpdateRoute, /changingExistingSettlement|completingS
   "待补充或已确定的商务条件均可按最新协议更新");
 const supplierView = readFileSync(new URL("../components/suppliers-view.tsx", import.meta.url), "utf8");
 assert.match(supplierView, /商务条件可按最新约定调整/);
+assert.match(supplierView, /isAdmin \? <button[\s\S]*?openContacts\(row\)/, "联系方式入口仅向管理员显示");
+const privateContacts = readFileSync(new URL("../app/api/admin/suppliers/[id]/contacts/route.ts", import.meta.url), "utf8");
+assert.match(privateContacts, /await requireAdmin\(\)/, "供应商联系方式接口须校验管理员身份");
+const privateMigration = readFileSync(new URL("../supabase/migrations/20261110100000_supplier_private_contacts_and_safe_delete.sql", import.meta.url), "utf8");
+assert.match(privateMigration, /revoke all on public\.supplier_private_contacts from public, anon, authenticated/, "私有联系方式不得对普通用户开放数据接口");
+assert.match(privateMigration, /supplier_delivery_notes[\s\S]*stock_order_items[\s\S]*supplier_private_contacts/, "供应商删除前须复查业务关联");
 const termsMigration = readFileSync(new URL("../supabase/migrations/20261105100000_supplier_terms_editable_snapshot.sql", import.meta.url), "utf8");
 assert.match(termsMigration, /settlement_cycle_snapshot/);
 assert.match(termsMigration, /snapshot_supplier_settlement_terms/);

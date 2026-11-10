@@ -64,10 +64,21 @@ export async function PATCH(request: NextRequest, context: Context) {
   }
 }
 
-export async function DELETE(_: NextRequest, context: Context) {
+export async function DELETE(request: NextRequest, context: Context) {
   try {
     const { account } = await requirePermission("suppliers.manage");
     const { id } = await context.params;
+    if (request.nextUrl.searchParams.get("permanent") === "true") {
+      const { data, error } = await createAdminClient().rpc("delete_unlinked_supplier", { p_supplier_id: id });
+      if (error) {
+        if (error.code === "P0001" || error.code === "23503") {
+          return NextResponse.json({ error: "该供应商已有业务关联，请停用档案，不能删除" }, { status: 409 });
+        }
+        throw error;
+      }
+      if (!data) return NextResponse.json({ error: "供应商不存在" }, { status: 404 });
+      return NextResponse.json({ deleted: true });
+    }
     // Referenced suppliers are retained for historical reconciliation; the
     // delete action is an explicit soft deactivation, never a cascading delete.
     const { data, error } = await createAdminClient().from("suppliers")

@@ -73,8 +73,5 @@ export function UserScopeSelect({
   const selected = (value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? (defaultAll ? "all" : defaultValue) : "");
   const options = <>{canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
     {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}{user.status && user.status !== "ACTIVE" ? "（已停用）" : ""}</option>)}</>;
-  if (custom) return <AppSelect aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className} forceSearch>{options}</AppSelect>;
-  return (
-    <select aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className}>{options}</select>
-  );
+  return <AppSelect aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className} forceSearch={custom || users.length > 6}>{options}</AppSelect>;
 }
