@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const [policies, announcements] = await Promise.all([
       admin.from("notification_delivery_policies").select("type,popup_enabled,voice_enabled,updated_at"),
       (() => {
-        let query = admin.from("system_announcements").select("id,title,content,published_at,published_by,recipient_roles,recipient_count").order("published_at", { ascending: false }).limit(100);
+        let query = admin.from("system_announcements").select("id,title,content,published_at,published_by,recipient_roles,recipient_count,delivery_level").order("published_at", { ascending: false }).limit(100);
         if (from) query = query.gte("published_at", `${from}T00:00:00+08:00`);
         if (to) {
           const next = new Date(`${to}T00:00:00Z`);

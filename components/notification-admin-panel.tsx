@@ -8,7 +8,8 @@ import { RELEASE_CATEGORIES, type ReleaseCategory } from "@/lib/notifications/re
 import { ANNOUNCEMENT_TEMPLATES, buildOperationalAnnouncement, type AnnouncementTemplate } from "@/lib/notifications/announcement-templates";
 
 type PolicyRow = NotificationPolicy & { label: string };
-type Announcement = { id: string; title: string; content: string; published_at: string; recipient_roles: UserRole[] | null; recipient_count: number | null };
+type AnnouncementLevel = "NORMAL" | "IMPORTANT" | "CRITICAL";
+type Announcement = { id: string; title: string; content: string; published_at: string; recipient_roles: UserRole[] | null; recipient_count: number | null; delivery_level: AnnouncementLevel };
 type ReleaseEvidence = { sha: string; message: string; details?: string; category: string; files: string[]; deployedAt: string; url: string; deploymentUrl: string; affectedRoles: UserRole[] | ["ALL"] };
 const ROLE_LABELS: Record<UserRole, string> = { ADMIN: "系统管理员", SUPERVISOR: "主管", SALES: "销售员", ORDER_CLERK: "跟单员", WAREHOUSE: "仓库员", FINANCE: "财务员" };
 const policyGroups = [
@@ -29,6 +30,7 @@ export function NotificationAdminPanel() {
   const [success, setSuccess] = useState("");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [deliveryLevel, setDeliveryLevel] = useState<AnnouncementLevel>("NORMAL");
   const [announcementType, setAnnouncementType] = useState<ReleaseCategory>("ALL");
   const [template, setTemplate] = useState<AnnouncementTemplate>("NONE");
   const [templateScope, setTemplateScope] = useState("");
@@ -49,7 +51,7 @@ export function NotificationAdminPanel() {
   const [selectedRoles, setSelectedRoles] = useState<UserRole[]>([]);
   const requestId = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (afterPublish = false) => {
     try {
       const query = new URLSearchParams();
       if (appliedHistoryRange.from) query.set("from", appliedHistoryRange.from);
@@ -61,7 +63,11 @@ export function NotificationAdminPanel() {
       setAnnouncements(body.announcements || []);
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "通知设置加载失败");
+      if (afterPublish) {
+        setSuccess(current => `${current}；发布记录暂未刷新，请稍后刷新页面查看`);
+      } else {
+        setError(cause instanceof Error ? cause.message : "通知设置加载失败");
+      }
     } finally {
       setLoading(false);
     }
@@ -94,39 +100,60 @@ export function NotificationAdminPanel() {
     if (!cleanTitle || !cleanContent) return setError("请填写公告标题和内容");
     if (audience === "ROLES" && selectedRoles.length === 0) return setError("请至少选择一个接收角色");
     if (!requestId.current) requestId.current = crypto.randomUUID();
+    const currentRequestId = requestId.current;
     setPublishing(true);
     setError("");
     setSuccess("");
+    let confirmed = false;
     try {
       const response = await fetch("/api/admin/notifications/announcements", {
         method: "POST", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" },
-        body: JSON.stringify({ request_id: requestId.current, title: cleanTitle, content: cleanContent, recipient_roles: audience === "ALL" ? null : selectedRoles }),
+        body: JSON.stringify({ request_id: currentRequestId, title: cleanTitle, content: cleanContent, recipient_roles: audience === "ALL" ? null : selectedRoles, delivery_level: deliveryLevel }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "公告发布失败");
+      confirmed = true;
+    } catch (cause) {
+      // A dropped response can arrive after the database transaction commits.
+      // Verify by the same idempotency key before allowing a retry.
+      try {
+        const response = await fetch(`/api/admin/notifications/announcements?request_id=${encodeURIComponent(currentRequestId)}`, { cache: "no-store" });
+        const body = await response.json().catch(() => ({}));
+        confirmed = response.ok && body.announcement?.title === cleanTitle
+          && body.announcement?.content === cleanContent && body.announcement?.delivery_level === deliveryLevel;
+      } catch { /* The result remains unknown; retry will reuse the request ID. */ }
+      if (!confirmed) {
+        const message = cause instanceof Error ? cause.message : "请求失败";
+        setError(message === "Failed to fetch"
+          ? "网络连接中断，发布结果尚未确认。请先查看公告发布记录；重试将使用同一请求编号，不会重复发送。"
+          : message);
+        setPublishing(false);
+        return;
+      }
+    }
+    try {
       requestId.current = null;
       setConfirming(false);
       setTitle("");
       setContent("");
       setAudience("ALL");
       setSelectedRoles([]);
+      setDeliveryLevel("NORMAL");
       setSuccess(`公告已发布到${audience === "ALL" ? "所有启用中用户" : selectedRoles.map(role => ROLE_LABELS[role]).join("、") + "中的启用用户"}的通知中心`);
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "发布结果未知，请核对下方历史记录后重试");
+      await load(true);
     } finally {
       setPublishing(false);
     }
   }
 
   function invalidateGeneratedDraft() {
+    setConfirming(false);
+    requestId.current = null;
     if (!generatedSource) return;
     setGeneratedSource("");
     setReleaseEvidence([]);
     setTitle("");
     setContent("");
-    setConfirming(false);
-    requestId.current = null;
   }
 
   async function generateAnnouncement() {
@@ -213,6 +240,7 @@ export function NotificationAdminPanel() {
         </div>
       </fieldset>
       <fieldset className="rounded-lg border border-slate-200 p-3 text-sm"><legend className="px-1 font-medium">接收范围</legend><div className="flex flex-wrap gap-x-6 gap-y-2"><label className="flex items-center gap-2"><input type="radio" name="announcement-audience" checked={audience === "ALL"} onChange={() => { setAudience("ALL"); invalidateGeneratedDraft(); }}/>所有启用用户</label><label className="flex items-center gap-2"><input type="radio" name="announcement-audience" checked={audience === "ROLES"} onChange={() => { setAudience("ROLES"); invalidateGeneratedDraft(); }}/>指定角色</label></div>{audience === "ROLES" ? <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t pt-3">{USER_ROLES.map(role => <label key={role} className="flex items-center gap-2"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={event => { setSelectedRoles(current => event.target.checked ? [...current, role] : current.filter(value => value !== role)); invalidateGeneratedDraft(); }}/>{ROLE_LABELS[role]}</label>)}</div> : null}<p className="mt-2 text-xs text-slate-500">按发布时的角色发送；之后角色变化不会补发或撤回。指定角色至少选择一项。</p></fieldset>
+      <fieldset className="rounded-lg border border-slate-200 p-3 text-sm"><legend className="px-1 font-medium">提醒方式</legend><div className="grid gap-2 sm:grid-cols-3">{([ ["NORMAL", "普通通知", "仅进入通知中心，不打断操作"], ["IMPORTANT", "重要通知", "居中提醒，可稍后查看"], ["CRITICAL", "紧急公告", "居中提醒，须点击已知晓" ] ] as const).map(([value,label,description]) => <label key={value} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${deliveryLevel === value ? "border-blue-400 bg-blue-50" : "border-slate-200"}`}><input type="radio" name="announcement-level" checked={deliveryLevel === value} onChange={() => { setDeliveryLevel(value); setConfirming(false); requestId.current = null; }}/><span><b className="block">{label}</b><small className="text-slate-500">{description}</small></span></label>)}</div><p className="mt-2 text-xs text-slate-500">只有确需每位接收者确认的安全、停服等事项使用紧急公告；发布前请核对范围。</p></fieldset>
       <fieldset className="rounded-lg border border-slate-200 p-3"><legend className="px-1 text-sm font-medium">按发布记录生成内容</legend><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm">通知类型<select value={announcementType} onChange={event => { setAnnouncementType(event.target.value as ReleaseCategory); invalidateGeneratedDraft(); }} className="mt-1 block h-10 w-full rounded-lg border bg-white px-3">{Object.entries(RELEASE_CATEGORIES).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}</select></label>
         <label className="text-sm">变更起始日期<input type="date" value={releaseFrom} max={releaseTo || undefined} onChange={event => { setReleaseFrom(event.target.value); invalidateGeneratedDraft(); }} className="mt-1 block h-10 w-full rounded-lg border px-3"/></label>

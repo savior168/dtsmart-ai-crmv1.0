@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Bell,
+  BellRing,
   ShoppingCart,
   ClipboardList,
   PackageSearch,
@@ -84,7 +85,8 @@ const menu = [
   },
 ] as const;
 
-type ShellNotice = { id:string; type:string; title:string; content:string|null; metadata?:Record<string,unknown>|null; href:string|null; read_at:string|null; dismissed_at:string|null; action_status:"INFO"|"PENDING"|"RESOLVED"; deliver_at:string; created_at:string };
+type ShellNotice = { id:string; type:string; title:string; content:string|null; metadata?:Record<string,unknown>|null; href:string|null; read_at:string|null; dismissed_at:string|null; acknowledged_at:string|null; action_status:"INFO"|"PENDING"|"RESOLVED"; deliver_at:string; created_at:string };
+const announcementLevel = (notice: ShellNotice) => notice.type === "SYSTEM_ANNOUNCEMENT" ? notice.metadata?.delivery_level : null;
 
 const pageTitles: Array<[RegExp, string]> = [
   [/^\/$/, "工作台 / 数据总览"],
@@ -429,6 +431,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [noticeCount, setNoticeCount] = useState(0);
   const [notices, setNotices] = useState<ShellNotice[]>([]);
   const [toastNotices, setToastNotices] = useState<ShellNotice[]>([]);
+  const [announcementModal, setAnnouncementModal] = useState<ShellNotice | null>(null);
+  const [announcementError, setAnnouncementError] = useState("");
+  const [announcementSaving, setAnnouncementSaving] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -477,7 +482,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         const sessionStartedAt=window.sessionStorage.getItem(sessionKey);
         if (!sessionStartedAt) window.sessionStorage.setItem(sessionKey,new Date().toISOString());
         const shown=new Set<string>(JSON.parse(window.sessionStorage.getItem(storageKey)||"[]"));
-        const fresh=next.filter(item=>shouldShowNotificationToast(item,shown,sessionStartedAt));
+        const fresh=next.filter(item=>item.type !== "SYSTEM_ANNOUNCEMENT" && shouldShowNotificationToast(item,shown,sessionStartedAt));
         const incoming=fresh.filter(item=>
           (policyRef.current[notificationPolicyType(item)] || defaultNotificationPolicy(notificationPolicyType(item))).popup_enabled)
           .sort((left,right)=>Number(isUrgentWarehousePiChange(right,profile?.role))-Number(isUrgentWarehousePiChange(left,profile?.role)))
@@ -534,6 +539,40 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [loadProfile]);
   const canLoadNotices = Boolean(profile && (profile.role === "ADMIN" || profile.permissions.includes("notifications.view"))) && path !== "/login" && path !== "/reset-password";
+  const canLoadAnnouncements = Boolean(profile) && path !== "/login" && path !== "/reset-password";
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const response = await fetch("/api/notifications?status=modal&page_size=50", { cache: "no-store" });
+      if (!response.ok) return;
+      const body = await response.json();
+      const pending = ((body.data || []) as ShellNotice[])
+        .filter(item => !item.acknowledged_at && !item.dismissed_at)
+        .sort((a,b) => Number(announcementLevel(b) === "CRITICAL") - Number(announcementLevel(a) === "CRITICAL") || Date.parse(a.created_at) - Date.parse(b.created_at));
+      setAnnouncementModal(pending[0] || null);
+    } catch { /* A transient connection error must not mark a required notice acknowledged. */ }
+  }, []);
+  useEffect(() => {
+    if (!canLoadAnnouncements) { setAnnouncementModal(null); return; }
+    const refresh = () => void loadAnnouncements();
+    refresh();
+    window.addEventListener("focus", refresh);
+    const timer = window.setInterval(refresh, 15000);
+    return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
+  }, [canLoadAnnouncements, loadAnnouncements]);
+  const handleAnnouncement = async (action: "ACKNOWLEDGE" | "DISMISS") => {
+    if (!announcementModal || announcementSaving) return;
+    setAnnouncementSaving(true);
+    setAnnouncementError("");
+    try {
+      const response = await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json", "x-dtsmart-toast": "manual-error" }, body: JSON.stringify({ id: announcementModal.id, action }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "确认未保存，请重试");
+      setAnnouncementModal(null);
+      await loadAnnouncements();
+      if (canLoadNotices) void loadNotices();
+    } catch (error) { setAnnouncementError(error instanceof Error ? error.message : "确认未保存，请重试"); }
+    finally { setAnnouncementSaving(false); }
+  };
   useEffect(() => {
     setSpeechSupported("speechSynthesis" in window);
   }, []);
@@ -906,6 +945,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="crm-content min-h-[calc(100vh-64px)]">{children}</div>
       </div>
+      {announcementModal ? <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="announcement-modal-title" className={`w-full max-w-xl overflow-hidden rounded-2xl border bg-white shadow-2xl ${announcementLevel(announcementModal) === "CRITICAL" ? "border-rose-200" : "border-amber-200"}`}><div className={`flex items-start gap-3 border-b px-5 py-4 ${announcementLevel(announcementModal) === "CRITICAL" ? "bg-rose-50 text-rose-800" : "bg-amber-50 text-amber-800"}`}><BellRing className="mt-0.5 shrink-0" size={21}/><div><p className="text-xs font-semibold">{announcementLevel(announcementModal) === "CRITICAL" ? "紧急公告 · 需确认" : "重要通知"}</p><h2 id="announcement-modal-title" className="mt-1 text-lg font-semibold">{announcementModal.title}</h2></div></div><div className="max-h-[min(55vh,28rem)] overflow-y-auto whitespace-pre-wrap break-words px-5 py-5 text-sm leading-7 text-slate-700">{announcementModal.content}</div>{announcementError ? <p role="alert" className="mx-5 mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{announcementError}</p> : null}<div className="flex items-center justify-between gap-3 border-t px-5 py-4"><span className="text-xs text-slate-500">{announcementLevel(announcementModal) === "CRITICAL" ? "确认后会保存已知晓记录" : "稍后仍可在通知中心查看"}</span><div className="flex gap-2">{announcementLevel(announcementModal) !== "CRITICAL" ? <button type="button" disabled={announcementSaving} onClick={() => void handleAnnouncement("DISMISS")} className="rounded-lg border px-4 py-2 text-sm text-slate-600 disabled:opacity-50">稍后查看</button> : null}<button type="button" disabled={announcementSaving} onClick={() => void handleAnnouncement("ACKNOWLEDGE")} className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${announcementLevel(announcementModal) === "CRITICAL" ? "bg-rose-600" : "bg-blue-600"}`}>已知晓</button></div></div></section></div> : null}
       {toastNotices.length ? <aside aria-live="polite" className="fixed bottom-5 right-5 z-[70] flex max-h-[calc(100dvh-2.5rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto">{toastNotices.map(item => {
         const tone = announcementTone(item);
         const appearance = {
