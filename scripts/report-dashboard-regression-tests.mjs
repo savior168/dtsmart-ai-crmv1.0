@@ -74,6 +74,7 @@ assert.match(reports, /performance\.actual_totals \? <><td[\s\S]*actual_net_prof
 assert.match(performanceApi, /hasPermission\(account, "sales\.performance\.actual_profit\.view"\)[\s\S]*actualTotals =/, "实际利润只在独立授权后计算");
 assert.match(performanceApi, /if \(allShipped\) actualTotals\.shipped_orders\+\+/, "已交货代单数必须独立于采购价可核算单数统计");
 assert.match(reports, /已交货代 \{performance\.actual_totals\.shipped_orders\} 单 · 采购价可核算/, "实际利润概览必须区分发货状态与采购价核算覆盖率");
+assert.match(reports, /采购价可核算 \{performance\.actual_totals\.complete_orders\} 单（期间共 \{performance\.actual_totals\.complete_orders \+ performance\.actual_totals\.pending_orders\} 单）/, "实际毛利统计不得将全部 PI 与已交货代订单混作同一分母");
 assert.match(performanceApi, /actual_profit: actualByOrder\.has\(row\.id\)[\s\S]*actual_net_profit_cny[\s\S]*actual_net_margin/, "逐单响应只能提供必要的纯利字段，不得回传采购成本");
 assert.doesNotMatch(reports, /成交金额 · 人民币|成交金额 · 美元/, "currency amounts must not be split into separate headline metrics");
 assert.match(dashboard, /PerformanceMetric label="成交金额"/, "dashboard performance snapshot must group the sales amount metric");
